@@ -35,9 +35,12 @@ it can be wired straight into a HAEO Load element's forecast source.
 
 ## How it works
 
-- `RandomForestRegressor` (scikit-learn), trained on cyclic time-of-day / day-of-week / month
-  features plus temperature — not a heavier pipeline, deliberately, so it trains fast and
-  needs no hyperparameter babysitting.
+- A pure-numpy weighted k-nearest-neighbors regressor, trained on cyclic time-of-day /
+  day-of-week / month features plus temperature — no scikit-learn, no compiled dependencies
+  at all beyond numpy itself (which already ships pre-built wheels everywhere HA runs).
+  Started out on scikit-learn's `RandomForestRegressor`, but scikit-learn has no pre-built
+  wheel for newer Python releases and fails to build from source inside HA's own container
+  (no C compiler present) — numpy-only sidesteps that fragility entirely, not just for us.
 - Retrains itself once a day (configurable, defaults to 3am local) directly from Home
   Assistant's own recorder history — no external API calls, no credentials to manage.
 - Everything (training + prediction) is offloaded to an executor thread, never blocking Home
