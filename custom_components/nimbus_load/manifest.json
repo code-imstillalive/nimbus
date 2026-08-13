@@ -1,0 +1,13 @@
+{
+  "domain": "nimbus_load",
+  "name": "Nimbus",
+  "codeowners": ["@code-imstillalive"],
+  "config_flow": true,
+  "dependencies": ["recorder"],
+  "documentation": "https://github.com/code-imstillalive/nimbus",
+  "integration_type": "service",
+  "iot_class": "calculated",
+  "issue_tracker": "https://github.com/code-imstillalive/nimbus/issues",
+  "requirements": ["scikit-learn>=1.3", "numpy>=1.24"],
+  "version": "0.1.0"
+}

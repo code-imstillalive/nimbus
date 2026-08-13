@@ -1,0 +1,30 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Nimbus",
+        "description": "Nimbus learns your home's real power usage and forecasts it forward. Pick the power sensor to learn from -- everything else is optional and has a sensible default.",
+        "data": {
+          "load_sensor": "Power sensor to learn from",
+          "temperature_sensor": "Temperature sensor (optional, improves accuracy)",
+          "temperature_forecast_sensor": "Temperature forecast sensor (optional, used for future predictions)"
+        }
+      }
+    },
+    "abort": {
+      "already_configured": "This power sensor is already being forecast by Nimbus."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Nimbus settings",
+        "data": {
+          "forecast_horizon_hours": "Forecast horizon (hours)",
+          "retrain_hour_local": "Retrain at this hour (local time, 0-23)",
+          "train_days": "Days of history to train on"
+        }
+      }
+    }
+  }
+}
