@@ -26,8 +26,17 @@ from ..const import CONF_LOAD_SENSOR, CONF_SCHEDULE_END_HOUR, CONF_SCHEDULE_STAR
 
 _HOUR_SELECTOR = selector.NumberSelector(
     selector.NumberSelectorConfig(
-        min=0, max=23, step=1, mode=selector.NumberSelectorMode.BOX,
-        unit_of_measurement="hour of day (0-23)",
+        # step=0.25 (quarter-hour), not whole hours -- the underlying
+        # in_schedule comparison (ml/features.py) genuinely uses these
+        # values as real boundaries, not just whole-hour buckets, so a
+        # load with a real half-hour-aligned schedule (e.g. 11:00-12:30
+        # then 12:30-14:00, back to back, no overlap) needs real
+        # precision here. Whole-hour-only steps would force rounding
+        # both windows to include the shared hour 12, recreating
+        # exactly the overlap the original fixed-slot design exists to
+        # avoid. Enter e.g. 12.5 for 12:30, 12.75 for 12:45.
+        min=0, max=23.75, step=0.25, mode=selector.NumberSelectorMode.BOX,
+        unit_of_measurement="hour of day (0-23.75, .25=15min, .5=30min, .75=45min)",
     )
 )
 
