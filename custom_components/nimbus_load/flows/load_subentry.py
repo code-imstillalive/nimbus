@@ -48,15 +48,30 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             vol.Optional(
                 CONF_FORECAST_HORIZON_HOURS,
                 default=defaults.get(CONF_FORECAST_HORIZON_HOURS, DEFAULT_FORECAST_HORIZON_HOURS),
-            ): vol.All(vol.Coerce(int), vol.Range(min=1, max=168)),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=168, step=1, mode=selector.NumberSelectorMode.BOX,
+                    unit_of_measurement="hours",
+                )
+            ),
             vol.Optional(
                 CONF_RETRAIN_HOUR_LOCAL,
                 default=defaults.get(CONF_RETRAIN_HOUR_LOCAL, DEFAULT_RETRAIN_HOUR_LOCAL),
-            ): vol.All(vol.Coerce(int), vol.Range(min=0, max=23)),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=23, step=1, mode=selector.NumberSelectorMode.BOX,
+                    unit_of_measurement="hour of day (0-23)",
+                )
+            ),
             vol.Optional(
                 CONF_TRAIN_DAYS,
                 default=defaults.get(CONF_TRAIN_DAYS, DEFAULT_TRAIN_DAYS),
-            ): vol.All(vol.Coerce(int), vol.Range(min=7, max=180)),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=7, max=180, step=1, mode=selector.NumberSelectorMode.BOX,
+                    unit_of_measurement="days",
+                )
+            ),
         }
     )
 
