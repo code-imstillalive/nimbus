@@ -5,10 +5,12 @@ Reached via the "+ Add" button on the Nimbus hub's own device page, not via
 breakers, in the case this was built for) fast: pick a sensor, submit, done,
 repeat as many times as needed, no restart between them.
 
-One screen, not a separate options step: the sensor pickers AND the tuning
-knobs (forecast horizon, retrain hour, training window) are all on this same
-form, with the tuning knobs already prefilled with sensible defaults so they
-can be left alone entirely for a quick add.
+Deliberately just one field. Everything else a load used to ask for
+(temperature sensors, forecast horizon, retrain hour, training window) is
+now set once at the hub level (flows/hub_options.py, reached via the hub's
+own "Configure") -- those are the same for every load in the same house, so
+re-asking for them 18 times was pure friction, not a real choice each load
+needed to make.
 """
 
 from __future__ import annotations
@@ -19,17 +21,7 @@ from homeassistant.config_entries import SOURCE_RECONFIGURE, ConfigSubentryFlow,
 from homeassistant.helpers import selector
 import voluptuous as vol
 
-from ..const import (
-    CONF_FORECAST_HORIZON_HOURS,
-    CONF_LOAD_SENSOR,
-    CONF_RETRAIN_HOUR_LOCAL,
-    CONF_TEMPERATURE_FORECAST_SENSOR,
-    CONF_TEMPERATURE_SENSOR,
-    CONF_TRAIN_DAYS,
-    DEFAULT_FORECAST_HORIZON_HOURS,
-    DEFAULT_RETRAIN_HOUR_LOCAL,
-    DEFAULT_TRAIN_DAYS,
-)
+from ..const import CONF_LOAD_SENSOR
 
 
 def _schema(defaults: dict[str, Any]) -> vol.Schema:
@@ -38,40 +30,6 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             vol.Required(
                 CONF_LOAD_SENSOR, default=defaults.get(CONF_LOAD_SENSOR)
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
-            vol.Optional(
-                CONF_TEMPERATURE_SENSOR, default=defaults.get(CONF_TEMPERATURE_SENSOR)
-            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
-            vol.Optional(
-                CONF_TEMPERATURE_FORECAST_SENSOR,
-                default=defaults.get(CONF_TEMPERATURE_FORECAST_SENSOR),
-            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
-            vol.Optional(
-                CONF_FORECAST_HORIZON_HOURS,
-                default=defaults.get(CONF_FORECAST_HORIZON_HOURS, DEFAULT_FORECAST_HORIZON_HOURS),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=1, max=168, step=1, mode=selector.NumberSelectorMode.BOX,
-                    unit_of_measurement="hours",
-                )
-            ),
-            vol.Optional(
-                CONF_RETRAIN_HOUR_LOCAL,
-                default=defaults.get(CONF_RETRAIN_HOUR_LOCAL, DEFAULT_RETRAIN_HOUR_LOCAL),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0, max=23, step=1, mode=selector.NumberSelectorMode.BOX,
-                    unit_of_measurement="hour of day (0-23)",
-                )
-            ),
-            vol.Optional(
-                CONF_TRAIN_DAYS,
-                default=defaults.get(CONF_TRAIN_DAYS, DEFAULT_TRAIN_DAYS),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=7, max=180, step=1, mode=selector.NumberSelectorMode.BOX,
-                    unit_of_measurement="days",
-                )
-            ),
         }
     )
 

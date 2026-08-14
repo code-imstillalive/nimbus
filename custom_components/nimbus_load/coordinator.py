@@ -79,10 +79,13 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._unsub_retrain: Any = None
         self._retraining = False
 
-    # -- config accessors -- all read from the subentry's own data, not the
-    # hub entry's (the hub entry itself carries no per-load configuration
-    # at all; every setting, including the tuning knobs, lives on the
-    # subentry that was filled in on the load's own "+ Add" form). --------
+    # -- config accessors -- only the load sensor is per-subentry (the one
+    # thing that's genuinely different for each load). Everything else
+    # (temperature sensors, horizon, retrain hour, training window) is a
+    # *shared* setting, set once on the hub's own "Configure" and read from
+    # entry.options -- moved here 2026-08-14 after re-entering the same
+    # values on every one of 18 planned loads was real, unnecessary
+    # friction. -----------------------------------------------------------
 
     @property
     def _load_sensor(self) -> str:
@@ -90,25 +93,25 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     @property
     def _temp_sensor(self) -> str | None:
-        return self.subentry.data.get(CONF_TEMPERATURE_SENSOR)
+        return self.entry.options.get(CONF_TEMPERATURE_SENSOR)
 
     @property
     def _temp_forecast_sensor(self) -> str | None:
-        return self.subentry.data.get(CONF_TEMPERATURE_FORECAST_SENSOR)
+        return self.entry.options.get(CONF_TEMPERATURE_FORECAST_SENSOR)
 
     @property
     def _horizon_hours(self) -> int:
-        return self.subentry.data.get(
+        return self.entry.options.get(
             CONF_FORECAST_HORIZON_HOURS, DEFAULT_FORECAST_HORIZON_HOURS
         )
 
     @property
     def _retrain_hour(self) -> int:
-        return self.subentry.data.get(CONF_RETRAIN_HOUR_LOCAL, DEFAULT_RETRAIN_HOUR_LOCAL)
+        return self.entry.options.get(CONF_RETRAIN_HOUR_LOCAL, DEFAULT_RETRAIN_HOUR_LOCAL)
 
     @property
     def _train_days(self) -> int:
-        return self.subentry.data.get(CONF_TRAIN_DAYS, DEFAULT_TRAIN_DAYS)
+        return self.entry.options.get(CONF_TRAIN_DAYS, DEFAULT_TRAIN_DAYS)
 
     # -- lifecycle ----------------------------------------------------------
 

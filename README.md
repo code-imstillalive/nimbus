@@ -21,10 +21,16 @@ whatever optimizer you already use (it publishes in the same `{time, value}` for
 1. HACS → the three-dot menu → **Custom repositories**
 2. Add `https://github.com/code-imstillalive/nimbus`, category **Integration**
 3. Install **Nimbus**, restart Home Assistant
-4. Settings → Devices & Services → **Add Integration** → search "Nimbus"
-5. Pick the power sensor you want it to learn from (and, optionally, a temperature sensor
-   for training and a temperature-forecast sensor for prediction) — everything else has a
-   sensible default
+4. Settings → Devices & Services → **Add Integration** → search "Nimbus" — this creates the
+   hub, no fields to fill in
+5. On the Nimbus hub, click **Configure** to set the settings shared by every load once:
+   temperature sensor (optional, improves accuracy), temperature-forecast sensor (optional,
+   used for future predictions), forecast horizon, retrain hour, training window — all have
+   sensible defaults if left alone
+6. Click **"+ Add"** on the hub's device page to add a load — just pick the power sensor to
+   learn from. Repeat for as many loads as you have (built for and tested against a real
+   18-circuit-breaker household) — no restart, no repeated integration setup, no re-entering
+   the shared settings each time
 
 ## What it publishes
 

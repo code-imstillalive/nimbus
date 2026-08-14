@@ -3,11 +3,26 @@
     "step": {
       "user": {
         "title": "Set up Nimbus",
-        "description": "This creates the Nimbus hub. You'll add each load you want forecast (HWS, EV charger, pool, individual circuit breakers -- as many as you like) afterward from the hub's own device page, one at a time, without repeating this setup."
+        "description": "This creates the Nimbus hub. Before adding loads, use the hub's own \"Configure\" to set your temperature sensors and tuning defaults once -- then add each load you want forecast (HWS, EV charger, pool, individual circuit breakers -- as many as you like) from the hub's device page, one at a time, without repeating this setup."
       }
     },
     "abort": {
       "already_configured": "Nimbus is already set up -- add loads from its device page instead of adding it again."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Nimbus settings (shared by every load)",
+        "description": "These apply to every load you add -- set once here rather than re-entering them each time.",
+        "data": {
+          "temperature_sensor": "Temperature sensor (optional, improves accuracy)",
+          "temperature_forecast_sensor": "Temperature forecast sensor (optional, used for future predictions)",
+          "forecast_horizon_hours": "Forecast horizon (hours)",
+          "retrain_hour_local": "Retrain at this hour (local time, 0-23)",
+          "train_days": "Days of history to train on"
+        }
+      }
     }
   },
   "config_subentries": {
@@ -15,14 +30,9 @@
       "step": {
         "user": {
           "title": "Add a load",
-          "description": "Pick the power sensor this load should learn from. Everything below the sensor pickers is optional and already has a sensible default.",
+          "description": "Pick the power sensor this load should learn from. Temperature sensors and tuning settings are shared across every load -- set them once via the hub's own \"Configure\" instead.",
           "data": {
-            "load_sensor": "Power sensor to learn from",
-            "temperature_sensor": "Temperature sensor (optional, improves accuracy)",
-            "temperature_forecast_sensor": "Temperature forecast sensor (optional, used for future predictions)",
-            "forecast_horizon_hours": "Forecast horizon (hours)",
-            "retrain_hour_local": "Retrain at this hour (local time, 0-23)",
-            "train_days": "Days of history to train on"
+            "load_sensor": "Power sensor to learn from"
           }
         }
       }

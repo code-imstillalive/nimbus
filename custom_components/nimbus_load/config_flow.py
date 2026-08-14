@@ -19,10 +19,17 @@ from __future__ import annotations
 
 from typing import Any
 
-from homeassistant.config_entries import ConfigEntry, ConfigFlow, ConfigFlowResult, ConfigSubentryFlow
+from homeassistant.config_entries import (
+    ConfigEntry,
+    ConfigFlow,
+    ConfigFlowResult,
+    ConfigSubentryFlow,
+    OptionsFlow,
+)
 from homeassistant.core import callback
 
 from .const import DOMAIN, SUBENTRY_TYPE_LOAD
+from .flows.hub_options import NimbusHubOptionsFlow
 from .flows.load_subentry import NimbusLoadSubentryFlowHandler
 
 
@@ -49,3 +56,11 @@ class NimbusConfigFlow(ConfigFlow, domain=DOMAIN):
         """Register the "load" subentry type -- this is what puts a "+ Add"
         button on the Nimbus hub's device page in the HA UI."""
         return {SUBENTRY_TYPE_LOAD: NimbusLoadSubentryFlowHandler}
+
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+        """The hub's own "Configure" -- shared settings (temperature
+        sensors, forecast horizon, retrain hour, training window) that
+        apply to every load, set once instead of re-entered per load."""
+        return NimbusHubOptionsFlow(config_entry)
