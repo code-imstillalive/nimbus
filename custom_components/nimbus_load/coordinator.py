@@ -25,10 +25,12 @@ from typing import Any
 from homeassistant.components.recorder import get_instance
 from homeassistant.components.recorder.history import get_significant_states
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import UnitOfPower
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.event import async_track_time_change
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
+from homeassistant.util.unit_conversion import PowerConverter
 
 from .const import (
     CONF_FORECAST_HORIZON_HOURS,
@@ -134,7 +136,9 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             end = dt_util.utcnow()
             start = end - timedelta(days=self._train_days)
 
-            load_events = await self._async_fetch_history(self._load_sensor, start, end)
+            load_events = await self._async_fetch_history(
+                self._load_sensor, start, end, convert_power=True
+            )
             temp_events = (
                 await self._async_fetch_history(self._temp_sensor, start, end)
                 if self._temp_sensor
@@ -154,15 +158,27 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # -- data access ----------------------------------------------------------
 
     async def _async_fetch_history(
-        self, entity_id: str, start: datetime, end: datetime
+        self, entity_id: str, start: datetime, end: datetime, *, convert_power: bool = False
     ) -> list[tuple[datetime, float]]:
         """Fetch recorder history for one entity, in-process -- no REST call,
         no token, identical on HAOS/Supervised/Docker. Goes through the
         recorder's own executor (not hass.async_add_executor_job) per Home
         Assistant convention for recorder DB access.
+
+        `convert_power=True` (used for the load sensor, never temperature)
+        reads each history point's own recorded `unit_of_measurement` and
+        converts it to kW via Home Assistant's own PowerConverter, rather
+        than assuming the source is already in kW. Confirmed live
+        2026-08-14: a real source sensor can report W while a visually
+        similar sibling reports kW -- silently assuming kW on a W-unit
+        sensor would train (and later publish) numbers 1000x too small.
+        Falls back to treating an unrecognized/missing unit as already-kW
+        (logged once) rather than dropping the point entirely.
         """
+        warned_missing_unit = False
 
         def _fetch() -> list[tuple[datetime, float]]:
+            nonlocal warned_missing_unit
             states = get_significant_states(
                 self.hass,
                 start,
@@ -177,6 +193,18 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     value = float(s.state)
                 except (TypeError, ValueError):
                     continue
+                if convert_power:
+                    unit = s.attributes.get("unit_of_measurement")
+                    if unit and unit != UnitOfPower.KILO_WATT:
+                        try:
+                            value = PowerConverter.convert(value, unit, UnitOfPower.KILO_WATT)
+                        except Exception:
+                            if not warned_missing_unit:
+                                _LOGGER.warning(
+                                    "%s reported unconvertible unit '%s' -- treating as kW as-is",
+                                    entity_id, unit,
+                                )
+                                warned_missing_unit = True
                 out.append((dt_util.as_local(s.last_changed), value))
             return out
 
