@@ -1,11 +1,18 @@
 """Sensor platform for Nimbus.
 
-One SensorEntity per config entry: native_value is the current predicted
-load (kW), and the `forecast` attribute is a list of {"time": ..., "value":
-...} points -- the same shape HAEO's own native forecast sensors already
-use (custom_components/haeo/core/data/loader/extractors/haeo.py), so this
+One SensorEntity per "load" subentry (not per config entry -- the hub entry
+can own many loads): native_value is the current predicted load (kW), and
+the `forecast` attribute is a list of {"time": ..., "value": ...} points --
+the same shape HAEO's own native forecast sensors already use
+(custom_components/haeo/core/data/loader/extractors/haeo.py), so this
 sensor can be wired directly into a HAEO Load element's forecast source
 without any transformation.
+
+Each entity is added with config_subentry_id set, which is what makes each
+load show up as its own separate device in the HA UI -- e.g. HWS L1, HWS
+L3, and Pool all independently visible (and independently able to show
+`unavailable` if that one load's data goes bad), not folded into one
+combined device.
 """
 
 from __future__ import annotations
@@ -15,14 +22,14 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorStateClass,
 )
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.const import UnitOfPower
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import ATTR_FORECAST, ATTR_MODEL_TRAINED_AT, ATTR_TRAINING_POINTS, DOMAIN
+from .const import ATTR_FORECAST, ATTR_MODEL_TRAINED_AT, ATTR_TRAINING_POINTS, DOMAIN, SUBENTRY_TYPE_LOAD
 from .coordinator import NimbusCoordinator
 
 
@@ -31,12 +38,21 @@ async def async_setup_entry(
     entry: ConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    coordinator: NimbusCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities([NimbusForecastSensor(coordinator, entry)])
+    coordinators: dict[str, NimbusCoordinator] = hass.data[DOMAIN][entry.entry_id]
+    for subentry in entry.subentries.values():
+        if subentry.subentry_type != SUBENTRY_TYPE_LOAD:
+            continue
+        coordinator = coordinators.get(subentry.subentry_id)
+        if coordinator is None:
+            continue
+        async_add_entities(
+            [NimbusForecastSensor(coordinator, subentry)],
+            config_subentry_id=subentry.subentry_id,
+        )
 
 
 class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
-    """The published load forecast."""
+    """The published load forecast for one load subentry."""
 
     _attr_has_entity_name = True
     _attr_name = "Load Forecast"
@@ -44,12 +60,12 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfPower.KILO_WATT
 
-    def __init__(self, coordinator: NimbusCoordinator, entry: ConfigEntry) -> None:
+    def __init__(self, coordinator: NimbusCoordinator, subentry: ConfigSubentry) -> None:
         super().__init__(coordinator)
-        self._attr_unique_id = f"{entry.entry_id}_load_forecast"
+        self._attr_unique_id = f"{subentry.subentry_id}_load_forecast"
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, entry.entry_id)},
-            name=entry.title,
+            identifiers={(DOMAIN, subentry.subentry_id)},
+            name=subentry.title,
             manufacturer="Nimbus",
             model="Load Forecaster",
         )

@@ -3,26 +3,27 @@
     "step": {
       "user": {
         "title": "Set up Nimbus",
-        "description": "Nimbus learns your home's real power usage and forecasts it forward. Pick the power sensor to learn from -- everything else is optional and has a sensible default.",
-        "data": {
-          "load_sensor": "Power sensor to learn from",
-          "temperature_sensor": "Temperature sensor (optional, improves accuracy)",
-          "temperature_forecast_sensor": "Temperature forecast sensor (optional, used for future predictions)"
-        }
+        "description": "This creates the Nimbus hub. You'll add each load you want forecast (HWS, EV charger, pool, individual circuit breakers -- as many as you like) afterward from the hub's own device page, one at a time, without repeating this setup."
       }
     },
     "abort": {
-      "already_configured": "This power sensor is already being forecast by Nimbus."
+      "already_configured": "Nimbus is already set up -- add loads from its device page instead of adding it again."
     }
   },
-  "options": {
-    "step": {
-      "init": {
-        "title": "Nimbus settings",
-        "data": {
-          "forecast_horizon_hours": "Forecast horizon (hours)",
-          "retrain_hour_local": "Retrain at this hour (local time, 0-23)",
-          "train_days": "Days of history to train on"
+  "config_subentries": {
+    "load": {
+      "step": {
+        "user": {
+          "title": "Add a load",
+          "description": "Pick the power sensor this load should learn from. Everything below the sensor pickers is optional and already has a sensible default.",
+          "data": {
+            "load_sensor": "Power sensor to learn from",
+            "temperature_sensor": "Temperature sensor (optional, improves accuracy)",
+            "temperature_forecast_sensor": "Temperature forecast sensor (optional, used for future predictions)",
+            "forecast_horizon_hours": "Forecast horizon (hours)",
+            "retrain_hour_local": "Retrain at this hour (local time, 0-23)",
+            "train_days": "Days of history to train on"
+          }
         }
       }
     }

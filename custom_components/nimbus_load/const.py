@@ -6,6 +6,13 @@ from typing import Final
 
 DOMAIN: Final = "nimbus_load"
 
+# Config subentry type key -- one Nimbus hub, many "load" subentries added via
+# a "+" on the hub's device page (no repeated full "Add Integration" flow per
+# load, no restart to add the 2nd through Nth load). Same mechanism HAEO uses
+# for its own Battery/Load/Solar elements (confirmed against haeo_repo's own
+# flows/hub.py -- async_get_supported_subentry_types).
+SUBENTRY_TYPE_LOAD: Final = "load"
+
 CONF_LOAD_SENSOR: Final = "load_sensor"
 CONF_TEMPERATURE_SENSOR: Final = "temperature_sensor"
 CONF_TEMPERATURE_FORECAST_SENSOR: Final = "temperature_forecast_sensor"

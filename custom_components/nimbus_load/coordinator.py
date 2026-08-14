@@ -24,7 +24,7 @@ from typing import Any
 
 from homeassistant.components.recorder import get_instance
 from homeassistant.components.recorder.history import get_significant_states
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.const import UnitOfPower
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.event import async_track_time_change
@@ -54,50 +54,61 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
-    """Owns the model lifecycle and produces the published forecast payload."""
+    """Owns one load's model lifecycle and produces its published forecast
+    payload. One instance per "load" subentry -- e.g. HWS L1, HWS L3, and
+    Pool each get their own coordinator (and own device, own model, own
+    forecast sensor) even though they all live under the same Nimbus hub
+    config entry.
+    """
 
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry, subentry: ConfigSubentry
+    ) -> None:
         super().__init__(
             hass,
             _LOGGER,
-            name=f"{DOMAIN}_{entry.entry_id}",
+            name=f"{DOMAIN}_{subentry.subentry_id}",
             update_interval=timedelta(minutes=UPDATE_INTERVAL_MINUTES),
         )
         self.entry = entry
+        self.subentry = subentry
         self._trained: TrainedModel | None = None
         self._model_path = Path(
-            hass.config.path(".storage", f"nimbus_load_{entry.entry_id}.pkl")
+            hass.config.path(".storage", f"nimbus_load_{subentry.subentry_id}.pkl")
         )
         self._unsub_retrain: Any = None
         self._retraining = False
 
-    # -- config accessors -------------------------------------------------
+    # -- config accessors -- all read from the subentry's own data, not the
+    # hub entry's (the hub entry itself carries no per-load configuration
+    # at all; every setting, including the tuning knobs, lives on the
+    # subentry that was filled in on the load's own "+ Add" form). --------
 
     @property
     def _load_sensor(self) -> str:
-        return self.entry.data[CONF_LOAD_SENSOR]
+        return self.subentry.data[CONF_LOAD_SENSOR]
 
     @property
     def _temp_sensor(self) -> str | None:
-        return self.entry.data.get(CONF_TEMPERATURE_SENSOR)
+        return self.subentry.data.get(CONF_TEMPERATURE_SENSOR)
 
     @property
     def _temp_forecast_sensor(self) -> str | None:
-        return self.entry.data.get(CONF_TEMPERATURE_FORECAST_SENSOR)
+        return self.subentry.data.get(CONF_TEMPERATURE_FORECAST_SENSOR)
 
     @property
     def _horizon_hours(self) -> int:
-        return self.entry.options.get(
+        return self.subentry.data.get(
             CONF_FORECAST_HORIZON_HOURS, DEFAULT_FORECAST_HORIZON_HOURS
         )
 
     @property
     def _retrain_hour(self) -> int:
-        return self.entry.options.get(CONF_RETRAIN_HOUR_LOCAL, DEFAULT_RETRAIN_HOUR_LOCAL)
+        return self.subentry.data.get(CONF_RETRAIN_HOUR_LOCAL, DEFAULT_RETRAIN_HOUR_LOCAL)
 
     @property
     def _train_days(self) -> int:
-        return self.entry.options.get(CONF_TRAIN_DAYS, DEFAULT_TRAIN_DAYS)
+        return self.subentry.data.get(CONF_TRAIN_DAYS, DEFAULT_TRAIN_DAYS)
 
     # -- lifecycle ----------------------------------------------------------
 
