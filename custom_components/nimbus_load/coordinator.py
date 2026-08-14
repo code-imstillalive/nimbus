@@ -116,13 +116,19 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     # Per-load, unlike everything else above -- a fixed schedule window
     # (if any) is specific to this one load, not shared across the hub.
+    # Stored as a plain HH:MM(:SS) time string (what the config flow's
+    # TimeSelector actually produces -- a real time picker, not a
+    # decimal-hour number box) and converted to the decimal hour
+    # ml/features.py's in_schedule comparison expects right here, so
+    # nothing downstream of these two properties needs to know the
+    # storage format changed.
     @property
     def _schedule_start_hour(self) -> float | None:
-        return self.subentry.data.get(CONF_SCHEDULE_START_HOUR)
+        return _parse_time_to_hour(self.subentry.data.get(CONF_SCHEDULE_START_HOUR))
 
     @property
     def _schedule_end_hour(self) -> float | None:
-        return self.subentry.data.get(CONF_SCHEDULE_END_HOUR)
+        return _parse_time_to_hour(self.subentry.data.get(CONF_SCHEDULE_END_HOUR))
 
     @property
     def _horizon_hours(self) -> int:
@@ -451,6 +457,24 @@ def _train_model_job(
         schedule_start_hour=schedule_start_hour,
         schedule_end_hour=schedule_end_hour,
     )
+
+
+def _parse_time_to_hour(value: str | None) -> float | None:
+    """Convert a TimeSelector's stored "HH:MM:SS" (or "HH:MM") string into
+    a decimal hour, e.g. "12:30:00" -> 12.5 -- the form ml/features.py's
+    in_schedule comparison expects. Returns None for an unset field
+    (schedule_start_hour/_end_hour not None-vs-"00:00:00" ambiguity: an
+    unset field is a genuinely missing key, not a stored midnight).
+    """
+    if not value:
+        return None
+    try:
+        parts = value.split(":")
+        hour, minute = int(parts[0]), int(parts[1])
+        return hour + minute / 60
+    except (ValueError, IndexError):
+        _LOGGER.warning("Could not parse schedule time value %r -- treating as unset", value)
+        return None
 
 
 def _nearest_temp(

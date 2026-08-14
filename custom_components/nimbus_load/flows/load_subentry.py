@@ -24,21 +24,14 @@ import voluptuous as vol
 from ..const import CONF_LOAD_SENSOR, CONF_SCHEDULE_END_HOUR, CONF_SCHEDULE_START_HOUR
 
 
-_HOUR_SELECTOR = selector.NumberSelector(
-    selector.NumberSelectorConfig(
-        # step=0.25 (quarter-hour), not whole hours -- the underlying
-        # in_schedule comparison (ml/features.py) genuinely uses these
-        # values as real boundaries, not just whole-hour buckets, so a
-        # load with a real half-hour-aligned schedule (e.g. 11:00-12:30
-        # then 12:30-14:00, back to back, no overlap) needs real
-        # precision here. Whole-hour-only steps would force rounding
-        # both windows to include the shared hour 12, recreating
-        # exactly the overlap the original fixed-slot design exists to
-        # avoid. Enter e.g. 12.5 for 12:30, 12.75 for 12:45.
-        min=0, max=23.75, step=0.25, mode=selector.NumberSelectorMode.BOX,
-        unit_of_measurement="hour of day (0-23.75, .25=15min, .5=30min, .75=45min)",
-    )
-)
+# A real HH:MM time picker, not a decimal-hour number box -- much more
+# natural to enter (e.g. "12:30" instead of "12.5"). Stored as HA's own
+# "HH:MM:SS" string; converted to the decimal hour ml/features.py's
+# in_schedule comparison actually uses right where it's read
+# (coordinator.py's _schedule_start_hour/_schedule_end_hour properties,
+# via _parse_time_to_hour), not here -- this flow only handles the UI
+# side, the stored value stays a plain time string.
+_TIME_SELECTOR = selector.TimeSelector(selector.TimeSelectorConfig())
 
 
 def _schema(defaults: dict[str, Any]) -> vol.Schema:
@@ -69,15 +62,15 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
     # as a genuinely empty box instead of trying to stringify null.
     start_default = defaults.get(CONF_SCHEDULE_START_HOUR)
     if start_default is not None:
-        schema_dict[vol.Optional(CONF_SCHEDULE_START_HOUR, default=start_default)] = _HOUR_SELECTOR
+        schema_dict[vol.Optional(CONF_SCHEDULE_START_HOUR, default=start_default)] = _TIME_SELECTOR
     else:
-        schema_dict[vol.Optional(CONF_SCHEDULE_START_HOUR)] = _HOUR_SELECTOR
+        schema_dict[vol.Optional(CONF_SCHEDULE_START_HOUR)] = _TIME_SELECTOR
 
     end_default = defaults.get(CONF_SCHEDULE_END_HOUR)
     if end_default is not None:
-        schema_dict[vol.Optional(CONF_SCHEDULE_END_HOUR, default=end_default)] = _HOUR_SELECTOR
+        schema_dict[vol.Optional(CONF_SCHEDULE_END_HOUR, default=end_default)] = _TIME_SELECTOR
     else:
-        schema_dict[vol.Optional(CONF_SCHEDULE_END_HOUR)] = _HOUR_SELECTOR
+        schema_dict[vol.Optional(CONF_SCHEDULE_END_HOUR)] = _TIME_SELECTOR
 
     return vol.Schema(schema_dict)
 
