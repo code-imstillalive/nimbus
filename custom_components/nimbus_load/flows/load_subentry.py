@@ -98,7 +98,7 @@ class NimbusLoadSubentryFlowHandler(ConfigSubentryFlow):
         current_data = dict(subentry.data) if subentry is not None else {}
 
         if user_input is not None:
-            title = f"Load ({user_input[CONF_LOAD_SENSOR]})"
+            title = self._derive_title(user_input[CONF_LOAD_SENSOR])
             if subentry is not None:
                 return self.async_update_and_abort(
                     self._get_entry(), subentry, title=title, data=user_input
@@ -106,3 +106,19 @@ class NimbusLoadSubentryFlowHandler(ConfigSubentryFlow):
             return self.async_create_entry(title=title, data=user_input)
 
         return self.async_show_form(step_id="user", data_schema=_schema(current_data))
+
+    def _derive_title(self, load_sensor: str) -> str:
+        """Use the source sensor's own friendly name as the device title
+        ("Logger Load Power") rather than a raw entity_id wrapped in text
+        ("Load (sensor.logger_load_power)") -- confirmed live 2026-08-14
+        that the raw-entity-id version combines with the entity's own name
+        into an unusable auto-generated entity_id downstream. Falls back to
+        the entity_id itself if the sensor has no friendly_name for some
+        reason (still functional, just less pretty).
+        """
+        state = self.hass.states.get(load_sensor)
+        if state is not None:
+            friendly = state.attributes.get("friendly_name")
+            if friendly:
+                return friendly
+        return load_sensor

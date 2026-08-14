@@ -29,8 +29,28 @@ from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import ATTR_FORECAST, ATTR_MODEL_TRAINED_AT, ATTR_TRAINING_POINTS, DOMAIN, SUBENTRY_TYPE_LOAD
+from .const import (
+    ATTR_FORECAST,
+    ATTR_MODEL_TRAINED_AT,
+    ATTR_TRAINING_POINTS,
+    CONF_LOAD_SENSOR,
+    DOMAIN,
+    SUBENTRY_TYPE_LOAD,
+)
 from .coordinator import NimbusCoordinator
+
+
+def _object_id_from_source(load_sensor_entity_id: str) -> str:
+    """Turn 'sensor.logger_load_power' into 'logger_load_power_forecast' --
+    a clean, predictable, source-derived slug, rather than letting Home
+    Assistant auto-combine the device title and entity name into whatever
+    it lands on (confirmed live 2026-08-14: produced
+    sensor.load_sensor_logger_load_power_load_forecast, an unusable mess).
+    Naturally unique across every load, since each one's source sensor is
+    already unique.
+    """
+    object_id = load_sensor_entity_id.split(".", 1)[-1]
+    return f"{object_id}_forecast"
 
 
 async def async_setup_entry(
@@ -55,7 +75,7 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
     """The published load forecast for one load subentry."""
 
     _attr_has_entity_name = True
-    _attr_name = "Load Forecast"
+    _attr_name = "Forecast"
     _attr_device_class = SensorDeviceClass.POWER
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfPower.KILO_WATT
@@ -63,6 +83,11 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
     def __init__(self, coordinator: NimbusCoordinator, subentry: ConfigSubentry) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{subentry.subentry_id}_load_forecast"
+        # Deterministic, source-derived entity_id (see _object_id_from_source)
+        # instead of trusting HA's device-name+entity-name auto-slug.
+        self._attr_suggested_object_id = _object_id_from_source(
+            subentry.data[CONF_LOAD_SENSOR]
+        )
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, subentry.subentry_id)},
             name=subentry.title,
