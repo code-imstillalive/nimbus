@@ -41,16 +41,29 @@ from .coordinator import NimbusCoordinator
 
 
 def _object_id_from_source(load_sensor_entity_id: str) -> str:
-    """Turn 'sensor.logger_load_power' into 'logger_load_power_forecast' --
-    a clean, predictable, source-derived slug, rather than letting Home
-    Assistant auto-combine the device title and entity name into whatever
-    it lands on (confirmed live 2026-08-14: produced
+    """Turn 'sensor.logger_load_power' into
+    'nimbus_logger_load_power_forecast' -- a clean, predictable,
+    source-derived slug, rather than letting Home Assistant auto-combine
+    the device title and entity name into whatever it lands on (confirmed
+    live 2026-08-14: produced
     sensor.load_sensor_logger_load_power_load_forecast, an unusable mess).
-    Naturally unique across every load, since each one's source sensor is
-    already unique.
+
+    The "nimbus_" prefix is deliberate, not decorative: confirmed live the
+    same day that a bare "<source>_forecast" pattern collides with a
+    completely unrelated pre-existing forecast sensor from a different
+    integration (sensor.logger_load_power_forecast already existed) --
+    without the prefix, Home Assistant would have silently registered
+    Nimbus's own sensor under a "_2" suffix instead of erroring, exactly
+    the kind of quiet collision this project has been bitten by before.
+    The prefix also makes it unambiguous which forecast sensor is
+    Nimbus's, given this project already runs several other forecasters
+    in parallel (Solcast, Open-Meteo, ha_power_predictor, etc.).
+
+    Naturally unique across every load Nimbus itself creates, since each
+    one's source sensor is already unique.
     """
     object_id = load_sensor_entity_id.split(".", 1)[-1]
-    return f"{object_id}_forecast"
+    return f"nimbus_{object_id}_forecast"
 
 
 async def async_setup_entry(
