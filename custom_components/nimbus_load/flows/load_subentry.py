@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from homeassistant.config_entries import ConfigSubentryFlow, SubentryFlowResult
+from homeassistant.config_entries import SOURCE_RECONFIGURE, ConfigSubentryFlow, SubentryFlowResult
 from homeassistant.helpers import selector
 import voluptuous as vol
 
@@ -82,15 +82,28 @@ class NimbusLoadSubentryFlowHandler(ConfigSubentryFlow):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> SubentryFlowResult:
-        """New load -- reached via the hub device page's "+ Add" button."""
-        return await self._async_step(user_input, subentry=None)
+        """Entry point for both a fresh "+ Add" and an edit of an existing
+        load -- confirmed live 2026-08-14 that Home Assistant routes a
+        reconfigure through this same method (async_step_reconfigure is not
+        actually a separate invocation path for subentry flows the way it
+        is for top-level config entries). The real signal for which case
+        this is is `self.source`, not which method got called -- assuming
+        "user" always meant "brand new" raised
+        `ValueError: Source is reconfigure, expected user` from
+        async_create_entry the moment someone tried to edit an existing
+        load rather than add one.
+        """
+        subentry = self._get_reconfigure_subentry() if self.source == SOURCE_RECONFIGURE else None
+        return await self._async_step(user_input, subentry=subentry)
 
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
     ) -> SubentryFlowResult:
-        """Edit an existing load."""
-        subentry = self._get_reconfigure_subentry()
-        return await self._async_step(user_input, subentry=subentry)
+        """Kept as an explicit alias in case a future HA version does route
+        reconfigure here separately -- same self.source-driven logic either
+        way, so it's correct regardless of which method actually fires.
+        """
+        return await self.async_step_user(user_input)
 
     async def _async_step(
         self, user_input: dict[str, Any] | None, subentry: Any
