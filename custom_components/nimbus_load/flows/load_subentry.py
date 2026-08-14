@@ -24,37 +24,53 @@ import voluptuous as vol
 from ..const import CONF_LOAD_SENSOR, CONF_SCHEDULE_END_HOUR, CONF_SCHEDULE_START_HOUR
 
 
-def _schema(defaults: dict[str, Any]) -> vol.Schema:
-    return vol.Schema(
-        {
-            vol.Required(
-                CONF_LOAD_SENSOR, default=defaults.get(CONF_LOAD_SENSOR)
-            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
-            # Optional, genuinely per-load (unlike everything on the hub's
-            # own shared form) -- for a load with a real fixed daily timer
-            # (e.g. a pool pump running 8am-3pm every day), a dedicated
-            # schedule-window feature lets the model learn the sharp on/off
-            # boundary directly instead of only approximating it through
-            # hour-of-day sin/cos splits. Left blank (the default) for any
-            # load without a real fixed schedule -- a no-op, not an error.
-            vol.Optional(
-                CONF_SCHEDULE_START_HOUR, default=defaults.get(CONF_SCHEDULE_START_HOUR)
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0, max=23, step=1, mode=selector.NumberSelectorMode.BOX,
-                    unit_of_measurement="hour of day (0-23)",
-                )
-            ),
-            vol.Optional(
-                CONF_SCHEDULE_END_HOUR, default=defaults.get(CONF_SCHEDULE_END_HOUR)
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0, max=23, step=1, mode=selector.NumberSelectorMode.BOX,
-                    unit_of_measurement="hour of day (0-23)",
-                )
-            ),
-        }
+_HOUR_SELECTOR = selector.NumberSelector(
+    selector.NumberSelectorConfig(
+        min=0, max=23, step=1, mode=selector.NumberSelectorMode.BOX,
+        unit_of_measurement="hour of day (0-23)",
     )
+)
+
+
+def _schema(defaults: dict[str, Any]) -> vol.Schema:
+    schema_dict: dict[Any, Any] = {
+        vol.Required(
+            CONF_LOAD_SENSOR, default=defaults.get(CONF_LOAD_SENSOR)
+        ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+    }
+    # Optional, genuinely per-load (unlike everything on the hub's own
+    # shared form) -- for a load with a real fixed daily timer (e.g. a
+    # pool pump running 8am-3pm every day), a dedicated schedule-window
+    # feature lets the model learn the sharp on/off boundary directly
+    # instead of only approximating it through hour-of-day sin/cos
+    # splits. Left blank for any load without a real fixed schedule --
+    # a no-op, not an error.
+    #
+    # Confirmed live 2026-08-15: passing `default=None` (i.e. whatever
+    # defaults.get(...) returns for a never-configured field, which is
+    # every load's first time seeing this field) crashes the frontend's
+    # ha-selector-number component -- it calls `.toString()` on the
+    # default value while rendering, with no null-check, throwing
+    # "Cannot read properties of null (reading 'toString')" and
+    # silently failing to render that field at all, no error visible in
+    # the HA UI itself, only in the browser's own JS console. The field
+    # must be added with NO `default=` kwarg at all when unset, not
+    # `default=None` -- vol.Optional() with no default cleanly omits
+    # the key from user_input if left blank, which the frontend renders
+    # as a genuinely empty box instead of trying to stringify null.
+    start_default = defaults.get(CONF_SCHEDULE_START_HOUR)
+    if start_default is not None:
+        schema_dict[vol.Optional(CONF_SCHEDULE_START_HOUR, default=start_default)] = _HOUR_SELECTOR
+    else:
+        schema_dict[vol.Optional(CONF_SCHEDULE_START_HOUR)] = _HOUR_SELECTOR
+
+    end_default = defaults.get(CONF_SCHEDULE_END_HOUR)
+    if end_default is not None:
+        schema_dict[vol.Optional(CONF_SCHEDULE_END_HOUR, default=end_default)] = _HOUR_SELECTOR
+    else:
+        schema_dict[vol.Optional(CONF_SCHEDULE_END_HOUR)] = _HOUR_SELECTOR
+
+    return vol.Schema(schema_dict)
 
 
 class NimbusLoadSubentryFlowHandler(ConfigSubentryFlow):
