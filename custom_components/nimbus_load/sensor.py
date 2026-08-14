@@ -96,11 +96,17 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
     def __init__(self, coordinator: NimbusCoordinator, subentry: ConfigSubentry) -> None:
         super().__init__(coordinator)
         self._attr_unique_id = f"{subentry.subentry_id}_load_forecast"
-        # Deterministic, source-derived entity_id (see _object_id_from_source)
-        # instead of trusting HA's device-name+entity-name auto-slug.
-        self._attr_suggested_object_id = _object_id_from_source(
-            subentry.data[CONF_LOAD_SENSOR]
-        )
+        # Setting entity_id directly, not _attr_suggested_object_id.
+        # Confirmed live 2026-08-14, twice, that _attr_suggested_object_id
+        # is NOT respected here: with _attr_has_entity_name = True, Home
+        # Assistant derives the entity_id from the device-name + entity-
+        # name combination FIRST, and only falls back to suggested_object_id
+        # after that -- so the "fix" silently never took effect, on either
+        # the whole-house load or a genuinely brand-new one, and both had
+        # to be renamed by hand. Setting entity_id directly is the one
+        # mechanism the entity platform never overrides -- if it's already
+        # set when the entity is added, generation is skipped entirely.
+        self.entity_id = f"sensor.{_object_id_from_source(subentry.data[CONF_LOAD_SENSOR])}"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, subentry.subentry_id)},
             name=subentry.title,
