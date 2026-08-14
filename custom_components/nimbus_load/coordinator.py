@@ -459,20 +459,31 @@ def _train_model_job(
     )
 
 
-def _parse_time_to_hour(value: str | None) -> float | None:
-    """Convert a TimeSelector's stored "HH:MM:SS" (or "HH:MM") string into
-    a decimal hour, e.g. "12:30:00" -> 12.5 -- the form ml/features.py's
-    in_schedule comparison expects. Returns None for an unset field
-    (schedule_start_hour/_end_hour not None-vs-"00:00:00" ambiguity: an
-    unset field is a genuinely missing key, not a stored midnight).
+def _parse_time_to_hour(value: str | float | int | None) -> float | None:
+    """Convert a stored schedule value into a decimal hour, e.g.
+    "12:30:00" -> 12.5 -- the form ml/features.py's in_schedule
+    comparison expects. Returns None for an unset field.
+
+    Handles two storage shapes: HA's TimeSelector "HH:MM:SS" string
+    (current), and a bare decimal-hour float/int (the pre-2026-08-15
+    NumberSelector-based flow's own format). Confirmed live: a load
+    reconfigured under the old NumberSelector (Pool 1, saved as e.g.
+    8.0) still has that raw float sitting in its subentry data --
+    calling .split(':') on it unconditionally crashed every coordinator
+    refresh with "'float' object has no attribute 'split'". A plain
+    number is already the decimal hour, no parsing needed at all.
     """
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
     if not value:
         return None
     try:
         parts = value.split(":")
         hour, minute = int(parts[0]), int(parts[1])
         return hour + minute / 60
-    except (ValueError, IndexError):
+    except (ValueError, IndexError, AttributeError):
         _LOGGER.warning("Could not parse schedule time value %r -- treating as unset", value)
         return None
 
