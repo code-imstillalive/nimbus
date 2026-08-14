@@ -39,25 +39,19 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             # load without a real fixed schedule -- a no-op, not an error.
             vol.Optional(
                 CONF_SCHEDULE_START_HOUR, default=defaults.get(CONF_SCHEDULE_START_HOUR)
-            ): vol.Any(
-                None,
-                selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0, max=23, step=1, mode=selector.NumberSelectorMode.BOX,
-                        unit_of_measurement="hour of day (0-23)",
-                    )
-                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=23, step=1, mode=selector.NumberSelectorMode.BOX,
+                    unit_of_measurement="hour of day (0-23)",
+                )
             ),
             vol.Optional(
                 CONF_SCHEDULE_END_HOUR, default=defaults.get(CONF_SCHEDULE_END_HOUR)
-            ): vol.Any(
-                None,
-                selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0, max=23, step=1, mode=selector.NumberSelectorMode.BOX,
-                        unit_of_measurement="hour of day (0-23)",
-                    )
-                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=23, step=1, mode=selector.NumberSelectorMode.BOX,
+                    unit_of_measurement="hour of day (0-23)",
+                )
             ),
         }
     )
