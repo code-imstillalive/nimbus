@@ -18,6 +18,7 @@ from homeassistant.helpers import selector
 import voluptuous as vol
 
 from ..const import (
+    CONF_CURTAILMENT_SENSOR,
     CONF_FORECAST_HORIZON_HOURS,
     CONF_HUMIDITY_SENSOR,
     CONF_RETRAIN_HOUR_LOCAL,
@@ -48,6 +49,14 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             vol.Optional(
                 CONF_HUMIDITY_SENSOR, default=defaults.get(CONF_HUMIDITY_SENSOR)
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            # Optional -- HAEO's own solar-curtailment status entity
+            # (switch.solar_curtailment on the real system this was built
+            # against). Domain is deliberately "switch", not "sensor" --
+            # this is a genuinely different entity type than every other
+            # field on this form.
+            vol.Optional(
+                CONF_CURTAILMENT_SENSOR, default=defaults.get(CONF_CURTAILMENT_SENSOR)
+            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="switch")),
             vol.Optional(
                 CONF_FORECAST_HORIZON_HOURS,
                 default=defaults.get(CONF_FORECAST_HORIZON_HOURS, DEFAULT_FORECAST_HORIZON_HOURS),

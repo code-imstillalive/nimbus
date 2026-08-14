@@ -21,7 +21,7 @@ from homeassistant.config_entries import SOURCE_RECONFIGURE, ConfigSubentryFlow,
 from homeassistant.helpers import selector
 import voluptuous as vol
 
-from ..const import CONF_LOAD_SENSOR
+from ..const import CONF_LOAD_SENSOR, CONF_SCHEDULE_END_HOUR, CONF_SCHEDULE_START_HOUR
 
 
 def _schema(defaults: dict[str, Any]) -> vol.Schema:
@@ -30,6 +30,35 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             vol.Required(
                 CONF_LOAD_SENSOR, default=defaults.get(CONF_LOAD_SENSOR)
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            # Optional, genuinely per-load (unlike everything on the hub's
+            # own shared form) -- for a load with a real fixed daily timer
+            # (e.g. a pool pump running 8am-3pm every day), a dedicated
+            # schedule-window feature lets the model learn the sharp on/off
+            # boundary directly instead of only approximating it through
+            # hour-of-day sin/cos splits. Left blank (the default) for any
+            # load without a real fixed schedule -- a no-op, not an error.
+            vol.Optional(
+                CONF_SCHEDULE_START_HOUR, default=defaults.get(CONF_SCHEDULE_START_HOUR)
+            ): vol.Any(
+                None,
+                selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=23, step=1, mode=selector.NumberSelectorMode.BOX,
+                        unit_of_measurement="hour of day (0-23)",
+                    )
+                ),
+            ),
+            vol.Optional(
+                CONF_SCHEDULE_END_HOUR, default=defaults.get(CONF_SCHEDULE_END_HOUR)
+            ): vol.Any(
+                None,
+                selector.NumberSelector(
+                    selector.NumberSelectorConfig(
+                        min=0, max=23, step=1, mode=selector.NumberSelectorMode.BOX,
+                        unit_of_measurement="hour of day (0-23)",
+                    )
+                ),
+            ),
         }
     )
 

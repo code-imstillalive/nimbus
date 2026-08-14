@@ -151,10 +151,13 @@ def train_model(
     load_events: list[tuple[datetime, float]],
     temp_events: list[tuple[datetime, float]],
     humidity_events: list[tuple[datetime, float]],
+    curtailment_events: list[tuple[datetime, float]],
     start: datetime,
     end: datetime,
     resample_minutes: int,
     min_training_points: int,
+    schedule_start_hour: float | None = None,
+    schedule_end_hour: float | None = None,
 ) -> TrainedModel | None:
     """Build a fresh model from real (local-time) history events.
 
@@ -180,6 +183,9 @@ def train_model(
     humidity_vals = (
         resample_last_value(humidity_events, grid) if humidity_events else [None] * len(grid)
     )
+    curtailment_vals = (
+        resample_last_value(curtailment_events, grid) if curtailment_events else [None] * len(grid)
+    )
 
     x_rows: list[list[float]] = []
     y_vals: list[float] = []
@@ -194,7 +200,11 @@ def train_model(
             continue
         tv = temp_vals[i] if temp_vals[i] is not None else 22.0
         hv = humidity_vals[i] if humidity_vals[i] is not None else 50.0
-        x_rows.append(build_features(grid[i], tv, hv, lag_short_v, lag_long_v))
+        cv = curtailment_vals[i] if curtailment_vals[i] is not None else 0.0
+        x_rows.append(build_features(
+            grid[i], tv, hv, lag_short_v, lag_long_v, cv,
+            schedule_start_hour, schedule_end_hour,
+        ))
         y_vals.append(lv)
 
     if len(x_rows) < min_training_points:
@@ -295,9 +305,20 @@ def predict(
     humidities: list[float],
     recent_load_values: list[tuple[datetime, float]],
     resample_minutes: int,
+    curtailments: list[float] | None = None,
+    schedule_start_hour: float | None = None,
+    schedule_end_hour: float | None = None,
 ) -> list[float]:
     """Predict load at each of `timestamps` (must be ascending, evenly
-    spaced by `resample_minutes`), given matching `temps`/`humidities`.
+    spaced by `resample_minutes`), given matching `temps`/`humidities`/
+    `curtailments` (each one value per timestamp, already aligned by the
+    caller -- same convention as temps/humidities; `curtailments` may be
+    omitted entirely for a load with no curtailment sensor configured, in
+    which case it's treated as 0.0 throughout). `curtailments` should come
+    from the curtailment source's own forward *forecast* where available
+    (HAEO already plans curtailment ahead of time) rather than a held-flat
+    current value -- genuinely more informative than this integration's
+    other forecast inputs.
 
     Recursive multi-step forecast: the first few steps can use REAL recent
     history (`recent_load_values`) for their lag features; once the
@@ -326,15 +347,22 @@ def predict(
         idx = bisect_right(buffer_times, target) - 1
         return buffer_vals[idx] if idx >= 0 else default_lag
 
+    curtailment_list = curtailments if curtailments is not None else [0.0] * len(timestamps)
+
     raw_preds: list[float] = []
-    for ts, temp, humidity in zip(timestamps, temps, humidities, strict=True):
+    for ts, temp, humidity, curtailment in zip(
+        timestamps, temps, humidities, curtailment_list, strict=True
+    ):
         lag_short_t = ts - LAG_SHORT_STEPS * step
         lag_long_t = ts - LAG_LONG_STEPS * step
         lag_short_v = lag_at(lag_short_t)
         lag_long_v = lag_at(lag_long_t)
 
         x_row = np.array(
-            [build_features(ts, temp, humidity, lag_short_v, lag_long_v)], dtype=np.float64
+            [build_features(
+                ts, temp, humidity, lag_short_v, lag_long_v, curtailment,
+                schedule_start_hour, schedule_end_hour,
+            )], dtype=np.float64
         )
         x_row_std = (x_row - trained.x_mean) / trained.x_std
 

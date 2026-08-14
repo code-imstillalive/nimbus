@@ -33,10 +33,13 @@ from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import PowerConverter
 
 from .const import (
+    CONF_CURTAILMENT_SENSOR,
     CONF_FORECAST_HORIZON_HOURS,
     CONF_HUMIDITY_SENSOR,
     CONF_LOAD_SENSOR,
     CONF_RETRAIN_HOUR_LOCAL,
+    CONF_SCHEDULE_END_HOUR,
+    CONF_SCHEDULE_START_HOUR,
     CONF_TEMPERATURE_FORECAST_SENSOR,
     CONF_TEMPERATURE_SENSOR,
     CONF_TRAIN_DAYS,
@@ -107,6 +110,20 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return self.entry.options.get(CONF_HUMIDITY_SENSOR)
 
     @property
+    def _curtailment_sensor(self) -> str | None:
+        return self.entry.options.get(CONF_CURTAILMENT_SENSOR)
+
+    # Per-load, unlike everything else above -- a fixed schedule window
+    # (if any) is specific to this one load, not shared across the hub.
+    @property
+    def _schedule_start_hour(self) -> float | None:
+        return self.subentry.data.get(CONF_SCHEDULE_START_HOUR)
+
+    @property
+    def _schedule_end_hour(self) -> float | None:
+        return self.subentry.data.get(CONF_SCHEDULE_END_HOUR)
+
+    @property
     def _horizon_hours(self) -> int:
         return self.entry.options.get(
             CONF_FORECAST_HORIZON_HOURS, DEFAULT_FORECAST_HORIZON_HOURS
@@ -170,9 +187,15 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if self._humidity_sensor
                 else []
             )
+            curtailment_events = (
+                await self._async_fetch_history(self._curtailment_sensor, start, end, binary=True)
+                if self._curtailment_sensor
+                else []
+            )
 
             trained = await self.hass.async_add_executor_job(
-                _train_model_job, load_events, temp_events, humidity_events, start, end
+                _train_model_job, load_events, temp_events, humidity_events, curtailment_events,
+                start, end, self._schedule_start_hour, self._schedule_end_hour,
             )
             if trained is not None:
                 self._trained = trained
@@ -184,7 +207,8 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # -- data access ----------------------------------------------------------
 
     async def _async_fetch_history(
-        self, entity_id: str, start: datetime, end: datetime, *, convert_power: bool = False
+        self, entity_id: str, start: datetime, end: datetime, *,
+        convert_power: bool = False, binary: bool = False,
     ) -> list[tuple[datetime, float]]:
         """Fetch recorder history for one entity, in-process -- no REST call,
         no token, identical on HAOS/Supervised/Docker. Goes through the
@@ -200,6 +224,11 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         sensor would train (and later publish) numbers 1000x too small.
         Falls back to treating an unrecognized/missing unit as already-kW
         (logged once) rather than dropping the point entirely.
+
+        `binary=True` (used for the curtailment switch, which reports
+        "on"/"off", not a number -- a plain `float(s.state)` would raise
+        and silently drop every single point) maps "on" -> 1.0, anything
+        else -> 0.0.
         """
         warned_missing_unit = False
 
@@ -215,6 +244,9 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             ).get(entity_id, [])
             out: list[tuple[datetime, float]] = []
             for s in states:
+                if binary:
+                    out.append((dt_util.as_local(s.last_changed), 1.0 if s.state == "on" else 0.0))
+                    continue
                 try:
                     value = float(s.state)
                 except (TypeError, ValueError):
@@ -272,6 +304,30 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         out.sort(key=lambda x: x[0])
         return out
 
+    async def _async_fetch_curtailment_forecast(self) -> list[tuple[datetime, float]]:
+        """HAEO's own curtailment switch carries a real forward `forecast`
+        attribute (confirmed live 2026-08-14: {"time": ..., "value": bool}
+        entries) -- HAEO already plans curtailment ahead of time, so this is
+        genuinely forward-looking, unlike humidity's held-flat approximation.
+        """
+        if self._curtailment_sensor is None:
+            return []
+        state = self.hass.states.get(self._curtailment_sensor)
+        if state is None:
+            return []
+        forecast = state.attributes.get("forecast", [])
+        out: list[tuple[datetime, float]] = []
+        for entry in forecast:
+            try:
+                ts = dt_util.parse_datetime(entry["time"])
+                value = 1.0 if entry["value"] else 0.0
+            except (KeyError, TypeError, ValueError):
+                continue
+            if ts is not None:
+                out.append((ts, value))
+        out.sort(key=lambda x: x[0])
+        return out
+
     # -- model persistence ----------------------------------------------------
 
     def _load_model_from_disk(self) -> TrainedModel | None:
@@ -299,6 +355,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         temp_forecast = await self._async_fetch_temperature_forecast()
         fallback_temp = temp_forecast[0][1] if temp_forecast else DEFAULT_FALLBACK_TEMPERATURE_C
         current_humidity = self._current_humidity()
+        curtailment_forecast = await self._async_fetch_curtailment_forecast()
 
         # Real recent history, not just the model's own state -- this is
         # the lag-feature seed. Fetched with a comfortable multiple of
@@ -313,12 +370,14 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         timestamps: list[datetime] = []
         temps: list[float] = []
         humidities: list[float] = []
+        curtailments: list[float] = []
         t = now_utc
         step = timedelta(minutes=RESAMPLE_MINUTES)
         while t <= horizon_end:
             timestamps.append(dt_util.as_local(t))
             temps.append(_nearest_temp(temp_forecast, t, fallback_temp))
             humidities.append(current_humidity)
+            curtailments.append(_step_lookup(curtailment_forecast, t, 0.0))
             t += step
 
         preds = await self.hass.async_add_executor_job(
@@ -329,6 +388,9 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             humidities,
             recent_load_values,
             RESAMPLE_MINUTES,
+            curtailments,
+            self._schedule_start_hour,
+            self._schedule_end_hour,
         )
 
         points = [
@@ -349,8 +411,11 @@ def _train_model_job(
     load_events: list[tuple[datetime, float]],
     temp_events: list[tuple[datetime, float]],
     humidity_events: list[tuple[datetime, float]],
+    curtailment_events: list[tuple[datetime, float]],
     start: datetime,
     end: datetime,
+    schedule_start_hour: float | None,
+    schedule_end_hour: float | None,
 ) -> TrainedModel | None:
     """Plain function (not a bound method) so it's cleanly picklable/callable
     from hass.async_add_executor_job without capturing `self`.
@@ -359,10 +424,13 @@ def _train_model_job(
         load_events=load_events,
         temp_events=temp_events,
         humidity_events=humidity_events,
+        curtailment_events=curtailment_events,
         start=dt_util.as_local(start),
         end=dt_util.as_local(end),
         resample_minutes=RESAMPLE_MINUTES,
         min_training_points=MIN_TRAINING_POINTS,
+        schedule_start_hour=schedule_start_hour,
+        schedule_end_hour=schedule_end_hour,
     )
 
 
@@ -383,3 +451,18 @@ def _nearest_temp(
         return before[1]
     frac = (target - before[0]).total_seconds() / span
     return before[1] + frac * (after[1] - before[1])
+
+
+def _step_lookup(
+    forecast: list[tuple[datetime, float]], target: datetime, fallback: float
+) -> float:
+    """Same idea as `_nearest_temp` but a step function, not interpolated --
+    correct for a boolean-derived signal like curtailment (on/off), where
+    blending toward "half curtailed" between two points would be meaningless.
+    Returns whichever entry is most recently at-or-before `target`.
+    """
+    if not forecast:
+        return fallback
+    times = [f[0] for f in forecast]
+    idx = bisect_right(times, target) - 1
+    return forecast[idx][1] if idx >= 0 else forecast[0][1]

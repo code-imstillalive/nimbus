@@ -17,10 +17,29 @@ CONF_LOAD_SENSOR: Final = "load_sensor"
 CONF_TEMPERATURE_SENSOR: Final = "temperature_sensor"
 CONF_TEMPERATURE_FORECAST_SENSOR: Final = "temperature_forecast_sensor"
 CONF_HUMIDITY_SENSOR: Final = "humidity_sensor"
+# Shared, hub-level -- HAEO's own solar-curtailment status entity
+# (switch.solar_curtailment on the real system this was built against),
+# real and confirmed 2026-08-14: a boolean on/off with its own forward
+# `forecast` attribute (HAEO already plans curtailment ahead of time),
+# which is genuinely more useful at predict-time than any of this
+# integration's other forecast inputs -- it's HAEO's own actual plan, not
+# a held-flat approximation. Added specifically for curtailment-driven
+# loads (e.g. a pool heater run only to soak up otherwise-curtailed
+# solar, never for its own schedule or the weather).
+CONF_CURTAILMENT_SENSOR: Final = "curtailment_sensor"
 
 CONF_FORECAST_HORIZON_HOURS: Final = "forecast_horizon_hours"
 CONF_RETRAIN_HOUR_LOCAL: Final = "retrain_hour_local"
 CONF_TRAIN_DAYS: Final = "train_days"
+
+# Per-load, NOT shared -- unlike temperature/humidity/curtailment (whole-
+# house signals every load's model can reasonably use), a fixed daily
+# schedule window (e.g. a pool pump timer running 8am-3pm) is specific to
+# one particular load. Both optional; a load with neither configured gets
+# a permanently-zero in_schedule feature (a no-op, not an error) since
+# most loads genuinely have no fixed timer.
+CONF_SCHEDULE_START_HOUR: Final = "schedule_start_hour"
+CONF_SCHEDULE_END_HOUR: Final = "schedule_end_hour"
 
 DEFAULT_FORECAST_HORIZON_HOURS: Final = 48
 DEFAULT_RETRAIN_HOUR_LOCAL: Final = 3
