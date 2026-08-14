@@ -34,16 +34,19 @@ from homeassistant.util.unit_conversion import PowerConverter
 
 from .const import (
     CONF_FORECAST_HORIZON_HOURS,
+    CONF_HUMIDITY_SENSOR,
     CONF_LOAD_SENSOR,
     CONF_RETRAIN_HOUR_LOCAL,
     CONF_TEMPERATURE_FORECAST_SENSOR,
     CONF_TEMPERATURE_SENSOR,
     CONF_TRAIN_DAYS,
+    DEFAULT_FALLBACK_HUMIDITY_PCT,
     DEFAULT_FALLBACK_TEMPERATURE_C,
     DEFAULT_FORECAST_HORIZON_HOURS,
     DEFAULT_RETRAIN_HOUR_LOCAL,
     DEFAULT_TRAIN_DAYS,
     DOMAIN,
+    LAG_LONG_STEPS,
     MIN_TRAINING_POINTS,
     RESAMPLE_MINUTES,
     UPDATE_INTERVAL_MINUTES,
@@ -98,6 +101,10 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     @property
     def _temp_forecast_sensor(self) -> str | None:
         return self.entry.options.get(CONF_TEMPERATURE_FORECAST_SENSOR)
+
+    @property
+    def _humidity_sensor(self) -> str | None:
+        return self.entry.options.get(CONF_HUMIDITY_SENSOR)
 
     @property
     def _horizon_hours(self) -> int:
@@ -158,9 +165,14 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if self._temp_sensor
                 else []
             )
+            humidity_events = (
+                await self._async_fetch_history(self._humidity_sensor, start, end)
+                if self._humidity_sensor
+                else []
+            )
 
             trained = await self.hass.async_add_executor_job(
-                _train_model_job, load_events, temp_events, start, end
+                _train_model_job, load_events, temp_events, humidity_events, start, end
             )
             if trained is not None:
                 self._trained = trained
@@ -224,6 +236,23 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         return await get_instance(self.hass).async_add_executor_job(_fetch)
 
+    def _current_humidity(self) -> float:
+        """No humidity-forecast integration exists (unlike temperature) to
+        source a horizon-length forecast from, so the current reading is
+        held constant across the whole forecast horizon -- a reasonable
+        approximation for humidity, which typically moves far more slowly
+        over a 48h horizon than the diurnal temperature swing does.
+        """
+        if self._humidity_sensor is None:
+            return DEFAULT_FALLBACK_HUMIDITY_PCT
+        state = self.hass.states.get(self._humidity_sensor)
+        if state is None:
+            return DEFAULT_FALLBACK_HUMIDITY_PCT
+        try:
+            return float(state.state)
+        except (TypeError, ValueError):
+            return DEFAULT_FALLBACK_HUMIDITY_PCT
+
     async def _async_fetch_temperature_forecast(self) -> list[tuple[datetime, float]]:
         if self._temp_forecast_sensor is None:
             return []
@@ -269,18 +298,37 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
         temp_forecast = await self._async_fetch_temperature_forecast()
         fallback_temp = temp_forecast[0][1] if temp_forecast else DEFAULT_FALLBACK_TEMPERATURE_C
+        current_humidity = self._current_humidity()
+
+        # Real recent history, not just the model's own state -- this is
+        # the lag-feature seed. Fetched with a comfortable multiple of
+        # margin past LAG_LONG_STEPS so a real value is always available at
+        # the very first forecast step even if the recorder's most recent
+        # write is a few minutes stale.
+        lag_lookback = timedelta(minutes=RESAMPLE_MINUTES * (LAG_LONG_STEPS + 4))
+        recent_load_values = await self._async_fetch_history(
+            self._load_sensor, now_utc - lag_lookback, now_utc, convert_power=True
+        )
 
         timestamps: list[datetime] = []
         temps: list[float] = []
+        humidities: list[float] = []
         t = now_utc
         step = timedelta(minutes=RESAMPLE_MINUTES)
         while t <= horizon_end:
             timestamps.append(dt_util.as_local(t))
             temps.append(_nearest_temp(temp_forecast, t, fallback_temp))
+            humidities.append(current_humidity)
             t += step
 
         preds = await self.hass.async_add_executor_job(
-            predict, self._trained, timestamps, temps
+            predict,
+            self._trained,
+            timestamps,
+            temps,
+            humidities,
+            recent_load_values,
+            RESAMPLE_MINUTES,
         )
 
         points = [
@@ -300,6 +348,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 def _train_model_job(
     load_events: list[tuple[datetime, float]],
     temp_events: list[tuple[datetime, float]],
+    humidity_events: list[tuple[datetime, float]],
     start: datetime,
     end: datetime,
 ) -> TrainedModel | None:
@@ -309,6 +358,7 @@ def _train_model_job(
     return train_model(
         load_events=load_events,
         temp_events=temp_events,
+        humidity_events=humidity_events,
         start=dt_util.as_local(start),
         end=dt_util.as_local(end),
         resample_minutes=RESAMPLE_MINUTES,

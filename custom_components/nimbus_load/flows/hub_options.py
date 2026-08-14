@@ -19,6 +19,7 @@ import voluptuous as vol
 
 from ..const import (
     CONF_FORECAST_HORIZON_HOURS,
+    CONF_HUMIDITY_SENSOR,
     CONF_RETRAIN_HOUR_LOCAL,
     CONF_TEMPERATURE_FORECAST_SENSOR,
     CONF_TEMPERATURE_SENSOR,
@@ -38,6 +39,14 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             vol.Optional(
                 CONF_TEMPERATURE_FORECAST_SENSOR,
                 default=defaults.get(CONF_TEMPERATURE_FORECAST_SENSOR),
+            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            # Optional -- humidity is a real, validated contributor to
+            # forecast accuracy (2026-08-14 backtest), but not every
+            # household has a humidity sensor wired up; ml/model.py already
+            # defaults to a neutral 50% when this isn't configured, so
+            # leaving it unset degrades gracefully rather than breaking.
+            vol.Optional(
+                CONF_HUMIDITY_SENSOR, default=defaults.get(CONF_HUMIDITY_SENSOR)
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
             vol.Optional(
                 CONF_FORECAST_HORIZON_HOURS,
