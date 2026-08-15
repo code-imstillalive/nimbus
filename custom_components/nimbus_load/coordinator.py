@@ -34,6 +34,7 @@ from homeassistant.util.unit_conversion import PowerConverter
 
 from .const import (
     CONF_CURTAILMENT_SENSOR,
+    CONF_EXPECTED_LOAD_KW,
     CONF_FORECAST_HORIZON_HOURS,
     CONF_HUMIDITY_SENSOR,
     CONF_LOAD_SENSOR,
@@ -129,6 +130,13 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     @property
     def _schedule_end_hour(self) -> float | None:
         return _parse_time_to_hour(self.subentry.data.get(CONF_SCHEDULE_END_HOUR))
+
+    # Third, separate opt-in -- see const.py's CONF_EXPECTED_LOAD_KW
+    # comment for the full three-mode explanation. Only takes effect in
+    # predict() when both schedule bounds above are also set.
+    @property
+    def _expected_load_kw(self) -> float | None:
+        return self.subentry.data.get(CONF_EXPECTED_LOAD_KW)
 
     @property
     def _horizon_hours(self) -> int:
@@ -416,6 +424,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             curtailments,
             self._schedule_start_hour,
             self._schedule_end_hour,
+            self._expected_load_kw,
         )
 
         points = [

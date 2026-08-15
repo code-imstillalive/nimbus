@@ -21,7 +21,12 @@ from homeassistant.config_entries import SOURCE_RECONFIGURE, ConfigSubentryFlow,
 from homeassistant.helpers import selector
 import voluptuous as vol
 
-from ..const import CONF_LOAD_SENSOR, CONF_SCHEDULE_END_HOUR, CONF_SCHEDULE_START_HOUR
+from ..const import (
+    CONF_EXPECTED_LOAD_KW,
+    CONF_LOAD_SENSOR,
+    CONF_SCHEDULE_END_HOUR,
+    CONF_SCHEDULE_START_HOUR,
+)
 
 
 # A real HH:MM time picker, not a decimal-hour number box -- much more
@@ -71,6 +76,23 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
         schema_dict[vol.Optional(CONF_SCHEDULE_END_HOUR, default=end_default)] = _TIME_SELECTOR
     else:
         schema_dict[vol.Optional(CONF_SCHEDULE_END_HOUR)] = _TIME_SELECTOR
+
+    # Optional third field, only meaningful alongside the two above --
+    # see const.py's own comment for the full three-mode explanation.
+    # Same None-default crash avoidance as the schedule fields (2026-08-15
+    # ha-selector-number finding): only pass default= when a real value
+    # already exists.
+    load_default = defaults.get(CONF_EXPECTED_LOAD_KW)
+    load_selector = selector.NumberSelector(
+        selector.NumberSelectorConfig(
+            min=0, step=0.05, mode=selector.NumberSelectorMode.BOX,
+            unit_of_measurement="kW",
+        )
+    )
+    if load_default is not None:
+        schema_dict[vol.Optional(CONF_EXPECTED_LOAD_KW, default=load_default)] = load_selector
+    else:
+        schema_dict[vol.Optional(CONF_EXPECTED_LOAD_KW)] = load_selector
 
     return vol.Schema(schema_dict)
 

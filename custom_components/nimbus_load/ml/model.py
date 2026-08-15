@@ -298,6 +298,20 @@ def train_model(
     )
 
 
+def _in_schedule(hour_frac: float, start: float, end: float) -> bool:
+    """Same wrap-aware window test as ml/features.py's own in_schedule
+    computation -- duplicated rather than imported to keep this module's
+    only dependency on features.py at build_features() itself, and because
+    this one deliberately takes an already-computed hour_frac rather than
+    a datetime (predict()'s deterministic path below calls it once per
+    timestamp in a tight loop with no need to re-derive hour_frac each
+    time from scratch).
+    """
+    if start <= end:
+        return start <= hour_frac < end
+    return hour_frac >= start or hour_frac < end
+
+
 def predict(
     trained: TrainedModel,
     timestamps: list[datetime],
@@ -308,6 +322,7 @@ def predict(
     curtailments: list[float] | None = None,
     schedule_start_hour: float | None = None,
     schedule_end_hour: float | None = None,
+    expected_load_kw: float | None = None,
 ) -> list[float]:
     """Predict load at each of `timestamps` (must be ascending, evenly
     spaced by `resample_minutes`), given matching `temps`/`humidities`/
@@ -320,20 +335,46 @@ def predict(
     current value -- genuinely more informative than this integration's
     other forecast inputs.
 
-    Recursive multi-step forecast: the first few steps can use REAL recent
-    history (`recent_load_values`) for their lag features; once the
-    horizon extends past that real history, each step's own just-made
-    prediction becomes the lag input for later steps -- standard practice
-    for lag-feature time-series forecasting, and the only option, since no
-    real future data exists yet to use instead. This is also why this
-    function predicts one step at a time rather than a single vectorized
-    batch, unlike the old lag-free k-NN predict().
+    Deterministic override (2026-08-15): when `expected_load_kw` is given
+    ALONGSIDE both schedule bounds, this load is in the user's explicit
+    "I know exactly when this runs and exactly how much it draws" mode --
+    skip the ML model entirely and return `expected_load_kw` inside the
+    window, 0.0 outside it, for every timestamp. This is not a smarter
+    guess; it's the literal rule the user configured. Confirmed live this
+    matters for real loads with genuinely consistent rated power but
+    inconsistent real-world on/off timing (manual top-ups, etc.) -- the ML
+    path was averaging across that timing noise and blurring a true ~3.7kW
+    load's forecast down to ~2kW, which no amount of model tuning fixes
+    since the averaging is the correct behaviour for the ML path, just not
+    the desired one for a load the user can fully characterise up front.
+
+    Recursive multi-step forecast (ML path only): the first few steps can
+    use REAL recent history (`recent_load_values`) for their lag features;
+    once the horizon extends past that real history, each step's own
+    just-made prediction becomes the lag input for later steps -- standard
+    practice for lag-feature time-series forecasting, and the only option,
+    since no real future data exists yet to use instead. This is also why
+    this function predicts one step at a time rather than a single
+    vectorized batch, unlike the old lag-free k-NN predict().
 
     A light exponential-smoothing pass (DAMPING_ALPHA) is applied to the
-    raw output sequence before returning, so consecutive 15-minute steps
-    don't jump unrealistically -- pure post-processing, doesn't feed back
-    into the model itself.
+    raw ML output sequence before returning (deterministic path has no
+    such pass -- there's nothing to smooth, it's already exact), so
+    consecutive 15-minute steps don't jump unrealistically -- pure
+    post-processing, doesn't feed back into the model itself.
     """
+    if (
+        expected_load_kw is not None
+        and schedule_start_hour is not None
+        and schedule_end_hour is not None
+    ):
+        return [
+            expected_load_kw
+            if _in_schedule(ts.hour + ts.minute / 60.0, schedule_start_hour, schedule_end_hour)
+            else 0.0
+            for ts in timestamps
+        ]
+
     step = timedelta(minutes=resample_minutes)
     # Rolling buffer of (timestamp, value), seeded from real history, that
     # we append our own predictions onto as we go -- this IS the lag

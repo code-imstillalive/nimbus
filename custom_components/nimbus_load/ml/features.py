@@ -75,9 +75,9 @@ def build_features(
     if schedule_start_hour is None or schedule_end_hour is None:
         in_schedule = 0.0
     elif schedule_start_hour <= schedule_end_hour:
-        in_schedule = 1.0 if schedule_start_hour <= local_dt.hour < schedule_end_hour else 0.0
+        in_schedule = 1.0 if schedule_start_hour <= hour_frac < schedule_end_hour else 0.0
     else:
-        in_schedule = 1.0 if local_dt.hour >= schedule_start_hour or local_dt.hour < schedule_end_hour else 0.0
+        in_schedule = 1.0 if hour_frac >= schedule_start_hour or hour_frac < schedule_end_hour else 0.0
 
     return [
         math.sin(2 * math.pi * hour_frac / 24.0),

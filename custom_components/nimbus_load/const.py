@@ -41,6 +41,26 @@ CONF_TRAIN_DAYS: Final = "train_days"
 CONF_SCHEDULE_START_HOUR: Final = "schedule_start_hour"
 CONF_SCHEDULE_END_HOUR: Final = "schedule_end_hour"
 
+# Also per-load, also optional, and deliberately a THIRD, separate choice
+# from the schedule window alone -- three real modes, not two:
+#   1. No schedule set at all -- pure ML, in_schedule always 0 (unchanged
+#      default behaviour for any load with no fixed timer).
+#   2. Schedule set, expected load NOT set -- in_schedule is one ML input
+#      feature among many; the model still statistically learns what
+#      power looks like during the window from real history. This is a
+#      genuine estimate, and can come out noisy/blurred if the load's
+#      real on/off timing varies day to day (confirmed live 2026-08-15:
+#      HWS L1's real finish time swings by hours some days -- manual
+#      top-ups included -- so its ML-blended forecast during the window
+#      came out smoothed to ~2kW instead of its real ~3.7kW capacity).
+#   3. BOTH schedule and expected load set -- a hard, deterministic
+#      override: predict exactly this value for the whole window, 0
+#      outside it, bypassing the ML model for this load entirely. Not a
+#      guess refined by a hint -- literally what the user told the
+#      system to expect, full stop. User's own framing, 2026-08-15:
+#      "that converts a guess from a guess to what we tell it to do."
+CONF_EXPECTED_LOAD_KW: Final = "expected_load_kw"
+
 DEFAULT_FORECAST_HORIZON_HOURS: Final = 48
 DEFAULT_RETRAIN_HOUR_LOCAL: Final = 3
 DEFAULT_TRAIN_DAYS: Final = 30
