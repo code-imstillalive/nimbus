@@ -32,6 +32,22 @@ input for later steps (standard multi-step time-series forecasting
 practice), then applies light exponential-smoothing (dampening) across the
 output sequence so consecutive 15-minute steps don't jump unrealistically.
 
+Model validation, extended further (2026-08-15): the knn-vs-gbrt
+comparison above now also includes a seasonal-naive baseline ("what was
+this load doing at this exact same time last week") as a genuine third
+candidate, and reports MASE alongside raw MAE -- validation error scaled
+by the load's own week-over-week variability, letting accuracy be
+compared meaningfully across loads of very different magnitudes (a raw
+kW MAE can't). GBRT's own fit() also gained early stopping (ml/gbrt.py),
+used everywhere a real held-out validation set exists, so boosting stops
+once it stops helping rather than always running the full fixed
+n_estimators. Whichever model type wins can also get genuine model-
+derived confidence bounds (two extra GBRT models predicting the low/high
+quantile directly, not just a residual-based band) -- see
+GBRT_QUANTILE_LOWER/UPPER and PredictionResult below; coordinator.py
+falls back to calibrated_band()'s residual-based approach when these
+aren't available (k-NN, or too little data to trust a quantile fit).
+
 Every function in this module is blocking / CPU-bound and must always be
 called from an executor thread (`hass.async_add_executor_job`), never
 directly on Home Assistant's event loop -- see coordinator.py.
@@ -77,6 +93,15 @@ GBRT_N_ESTIMATORS = 60
 GBRT_MAX_DEPTH = 3
 GBRT_LEARNING_RATE = 0.1
 GBRT_MIN_SAMPLES_LEAF = 5
+# Early stopping (both the mean-regression AND quantile GBRT fits below)
+# -- stop boosting once held-out validation error hasn't improved for
+# this many consecutive rounds, rather than always running the full
+# GBRT_N_ESTIMATORS. Set well below it so it actually gets a chance to
+# trigger on a load whose signal saturates early. Verified 2026-08-15 via
+# a standalone test (a trivial already-converged target correctly
+# stopped at round 0; a real-signal target ran unaffected) before this
+# was wired in here.
+GBRT_EARLY_STOPPING_ROUNDS = 10
 
 # Confidence-band calibration (added 2026-08-15, adapted from
 # psweens/ml-forecast-lab's own documented approach: split conformal
@@ -103,6 +128,35 @@ MIN_RESIDUALS_FOR_CALIBRATION = 10
 COLD_START_BAND_FRACTION = 0.3
 MAX_RESIDUALS_STORED = 200
 
+# Genuine model-derived quantile bounds (2026-08-15) -- distinct from
+# calibrated_band() above, which is residual-based and works for EITHER
+# model type. When GBRT wins model selection AND there's a real
+# validation set to early-stop against, two extra GBRT models are fit
+# predicting the low/high quantile of the target directly (see
+# ml/gbrt.py's own quantile-regression support) -- a genuinely different,
+# model-derived source of uncertainty, not just "how wrong has this model
+# been recently." Matches CONFORMAL_COVERAGE's own coverage target so
+# both approaches mean the same thing ("80% of real outcomes should fall
+# inside this band"). coordinator.py prefers these when available and
+# falls back to calibrated_band() otherwise (k-NN, or too little
+# validation data to trust a quantile fit) -- never mixes the two within
+# one load's forecast.
+GBRT_QUANTILE_LOWER = (1 - CONFORMAL_COVERAGE) / 2
+GBRT_QUANTILE_UPPER = 1 - GBRT_QUANTILE_LOWER
+
+# Seasonal-naive baseline / MASE scaling (2026-08-15) -- "what was this
+# load doing at this exact same time, one full week ago." A week (not a
+# day) deliberately captures weekday-vs-weekend patterns a same-day
+# comparison alone would miss. Used two ways: as a trivial extra
+# candidate in the validation_mae comparison (a real, non-ML sanity
+# floor -- if a trained model can't beat "just look at last week," that's
+# worth knowing), and as MASE's own scaling denominator (mean absolute
+# week-over-week difference on the TRAINING portion) -- turns a raw kW
+# MAE into a magnitude-independent ratio comparable across loads of very
+# different sizes.
+NAIVE_SEASONAL_STEPS_PER_WEEK_DAYS = 7
+MIN_MASE_SCALE_POINTS = 20
+
 
 @dataclass
 class TrainedModel:
@@ -122,6 +176,18 @@ class TrainedModel:
     trained_at: datetime
     training_points: int
     validation_mae: dict[str, float] = field(default_factory=dict)
+    # Scale-independent counterpart to validation_mae -- see
+    # NAIVE_SEASONAL_STEPS_PER_WEEK_DAYS comment above. Empty dict (not
+    # populated with zeros/None) when there wasn't enough training-set
+    # history to compute a trustworthy scale -- an absent key is an
+    # honest "couldn't compute this," not a fabricated number.
+    validation_mase: dict[str, float] = field(default_factory=dict)
+    # Genuine model-derived quantile bounds -- None (not a GBRT with no
+    # trees) when unavailable, so predict() and coordinator.py can tell
+    # "no quantile model at all" apart from "a quantile model that
+    # happens to output a small band."
+    gbrt_lower: GBRT | None = None
+    gbrt_upper: GBRT | None = None
 
 
 def resample_last_value(
@@ -214,6 +280,14 @@ def train_model(
 
     x_rows: list[list[float]] = []
     y_vals: list[float] = []
+    # Parallel to x_rows/y_vals (same length, same order, some grid
+    # indices skipped whenever a row was None-filtered above) -- kept so
+    # the seasonal-naive/MASE code below can look up "this row's actual
+    # position in `grid`/`load_vals`" and "this row's own lag_long value"
+    # without re-deriving either from scratch or assuming row index i
+    # lines up with grid index i (it doesn't, once any rows are skipped).
+    grid_indices: list[int] = []
+    lag_long_vals: list[float] = []
     # Start at LAG_LONG_STEPS so every row has real lag history behind it
     # from this same grid -- no separate fetch needed at training time,
     # unlike at forecast time where the lag has to come from somewhere.
@@ -231,6 +305,8 @@ def train_model(
             schedule_start_hour, schedule_end_hour,
         ))
         y_vals.append(lv)
+        grid_indices.append(i)
+        lag_long_vals.append(lag_long_v)
 
     if len(x_rows) < min_training_points:
         _LOGGER.warning(
@@ -241,6 +317,9 @@ def train_model(
 
     x_all = np.array(x_rows, dtype=np.float64)
     y_all = np.array(y_vals, dtype=np.float64)
+    grid_idx_all = np.array(grid_indices, dtype=np.int64)
+    lag_long_all = np.array(lag_long_vals, dtype=np.float64)
+    week_steps = round(NAIVE_SEASONAL_STEPS_PER_WEEK_DAYS * 24 * 60 / resample_minutes)
 
     # Chronological split -- x_rows/y_vals are already in time order since
     # the grid itself is, so a plain index cut is a real chronological
@@ -249,6 +328,8 @@ def train_model(
     split = max(split, min_training_points // 2)  # keep a real training set even on a small window
     x_tr, y_tr = x_all[:split], y_all[:split]
     x_val, y_val = x_all[split:], y_all[split:]
+    grid_idx_tr, grid_idx_val = grid_idx_all[:split], grid_idx_all[split:]
+    lag_long_val = lag_long_all[split:]
 
     x_mean = x_tr.mean(axis=0)
     x_std = x_tr.std(axis=0)
@@ -256,7 +337,10 @@ def train_model(
     x_tr_std = (x_tr - x_mean) / x_std
 
     validation_mae: dict[str, float] = {}
+    validation_mase: dict[str, float] = {}
     model_type = "knn"  # safe default if validation set is too small to compare meaningfully
+    gbrt_lower_final: GBRT | None = None
+    gbrt_upper_final: GBRT | None = None
 
     if len(x_val) >= 20:
         # Both candidates are fit on x_tr_std (standardized against the
@@ -279,15 +363,90 @@ def train_model(
             n_estimators=GBRT_N_ESTIMATORS, max_depth=GBRT_MAX_DEPTH,
             learning_rate=GBRT_LEARNING_RATE, min_samples_leaf=GBRT_MIN_SAMPLES_LEAF,
         )
-        gbrt_val.fit(x_tr_std, y_tr)
+        gbrt_val.fit(
+            x_tr_std, y_tr, x_val=x_val_std, y_val=y_val,
+            early_stopping_rounds=GBRT_EARLY_STOPPING_ROUNDS,
+        )
         gbrt_val_pred = gbrt_val.predict(x_val_std)
         validation_mae["gbrt"] = _mae(y_val, gbrt_val_pred)
 
+        # Seasonal-naive baseline: "what was this load doing at this exact
+        # same time one week ago" -- a genuine, trivial-to-compute
+        # non-ML candidate in the same comparison, not just a separately
+        # reported number. Falls back to the row's own lag_long value
+        # (the same fallback predict() itself uses) on any validation
+        # row where a week-ago grid point doesn't exist yet or wasn't
+        # observed -- honest best-available reference, not a skipped row
+        # (skipping would silently shrink the comparison's sample size
+        # relative to knn/gbrt's own full validation set).
+        naive_val_pred = np.empty(len(grid_idx_val))
+        for j, idx in enumerate(grid_idx_val):
+            week_ago_idx = int(idx) - week_steps
+            week_val = load_vals[week_ago_idx] if week_ago_idx >= 0 else None
+            naive_val_pred[j] = week_val if week_val is not None else lag_long_val[j]
+        validation_mae["naive"] = _mae(y_val, naive_val_pred)
+
         model_type = "gbrt" if validation_mae["gbrt"] < validation_mae["knn"] else "knn"
         _LOGGER.info(
-            "Model validation: knn_mae=%.4f gbrt_mae=%.4f -> using %s",
-            validation_mae["knn"], validation_mae["gbrt"], model_type,
+            "Model validation: knn_mae=%.4f gbrt_mae=%.4f naive_mae=%.4f -> using %s",
+            validation_mae["knn"], validation_mae["gbrt"], validation_mae["naive"], model_type,
         )
+
+        # MASE: validation_mae scaled by the TRAINING set's own mean
+        # absolute week-over-week difference -- turns a raw kW error into
+        # a magnitude-independent ratio (MASE < 1.0 = model beats the
+        # naive seasonal baseline; >= 1.0 = it doesn't), comparable across
+        # loads of very different sizes in a way raw MAE never is. Scale
+        # computed from TRAINING data only (never validation) since it's
+        # meant to characterise the load's own inherent week-to-week
+        # variability, not this particular validation split.
+        mase_diffs: list[float] = []
+        for idx, y_true in zip(grid_idx_tr.tolist(), y_tr.tolist(), strict=True):
+            week_ago_idx = idx - week_steps
+            week_val = load_vals[week_ago_idx] if week_ago_idx >= 0 else None
+            if week_val is not None:
+                mase_diffs.append(abs(y_true - week_val))
+        if len(mase_diffs) >= MIN_MASE_SCALE_POINTS:
+            mase_scale = float(np.mean(mase_diffs))
+            if mase_scale > 1e-9:
+                validation_mase = {k: v / mase_scale for k, v in validation_mae.items()}
+                _LOGGER.info(
+                    "Model validation (MASE, scale=%.4f): knn=%.3f gbrt=%.3f naive=%.3f",
+                    mase_scale, validation_mase["knn"], validation_mase["gbrt"],
+                    validation_mase["naive"],
+                )
+
+        # Genuine model-derived quantile bounds -- only when GBRT actually
+        # won (fitting quantile models for a model type that isn't even
+        # deployed would be wasted work) and there's a real validation
+        # set to early-stop against (fitting without it risks an
+        # overfit, artificially-narrow band with no way to catch it here).
+        # Deliberately trained on x_tr_std/y_tr only (the SAME split used
+        # for model selection above), not x_all -- letting them see the
+        # validation rows they're also early-stopping against would be
+        # real leakage. This means these two models see slightly less
+        # data than gbrt_final below (which legitimately retrains on
+        # everything once the model TYPE is settled) -- an honest
+        # trade-off for genuinely being able to use early stopping.
+        if model_type == "gbrt":
+            gbrt_lower_final = GBRT(
+                n_estimators=GBRT_N_ESTIMATORS, max_depth=GBRT_MAX_DEPTH,
+                learning_rate=GBRT_LEARNING_RATE, min_samples_leaf=GBRT_MIN_SAMPLES_LEAF,
+                quantile=GBRT_QUANTILE_LOWER,
+            )
+            gbrt_lower_final.fit(
+                x_tr_std, y_tr, x_val=x_val_std, y_val=y_val,
+                early_stopping_rounds=GBRT_EARLY_STOPPING_ROUNDS,
+            )
+            gbrt_upper_final = GBRT(
+                n_estimators=GBRT_N_ESTIMATORS, max_depth=GBRT_MAX_DEPTH,
+                learning_rate=GBRT_LEARNING_RATE, min_samples_leaf=GBRT_MIN_SAMPLES_LEAF,
+                quantile=GBRT_QUANTILE_UPPER,
+            )
+            gbrt_upper_final.fit(
+                x_tr_std, y_tr, x_val=x_val_std, y_val=y_val,
+                early_stopping_rounds=GBRT_EARLY_STOPPING_ROUNDS,
+            )
     else:
         _LOGGER.info(
             "Only %d validation points -- too few to compare models, defaulting to k-NN.",
@@ -307,6 +466,11 @@ def train_model(
             n_estimators=GBRT_N_ESTIMATORS, max_depth=GBRT_MAX_DEPTH,
             learning_rate=GBRT_LEARNING_RATE, min_samples_leaf=GBRT_MIN_SAMPLES_LEAF,
         )
+        # No early stopping here, deliberately -- this refit trains on
+        # x_all_std (train+val combined, once the model TYPE is already
+        # settled), so there's no legitimate held-out set left to early-
+        # stop against without leaking. Runs the full fixed
+        # GBRT_N_ESTIMATORS, same as before this feature existed.
         gbrt_final.fit(x_all_std, y_all)
 
     _LOGGER.info("Trained %s model on %d points.", model_type, len(x_rows))
@@ -320,6 +484,9 @@ def train_model(
         trained_at=end,
         training_points=len(x_rows),
         validation_mae=validation_mae,
+        validation_mase=validation_mase,
+        gbrt_lower=gbrt_lower_final,
+        gbrt_upper=gbrt_upper_final,
     )
 
 
@@ -338,6 +505,25 @@ def calibrated_band(residuals: list[float], point_value: float, lead_hours: floa
         return point_value * COLD_START_BAND_FRACTION
     near_term_half_width = float(np.percentile(residuals, CONFORMAL_COVERAGE * 100))
     return near_term_half_width * float(np.sqrt(1 + max(0.0, lead_hours)))
+
+
+@dataclass
+class PredictionResult:
+    """Output of predict(). `model_lower`/`model_upper` are populated only
+    when the underlying model produced genuine model-derived quantile
+    bounds (GBRT with quantile sub-models fitted, ML path only -- never
+    the deterministic path, which has no uncertainty to express at all).
+    None (not a list of zeros) otherwise, so coordinator.py can tell
+    "no quantile model available" apart from "a quantile model that
+    happens to output a zero-width band" and fall back to
+    calibrated_band()'s residual-based bands in the former case only --
+    the two sources are never meant to be mixed within one load's single
+    forecast.
+    """
+
+    values: list[float]
+    model_lower: list[float] | None = None
+    model_upper: list[float] | None = None
 
 
 def _in_schedule(hour_frac: float, start: float, end: float) -> bool:
@@ -365,7 +551,7 @@ def predict(
     schedule_start_hour: float | None = None,
     schedule_end_hour: float | None = None,
     expected_load_kw: float | None = None,
-) -> list[float]:
+) -> PredictionResult:
     """Predict load at each of `timestamps` (must be ascending, evenly
     spaced by `resample_minutes`), given matching `temps`/`humidities`/
     `curtailments` (each one value per timestamp, already aligned by the
@@ -403,19 +589,27 @@ def predict(
     raw ML output sequence before returning (deterministic path has no
     such pass -- there's nothing to smooth, it's already exact), so
     consecutive 15-minute steps don't jump unrealistically -- pure
-    post-processing, doesn't feed back into the model itself.
+    post-processing, doesn't feed back into the model itself. Model-
+    derived quantile bounds (`PredictionResult.model_lower`/`model_upper`,
+    2026-08-15), when available, are computed in RAW (pre-smoothing)
+    space per step, then re-centered around the SMOOTHED point value
+    (`smoothed[i] +/- raw_half_width[i]`) -- keeps the point curve's own
+    smoothness while preserving the band's real, model-learned shape
+    (typically widening with horizon) rather than smoothing the bounds
+    independently and risking them drifting out of sync with the point
+    estimate they're supposed to surround.
     """
     if (
         expected_load_kw is not None
         and schedule_start_hour is not None
         and schedule_end_hour is not None
     ):
-        return [
+        return PredictionResult(values=[
             expected_load_kw
             if _in_schedule(ts.hour + ts.minute / 60.0, schedule_start_hour, schedule_end_hour)
             else 0.0
             for ts in timestamps
-        ]
+        ])
 
     step = timedelta(minutes=resample_minutes)
     # Rolling buffer of (timestamp, value), seeded from real history, that
@@ -431,8 +625,10 @@ def predict(
         return buffer_vals[idx] if idx >= 0 else default_lag
 
     curtailment_list = curtailments if curtailments is not None else [0.0] * len(timestamps)
+    has_quantile_models = trained.gbrt_lower is not None and trained.gbrt_upper is not None
 
     raw_preds: list[float] = []
+    raw_half_widths: list[float] = []
     for ts, temp, humidity, curtailment in zip(
         timestamps, temps, humidities, curtailment_list, strict=True
     ):
@@ -457,6 +653,14 @@ def predict(
             )[0])
         pred = max(0.0, pred)
 
+        if has_quantile_models:
+            lower_raw = float(trained.gbrt_lower.predict(x_row_std)[0])
+            upper_raw = float(trained.gbrt_upper.predict(x_row_std)[0])
+            # A quantile GBRT has no ordering constraint between separately
+            # fit lower/upper models -- clamp to a real non-negative band
+            # around the point estimate rather than trust the raw pair.
+            raw_half_widths.append(max(0.0, upper_raw - lower_raw) / 2.0)
+
         raw_preds.append(pred)
         buffer_times.append(ts)
         buffer_vals.append(pred)
@@ -466,4 +670,10 @@ def predict(
     for p in raw_preds:
         prev = DAMPING_ALPHA * p + (1 - DAMPING_ALPHA) * prev
         smoothed.append(prev)
-    return smoothed
+
+    if not has_quantile_models:
+        return PredictionResult(values=smoothed)
+
+    model_lower = [max(0.0, v - hw) for v, hw in zip(smoothed, raw_half_widths, strict=True)]
+    model_upper = [v + hw for v, hw in zip(smoothed, raw_half_widths, strict=True)]
+    return PredictionResult(values=smoothed, model_lower=model_lower, model_upper=model_upper)

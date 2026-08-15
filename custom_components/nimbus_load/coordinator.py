@@ -57,7 +57,7 @@ from .const import (
     UPDATE_INTERVAL_MINUTES,
 )
 from .ml.features import FEATURE_NAMES
-from .ml.model import MAX_RESIDUALS_STORED, TrainedModel, calibrated_band, predict, train_model
+from .ml.model import MAX_RESIDUALS_STORED, PredictionResult, TrainedModel, calibrated_band, predict, train_model
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -435,6 +435,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return {
                 "state": None, "forecast": [], "mode": self._mode,
                 "trained_at": None, "training_points": 0,
+                "validation_mae": {}, "validation_mase": {},
             }
 
         now_utc = dt_util.utcnow()
@@ -488,7 +489,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             curtailments.append(_step_lookup(curtailment_forecast, t, 0.0))
             t += step
 
-        preds = await self.hass.async_add_executor_job(
+        result: PredictionResult = await self.hass.async_add_executor_job(
             predict,
             self._trained,
             timestamps,
@@ -501,16 +502,26 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._schedule_end_hour,
             self._expected_load_kw,
         )
+        preds = result.values
+        has_model_bounds = result.model_lower is not None and result.model_upper is not None
 
         points = []
-        for ts, v in zip(timestamps, preds, strict=True):
-            lead_hours = (ts - now_utc).total_seconds() / 3600
-            band = calibrated_band(self._residuals, v, lead_hours)
+        for i, (ts, v) in enumerate(zip(timestamps, preds, strict=True)):
+            if has_model_bounds:
+                # Genuine model-derived quantile bounds (GBRT winner, real
+                # validation set to early-stop against) -- preferred over
+                # the residual-based fallback below whenever available,
+                # never blended with it for a single load's forecast.
+                lower, upper = result.model_lower[i], result.model_upper[i]
+            else:
+                lead_hours = (ts - now_utc).total_seconds() / 3600
+                band = calibrated_band(self._residuals, v, lead_hours)
+                lower, upper = max(0.0, v - band), v + band
             points.append({
                 "time": ts.isoformat(),
                 "value": round(v, 3),
-                "lower": round(max(0.0, v - band), 3),
-                "upper": round(v + band, 3),
+                "lower": round(lower, 3),
+                "upper": round(upper, 3),
             })
         current = preds[0] if preds else 0.0
 
@@ -525,6 +536,8 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "mode": self._mode,
             "trained_at": self._trained.trained_at.isoformat(),
             "training_points": self._trained.training_points,
+            "validation_mae": self._trained.validation_mae,
+            "validation_mase": self._trained.validation_mase,
         }
 
 
