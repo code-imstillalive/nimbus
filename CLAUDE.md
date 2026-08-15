@@ -115,3 +115,29 @@ happens locally: copy the relevant `custom_components/nimbus_load/{const.py,ml/*
 files (pure numpy + stdlib, zero HA dependencies) into a scratch test package and run
 real synthetic data through `train_model()`/`predict()` before shipping — not just a
 syntax check. See recent PR descriptions for the pattern.
+
+The config-flow/entity/sensor files (`config_flow.py`, `flows/*.py`, `sensor.py`,
+`coordinator.py`) import `homeassistant.*` directly and can't be instantiated in that
+same local test environment (no `homeassistant` package installed there) — `py_compile`
+syntax checks + careful mirroring of an already-proven pattern is the most that can be
+verified before a real deploy for these files.
+
+## Translations — keep `strings.json` and `translations/en.json` byte-identical
+
+Confirmed live 2026-08-15: `config`/`options` schema sections render correctly from
+`strings.json` alone (Home Assistant's documented runtime fallback for a locally-installed
+custom_component with no `translations/` directory), but `config_subentries` did NOT —
+both "+ Add" menu buttons rendered with no label, and the per-field data labels fell back
+to the raw field name, even after `strings.json` had the correct `flow_title`/
+`entry_type`/`initiate_flow`/`step.*.data` content and a full HA restart. `config_subentries`
+is a newer, less mature part of HA's config-flow schema than `config`/`options` — this
+project's own leading theory is that its strings.json-fallback support just isn't as
+reliable yet, though this wasn't independently confirmed against HA's own source.
+Fixed by adding `translations/en.json` as an exact copy of `strings.json`'s content — this
+is HAEO's own file layout too (`custom_components/haeo/translations/en.json`), used to
+directly source every string in this file's `config_subentries` section.
+
+**There is no build step generating one from the other in this repo** — both must be
+edited together, kept byte-identical, every time either one changes. If they ever drift,
+`strings.json` should be treated as the source of truth (it's what a real HA translation
+pipeline would compile from), and `translations/en.json` regenerated to match it.
