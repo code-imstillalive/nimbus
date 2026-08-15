@@ -4,6 +4,48 @@ Instructions for any Claude instance working on this repo. Read this before touc
 
 ---
 
+## ⚠️ CURRENT STATE (2026-08-15 evening) — PR #16 and #17 merged, NOT yet deployed
+
+`main` is at v0.20.0, two commits ahead of what's actually running on the live NUC (last
+deployed version was v0.18.0, deployed ~16:47 AEST). **Deliberately not deployed yet** —
+deploying a Python custom_component change needs a full restart, and this project has a
+standing rule (see the sibling `116KAT-HA-AI` repo's own CLAUDE.md) against restarting
+during the household's active 5pm-midnight P2P battery-sell window. User's own words:
+"will do it after p2p."
+
+**What's waiting to deploy, both already verified locally against real data (see the bug
+chain below for #6/#7):**
+- PR #16 (v0.19.0) — fixes a real, repeating ~1-1.5kW spike in the Whole House load
+  forecast at exactly 00:05 every simulated day.
+- PR #17 (v0.20.0) — fixes a real hard stair-step (flat for hours, then instant jump) in
+  every seasonal-anchored forecast, found live literally minutes after #16 was verified as
+  the first real-world visual check of a smoothly-varying chart after the exposure-bias
+  fixes shipped.
+
+**Deploy once the P2P window has closed (after midnight), full commands:**
+```bash
+cd /opt/homeassistant/config/nimbus_repo
+git pull origin main
+rm -f /opt/homeassistant/config/.storage/nimbus_load_*.pkl
+docker restart opt_homeassistant_1
+```
+The `.pkl` deletion forces every one of the 22 loads/signals to retrain fresh on restart
+(picking up both fixes immediately) rather than waiting for each one's own next scheduled
+3am/6am retrain. Expect ~4 minutes for HA's core API to respond and Nimbus entities to
+start registering, once seen in this project's own history taking as long as 10-13 minutes
+for every entity to finish a genuine full retrain+validation cycle — don't assume it's
+stuck just because it's slow.
+
+**Verify after deploying:**
+```bash
+curl -s -H "Authorization: Bearer $(cat /home/homehub/.ha_token)" "http://192.168.1.221:8123/api/states/sensor.nimbus_logger_load_power_forecast" | python3 -m json.tool
+```
+Check `model_trained_at` is fresh (matches the restart time), then look at the `forecast`
+array: no isolated single-point spikes anywhere, and no long flat runs within an hour
+followed by a hard jump — should read as a genuinely smooth, continuously-varying curve.
+
+---
+
 ## ⚠️ PRIME DIRECTIVE — ZERO HAEO
 
 > **NEVER REFERENCE HAEO IN NIMBUS. NOT A SENSOR. NOT AN ENTITY. NOT A FEATURE. NEVER.**
@@ -53,9 +95,9 @@ detail — it's kept current there, not duplicated here.
 
 That's stage 1 of a longer destination, not the finished product.
 
-## Recursive-forecast bug chain (v0.13.0 → v0.18.0, 2026-08-15) — read before touching predict()
+## Recursive-forecast bug chain (v0.13.0 → v0.20.0, 2026-08-15) — read before touching predict()
 
-A single, very productive debugging day found and fixed **five separate, real, confirmed-
+A single, very productive debugging day found and fixed **seven separate, real, confirmed-
 live bugs**, all in the same area of code (`predict()`'s recursive multi-step forecasting
 and its confidence-band computation). Documented here in detail because they're subtle,
 interact with each other, and the next person touching this code needs the full picture,
@@ -159,6 +201,60 @@ future new `TrainedModel` field should use the same defensive-getattr pattern in
 until every currently-deployed `.pkl` has been through at least one retrain under the new
 code.
 
+**6. Whole House load hitting the same exposure bias as Battery/Grid/Solar (v0.19.0).**
+Bug #3's fix (`seasonal_lookup` anchoring) was deliberately scoped to power-signal
+subentries only (`allow_negative=True` callers) — the reasoning at the time: individual
+loads (a pool pump, an AC zone) genuinely benefit from real near-term momentum carry-over
+in their lag features, unlike a power signal. That reasoning doesn't hold for the "Whole
+House" load specifically — confirmed live, first thing the user noticed once a smoothly-
+varying chart made it visible at all: a real, isolated ~1-1.5kW spike at exactly 00:05
+every single simulated day (1.50→3.40→2.78, 2.82→4.27→3.14, 2.82→3.82→2.97,
+2.81→3.81→2.97) — the identical exposure-bias signature as Battery's own midnight problem,
+because Whole House's own real meter reading bleeds in the SAME real automation-driven
+transition (the P2P-sell-to-self-consume cutover) that Battery has, even though it's
+registered as a "load" subentry, not a "power signal" one — it's a system-level aggregate,
+not a genuinely momentum-driven individual appliance.
+
+Fix: decoupled the seasonal-anchor treatment from `allow_negative` into its own new
+`predict()` parameter (`seasonal_anchor`) and coordinator property (`_seasonal_anchor`) —
+`True` for power-signal subentries AND for the one load whose sensor matches the real
+whole-house meter entity (`sensor.logger_load_power`, hardcoded rather than a new config
+field — this fixes one specific, confirmed-live bug, not a general feature). `allow_negative`
+itself is untouched and still gates the zero-clamp separately — Whole House still
+physically can't draw negative power, so these two questions ("should this signal's lag be
+seasonally anchored" vs. "can this signal's value go negative") needed to be genuinely
+separate flags, not the one conflated parameter they'd been sharing since bug #1 (harmless
+until now, since only power signals had ever needed either).
+
+**7. Hard stair-step in seasonal-anchored forecasts (v0.20.0)** — found live literally
+minutes after #6 shipped, the first time anyone actually looked closely at a smoothly-
+varying chart post-fix. `seasonal_lookup` bucketed by `(weekday, hour)` only meant every
+15-min grid point within the same hour got an IDENTICAL lag input — combined with bug #4's
+damping-skip (needed to keep a genuine sharp transition from blurring), there was nothing
+left to smooth the model's own flat, repeated output. Confirmed live: Whole House's
+published forecast held exactly `1.399` for 2.5 hours straight (16:18 through 18:48) then
+jumped instantly at the next hour boundary — a real, visible hard stair-step instead of a
+continuously-varying curve.
+
+Fix: `seasonal_lookup` now buckets by `(weekday, hour, 15-min-of-hour)` instead of
+`(weekday, hour)` alone — every grid point gets its own real seasonal value. The
+predict-time lookup floors the target's minute to the nearest 15-min mark (0/15/30/45)
+rather than matching it exactly — same underlying technique already used to fix the
+original exact-minute-match bug from #3 (two timestamps within the same 15-min window
+now correctly collapse to the identical bucket regardless of their own arbitrary
+sub-15-min wall-clock offset). Midnight itself stays exactly as sharp as before this
+change — 23:45 and 00:00 are still fully separate buckets, nothing spans across that
+boundary; this fix only removes the artificial flatness WITHIN an hour, which was never a
+deliberate goal of the `(weekday, hour)` version, just an unexamined side effect of
+choosing hourly granularity to sidestep the exact-minute-match bug the simplest way
+possible at the time.
+
+Verified against REAL Battery household data (which has genuine within-hour variation,
+unlike a flat synthetic test): 18:04/18:19/18:34/18:49 now read `6.058/6.078/6.085/6.132`
+(smoothly increasing) instead of one flat repeated value, while the real midnight
+transition (re-checked via the existing synthetic test) still settles within one grid
+step, completely unchanged by this fix.
+
 **Process lesson, not a code bug:** verify claims about a fix against REAL data before
 declaring success. Six separate synthetic reproduction attempts (clean baseline, realistic
 noise, damping-alpha variation, an afternoon-start with real charging lag, real temperature
@@ -166,7 +262,10 @@ data, a longer 45-day training window) all FAILED to reproduce bug #3 above — 
 repro only appeared once BOTH the real 45-day household data AND the real live starting
 condition (today's actual charging-to-zero transition) were used together. Don't trust a
 synthetic test that "looks representative" over pulling the real data when a live bug
-report and a passing local test disagree.
+report and a passing local test disagree. Bugs #6 and #7 reinforce the same lesson from a
+different angle: both were found by a HUMAN actually looking closely at a live chart, not
+by any automated test — the existing synthetic tests couldn't have caught either one (no
+flat-repeat check existed for #7 until it was added specifically because of this).
 
 ## Roadmap — Forecasters → Topology → Solver
 
