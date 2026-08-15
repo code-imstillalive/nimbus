@@ -745,7 +745,17 @@ def predict(
 
     def lag_at(target: datetime) -> float:
         if allow_negative and (real_data_cutoff is None or target > real_data_cutoff):
-            seasonal_v = trained.seasonal_lookup.get((target.weekday(), target.hour))
+            # getattr(..., {}) not trained.seasonal_lookup directly --
+            # plain @dataclass pickling restores an OLD persisted
+            # TrainedModel's __dict__ verbatim, skipping __init__ and its
+            # default_factory=dict entirely, so a .pkl saved under the
+            # PREVIOUS code (before this field existed) unpickles with no
+            # seasonal_lookup attribute at all. Caught before shipping,
+            # not live -- would otherwise raise a real AttributeError on
+            # the very first predict() call after this deploys, for
+            # every load AND every signal (not just Battery), until each
+            # one's next scheduled retrain replaces the stale pickle.
+            seasonal_v = getattr(trained, "seasonal_lookup", {}).get((target.weekday(), target.hour))
             if seasonal_v is not None:
                 return seasonal_v
             # No (weekday, hour) match for this particular bucket (e.g. a
