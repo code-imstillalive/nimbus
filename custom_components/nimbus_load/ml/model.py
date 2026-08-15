@@ -775,6 +775,11 @@ def predict(
 
     raw_preds: list[float] = []
     raw_half_widths: list[float] = []
+    # See the DAMPING_ALPHA-skip comment below, right before this list is
+    # used -- tracked per-step here (not recomputed there) so it reflects
+    # EXACTLY the same condition lag_at() itself used for this step's
+    # lag_long lookup, not a second, independently-derived guess.
+    seasonal_anchored: list[bool] = []
     for ts, temp, humidity, curtailment, battery_kw, grid_kw, solar_kw in zip(
         timestamps, temps, humidities, curtailment_list, battery_list, grid_list, solar_list,
         strict=True,
@@ -783,6 +788,9 @@ def predict(
         lag_long_t = ts - LAG_LONG_STEPS * step
         lag_short_v = lag_at(lag_short_t)
         lag_long_v = lag_at(lag_long_t)
+        seasonal_anchored.append(
+            allow_negative and (real_data_cutoff is None or lag_long_t > real_data_cutoff)
+        )
 
         x_row = np.array(
             [build_features(
@@ -815,8 +823,27 @@ def predict(
 
     smoothed: list[float] = []
     prev = raw_preds[0] if raw_preds else 0.0
-    for p in raw_preds:
-        prev = DAMPING_ALPHA * p + (1 - DAMPING_ALPHA) * prev
+    for p, anchored in zip(raw_preds, seasonal_anchored, strict=True):
+        # Skip damping entirely (alpha=1.0, trust the raw prediction as-
+        # is) once a step is "seasonal_anchored" -- both its lag inputs
+        # already come from TrainedModel.seasonal_lookup's pre-averaged
+        # per-hour table, not noisy step-to-step momentum. Confirmed
+        # live 2026-08-15, directly against real data: this household's
+        # own P2P-sell-to-self-consume automation cuts battery discharge
+        # from ~13kW to ~1-2kW in under a minute at exactly 00:00:00
+        # every night (a real, deliberate, near-instant step, not
+        # gradual decay) -- but DAMPING_ALPHA's exponential smoothing,
+        # applied uniformly across the whole 96h sequence, was blurring
+        # that genuine step into a fake ~45-minute ramp (00:00 -> 8.83,
+        # 00:15 -> 3.28, 00:30 -> 2.11, 00:45 -> 1.70 instead of an
+        # immediate drop). Damping still applies normally for the first
+        # ~hour of any forecast (LAG_LONG_STEPS grid steps), where
+        # consecutive raw predictions genuinely are closely correlated
+        # (real recent momentum) and smoothing out step-to-step model
+        # jitter is the whole point -- this is scoped narrowly to the
+        # region where that reasoning no longer holds.
+        alpha = 1.0 if anchored else DAMPING_ALPHA
+        prev = alpha * p + (1 - alpha) * prev
         smoothed.append(prev)
 
     if not has_quantile_models:
