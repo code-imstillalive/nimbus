@@ -23,6 +23,8 @@ import pickle
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 from homeassistant.components.recorder import get_instance
 from homeassistant.components.recorder.history import get_significant_states
 from homeassistant.config_entries import ConfigEntry, ConfigSubentry
@@ -645,6 +647,31 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         preds = result.values
         has_model_bounds = result.model_lower is not None and result.model_upper is not None
 
+        # Real, observed physical range for this signal/load -- confirmed
+        # live 2026-08-15 that calibrated_band()'s sqrt(1+lead_hours)
+        # growth has no ceiling at all: for Grid (whose GBRT candidate
+        # badly overfit -- validation_mae=6220 vs knn's 7.55, so k-NN won
+        # and there's no bounded quantile model, forcing the residual
+        # fallback), the band had widened to +/-100kW by 96h out, nearly
+        # 2.5x this project's own long-documented ~44kW physical grid
+        # limit, and visibly still growing ("spirals up and up," reported
+        # live). Genuine model-derived quantile bounds (has_model_bounds)
+        # aren't immune to the same risk either -- a tree-based quantile
+        # model can still extrapolate past its own training range for a
+        # timestamp/feature combination it never saw. Clamping BOTH
+        # sources to what this signal has actually, really done (with a
+        # modest 20% margin -- a genuine future extreme shouldn't be
+        # impossible, just not unboundedly implausible) is honest in a
+        # way an arbitrary fixed kW constant wouldn't be: it's grounded
+        # in this specific signal's own real data, works identically for
+        # a 3kW load and a 44kW battery with zero per-entity tuning.
+        y_min = float(np.min(self._trained.y_train))
+        y_max = float(np.max(self._trained.y_train))
+        y_range = y_max - y_min
+        margin = y_range * 0.2 if y_range > 1e-9 else max(abs(y_max), 1.0) * 0.2
+        bound_floor = y_min - margin
+        bound_ceiling = y_max + margin
+
         points = []
         for i, (ts, v) in enumerate(zip(timestamps, preds, strict=True)):
             if has_model_bounds:
@@ -658,6 +685,8 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 band = calibrated_band(self._residuals, v, lead_hours)
                 lower = (v - band) if self._allow_negative else max(0.0, v - band)
                 upper = v + band
+            lower = max(lower, bound_floor)
+            upper = min(upper, bound_ceiling)
             points.append({
                 "time": ts.isoformat(),
                 "value": round(v, 3),
