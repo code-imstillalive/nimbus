@@ -32,6 +32,12 @@
   },
   "config_subentries": {
     "load": {
+      "flow_title": "Load",
+      "entry_type": "Load",
+      "initiate_flow": {
+        "user": "Load",
+        "reconfigure": "Load"
+      },
       "step": {
         "user": {
           "title": "Add a load",
@@ -43,6 +49,12 @@
       }
     },
     "power_signal": {
+      "flow_title": "Power Signal",
+      "entry_type": "Power Signal",
+      "initiate_flow": {
+        "user": "Power Signal",
+        "reconfigure": "Power Signal"
+      },
       "step": {
         "user": {
           "title": "Add a power signal",
