@@ -13,6 +13,23 @@ DOMAIN: Final = "nimbus_load"
 # flows/hub.py -- async_get_supported_subentry_types).
 SUBENTRY_TYPE_LOAD: Final = "load"
 
+# Second subentry type (2026-08-15): forecasting a real power SIGNAL
+# directly -- Battery, Solar, Grid, or any other real measured power
+# sensor -- as its own genuine forecast target, using the exact same
+# k-NN/GBRT/validation engine already proven for loads (coordinator.py
+# and ml/model.py need zero changes to support this: they already read
+# subentry.data[CONF_LOAD_SENSOR] generically, regardless of which
+# subentry type created it). Deliberately a SEPARATE, simpler subentry
+# type rather than folding into "load" -- a battery/solar/grid signal
+# has no schedule/expected-load "deterministic mode" concept (it doesn't
+# run on a fixed daily timer the way a pool pump does), so its own form
+# (flows/signal_subentry.py) is intentionally just one field. Part of
+# this repo's own stated roadmap (see CLAUDE.md): Battery/Solar/Grid
+# becoming real Nimbus-forecasted targets, not just load-model inputs
+# (see CONF_BATTERY_SENSOR etc. below for the input-feature side of
+# this, a separate, earlier addition).
+SUBENTRY_TYPE_SIGNAL: Final = "power_signal"
+
 CONF_LOAD_SENSOR: Final = "load_sensor"
 CONF_TEMPERATURE_SENSOR: Final = "temperature_sensor"
 CONF_TEMPERATURE_FORECAST_SENSOR: Final = "temperature_forecast_sensor"

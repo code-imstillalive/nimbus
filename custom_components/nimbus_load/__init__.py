@@ -1,11 +1,15 @@
-"""The Nimbus integration -- a self-retraining ML load forecaster.
+"""The Nimbus integration -- a self-retraining ML forecaster.
 
-One hub config entry, any number of "load" subentries (see config_flow.py /
-flows/load_subentry.py) -- each load gets its own NimbusCoordinator, its own
-persisted model, and its own forecast sensor + device, so adding a load
-(there can be many -- built for a real 18-circuit-breaker household) never
-means a full new integration setup, and each one's health is independently
-visible in the device registry.
+One hub config entry, any number of "load" or "power_signal" subentries
+(see config_flow.py / flows/load_subentry.py / flows/signal_subentry.py)
+-- each one gets its own NimbusCoordinator, its own persisted model, and
+its own forecast sensor + device, so adding one (there can be many --
+built for a real 18-circuit-breaker household) never means a full new
+integration setup, and each one's health is independently visible in the
+device registry. Both subentry types share the exact same coordinator/
+forecasting engine -- the only real difference is which config fields
+each one's own "+ Add" form asks for (a load's optional schedule/
+expected-load fields don't apply to a Battery/Solar/Grid power signal).
 """
 
 from __future__ import annotations
@@ -14,27 +18,29 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN, SUBENTRY_TYPE_LOAD
+from .const import DOMAIN, SUBENTRY_TYPE_LOAD, SUBENTRY_TYPE_SIGNAL
 from .coordinator import NimbusCoordinator
 
 PLATFORMS: list[Platform] = [Platform.SENSOR]
 
+_FORECASTABLE_SUBENTRY_TYPES = (SUBENTRY_TYPE_LOAD, SUBENTRY_TYPE_SIGNAL)
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
-    """Set up the Nimbus hub -- one coordinator per "load" subentry.
+    """Set up the Nimbus hub -- one coordinator per load/power_signal subentry.
 
     hass.data[DOMAIN][entry.entry_id] is a dict keyed by subentry_id, not a
     single coordinator -- sensor.py iterates it to create one entity per
-    load. A hub with zero loads yet (right after first install, before
-    anything's been added via "+ Add") is valid and simply sets up nothing
-    further until the first load subentry exists.
+    load/signal. A hub with zero subentries yet (right after first install,
+    before anything's been added via "+ Add") is valid and simply sets up
+    nothing further until the first one exists.
     """
-    load_subentries = [
-        s for s in entry.subentries.values() if s.subentry_type == SUBENTRY_TYPE_LOAD
+    forecastable_subentries = [
+        s for s in entry.subentries.values() if s.subentry_type in _FORECASTABLE_SUBENTRY_TYPES
     ]
 
     coordinators: dict[str, NimbusCoordinator] = {}
-    for subentry in load_subentries:
+    for subentry in forecastable_subentries:
         coordinator = NimbusCoordinator(hass, entry, subentry)
         await coordinator.async_setup()
         await coordinator.async_config_entry_first_refresh()

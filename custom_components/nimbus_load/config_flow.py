@@ -28,9 +28,10 @@ from homeassistant.config_entries import (
 )
 from homeassistant.core import callback
 
-from .const import DOMAIN, SUBENTRY_TYPE_LOAD
+from .const import DOMAIN, SUBENTRY_TYPE_LOAD, SUBENTRY_TYPE_SIGNAL
 from .flows.hub_options import NimbusHubOptionsFlow
 from .flows.load_subentry import NimbusLoadSubentryFlowHandler
+from .flows.signal_subentry import NimbusSignalSubentryFlowHandler
 
 
 class NimbusConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -53,9 +54,15 @@ class NimbusConfigFlow(ConfigFlow, domain=DOMAIN):
     def async_get_supported_subentry_types(
         cls, config_entry: ConfigEntry
     ) -> dict[str, type[ConfigSubentryFlow]]:
-        """Register the "load" subentry type -- this is what puts a "+ Add"
-        button on the Nimbus hub's device page in the HA UI."""
-        return {SUBENTRY_TYPE_LOAD: NimbusLoadSubentryFlowHandler}
+        """Register both subentry types -- this is what puts a "+ Add"
+        menu (load, or power signal) on the Nimbus hub's device page in
+        the HA UI. Power signal (2026-08-15): forecasts Battery/Solar/
+        Grid/etc directly as its own target, not just as a load-model
+        input -- see flows/signal_subentry.py."""
+        return {
+            SUBENTRY_TYPE_LOAD: NimbusLoadSubentryFlowHandler,
+            SUBENTRY_TYPE_SIGNAL: NimbusSignalSubentryFlowHandler,
+        }
 
     @staticmethod
     @callback
