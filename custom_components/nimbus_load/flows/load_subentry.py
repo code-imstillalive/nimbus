@@ -83,10 +83,17 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
     # ha-selector-number finding): only pass default= when a real value
     # already exists.
     load_default = defaults.get(CONF_EXPECTED_LOAD_KW)
+    # No `step` constraint -- confirmed live 2026-08-15: HTML5 number
+    # inputs reject a value that isn't an exact floating-point multiple
+    # of `step`, and binary floating point can't represent 0.05 exactly,
+    # so a logically-valid value like 1.3 (= 26 x 0.05 in real math) got
+    # silently blocked on submit with no visible error. There's no real
+    # reason to force quantization on a manually-typed kW value anyway --
+    # unlike the schedule-hour fields, arbitrary decimal precision here
+    # is exactly what's wanted.
     load_selector = selector.NumberSelector(
         selector.NumberSelectorConfig(
-            min=0, step=0.05, mode=selector.NumberSelectorMode.BOX,
-            unit_of_measurement="kW",
+            min=0, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="kW",
         )
     )
     if load_default is not None:
