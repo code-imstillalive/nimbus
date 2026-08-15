@@ -18,10 +18,13 @@ from homeassistant.helpers import selector
 import voluptuous as vol
 
 from ..const import (
+    CONF_BATTERY_SENSOR,
     CONF_CURTAILMENT_SENSOR,
     CONF_FORECAST_HORIZON_HOURS,
+    CONF_GRID_SENSOR,
     CONF_HUMIDITY_SENSOR,
     CONF_RETRAIN_HOUR_LOCAL,
+    CONF_SOLAR_SENSOR,
     CONF_TEMPERATURE_FORECAST_SENSOR,
     CONF_TEMPERATURE_SENSOR,
     CONF_TRAIN_DAYS,
@@ -57,6 +60,21 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             vol.Optional(
                 CONF_CURTAILMENT_SENSOR, default=defaults.get(CONF_CURTAILMENT_SENSOR)
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="switch")),
+            # Optional -- REAL MEASURED power sensors only (this
+            # household's own Modbus/inverter readings), never an
+            # optimizer's own plan/forecast entity. Point these at
+            # whatever your own system calls its battery/grid/solar
+            # power sensors -- there's no assumed naming here, unlike
+            # the entities this was originally (wrongly) built against.
+            vol.Optional(
+                CONF_BATTERY_SENSOR, default=defaults.get(CONF_BATTERY_SENSOR)
+            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            vol.Optional(
+                CONF_GRID_SENSOR, default=defaults.get(CONF_GRID_SENSOR)
+            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            vol.Optional(
+                CONF_SOLAR_SENSOR, default=defaults.get(CONF_SOLAR_SENSOR)
+            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
             vol.Optional(
                 CONF_FORECAST_HORIZON_HOURS,
                 default=defaults.get(CONF_FORECAST_HORIZON_HOURS, DEFAULT_FORECAST_HORIZON_HOURS),
