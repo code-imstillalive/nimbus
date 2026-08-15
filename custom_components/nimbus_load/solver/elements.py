@@ -20,6 +20,7 @@ proved out for the Forecaster.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 
 import numpy as np
 from numpy.typing import NDArray
@@ -62,13 +63,48 @@ class PeriodGrid:
     fine-grained Rolling Refinement window, per the architecture sketch's
     own §2 layering), matching HAEO's own real Network class convention
     (`periods` in hours, confirmed directly from its source).
+
+    `start`: real wall-clock time of this grid's own first period, or
+    `None` if this grid has no real calendar anchor at all (e.g. a plain
+    synthetic/relative-time test). This is what lets `build_plan()`
+    genuinely align a NEW solve's periods against a PREVIOUS solve's
+    periods by real elapsed time -- required for cross-solve continuity
+    (plan stability / rate limiting, see network.py's own docstring) to
+    mean anything at all. A rolling re-solve's new grid does NOT start at
+    the same wall-clock instant as the previous solve's grid (time has
+    genuinely moved on between solves) -- matching by array INDEX alone
+    would silently compare the wrong periods to each other the moment the
+    two grids' start times diverge, which is every single re-solve after
+    the first. `start=None` is a deliberate, honest "no alignment
+    possible" state, not an error -- every existing caller (every test
+    predating this field) constructs a PeriodGrid with no calendar
+    context at all, and continues to work unchanged; cross-solve
+    continuity mechanisms simply have nothing to align against and are
+    skipped, exactly as if no previous_plan had been passed at all.
     """
 
     hours: NDArray[np.float64]
+    start: datetime | None = None
 
     @property
     def n_periods(self) -> int:
         return len(self.hours)
+
+    @property
+    def period_starts(self) -> list[datetime] | None:
+        """Real wall-clock start time of every period, or None if this
+        grid has no calendar anchor (`start is None`). Computed by
+        cumulative addition of each period's own duration -- NOT assumed
+        uniform, since `hours` explicitly supports variable-width periods.
+        """
+        if self.start is None:
+            return None
+        starts: list[datetime] = []
+        t = self.start
+        for h in self.hours:
+            starts.append(t)
+            t = t + timedelta(hours=float(h))
+        return starts
 
     def __post_init__(self) -> None:
         if self.n_periods == 0:
@@ -164,6 +200,30 @@ class BatteryConfig:
             raise DegenerateConfigError(msg)
 
 
+def _validate_confidence_band(
+    label: str, forecast_kw: NDArray[np.float64], lower_kw: NDArray[np.float64] | None, upper_kw: NDArray[np.float64] | None
+) -> None:
+    """Shared validation for the optional lower_kw/upper_kw confidence
+    band any forecast-bearing element may carry (see CONFIDENCE-AWARE
+    DISPATCH in network.py's own docstring for how these get used). Both
+    must be given together or not at all -- a one-sided band has no
+    honest interpretation for either the load-side (pessimistic = high)
+    or solar-side (pessimistic = low) risk adjustment network.py applies.
+    """
+    if (lower_kw is None) != (upper_kw is None):
+        msg = f"{label}: lower_kw and upper_kw must both be given, or neither (got one without the other)"
+        raise ValueError(msg)
+    if lower_kw is None:
+        return
+    n = len(forecast_kw)
+    if len(lower_kw) != n or len(upper_kw) != n:
+        msg = f"{label}: lower_kw/upper_kw must have {n} periods each, matching forecast_kw"
+        raise ValueError(msg)
+    if np.any(lower_kw > forecast_kw + 1e-9) or np.any(upper_kw < forecast_kw - 1e-9):
+        msg = f"{label}: confidence band must satisfy lower_kw <= forecast_kw <= upper_kw at every period"
+        raise ValueError(msg)
+
+
 @dataclass(frozen=True)
 class SolarConfig:
     """Real forecast, in kW per period -- from Nimbus's own already-
@@ -173,29 +233,45 @@ class SolarConfig:
     excess-solar priority order this project already documented:
     load > battery > sheddables > curtailment > negative-price export,
     last resort), never forced to produce above it.
+
+    lower_kw/upper_kw: optional, the Forecaster's own genuine model-
+    derived confidence band for this same forecast (both None = no band
+    available / not used, current behaviour, byte-identical to before
+    this field existed). See network.py's CONFIDENCE-AWARE DISPATCH
+    section for how `risk_aversion` turns this into an actually-used
+    adjustment, not just decoration.
     """
 
     forecast_kw: NDArray[np.float64]
+    lower_kw: NDArray[np.float64] | None = None
+    upper_kw: NDArray[np.float64] | None = None
 
     def __post_init__(self) -> None:
         if np.any(self.forecast_kw < 0):
             msg = "Solar forecast cannot be negative"
             raise ValueError(msg)
+        _validate_confidence_band("Solar", self.forecast_kw, self.lower_kw, self.upper_kw)
 
 
 @dataclass(frozen=True)
 class LoadConfig:
     """A plain, non-sheddable load -- served in full, every period, no
     exceptions. From Nimbus's own per-load Forecaster output.
+
+    lower_kw/upper_kw: see SolarConfig's own docstring -- same optional
+    confidence-band mechanism, same default of "not used" when absent.
     """
 
     name: str
     forecast_kw: NDArray[np.float64]
+    lower_kw: NDArray[np.float64] | None = None
+    upper_kw: NDArray[np.float64] | None = None
 
     def __post_init__(self) -> None:
         if np.any(self.forecast_kw < 0):
             msg = f"Load '{self.name}' forecast cannot be negative"
             raise ValueError(msg)
+        _validate_confidence_band(f"Load '{self.name}'", self.forecast_kw, self.lower_kw, self.upper_kw)
 
 
 @dataclass(frozen=True)
@@ -218,12 +294,16 @@ class SheddableLoadConfig:
     equivalent to a plain LoadConfig at that point, but keeping it in
     this class means it can be dialed back up/down without a config
     migration).
+    lower_kw/upper_kw: see SolarConfig's own docstring -- same optional
+    confidence-band mechanism.
     """
 
     name: str
     forecast_kw: NDArray[np.float64]
     shed_cost: float
     min_fraction: float = 0.0
+    lower_kw: NDArray[np.float64] | None = None
+    upper_kw: NDArray[np.float64] | None = None
 
     def __post_init__(self) -> None:
         if np.any(self.forecast_kw < 0):
@@ -235,6 +315,7 @@ class SheddableLoadConfig:
         if self.shed_cost <= 0.0:
             msg = f"Sheddable load '{self.name}' shed_cost must be > 0 -- a zero/negative shed cost would make the LP shed this load for no real reason"
             raise ValueError(msg)
+        _validate_confidence_band(f"Sheddable load '{self.name}'", self.forecast_kw, self.lower_kw, self.upper_kw)
 
 
 # A real, deliberately conservative default -- higher than any realistic

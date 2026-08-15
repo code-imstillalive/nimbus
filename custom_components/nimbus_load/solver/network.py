@@ -14,17 +14,114 @@ Plan / Rolling Refinement / Safety Envelope) this module is the shared
 core solve mechanism for -- this file implements ONE solve, callable at
 whatever cadence/horizon a caller wants; layering is a caller-level
 concern, not something build_plan() itself knows about.
+
+## Three stability mechanisms (2026-08-16)
+
+A bare, single-solve LP is correct but not yet STABLE across repeated
+re-solves -- the user's own explicit concern: "i do not want mistakes...
+i do not want dumb algorithm - i want it to be clever and responsive but
+smart wise naturally adaptive not chaotic." A rolling re-solve (Layer 2,
+not yet built) will call build_plan() repeatedly on a shifting horizon;
+without anything below, two near-tied optimal solutions from consecutive
+solves are free to flip arbitrarily -- this is the exact same shape as
+HAEO's own real, documented "flash"/replan spike behaviour (see the
+sibling 116KAT-HA-AI repo's own CLAUDE.md), and this project exists
+specifically to not repeat that.
+
+All three mechanisms are OFF by default (every new parameter defaults to
+`None`/`0.0`/no-op) -- calling build_plan() with none of them given is
+byte-for-byte the same single, bare LP solve as before this section
+existed. Every existing caller (every test predating this section)
+continues to work completely unchanged.
+
+**1. Plan stability / proximal regularization** (`previous_plan`,
+`proximal_weight`) -- a SOFT cost. For every period the new solve shares
+a real, aligned wall-clock start time with the previous solve's own plan
+(see PeriodGrid.period_starts's own docstring for why this alignment has
+to be by real time, not array index), a small L1 penalty
+(`proximal_weight` $/kWh-equivalent) is added on how far each of the 4
+real dispatch variables (battery charge/discharge, grid import/export)
+deviates from what the previous solve planned for that SAME real moment.
+This is expressed as the standard LP linearization of an absolute-value
+penalty (a linear solver has no native |x| term): two nonnegative
+"deviation" variables per (family, period), `dev_pos - dev_neg = new -
+prev`, both costed at `proximal_weight`, so the LP is only ever charged
+for whichever direction the deviation actually goes. When two solutions
+are genuinely economically tied, this tips the LP toward the one closer
+to the previous plan instead of an arbitrary vertex of the tie -- a real
+structural fix for flip-flopping, not a heuristic patch on top of one.
+Deliberately small relative to real economic signals (see
+`DEFAULT_PROXIMAL_WEIGHT_KW`'s own docstring): a genuine price/cost
+difference should always still win.
+
+**2. Rate limiting** (`max_rate_kw`) -- a HARD cap, not a cost. Two
+distinct applications of the same mechanism:
+  - Cross-solve (period 0 only): if period 0 of the new grid aligns by
+    real time to a period in `previous_plan`, each of the 4 dispatch
+    variables is hard-bounded within `[prev_value - max_rate_kw,
+    prev_value + max_rate_kw]` -- this is what actually protects the
+    real inverter from being commanded to swing from e.g. -40kW to +40kW
+    between two consecutive dispatch cycles, independent of whatever the
+    LP would otherwise prefer. Requires `previous_plan`; silently skipped
+    (not an error) if no aligned period-0 previous value exists (e.g.
+    the very first solve ever).
+  - Intra-plan (every consecutive pair within the new horizon): the SAME
+    cap also bounds every period t's dispatch variables relative to
+    period t-1's, for the whole new plan -- this needs no previous_plan
+    at all (t-1 is itself a variable in the same LP), and directly
+    protects against a chaotic-looking plan that swings hard between
+    adjacent future periods, not just at the moment of dispatch.
+  `max_rate_kw=None` (default) disables both -- current unconstrained
+  behaviour.
+
+**3. Confidence-aware dispatch** (`risk_aversion`) -- adjusts which
+NUMBER the LP treats as "the forecast" for Load/SheddableLoad/Solar
+elements that carry a real `lower_kw`/`upper_kw` confidence band from
+Nimbus's own Forecaster (see elements.py's own `_validate_confidence_band`
+docstring). `risk_aversion=0.0` (default) uses the raw point forecast,
+unchanged from before this existed. A load's risk-adjusted demand leans
+toward its OWN upper bound (planning to actually have enough
+battery/grid headroom even if the load draws more than the point
+forecast suggests); solar's risk-adjusted supply leans toward its OWN
+lower bound (not structurally under-provisioning backup capacity by
+over-trusting solar that might not show up). Both lean amounts scale
+with the band's own real width (a tight, confident forecast barely
+moves; a wide, uncertain one moves more) AND with `risk_aversion`
+(0.0 = fully trust the point forecast, 1.0 = fully plan for the
+pessimistic bound). Elements with no band at all (`lower_kw is None`)
+are completely unaffected regardless of `risk_aversion`'s value.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import timedelta
 
 import numpy as np
 from numpy.typing import NDArray
 
 from .elements import BatteryConfig, GridConfig, LoadConfig, PeriodGrid, SheddableLoadConfig, SolarConfig
 from .lp import LPProblem, LPResult
+
+# Half of MIN_CHARGE_DISCHARGE_COST_SPREAD (elements.py) -- deliberately
+# small enough that it can NEVER be mistaken for or override a genuine
+# structural economic signal (the smallest real cost spread this
+# codebase allows anywhere is 0.01 $/kWh), while still being large enough
+# to reliably break an EXACT tie in the LP's own objective toward
+# continuity rather than an arbitrary vertex. Only ever applied when a
+# caller explicitly passes `previous_plan` -- see this module's own
+# docstring for the full mechanism.
+DEFAULT_PROXIMAL_WEIGHT_KW: float = 0.005
+
+# How close two periods' own real start times need to be to count as
+# "the same real moment" for cross-solve alignment (proximal
+# regularization, rate limiting). 1 second comfortably absorbs any
+# floating-point drift from repeated `timedelta` addition in
+# PeriodGrid.period_starts across many periods, while being far tighter
+# than any real re-solve cadence this project would ever use (minutes,
+# not seconds) -- so it can never accidentally align two genuinely
+# different periods.
+_ALIGNMENT_TOLERANCE: timedelta = timedelta(seconds=1)
 
 
 @dataclass(frozen=True)
@@ -62,6 +159,110 @@ class Plan:
         return self.status == "optimal"
 
 
+def _align_previous_periods(periods: PeriodGrid, previous_plan: Plan | None) -> dict[int, int]:
+    """Map new-grid period index -> previous_plan period index, for every
+    period whose REAL start time matches within _ALIGNMENT_TOLERANCE.
+    Always returns a (possibly empty) dict, never None -- an empty dict
+    is the single, uniform "nothing to align against" case, covering
+    every one of: no previous_plan given, either grid lacking a real
+    `start` anchor, a non-optimal previous_plan (see Plan.is_optimal --
+    its arrays are meaningless zero-fills, not real previous decisions
+    worth stabilizing toward), or the two horizons genuinely not
+    overlapping in real time at all (e.g. the very first solve ever).
+    Every downstream caller (proximal regularization, rate limiting)
+    treats an empty dict identically to "this mechanism is off" -- no
+    separate None-handling needed anywhere else in this file.
+    """
+    if previous_plan is None or not previous_plan.is_optimal:
+        return {}
+    new_starts = periods.period_starts
+    old_starts = previous_plan.periods.period_starts
+    if new_starts is None or old_starts is None:
+        return {}
+    mapping: dict[int, int] = {}
+    for new_idx, new_t in enumerate(new_starts):
+        for old_idx, old_t in enumerate(old_starts):
+            if abs(new_t - old_t) <= _ALIGNMENT_TOLERANCE:
+                mapping[new_idx] = old_idx
+                break
+    return mapping
+
+
+def _risk_adjusted(
+    forecast_kw: NDArray[np.float64],
+    lower_kw: NDArray[np.float64] | None,
+    upper_kw: NDArray[np.float64] | None,
+    risk_aversion: float,
+    *,
+    conservative: str,
+) -> NDArray[np.float64]:
+    """Blend a point forecast toward its own pessimistic confidence bound,
+    proportional to both the band's real width and `risk_aversion`. See
+    this module's own docstring, mechanism 3, for the full reasoning.
+    `conservative` is "upper" (loads -- pessimistic means MORE demand) or
+    "lower" (solar -- pessimistic means LESS supply). Returns
+    `forecast_kw` completely unchanged when no band is present or
+    risk_aversion is exactly 0.0 -- this is what keeps every caller that
+    doesn't use this mechanism byte-identical to before it existed.
+    """
+    if lower_kw is None or upper_kw is None or risk_aversion <= 0.0:
+        return forecast_kw
+    if conservative == "upper":
+        return forecast_kw + risk_aversion * np.maximum(0.0, upper_kw - forecast_kw)
+    return forecast_kw - risk_aversion * np.maximum(0.0, forecast_kw - lower_kw)
+
+
+def _add_proximal_penalty(
+    p: LPProblem,
+    var_names: list[str],
+    family: str,
+    alignment: dict[int, int],
+    previous_values: NDArray[np.float64] | None,
+    hours: NDArray[np.float64],
+    proximal_weight: float,
+) -> None:
+    """Add the L1-linearized deviation penalty (mechanism 1, this
+    module's own docstring) for one dispatch-variable family across every
+    aligned period. No-op (adds nothing) when `alignment` is empty,
+    `previous_values` is None, or `proximal_weight` is exactly 0.0 -- the
+    common "mechanism not in use" case costs nothing extra in the built
+    LP, not even unused variables. (`alignment` is guaranteed empty by
+    `_align_previous_periods` whenever `previous_values` would be None,
+    so the `is None` check here is a defensive backstop, not something
+    normally reached.)
+    """
+    if proximal_weight <= 0.0 or not alignment or previous_values is None:
+        return
+    for new_idx, old_idx in alignment.items():
+        prev_value = float(previous_values[old_idx])
+        dev_pos = p.add_variable(f"prox_pos_{family}_{new_idx}", lb=0.0, cost=proximal_weight * hours[new_idx])
+        dev_neg = p.add_variable(f"prox_neg_{family}_{new_idx}", lb=0.0, cost=proximal_weight * hours[new_idx])
+        p.add_eq_constraint({var_names[new_idx]: 1.0, dev_pos: -1.0, dev_neg: 1.0}, prev_value)
+
+
+def _add_rate_limit(
+    p: LPProblem,
+    var_names: list[str],
+    family: str,
+    n: int,
+    alignment: dict[int, int],
+    previous_values: NDArray[np.float64] | None,
+    max_rate_kw: float,
+) -> None:
+    """Add the hard rate-limit constraints (mechanism 2, this module's
+    own docstring) for one dispatch-variable family: period 0 bounded
+    against the aligned previous-plan value (if any), every later period
+    bounded against its own immediate predecessor within THIS solve.
+    """
+    if 0 in alignment and previous_values is not None:
+        prev0 = float(previous_values[alignment[0]])
+        p.add_ub_constraint({var_names[0]: 1.0}, prev0 + max_rate_kw)
+        p.add_ub_constraint({var_names[0]: -1.0}, -(prev0 - max_rate_kw))
+    for t in range(1, n):
+        p.add_ub_constraint({var_names[t]: 1.0, var_names[t - 1]: -1.0}, max_rate_kw)
+        p.add_ub_constraint({var_names[t]: -1.0, var_names[t - 1]: 1.0}, max_rate_kw)
+
+
 def _infeasible_plan(periods: PeriodGrid, status: str, iterations: int) -> Plan:
     """A well-formed but empty Plan for a non-optimal solve -- every array
     present (zero-filled), never omitted, so a caller can always safely
@@ -94,10 +295,19 @@ def build_plan(
     solar: SolarConfig,
     loads: list[LoadConfig] | None = None,
     sheddable_loads: list[SheddableLoadConfig] | None = None,
+    previous_plan: Plan | None = None,
+    proximal_weight: float = DEFAULT_PROXIMAL_WEIGHT_KW,
+    max_rate_kw: float | None = None,
+    risk_aversion: float = 0.0,
 ) -> Plan:
     """Build and solve one LP for the given horizon/inputs. Pure function --
     no I/O, no HA dependency, safe to call from anywhere including a plain
     local test script.
+
+    `previous_plan`/`proximal_weight`/`max_rate_kw`/`risk_aversion` are
+    the three cross-solve stability mechanisms -- see this module's own
+    docstring for the full design. All default to "off" (a bare, single-
+    solve LP, unchanged from before these existed).
     """
     loads = loads or []
     sheddable_loads = sheddable_loads or []
@@ -116,6 +326,8 @@ def build_plan(
             msg = f"{label} has {len(arr)} periods, expected {n} (PeriodGrid mismatch)"
             raise ValueError(msg)
 
+    alignment = _align_previous_periods(periods, previous_plan)
+
     p = LPProblem()
 
     charge = [p.add_variable(f"battery_charge_{t}", lb=0.0, ub=battery.max_charge_kw) for t in range(n)]
@@ -123,11 +335,25 @@ def build_plan(
     soc = [p.add_variable(f"battery_soc_{t}", lb=battery.min_soc_kwh, ub=battery.max_soc_kwh) for t in range(n)]
     grid_import = [p.add_variable(f"grid_import_{t}", lb=0.0, ub=grid.import_limit_kw) for t in range(n)]
     grid_export = [p.add_variable(f"grid_export_{t}", lb=0.0, ub=grid.export_limit_kw) for t in range(n)]
-    solar_used = [p.add_variable(f"solar_used_{t}", lb=0.0, ub=float(solar.forecast_kw[t])) for t in range(n)]
 
+    # Mechanism 3 (confidence-aware dispatch): solar's own EFFECTIVE
+    # ceiling for what the LP can count on -- risk_aversion=0.0 or no
+    # band present leaves this identical to solar.forecast_kw.
+    effective_solar_kw = _risk_adjusted(solar.forecast_kw, solar.lower_kw, solar.upper_kw, risk_aversion, conservative="lower")
+    solar_used = [p.add_variable(f"solar_used_{t}", lb=0.0, ub=float(effective_solar_kw[t])) for t in range(n)]
+
+    # Mechanism 3 continued: sheddable loads' own effective (pessimistic-
+    # leaning) demand -- both the shed ceiling and the balance-equation
+    # contribution are computed from this, so "how much of this load MUST
+    # stay served" scales consistently with whatever the LP is actually
+    # planning to serve. Reporting (served_kw/shed_kw below) still uses
+    # the RAW forecast, matching solar_curtailed_kw's own treatment.
     shed_vars: dict[str, list[str]] = {}
+    effective_shed_forecast: dict[str, NDArray[np.float64]] = {}
     for sl in sheddable_loads:
-        max_shed = [(1.0 - sl.min_fraction) * float(sl.forecast_kw[t]) for t in range(n)]
+        eff = _risk_adjusted(sl.forecast_kw, sl.lower_kw, sl.upper_kw, risk_aversion, conservative="upper")
+        effective_shed_forecast[sl.name] = eff
+        max_shed = [(1.0 - sl.min_fraction) * float(eff[t]) for t in range(n)]
         shed_vars[sl.name] = [p.add_variable(f"shed_{sl.name}_{t}", lb=0.0, ub=max_shed[t]) for t in range(n)]
 
     # ---- Cost terms ----
@@ -145,6 +371,21 @@ def build_plan(
     # in plain terms" explainer).
     p.set_cost(soc[n - 1], -battery.salvage_value)
 
+    # ---- Stability mechanisms 1 & 2 (see module docstring) ----
+    prev_charge = previous_plan.battery_charge_kw if previous_plan is not None else None
+    prev_discharge = previous_plan.battery_discharge_kw if previous_plan is not None else None
+    prev_grid_import = previous_plan.grid_import_kw if previous_plan is not None else None
+    prev_grid_export = previous_plan.grid_export_kw if previous_plan is not None else None
+    for var_names, family, prev_values in (
+        (charge, "charge", prev_charge),
+        (discharge, "discharge", prev_discharge),
+        (grid_import, "grid_import", prev_grid_import),
+        (grid_export, "grid_export", prev_grid_export),
+    ):
+        _add_proximal_penalty(p, var_names, family, alignment, prev_values, hours, proximal_weight)
+        if max_rate_kw is not None:
+            _add_rate_limit(p, var_names, family, n, alignment, prev_values, max_rate_kw)
+
     # ---- SoC dynamics ----
     for t in range(n):
         prev = battery.initial_soc_kwh if t == 0 else None
@@ -160,9 +401,11 @@ def build_plan(
             p.add_eq_constraint(terms, prev)
 
     # ---- Power balance at the switchboard, every period ----
+    # Mechanism 3 continued: plain loads' own effective (pessimistic-
+    # leaning) demand -- see the shed-load treatment above, same reasoning.
     plain_load_total = np.zeros(n)
     for load in loads:
-        plain_load_total += load.forecast_kw
+        plain_load_total += _risk_adjusted(load.forecast_kw, load.lower_kw, load.upper_kw, risk_aversion, conservative="upper")
 
     for t in range(n):
         terms = {
@@ -178,7 +421,7 @@ def build_plan(
             # positive coefficient on the shed variable subtracts from
             # what the balance equation demands be supplied)
             terms[shed_vars[sl.name][t]] = 1.0
-            rhs += float(sl.forecast_kw[t])
+            rhs += float(effective_shed_forecast[sl.name][t])
         p.add_eq_constraint(terms, rhs)
 
     result: LPResult = p.solve()

@@ -133,11 +133,66 @@ resolved tonight — the guard may be calibrated correctly for the battery case
 and too strict for the grid case; worth a closer look before this solver goes
 any further.
 
+## Stability mechanisms (2026-08-16)
+
+Everything above is Layer 1 — correct, but not yet STABLE across repeated
+re-solves. Direct user requirement: *"i do not want mistakes... i do not
+want dumb algorithm - i want it to be clever and responsive but smart wise
+naturally adaptive not chaotic."* Three mechanisms, all in `network.py`
+(full design rationale in its own module docstring — not duplicated here):
+
+1. **Plan stability / proximal regularization** (`previous_plan`,
+   `proximal_weight`) — a soft L1 penalty (the standard LP linearization of
+   an absolute-value cost) on how far each of the 4 real dispatch variables
+   deviates from what the previous solve planned for the SAME real moment.
+   Breaks genuine economic ties toward continuity instead of an arbitrary
+   simplex vertex, without ever distorting a real price/cost-driven decision
+   (deliberately tiny relative to any real economic signal).
+2. **Rate limiting** (`max_rate_kw`) — a hard cap, not a cost, applied to
+   EVERY dispatch variable independently: period 0 bounded against the
+   aligned previous-plan value (protects the real dispatch transition at the
+   moment of command), and every consecutive pair of periods within the new
+   plan itself bounded the same way (protects against a chaotic-looking plan
+   even before it's ever dispatched).
+3. **Confidence-aware dispatch** (`risk_aversion`, plus new `lower_kw`/
+   `upper_kw` fields on `LoadConfig`/`SheddableLoadConfig`/`SolarConfig`) —
+   blends a point forecast toward its own pessimistic confidence bound
+   (loads lean toward MORE demand, solar leans toward LESS supply),
+   proportional to both the real band width and `risk_aversion`. A load/
+   solar with no band at all is completely unaffected regardless of
+   `risk_aversion`'s value.
+
+**Real alignment gotcha, worth internalizing before touching this again**:
+mechanisms 1 and 2 both require matching a new solve's periods against a
+previous solve's periods by REAL WALL-CLOCK TIME (`PeriodGrid.start`/
+`period_starts`), never by array index — a rolling re-solve's new grid does
+not start at the same instant as the previous one, so index-based alignment
+would silently compare the wrong periods the moment the two grids diverge
+(every re-solve after the first). `PeriodGrid.start` defaults to `None`
+(no calendar anchor at all) — every mechanism above is a correctly-skipped
+no-op in that case, not an error, so every pre-existing test/caller
+continues to work completely unchanged.
+
+**All three are OFF by default** — calling `build_plan()` with none of
+these new parameters is byte-for-byte the same bare single-solve LP as
+before this section existed. Confirmed directly: the full pre-existing
+`test_lp_correctness.py`/`test_network_synthetic.py` suite passes
+unmodified against the current `network.py`.
+
+New test file: `test_stability_mechanisms.py` (23 checks) — hand-derivable
+scenarios for all three mechanisms, same convention as the other two test
+files, including a genuine real-economic-tie scenario (proximal) and a
+genuine hard-tradeoff scenario (rate limiting) constructed so the expected
+numeric answer can be verified by hand, not just asserted to "look
+reasonable."
+
 ## Deliberately not yet built
 
-- Layer 2 (Rolling Refinement / MPC) and Layer 3 (Safety Envelope) — this is
-  Layer 1 (Daily Plan) only, the single-solve core mechanism the other two
-  layers would be built on top of.
+- Layer 2 (Rolling Refinement / MPC) and Layer 3 (Safety Envelope) — the
+  three mechanisms above are the stability PRIMITIVES those layers will
+  need; the layers themselves (an actual rolling re-solve loop, calling
+  build_plan() repeatedly and threading `previous_plan` through) don't
+  exist yet.
 - Every mechanism from the architecture sketch's own §8 (staleness checks,
   solve-failure fallback, circuit breaker, external watchdog) — see the real
   finding above for exactly why these matter, demonstrated against real data,
