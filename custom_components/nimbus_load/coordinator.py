@@ -34,14 +34,17 @@ from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import PowerConverter
 
 from .const import (
+    CONF_BATTERY_SENSOR,
     CONF_CURTAILMENT_SENSOR,
     CONF_EXPECTED_LOAD_KW,
     CONF_FORECAST_HORIZON_HOURS,
+    CONF_GRID_SENSOR,
     CONF_HUMIDITY_SENSOR,
     CONF_LOAD_SENSOR,
     CONF_RETRAIN_HOUR_LOCAL,
     CONF_SCHEDULE_END_HOUR,
     CONF_SCHEDULE_START_HOUR,
+    CONF_SOLAR_SENSOR,
     CONF_TEMPERATURE_FORECAST_SENSOR,
     CONF_TEMPERATURE_SENSOR,
     CONF_TRAIN_DAYS,
@@ -135,6 +138,20 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     @property
     def _curtailment_sensor(self) -> str | None:
         return self.entry.options.get(CONF_CURTAILMENT_SENSOR)
+
+    # Real measured power sensors only -- never an optimizer's own plan/
+    # forecast entity, see this repo's own CLAUDE.md PRIME DIRECTIVE.
+    @property
+    def _battery_sensor(self) -> str | None:
+        return self.entry.options.get(CONF_BATTERY_SENSOR)
+
+    @property
+    def _grid_sensor(self) -> str | None:
+        return self.entry.options.get(CONF_GRID_SENSOR)
+
+    @property
+    def _solar_sensor(self) -> str | None:
+        return self.entry.options.get(CONF_SOLAR_SENSOR)
 
     # Per-load, unlike everything else above -- a fixed schedule window
     # (if any) is specific to this one load, not shared across the hub.
@@ -244,10 +261,30 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if self._curtailment_sensor
                 else []
             )
+            # Real measured power history only -- convert_power=True since
+            # a real inverter/meter sensor can report W (this household's
+            # own solar sensor does) while a sibling reports kW; never an
+            # optimizer's own plan/forecast entity.
+            battery_events = (
+                await self._async_fetch_history(self._battery_sensor, start, end, convert_power=True)
+                if self._battery_sensor
+                else []
+            )
+            grid_events = (
+                await self._async_fetch_history(self._grid_sensor, start, end, convert_power=True)
+                if self._grid_sensor
+                else []
+            )
+            solar_events = (
+                await self._async_fetch_history(self._solar_sensor, start, end, convert_power=True)
+                if self._solar_sensor
+                else []
+            )
 
             trained = await self.hass.async_add_executor_job(
                 _train_model_job, load_events, temp_events, humidity_events, curtailment_events,
                 start, end, self._schedule_start_hour, self._schedule_end_hour,
+                battery_events, grid_events, solar_events,
             )
             if trained is not None:
                 self._trained = trained
@@ -336,6 +373,43 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return float(state.state)
         except (TypeError, ValueError):
             return DEFAULT_FALLBACK_HUMIDITY_PCT
+
+    def _current_measured_power(self, entity_id: str | None) -> float:
+        """Real measured battery/grid/solar power (kW), held flat across
+        the whole forecast horizon. Unlike temperature (has a real
+        forecast source) or curtailment (sometimes does), none of these
+        three have any forward-looking source at all without borrowing an
+        optimizer's own plan -- which this integration never does (see
+        this repo's own CLAUDE.md PRIME DIRECTIVE). Holding the current
+        real reading flat is an honest, explicitly-scoped approximation,
+        not a claim of future accuracy -- genuinely wrong the moment the
+        real value changes materially within the horizon, same trade-off
+        this integration already accepts for humidity.
+
+        Converts unit via PowerConverter same as history fetches
+        (convert_power=True) -- confirmed live 2026-08-15 that a real
+        solar sensor on this system reports W while battery/grid sensors
+        report kW, so this can't assume kW unconditionally.
+        """
+        if entity_id is None:
+            return 0.0
+        state = self.hass.states.get(entity_id)
+        if state is None:
+            return 0.0
+        try:
+            value = float(state.state)
+        except (TypeError, ValueError):
+            return 0.0
+        unit = state.attributes.get("unit_of_measurement")
+        if unit and unit != UnitOfPower.KILO_WATT:
+            try:
+                value = PowerConverter.convert(value, unit, UnitOfPower.KILO_WATT)
+            except Exception:
+                _LOGGER.warning(
+                    "%s reported unconvertible unit '%s' -- treating as kW as-is",
+                    entity_id, unit,
+                )
+        return value
 
     async def _async_fetch_temperature_forecast(self) -> list[tuple[datetime, float]]:
         if self._temp_forecast_sensor is None:
@@ -445,6 +519,9 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         fallback_temp = temp_forecast[0][1] if temp_forecast else DEFAULT_FALLBACK_TEMPERATURE_C
         current_humidity = self._current_humidity()
         curtailment_forecast = await self._async_fetch_curtailment_forecast()
+        current_battery_kw = self._current_measured_power(self._battery_sensor)
+        current_grid_kw = self._current_measured_power(self._grid_sensor)
+        current_solar_kw = self._current_measured_power(self._solar_sensor)
 
         # Real recent history, not just the model's own state -- this is
         # the lag-feature seed. Fetched with a comfortable multiple of
@@ -480,6 +557,9 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         temps: list[float] = []
         humidities: list[float] = []
         curtailments: list[float] = []
+        batteries_kw: list[float] = []
+        grids_kw: list[float] = []
+        solars_kw: list[float] = []
         t = now_utc
         step = timedelta(minutes=RESAMPLE_MINUTES)
         while t <= horizon_end:
@@ -487,6 +567,12 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             temps.append(_nearest_temp(temp_forecast, t, fallback_temp))
             humidities.append(current_humidity)
             curtailments.append(_step_lookup(curtailment_forecast, t, 0.0))
+            # Held flat at the current real reading -- no forward-looking
+            # source exists for any of these three without borrowing an
+            # optimizer's own plan, which this integration never does.
+            batteries_kw.append(current_battery_kw)
+            grids_kw.append(current_grid_kw)
+            solars_kw.append(current_solar_kw)
             t += step
 
         result: PredictionResult = await self.hass.async_add_executor_job(
@@ -501,6 +587,9 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._schedule_start_hour,
             self._schedule_end_hour,
             self._expected_load_kw,
+            batteries_kw,
+            grids_kw,
+            solars_kw,
         )
         preds = result.values
         has_model_bounds = result.model_lower is not None and result.model_upper is not None
@@ -550,6 +639,9 @@ def _train_model_job(
     end: datetime,
     schedule_start_hour: float | None,
     schedule_end_hour: float | None,
+    battery_events: list[tuple[datetime, float]],
+    grid_events: list[tuple[datetime, float]],
+    solar_events: list[tuple[datetime, float]],
 ) -> TrainedModel | None:
     """Plain function (not a bound method) so it's cleanly picklable/callable
     from hass.async_add_executor_job without capturing `self`.
@@ -565,6 +657,9 @@ def _train_model_job(
         min_training_points=MIN_TRAINING_POINTS,
         schedule_start_hour=schedule_start_hour,
         schedule_end_hour=schedule_end_hour,
+        battery_events=battery_events,
+        grid_events=grid_events,
+        solar_events=solar_events,
     )
 
 

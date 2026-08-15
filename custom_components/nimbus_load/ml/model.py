@@ -249,6 +249,9 @@ def train_model(
     min_training_points: int,
     schedule_start_hour: float | None = None,
     schedule_end_hour: float | None = None,
+    battery_events: list[tuple[datetime, float]] | None = None,
+    grid_events: list[tuple[datetime, float]] | None = None,
+    solar_events: list[tuple[datetime, float]] | None = None,
 ) -> TrainedModel | None:
     """Build a fresh model from real (local-time) history events.
 
@@ -277,6 +280,15 @@ def train_model(
     curtailment_vals = (
         resample_last_value(curtailment_events, grid) if curtailment_events else [None] * len(grid)
     )
+    battery_vals = (
+        resample_last_value(battery_events, grid) if battery_events else [None] * len(grid)
+    )
+    grid_vals = (
+        resample_last_value(grid_events, grid) if grid_events else [None] * len(grid)
+    )
+    solar_vals = (
+        resample_last_value(solar_events, grid) if solar_events else [None] * len(grid)
+    )
 
     x_rows: list[list[float]] = []
     y_vals: list[float] = []
@@ -300,9 +312,12 @@ def train_model(
         tv = temp_vals[i] if temp_vals[i] is not None else 22.0
         hv = humidity_vals[i] if humidity_vals[i] is not None else 50.0
         cv = curtailment_vals[i] if curtailment_vals[i] is not None else 0.0
+        bv = battery_vals[i] if battery_vals[i] is not None else 0.0
+        gv = grid_vals[i] if grid_vals[i] is not None else 0.0
+        sv = solar_vals[i] if solar_vals[i] is not None else 0.0
         x_rows.append(build_features(
             grid[i], tv, hv, lag_short_v, lag_long_v, cv,
-            schedule_start_hour, schedule_end_hour,
+            schedule_start_hour, schedule_end_hour, bv, gv, sv,
         ))
         y_vals.append(lv)
         grid_indices.append(i)
@@ -551,17 +566,25 @@ def predict(
     schedule_start_hour: float | None = None,
     schedule_end_hour: float | None = None,
     expected_load_kw: float | None = None,
+    batteries_kw: list[float] | None = None,
+    grids_kw: list[float] | None = None,
+    solars_kw: list[float] | None = None,
 ) -> PredictionResult:
     """Predict load at each of `timestamps` (must be ascending, evenly
     spaced by `resample_minutes`), given matching `temps`/`humidities`/
-    `curtailments` (each one value per timestamp, already aligned by the
-    caller -- same convention as temps/humidities; `curtailments` may be
-    omitted entirely for a load with no curtailment sensor configured, in
-    which case it's treated as 0.0 throughout). `curtailments` should come
-    from the curtailment source's own forward *forecast* where available
-    (HAEO already plans curtailment ahead of time) rather than a held-flat
-    current value -- genuinely more informative than this integration's
-    other forecast inputs.
+    `curtailments`/`batteries_kw`/`grids_kw`/`solars_kw` (each one value
+    per timestamp, already aligned by the caller; any may be omitted
+    entirely for a load with that sensor unconfigured, in which case it's
+    treated as 0.0 throughout). `curtailments` should come from the
+    curtailment source's own forward *forecast* where available (some
+    curtailment sources plan ahead) rather than a held-flat current value
+    -- genuinely more informative when a real forecast exists.
+    `batteries_kw`/`grids_kw`/`solars_kw` are REAL MEASURED values only
+    (2026-08-15) -- these three have no forward-looking source of their
+    own at all (unlike curtailment, which sometimes does), so the caller
+    holds the current real reading flat across the whole horizon; see
+    this repo's own CLAUDE.md PRIME DIRECTIVE for why this can never be
+    an optimizer's own plan/forecast instead.
 
     Deterministic override (2026-08-15): when `expected_load_kw` is given
     ALONGSIDE both schedule bounds, this load is in the user's explicit
@@ -625,12 +648,16 @@ def predict(
         return buffer_vals[idx] if idx >= 0 else default_lag
 
     curtailment_list = curtailments if curtailments is not None else [0.0] * len(timestamps)
+    battery_list = batteries_kw if batteries_kw is not None else [0.0] * len(timestamps)
+    grid_list = grids_kw if grids_kw is not None else [0.0] * len(timestamps)
+    solar_list = solars_kw if solars_kw is not None else [0.0] * len(timestamps)
     has_quantile_models = trained.gbrt_lower is not None and trained.gbrt_upper is not None
 
     raw_preds: list[float] = []
     raw_half_widths: list[float] = []
-    for ts, temp, humidity, curtailment in zip(
-        timestamps, temps, humidities, curtailment_list, strict=True
+    for ts, temp, humidity, curtailment, battery_kw, grid_kw, solar_kw in zip(
+        timestamps, temps, humidities, curtailment_list, battery_list, grid_list, solar_list,
+        strict=True,
     ):
         lag_short_t = ts - LAG_SHORT_STEPS * step
         lag_long_t = ts - LAG_LONG_STEPS * step
@@ -640,7 +667,7 @@ def predict(
         x_row = np.array(
             [build_features(
                 ts, temp, humidity, lag_short_v, lag_long_v, curtailment,
-                schedule_start_hour, schedule_end_hour,
+                schedule_start_hour, schedule_end_hour, battery_kw, grid_kw, solar_kw,
             )], dtype=np.float64
         )
         x_row_std = (x_row - trained.x_mean) / trained.x_std

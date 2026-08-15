@@ -28,6 +28,20 @@ CONF_HUMIDITY_SENSOR: Final = "humidity_sensor"
 # solar, never for its own schedule or the weather).
 CONF_CURTAILMENT_SENSOR: Final = "curtailment_sensor"
 
+# Shared, hub-level -- REAL MEASURED power sensors only (this household's
+# own Modbus meter/inverter readings), added 2026-08-15 so a load's model
+# can see what else is happening on the switchboard at the same moment
+# (a load can look identical at "10am, 22C" whether the battery happens
+# to be mid-charge or not -- without this the model has no way to
+# separate that confound from genuine load-driven signal). Deliberately
+# NEVER an HAEO plan/forecast entity -- see this repo's own CLAUDE.md
+# PRIME DIRECTIVE. All three optional and independent of each other; a
+# household with only some of these wired up (or none) degrades
+# gracefully, same as every other optional sensor on this form.
+CONF_BATTERY_SENSOR: Final = "battery_sensor"
+CONF_GRID_SENSOR: Final = "grid_sensor"
+CONF_SOLAR_SENSOR: Final = "solar_sensor"
+
 CONF_FORECAST_HORIZON_HOURS: Final = "forecast_horizon_hours"
 CONF_RETRAIN_HOUR_LOCAL: Final = "retrain_hour_local"
 CONF_TRAIN_DAYS: Final = "train_days"
