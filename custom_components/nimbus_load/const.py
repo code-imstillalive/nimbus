@@ -146,10 +146,10 @@ LAG_LONG_STEPS: Final = 4
 # decide from its own real, current data.
 VALIDATION_HOLDOUT_FRACTION: Final = 0.2
 
-# Entity attribute keys, matching HAEO's own native forecast-sensor format
-# (custom_components/haeo/core/data/loader/extractors/haeo.py Parser.detect()/
-# extract()): a "forecast" attribute holding a list of {"time": ..., "value": ...}
-# dicts, plus a top-level unit_of_measurement / device_class.
+# Entity attribute keys. ATTR_FORECAST: a "forecast" attribute holding a
+# list of {"time": ..., "value": ...} dicts, plus a top-level
+# unit_of_measurement / device_class -- a generic, self-describing shape,
+# not modeled on or tied to any specific downstream consumer.
 ATTR_FORECAST: Final = "forecast"
 ATTR_MODEL_TRAINED_AT: Final = "model_trained_at"
 ATTR_TRAINING_POINTS: Final = "training_points"
@@ -170,3 +170,8 @@ ATTR_MODE: Final = "mode"
 # nothing to show yet" from a missing attribute key.
 ATTR_VALIDATION_MAE: Final = "validation_mae"
 ATTR_VALIDATION_MASE: Final = "validation_mase"
+# "load" or "power_signal" -- lets anything downstream (e.g. a dashboard
+# chart script) tell the two subentry types apart generically, by
+# reading this live attribute, rather than by hardcoding which specific
+# entity names belong to which category.
+ATTR_SUBENTRY_TYPE: Final = "subentry_type"
