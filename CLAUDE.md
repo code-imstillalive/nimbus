@@ -4,25 +4,21 @@ Instructions for any Claude instance working on this repo. Read this before touc
 
 ---
 
-## ⚠️ CURRENT STATE (2026-08-15 evening) — PR #16 and #17 merged, NOT yet deployed
+## ⚠️ CURRENT STATE (end of session, 2026-08-15 night) — read this first tomorrow
 
-`main` is at v0.20.0, two commits ahead of what's actually running on the live NUC (last
-deployed version was v0.18.0, deployed ~16:47 AEST). **Deliberately not deployed yet** —
-deploying a Python custom_component change needs a full restart, and this project has a
-standing rule (see the sibling `116KAT-HA-AI` repo's own CLAUDE.md) against restarting
-during the household's active 5pm-midnight P2P battery-sell window. User's own words:
-"will do it after p2p."
+Two separate, unrelated threads are open. Neither is finished.
 
-**What's waiting to deploy, both already verified locally against real data (see the bug
-chain below for #6/#7):**
-- PR #16 (v0.19.0) — fixes a real, repeating ~1-1.5kW spike in the Whole House load
-  forecast at exactly 00:05 every simulated day.
-- PR #17 (v0.20.0) — fixes a real hard stair-step (flat for hours, then instant jump) in
-  every seasonal-anchored forecast, found live literally minutes after #16 was verified as
-  the first real-world visual check of a smoothly-varying chart after the exposure-bias
-  fixes shipped.
+### Thread 1 — Forecaster fixes, still pending deploy
 
-**Deploy once the P2P window has closed (after midnight), full commands:**
+`main` is at v0.20.0. PRs #16/#17 (real, verified fixes — see the bug chain below for
+#6/#7: a repeating spike in the Whole House forecast, and a hard stair-step in every
+seasonal-anchored forecast) are merged but **deliberately not deployed yet** — this project
+has a standing rule against restarting during the household's active 5pm-midnight P2P
+battery-sell window, and the user's own plan was explicit: "will do it after p2p."
+**As of writing, this deploy still has not happened — do it first, before anything else,
+once it's genuinely safe to restart (after midnight, P2P window closed).**
+
+Full deploy commands:
 ```bash
 cd /opt/homeassistant/config/nimbus_repo
 git pull origin main
@@ -36,13 +32,87 @@ start registering, once seen in this project's own history taking as long as 10-
 for every entity to finish a genuine full retrain+validation cycle — don't assume it's
 stuck just because it's slow.
 
-**Verify after deploying:**
+Verify after deploying:
 ```bash
 curl -s -H "Authorization: Bearer $(cat /home/homehub/.ha_token)" "http://192.168.1.221:8123/api/states/sensor.nimbus_logger_load_power_forecast" | python3 -m json.tool
 ```
 Check `model_trained_at` is fresh (matches the restart time), then look at the `forecast`
 array: no isolated single-point spikes anywhere, and no long flat runs within an hour
 followed by a hard jump — should read as a genuinely smooth, continuously-varying curve.
+
+### Thread 2 — Solver draft (Stage 3), started tonight, real early progress + a real mistake
+
+New subpackage `custom_components/nimbus_load/solver/` (PRs #19, #20, both merged) — a
+from-scratch, pure-numpy LP solver (`lp.py`), a real element model with structural
+degeneracy guards (`elements.py`), a network/plan builder (`network.py`), and a shadow-mode
+translator into this project's own real Sungrow language (`modes.py`). **Genuinely dead
+code** — zero HA imports, not referenced anywhere in the live integration, registers no
+entities, writes nothing. Safe to build on with zero deploy risk. See
+`custom_components/nimbus_load/solver/README.md` for the full detail, including two real
+bugs found and fixed during the build (an LP sign bug, an efficiency-validation bug), both
+caught by dedicated tests before they ever touched real data.
+
+**A real mistake was made and corrected the same night, worth reading before touching this
+again**: the README's first write-up of a real-data test run described a genuine live price
+spike alongside a synthetic "battery discharged hard" outcome in a way that read as
+describing what happened to the real system that night. It didn't — the discharge was this
+untested draft's own offline computation from a made-up 50% starting SoC, completely
+unrelated to the real battery (confirmed live: 90% SoC, real automation running normally,
+price-independent). PR #20 corrected the write-up. **Lesson, not just a fixed typo**: never
+put a real data point and a synthetic/hypothetical outcome in the same sentence without
+saying explicitly which is which — this is exactly the kind of imprecision this project's
+own Communication Standards rule (see the sibling `116KAT-HA-AI` CLAUDE.md) exists to catch.
+
+**What the user asked for next, explicitly, not yet built**: the current draft is Layer 1
+only (a bare, single-solve LP) — correct, but not yet **stable**. Direct quote: *"i do not
+want mistakes... i do not want dumb algorithm - i want it to be clever and responsive but
+smart wise naturally adaptive not chaotic."* Three concrete, named mechanisms were agreed as
+the right next step (not yet built):
+1. **Plan stability / proximal regularization** — penalize deviation from the previous
+   solve's own plan in the objective, so near-tied optimal solutions break toward
+   continuity instead of flipping arbitrarily between re-solves (this is the direct,
+   structural fix for the exact flip-flop pattern HAEO's own "flash"/replan spikes are —
+   see §7 of the architecture sketch for that root-cause finding).
+2. **Rate limiting** — a hard cap on how much any setpoint can change between consecutive
+   re-solves, independent of what the LP would otherwise prefer.
+3. **Confidence-aware dispatch** — feed the Forecaster's own already-computed confidence
+   bounds into the solver, so a wide-uncertainty input gets treated more conservatively than
+   a narrow one, instead of every point value being trusted equally regardless of how
+   settled it actually is.
+
+Also captured, same session, then **corrected within the same session** — a second real
+mistake, worth being precise about: the first draft of a reporting requirement (architecture
+sketch's §4a) pointed directly at LocalVolts-specific files (`lv_costs.yaml`,
+`lv_p2p_daily_recalibrate.py`) as the design reference for the solver's own cost/earnings
+reporting. Explicit correction from the user: *"this is not just LV design should work with
+any supplier api or retailer... i do not want LV to be LV exclusive only"* and, specifically
+about the next-morning settlement-reconciliation pattern: *"the recalibrating tools we use
+are a patch for us... not a solution... that should not be a part of the solver."*
+
+This household has already changed retailer once (Amber → LocalVolts) — the solver's
+reporting layer must not assume today's retailer, or today's retailer's specific API
+limitations, are permanent. §4a is now revised to separate two genuinely different things:
+
+- **Retailer-agnostic, keep this shape**: per-interval cost/earnings detail in a real table,
+  a live daily accumulator that resets at real local midnight. Neither of these depends on
+  which retailer is behind the numbers.
+- **NOT retailer-agnostic, must never be core solver design**: LocalVolts' own next-morning
+  "Confirmed" settlement reconciliation is a patch for THAT retailer's own specific API
+  limitation (its real settlement data doesn't arrive until the next morning). A different
+  retailer might settle in real time, or on a different schedule entirely. The correct shape
+  is a genuinely retailer-agnostic price/settlement interface — "give me the price data you
+  have right now, and how confident/settled it is" — with any retailer-specific settlement-
+  lag quirks (LocalVolts' current lag included) living entirely inside that retailer's own
+  adapter, never inside the solver's own reporting logic.
+
+§5 (the "four clocks" worked example) got the same correction applied as a scope note — it's
+explicitly framed now as this household's current, real, concrete instance of a
+retailer-agnostic price-source interface, not the permanent architecture.
+
+The full architecture sketch (published as a Claude artifact, not committed to this repo)
+has the complete, current writeup — check with the user for the current link if picking this
+thread back up. **Read §4a and §5's own scope note directly before building any reporting
+code for the solver** — don't rebuild the LV-specific version from memory of this summary.
 
 ---
 
