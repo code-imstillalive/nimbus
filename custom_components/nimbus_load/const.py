@@ -130,3 +130,12 @@ ATTR_TRAINING_POINTS: Final = "training_points"
 # entities are which -- config drives this attribute, nothing downstream
 # should ever hardcode a list of entity names to get the same answer.
 ATTR_MODE: Final = "mode"
+# Model validation diagnostics (2026-08-15) -- raw MAE and its scale-
+# independent MASE counterpart, both dicts keyed by candidate name
+# ("knn"/"gbrt"/"naive"), exposed on every ML-path load's own forecast
+# sensor. Empty dicts (not omitted) when there wasn't enough validation
+# data to compute them -- e.g. a load that only just started training --
+# so any dashboard/automation reading these can distinguish "genuinely
+# nothing to show yet" from a missing attribute key.
+ATTR_VALIDATION_MAE: Final = "validation_mae"
+ATTR_VALIDATION_MASE: Final = "validation_mase"

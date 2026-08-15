@@ -34,6 +34,8 @@ from .const import (
     ATTR_MODE,
     ATTR_MODEL_TRAINED_AT,
     ATTR_TRAINING_POINTS,
+    ATTR_VALIDATION_MAE,
+    ATTR_VALIDATION_MASE,
     CONF_LOAD_SENSOR,
     DOMAIN,
     SUBENTRY_TYPE_LOAD,
@@ -140,4 +142,6 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
             ATTR_MODE: data.get("mode", "unscheduled"),
             ATTR_MODEL_TRAINED_AT: data.get("trained_at"),
             ATTR_TRAINING_POINTS: data.get("training_points", 0),
+            ATTR_VALIDATION_MAE: data.get("validation_mae", {}),
+            ATTR_VALIDATION_MASE: data.get("validation_mase", {}),
         }
