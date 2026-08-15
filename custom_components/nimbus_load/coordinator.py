@@ -228,6 +228,43 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         return self.subentry.subentry_type == SUBENTRY_TYPE_SIGNAL
 
+    # Real, whole-house-meter entity -- the ONE load subentry that's really
+    # a system-level aggregate (bleeds in battery/grid transition effects
+    # the same way Battery's own midnight step does), not a genuinely
+    # momentum-driven individual appliance. Deliberately hardcoded rather
+    # than a new config field -- a real, confirmed-live bug (see
+    # _seasonal_anchor below) needed a fast, well-scoped fix, not a new
+    # UI surface; revisit as a real per-load opt-in if more than this one
+    # load ever needs it.
+    _WHOLE_HOUSE_ENTITY = "sensor.logger_load_power"
+
+    @property
+    def _seasonal_anchor(self) -> bool:
+        """True for power-signal subentries (unchanged, existing
+        behaviour) AND for the Whole House load specifically -- confirmed
+        live 2026-08-15: Whole House's own recursive forecast showed a
+        real, repeating ~1-1.5kW isolated spike at exactly 00:05 every
+        single simulated day (1.50->3.40->2.78, 2.82->4.27->3.14, ...),
+        the same recursive-lag-chain exposure-bias signature already
+        root-caused and fixed for Battery/Grid/Solar earlier the same
+        day -- Whole House genuinely shares a real midnight-boundary step
+        (the same P2P-sell-to-self-consume automation transition that
+        broke Battery's own forecast) even though it's registered as a
+        "load" subentry, not a "power signal" one. Every OTHER load
+        (a pool pump, an AC zone) keeps the original self-feeding lag
+        behaviour unchanged -- those genuinely benefit from real near-
+        term momentum carry-over in a way a system-level aggregate does
+        not. Deliberately a SEPARATE flag from _allow_negative (Whole
+        House still physically can't draw negative power, so its own
+        predict() clamp-to-zero must stay active) -- these two properties
+        answer two genuinely different questions and must never be
+        conflated into one.
+        """
+        return (
+            self.subentry.subentry_type == SUBENTRY_TYPE_SIGNAL
+            or self._load_sensor == self._WHOLE_HOUSE_ENTITY
+        )
+
     @property
     def _mode(self) -> str:
         """Which of the three real modes this load is actually in right
@@ -643,6 +680,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             grids_kw,
             solars_kw,
             self._allow_negative,
+            self._seasonal_anchor,
         )
         preds = result.values
         has_model_bounds = result.model_lower is not None and result.model_upper is not None

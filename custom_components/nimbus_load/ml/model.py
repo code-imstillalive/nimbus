@@ -651,6 +651,7 @@ def predict(
     grids_kw: list[float] | None = None,
     solars_kw: list[float] | None = None,
     allow_negative: bool = False,
+    seasonal_anchor: bool = False,
 ) -> PredictionResult:
     """Predict load at each of `timestamps` (must be ascending, evenly
     spaced by `resample_minutes`), given matching `temps`/`humidities`/
@@ -744,7 +745,7 @@ def predict(
     real_data_cutoff = buffer_times[-1] if buffer_times else None
 
     def lag_at(target: datetime) -> float:
-        if allow_negative and (real_data_cutoff is None or target > real_data_cutoff):
+        if seasonal_anchor and (real_data_cutoff is None or target > real_data_cutoff):
             # getattr(..., {}) not trained.seasonal_lookup directly --
             # plain @dataclass pickling restores an OLD persisted
             # TrainedModel's __dict__ verbatim, skipping __init__ and its
@@ -789,7 +790,7 @@ def predict(
         lag_short_v = lag_at(lag_short_t)
         lag_long_v = lag_at(lag_long_t)
         seasonal_anchored.append(
-            allow_negative and (real_data_cutoff is None or lag_long_t > real_data_cutoff)
+            seasonal_anchor and (real_data_cutoff is None or lag_long_t > real_data_cutoff)
         )
 
         x_row = np.array(
