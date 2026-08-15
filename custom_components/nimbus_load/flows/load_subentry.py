@@ -29,14 +29,23 @@ from ..const import (
 )
 
 
-# A real HH:MM time picker, not a decimal-hour number box -- much more
-# natural to enter (e.g. "12:30" instead of "12.5"). Stored as HA's own
-# "HH:MM:SS" string; converted to the decimal hour ml/features.py's
-# in_schedule comparison actually uses right where it's read
-# (coordinator.py's _schedule_start_hour/_schedule_end_hour properties,
-# via _parse_time_to_hour), not here -- this flow only handles the UI
-# side, the stored value stays a plain time string.
-_TIME_SELECTOR = selector.TimeSelector(selector.TimeSelectorConfig())
+# REVERTED from a real HH:MM TimeSelector back to a plain 24-hour decimal
+# number box. Confirmed live 2026-08-15: HA's TimeSelector renders in
+# whatever 12-hour/24-hour format the viewer's own HA profile is set to,
+# not something this integration controls per-field -- and "12:30" typed
+# into a 12-hour picker silently saved as 00:30 (12:30 AM) instead of the
+# intended 12:30 PM. For a field controlling exactly when a real heating
+# element is allowed to run, an input where the single most easily
+# mistyped value (12:xx) can silently mean midnight instead of noon is
+# not an acceptable risk, however much nicer a real time picker looks.
+# 0-23.75 in quarter-hour steps has no AM/PM concept at all, so this
+# specific mistake is now structurally impossible, not just less likely.
+_HOUR_SELECTOR = selector.NumberSelector(
+    selector.NumberSelectorConfig(
+        min=0, max=23.75, step=0.25, mode=selector.NumberSelectorMode.BOX,
+        unit_of_measurement="24hr decimal, e.g. 12.5 = 12:30pm, 0 = midnight",
+    )
+)
 
 
 def _schema(defaults: dict[str, Any]) -> vol.Schema:
@@ -67,15 +76,15 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
     # as a genuinely empty box instead of trying to stringify null.
     start_default = defaults.get(CONF_SCHEDULE_START_HOUR)
     if start_default is not None:
-        schema_dict[vol.Optional(CONF_SCHEDULE_START_HOUR, default=start_default)] = _TIME_SELECTOR
+        schema_dict[vol.Optional(CONF_SCHEDULE_START_HOUR, default=start_default)] = _HOUR_SELECTOR
     else:
-        schema_dict[vol.Optional(CONF_SCHEDULE_START_HOUR)] = _TIME_SELECTOR
+        schema_dict[vol.Optional(CONF_SCHEDULE_START_HOUR)] = _HOUR_SELECTOR
 
     end_default = defaults.get(CONF_SCHEDULE_END_HOUR)
     if end_default is not None:
-        schema_dict[vol.Optional(CONF_SCHEDULE_END_HOUR, default=end_default)] = _TIME_SELECTOR
+        schema_dict[vol.Optional(CONF_SCHEDULE_END_HOUR, default=end_default)] = _HOUR_SELECTOR
     else:
-        schema_dict[vol.Optional(CONF_SCHEDULE_END_HOUR)] = _TIME_SELECTOR
+        schema_dict[vol.Optional(CONF_SCHEDULE_END_HOUR)] = _HOUR_SELECTOR
 
     # Optional third field, only meaningful alongside the two above --
     # see const.py's own comment for the full three-mode explanation.
