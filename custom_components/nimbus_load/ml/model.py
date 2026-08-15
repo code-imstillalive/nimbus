@@ -216,23 +216,32 @@ class TrainedModel:
     # term momentum carry-over (e.g. "still running 15 min from now")
     # stays exactly as it was, only power signals with a strong, clean
     # calendar-driven rhythm and no real momentum-carry-over need get
-    # anchored back to history like this. Bucketed by (weekday, hour)
-    # only, NOT minute-of-hour: both the training grid (built from
-    # whatever arbitrary wall-clock instant the daily retrain job
-    # actually ran at) and the predict-time grid (dt_util.utcnow() at
-    # whatever instant the coordinator's own 2-min tick lands) step in
-    # exact 15-min increments from two DIFFERENT, essentially-random
-    # starting offsets -- confirmed live 2026-08-15 that keying by exact
-    # minute silently never matched anything at all (a target's minute
-    # is almost never one of the training grid's own 0/15/30/45 values),
-    # which is why the very first version of this fix produced an
-    # UNCHANGED result despite compiling and running without error. Hour
-    # granularity sidesteps the alignment mismatch entirely and still
-    # captures the real signal well -- confirmed against real household
-    # data the same day: 17:00-23:00 medians sit in a tight ~12.6-13.2
-    # band per hour, nowhere near volatile enough to need minute-level
-    # resolution.
-    seasonal_lookup: dict[tuple[int, int], float] = field(default_factory=dict)
+    # anchored back to history like this. Bucketed by (weekday, hour,
+    # 15-min-of-hour) -- e.g. minute=37 -> bucket 30. NOT exact minute:
+    # both the training grid (built from whatever arbitrary wall-clock
+    # instant the daily retrain job actually ran at) and the predict-time
+    # grid (dt_util.utcnow() at whatever instant the coordinator's own
+    # 2-min tick lands) step in exact 15-min increments from two
+    # DIFFERENT, essentially-random starting offsets -- confirmed live
+    # 2026-08-15 that keying by EXACT minute silently never matched
+    # anything at all (a target's raw minute is almost never one of the
+    # training grid's own 0/15/30/45 values), which is why the very first
+    # version of this fix produced an UNCHANGED result despite compiling
+    # and running without error. FLOORING to the nearest 15-min mark
+    # (rather than matching the raw minute exactly) fixes this: any two
+    # timestamps within the same 15-min window collapse to the identical
+    # bucket regardless of their own arbitrary sub-15-min offset. An
+    # intermediate version of this fix bucketed by (weekday, hour) only
+    # (no minute-of-hour at all) to sidestep the exact-match bug the
+    # simplest way possible -- that version worked, but gave every 15-min
+    # step within the same hour an IDENTICAL lag input, and combined with
+    # predict()'s damping-skip (needed to keep a genuine sharp transition
+    # from blurring) produced a real, confirmed-live hard stair-step
+    # (flat for up to 4 consecutive grid points, then an instant jump) in
+    # the published forecast instead of a smoothly-varying curve. 15-min
+    # bucketing keeps midnight (23:45 vs 00:00, still fully separate
+    # buckets) exactly as sharp while removing that artificial flatness.
+    seasonal_lookup: dict[tuple[int, int, int], float] = field(default_factory=dict)
 
 
 def resample_last_value(
@@ -325,12 +334,38 @@ def train_model(
     # the first LAG_LONG_STEPS rows and any row with a lag gap) -- this
     # table needs the widest possible real-data coverage, not just rows
     # that happened to also have clean lag history.
-    seasonal_sums: dict[tuple[int, int], list[float]] = {}
+    # Bucketed by (weekday, hour, 15-min-of-hour) -- NOT just (weekday,
+    # hour) -- confirmed live 2026-08-15, the SAME day the hourly version
+    # shipped: an hourly bucket gives every 15-min step within that hour
+    # an IDENTICAL lag input, and combined with the damping-skip fix
+    # below (needed to keep a genuine sharp transition, like midnight,
+    # from blurring), the model's raw output for seasonal-anchored steps
+    # came out as a hard stair-step (flat for up to 4 consecutive grid
+    # points, then an instant jump at the hour boundary) instead of a
+    # smoothly-varying curve -- real live example: Whole House held
+    # exactly 1.399 for 2.5 hours straight (16:18 through 18:48) then
+    # jumped. Bucketing by 15-min-of-hour instead gives every grid point
+    # its own real seasonal value, letting the model vary smoothly across
+    # the hour the same way it already does for a genuine sharp boundary
+    # like midnight -- 23:45 and 00:00 are STILL fully separate buckets,
+    # so this does NOT reintroduce the original 45-min midnight-blur bug;
+    # it only removes the artificial flatness WITHIN an hour, which was
+    # never a deliberate design goal, just an unexamined side effect of
+    # choosing hourly granularity to sidestep the earlier exact-minute
+    # alignment bug (see the exact-minute mismatch note below).
+    seasonal_sums: dict[tuple[int, int, int], list[float]] = {}
     hour_sums: dict[int, list[float]] = {}
     for g, lv in zip(grid, load_vals, strict=True):
         if lv is None:
             continue
-        seasonal_sums.setdefault((g.weekday(), g.hour), []).append(lv)
+        minute_bucket = (g.minute // 15) * 15
+        seasonal_sums.setdefault((g.weekday(), g.hour, minute_bucket), []).append(lv)
+        # Shrinkage target stays hour-only (not hour+minute_bucket) --
+        # deliberately the BROADEST reasonably-robust reference available
+        # (every weekday AND every 15-min sub-bucket within that hour),
+        # since a 15-min-granularity bucket has the same thin ~6-7-sample
+        # count as the old hourly one did and needs an equally robust
+        # target to shrink toward, not a narrower one.
         hour_sums.setdefault(g.hour, []).append(lv)
     # Shrinkage toward the overall per-hour average (2026-08-15, found
     # live the same day the seasonal fix itself was built): a 45-day
@@ -348,11 +383,11 @@ def train_model(
     # points. Standard empirical-Bayes-style shrinkage, not a special
     # per-load hack.
     SHRINKAGE_K = 5
-    seasonal_lookup: dict[tuple[int, int], float] = {}
-    for (wd, hr), vs in seasonal_sums.items():
+    seasonal_lookup: dict[tuple[int, int, int], float] = {}
+    for (wd, hr, mb), vs in seasonal_sums.items():
         hour_mean = sum(hour_sums[hr]) / len(hour_sums[hr])
         n = len(vs)
-        seasonal_lookup[(wd, hr)] = (sum(vs) + SHRINKAGE_K * hour_mean) / (n + SHRINKAGE_K)
+        seasonal_lookup[(wd, hr, mb)] = (sum(vs) + SHRINKAGE_K * hour_mean) / (n + SHRINKAGE_K)
     temp_vals = resample_last_value(temp_events, grid) if temp_events else [None] * len(grid)
     humidity_vals = (
         resample_last_value(humidity_events, grid) if humidity_events else [None] * len(grid)
@@ -756,7 +791,10 @@ def predict(
             # the very first predict() call after this deploys, for
             # every load AND every signal (not just Battery), until each
             # one's next scheduled retrain replaces the stale pickle.
-            seasonal_v = getattr(trained, "seasonal_lookup", {}).get((target.weekday(), target.hour))
+            target_bucket = (target.minute // 15) * 15
+            seasonal_v = getattr(trained, "seasonal_lookup", {}).get(
+                (target.weekday(), target.hour, target_bucket)
+            )
             if seasonal_v is not None:
                 return seasonal_v
             # No (weekday, hour) match for this particular bucket (e.g. a
