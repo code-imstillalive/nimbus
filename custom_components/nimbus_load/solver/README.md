@@ -85,27 +85,42 @@ test_real_household_data.py   -- end-to-end run against REAL solar/load
                                   be circular, not an independent test)
 ```
 
-## A real finding from tonight's real-data run — read before trusting this blind
+## A real finding from tonight's real-data run — and a correction to how it was first described
 
-Running against tonight's actual live HAEO price forecast surfaced a genuine,
-concrete instance of the exact risk the architecture sketch's own §8
-("Handling mistakes, dropouts, and errors") is designed against: the real
-price forecast spiked to **$1.45/kWh** around 17:58–18:28 tonight (this
-project's own already-documented "HAEO briefly publishes an intermediate plan
-spike, then revises down within seconds" phenomenon) — and the solver
-correctly, rationally responded by discharging hard (44kW), draining SoC from
-49.9kWh to 13.5kWh in about an hour.
+**Corrected 2026-08-15, same night: the first write-up of this finding wrongly
+implied something happened to the real battery tonight. Nothing did. Read
+this version, not the impression left by the original PR description.**
 
-**This is correct LP behaviour given the input it was given.** It is also
-exactly why §8's staleness checks and Safety Envelope exist as real,
-load-bearing mechanisms, not decoration — an LP with no sense of "is this
-price genuinely real or a not-yet-settled transient" will act on a transient
-exactly as confidently as it acts on a real signal. This solver, as it stands
-tonight, has **none of §8's safeguards implemented yet** — it is a pure
-compute-a-plan-from-given-inputs function, nothing more. Do not read tonight's
-clean test pass as "ready to trust" — it's "the math is right," which is a
-real, necessary, but different claim from "safe to run against live, possibly-
-transient data."
+`test_real_household_data.py` pulled one genuinely real thing: HAEO's actual
+live price *forecast*, snapshotted at 17:44 AEST tonight, which projected a
+jump from $0.33 to **$1.45/kWh** starting the very next minute and holding
+through roughly 18:30 (this project's own already-documented "HAEO briefly
+publishes an intermediate plan spike, then revises down" phenomenon — this
+snapshot alone doesn't establish whether that forecast spike was ever acted on
+or corrected before it arrived).
+
+Everything else in that test run was **synthetic and hypothetical**:
+the battery's starting SoC (`initial_soc_kwh=CAPACITY_KWH * 0.5`, a plain
+made-up 50% picked for the test script, not a read of the real battery) and
+the resulting "discharged hard, drained ~36kWh" outcome — that was this
+untested draft solver's own offline computation, run completely outside HA,
+writing nowhere, with zero connection to what the real P2P automation was
+doing to the real battery at the same moment. Confirmed directly afterward:
+real SoC was **90%** the whole time, `p2p_battery_sell_5pm_midnight` was `on`
+and running its own normal, price-independent, fixed-setpoint logic
+(`target_kw + house_load` — it doesn't even read import price). The two are
+unrelated, and describing them side by side without saying that plainly was a
+real mistake, not a nuance — it read as "the real battery did this," which
+never happened.
+
+**What the finding actually, honestly shows**: this draft's math correctly
+reacts to whatever number it's given, including a still-unsettled forecast
+value that may or may not reflect what actually happens 15 minutes later. That
+is a real, useful thing to know about a solver with no input-staleness
+awareness yet (§8 of the architecture sketch) — but it is a statement about
+the code's own behavior on a hypothetical input, not an observation about
+tonight's real dispatch. Do not read this section, or a clean test pass in
+general, as anything about what actually happened to the real system tonight.
 
 Separately, real live price data also tripped the grid degeneracy guard for
 37 of 285 real periods (import price at or below export price) — the test
