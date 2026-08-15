@@ -17,6 +17,7 @@ from __future__ import annotations
 
 from bisect import bisect_right
 from datetime import datetime, timedelta
+import json
 import logging
 import pickle
 from pathlib import Path
@@ -56,7 +57,7 @@ from .const import (
     UPDATE_INTERVAL_MINUTES,
 )
 from .ml.features import FEATURE_NAMES
-from .ml.model import TrainedModel, predict, train_model
+from .ml.model import MAX_RESIDUALS_STORED, TrainedModel, calibrated_band, predict, train_model
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -86,6 +87,26 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self._unsub_retrain: Any = None
         self._retraining = False
+
+        # Confidence-band calibration state (see ml/model.py's own
+        # calibrated_band() for the actual math). Deliberately persisted
+        # SEPARATELY from the trained model, in a plain JSON file, not
+        # bundled into TrainedModel -- a retrain replaces self._trained
+        # wholesale, but the calibration buffer should survive across
+        # retrains (it's tracking how far off PUBLISHED forecasts have
+        # been from reality, which stays meaningful regardless of which
+        # model produced them).
+        self._residual_path = Path(
+            hass.config.path(".storage", f"nimbus_load_{subentry.subentry_id}_residuals.json")
+        )
+        self._residuals: list[float] = []
+        # In-memory only, not persisted -- (timestamp, predicted value)
+        # for the nearest-term point of the LAST published forecast, so
+        # the NEXT update cycle can compare it against what actually
+        # happened. Lost on restart; self-heals within one cycle (~15
+        # min), not worth the complexity of persisting a timestamp
+        # that's stale the moment HA restarts anyway.
+        self._last_step_prediction: tuple[datetime, float] | None = None
 
     # -- config accessors -- only the load sensor is per-subentry (the one
     # thing that's genuinely different for each load). Everything else
@@ -172,6 +193,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def async_setup(self) -> None:
         """Load a persisted model if present, then wire up the nightly retrain."""
         self._trained = await self.hass.async_add_executor_job(self._load_model_from_disk)
+        self._residuals = await self.hass.async_add_executor_job(self._load_residuals_from_disk)
 
         self._unsub_retrain = async_track_time_change(
             self.hass,
@@ -391,6 +413,21 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._model_path.parent.mkdir(parents=True, exist_ok=True)
         self._model_path.write_bytes(pickle.dumps(trained))
 
+    def _load_residuals_from_disk(self) -> list[float]:
+        if not self._residual_path.exists():
+            return []
+        try:
+            data = json.loads(self._residual_path.read_text(encoding="utf-8"))
+            if isinstance(data, list) and all(isinstance(v, (int, float)) for v in data):
+                return [float(v) for v in data]
+        except Exception:
+            _LOGGER.warning("Could not load persisted residual buffer, starting fresh.", exc_info=True)
+        return []
+
+    def _save_residuals_to_disk(self) -> None:
+        self._residual_path.parent.mkdir(parents=True, exist_ok=True)
+        self._residual_path.write_text(json.dumps(self._residuals), encoding="utf-8")
+
     # -- coordinator tick (cheap: inference only) ------------------------------
 
     async def _async_update_data(self) -> dict[str, Any]:
@@ -417,6 +454,26 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         recent_load_values = await self._async_fetch_history(
             self._load_sensor, now_utc - lag_lookback, now_utc, convert_power=True
         )
+
+        # Resolve the LAST cycle's near-term prediction against what
+        # actually happened, now that real time has caught up to it --
+        # this is the confidence-band calibration data (ml/model.py's
+        # calibrated_band()). One-shot per cycle: whether or not a real
+        # comparison point was found, don't carry a stale pending
+        # prediction into a future cycle.
+        if self._last_step_prediction is not None:
+            pred_time, pred_value = self._last_step_prediction
+            if pred_time <= now_utc:
+                sorted_recent = sorted(recent_load_values, key=lambda p: p[0])
+                recent_times = [p[0] for p in sorted_recent]
+                idx = bisect_right(recent_times, pred_time) - 1
+                if idx >= 0:
+                    actual_value = sorted_recent[idx][1]
+                    self._residuals.append(abs(pred_value - actual_value))
+                    if len(self._residuals) > MAX_RESIDUALS_STORED:
+                        del self._residuals[0]
+                    await self.hass.async_add_executor_job(self._save_residuals_to_disk)
+            self._last_step_prediction = None
 
         timestamps: list[datetime] = []
         temps: list[float] = []
@@ -445,11 +502,22 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._expected_load_kw,
         )
 
-        points = [
-            {"time": ts.isoformat(), "value": round(v, 3)}
-            for ts, v in zip(timestamps, preds, strict=True)
-        ]
+        points = []
+        for ts, v in zip(timestamps, preds, strict=True):
+            lead_hours = (ts - now_utc).total_seconds() / 3600
+            band = calibrated_band(self._residuals, v, lead_hours)
+            points.append({
+                "time": ts.isoformat(),
+                "value": round(v, 3),
+                "lower": round(max(0.0, v - band), 3),
+                "upper": round(v + band, 3),
+            })
         current = preds[0] if preds else 0.0
+
+        # Remember this cycle's near-term point so the NEXT cycle can
+        # resolve it against reality once real time has caught up.
+        if timestamps and preds:
+            self._last_step_prediction = (timestamps[0], preds[0])
 
         return {
             "state": round(current, 3),

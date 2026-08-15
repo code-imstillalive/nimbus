@@ -78,6 +78,31 @@ GBRT_MAX_DEPTH = 3
 GBRT_LEARNING_RATE = 0.1
 GBRT_MIN_SAMPLES_LEAF = 5
 
+# Confidence-band calibration (added 2026-08-15, adapted from
+# psweens/ml-forecast-lab's own documented approach: split conformal
+# prediction with a rolling residual buffer -- keep real, recent
+# absolute forecast errors and derive a coverage band from their
+# empirical quantile, no extra model or training needed). Scoped down
+# from their full per-lead-bucket cohort system: this implementation
+# calibrates against real ONE-UPDATE-CYCLE-AHEAD residuals only
+# (UPDATE_INTERVAL_MINUTES apart, not RESAMPLE_MINUTES -- coordinator.py
+# resolves the previous cycle's near-term prediction against reality on
+# every new cycle, regardless of the model's own coarser forecast-grid
+# spacing) -- that's the shortest horizon coordinator.py can actually
+# resolve every single update cycle -- then widens the band for longer
+# leads via sqrt(1 + lead_hours), the standard approximation for how
+# uncertainty accumulates over a horizon for a random-walk-like error
+# process. Deliberately not claiming directly-calibrated accuracy at
+# every possible lead time the way a full per-bucket system would.
+CONFORMAL_COVERAGE = 0.8
+MIN_RESIDUALS_FOR_CALIBRATION = 10
+# Before enough real residuals exist to calibrate from, fall back to a
+# band scaled off the point value itself rather than a falsely
+# confident zero-width band -- matches the source repo's own
+# "Calibrating..." cold-start concept.
+COLD_START_BAND_FRACTION = 0.3
+MAX_RESIDUALS_STORED = 200
+
 
 @dataclass
 class TrainedModel:
@@ -296,6 +321,23 @@ def train_model(
         training_points=len(x_rows),
         validation_mae=validation_mae,
     )
+
+
+def calibrated_band(residuals: list[float], point_value: float, lead_hours: float) -> float:
+    """Half-width of the confidence band around `point_value` at
+    `lead_hours` ahead, given a rolling buffer of real one-update-cycle-
+    ahead absolute residuals (coordinator.py owns collecting/persisting
+    these -- this function is a pure calculation, no I/O, no state).
+
+    Returns 0.0 for a genuinely zero point_value with no residual data
+    at all (e.g. a load that's never been observed running) -- a
+    fraction-of-point-value fallback would also be zero in that case,
+    which is honest: there's nothing to base a band on yet.
+    """
+    if len(residuals) < MIN_RESIDUALS_FOR_CALIBRATION:
+        return point_value * COLD_START_BAND_FRACTION
+    near_term_half_width = float(np.percentile(residuals, CONFORMAL_COVERAGE * 100))
+    return near_term_half_width * float(np.sqrt(1 + max(0.0, lead_hours)))
 
 
 def _in_schedule(hour_frac: float, start: float, end: float) -> bool:

@@ -93,6 +93,19 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
     _attr_device_class = SensorDeviceClass.POWER
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfPower.KILO_WATT
+    # Confirmed live 2026-08-15: without this, HA's own history-graph
+    # tooltips (and any UI that computes a rolling average across
+    # several already-rounded points, e.g. "5-minute aggregated") show
+    # raw binary floating-point noise -- "0.152000000000000020" instead
+    # of "0.152". round(v, 3) in the coordinator only cleans up the
+    # value AT THE MOMENT it's published; averaging several such values
+    # together elsewhere reintroduces the noise, since 0.152 has no
+    # exact binary representation to begin with. This tells every HA
+    # frontend surface (not just this one) to always DISPLAY at most 3
+    # decimal places, regardless of what the underlying float actually
+    # is -- fixes the display everywhere at once instead of chasing
+    # every individual UI that might recompute an average.
+    _attr_suggested_display_precision = 3
 
     def __init__(self, coordinator: NimbusCoordinator, subentry: ConfigSubentry) -> None:
         super().__init__(coordinator)

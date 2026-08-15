@@ -77,8 +77,21 @@ RESAMPLE_MINUTES: Final = 15
 
 # Coordinator polling cadence -- how often the published forecast is
 # regenerated from whichever model is currently loaded (cheap: inference
-# only, no retraining).
-UPDATE_INTERVAL_MINUTES: Final = 15
+# only, no retraining -- a k-NN lookup or a 60-tree GBRT forward pass,
+# both well under a second). Deliberately shorter than RESAMPLE_MINUTES
+# (the model's own forecast-grid resolution): the FIRST point of every
+# forecast (published as this entity's own live state) is always a
+# fresh prediction for "right now", using whatever real lag/temp/
+# humidity/curtailment inputs exist at that exact moment -- tightening
+# this makes the live value recompute more often, giving a finer,
+# smoother-looking history graph made of real fresh predictions.
+# Confirmed live 2026-08-15: at the original 15-minute interval, the
+# history graph rendered as an obvious blocky staircase (one flat
+# segment, one jump, repeat) since there was nothing between updates
+# to plot. This is NOT the same thing as interpolating/faking values
+# between real predictions -- every point is still a genuine, freshly
+# computed forecast, just computed more often.
+UPDATE_INTERVAL_MINUTES: Final = 2
 
 # Sanity floor -- refuse to train on too little real history.
 MIN_TRAINING_POINTS: Final = 500
