@@ -1,18 +1,16 @@
 """Sensor platform for Nimbus.
 
-One SensorEntity per "load" subentry (not per config entry -- the hub entry
-can own many loads): native_value is the current predicted load (kW), and
-the `forecast` attribute is a list of {"time": ..., "value": ...} points --
-the same shape HAEO's own native forecast sensors already use
-(custom_components/haeo/core/data/loader/extractors/haeo.py), so this
-sensor can be wired directly into a HAEO Load element's forecast source
-without any transformation.
+One SensorEntity per "load" or "power_signal" subentry (not per config
+entry -- the hub entry can own many of either): native_value is the
+current predicted power (kW), and the `forecast` attribute is a list of
+{"time": ..., "value": ...} points -- a generic, self-describing shape,
+not tied to any specific downstream consumer.
 
 Each entity is added with config_subentry_id set, which is what makes each
-load show up as its own separate device in the HA UI -- e.g. HWS L1, HWS
-L3, and Pool all independently visible (and independently able to show
-`unavailable` if that one load's data goes bad), not folded into one
-combined device.
+load/signal show up as its own separate device in the HA UI -- e.g. HWS L1,
+HWS L3, Pool, and (2026-08-15) Battery/Solar/Grid all independently
+visible (and independently able to show `unavailable` if that one's data
+goes bad), not folded into one combined device.
 """
 
 from __future__ import annotations
@@ -39,8 +37,11 @@ from .const import (
     CONF_LOAD_SENSOR,
     DOMAIN,
     SUBENTRY_TYPE_LOAD,
+    SUBENTRY_TYPE_SIGNAL,
 )
 from .coordinator import NimbusCoordinator
+
+_FORECASTABLE_SUBENTRY_TYPES = (SUBENTRY_TYPE_LOAD, SUBENTRY_TYPE_SIGNAL)
 
 
 def _object_id_from_source(load_sensor_entity_id: str) -> str:
@@ -76,7 +77,7 @@ async def async_setup_entry(
 ) -> None:
     coordinators: dict[str, NimbusCoordinator] = hass.data[DOMAIN][entry.entry_id]
     for subentry in entry.subentries.values():
-        if subentry.subentry_type != SUBENTRY_TYPE_LOAD:
+        if subentry.subentry_type not in _FORECASTABLE_SUBENTRY_TYPES:
             continue
         coordinator = coordinators.get(subentry.subentry_id)
         if coordinator is None:
@@ -88,7 +89,7 @@ async def async_setup_entry(
 
 
 class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
-    """The published load forecast for one load subentry."""
+    """The published forecast for one load or power-signal subentry."""
 
     _attr_has_entity_name = True
     _attr_name = "Forecast"
@@ -111,7 +112,14 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
 
     def __init__(self, coordinator: NimbusCoordinator, subentry: ConfigSubentry) -> None:
         super().__init__(coordinator)
-        self._attr_unique_id = f"{subentry.subentry_id}_load_forecast"
+        # Deliberately NOT changed to a generic suffix for existing load
+        # subentries -- an already-deployed entity's unique_id must never
+        # change, or Home Assistant treats it as a brand new entity and
+        # orphans the old one (losing its history/registry entry). Signal
+        # subentries are new as of this same change, so they get their
+        # own distinct, accurate suffix from day one instead.
+        suffix = "_signal_forecast" if subentry.subentry_type == SUBENTRY_TYPE_SIGNAL else "_load_forecast"
+        self._attr_unique_id = f"{subentry.subentry_id}{suffix}"
         # Setting entity_id directly, not _attr_suggested_object_id.
         # Confirmed live 2026-08-14, twice, that _attr_suggested_object_id
         # is NOT respected here: with _attr_has_entity_name = True, Home
@@ -123,11 +131,16 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
         # mechanism the entity platform never overrides -- if it's already
         # set when the entity is added, generation is skipped entirely.
         self.entity_id = f"sensor.{_object_id_from_source(subentry.data[CONF_LOAD_SENSOR])}"
+        model = (
+            "Power Signal Forecaster"
+            if subentry.subentry_type == SUBENTRY_TYPE_SIGNAL
+            else "Load Forecaster"
+        )
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, subentry.subentry_id)},
             name=subentry.title,
             manufacturer="Nimbus",
-            model="Load Forecaster",
+            model=model,
         )
 
     @property

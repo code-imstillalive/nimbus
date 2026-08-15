@@ -13,11 +13,16 @@
   "options": {
     "step": {
       "init": {
-        "title": "Nimbus settings (shared by every load)",
-        "description": "These apply to every load you add -- set once here rather than re-entering them each time.",
+        "title": "Nimbus settings (shared by every load/signal)",
+        "description": "These apply to every load or power signal you add -- set once here rather than re-entering them each time.",
         "data": {
           "temperature_sensor": "Temperature sensor (optional, improves accuracy)",
           "temperature_forecast_sensor": "Temperature forecast sensor (optional, used for future predictions)",
+          "humidity_sensor": "Humidity sensor (optional, improves accuracy for weather-sensitive loads)",
+          "curtailment_sensor": "Curtailment switch (optional, for a load run only to soak up otherwise-curtailed solar)",
+          "battery_sensor": "Battery power sensor (optional, real measured value -- never an optimizer's own plan/forecast)",
+          "grid_sensor": "Grid power sensor (optional, real measured value -- never an optimizer's own plan/forecast)",
+          "solar_sensor": "Solar power sensor (optional, real measured value -- never an optimizer's own plan/forecast)",
           "forecast_horizon_hours": "Forecast horizon (hours)",
           "retrain_hour_local": "Retrain at this hour (local time, 0-23)",
           "train_days": "Days of history to train on"
@@ -33,6 +38,17 @@
           "description": "Pick the power sensor this load should learn from. Temperature sensors and tuning settings are shared across every load -- set them once via the hub's own \"Configure\" instead.",
           "data": {
             "load_sensor": "Power sensor to learn from"
+          }
+        }
+      }
+    },
+    "power_signal": {
+      "step": {
+        "user": {
+          "title": "Add a power signal",
+          "description": "Forecast a real power signal directly -- Battery, Solar, Grid, or anything else -- as its own genuine target, using the same forecasting engine as a load. Pick a real MEASURED sensor, never an optimizer's own plan/forecast entity.",
+          "data": {
+            "load_sensor": "Power sensor to forecast"
           }
         }
       }
