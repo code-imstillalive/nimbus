@@ -31,6 +31,7 @@ from .const import (
     ATTR_FORECAST,
     ATTR_MODE,
     ATTR_MODEL_TRAINED_AT,
+    ATTR_SUBENTRY_TYPE,
     ATTR_TRAINING_POINTS,
     ATTR_VALIDATION_MAE,
     ATTR_VALIDATION_MASE,
@@ -120,6 +121,12 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
         # own distinct, accurate suffix from day one instead.
         suffix = "_signal_forecast" if subentry.subentry_type == SUBENTRY_TYPE_SIGNAL else "_load_forecast"
         self._attr_unique_id = f"{subentry.subentry_id}{suffix}"
+        # Exposed as a live attribute (2026-08-15) so anything downstream
+        # (e.g. a dashboard chart script) can tell a load forecast apart
+        # from a power-signal forecast generically -- by reading this
+        # attribute at runtime, not by hardcoding entity names. Same
+        # design principle already applied to ATTR_MODE.
+        self._subentry_type = subentry.subentry_type
         # Setting entity_id directly, not _attr_suggested_object_id.
         # Confirmed live 2026-08-14, twice, that _attr_suggested_object_id
         # is NOT respected here: with _attr_has_entity_name = True, Home
@@ -157,4 +164,5 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
             ATTR_TRAINING_POINTS: data.get("training_points", 0),
             ATTR_VALIDATION_MAE: data.get("validation_mae", {}),
             ATTR_VALIDATION_MASE: data.get("validation_mase", {}),
+            ATTR_SUBENTRY_TYPE: self._subentry_type,
         }
