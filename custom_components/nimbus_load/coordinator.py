@@ -142,17 +142,40 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     # Real measured power sensors only -- never an optimizer's own plan/
     # forecast entity, see this repo's own CLAUDE.md PRIME DIRECTIVE.
+    #
+    # Each one returns None when it would equal THIS subentry's own
+    # target sensor -- a real, severe bug found live 2026-08-15: a
+    # "power signal" subentry forecasting Battery, with the hub's own
+    # battery_sensor ALSO set to that same real entity, was feeding its
+    # own current reading back in as an input feature. Since that
+    # feature is held FLAT across the entire forecast horizon (there's
+    # no future value for a real measured sensor -- see
+    # _current_measured_power()'s own docstring), the model ended up
+    # dominated by "whatever I was doing at the exact moment this
+    # forecast cycle ran" for every future point, completely overriding
+    # its own correctly-learned time-of-day pattern -- confirmed via a
+    # synthetic reproduction: a real, consistent, learnable +13kW
+    # evening discharge pattern was predicted as -26kW (still charging)
+    # for the ENTIRE evening window, simply because "now" happened to
+    # be mid-charge when the forecast was generated. This self-reference
+    # is never useful signal (a signal's own recent value is already
+    # covered by lag_short/lag_long, which correctly update per-step
+    # rather than staying pinned) -- always skip it entirely rather than
+    # try to make a stale flat value "less wrong."
     @property
     def _battery_sensor(self) -> str | None:
-        return self.entry.options.get(CONF_BATTERY_SENSOR)
+        sensor = self.entry.options.get(CONF_BATTERY_SENSOR)
+        return None if sensor == self._load_sensor else sensor
 
     @property
     def _grid_sensor(self) -> str | None:
-        return self.entry.options.get(CONF_GRID_SENSOR)
+        sensor = self.entry.options.get(CONF_GRID_SENSOR)
+        return None if sensor == self._load_sensor else sensor
 
     @property
     def _solar_sensor(self) -> str | None:
-        return self.entry.options.get(CONF_SOLAR_SENSOR)
+        sensor = self.entry.options.get(CONF_SOLAR_SENSOR)
+        return None if sensor == self._load_sensor else sensor
 
     # Per-load, unlike everything else above -- a fixed schedule window
     # (if any) is specific to this one load, not shared across the hub.
