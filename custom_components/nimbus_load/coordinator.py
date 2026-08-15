@@ -139,6 +139,21 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return self.subentry.data.get(CONF_EXPECTED_LOAD_KW)
 
     @property
+    def _mode(self) -> str:
+        """Which of the three real modes this load is actually in right
+        now, purely from its own live config -- computed in exactly one
+        place so both _async_update_data() return paths (trained and
+        not-yet-trained) report the identical answer, rather than two
+        copies of the same if/elif drifting apart over time.
+        """
+        has_schedule = self._schedule_start_hour is not None and self._schedule_end_hour is not None
+        if has_schedule and self._expected_load_kw is not None:
+            return "deterministic"
+        if has_schedule:
+            return "scheduled_ml"
+        return "unscheduled"
+
+    @property
     def _horizon_hours(self) -> int:
         return self.entry.options.get(
             CONF_FORECAST_HORIZON_HOURS, DEFAULT_FORECAST_HORIZON_HOURS
@@ -380,7 +395,10 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _async_update_data(self) -> dict[str, Any]:
         if self._trained is None:
-            return {"state": None, "forecast": [], "trained_at": None, "training_points": 0}
+            return {
+                "state": None, "forecast": [], "mode": self._mode,
+                "trained_at": None, "training_points": 0,
+            }
 
         now_utc = dt_util.utcnow()
         horizon_end = now_utc + timedelta(hours=self._horizon_hours)
@@ -436,6 +454,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return {
             "state": round(current, 3),
             "forecast": points,
+            "mode": self._mode,
             "trained_at": self._trained.trained_at.isoformat(),
             "training_points": self._trained.training_points,
         }

@@ -109,3 +109,11 @@ VALIDATION_HOLDOUT_FRACTION: Final = 0.2
 ATTR_FORECAST: Final = "forecast"
 ATTR_MODEL_TRAINED_AT: Final = "model_trained_at"
 ATTR_TRAINING_POINTS: Final = "training_points"
+# One of "unscheduled" / "scheduled_ml" / "deterministic" -- see the
+# CONF_EXPECTED_LOAD_KW comment above for what each mode means. Exposed
+# on every load's own forecast sensor (not just deterministic ones) so
+# any dashboard, script, or future tooling can read live which mode a
+# load is actually in, instead of needing to be told by hand which
+# entities are which -- config drives this attribute, nothing downstream
+# should ever hardcode a list of entity names to get the same answer.
+ATTR_MODE: Final = "mode"

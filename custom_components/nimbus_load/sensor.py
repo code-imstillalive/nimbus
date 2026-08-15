@@ -31,6 +31,7 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
     ATTR_FORECAST,
+    ATTR_MODE,
     ATTR_MODEL_TRAINED_AT,
     ATTR_TRAINING_POINTS,
     CONF_LOAD_SENSOR,
@@ -123,6 +124,7 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
         data = self.coordinator.data or {}
         return {
             ATTR_FORECAST: data.get("forecast", []),
+            ATTR_MODE: data.get("mode", "unscheduled"),
             ATTR_MODEL_TRAINED_AT: data.get("trained_at"),
             ATTR_TRAINING_POINTS: data.get("training_points", 0),
         }
