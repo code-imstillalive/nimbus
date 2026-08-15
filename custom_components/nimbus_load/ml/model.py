@@ -569,6 +569,7 @@ def predict(
     batteries_kw: list[float] | None = None,
     grids_kw: list[float] | None = None,
     solars_kw: list[float] | None = None,
+    allow_negative: bool = False,
 ) -> PredictionResult:
     """Predict load at each of `timestamps` (must be ascending, evenly
     spaced by `resample_minutes`), given matching `temps`/`humidities`/
@@ -585,6 +586,17 @@ def predict(
     holds the current real reading flat across the whole horizon; see
     this repo's own CLAUDE.md PRIME DIRECTIVE for why this can never be
     an optimizer's own plan/forecast instead.
+
+    `allow_negative` (2026-08-15, real bug found live): every point
+    predicted by the ML path was being clamped to >= 0.0, correct for a
+    load (physically can never draw negative power) but WRONG for a
+    signed power-signal target like Battery (negative = charging) or
+    Grid (negative = export) -- confirmed live: the real battery was
+    charging at -29.9kW while Nimbus's own "right now" forecast showed
+    exactly 0.0, because the model's own (correctly negative) raw
+    prediction was being silently zeroed by this clamp on every single
+    step. Defaults to False (unchanged behaviour for loads) -- callers
+    forecasting a genuinely signed target must pass True.
 
     Deterministic override (2026-08-15): when `expected_load_kw` is given
     ALONGSIDE both schedule bounds, this load is in the user's explicit
@@ -678,7 +690,8 @@ def predict(
             pred = float(_knn_predict_batch(
                 trained.x_mean, trained.x_std, trained.x_train, trained.y_train, x_row
             )[0])
-        pred = max(0.0, pred)
+        if not allow_negative:
+            pred = max(0.0, pred)
 
         if has_quantile_models:
             lower_raw = float(trained.gbrt_lower.predict(x_row_std)[0])
@@ -701,6 +714,9 @@ def predict(
     if not has_quantile_models:
         return PredictionResult(values=smoothed)
 
-    model_lower = [max(0.0, v - hw) for v, hw in zip(smoothed, raw_half_widths, strict=True)]
+    if allow_negative:
+        model_lower = [v - hw for v, hw in zip(smoothed, raw_half_widths, strict=True)]
+    else:
+        model_lower = [max(0.0, v - hw) for v, hw in zip(smoothed, raw_half_widths, strict=True)]
     model_upper = [v + hw for v, hw in zip(smoothed, raw_half_widths, strict=True)]
     return PredictionResult(values=smoothed, model_lower=model_lower, model_upper=model_upper)

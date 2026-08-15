@@ -57,6 +57,7 @@ from .const import (
     LAG_LONG_STEPS,
     MIN_TRAINING_POINTS,
     RESAMPLE_MINUTES,
+    SUBENTRY_TYPE_SIGNAL,
     UPDATE_INTERVAL_MINUTES,
 )
 from .ml.features import FEATURE_NAMES
@@ -175,6 +176,19 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     @property
     def _expected_load_kw(self) -> float | None:
         return self.subentry.data.get(CONF_EXPECTED_LOAD_KW)
+
+    @property
+    def _allow_negative(self) -> bool:
+        """True only for a "power signal" subentry (Battery/Grid/etc) --
+        real, genuinely signed targets (negative = charging/exporting),
+        unlike a load (physically can never draw negative power). Fixes
+        a real bug found live 2026-08-15: predict()'s own clamp-to-zero,
+        correct for loads, was silently zeroing every negative Battery
+        prediction (i.e. every "it's charging" prediction) into a wrong
+        0.0 -- see ml/model.py's own predict() docstring for the full
+        story.
+        """
+        return self.subentry.subentry_type == SUBENTRY_TYPE_SIGNAL
 
     @property
     def _mode(self) -> str:
@@ -590,6 +604,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             batteries_kw,
             grids_kw,
             solars_kw,
+            self._allow_negative,
         )
         preds = result.values
         has_model_bounds = result.model_lower is not None and result.model_upper is not None
@@ -605,7 +620,8 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             else:
                 lead_hours = (ts - now_utc).total_seconds() / 3600
                 band = calibrated_band(self._residuals, v, lead_hours)
-                lower, upper = max(0.0, v - band), v + band
+                lower = (v - band) if self._allow_negative else max(0.0, v - band)
+                upper = v + band
             points.append({
                 "time": ts.isoformat(),
                 "value": round(v, 3),
