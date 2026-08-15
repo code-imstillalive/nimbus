@@ -224,7 +224,28 @@ def _solve_two_phase(problem: LPProblem) -> LPResult:
             work_cost.append(cost)
             parts.append((pos_idx, None, lb))
             if ub != float("inf"):
-                extra_ub_rows.append(({name: 1.0}, ub - lb))
+                # Real bug, found 2026-08-16 while testing rolling.py
+                # against a battery scenario with a large min_soc_kwh
+                # (this project's SoC variable is the only one anywhere
+                # in this package with a nonzero lb -- every other
+                # variable has lb=0.0). This row is later run through
+                # _expand_row() below, which ITSELF subtracts `shift`
+                # (== lb) via `shift_adjustment` to convert from
+                # original-variable terms to working-variable terms.
+                # Passing `ub - lb` here (already shifted once) then
+                # gets shifted a SECOND time by _expand_row, silently
+                # capping the variable's real usable ceiling at
+                # `ub - 2*lb` instead of `ub - lb` (i.e., in original
+                # terms, capping it at `ub - lb` instead of the correct
+                # `ub`). Invisible for any lb=0 variable (0 subtracted
+                # twice is still 0) -- which is every variable in this
+                # codebase except battery SoC, so this went undetected
+                # through this project's entire prior test history.
+                # Correct: pass the ORIGINAL, unshifted `ub` here and let
+                # _expand_row's own shift_adjustment do the (single)
+                # subtraction, exactly like every other row in this
+                # solver already does.
+                extra_ub_rows.append(({name: 1.0}, ub))
 
     def _expand_row(terms: dict[str, float]) -> dict[str, float]:
         """Rewrite a constraint given in ORIGINAL variable names into one

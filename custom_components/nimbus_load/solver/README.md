@@ -27,6 +27,47 @@ see how it behaves."*
   automations already use) — purely so a human can compare the solver's shadow
   plan against what the real inverter is actually doing, the same comparison
   shape `monitor_haeo.py` already proved useful for.
+- `rolling.py` — Layer 2 (Rolling Refinement): `run_rolling_refinement()`,
+  a receding-horizon re-solve loop calling `build_plan()` repeatedly with
+  `previous_plan` threaded through automatically, so the three stability
+  mechanisms below actually have something to stabilize against. Own SoC
+  continuity (with clamping) and solve-failure fallback — see its own
+  module docstring for the full design.
+
+## A real, significant LP bug found and fixed (2026-08-16)
+
+While testing `rolling.py` against a real battery scenario, found that
+`lp.py`'s two-phase simplex was silently returning a WRONG (non-optimal,
+not even reported as infeasible) answer whenever a variable had a
+nonzero finite lower bound and the true optimum required it near its own
+real upper bound. Root cause: the shifted-variable upper-bound row was
+built as `ub - lb` and then shifted a SECOND time by `_expand_row()`'s
+own logic, silently capping the variable's real usable ceiling at
+`ub - 2*lb` (in shifted terms) — i.e. `ub - lb` in original terms,
+instead of the correct `ub`.
+
+This is invisible for any variable with `lb=0` (double-subtracting zero
+changes nothing) — which is every single variable in this whole package
+except battery `soc` (`min_soc_kwh` is always > 0 by `BatteryConfig`'s
+own validation). Every prior test in `test_lp_correctness.py` and every
+prior scenario in `test_network_synthetic.py`/`test_stability_mechanisms.py`
+happened to either use `lb=0`/`lb=-inf` variables only, or never actually
+needed `soc` to approach its true ceiling closely enough for the bug to
+flip a loose-threshold assertion — so this went completely undetected
+through this project's entire prior solver history until a
+high-`min_soc`-relative-to-range scenario (this household's own real
+5%-of-capacity min_soc is comparatively small; the bug needed a bigger
+min_soc to become numerically obvious) surfaced it directly.
+
+One-line fix: pass the real, unshifted `ub` into the upper-bound row
+(not `ub - lb`), letting `_expand_row()`'s own shift-adjustment do the
+subtraction exactly once, same as every other row already does. New
+permanent regression test in `test_lp_correctness.py` (#8) targets this
+exact shape directly. Full `test_lp_correctness.py`/
+`test_network_synthetic.py`/`test_stability_mechanisms.py` suites all
+re-verified passing after the fix (numeric outputs unaffected at their
+existing assertion tolerances — the bug's effect was always there, just
+never large enough to flip an existing loose-threshold check).
 
 ## Structural degeneracy guards (real, not advisory)
 
@@ -186,17 +227,46 @@ genuine hard-tradeoff scenario (rate limiting) constructed so the expected
 numeric answer can be verified by hand, not just asserted to "look
 reasonable."
 
+## Layer 2 — Rolling Refinement (2026-08-16)
+
+`rolling.py`'s `run_rolling_refinement()` is the receding-horizon loop
+that actually exercises the three stability mechanisms above — without
+it, `previous_plan` never gets threaded from one solve to the next at
+all. Standard MPC "solve, act, observe, re-solve" pattern: only period 0
+of each individual re-solve is ever treated as the real dispatch
+decision (`RollingTick.dispatched_*`); everything the solve planned
+beyond period 0 is provisional and gets re-planned fresh next tick.
+
+Verified two ways:
+1. **Mechanics** (`test_rolling_refinement.py`, small synthetic
+   scenarios): SoC genuinely continues tick-to-tick rather than resetting
+   to whatever the input provider statically returns; a SoC carried
+   forward outside a tick's own (possibly-shifted) `min_soc`/`max_soc`
+   window clamps correctly instead of crashing (a real, legitimate case —
+   this project's own real household already runs automations that shift
+   min_soc/max_soc on a schedule during the day); an infeasible tick
+   freezes the last known-good dispatch rather than crashing or inventing
+   a value, and `previous_plan` correctly stays anchored to the last REAL
+   optimal solve, not the failed one's own zero-filled placeholder.
+2. **The actual point, against REAL data**: ran a real solar/load/price
+   forecast (same "genuinely independent inputs, never the Battery/Grid
+   power-signal forecasts" discipline as the Layer-1 real-data test)
+   through 40 re-solves spanning today's real 5pm P2P price step, once
+   with the stability mechanisms off and once on. Total dispatch
+   variation (sum of |consecutive tick-to-tick deltas|) was measurably
+   lower with the mechanisms on, at a bounded, non-catastrophic real
+   economic cost — the actual, concrete demonstration of what this whole
+   stability layer buys in a realistic repeated-solve scenario, not just
+   an argument for why it should.
+
 ## Deliberately not yet built
 
-- Layer 2 (Rolling Refinement / MPC) and Layer 3 (Safety Envelope) — the
-  three mechanisms above are the stability PRIMITIVES those layers will
-  need; the layers themselves (an actual rolling re-solve loop, calling
-  build_plan() repeatedly and threading `previous_plan` through) don't
-  exist yet.
+- Layer 3 (Safety Envelope).
 - Every mechanism from the architecture sketch's own §8 (staleness checks,
-  solve-failure fallback, circuit breaker, external watchdog) — see the real
-  finding above for exactly why these matter, demonstrated against real data,
-  not just argued for in the abstract.
+  solve-failure fallback beyond the simple freeze-last-dispatch already in
+  `rolling.py`, circuit breaker, external watchdog) — see the real finding
+  in the earlier real-data section for exactly why these matter,
+  demonstrated against real data, not just argued for in the abstract.
 - Per-inverter/per-tower battery modeling (v1 deliberately treats the 2 real
   inverters as one aggregate).
 - Any wiring into a live coordinator/entity/config_flow at all.
