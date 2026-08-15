@@ -188,6 +188,51 @@ class TrainedModel:
     # happens to output a small band."
     gbrt_lower: GBRT | None = None
     gbrt_upper: GBRT | None = None
+    # Seasonal (weekday, hour) -> mean value lookup, built from the FULL
+    # resampled training grid (every row with a real load value, no
+    # lag-availability filtering -- unlike x_train/y_train). Deliberately
+    # NOT keyed by minute-of-hour too (an earlier version of this fix
+    # was, and it silently never matched anything -- see below). Added
+    # 2026-08-15 to fix a real, confirmed-live exposure-bias bug in the
+    # recursive multi-step forecast for power-signal targets: predict()'s
+    # own lag_at() self-feeds its own predictions as later lag inputs once
+    # past the first ~hour of real history (LAG_LONG_STEPS grid steps),
+    # and for a signal whose lag features are heavily weighted (confirmed
+    # by real backtesting) this compounds into a runaway anchor toward
+    # whatever the recursive chain's OWN early trajectory happened to be
+    # (e.g. "still mid-transition from an afternoon charge") rather than
+    # ever reverting to the true, clean hour-of-day pattern. Confirmed
+    # live 2026-08-15: forecasting Battery power from a real "charging
+    # just stopped" moment, trained on real 45-day history, converged to
+    # ~5.9-6.1kW evening peaks -- repeated near-identically day after
+    # day -- against a real 45-day median of ~13kW every single evening
+    # (tight IQR, ~12.4-14.0). Used by predict() (allow_negative=True
+    # callers only -- see its own docstring) as the lag SOURCE once a
+    # step's lag lookback falls past the real data horizon, instead of
+    # the self-generated buffer -- grounds every later lag input in a
+    # real, historically-observed value for that specific weekday/hour/
+    # minute rather than letting error compound indefinitely. Loads
+    # (allow_negative=False) are unaffected -- their own genuine near-
+    # term momentum carry-over (e.g. "still running 15 min from now")
+    # stays exactly as it was, only power signals with a strong, clean
+    # calendar-driven rhythm and no real momentum-carry-over need get
+    # anchored back to history like this. Bucketed by (weekday, hour)
+    # only, NOT minute-of-hour: both the training grid (built from
+    # whatever arbitrary wall-clock instant the daily retrain job
+    # actually ran at) and the predict-time grid (dt_util.utcnow() at
+    # whatever instant the coordinator's own 2-min tick lands) step in
+    # exact 15-min increments from two DIFFERENT, essentially-random
+    # starting offsets -- confirmed live 2026-08-15 that keying by exact
+    # minute silently never matched anything at all (a target's minute
+    # is almost never one of the training grid's own 0/15/30/45 values),
+    # which is why the very first version of this fix produced an
+    # UNCHANGED result despite compiling and running without error. Hour
+    # granularity sidesteps the alignment mismatch entirely and still
+    # captures the real signal well -- confirmed against real household
+    # data the same day: 17:00-23:00 medians sit in a tight ~12.6-13.2
+    # band per hour, nowhere near volatile enough to need minute-level
+    # resolution.
+    seasonal_lookup: dict[tuple[int, int], float] = field(default_factory=dict)
 
 
 def resample_last_value(
@@ -273,6 +318,41 @@ def train_model(
 
     grid = _build_grid(start, end, resample_minutes)
     load_vals = resample_last_value(load_events, grid)
+
+    # Seasonal lookup (see TrainedModel.seasonal_lookup's own docstring) --
+    # built from EVERY grid point with a real observed value, deliberately
+    # BEFORE the lag-availability-filtered x_rows loop below (which drops
+    # the first LAG_LONG_STEPS rows and any row with a lag gap) -- this
+    # table needs the widest possible real-data coverage, not just rows
+    # that happened to also have clean lag history.
+    seasonal_sums: dict[tuple[int, int], list[float]] = {}
+    hour_sums: dict[int, list[float]] = {}
+    for g, lv in zip(grid, load_vals, strict=True):
+        if lv is None:
+            continue
+        seasonal_sums.setdefault((g.weekday(), g.hour), []).append(lv)
+        hour_sums.setdefault(g.hour, []).append(lv)
+    # Shrinkage toward the overall per-hour average (2026-08-15, found
+    # live the same day the seasonal fix itself was built): a 45-day
+    # window gives only ~6-7 real samples per individual (weekday, hour)
+    # bucket -- confirmed live that one genuinely quiet/anomalous Sunday
+    # alone was enough to drag that one weekday's own evening average
+    # down to ~8kW against every other weekday's ~13kW, with nothing in
+    # this household's real automation history suggesting the underlying
+    # pattern is actually weekday-dependent (the P2P sell automation runs
+    # the same way every night). SHRINKAGE_K=5 means a bucket with 5 real
+    # samples gets weighted 50/50 with the far more robust all-weekday
+    # hourly average; a bucket with many more samples relies mostly on
+    # its own genuine value; a bucket with very few leans almost entirely
+    # on the broader hourly pattern instead of trusting a handful of
+    # points. Standard empirical-Bayes-style shrinkage, not a special
+    # per-load hack.
+    SHRINKAGE_K = 5
+    seasonal_lookup: dict[tuple[int, int], float] = {}
+    for (wd, hr), vs in seasonal_sums.items():
+        hour_mean = sum(hour_sums[hr]) / len(hour_sums[hr])
+        n = len(vs)
+        seasonal_lookup[(wd, hr)] = (sum(vs) + SHRINKAGE_K * hour_mean) / (n + SHRINKAGE_K)
     temp_vals = resample_last_value(temp_events, grid) if temp_events else [None] * len(grid)
     humidity_vals = (
         resample_last_value(humidity_events, grid) if humidity_events else [None] * len(grid)
@@ -502,6 +582,7 @@ def train_model(
         validation_mase=validation_mase,
         gbrt_lower=gbrt_lower_final,
         gbrt_upper=gbrt_upper_final,
+        seasonal_lookup=seasonal_lookup,
     )
 
 
@@ -654,8 +735,25 @@ def predict(
     buffer_times = [p[0] for p in buffer]
     buffer_vals = [p[1] for p in buffer]
     default_lag = float(np.mean(trained.y_train)) if len(trained.y_train) else 0.0
+    # Boundary past which lag_at() would otherwise be forced to use a
+    # SELF-GENERATED prediction rather than a real observed value --
+    # captured BEFORE the loop below starts appending its own predictions
+    # onto buffer_times/buffer_vals. None (no real recent data at all)
+    # means every lookup is beyond the cutoff. See TrainedModel.
+    # seasonal_lookup's own docstring for why this matters.
+    real_data_cutoff = buffer_times[-1] if buffer_times else None
 
     def lag_at(target: datetime) -> float:
+        if allow_negative and (real_data_cutoff is None or target > real_data_cutoff):
+            seasonal_v = trained.seasonal_lookup.get((target.weekday(), target.hour))
+            if seasonal_v is not None:
+                return seasonal_v
+            # No (weekday, hour) match for this particular bucket (e.g. a
+            # training window that happened to never cover it) -- fall
+            # through to the self-generated buffer below rather than
+            # silently using the flat default_lag, which would be a
+            # worse approximation than "whatever the chain currently
+            # believes" for a single missing bucket.
         idx = bisect_right(buffer_times, target) - 1
         return buffer_vals[idx] if idx >= 0 else default_lag
 
