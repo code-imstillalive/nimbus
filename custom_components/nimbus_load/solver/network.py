@@ -74,6 +74,78 @@ distinct applications of the same mechanism:
   `max_rate_kw=None` (default) disables both -- current unconstrained
   behaviour.
 
+## SAME-PERIOD WASH-TRADE PREVENTION (2026-08-16)
+
+Direct real-data finding: elements.py's own `GridConfig` used to reject,
+at config time, any period where `export_price > import_price` (see
+`MIN_GRID_COST_SPREAD`'s old docstring, still readable in git history).
+That guard existed for a real reason -- if the LP is free to set
+`grid_import[t]` and `grid_export[t]` BOTH large in the same period,
+whenever export_price exceeds import_price it finds genuine (if
+unphysical) free profit: import cheap, instantly resell high, absorb
+the leftover into the battery. But a REAL household's genuine P2P sale
+price legitimately, routinely exceeds import price during its own real
+5pm-midnight window -- that IS the entire economic point of selling
+P2P. The old guard couldn't tell that apart from the free-money loop,
+and rejected (or, via a caller-side clamp workaround tried first,
+neutered) the real signal outright -- confirmed live: an early build of
+this solver, fed the real un-clamped $0.50/kWh P2P price, proposed
+almost no discharge into the real P2P window at all, because the
+caller had to suppress the real price down near import-price levels
+just to get past config validation.
+
+Investigated properly (not just re-clamped) and found the free-money
+loop actually has TWO independent pathways, both needing to be closed
+structurally for this to be safe with a real, uncapped price signal:
+
+1. **Direct grid pathway**: `grid_export[t]` funded straight from a
+   same-period `grid_import[t]`, with the difference absorbed into
+   `charge[t]`. Closed by: `grid_export[t] <= solar_used[t] +
+   discharge[t]` -- export can only ever be funded by real solar
+   surplus or genuine battery discharge, never directly by import in
+   the same period. This is also just a more physically correct model
+   regardless of price: a real household meter reports one NET flow per
+   interval, never simultaneous gross import AND export.
+
+2. **Battery-routed pathway**: closing (1) alone is NOT sufficient --
+   the LP can still charge[t] heavily (funded by grid_import[t]) and
+   discharge[t] in the SAME period (funded by that same fresh charge,
+   since the existing SoC equation only tracks the NET change across a
+   period, with no real physical ordering within it), then let that
+   discharge[t] legitimately satisfy constraint (1) above. Confirmed by
+   hand-computation against this project's own real live numbers
+   (charge_cost=0.005, discharge_cost=0.09, import~0.01-0.07,
+   export~0.50): this pathway alone is still worth roughly $1/period in
+   free profit even with (1) in place. Closed by a second constraint:
+   `discharge[t] * hours[t] / discharge_efficiency <= soc[t-1] -
+   min_soc_kwh` (using `battery.initial_soc_kwh` in place of `soc[-1]`
+   for t=0) -- discharge in period t can only draw on SoC that
+   genuinely existed BEFORE that period's own charging, never on
+   energy added in the same period. Real, physically-motivated
+   simplification (charge happens, THEN discharge draws from what was
+   already there), standard in the battery-LP literature specifically
+   to avoid this exact unrealistic instant-round-trip class of bug.
+
+Together, (1) and (2) make ANY same-period import-to-export or
+charge-to-discharge round trip infeasible, REGARDLESS of price --
+closing the free-money loop structurally rather than by rejecting or
+clamping the price data. Genuine ACROSS-TIME arbitrage (charge cheap
+in period t, discharge to sell high in a LATER period t+k) is
+completely unaffected -- `soc[t-1]` in constraint (2) correctly reflects
+every earlier period's real accumulated charge, however many periods
+back it happened, so this is exactly the real, desired behaviour the
+LP should be free to discover.
+
+Deliberately still pure LP, no MILP/binary variables -- confirmed via
+careful case analysis that a general "at most one of grid_import[t],
+grid_export[t] is nonzero" complementarity constraint is NOT
+representable as a pure LP in general (this is a known result, not
+something a clever reformulation can route around), but this
+household's REAL structure (a battery genuinely sitting between the
+grid and any export) means the two constraints above are both
+necessary AND sufficient for THIS topology specifically, without ever
+needing a general complementarity mechanism.
+
 **3. Confidence-aware dispatch** (`risk_aversion`) -- adjusts which
 NUMBER the LP treats as "the forecast" for Load/SheddableLoad/Solar
 elements that carry a real `lower_kw`/`upper_kw` confidence band from
@@ -488,6 +560,27 @@ def build_plan(
             # target infeasible outright.
             terms[adequacy_vars[al.name][t]] = -1.0
         p.add_eq_constraint(terms, rhs)
+
+    # ---- Same-period wash-trade prevention (see module docstring,
+    # "SAME-PERIOD WASH-TRADE PREVENTION" -- two structural constraints,
+    # both required, closing the two independent pathways found via real
+    # household data) ----
+    for t in range(n):
+        # (1) Direct grid pathway: export can only be funded by real
+        # solar surplus or genuine battery discharge, never a same-period
+        # grid_import[t] -- grid_export[t] - solar_used[t] - discharge[t] <= 0.
+        p.add_ub_constraint({grid_export[t]: 1.0, solar_used[t]: -1.0, discharge[t]: -1.0}, 0.0)
+        # (2) Battery-routed pathway: discharge[t] can only draw on SoC
+        # that genuinely existed BEFORE this period's own charging, never
+        # energy added within the same period -- discharge[t]*hours[t]/
+        # discharge_efficiency <= soc[t-1] - min_soc_kwh (battery.initial_
+        # soc_kwh stands in for soc[-1] at t=0, a known constant, so it
+        # moves straight to the RHS rather than needing a variable term).
+        draw_coeff = hours[t] / battery.discharge_efficiency
+        if t == 0:
+            p.add_ub_constraint({discharge[t]: draw_coeff}, battery.initial_soc_kwh - battery.min_soc_kwh)
+        else:
+            p.add_ub_constraint({discharge[t]: draw_coeff, soc[t - 1]: -1.0}, -battery.min_soc_kwh)
 
     # ---- Adequacy deadline constraints -- one inequality per adequacy
     # load, NOT per period: cumulative energy delivered through the

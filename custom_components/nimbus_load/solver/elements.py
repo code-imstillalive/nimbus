@@ -134,23 +134,48 @@ class GridConfig:
         if self.import_limit_kw < 0 or self.export_limit_kw < 0:
             msg = "Grid import/export limits must be >= 0"
             raise ValueError(msg)
-        # Structural degeneracy guard, same reasoning as the battery's
-        # own (see MIN_GRID_COST_SPREAD docstring) -- a period where
-        # import_price <= export_price makes simultaneous buy-and-sell
-        # genuinely profitable, not just numerically degenerate. This is
-        # deliberately NOT clamped/silently corrected -- a caller feeding
-        # in a real inverted price (which can legitimately happen for a
-        # single period during a genuine negative-FIT event) needs to see
-        # this loudly, not have it silently papered over.
-        spread = self.import_price - self.export_price
-        if np.any(spread < MIN_GRID_COST_SPREAD):
-            bad_periods = np.where(spread < MIN_GRID_COST_SPREAD)[0]
-            msg = (
-                f"Grid import/export price spread below the structural minimum "
-                f"({MIN_GRID_COST_SPREAD}) at period(s) {bad_periods.tolist()} -- "
-                "this would make simultaneous import+export profitable"
-            )
-            raise DegenerateConfigError(msg)
+        # REMOVED (2026-08-16): the price-spread config-time REJECT that
+        # used to live here (import_price - export_price >= MIN_GRID_COST_
+        # SPREAD everywhere, else raise DegenerateConfigError). Found to
+        # be both too blunt AND not actually the right layer to fix this
+        # at, via a real household's own live data: a genuine P2P sell
+        # price legitimately, routinely exceeds import price during the
+        # real 5pm-midnight window (that's the entire economic point of
+        # selling P2P) -- this guard rejected that outright, and even a
+        # per-period CLAMP workaround (tried first) neutered the real
+        # price signal down near import-price levels, which is exactly
+        # why an early build of this solver proposed almost no discharge
+        # into a real household's own P2P window despite being fed the
+        # real $0.50/kWh signal.
+        #
+        # The genuine risk this guard existed to prevent (the LP finding
+        # a free-money "import cheap, instantly resell high, same
+        # period" loop) is now closed STRUCTURALLY in network.py instead,
+        # via two real physical constraints, not a price-based reject:
+        #   1. grid_export[t] <= solar_used[t] + discharge[t] -- export
+        #      can only be funded by real solar surplus or genuine
+        #      battery discharge, NEVER directly by a same-period grid
+        #      import (a real physical fact: a household meter reports
+        #      one NET flow per interval, never simultaneous gross
+        #      import+export).
+        #   2. discharge[t] is bounded by the SoC that genuinely existed
+        #      BEFORE period t (not inflated by that same period's own
+        #      charge[t]) -- closes the second pathway (charge cheap,
+        #      instantly discharge+export the same energy, same period),
+        #      which constraint 1 alone does not block.
+        # Together these make ANY same-period import-to-export round
+        # trip physically infeasible, regardless of price, while leaving
+        # genuine ACROSS-TIME arbitrage (charge cheap overnight in one
+        # period, discharge to sell high in a LATER period) completely
+        # untouched -- exactly the real, legitimate behaviour this
+        # config exists to let the LP discover.
+        #
+        # MIN_GRID_COST_SPREAD (module-level constant, kept for the
+        # battery's own analogous MIN_CHARGE_DISCHARGE_COST_SPREAD
+        # reasoning) is no longer referenced here -- see network.py's
+        # own docstring, "SAME-PERIOD WASH-TRADE PREVENTION", for the
+        # full replacement mechanism and why it's structurally sufficient
+        # on its own without also needing a price-based reject.
 
 
 @dataclass(frozen=True)
