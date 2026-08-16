@@ -108,8 +108,8 @@ def evaluate_realized_cost(
     export_price_real: NDArray[np.float64],
     charge_committed_kw: NDArray[np.float64],
     discharge_committed_kw: NDArray[np.float64],
-    charge_cost: float,
-    discharge_cost: float,
+    charge_cost: float | NDArray[np.float64],
+    discharge_cost: float | NDArray[np.float64],
     final_soc_kwh: float,
     salvage_value: float,
     grid_import_limit_kw: float,
@@ -120,26 +120,61 @@ def evaluate_realized_cost(
     RECOMPUTED from the real balance equation, not read off whatever a
     forecast-based plan itself reported -- see module docstring.
 
+    charge_cost/discharge_cost accept a per-period array as well as a
+    scalar (2026-08-16, added for the first real reconciliation run --
+    this household's real cost schedule is genuinely time-varying,
+    $0.09/kWh discharge_cost 7am-5pm vs $0.01/kWh 5pm-7am; scoring a
+    real day against a single flat scalar would misprice roughly two
+    thirds of it). Mirrors the same float|array support already added
+    to BatteryConfig.charge_cost/discharge_cost and network.py's own
+    build_plan() -- this function was the one place in the package that
+    hadn't caught up to that shape yet.
+
     A real balance can genuinely violate `grid_import_limit_kw`/
     `grid_export_limit_kw` (unlike an LP, reality does not refuse an
     infeasible plan -- the physical result is whatever it is). This is
     reported via the returned arrays exceeding the nominal limit, not
     silently clipped -- an honest reflection of what a bad enough
     forecast error would actually do to a real household meter.
+
+    solar_used is ALWAYS the full solar_real_kw, never capped
+    (2026-08-16, real bug found and fixed via the first real
+    reconciliation run against an actual settled day -- see regret.py's
+    own module docstring for the finding). The previous formula,
+    `min(solar_real, max(0, load + charge - discharge))`, treated any
+    solar beyond (load + charge - discharge) as curtailed -- e.g. solar
+    =8kW, load=1kW, charge=5kW, discharge=0 gave solar_used=6, silently
+    discarding the remaining 2kW as "curtailed" instead of exported.
+    That's wrong for a REALIZED trajectory on a household that doesn't
+    curtail in normal operation (curtailment here is a deliberate,
+    last-resort LP planning choice, per this project's own documented
+    solar-priority order -- not something that happens routinely in
+    reality, and this evaluator has no business inventing it after the
+    fact). Confirmed live against 2026-08-15's real settlement: the old
+    formula overcounted grid_import by ~33kWh and undercounted
+    grid_export by ~36kWh for that single day -- solar was being
+    silently "curtailed away" on paper for most of the daylight hours.
+    solar_curtailed is therefore always zero here -- a REAL measured
+    solar reading already reflects whatever actually happened
+    (including any genuine real-world curtailment baked into the meter
+    itself); this evaluator's job is to balance what's ALREADY real, not
+    to re-decide curtailment after the fact.
     """
     n = len(hours)
-    solar_used = np.minimum(solar_real_kw, np.maximum(0.0, load_real_kw + charge_committed_kw - discharge_committed_kw))
+    charge_cost_arr = np.broadcast_to(np.asarray(charge_cost, dtype=np.float64), (n,))
+    discharge_cost_arr = np.broadcast_to(np.asarray(discharge_cost, dtype=np.float64), (n,))
+    solar_used = solar_real_kw
     net_needed = load_real_kw + charge_committed_kw - discharge_committed_kw - solar_used
     grid_import = np.maximum(0.0, net_needed)
     grid_export = np.maximum(0.0, -net_needed)
-    solar_curtailed = solar_real_kw - solar_used
+    solar_curtailed = np.zeros_like(solar_real_kw)
 
     cost = float(
         np.sum(
             import_price_real * grid_import * hours
             - export_price_real * grid_export * hours
-            + charge_cost * charge_committed_kw * hours
-            + discharge_cost * discharge_committed_kw * hours
+            + charge_cost_arr * charge_committed_kw * hours
+            + discharge_cost_arr * discharge_committed_kw * hours
         )
         - salvage_value * final_soc_kwh
     )
