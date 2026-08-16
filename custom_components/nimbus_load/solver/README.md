@@ -449,8 +449,50 @@ approximation with several breakpoints) would be needed for that, and
 is a real, larger, not-yet-built follow-up — not something this simple
 linear credit already solves. Reported plainly rather than oversold.
 
-**Not yet built**: the second half of Mark's diagnosis — scenario 2
-(HWS/EV adequacy: "a missing constraint in J... the solver is not
-making a mistake, it is correctly solving the wrong problem") — needs
-genuine deadline/adequacy semantics added to `LoadConfig`, not a
-terminal-value term at all; not attempted in this session.
+## Adequacy loads (2026-08-16) — Mark's scenario 2
+
+*"2 is different in kind. It is a missing constraint in J. If hot water
+adequacy and EV departure readiness are not in the objective, the
+solver is not making a mistake, it is correctly solving the wrong
+problem. The HWS and CTP channels mean you already have the telemetry
+to constrain it."*
+
+New `AdequacyLoadConfig` — structurally different from both `LoadConfig`
+(served in full every period, zero flexibility) and
+`SheddableLoadConfig` (can be reduced below a FORECAST per period, still
+no deadline semantics at all). This new class has no forecast at all: a
+power variable per period, free in `[0, max_power_kw]` within
+`[earliest_period, deadline_period]` (forced to exactly 0 outside that
+window), constrained so the CUMULATIVE energy delivered by the deadline
+reaches `target_kwh` — the LP itself decides WHEN within the window to
+run it. Exactly the real physical shape of HWS heating or EV charging.
+
+**A real sign bug found and fixed by this file's own dedicated test,
+not caught by inspection**: the adequacy load's own demand was first
+wired into the power-balance equation with a `+1.0` LHS coefficient —
+the same sign as a SUPPLY term (`solar_used`/`discharge`/`grid_import`),
+not a demand term. This made the balance equation get *easier* to
+satisfy as the adequacy load's own power increased, backwards from
+reality, and made every genuinely feasible target report as
+`infeasible` outright (confirmed live: a target well within the
+window's own physical capacity, verified satisfiable by hand, failed to
+solve until the coefficient was corrected to `-1.0`, matching
+`charge`/`grid_export`'s own sign convention).
+
+Verified: 4 hand-derivable scenarios, including the real cost-minimizing
+choice between a cheap and an expensive period within the same window
+(`$0.55 = 0.05×3kW + 0.20×2kW`, matched exactly), a genuinely
+unsatisfiable target correctly reporting infeasible rather than crashing
+or silently under-delivering, and omitting `adequacy_loads` entirely
+staying byte-identical to every prior caller. Full pre-existing suite
+(`lp_correctness`, `network_synthetic`, `stability_mechanisms`,
+`headroom_value`, `rolling_refinement`) still passes unmodified.
+
+**Not yet built**: no cost is currently assigned to an adequacy load's
+own power (it's free demand, same as a plain `LoadConfig`) — a real
+household might want to express "prefer running this earlier rather
+than later, all else equal" as a small tie-breaking cost, not attempted
+here. Also not built: wiring a real per-load `AdequacyLoadConfig` from
+this household's own real HWS/CTP telemetry (target temperature →
+target_kwh, departure time → deadline_period) — this session built the
+mechanism, not the real household's own instantiation of it.

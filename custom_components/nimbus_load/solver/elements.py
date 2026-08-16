@@ -367,3 +367,59 @@ class SheddableLoadConfig:
 # scarcity events), so a SheddableLoadConfig created without an explicit
 # shed_cost only ever gets shed as a true last resort, never routinely.
 DEFAULT_SHED_COST: float = 2.00
+
+
+@dataclass(frozen=True)
+class AdequacyLoadConfig:
+    """A load with a real DEADLINE, not a per-period demand -- direct
+    response to real feedback (Mark Purcell, on his own scenario 2, hot
+    water running cold / an EV short of range for a trip): "a missing
+    constraint in J. If hot water adequacy and EV departure readiness
+    are not in the objective, the solver is not making a mistake, it is
+    correctly solving the wrong problem."
+
+    Structurally different from both LoadConfig (served in full every
+    period, zero flexibility) and SheddableLoadConfig (can be reduced
+    below a FORECAST, per-period, still no deadline semantics at all --
+    `min_fraction` is a per-period floor, not a cumulative-by-deadline
+    target). This class has no forecast at all: the LP is free to
+    deliver power to it at ANY level in [0, max_power_kw] during
+    [earliest_period, deadline_period], at zero direct cost (running it
+    earlier or later than some "expected" time costs nothing physically
+    -- only failing to reach the real target by the real deadline does),
+    constrained so the CUMULATIVE energy delivered by (and including)
+    `deadline_period` is at least `target_kwh`. This is exactly the
+    real, physical shape of HWS heating (must reach a target amount of
+    stored heat by some time) and EV charging (must have enough range by
+    departure) -- matches this project's own real, already-instrumented
+    HWS/CTP telemetry Mark points to directly.
+
+    A genuinely infeasible target (more energy required than
+    `max_power_kw * (deadline_period - earliest_period + 1) * hours`
+    can physically deliver) is NOT caught here at construction time --
+    network.py doesn't know the real PeriodGrid's own `hours` until
+    build_plan() is called, so an impossible target surfaces honestly as
+    a real `status="infeasible"` Plan, same as any other genuinely
+    unsatisfiable constraint in this solver, not a silently-adjusted or
+    pre-emptively-rejected config.
+    """
+
+    name: str
+    max_power_kw: float
+    target_kwh: float
+    deadline_period: int  # inclusive -- cumulative delivered energy through this period must reach target_kwh
+    earliest_period: int = 0  # cannot deliver any power before this period (e.g. "don't run HWS before 6am")
+
+    def __post_init__(self) -> None:
+        if self.max_power_kw <= 0.0:
+            msg = f"Adequacy load '{self.name}' max_power_kw must be > 0"
+            raise ValueError(msg)
+        if self.target_kwh <= 0.0:
+            msg = f"Adequacy load '{self.name}' target_kwh must be > 0"
+            raise ValueError(msg)
+        if self.deadline_period < self.earliest_period:
+            msg = f"Adequacy load '{self.name}' deadline_period ({self.deadline_period}) must be >= earliest_period ({self.earliest_period})"
+            raise ValueError(msg)
+        if self.earliest_period < 0:
+            msg = f"Adequacy load '{self.name}' earliest_period must be >= 0"
+            raise ValueError(msg)
