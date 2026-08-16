@@ -270,3 +270,100 @@ Verified two ways:
 - Per-inverter/per-tower battery modeling (v1 deliberately treats the 2 real
   inverters as one aggregate).
 - Any wiring into a live coordinator/entity/config_flow at all.
+
+## Regret-based evaluation (2026-08-16) — direct response to real feedback
+
+Mark Purcell, real feedback on this project's own prior Forecaster
+validation (MAE/MASE against a naive-seasonal baseline): *"The end game
+is to minimise cost maximise benefits regardless of how many times the
+kettle is turned on... Change the metric. The objective is regret, not
+MAE... Random noise is cheap, systematic peak-timing bias is expensive,
+and MAE scores them identically. That's the defect."* Correct, and this
+project's prior validation never actually tested it — MAE against a
+naive baseline says nothing about downstream economic outcome once a
+rolling re-solve loop exists to absorb forecast error before it's ever
+dispatched.
+
+`regret.py` builds the actual framework: J stated explicitly with units
+and its own omitted terms (see the module's own docstring — this is the
+authoritative version, not duplicated here), a perfect-foresight oracle
+(`oracle_dispatch()` — `build_plan()` fed REALIZED data directly), and a
+physically-correct realized-cost evaluator (`evaluate_realized_cost()`)
+that recomputes grid import/export from the real balance equation given
+a forecast-based plan's own committed battery setpoint — never trusting
+a forecast-based plan's own reported grid numbers, which balance against
+whatever load THAT plan assumed, not reality.
+
+**First real test, direct response to Mark's own stated prediction**
+("noise response flat, bias response steep"): real household load
+(`sensor.logger_load_power`, chosen over the newer circuit-breaker-summed
+sensor specifically because that one has zero recorded history yet — see
+the entity's own real swap-then-revert history this same day), real
+solar (`sensor.combined_total_dc_power`), real price
+(`sensor.costsflexup`/`earningsflexup`), a real 6h daytime window
+(10:00-16:00 AEST, chosen after a first attempt landed on real overnight
+hours entirely by accident — a genuine UTC/AEST timestamp-labeling bug,
+caught and fixed live, not a deliberate choice). Two corruption models
+applied to the real load forecast fed into `rolling.py`'s own loop: zero-
+mean i.i.d. noise (fresh draw every tick, MAE 0.3-1.85kW) and a pure
+timing shift (MAE-matched to the same range, calibrated empirically after
+a first quantization bug — resampling a shifted query time against the
+already-15-min-bucketed grid instead of the real sub-minute raw history —
+was caught and fixed live). Run under BOTH the real deployed stability
+config (proximal+rate-limit ON) and a pure-Layer-1 baseline (OFF), so the
+CONTROL layer's own contribution to regret isn't silently conflated with
+the FORECAST layer's.
+
+**Real results (this specific run — see caveats below):**
+
+| Config | dR/dMAE (noise), $/0.1kW | dR/dMAE (bias), $/0.1kW | Regret range |
+|---|---|---|---|
+| Stability OFF (pure Layer 1) | $0.0028 | $0.0037 | $2.77-$2.88 (span $0.11) |
+| Stability ON (real config) | $0.0158 | -$0.0169 | $0.79-$1.40 |
+
+Two real, more interesting findings than a bare confirm/deny of the
+specific noise-vs-bias claim:
+
+1. **The closed loop itself absorbs almost all forecast-error effect on
+   regret, for BOTH noise and bias alike** — even with stability
+   mechanisms fully OFF, simply re-solving every tick against real,
+   grounded physics (`evaluate_realized_cost()`'s own residual-grid
+   model) holds regret nearly flat across the entire tested MAE range,
+   regardless of error TYPE. This is arguably a stronger, more general
+   confirmation of Mark's own core thesis ("NIMBUS is closed-loop...
+   the next replan absorbs it") than the specific narrower noise-vs-bias
+   distinction — in this test, the re-solve cadence itself does nearly
+   all the absorbing.
+2. **The stability mechanisms measurably reduce real $ regret**, not
+   just dispatch oscillation (the previous PR's own finding) — roughly
+   $1.7-$2 lower regret across the board vs. the OFF baseline in this
+   run. A genuine, additional, stronger validation of their value.
+
+**What this run does NOT settle**: Mark's own specific, narrower
+prediction (bias costs strictly more $ per kW of MAE than noise) is not
+confirmed in the stability-ON config here — if anything the opposite
+trend shows, though the tau-realized-MAE ladder was non-monotonic across
+only 6 points in this single window, making that slope likely dominated
+by small-sample noise rather than a real causal effect either way.
+
+**Honest limitations, stated plainly, not buried**: single real day,
+single 6h window, single real price scenario, no bootstrap/replication
+across days. Mark's own ask #6 (≥14 days, bootstrap on days) is exactly
+what a genuinely defensible verdict on the narrow noise-vs-bias question
+needs — this is a first, honest, real-data test using the actual regret
+framework, not a settled conclusion either way. Test script
+(`test_regret_mae_vs_tau.py`, local scratch harness, not committed to
+this repo per this project's own testing convention) documents both
+real bugs found and fixed live while building it (a UTC/AEST timestamp
+mislabeling, and a resampling-against-the-wrong-grid quantization
+artifact) — both are directly instructive for anyone extending this
+experiment, not just historical trivia.
+
+**Not yet built** (the larger remainder of Mark's own feedback,
+genuinely out of scope for this session): the 4-layer nested-oracle
+Shapley decomposition (ask #2), the 3-counterfactual comparison —
+no control / tuned two-threshold rule / oracle (ask #3), the
+decision-weighted-error and active-set-flip-rate metrics (ask #5), and
+the real ≥14-day bootstrap (ask #6) — each is a real, well-specified,
+substantially larger piece of work than this first test, not attempted
+here.
