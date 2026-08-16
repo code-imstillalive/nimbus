@@ -159,6 +159,48 @@ class BatteryConfig:
     docstring). Charge/discharge modeled as two separate nonnegative
     variables in network.py, never one signed free variable, specifically
     so each can carry its own independently-enforced cost floor.
+
+    salvage_value / headroom_value (2026-08-16, direct response to real
+    feedback -- Mark Purcell, on three of his own four reported failure
+    scenarios: "Failure to price the forward option value of stored
+    energy AND of storage headroom. Terminal-value problem in the
+    optimisation layer... Given the horizon is already four days, the
+    forward value function is the live issue."):
+
+    `salvage_value` alone (the only terminal-value term that existed
+    before this field) prices ENERGY remaining at the final period --
+    it gives the LP a reason not to drain the battery for no reason, but
+    gives it ZERO reason to prefer ending with UNUSED CAPACITY, i.e. it
+    has no concept of the real option value in being positioned to
+    absorb a future cheap/negative price that lies just past whatever
+    horizon this particular solve can see. `headroom_value` is the
+    symmetric term for that: $/kWh credited for `max_soc_kwh -
+    soc[final]` (unused capacity) at the final period, exactly mirroring
+    salvage_value's own treatment of remaining energy. Having BOTH
+    terms, not just one, is what lets a solve express "end somewhere in
+    the genuine middle, with real optionality in both directions" rather
+    than being structurally pulled toward one extreme (fully charged, or
+    fully able to charge) by construction -- real options-theory
+    reasoning, not a heuristic tiebreaker.
+
+    Both default such that omitting `headroom_value` (0.0) is byte-
+    identical to every scenario built before this field existed --
+    salvage_value alone, same as always.
+
+    **Real, honest limitation, found via real household data, not
+    assumed**: this term is LINEAR in soc[final], so the LP always
+    drives the terminal state to a hard CORNER (max_soc or min_soc) once
+    one credit exceeds the other -- confirmed live: on a real 6h window,
+    headroom_value=0.05 (< salvage_value=0.10) gave final_soc=100%,
+    headroom_value=0.15 (> salvage_value=0.10) flipped ALL THE WAY to
+    final_soc=5%, with no smooth transition in between. This mechanism
+    is real and useful (it does let a caller bias the terminal state
+    toward energy-preference or headroom-preference, predictably), but
+    it is NOT a genuine continuous option-value tradeoff -- a real
+    concave/nonlinear terminal value function (or a piecewise-linear
+    approximation with multiple breakpoints) would be needed for that,
+    and is a real, larger, not-yet-built follow-up, not something this
+    simple linear credit already solves.
     """
 
     capacity_kwh: float
@@ -171,7 +213,8 @@ class BatteryConfig:
     discharge_efficiency: float  # 0 < eff <= 1, energy delivered per kWh drawn from storage
     charge_cost: float  # $/kWh, structural floor enforced below
     discharge_cost: float  # $/kWh, structural floor enforced below
-    salvage_value: float  # $/kWh credited for charge remaining at the final period
+    salvage_value: float  # $/kWh credited for ENERGY remaining at the final period
+    headroom_value: float = 0.0  # $/kWh credited for unused CAPACITY (max_soc - soc[final]) at the final period -- see docstring above
 
     def __post_init__(self) -> None:
         if not (0.0 < self.min_soc_kwh <= self.max_soc_kwh <= self.capacity_kwh):

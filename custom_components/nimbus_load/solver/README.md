@@ -409,3 +409,48 @@ active-set-flip-rate metrics (ask #5), the out-of-sample two-threshold
 comparison flagged directly above, and the real ≥14-day bootstrap
 (ask #6) — each is a real, well-specified, substantially larger piece
 of work than this first pass, not attempted here.
+
+## Terminal headroom value (2026-08-16) — Mark's real scenarios 1/3/4
+
+Direct response to real feedback (a diagram of the live Nimbus Forecaster
+dashboard, Mark Purcell): *"Failure to price the forward option value of
+stored energy AND of storage headroom. Terminal-value problem in the
+optimisation layer, not a forecasting problem. Given the horizon is
+already four days, the forward value function is the live issue."*
+
+`BatteryConfig` gained `headroom_value: float = 0.0` (default keeps
+every prior scenario byte-identical), symmetric to the pre-existing
+`salvage_value`: `salvage_value` credits ENERGY remaining at the final
+period, `headroom_value` credits unused CAPACITY
+(`max_soc_kwh - soc[final]`) at the final period. Both are just another
+linear term on `soc[n-1]` in `network.py`'s own objective (`set_cost()`
+already accumulates, so this is a one-line addition). See
+`BatteryConfig`'s own docstring for the full "option value of energy AND
+of headroom" reasoning.
+
+Verified: 4 hand-derivable synthetic scenarios (salvage-only pulls
+toward max_soc, headroom-only pulls toward min_soc, both small/balanced
+leaves the battery at its own starting SoC since neither credit is worth
+the cost of actively moving energy, headroom_value=0.0 omitted matches
+passing it explicitly) plus a real-data check against the same
+household window used above.
+
+**A real, honest limitation, found via that real-data check, not
+assumed**: because this term is LINEAR in `soc[final]`, the LP always
+drives the terminal state to a hard CORNER once one credit exceeds the
+other — confirmed live: `headroom_value=0.05` (< `salvage_value=0.10`)
+gave `final_soc=100%`; `headroom_value=0.15` (> `salvage_value=0.10`)
+flipped ALL THE WAY to `final_soc=5%`, no smooth transition in between.
+This mechanism is real and useful — it lets a caller bias the terminal
+state toward energy-preference or headroom-preference, predictably —
+but it is **not** a genuine continuous option-value tradeoff. A real
+concave/nonlinear terminal-value function (or a piecewise-linear
+approximation with several breakpoints) would be needed for that, and
+is a real, larger, not-yet-built follow-up — not something this simple
+linear credit already solves. Reported plainly rather than oversold.
+
+**Not yet built**: the second half of Mark's diagnosis — scenario 2
+(HWS/EV adequacy: "a missing constraint in J... the solver is not
+making a mistake, it is correctly solving the wrong problem") — needs
+genuine deadline/adequacy semantics added to `LoadConfig`, not a
+terminal-value term at all; not attempted in this session.

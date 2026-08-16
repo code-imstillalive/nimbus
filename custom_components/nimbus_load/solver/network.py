@@ -370,6 +370,18 @@ def build_plan(
     # the final tick (see the architecture sketch's own §6 "Salvage value,
     # in plain terms" explainer).
     p.set_cost(soc[n - 1], -battery.salvage_value)
+    # Headroom value (2026-08-16, direct response to real feedback -- see
+    # BatteryConfig's own docstring for the full "option value of energy
+    # AND of headroom" reasoning): -headroom_value * (max_soc - soc[n-1])
+    # expands to a CONSTANT (-headroom_value*max_soc, doesn't affect the
+    # optimal solution -- LP optimization is invariant to a constant
+    # objective offset) plus +headroom_value*soc[n-1]. set_cost() already
+    # ADDS to soc[n-1]'s existing coefficient (see its own docstring), so
+    # this second call is the correct, minimal way to combine both terms
+    # -- net terminal coefficient becomes -(salvage_value - headroom_value).
+    # headroom_value=0.0 (the default) adds exactly zero, byte-identical
+    # to every scenario built before this field existed.
+    p.set_cost(soc[n - 1], battery.headroom_value)
 
     # ---- Stability mechanisms 1 & 2 (see module docstring) ----
     prev_charge = previous_plan.battery_charge_kw if previous_plan is not None else None
