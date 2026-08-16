@@ -359,11 +359,53 @@ mislabeling, and a resampling-against-the-wrong-grid quantization
 artifact) — both are directly instructive for anyone extending this
 experiment, not just historical trivia.
 
+## Three counterfactuals (2026-08-16) — Mark's ask #3
+
+*"Three counterfactuals, not one: no control, a tuned two-threshold
+price rule with no forecasting, and the oracle. Report the fraction of
+the naive-to-oracle gap NIMBUS actually closes."*
+
+`counterfactuals.py`: `no_control_dispatch()` (battery physically
+disabled, zero decisions, zero forecast dependency) and
+`two_threshold_dispatch()` (a plain reactive rule — discharge at max
+rate above a price threshold, charge below another, using only the REAL
+current price and SoC each period, no forecast of any kind — the honest
+"household with a battery and a simple rule, no software" baseline),
+plus `tune_two_threshold()` (a real grid search over threshold pairs,
+minimizing real cost on the window — "tuned" per Mark's own word, an
+actual search, not a guessed pair).
+
+**Real result, same real household data/window as the regret test
+above:**
+
+| Controller | J (real cost) | Regret vs. oracle | Gap closed |
+|---|---|---|---|
+| Oracle (J*) | $-10.91 | $0.00 | 100% |
+| Tuned two-threshold | $-10.60 | $0.31 | 94.3% |
+| NIMBUS (real deployed config) | $-9.96 | $0.94 | 82.5% |
+| No control | $-5.51 | $5.39 | 0% |
+
+**A real, humbling result, reported exactly as found, not softened —
+but with a genuine methodological flaw that makes it NOT yet a fair
+comparison**: the tuned two-threshold rule's own thresholds
+(`low=$0.0155, high=$0.0710`) were grid-searched **in-sample**, on the
+exact same day/window they're then evaluated against — meaning the
+search effectively already knew that day's real price range in advance,
+a form of hindsight a real household would never have when setting
+thresholds ahead of time. This almost certainly inflates the
+two-threshold rule's own score. A genuinely fair comparison needs
+**out-of-sample tuning** (thresholds chosen on one real day/window,
+evaluated on a DIFFERENT one) — not done here, a real, direct next step
+if this comparison is pursued further, not just a footnote to caveat
+around.
+
+Honest limitations, same as the regret test above: single real day,
+single 6h window, single real price scenario.
+
 **Not yet built** (the larger remainder of Mark's own feedback,
 genuinely out of scope for this session): the 4-layer nested-oracle
-Shapley decomposition (ask #2), the 3-counterfactual comparison —
-no control / tuned two-threshold rule / oracle (ask #3), the
-decision-weighted-error and active-set-flip-rate metrics (ask #5), and
-the real ≥14-day bootstrap (ask #6) — each is a real, well-specified,
-substantially larger piece of work than this first test, not attempted
-here.
+Shapley decomposition (ask #2), the decision-weighted-error and
+active-set-flip-rate metrics (ask #5), the out-of-sample two-threshold
+comparison flagged directly above, and the real ≥14-day bootstrap
+(ask #6) — each is a real, well-specified, substantially larger piece
+of work than this first pass, not attempted here.
