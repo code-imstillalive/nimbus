@@ -146,6 +146,49 @@ grid and any export) means the two constraints above are both
 necessary AND sufficient for THIS topology specifically, without ever
 needing a general complementarity mechanism.
 
+## MINIMUM TOTAL EXPORT COMMITMENT (2026-08-17)
+
+`GridConfig.min_export_kwh` (default `None` -- complete no-op) adds one
+extra constraint: `sum(grid_export[t] * hours[t]) >= min_export_kwh`
+across the whole horizon. Expressed to LPProblem (which only has `<=`)
+the same way AdequacyLoadConfig's own deadline constraint already is --
+negate both sides.
+
+Why this exists: found live, doing a real regret/EPR analysis against a
+real household's own P2P export program. That program is a FIXED,
+pre-committed nightly revenue (LocalVolts matches against the
+household's own known historical dispatch pattern, not reactively
+per-interval -- see the sibling 116KAT-HA-AI repo's own CLAUDE.md,
+session 2026-08-09 "front-gap" investigation onward), not a plain
+price-taking market. A first attempt modeled this as a flat export price
+with NO volume cap -- the LP correctly, rationally exploited that as
+free unlimited arbitrage (confirmed live: import price never exceeded
+$0.316 the whole window against a flat $0.466 export price with no
+ceiling, so the oracle wanted to cycle 204kWh through the battery
+against a real ~10kWh load). Capping the volume by holding the REAL
+settled P2P revenue as a FIXED credit (added identically to every
+counterfactual, so it cancels out of every regret/EPR difference) fixed
+the fake-arbitrage bug, but left a second, subtler gap: nothing forced a
+perfect-foresight oracle to ALSO physically deliver the real committed
+export volume to earn that fixed credit -- it could sit near-idle in the
+residual (real spot export sits below real spot import most nights, so
+there's no other reason to discharge) while still claiming the full
+credit, which J_ach never got to do (it genuinely had to draw its own
+SoC down, paying a real salvage-value opportunity cost, to deliver the
+real matched volume). That gap systematically inflates regret / deflates
+EPR for J* specifically. `min_export_kwh`, applied identically to
+whichever scenarios are meant to represent "operating under this real
+P2P commitment" (NOT the fully-idle J_ref reference case, which by
+definition never enters into any export commitment at all), closes it:
+the oracle is now forced to find the CHEAPEST way to deliver the same
+real total export J_ach delivered, which is exactly the fair "how much
+better could TIMING alone have done" comparison this analysis needs.
+
+Genuinely unsatisfiable within the window's own `export_limit_kw *
+sum(hours)` ceiling (or given the battery's own real energy capacity)
+surfaces as a real `status="infeasible"` Plan, same as every other
+structural constraint in this file -- not a silently-adjusted target.
+
 **3. Confidence-aware dispatch** (`risk_aversion`) -- adjusts which
 NUMBER the LP treats as "the forecast" for Load/SheddableLoad/Solar
 elements that carry a real `lower_kw`/`upper_kw` confidence band from
@@ -602,6 +645,15 @@ def build_plan(
         window = range(al.earliest_period, al.deadline_period + 1)
         terms = {adequacy_vars[al.name][t]: -hours[t] for t in window}
         p.add_ub_constraint(terms, -al.target_kwh)
+
+    # ---- Minimum total export commitment (see module docstring,
+    # "MINIMUM TOTAL EXPORT COMMITMENT") -- sum(export*hours) >=
+    # min_export_kwh, expressed as <= by negating both sides (same
+    # technique as the adequacy deadline constraint just above). No-op
+    # when grid.min_export_kwh is None (the default).
+    if grid.min_export_kwh is not None:
+        terms = {grid_export[t]: -hours[t] for t in range(n)}
+        p.add_ub_constraint(terms, -grid.min_export_kwh)
 
     result: LPResult = p.solve()
     if result.status != "optimal":

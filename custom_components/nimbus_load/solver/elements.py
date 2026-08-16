@@ -129,10 +129,25 @@ class GridConfig:
     export_price: NDArray[np.float64]
     import_limit_kw: float
     export_limit_kw: float
+    # min_export_kwh (2026-08-17, direct response to real regret/EPR
+    # analysis needing it -- see network.py's own docstring, "MINIMUM
+    # TOTAL EXPORT COMMITMENT"): a real household running a P2P-style
+    # export program (a FIXED, pre-committed volume, matched against
+    # historical pattern rather than reactive per-interval pricing --
+    # NOT a plain price-taking market) needs a way to force a
+    # counterfactual dispatch (a perfect-foresight oracle, in
+    # particular) to ALSO physically deliver that same real committed
+    # volume, not just collect the credit for it. None (default) is a
+    # complete no-op -- every existing caller, every test predating this
+    # field, is byte-identical to before it existed.
+    min_export_kwh: float | None = None
 
     def __post_init__(self) -> None:
         if self.import_limit_kw < 0 or self.export_limit_kw < 0:
             msg = "Grid import/export limits must be >= 0"
+            raise ValueError(msg)
+        if self.min_export_kwh is not None and self.min_export_kwh < 0:
+            msg = "min_export_kwh must be >= 0 when given"
             raise ValueError(msg)
         # REMOVED (2026-08-16): the price-spread config-time REJECT that
         # used to live here (import_price - export_price >= MIN_GRID_COST_

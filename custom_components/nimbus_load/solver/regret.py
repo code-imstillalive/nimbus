@@ -97,6 +97,17 @@ class RealizedCost:
     grid_export_kw: NDArray[np.float64]
     solar_used_kw: NDArray[np.float64]
     solar_curtailed_kw: NDArray[np.float64]
+    cost_per_period: NDArray[np.float64]
+    """Per-period contribution to total_cost, BEFORE the one-time
+    salvage_value adjustment (that term applies once, to the final SoC,
+    not to any single period -- attributing it to one arbitrary period
+    would be misleading, so total_cost = sum(cost_per_period) -
+    salvage_value * final_soc_kwh, not sum(cost_per_period) alone). This
+    is what hourly_regret_breakdown() below bins to build an hourly
+    picture -- added 2026-08-17 specifically to reproduce Mark Purcell's
+    own "report regret hourly, never the ratio" chart pattern, which
+    needs each trajectory's own per-period cost, not just its total.
+    """
 
 
 def evaluate_realized_cost(
@@ -169,17 +180,16 @@ def evaluate_realized_cost(
     grid_export = np.maximum(0.0, -net_needed)
     solar_curtailed = np.zeros_like(solar_real_kw)
 
-    cost = float(
-        np.sum(
-            import_price_real * grid_import * hours
-            - export_price_real * grid_export * hours
-            + charge_cost_arr * charge_committed_kw * hours
-            + discharge_cost_arr * discharge_committed_kw * hours
-        )
-        - salvage_value * final_soc_kwh
+    cost_per_period = (
+        import_price_real * grid_import * hours
+        - export_price_real * grid_export * hours
+        + charge_cost_arr * charge_committed_kw * hours
+        + discharge_cost_arr * discharge_committed_kw * hours
     )
+    cost = float(np.sum(cost_per_period) - salvage_value * final_soc_kwh)
     return RealizedCost(
         total_cost=cost,
+        cost_per_period=cost_per_period,
         grid_import_kw=grid_import,
         grid_export_kw=grid_export,
         solar_used_kw=solar_used,
@@ -213,3 +223,56 @@ def oracle_dispatch(
         msg = f"Oracle solve failed (status={plan.status}) -- this should not happen with real, already-realized data unless the scenario is genuinely infeasible"
         raise RuntimeError(msg)
     return plan.battery_charge_kw, plan.battery_discharge_kw, float(plan.battery_soc_kwh[-1])
+
+
+def hourly_regret_breakdown(
+    *,
+    timestamps: list,
+    actual_cost_per_period: NDArray[np.float64],
+    oracle_cost_per_period: NDArray[np.float64],
+) -> dict[int, float]:
+    """Bins (actual - oracle) cost per period into 24 hour-of-day buckets --
+    reproduces Mark Purcell's own regret chart (2026-08-17, "Rust = value
+    left on the table. Teal = the optimum spending there to earn it back
+    later. Report regret hourly, never the ratio."), which showed real,
+    useful structure a single daily regret number hides entirely: which
+    specific hours the real controller actually lost money in (a positive
+    bucket -- "rust"), versus hours where the perfect-foresight optimum
+    spent MORE than actual, deliberately, to set up a bigger saving later
+    in the day (a negative bucket -- "teal"). A day can have a small net
+    regret while still containing large, genuinely actionable hourly
+    swings in both directions that cancel out in the daily total -- this
+    is deliberately NOT just "total regret / 24", which would hide that
+    structure completely.
+
+    timestamps: one per period, same length/order as both cost arrays --
+    only .hour is read from each, so any real datetime-like object works.
+    actual_cost_per_period / oracle_cost_per_period: RealizedCost.
+    cost_per_period from two evaluate_realized_cost() calls against the
+    SAME realized ground truth (same load/solar/price), one for the
+    actual/committed trajectory, one for oracle_dispatch()'s own -- the
+    one-time salvage_value adjustment in each trajectory's own total_cost
+    is deliberately excluded here (see RealizedCost.cost_per_period's own
+    docstring for why), so summing every hour's bucket reproduces the
+    day's regret EXCLUDING that one-time term, not the full total_cost
+    difference -- a real, honest gap between this function's own sum and
+    the "true" daily regret whenever salvage_value is nonzero, stated
+    here explicitly rather than left to be discovered by a mismatched
+    reconciliation later.
+
+    Returns {hour: regret_dollars} for every hour 0-23 that has at least
+    one period, positive = rust (actual worse than oracle that hour),
+    negative = teal (actual better than oracle that hour, i.e. the
+    oracle chose to spend more there). An hour with zero net difference
+    is simply absent from the returned dict, not included as 0.0 --
+    matches Mark's own chart, which shows no bar at all for a genuinely
+    flat hour rather than a zero-height one.
+    """
+    if not (len(timestamps) == len(actual_cost_per_period) == len(oracle_cost_per_period)):
+        msg = "timestamps, actual_cost_per_period, and oracle_cost_per_period must be the same length"
+        raise ValueError(msg)
+    buckets: dict[int, float] = {}
+    diff = actual_cost_per_period - oracle_cost_per_period
+    for ts, d in zip(timestamps, diff, strict=True):
+        buckets[ts.hour] = buckets.get(ts.hour, 0.0) + float(d)
+    return {h: round(v, 6) for h, v in buckets.items() if abs(v) > 1e-9}
