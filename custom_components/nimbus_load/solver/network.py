@@ -469,11 +469,20 @@ def build_plan(
         ]
 
     # ---- Cost terms ----
+    # battery.charge_cost/discharge_cost may be a plain scalar (applied
+    # identically to every period) or a real per-period array (2026-08-16,
+    # see BatteryConfig's own docstring) -- np.broadcast_to normalizes
+    # both cases to a real length-n array up front, so the loop below
+    # never needs to know which form the caller passed. A caller-supplied
+    # array whose own length doesn't match n raises here (a clear numpy
+    # broadcast error), not silently later.
+    charge_cost_arr = np.broadcast_to(np.asarray(battery.charge_cost, dtype=np.float64), (n,))
+    discharge_cost_arr = np.broadcast_to(np.asarray(battery.discharge_cost, dtype=np.float64), (n,))
     for t in range(n):
         p.set_cost(grid_import[t], grid.import_price[t] * hours[t])
         p.set_cost(grid_export[t], -grid.export_price[t] * hours[t])
-        p.set_cost(charge[t], battery.charge_cost * hours[t])
-        p.set_cost(discharge[t], battery.discharge_cost * hours[t])
+        p.set_cost(charge[t], charge_cost_arr[t] * hours[t])
+        p.set_cost(discharge[t], discharge_cost_arr[t] * hours[t])
         for sl in sheddable_loads:
             p.set_cost(shed_vars[sl.name][t], sl.shed_cost * hours[t])
     # Salvage value: a one-time credit on the FINAL period's soc -- without

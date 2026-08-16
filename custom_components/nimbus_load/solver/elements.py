@@ -236,8 +236,21 @@ class BatteryConfig:
     max_discharge_kw: float
     charge_efficiency: float  # 0 < eff <= 1, energy INTO storage per kWh drawn
     discharge_efficiency: float  # 0 < eff <= 1, energy delivered per kWh drawn from storage
-    charge_cost: float  # $/kWh, structural floor enforced below
-    discharge_cost: float  # $/kWh, structural floor enforced below
+    # $/kWh, structural floor enforced below. Either a scalar (applied
+    # identically to every period, the original behaviour) OR a real
+    # per-period array (2026-08-16, direct real finding: this household's
+    # OWN deployed automations vary discharge_cost by time of day --
+    # 0.01 5pm-7am, 0.09 7am-5pm, confirmed live from automations.yaml --
+    # a caller feeding a single flat scalar for a multi-day horizon was
+    # using whatever value happened to be live AT SOLVE TIME for the
+    # entire horizon, including hours where the real system uses a very
+    # different value. Confirmed live this was the actual root cause of
+    # a real household reporting the LP going idle overnight instead of
+    # discharging to serve load -- at the WRONG flat 0.09 (the daytime
+    # value), discharging looked far less obviously favourable than it
+    # really is at the REAL overnight 0.01.
+    charge_cost: float | NDArray[np.float64]
+    discharge_cost: float | NDArray[np.float64]
     salvage_value: float  # $/kWh credited for ENERGY remaining at the final period
     headroom_value: float = 0.0  # $/kWh credited for unused CAPACITY (max_soc - soc[final]) at the final period -- see docstring above
 
@@ -257,10 +270,15 @@ class BatteryConfig:
         if not (0.0 < self.charge_efficiency < 1.0) or not (0.0 < self.discharge_efficiency < 1.0):
             msg = "Battery efficiencies must be in (0, 1] -- exactly 100% is rejected (see the architecture sketch's own §6: real efficiency is also a natural degeneracy guard, independent of the cost floor)"
             raise DegenerateConfigError(msg)
-        spread = self.charge_cost + self.discharge_cost
-        if spread < MIN_CHARGE_DISCHARGE_COST_SPREAD:
+        # np.asarray + elementwise comparison handles BOTH a plain scalar
+        # (0-d array, np.any() over a single value works fine) and a real
+        # per-period array uniformly -- every period's own cost pair must
+        # individually clear the floor, not just their average/sum.
+        spread = np.asarray(self.charge_cost) + np.asarray(self.discharge_cost)
+        if np.any(spread < MIN_CHARGE_DISCHARGE_COST_SPREAD):
+            bad = spread if spread.ndim == 0 else spread[spread < MIN_CHARGE_DISCHARGE_COST_SPREAD]
             msg = (
-                f"Battery charge_cost + discharge_cost ({spread}) is below the "
+                f"Battery charge_cost + discharge_cost ({bad}) is below the "
                 f"structural minimum ({MIN_CHARGE_DISCHARGE_COST_SPREAD}) -- this "
                 "is the exact configuration that produced HAEO's own documented "
                 "wash-trade degeneracy"
