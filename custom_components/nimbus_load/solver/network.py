@@ -100,7 +100,7 @@ from datetime import timedelta
 import numpy as np
 from numpy.typing import NDArray
 
-from .elements import BatteryConfig, GridConfig, LoadConfig, PeriodGrid, SheddableLoadConfig, SolarConfig
+from .elements import AdequacyLoadConfig, BatteryConfig, GridConfig, LoadConfig, PeriodGrid, SheddableLoadConfig, SolarConfig
 from .lp import LPProblem, LPResult
 
 # Half of MIN_CHARGE_DISCHARGE_COST_SPREAD (elements.py) -- deliberately
@@ -132,6 +132,21 @@ class SheddableLoadPlan:
 
 
 @dataclass(frozen=True)
+class AdequacyLoadPlan:
+    """One adequacy load's own real result: how much power it was
+    actually scheduled to draw each period, and the real cumulative
+    energy delivered by its own deadline (should always be >=
+    target_kwh whenever `plan.is_optimal` -- if it genuinely can't be
+    met, the WHOLE solve reports infeasible, per AdequacyLoadConfig's
+    own docstring; there is no partial/best-effort adequacy result).
+    """
+
+    name: str
+    power_kw: NDArray[np.float64]
+    delivered_by_deadline_kwh: float
+
+
+@dataclass(frozen=True)
 class Plan:
     """The solver's full output for one solve. Every array is indexed by
     period, same length as the PeriodGrid it was built from. `status` is
@@ -151,6 +166,7 @@ class Plan:
     solar_used_kw: NDArray[np.float64]
     solar_curtailed_kw: NDArray[np.float64]
     sheddable_loads: list[SheddableLoadPlan]
+    adequacy_loads: list[AdequacyLoadPlan]
     total_cost: float | None
     iterations: int
 
@@ -282,6 +298,7 @@ def _infeasible_plan(periods: PeriodGrid, status: str, iterations: int) -> Plan:
         solar_used_kw=zeros,
         solar_curtailed_kw=zeros,
         sheddable_loads=[],
+        adequacy_loads=[],
         total_cost=None,
         iterations=iterations,
     )
@@ -295,6 +312,7 @@ def build_plan(
     solar: SolarConfig,
     loads: list[LoadConfig] | None = None,
     sheddable_loads: list[SheddableLoadConfig] | None = None,
+    adequacy_loads: list[AdequacyLoadConfig] | None = None,
     previous_plan: Plan | None = None,
     proximal_weight: float = DEFAULT_PROXIMAL_WEIGHT_KW,
     max_rate_kw: float | None = None,
@@ -311,6 +329,7 @@ def build_plan(
     """
     loads = loads or []
     sheddable_loads = sheddable_loads or []
+    adequacy_loads = adequacy_loads or []
     n = periods.n_periods
     hours = periods.hours
 
@@ -324,6 +343,10 @@ def build_plan(
     for arr, label in ((grid.import_price, "grid.import_price"), (grid.export_price, "grid.export_price")):
         if len(arr) != n:
             msg = f"{label} has {len(arr)} periods, expected {n} (PeriodGrid mismatch)"
+            raise ValueError(msg)
+    for al in adequacy_loads:
+        if al.deadline_period >= n:
+            msg = f"Adequacy load '{al.name}': deadline_period ({al.deadline_period}) is outside this PeriodGrid (0..{n - 1})"
             raise ValueError(msg)
 
     alignment = _align_previous_periods(periods, previous_plan)
@@ -356,6 +379,23 @@ def build_plan(
         max_shed = [(1.0 - sl.min_fraction) * float(eff[t]) for t in range(n)]
         shed_vars[sl.name] = [p.add_variable(f"shed_{sl.name}_{t}", lb=0.0, ub=max_shed[t]) for t in range(n)]
 
+    # Adequacy loads (2026-08-16, direct response to real feedback -- see
+    # AdequacyLoadConfig's own docstring). No forecast at all: a power
+    # variable per period, forced to exactly 0 outside
+    # [earliest_period, deadline_period] via a zero-width bound (same
+    # lb=ub=0.0 technique already used elsewhere in this file for a
+    # disabled battery/charge), free to be anything in [0, max_power_kw]
+    # within the window -- the LP itself decides WHEN to run it, subject
+    # only to the deadline constraint added below (real cost zero unless
+    # a caller explicitly costs it via a load-specific mechanism, none
+    # exists yet -- see the module's own "not yet built" notes).
+    adequacy_vars: dict[str, list[str]] = {}
+    for al in adequacy_loads:
+        adequacy_vars[al.name] = [
+            p.add_variable(f"adequacy_{al.name}_{t}", lb=0.0, ub=al.max_power_kw if al.earliest_period <= t <= al.deadline_period else 0.0)
+            for t in range(n)
+        ]
+
     # ---- Cost terms ----
     for t in range(n):
         p.set_cost(grid_import[t], grid.import_price[t] * hours[t])
@@ -370,6 +410,18 @@ def build_plan(
     # the final tick (see the architecture sketch's own §6 "Salvage value,
     # in plain terms" explainer).
     p.set_cost(soc[n - 1], -battery.salvage_value)
+    # Headroom value (2026-08-16, direct response to real feedback -- see
+    # BatteryConfig's own docstring for the full "option value of energy
+    # AND of headroom" reasoning): -headroom_value * (max_soc - soc[n-1])
+    # expands to a CONSTANT (-headroom_value*max_soc, doesn't affect the
+    # optimal solution -- LP optimization is invariant to a constant
+    # objective offset) plus +headroom_value*soc[n-1]. set_cost() already
+    # ADDS to soc[n-1]'s existing coefficient (see its own docstring), so
+    # this second call is the correct, minimal way to combine both terms
+    # -- net terminal coefficient becomes -(salvage_value - headroom_value).
+    # headroom_value=0.0 (the default) adds exactly zero, byte-identical
+    # to every scenario built before this field existed.
+    p.set_cost(soc[n - 1], battery.headroom_value)
 
     # ---- Stability mechanisms 1 & 2 (see module docstring) ----
     prev_charge = previous_plan.battery_charge_kw if previous_plan is not None else None
@@ -422,7 +474,32 @@ def build_plan(
             # what the balance equation demands be supplied)
             terms[shed_vars[sl.name][t]] = 1.0
             rhs += float(effective_shed_forecast[sl.name][t])
+        for al in adequacy_loads:
+            # An adequacy load's own scheduled power is real demand at
+            # the switchboard -- a NEGATIVE LHS coefficient (unlike
+            # solar_used/discharge/grid_import, which are +1 SUPPLY
+            # terms), the same sign convention as charge/grid_export
+            # (things that consume rather than provide net supply).
+            # Real bug caught by this file's own dedicated test: using
+            # +1.0 here made the balance equation get EASIER to satisfy
+            # as adequacy_power increased, which is backwards -- it
+            # forced discharge+grid_import+adequacy_power to sum to
+            # exactly the (here, zero) base demand, making any real
+            # target infeasible outright.
+            terms[adequacy_vars[al.name][t]] = -1.0
         p.add_eq_constraint(terms, rhs)
+
+    # ---- Adequacy deadline constraints -- one inequality per adequacy
+    # load, NOT per period: cumulative energy delivered through the
+    # deadline must reach target_kwh. LPProblem only has <=, so this is
+    # expressed as -sum(power*hours) <= -target_kwh. Genuinely
+    # unsatisfiable within the window (see AdequacyLoadConfig's own
+    # docstring) surfaces as a real status="infeasible" Plan below, not
+    # a silently-adjusted target.
+    for al in adequacy_loads:
+        window = range(al.earliest_period, al.deadline_period + 1)
+        terms = {adequacy_vars[al.name][t]: -hours[t] for t in window}
+        p.add_ub_constraint(terms, -al.target_kwh)
 
     result: LPResult = p.solve()
     if result.status != "optimal":
@@ -439,6 +516,16 @@ def build_plan(
         )
         for sl in sheddable_loads
     ]
+    plan_adequacy = [
+        AdequacyLoadPlan(
+            name=al.name,
+            power_kw=(power_arr := _get(adequacy_vars[al.name])),
+            delivered_by_deadline_kwh=float(
+                np.sum(power_arr[al.earliest_period : al.deadline_period + 1] * hours[al.earliest_period : al.deadline_period + 1])
+            ),
+        )
+        for al in adequacy_loads
+    ]
 
     solar_used_arr = _get(solar_used)
     return Plan(
@@ -452,6 +539,7 @@ def build_plan(
         solar_used_kw=solar_used_arr,
         solar_curtailed_kw=solar.forecast_kw - solar_used_arr,
         sheddable_loads=plan_sheddable,
+        adequacy_loads=plan_adequacy,
         total_cost=result.objective,
         iterations=result.iterations,
     )
