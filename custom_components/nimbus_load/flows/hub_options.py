@@ -114,7 +114,26 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
         self, user_input: dict[str, Any] | None = None
     ) -> Any:
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            # MERGE onto the existing options, never a blind replace
+            # (2026-08-17, real, flagged risk: "the Nimbus hub's shared
+            # Battery/Grid/Solar sensor config can be silently cleared by
+            # a stale options-form resubmission"). async_create_entry's
+            # own `data=` argument REPLACES config_entry.options wholesale
+            # -- if a submitted payload is ever missing a key this schema
+            # currently defines (a stale cached frontend form from before
+            # a field was added, a future field added to _schema() that
+            # an in-flight flow instance doesn't yet know about, or any
+            # other future path that stores an options key this flow
+            # doesn't itself render), a plain `data=user_input` would
+            # silently DROP that key from the live config rather than
+            # leave it untouched. Spreading the existing options first
+            # means only fields THIS submission actually included ever
+            # change; every genuinely present schema default already
+            # ends up in user_input via vol.Optional(..., default=...),
+            # so a normal, complete submission behaves identically to
+            # before -- this only changes behaviour in the exact
+            # incomplete-submission case it exists to guard against.
+            return self.async_create_entry(title="", data={**self.config_entry.options, **user_input})
 
         return self.async_show_form(
             step_id="init", data_schema=_schema(dict(self.config_entry.options))
