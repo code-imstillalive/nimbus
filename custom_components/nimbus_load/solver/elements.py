@@ -160,28 +160,34 @@ class GridConfig:
     # export_bonus_price[t]: the real INCREMENTAL premium (P2P rate minus
     # base/spot export_price[t]) available at period t, if any -- 0
     # outside a real P2P-style window. export_bonus_volume_kwh: the real
-    # total kWh (summed across the WHOLE horizon, not per-period) eligible
-    # for that premium. Both None (the default) is a complete no-op --
-    # every existing caller, every test predating this pair, is
-    # byte-identical to before they existed.
+    # kWh eligible for that premium, PER REAL CALENDAR DAY (see
+    # network.py's own docstring for a real bug this exact distinction
+    # fixed -- a single WHOLE-HORIZON cap lets a multi-day solve greedily
+    # front-load its entire bonus allocation into the very first night it
+    # sees, then behave as if permanently exhausted for every later
+    # night, which is NOT how real nightly-resetting P2P settlement
+    # works). Both None (the default) is a complete no-op -- every
+    # existing caller, every test predating this pair, is byte-identical
+    # to before they existed.
     #
     # Mechanically (see network.py's own docstring for the LP detail):
     # grid_export[t] itself is completely unchanged (still the single,
     # real total export variable used everywhere -- balance equation,
     # wash-trade guards, stability mechanisms, reporting). A SEPARATE
     # export_bonus[t] variable, bounded by grid_export[t] (can't claim
-    # bonus volume exceeding that period's real total export) and by a
-    # single cumulative constraint (sum(export_bonus[t]*hours[t]) <=
-    # export_bonus_volume_kwh, across the WHOLE horizon), earns an EXTRA
-    # revenue credit of export_bonus_price[t] on top of whatever
-    # grid_export[t] already earns at the base export_price[t] rate.
-    # Since claiming bonus volume is strictly free money whenever
+    # bonus volume exceeding that period's real total export) and by one
+    # cumulative constraint PER REAL CALENDAR DAY (sum(export_bonus[t]*
+    # hours[t]) <= export_bonus_volume_kwh, for that day's own periods),
+    # earns an EXTRA revenue credit of export_bonus_price[t] on top of
+    # whatever grid_export[t] already earns at the base export_price[t]
+    # rate. Since claiming bonus volume is strictly free money whenever
     # export_bonus_price[t] > 0, a revenue-maximizing LP always claims as
-    # much of the capped bonus allocation as it can, choosing WHICH real
-    # periods to claim it in based on real economics (not a crude,
-    # arbitrary per-period split) -- exactly reproducing "the first ~N
-    # kWh of real export get close to the true achieved rate, everything
-    # beyond that reverts to base/spot."
+    # much of EACH day's own capped bonus allocation as it can, choosing
+    # WHICH real periods WITHIN that day to claim it in based on real
+    # economics (not a crude, arbitrary per-period split) -- exactly
+    # reproducing "the first ~N kWh of real export EACH NIGHT get close
+    # to the true achieved rate, everything beyond that reverts to
+    # base/spot, resetting fresh the next real day."
     export_bonus_price: NDArray[np.float64] | None = None
     export_bonus_volume_kwh: float | None = None
 

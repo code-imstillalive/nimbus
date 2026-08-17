@@ -214,11 +214,13 @@ the single real total-export variable used everywhere else in this file
 A separate `export_bonus[t]` variable, bounded by that SAME period's
 real `grid_export[t]` (constraint 3, alongside the wash-trade guards --
 can't claim bonus volume for export that didn't actually happen) and by
-one cumulative constraint (`sum(export_bonus[t]*hours[t]) <=
-export_bonus_volume_kwh`, the real total premium volume available
-across the WHOLE horizon, not per-period), earns an EXTRA revenue credit
-of `export_bonus_price[t]` on top of whatever `grid_export[t]` already
-earns at the base `export_price[t]` rate. Since claiming bonus volume is
+one cumulative constraint PER REAL CALENDAR DAY (`sum(export_bonus[t]*
+hours[t]) <= export_bonus_volume_kwh`, for each day's own periods
+separately -- NOT one constraint across the whole horizon; see the real
+bug this caused, found and fixed the same day, right below the actual
+constraint code), earns an EXTRA revenue credit of `export_bonus_price[t]`
+on top of whatever `grid_export[t]` already earns at the base
+`export_price[t]` rate. Since claiming bonus volume is
 strictly free money whenever `export_bonus_price[t] > 0`, a revenue-
 maximizing LP always claims as much of the capped bonus allocation as it
 can, choosing WHICH real periods to claim it in based on genuine
@@ -734,12 +736,40 @@ def build_plan(
 
     # ---- Two-tier export bonus cumulative cap (see elements.py's own
     # GridConfig docstring) -- sum(export_bonus[t]*hours[t]) <=
-    # export_bonus_volume_kwh, the REAL total premium-rate volume
-    # available across the whole horizon. No-op when grid.export_bonus_*
+    # export_bonus_volume_kwh, applied SEPARATELY PER REAL CALENDAR DAY,
+    # not once across the whole horizon. No-op when grid.export_bonus_*
     # is None (the default).
+    #
+    # Real bug found and fixed the same day this feature was built
+    # (2026-08-17): a single global cap across a multi-day horizon lets
+    # the LP greedily front-load the ENTIRE bonus allocation into the
+    # very first real P2P window it sees, then behave as if it's
+    # permanently exhausted its P2P eligibility for every later night --
+    # confirmed live: night 1 correctly sold cleanly all evening, but
+    # nights 2-4 progressively collapsed, night 4 showing ZERO export the
+    # entire window. Real P2P settlement resets every single night, not
+    # once per multi-day horizon -- the cap needs to mean "up to N kWh
+    # PER DAY", not "up to N kWh, ever, across however many days this
+    # solve happens to look at."
+    #
+    # Grouped by `periods.period_starts`' own real calendar date. Falls
+    # back to ONE global constraint (the previous behaviour) when the
+    # grid has no calendar anchor (`periods.start is None`) -- there's no
+    # way to know where a real day boundary falls without real
+    # timestamps, so a single conservative cap is the only honest option
+    # in that case, not a silent behaviour change.
     if has_export_bonus:
-        terms = {export_bonus[t]: hours[t] for t in range(n)}
-        p.add_ub_constraint(terms, float(grid.export_bonus_volume_kwh))
+        starts = periods.period_starts
+        if starts is None:
+            terms = {export_bonus[t]: hours[t] for t in range(n)}
+            p.add_ub_constraint(terms, float(grid.export_bonus_volume_kwh))
+        else:
+            by_day: dict[object, list[int]] = {}
+            for t, start_t in enumerate(starts):
+                by_day.setdefault(start_t.date(), []).append(t)
+            for day_indices in by_day.values():
+                terms = {export_bonus[t]: hours[t] for t in day_indices}
+                p.add_ub_constraint(terms, float(grid.export_bonus_volume_kwh))
 
     result: LPResult = p.solve()
     if result.status != "optimal":
