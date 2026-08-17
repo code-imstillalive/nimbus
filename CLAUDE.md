@@ -4,90 +4,143 @@ Instructions for any Claude instance working on this repo. Read this before touc
 
 ---
 
-## ⚠️ CURRENT STATE (end of session, 2026-08-15 night) — read this first tomorrow
-
-Two separate, unrelated threads are open. Neither is finished.
+## ⚠️ CURRENT STATE (2026-08-17 morning) — read this first
 
 ### Thread 1 — Forecaster fixes, still pending deploy
 
-`main` is at v0.20.0. PRs #16/#17 (real, verified fixes — see the bug chain below for
-#6/#7: a repeating spike in the Whole House forecast, and a hard stair-step in every
-seasonal-anchored forecast) are merged but **deliberately not deployed yet** — this project
-has a standing rule against restarting during the household's active 5pm-midnight P2P
-battery-sell window, and the user's own plan was explicit: "will do it after p2p."
-**As of writing, this deploy still has not happened — do it first, before anything else,
-once it's genuinely safe to restart (after midnight, P2P window closed).**
-
-Full deploy commands:
+**Still true, re-confirmed live 2026-08-17**: `main` has real, verified fixes (the bug
+chain below, #1-#7) that have **never been deployed to the live NUC**. Confirmed directly
+this session, not assumed: pulled `sensor.nimbus_logger_load_power_forecast`'s live
+`forecast` array and found a real, repeated flat value (`4.447` at 12:31, 12:46, AND 13:01
+— three consecutive 15-min points holding one exact value) — this is bug #7's own
+stair-step signature, still present live. `model_trained_at` on that same pull was
+`2026-08-16T07:51:13`, well before any of this session's own work. **Deploy this before
+building anything further on the Forecaster side** — same commands as before, still
+accurate:
 ```bash
 cd /opt/homeassistant/config/nimbus_repo
 git pull origin main
 rm -f /opt/homeassistant/config/.storage/nimbus_load_*.pkl
 docker restart opt_homeassistant_1
 ```
-The `.pkl` deletion forces every one of the 22 loads/signals to retrain fresh on restart
-(picking up both fixes immediately) rather than waiting for each one's own next scheduled
-3am/6am retrain. Expect ~4 minutes for HA's core API to respond and Nimbus entities to
-start registering, once seen in this project's own history taking as long as 10-13 minutes
-for every entity to finish a genuine full retrain+validation cycle — don't assume it's
-stuck just because it's slow.
+Verify: `model_trained_at` fresh, forecast array smooth (no repeated flat runs, no isolated
+spikes).
 
-Verify after deploying:
+### Thread 2 — Solver: full regret/EPR/tracking framework built, two real bugs found and
+fixed in its first real live application
+
+Substantial progress since the 2026-08-15 draft described lower down this section (kept as
+historical record — still accurate for what it describes, just superseded by everything
+below). The three stability mechanisms asked for that night (proximal regularization, rate
+limiting, confidence-aware dispatch) are **all built** — see `network.py`'s own module
+docstring for the full, current mechanism-by-mechanism detail; nothing more to add here.
+
+**New this session (2026-08-16/17), working through Mark Purcell's own 9-item Solver audit**:
+- `regret.py` — `evaluate_realized_cost()` now exposes `cost_per_period` (not just the
+  summed total); `hourly_regret_breakdown()` bins (actual − oracle) cost by hour-of-day,
+  reproducing Mark's own "report regret hourly, never the ratio" chart pattern (rust =
+  value left on the table that hour, teal = the optimum deliberately spending more that
+  hour to earn more later).
+- `epr.py` — Economic Performance Ratio, `EPR = (J_ref − J_ach) / (J_ref − J*)`, Mark's own
+  positive-framing correction to a plain regret number (a solar plant reports a performance
+  ratio, not "irradiance regret" — same idea here). Full vocabulary glossary in the
+  docstring (value headroom, theoretical maximum yield, peak capture rate, etc.).
+- `elements.py` / `network.py` — `GridConfig.min_export_kwh` (default `None`, complete
+  no-op): forces a solve to deliver at least a given real total export volume across the
+  whole horizon. Built specifically to fix a real EPR-computation bug: comparing an
+  idle-battery reference case against a perfect-foresight oracle under a REAL household's
+  P2P program (a fixed, pre-committed nightly revenue, not a price-taking market) let the
+  oracle collect the real settled P2P credit without being forced to physically discharge
+  the volume that revenue actually requires. Forcing the oracle to deliver the SAME real
+  volume the actual dispatch delivered turned a mathematically-impossible EPR (>1.0) into a
+  genuine, defensible one (0.3069 → 0.3691 once fixed, using one real household's own Aug
+  16 P2P window: $29.426251 real settled revenue, 63.148235 kWh real settled volume).
+- `tracking.py` — control tracking fidelity (Mark's audit item #6): how well the ACTUAL
+  dispatch matched its OWN commanded setpoint (not a foresight comparison at all) —
+  `compute_tracking_fidelity()`, `tracking_error_cost()`. Applied to one real household's
+  own inv1/inv2 discharge-duty rotation gaps: 98.46% tracking fidelity, ~$0.35/night real
+  cost of the gaps.
+
+All of the above verified with real synthetic tests before being trusted (see each file's
+own docstring/test description) — none of it has ever touched a live HA system; it's a
+pure-Python library, zero HA imports, same "genuinely dead code, zero deploy risk" status
+as the original 2026-08-15 draft.
+
+**First real live application of the Solver (`scripts/nimbus_solver_forecast_writer.py`,
+lives in the sibling `116KAT-HA-AI` repo, not here) surfaced two real, confirmed bugs —
+both found by the household directly flagging the live chart as "not right by any count,"
+neither a Solver logic bug, both real input-data-handling bugs in the writer script**:
+
+1. **P2P price forecast freezing on a stale in-window value (PR #615, merged and deployed
+   2026-08-17).** `sensor.localvolts_p2p_price_forecast`'s real coverage runs out ~36h
+   ahead; past that, the writer's plain nearest-before resampling just held the LAST real
+   point flat forever — and that point can land mid-window (0.5) as easily as
+   post-window (0.0) depending purely on what moment "now" happens to fall at. Confirmed
+   live this froze `p2p_export=0.5` through entire overnight/self-consume hours, driving
+   the LP into a fantasy overnight arbitrage (grid_import AND grid_export both large and
+   nonzero in the same period). Fixed with `resample_p2p_forecast()`: beyond real coverage,
+   reproduces the signal's own known repeating-daily-window shape (flat rate only during
+   real local hour 17-24, zero otherwise) instead of assuming persistence.
+
+2. **The writer's own local-time resolution was silently UTC, not AEST (PR #616, merged
+   2026-08-17, not yet redeployed as of writing).** `now = datetime.now(timezone.utc).
+   astimezone()` — bare `.astimezone()` converts to whatever the SYSTEM's own local
+   timezone resolves to; on this NUC's own cron/shell environment that's UTC, not AEST,
+   despite the file's own prior (never actually verified) assumption that "this NUC runs
+   Australia/Brisbane." Confirmed precisely: a real deploy run's own `generated_at` showed
+   `2026-08-16T23:44:00+00:00`, directly compared against the real known AEST wall-clock
+   time at that same moment (09:44 AEST) — should have been `+10:00`. This corrupted EVERY
+   hour-of-day decision in the file by a consistent 10-hour offset — the real 17:00-24:00
+   P2P window was actually being evaluated as UTC 17:00-24:00 = AEST 03:00-10:00 the next
+   day — which is why the household still saw real nonsense in the live chart even after
+   fix #1 deployed. Fixed with an explicit `BRISBANE_TZ = ZoneInfo("Australia/Brisbane")`
+   used everywhere real-local-time matters, instead of trusting system resolution.
+
+Both fixes verified together against real live data (read-only local diagnostic, nothing
+pushed): 0/169 simultaneous import+export periods (was 43-plus), total export over a ~97h
+horizon 337.56 kWh (2.76x battery capacity — matches ~4 real nights of the household's own
+~84kWh/night P2P pattern, was 6.4x), export outside the real P2P window 1.56 kWh (was 449),
+8 charge/discharge direction reversals (~2/day, matches the real pattern).
+
+**Process lesson, worth remembering — a real mistake made and corrected the same session**:
+mid-investigation, a git checkout of `main` was done to prepare PR #616's branch, but this
+happened using an ALREADY-STALE local `main` (pulled right after opening PR #615, before it
+was actually merged — never re-pulled after being told it was merged). This produced a
+genuinely confusing false alarm: a re-test appeared to show the SAME bad numbers as before
+ANY fix, which briefly looked like either a reverted merge or a second, independent
+reviewer editing the same file — neither was true. The real, mundane cause: testing
+against old code by accident. Always `git fetch origin && git rev-parse origin/main` (or a
+plain fresh `git pull`) immediately before re-testing anything after a PR merge — don't
+trust a local checkout's freshness just because it was correct minutes earlier in the same
+session.
+
+**Not yet redeployed as of writing**: PR #616 (the timezone fix) — deploy same pattern as
+#615:
 ```bash
-curl -s -H "Authorization: Bearer $(cat /home/homehub/.ha_token)" "http://192.168.1.221:8123/api/states/sensor.nimbus_logger_load_power_forecast" | python3 -m json.tool
+cd /opt/homeassistant && git pull origin main
+git show origin/main:scripts/nimbus_solver_forecast_writer.py > /opt/nimbus_solver_forecast_writer.py
+python3 /opt/nimbus_solver_forecast_writer.py
 ```
-Check `model_trained_at` is fresh (matches the restart time), then look at the `forecast`
-array: no isolated single-point spikes anywhere, and no long flat runs within an hour
-followed by a hard jump — should read as a genuinely smooth, continuously-varying curve.
+Check the printed line's own timestamp shows `+10:00`, not `+00:00`.
 
-### Thread 2 — Solver draft (Stage 3), started tonight, real early progress + a real mistake
+### Original 2026-08-15 draft notes (historical, still accurate for what they describe)
 
 New subpackage `custom_components/nimbus_load/solver/` (PRs #19, #20, both merged) — a
 from-scratch, pure-numpy LP solver (`lp.py`), a real element model with structural
 degeneracy guards (`elements.py`), a network/plan builder (`network.py`), and a shadow-mode
-translator into this project's own real Sungrow language (`modes.py`). **Genuinely dead
-code** — zero HA imports, not referenced anywhere in the live integration, registers no
-entities, writes nothing. Safe to build on with zero deploy risk. See
+translator into this project's own real Sungrow language (`modes.py`). See
 `custom_components/nimbus_load/solver/README.md` for the full detail, including two real
 bugs found and fixed during the build (an LP sign bug, an efficiency-validation bug), both
 caught by dedicated tests before they ever touched real data.
 
-**A real mistake was made and corrected the same night, worth reading before touching this
-again**: the README's first write-up of a real-data test run described a genuine live price
-spike alongside a synthetic "battery discharged hard" outcome in a way that read as
-describing what happened to the real system that night. It didn't — the discharge was this
-untested draft's own offline computation from a made-up 50% starting SoC, completely
-unrelated to the real battery (confirmed live: 90% SoC, real automation running normally,
-price-independent). PR #20 corrected the write-up. **Lesson, not just a fixed typo**: never
-put a real data point and a synthetic/hypothetical outcome in the same sentence without
-saying explicitly which is which — this is exactly the kind of imprecision this project's
-own Communication Standards rule (see the sibling `116KAT-HA-AI` CLAUDE.md) exists to catch.
-
-**What the user asked for next, explicitly, not yet built**: the current draft is Layer 1
-only (a bare, single-solve LP) — correct, but not yet **stable**. Direct quote: *"i do not
-want mistakes... i do not want dumb algorithm - i want it to be clever and responsive but
-smart wise naturally adaptive not chaotic."* Three concrete, named mechanisms were agreed as
-the right next step (not yet built):
-1. **Plan stability / proximal regularization** — penalize deviation from the previous
-   solve's own plan in the objective, so near-tied optimal solutions break toward
-   continuity instead of flipping arbitrarily between re-solves (this is the direct,
-   structural fix for the exact flip-flop pattern HAEO's own "flash"/replan spikes are —
-   see §7 of the architecture sketch for that root-cause finding).
-2. **Rate limiting** — a hard cap on how much any setpoint can change between consecutive
-   re-solves, independent of what the LP would otherwise prefer.
-3. **Confidence-aware dispatch** — feed the Forecaster's own already-computed confidence
-   bounds into the solver, so a wide-uncertainty input gets treated more conservatively than
-   a narrow one, instead of every point value being trusted equally regardless of how
-   settled it actually is.
-
-Also captured, same session, then **corrected within the same session** — a second real
-mistake, worth being precise about: the first draft of a reporting requirement (architecture
-sketch's §4a) pointed directly at LocalVolts-specific files (`lv_costs.yaml`,
-`lv_p2p_daily_recalibrate.py`) as the design reference for the solver's own cost/earnings
-reporting. Explicit correction from the user: *"this is not just LV design should work with
-any supplier api or retailer... i do not want LV to be LV exclusive only"* and, specifically
-about the next-morning settlement-reconciliation pattern: *"the recalibrating tools we use
-are a patch for us... not a solution... that should not be a part of the solver."*
+Also captured that night, then corrected within the same session — worth being precise
+about: the first draft of a reporting requirement (architecture sketch's §4a) pointed
+directly at LocalVolts-specific files (`lv_costs.yaml`, `lv_p2p_daily_recalibrate.py`) as
+the design reference for the solver's own cost/earnings reporting. Explicit correction from
+the user: *"this is not just LV design should work with any supplier api or retailer... i
+do not want LV to be LV exclusive only"* and, specifically about the next-morning
+settlement-reconciliation pattern: *"the recalibrating tools we use are a patch for us...
+not a solution... that should not be a part of the solver."*
 
 This household has already changed retailer once (Amber → LocalVolts) — the solver's
 reporting layer must not assume today's retailer, or today's retailer's specific API
@@ -104,10 +157,6 @@ limitations, are permanent. §4a is now revised to separate two genuinely differ
   have right now, and how confident/settled it is" — with any retailer-specific settlement-
   lag quirks (LocalVolts' current lag included) living entirely inside that retailer's own
   adapter, never inside the solver's own reporting logic.
-
-§5 (the "four clocks" worked example) got the same correction applied as a scope note — it's
-explicitly framed now as this household's current, real, concrete instance of a
-retailer-agnostic price-source interface, not the permanent architecture.
 
 The full architecture sketch (published as a Claude artifact, not committed to this repo)
 has the complete, current writeup — check with the user for the current link if picking this
