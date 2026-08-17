@@ -189,6 +189,43 @@ sum(hours)` ceiling (or given the battery's own real energy capacity)
 surfaces as a real `status="infeasible"` Plan, same as every other
 structural constraint in this file -- not a silently-adjusted target.
 
+## TWO-TIER EXPORT BONUS (2026-08-17)
+
+`GridConfig.export_bonus_price`/`export_bonus_volume_kwh` (both `None` by
+default -- complete no-op) model a real, confirmed household finding
+that a flat blended export price gets fundamentally wrong: real P2P
+revenue isn't "every kWh exported earns a diluted average rate," it's
+"the first ~N kWh of real export each night earn close to the true
+achieved rate (household-reported: 43-65c/kWh), anything beyond that
+reverts to the much lower real spot rate." A caller that instead applies
+a flat percentage discount uniformly (e.g. `match_fraction * p2p_rate +
+(1-match_fraction) * spot_rate` on every kWh) systematically understates
+the value of LATE-window export specifically -- confirmed live, this is
+the direct, real cause of a household reporting the Solver's own
+dispatch "landing prematurely" instead of continuing to sell hard right
+to the edge of a real P2P window: a diluted-looking price gives the LP a
+weaker reason to keep discharging late, when the true marginal revenue
+of that late energy (if it lands within the real nightly volume cap) is
+actually just as high as any earlier kWh.
+
+Mechanically: `grid_export[t]` itself is completely unchanged -- still
+the single real total-export variable used everywhere else in this file
+(balance equation, wash-trade guards, stability mechanisms, reporting).
+A separate `export_bonus[t]` variable, bounded by that SAME period's
+real `grid_export[t]` (constraint 3, alongside the wash-trade guards --
+can't claim bonus volume for export that didn't actually happen) and by
+one cumulative constraint (`sum(export_bonus[t]*hours[t]) <=
+export_bonus_volume_kwh`, the real total premium volume available
+across the WHOLE horizon, not per-period), earns an EXTRA revenue credit
+of `export_bonus_price[t]` on top of whatever `grid_export[t]` already
+earns at the base `export_price[t]` rate. Since claiming bonus volume is
+strictly free money whenever `export_bonus_price[t] > 0`, a revenue-
+maximizing LP always claims as much of the capped bonus allocation as it
+can, choosing WHICH real periods to claim it in based on genuine
+economics -- not a crude, arbitrary even split -- naturally reproducing
+"sell the real committed volume at the real rate, wherever in the window
+that's most valuable to do, fall back to spot only once that's used up."
+
 **3. Confidence-aware dispatch** (`risk_aversion`) -- adjusts which
 NUMBER the LP treats as "the forecast" for Load/SheddableLoad/Solar
 elements that carry a real `lower_kw`/`upper_kw` confidence band from
@@ -278,6 +315,14 @@ class Plan:
     battery_soc_kwh: NDArray[np.float64]
     grid_import_kw: NDArray[np.float64]
     grid_export_kw: NDArray[np.float64]
+    # How much of grid_export_kw[t] earned the two-tier export bonus (see
+    # elements.py's own GridConfig.export_bonus_price docstring) --
+    # always <= grid_export_kw[t] at every period, zero-filled whenever
+    # the mechanism isn't active (the common case). Exposed as its own
+    # field (not just folded into total_cost) specifically so a real
+    # dashboard can show WHERE the real premium-rate volume actually
+    # landed, not just the final dispatch numbers.
+    export_bonus_kw: NDArray[np.float64]
     solar_used_kw: NDArray[np.float64]
     solar_curtailed_kw: NDArray[np.float64]
     sheddable_loads: list[SheddableLoadPlan]
@@ -410,6 +455,7 @@ def _infeasible_plan(periods: PeriodGrid, status: str, iterations: int) -> Plan:
         battery_soc_kwh=zeros,
         grid_import_kw=zeros,
         grid_export_kw=zeros,
+        export_bonus_kw=zeros,
         solar_used_kw=zeros,
         solar_curtailed_kw=zeros,
         sheddable_loads=[],
@@ -474,6 +520,19 @@ def build_plan(
     grid_import = [p.add_variable(f"grid_import_{t}", lb=0.0, ub=grid.import_limit_kw) for t in range(n)]
     grid_export = [p.add_variable(f"grid_export_{t}", lb=0.0, ub=grid.export_limit_kw) for t in range(n)]
 
+    # Two-tier export bonus (see elements.py's own GridConfig docstring,
+    # "export_bonus_price / export_bonus_volume_kwh") -- export_bonus[t]
+    # is bounded by grid_export[t] itself just below (added as a real
+    # constraint, not a variable upper bound, since grid_export[t] is
+    # itself a variable not a constant); the cumulative volume cap is
+    # added further below alongside the other whole-horizon constraints.
+    has_export_bonus = grid.export_bonus_price is not None and grid.export_bonus_volume_kwh is not None
+    export_bonus = (
+        [p.add_variable(f"export_bonus_{t}", lb=0.0, ub=grid.export_limit_kw) for t in range(n)]
+        if has_export_bonus
+        else None
+    )
+
     # Mechanism 3 (confidence-aware dispatch): solar's own EFFECTIVE
     # ceiling for what the LP can count on -- risk_aversion=0.0 or no
     # band present leaves this identical to solar.forecast_kw.
@@ -528,6 +587,17 @@ def build_plan(
         p.set_cost(discharge[t], discharge_cost_arr[t] * hours[t])
         for sl in sheddable_loads:
             p.set_cost(shed_vars[sl.name][t], sl.shed_cost * hours[t])
+    # Two-tier export bonus (see elements.py's own GridConfig docstring):
+    # export_bonus[t] earns an EXTRA revenue credit on top of whatever
+    # grid_export[t] already earns at the base rate above -- set_cost()
+    # ADDS to an existing coefficient (see its own docstring, same
+    # pattern already used for salvage_value/headroom_value below), but
+    # export_bonus[t] is its own separate variable here, not sharing
+    # grid_export[t]'s coefficient, so this is a plain new cost, not an
+    # accumulation.
+    if has_export_bonus:
+        for t in range(n):
+            p.set_cost(export_bonus[t], -float(grid.export_bonus_price[t]) * hours[t])
     # Salvage value: a one-time credit on the FINAL period's soc -- without
     # this, a finite-horizon LP has no reason to ever hold charge past the
     # last period it can see, and will always drain to its own min_soc on
@@ -633,6 +703,13 @@ def build_plan(
             p.add_ub_constraint({discharge[t]: draw_coeff}, battery.initial_soc_kwh - battery.min_soc_kwh)
         else:
             p.add_ub_constraint({discharge[t]: draw_coeff, soc[t - 1]: -1.0}, -battery.min_soc_kwh)
+        # (3) Two-tier export bonus (see elements.py's own GridConfig
+        # docstring): export_bonus[t] can never exceed that SAME period's
+        # real total export[t] -- can't claim bonus volume for export
+        # that never actually happened -- export_bonus[t] - grid_export[t]
+        # <= 0.
+        if has_export_bonus:
+            p.add_ub_constraint({export_bonus[t]: 1.0, grid_export[t]: -1.0}, 0.0)
 
     # ---- Adequacy deadline constraints -- one inequality per adequacy
     # load, NOT per period: cumulative energy delivered through the
@@ -654,6 +731,15 @@ def build_plan(
     if grid.min_export_kwh is not None:
         terms = {grid_export[t]: -hours[t] for t in range(n)}
         p.add_ub_constraint(terms, -grid.min_export_kwh)
+
+    # ---- Two-tier export bonus cumulative cap (see elements.py's own
+    # GridConfig docstring) -- sum(export_bonus[t]*hours[t]) <=
+    # export_bonus_volume_kwh, the REAL total premium-rate volume
+    # available across the whole horizon. No-op when grid.export_bonus_*
+    # is None (the default).
+    if has_export_bonus:
+        terms = {export_bonus[t]: hours[t] for t in range(n)}
+        p.add_ub_constraint(terms, float(grid.export_bonus_volume_kwh))
 
     result: LPResult = p.solve()
     if result.status != "optimal":
@@ -690,6 +776,7 @@ def build_plan(
         battery_soc_kwh=_get(soc),
         grid_import_kw=_get(grid_import),
         grid_export_kw=_get(grid_export),
+        export_bonus_kw=_get(export_bonus) if has_export_bonus else np.zeros(n),
         solar_used_kw=solar_used_arr,
         solar_curtailed_kw=solar.forecast_kw - solar_used_arr,
         sheddable_loads=plan_sheddable,
