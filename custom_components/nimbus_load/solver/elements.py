@@ -141,6 +141,55 @@ class GridConfig:
     # complete no-op -- every existing caller, every test predating this
     # field, is byte-identical to before it existed.
     min_export_kwh: float | None = None
+    # export_bonus_price / export_bonus_volume_kwh (2026-08-17, direct
+    # response to a real, confirmed household finding: real P2P revenue
+    # is NOT correctly modeled as a flat per-kWh price discount, e.g.
+    # `match_fraction * p2p_rate + (1-match_fraction) * spot_rate`
+    # applied UNIFORMLY to every exported kWh -- that dilutes the price
+    # every single kWh appears to earn, which systematically undervalues
+    # continuing to discharge late in a real P2P window (the household's
+    # own direct, live report: "if the solver was good it would have
+    # kept selling rather than landing prematurely"). The real mechanism
+    # is closer to a FIXED ABSOLUTE nightly volume (documented
+    # extensively in the sibling 116KAT-HA-AI repo's own CLAUDE.md --
+    # LocalVolts matches against the household's known historical
+    # pattern, not a per-kWh lottery): roughly the first N kWh of real
+    # export each night get close to the REAL, undiluted achieved rate;
+    # anything beyond that reverts to the much lower real spot rate.
+    #
+    # export_bonus_price[t]: the real INCREMENTAL premium (P2P rate minus
+    # base/spot export_price[t]) available at period t, if any -- 0
+    # outside a real P2P-style window. export_bonus_volume_kwh: the real
+    # kWh eligible for that premium, PER REAL CALENDAR DAY (see
+    # network.py's own docstring for a real bug this exact distinction
+    # fixed -- a single WHOLE-HORIZON cap lets a multi-day solve greedily
+    # front-load its entire bonus allocation into the very first night it
+    # sees, then behave as if permanently exhausted for every later
+    # night, which is NOT how real nightly-resetting P2P settlement
+    # works). Both None (the default) is a complete no-op -- every
+    # existing caller, every test predating this pair, is byte-identical
+    # to before they existed.
+    #
+    # Mechanically (see network.py's own docstring for the LP detail):
+    # grid_export[t] itself is completely unchanged (still the single,
+    # real total export variable used everywhere -- balance equation,
+    # wash-trade guards, stability mechanisms, reporting). A SEPARATE
+    # export_bonus[t] variable, bounded by grid_export[t] (can't claim
+    # bonus volume exceeding that period's real total export) and by one
+    # cumulative constraint PER REAL CALENDAR DAY (sum(export_bonus[t]*
+    # hours[t]) <= export_bonus_volume_kwh, for that day's own periods),
+    # earns an EXTRA revenue credit of export_bonus_price[t] on top of
+    # whatever grid_export[t] already earns at the base export_price[t]
+    # rate. Since claiming bonus volume is strictly free money whenever
+    # export_bonus_price[t] > 0, a revenue-maximizing LP always claims as
+    # much of EACH day's own capped bonus allocation as it can, choosing
+    # WHICH real periods WITHIN that day to claim it in based on real
+    # economics (not a crude, arbitrary per-period split) -- exactly
+    # reproducing "the first ~N kWh of real export EACH NIGHT get close
+    # to the true achieved rate, everything beyond that reverts to
+    # base/spot, resetting fresh the next real day."
+    export_bonus_price: NDArray[np.float64] | None = None
+    export_bonus_volume_kwh: float | None = None
 
     def __post_init__(self) -> None:
         if self.import_limit_kw < 0 or self.export_limit_kw < 0:
@@ -148,6 +197,15 @@ class GridConfig:
             raise ValueError(msg)
         if self.min_export_kwh is not None and self.min_export_kwh < 0:
             msg = "min_export_kwh must be >= 0 when given"
+            raise ValueError(msg)
+        if (self.export_bonus_price is None) != (self.export_bonus_volume_kwh is None):
+            msg = "export_bonus_price and export_bonus_volume_kwh must be given together, or not at all"
+            raise ValueError(msg)
+        if self.export_bonus_volume_kwh is not None and self.export_bonus_volume_kwh < 0:
+            msg = "export_bonus_volume_kwh must be >= 0 when given"
+            raise ValueError(msg)
+        if self.export_bonus_price is not None and len(self.export_bonus_price) != len(self.export_price):
+            msg = "export_bonus_price must have the same length as export_price"
             raise ValueError(msg)
         # REMOVED (2026-08-16): the price-spread config-time REJECT that
         # used to live here (import_price - export_price >= MIN_GRID_COST_
