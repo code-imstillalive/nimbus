@@ -67,6 +67,18 @@ from .ml.model import MAX_RESIDUALS_STORED, PredictionResult, TrainedModel, cali
 
 _LOGGER = logging.getLogger(__name__)
 
+# Real, confirmed live 2026-08-17 -- see _async_fetch_history()'s own
+# comment at the point this is used for the full incident. A generous
+# physical sanity ceiling on any convert_power=True history point:
+# comfortably above anything a real household's own load/battery/grid/
+# solar sensor could ever legitimately report (this household's own
+# documented real ceiling is ~50kW for Grid/Battery, ~17kW for Solar),
+# while safely far below the magnitude a unit-conversion or integer-
+# overflow-class sensor glitch produces (these land in the thousands to
+# millions, never a plausible near-miss on a real value that this
+# threshold could wrongly reject).
+MAX_SANE_POWER_KW = 1000.0
+
 
 class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Owns one load's model lifecycle and produces its published forecast
@@ -441,6 +453,39 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                                     entity_id, unit,
                                 )
                                 warned_missing_unit = True
+                    # Real, live-confirmed bug (2026-08-17): a single bad
+                    # Modbus read in this household's real recorder history
+                    # (sensor.logger_meter_total_active_power, 2026-07-07,
+                    # value 21474836.5 -- a classic 32-bit signed-integer-
+                    # overflow artifact, 2^31/100) sat harmlessly in
+                    # recorder history for over a month until a full
+                    # cold retrain genuinely re-read it as real training
+                    # data. k-NN's own prediction is mathematically bounded
+                    # by real y_train values (a weighted average can never
+                    # exceed the observed range) -- which is exactly why a
+                    # later recursive forecast step, once its own feature
+                    # vector happened to land near that one poisoned
+                    # training point, correctly (if uselessly) reproduced
+                    # something close to 21 million kW. The bound guarantee
+                    # protects against extrapolation, not against bad DATA
+                    # inside the bound. MAX_SANE_POWER_KW is comfortably
+                    # above any real signal this household (or any
+                    # realistic household) could ever produce (documented
+                    # real ceiling here is ~50kW for Grid/Battery, ~17kW
+                    # for Solar) while safely far below the magnitude any
+                    # unit-conversion/integer-overflow-class glitch
+                    # produces (these tend to be in the thousands to
+                    # millions, never a plausible near-miss on a real
+                    # value) -- dropped entirely (never trained on, never
+                    # displayed), same as an unparseable state already is.
+                    if abs(value) > MAX_SANE_POWER_KW:
+                        _LOGGER.warning(
+                            "%s reported a physically implausible power reading (%.1f kW, "
+                            "exceeds the %.0f kW sanity ceiling) at %s -- dropping this one "
+                            "point rather than training on it",
+                            entity_id, value, MAX_SANE_POWER_KW, s.last_changed,
+                        )
+                        continue
                 out.append((dt_util.as_local(s.last_changed), value))
             return out
 
