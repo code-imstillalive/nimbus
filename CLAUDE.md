@@ -421,8 +421,36 @@ fixed and verified against real data" not "battle-tested over weeks."
 - **Grid's own GBRT candidate badly overfits** on this household's real data
   (`validation_mae['gbrt']=6220` vs k-NN's `7.55` on one real check) — k-NN wins model
   selection for Grid, meaning Grid relies on the residual-based confidence band (now
-  clamped, see bug #5 above) rather than a genuine model-derived quantile band. Not
-  root-caused; worth investigating if Grid's forecast quality matters more later.
+  clamped, see bug #5 above) rather than a genuine model-derived quantile band.
+  **Root-caused (2026-08-17), by reading `_knn_predict_batch()` and `GBRT.predict()`
+  side by side, not guessed:** `_knn_predict_batch()`'s own prediction is a WEIGHTED
+  AVERAGE of real, observed `y_train` values (`np.sum(weights * y_train[nearest_idx]) /
+  np.sum(weights)`) -- a convex combination, structurally bounded between
+  `min(y_train)` and `max(y_train)` no matter how far out-of-distribution a query point
+  is. `GBRT.predict()` is `init_value + Σ(learning_rate * tree_output)` for every tree
+  in the ensemble -- an UNBOUNDED additive sum, no clipping anywhere. Ruled out the
+  "same known noisy-Modbus-sensor" theory this session's own bug #5-adjacent
+  investigation raised as the likely culprit: pulled 3 real days
+  (`sensor.logger_meter_total_active_power`, 12248 real points) and found a real, wide,
+  legitimate range (-24.4kW to +50.4kW, mean 3.05kW) with ZERO isolated glitch-like
+  spikes (the specific rapid-swing signature already confirmed and fixed for
+  `sensor.logger_load_power`, a DIFFERENT sensor on the same Logger, in the sibling
+  116KAT-HA-AI repo's own 2026-08-16 session) -- Grid's real data is clean, this is a
+  genuine structural property of additive tree ensembles under recursive multi-step
+  forecasting, not sensor noise. Grid is exactly the kind of signal (large, discrete,
+  automation-driven swings between real extremes -- P2P selling vs self-consume vs
+  charging) where recursive lag-feature drift can push a later forecast step's own
+  feature vector into a combination no training tree leaf ever saw; k-NN's convex-
+  combination guarantee makes it structurally immune to blowing up from this, GBRT's
+  additive-sum design is not. **No code fix needed or applied**: this is precisely the
+  failure mode the chronological validation + automatic model-selection machinery
+  (2026-08-15) already exists to catch, and it already does -- k-NN correctly wins for
+  Grid, and the confidence band's own clamp (bug #5) independently bounds the
+  fallback's own upper/lower reach regardless. Worth remembering as a general principle
+  for any future signal: additive-ensemble models (GBRT) are a real structural risk for
+  recursive multi-step forecasting on volatile, automation-driven signals in a way
+  average-based models (k-NN) are not -- the existing validation gate is the correct,
+  sufficient mitigation, not a hyperparameter tweak.
 - **Hub-level shared config (Battery/Grid/Solar sensor selectors, on the "Nimbus settings"
   options form) can be silently cleared by a stale form resubmission** — confirmed live
   2026-08-15: these 3 fields were found unset despite having been correctly selected
