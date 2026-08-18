@@ -258,6 +258,47 @@ class BatteryConfig:
     variables in network.py, never one signed free variable, specifically
     so each can carry its own independently-enforced cost floor.
 
+    **Mark Purcell's audit item #8, "topology" -- investigated 2026-08-18,
+    concluded a NON-issue for this class, not a limitation to fix.** First
+    pass wrongly assumed the LP itself needed to see individual physical
+    batteries/inverters (2 real ones on 116KAT-HA-AI's own installation,
+    SH25T=25kW AC + SH15T=15kW AC, each with its own towers and its own
+    independently-diverging real SoC) and started scoping a BatteryConfig
+    LIST plus a joint-dispatch LP mechanism to model them. **Corrected
+    directly by the household's own owner, who runs real inverter/BMS
+    hardware for a living**: that internal battery-to-inverter routing,
+    load-sharing, and SoC-balancing across however many physical packs a
+    real installation has is the OWNER'S OWN inverter/EMS firmware's job
+    (Sungrow's, or any other brand's) -- not something an external
+    dispatch optimizer should ever try to see inside or re-derive. What
+    Nimbus genuinely needs to know is only the SYSTEM's aggregate
+    envelope, exactly the fields this class already has:
+      - `capacity_kwh` / `min_soc_kwh` / `max_soc_kwh` -- total usable
+        capacity, whatever the real internal pack count/wiring is.
+      - `max_charge_kw` / `max_discharge_kw` -- the SYSTEM's real
+        grid-facing power ceiling (i.e. whatever the inverter's own AC
+        rating actually permits end-to-end, not a raw battery-cell/DC
+        figure) -- see the inline field comments below.
+      - `charge_efficiency` / `discharge_efficiency` -- the real BLENDED
+        round-trip figure covering the full path (battery chemistry loss
+        AND inverter AC<->DC conversion loss combined), not the battery
+        cell's own efficiency in isolation.
+
+    **This means the single-aggregate model was already the correct
+    general design** -- it doesn't need to grow a list or a joint-
+    dispatch mechanism at all. The one genuinely real, still-open piece
+    is a CONFIG-FLOW/UX concern, not an LP-architecture one: whenever
+    Nimbus's own onboarding UI is built, it should walk each owner
+    through deriving these few aggregate numbers from whatever they
+    already know about their own hardware (total capacity, the
+    inverter's AC-side charge/discharge rating, its AC<->DC conversion
+    efficiency, the battery's own round-trip efficiency) rather than
+    asking for -- or the LP ever needing -- per-pack/per-inverter detail.
+    "Owner fills in a handful of system-level numbers, and off we go" is
+    the real, general, hardware-agnostic answer for any future household,
+    not something narrower that only fits this one installation's own
+    2-inverter layout.
+
     salvage_value / headroom_value (2026-08-16, direct response to real
     feedback -- Mark Purcell, on three of his own four reported failure
     scenarios: "Failure to price the forward option value of stored
@@ -305,10 +346,10 @@ class BatteryConfig:
     initial_soc_kwh: float
     min_soc_kwh: float
     max_soc_kwh: float
-    max_charge_kw: float
-    max_discharge_kw: float
-    charge_efficiency: float  # 0 < eff <= 1, energy INTO storage per kWh drawn
-    discharge_efficiency: float  # 0 < eff <= 1, energy delivered per kWh drawn from storage
+    max_charge_kw: float  # SYSTEM-level, grid/AC-facing ceiling -- whatever the real inverter's own AC rating permits end-to-end, not a raw battery-cell/DC figure (see class docstring, "topology" note)
+    max_discharge_kw: float  # SYSTEM-level, grid/AC-facing ceiling -- same as above
+    charge_efficiency: float  # 0 < eff <= 1, energy INTO storage per kWh drawn -- should be the BLENDED round-trip figure (battery chemistry loss + inverter AC<->DC conversion loss combined), not the cell's own efficiency alone
+    discharge_efficiency: float  # 0 < eff <= 1, energy delivered per kWh drawn from storage -- same blended-figure note as above
     # $/kWh, structural floor enforced below. Either a scalar (applied
     # identically to every period, the original behaviour) OR a real
     # per-period array (2026-08-16, direct real finding: this household's
