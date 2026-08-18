@@ -248,7 +248,7 @@ are completely unaffected regardless of `risk_aversion`'s value.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 
 import numpy as np
@@ -331,6 +331,14 @@ class Plan:
     adequacy_loads: list[AdequacyLoadPlan]
     total_cost: float | None
     iterations: int
+    # Shadow prices / binding-constraint diagnostics (2026-08-18), passed
+    # straight through from LPResult -- see LPResult's own docstring for
+    # what each means. Empty dicts (never populated) on a non-optimal
+    # Plan, same "represent honestly, don't paper over" convention as
+    # every other field here -- there's no meaningful shadow price for a
+    # problem that was never actually solved.
+    duals: dict[str, float] = field(default_factory=dict)
+    reduced_costs: dict[str, float] = field(default_factory=dict)
 
     @property
     def is_optimal(self) -> bool:
@@ -464,6 +472,8 @@ def _infeasible_plan(periods: PeriodGrid, status: str, iterations: int) -> Plan:
         adequacy_loads=[],
         total_cost=None,
         iterations=iterations,
+        duals={},
+        reduced_costs={},
     )
 
 
@@ -683,7 +693,12 @@ def build_plan(
             # exactly the (here, zero) base demand, making any real
             # target infeasible outright.
             terms[adequacy_vars[al.name][t]] = -1.0
-        p.add_eq_constraint(terms, rhs)
+        # Named (2026-08-18) so its dual value -- the real-time shadow
+        # price of energy at this period, exactly what a live spot/P2P
+        # rate is supposed to approximate -- is directly readable rather
+        # than an anonymous row index. The single most economically
+        # meaningful dual in this whole model.
+        p.add_eq_constraint(terms, rhs, name=f"power_balance_t{t}")
 
     # ---- Same-period wash-trade prevention (see module docstring,
     # "SAME-PERIOD WASH-TRADE PREVENTION" -- two structural constraints,
@@ -723,7 +738,10 @@ def build_plan(
     for al in adequacy_loads:
         window = range(al.earliest_period, al.deadline_period + 1)
         terms = {adequacy_vars[al.name][t]: -hours[t] for t in window}
-        p.add_ub_constraint(terms, -al.target_kwh)
+        # Named (2026-08-18) -- its dual is the marginal cost of this
+        # specific deadline, e.g. "how much cheaper would the plan be if
+        # this load had one more hour to finish."
+        p.add_ub_constraint(terms, -al.target_kwh, name=f"adequacy_deadline_{al.name}")
 
     # ---- Minimum total export commitment (see module docstring,
     # "MINIMUM TOTAL EXPORT COMMITMENT") -- sum(export*hours) >=
@@ -732,7 +750,10 @@ def build_plan(
     # when grid.min_export_kwh is None (the default).
     if grid.min_export_kwh is not None:
         terms = {grid_export[t]: -hours[t] for t in range(n)}
-        p.add_ub_constraint(terms, -grid.min_export_kwh)
+        # Named (2026-08-18) -- its dual is the marginal cost of this
+        # commitment floor, e.g. "how much cheaper would tonight's plan be
+        # without this minimum-export requirement."
+        p.add_ub_constraint(terms, -grid.min_export_kwh, name="min_export_commitment")
 
     # ---- Two-tier export bonus cumulative cap (see elements.py's own
     # GridConfig docstring) -- sum(export_bonus[t]*hours[t]) <=
@@ -762,14 +783,23 @@ def build_plan(
         starts = periods.period_starts
         if starts is None:
             terms = {export_bonus[t]: hours[t] for t in range(n)}
-            p.add_ub_constraint(terms, float(grid.export_bonus_volume_kwh))
+            p.add_ub_constraint(terms, float(grid.export_bonus_volume_kwh), name="export_bonus_cap_global")
         else:
             by_day: dict[object, list[int]] = {}
             for t, start_t in enumerate(starts):
                 by_day.setdefault(start_t.date(), []).append(t)
-            for day_indices in by_day.values():
+            # Named per real calendar date (2026-08-18) -- its dual value
+            # answers, directly and per-night, "is tonight's P2P bonus
+            # volume allotment actually the binding constraint, and how
+            # much extra would one more kWh of allotment be worth" --
+            # exactly the real question this whole cap exists to model
+            # (see this block's own docstring above, "per real calendar
+            # day, not once across the whole horizon").
+            for day_date, day_indices in by_day.items():
                 terms = {export_bonus[t]: hours[t] for t in day_indices}
-                p.add_ub_constraint(terms, float(grid.export_bonus_volume_kwh))
+                p.add_ub_constraint(
+                    terms, float(grid.export_bonus_volume_kwh), name=f"export_bonus_cap_{day_date.isoformat()}"
+                )
 
     result: LPResult = p.solve()
     if result.status != "optimal":
@@ -813,4 +843,6 @@ def build_plan(
         adequacy_loads=plan_adequacy,
         total_cost=result.objective,
         iterations=result.iterations,
+        duals=result.duals,
+        reduced_costs=result.reduced_costs,
     )

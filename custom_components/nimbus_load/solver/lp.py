@@ -71,12 +71,35 @@ class LPResult:
     problem, since both are real, expected outcomes a caller (network.py)
     needs to handle explicitly, not treat as a crash. `x`/`objective` are
     only meaningful when status == "optimal".
+
+    `duals` (2026-08-18): one entry per named constraint ROW, keyed by
+    whatever `name=` was passed to add_ub_constraint()/add_eq_constraint()
+    (or an auto-generated `ub_{i}`/`eq_{i}` fallback for unnamed rows --
+    every row always gets an entry, naming is purely for readability, never
+    required for coverage). The dual value is the marginal change in the
+    objective per unit of RHS relaxation -- e.g. a per-period power-balance
+    row's dual is literally that period's real-time shadow price of energy.
+
+    `reduced_costs`: one entry per VARIABLE, keyed by variable name. Only
+    meaningful (nonzero) when that variable is sitting AT one of its own
+    bounds in the optimal solution -- this is the direct answer to "is this
+    specific cap actually binding right now" for anything modeled as a
+    variable bound rather than a separate constraint row (e.g. a grid
+    export limit or a battery max-power cap set via add_variable(ub=...)
+    rather than an explicit row).
+
+    Both are empty dicts (never None) on a non-optimal result, matching
+    this class's own existing "x/objective only meaningful when optimal"
+    convention -- an empty dict is a safe, iterable default a caller can
+    treat uniformly instead of needing an extra None-check.
     """
 
     status: str
     x: NDArray[np.float64] | None = None
     objective: float | None = None
     iterations: int = 0
+    duals: dict[str, float] = field(default_factory=dict)
+    reduced_costs: dict[str, float] = field(default_factory=dict)
 
 
 @dataclass
@@ -101,6 +124,14 @@ class LPProblem:
     _cost: dict[str, float] = field(default_factory=dict)
     _ub_rows: list[tuple[dict[str, float], float]] = field(default_factory=list)
     _eq_rows: list[tuple[dict[str, float], float]] = field(default_factory=list)
+    # Parallel name lists (2026-08-18, dual-value extraction) -- kept
+    # SEPARATE from _ub_rows/_eq_rows (rather than folding name into each
+    # row tuple) so every existing caller's `(terms, rhs)` unpacking
+    # elsewhere in this module keeps working unchanged. Always exactly
+    # len(_ub_rows)/len(_eq_rows) long, entries default to None (auto-named
+    # at solve time) when a caller doesn't pass name=.
+    _ub_row_names: list[str | None] = field(default_factory=list)
+    _eq_row_names: list[str | None] = field(default_factory=list)
 
     def add_variable(self, name: str, *, lb: float = 0.0, ub: float = float("inf"), cost: float = 0.0) -> str:
         """Register a new variable. Returns `name` unchanged, so this can be
@@ -135,19 +166,32 @@ class LPProblem:
             raise KeyError(name)
         self._cost[name] = self._cost.get(name, 0.0) + cost
 
-    def add_ub_constraint(self, terms: dict[str, float], rhs: float) -> None:
-        """sum(coef * var for var, coef in terms) <= rhs."""
+    def add_ub_constraint(self, terms: dict[str, float], rhs: float, *, name: str | None = None) -> None:
+        """sum(coef * var for var, coef in terms) <= rhs.
+
+        `name` (2026-08-18, optional, backward compatible) tags this row so
+        LPResult.duals can report its shadow price by a meaningful key
+        (e.g. "export_bonus_cap_2026-08-18") instead of an anonymous row
+        index. Unnamed rows still get a dual value at solve time (auto-
+        named `ub_{i}`) -- naming is purely for readability, never required
+        for a row to be covered.
+        """
         self._check_terms(terms)
         self._ub_rows.append((dict(terms), rhs))
+        self._ub_row_names.append(name)
 
-    def add_eq_constraint(self, terms: dict[str, float], rhs: float) -> None:
+    def add_eq_constraint(self, terms: dict[str, float], rhs: float, *, name: str | None = None) -> None:
         """sum(coef * var for var, coef in terms) == rhs. This is the
         mechanism every real power-balance constraint (§ network.py) uses --
         "power in equals power out at this node, this period" is always an
         equality, never a bound.
+
+        `name`: see add_ub_constraint()'s own docstring -- identical
+        purpose and same auto-naming fallback (`eq_{i}`) here.
         """
         self._check_terms(terms)
         self._eq_rows.append((dict(terms), rhs))
+        self._eq_row_names.append(name)
 
     def _check_terms(self, terms: dict[str, float]) -> None:
         unknown = [name for name in terms if name not in self._var_index]
@@ -215,6 +259,17 @@ def _solve_highs(problem: LPProblem) -> LPResult:
         highs_ub = highspy.kHighsInf if ub == float("inf") else ub
         var_array.append(h.addVariable(lb=highs_lb, ub=highs_ub))
 
+    # Row names, built in the EXACT same order rows are added below (ub
+    # rows first, then eq rows) -- this order is what h.getSolution().
+    # row_dual is indexed by, so it must match precisely or a dual value
+    # would silently get attributed to the wrong constraint. Auto-named
+    # per-list (ub_0, ub_1, ... / eq_0, eq_1, ...) rather than one global
+    # counter, so names stay stable/predictable regardless of how many of
+    # each kind exist.
+    row_names: list[str] = [
+        given or f"ub_{i}" for i, given in enumerate(problem._ub_row_names)
+    ] + [given or f"eq_{i}" for i, given in enumerate(problem._eq_row_names)]
+
     for terms, rhs in problem._ub_rows:
         expr = highspy.Highs.qsum(coef * var_array[problem._var_index[name]] for name, coef in terms.items())
         h.addConstr(expr <= rhs)
@@ -250,4 +305,23 @@ def _solve_highs(problem: LPProblem) -> LPResult:
 
     x = np.array([h.val(var_array[i]) for i in range(n)])
     objective = float(h.getObjectiveValue())
-    return LPResult(status="optimal", x=x, objective=objective, iterations=iterations)
+
+    # Dual values (row_dual) and reduced costs (col_dual), 2026-08-18 --
+    # both come off the same HighsSolution struct, indexed by row/column
+    # insertion order respectively. row_dual's ORDER must match row_names
+    # built above exactly (ub rows then eq rows, in the order each list
+    # was appended) -- both are built from problem._ub_rows/_eq_rows in
+    # that same fixed order, so this is safe by construction, not by
+    # coincidence.
+    solution = h.getSolution()
+    duals = dict(zip(row_names, solution.row_dual, strict=True))
+    reduced_costs = dict(zip(problem._var_names, solution.col_dual, strict=True))
+
+    return LPResult(
+        status="optimal",
+        x=x,
+        objective=objective,
+        iterations=iterations,
+        duals=duals,
+        reduced_costs=reduced_costs,
+    )
