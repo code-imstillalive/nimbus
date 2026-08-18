@@ -8,11 +8,19 @@ standard two-phase revised-simplex-on-a-dense-tableau method directly.
 
 This is intentionally NOT trying to be a general-purpose, industrial LP
 solver. The real Nimbus Solver's own problems are small (a handful of
-elements, tens to low hundreds of periods) and re-solved frequently, not
-huge one-off problems -- a dense tableau is the right tradeoff here:
-simple, easy to verify correct, fast enough at this scale. If a future
-version needs a genuinely large problem, that's the point to revisit
-this decision, not before.
+elements) and re-solved frequently, not huge one-off problems -- a dense
+tableau is the right tradeoff here: simple, easy to verify correct, fast
+enough at this scale. If a future version needs a genuinely large
+problem, that's the point to revisit this decision, not before.
+
+Real horizon size, corrected 2026-08-18 (the original "tens to low
+hundreds of periods" estimate above predates the 96h tiered horizon --
+see nimbus_solver_forecast_writer.py's own TIER0/TIER1/TIER2 constants):
+production solves run to ~365 periods (5 x 1-min + 288 x 5-min + 72 x
+1-hour), plus proximal-regularization variables when a previous_plan is
+given -- several thousand variables/constraints once expanded to
+standard form. See _STALL_THRESHOLD's own comment for what this meant
+for the pivot rule below.
 
 Problem form accepted (the "natural" LP form, not standard form -- this
 module handles the standard-form conversion internally so callers never
@@ -44,11 +52,46 @@ from numpy.typing import NDArray
 # noise from repeated pivot operations.
 _EPS: float = 1e-9
 # Safety valve against a genuine implementation bug (a cycling or
-# never-terminating pivot sequence) turning into a silent infinite loop --
-# real problems this solver is built for (see the module docstring) are
-# far too small to ever legitimately need anywhere close to this many
-# pivots; hitting the limit is treated as a solver bug, not a hard problem.
-_MAX_ITERATIONS: int = 10_000
+# never-terminating pivot sequence) turning into a silent infinite loop.
+# Raised 10_000 -> 50_000 (2026-08-18) alongside the Dantzig/Bland hybrid
+# pivot rule below -- see _STALL_THRESHOLD's own comment for the real
+# incident this responds to. With Dantzig doing the bulk of the real
+# work, 50_000 is a genuine safety margin against a real implementation
+# bug, not a number expected to be approached in practice.
+_MAX_ITERATIONS: int = 50_000
+
+# How many CONSECUTIVE degenerate (zero-length) pivots to tolerate under
+# the fast Dantzig rule before permanently switching to Bland's rule for
+# the rest of THIS solve. Real incident (2026-08-18): the real Nimbus
+# Solver horizon (see nimbus_solver_forecast_writer.py's own 96h tiered
+# grid -- ~5 minutes of 1-min resolution + 24h of 5-min resolution + 72h
+# of 1-hour resolution, ~365 periods) plus proximal-regularization
+# variables (previous_plan stability, see network.py) produces a real LP
+# with several thousand variables/constraints -- confirmed locally via a
+# standalone repro matching the real production build_plan() call shape:
+# a PURE Bland's-rule solve on this scale did not converge even after
+# several minutes of real wall-clock time, let alone within the original
+# 10_000-iteration cap. This is NOT the cycling Bland's rule exists to
+# prevent -- it's Bland's rule's own well-known, real cost (lowest-index
+# pivot selection ignores how much each candidate actually improves the
+# objective, so it can take vastly more pivots than a value-aware rule
+# on anything beyond a small textbook-sized problem) colliding with a
+# genuinely larger-than-originally-assumed real problem size (the module
+# docstring's own "tens to low hundreds of periods" assumption, written
+# before the 96h tiered horizon existed).
+#
+# Fix: Dantzig's rule (most-negative reduced cost -- the standard,
+# far-fewer-pivots-in-practice default) drives every pivot UNTIL a real
+# stall is detected, then this solver permanently switches to Bland's
+# rule for the remainder of THIS solve. This is safe, not a compromise:
+# cycling can ONLY occur through a run of purely degenerate (zero
+# objective improvement) pivots -- a pivot that strictly improves the
+# objective can never revisit a basis already seen, since the objective
+# changes monotonically along any such sequence. Tracking consecutive
+# degenerate pivots therefore detects real cycling RISK directly, and
+# Bland's rule's own anti-cycling proof holds from whatever basis it's
+# switched on at -- it does not depend on how the solve got there.
+_STALL_THRESHOLD: int = 200
 
 
 @dataclass(frozen=True)
@@ -426,6 +469,16 @@ def _simplex_core(
     iterations). `status` is "optimal" or "unbounded" only -- infeasibility
     is a Phase-1 concept, decided by the caller from the Phase-1 objective
     value, not detected here.
+
+    Hybrid Dantzig/Bland pivot rule (2026-08-18) -- see _STALL_THRESHOLD's
+    own comment for the full real-incident reasoning. Dantzig's rule
+    (most-negative reduced cost) drives every pivot by default; the
+    moment _STALL_THRESHOLD consecutive pivots have all been degenerate
+    (zero real progress -- the ONLY way a simplex can ever cycle), this
+    permanently switches to Bland's rule (lowest-index selection, both
+    entering and on leaving-row ties) for the rest of this call, which is
+    provably safe from cycling from that point forward regardless of the
+    pivot rule used before the switch.
     """
     m, n = a_matrix.shape
     tableau = np.zeros((m + 1, n + 1))
@@ -440,26 +493,46 @@ def _simplex_core(
     tableau[-1, -1] = -(c_b @ tableau[:m, -1])
 
     iterations = 0
+    bland_mode = False
+    stall_count = 0
     while iterations < _MAX_ITERATIONS:
-        # Bland's rule: enter the LOWEST-INDEX column with negative reduced
-        # cost (not the most-negative, which is the faster-in-practice but
-        # cycling-prone textbook default) -- guarantees termination.
-        candidates = np.where(tableau[-1, :n] < -_EPS)[0]
+        reduced = tableau[-1, :n]
+        candidates = np.where(reduced < -_EPS)[0]
         if candidates.size == 0:
             return "optimal", tableau, basis, iterations
-        entering = int(candidates[0])
+
+        if bland_mode:
+            entering = int(candidates[0])
+        else:
+            entering = int(candidates[np.argmin(reduced[candidates])])
 
         col = tableau[:m, entering]
         positive_rows = np.where(col > _EPS)[0]
         if positive_rows.size == 0:
             return "unbounded", tableau, basis, iterations
 
-        # Minimum-ratio test, Bland's rule again on ties: lowest basic
-        # variable INDEX leaves, not just the first row encountered.
+        # Minimum-ratio test. Tie-break depends on pivot mode: Bland's
+        # rule (lowest basic-variable INDEX leaves) once stalled, or
+        # simply the first tied row while still in the fast Dantzig
+        # phase -- correctness doesn't depend on which tied row leaves,
+        # only termination-under-degeneracy does, and that's exactly
+        # what the mode switch below is watching for.
         ratios = tableau[positive_rows, -1] / col[positive_rows]
         min_ratio = ratios.min()
         tied = positive_rows[np.isclose(ratios, min_ratio, atol=_EPS)]
-        leaving_row = int(tied[np.argmin(basis[tied])])
+        leaving_row = int(tied[np.argmin(basis[tied])]) if bland_mode else int(tied[0])
+
+        # A pivot with min_ratio ~ 0 makes zero real progress (the
+        # entering variable's own value stays at 0) -- this is the ONLY
+        # way a simplex sequence can ever revisit a prior basis, since
+        # any pivot with min_ratio > 0 strictly improves the objective
+        # and can therefore never repeat. Track consecutive occurrences;
+        # once a real stall is confirmed, switch to Bland's rule
+        # (guaranteed no-repeat from here on) for the rest of this solve.
+        if not bland_mode:
+            stall_count = stall_count + 1 if min_ratio <= _EPS else 0
+            if stall_count >= _STALL_THRESHOLD:
+                bland_mode = True
 
         tableau = _pivot(tableau, leaving_row, entering)
         basis[leaving_row] = entering
@@ -472,11 +545,24 @@ def _simplex_core(
 def _pivot(tableau: NDArray[np.float64], row: int, col: int) -> NDArray[np.float64]:
     """Standard Gauss-Jordan pivot: normalize the pivot row, eliminate the
     pivot column from every other row (including the objective row).
+
+    Mutates `tableau` IN PLACE and returns the same array -- real
+    performance fix, 2026-08-18, found while diagnosing the same real
+    incident _STALL_THRESHOLD's own comment describes. Every call site
+    immediately reassigns `tableau = _pivot(tableau, ...)` and never
+    reads the pre-pivot array again, so the previous copy-on-every-call
+    was pure, unnecessary overhead -- at the real Nimbus Solver's now-
+    confirmed problem scale (several thousand columns, thousands of
+    pivots per solve), reallocating and copying the FULL tableau on
+    every single pivot was a real, significant cost independent of the
+    pivot-COUNT fix above. Also vectorized: the elimination step below
+    replaces a Python-level loop over every row with a single numpy
+    broadcast (`np.outer`), removing per-row call overhead that also
+    scales with tableau size.
     """
-    tableau = tableau.copy()
     pivot_val = tableau[row, col]
-    tableau[row, :] = tableau[row, :] / pivot_val
-    for r in range(tableau.shape[0]):
-        if r != row and abs(tableau[r, col]) > 0:
-            tableau[r, :] -= tableau[r, col] * tableau[row, :]
+    tableau[row, :] /= pivot_val
+    factors = tableau[:, col].copy()
+    factors[row] = 0.0  # never eliminate the pivot row against itself
+    tableau -= np.outer(factors, tableau[row, :])
     return tableau
