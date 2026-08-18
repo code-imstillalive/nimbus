@@ -610,24 +610,47 @@ def build_plan(
     if has_export_bonus:
         for t in range(n):
             p.set_cost(export_bonus[t], -float(grid.export_bonus_price[t]) * hours[t])
-    # Salvage value: a one-time credit on the FINAL period's soc -- without
-    # this, a finite-horizon LP has no reason to ever hold charge past the
-    # last period it can see, and will always drain to its own min_soc on
-    # the final tick (see the architecture sketch's own §6 "Salvage value,
-    # in plain terms" explainer).
-    p.set_cost(soc[n - 1], -battery.salvage_value)
-    # Headroom value (2026-08-16, direct response to real feedback -- see
-    # BatteryConfig's own docstring for the full "option value of energy
-    # AND of headroom" reasoning): -headroom_value * (max_soc - soc[n-1])
-    # expands to a CONSTANT (-headroom_value*max_soc, doesn't affect the
-    # optimal solution -- LP optimization is invariant to a constant
-    # objective offset) plus +headroom_value*soc[n-1]. set_cost() already
-    # ADDS to soc[n-1]'s existing coefficient (see its own docstring), so
-    # this second call is the correct, minimal way to combine both terms
-    # -- net terminal coefficient becomes -(salvage_value - headroom_value).
-    # headroom_value=0.0 (the default) adds exactly zero, byte-identical
-    # to every scenario built before this field existed.
-    p.set_cost(soc[n - 1], battery.headroom_value)
+    if battery.terminal_value_breakpoints is not None:
+        # Piecewise-linear concave terminal value (2026-08-18, Mark
+        # Purcell's audit item #7 -- see BatteryConfig's own docstring
+        # for the full "hard corner" problem this replaces, and its own
+        # terminal_value_breakpoints docstring for why non-increasing
+        # rates make this construction behave concavely with no explicit
+        # ordering constraint needed). One small variable per breakpoint
+        # (only for the FINAL period, negligible LP cost regardless of
+        # horizon length), summing to exactly soc[n-1] - min_soc_kwh --
+        # every kWh above the floor priced exactly once, each at its own
+        # segment's rate.
+        seg_vars = [
+            p.add_variable(f"terminal_seg_{i}", lb=0.0, ub=width)
+            for i, (width, _rate) in enumerate(battery.terminal_value_breakpoints)
+        ]
+        p.add_eq_constraint(
+            {**{seg: 1.0 for seg in seg_vars}, soc[n - 1]: -1.0},
+            -battery.min_soc_kwh,
+            name="terminal_value_segments_fill",
+        )
+        for seg, (_width, rate) in zip(seg_vars, battery.terminal_value_breakpoints, strict=True):
+            p.set_cost(seg, -rate)
+    else:
+        # Salvage value: a one-time credit on the FINAL period's soc -- without
+        # this, a finite-horizon LP has no reason to ever hold charge past the
+        # last period it can see, and will always drain to its own min_soc on
+        # the final tick (see the architecture sketch's own §6 "Salvage value,
+        # in plain terms" explainer).
+        p.set_cost(soc[n - 1], -battery.salvage_value)
+        # Headroom value (2026-08-16, direct response to real feedback -- see
+        # BatteryConfig's own docstring for the full "option value of energy
+        # AND of headroom" reasoning): -headroom_value * (max_soc - soc[n-1])
+        # expands to a CONSTANT (-headroom_value*max_soc, doesn't affect the
+        # optimal solution -- LP optimization is invariant to a constant
+        # objective offset) plus +headroom_value*soc[n-1]. set_cost() already
+        # ADDS to soc[n-1]'s existing coefficient (see its own docstring), so
+        # this second call is the correct, minimal way to combine both terms
+        # -- net terminal coefficient becomes -(salvage_value - headroom_value).
+        # headroom_value=0.0 (the default) adds exactly zero, byte-identical
+        # to every scenario built before this field existed.
+        p.set_cost(soc[n - 1], battery.headroom_value)
 
     # ---- Stability mechanisms 1 & 2 (see module docstring) ----
     prev_charge = previous_plan.battery_charge_kw if previous_plan is not None else None

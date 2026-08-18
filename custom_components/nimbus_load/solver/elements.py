@@ -326,6 +326,41 @@ class BatteryConfig:
     discharge_cost: float | NDArray[np.float64]
     salvage_value: float  # $/kWh credited for ENERGY remaining at the final period
     headroom_value: float = 0.0  # $/kWh credited for unused CAPACITY (max_soc - soc[final]) at the final period -- see docstring above
+    # Real piecewise-linear concave terminal value (2026-08-18, the
+    # "not-yet-built follow-up" this class's own docstring names above
+    # -- Mark Purcell's audit item #7). A list of (width_kwh, rate_per_
+    # kwh) segments describing the SoC range ABOVE min_soc_kwh, each
+    # with its own credit rate -- e.g. [(10.0, 0.60), (60.0, 0.30),
+    # (20.0, 0.10)] values the first 10kWh of reserve above the floor at
+    # $0.60/kWh, the next 60kWh at $0.30/kWh, the final 20kWh (nearest
+    # max_soc) at only $0.10/kWh -- a genuine diminishing-marginal-value
+    # curve, replacing the existing flat salvage_value/headroom_value
+    # mechanism's single rate across the WHOLE range (see this class's
+    # own docstring above for the real, confirmed "hard corner" problem
+    # that single flat rate causes).
+    #
+    # None (the default) is fully backward compatible -- falls through
+    # to the exact existing salvage_value/headroom_value flat-rate
+    # behaviour, byte-identical to every scenario built before this
+    # field existed. When provided, REPLACES (not adds to) salvage_
+    # value/headroom_value entirely for that solve -- the two mechanisms
+    # model the same real thing (terminal-state value) at different
+    # levels of fidelity, using both together would double-count.
+    #
+    # Segment widths must sum to exactly (max_soc_kwh - min_soc_kwh) --
+    # the full above-floor range, nothing left unpriced and nothing
+    # double-priced. Rates must be non-increasing (segment i's rate >=
+    # segment i+1's rate) -- this is what makes the LP construction
+    # (network.py's own segment-fill variables, one per breakpoint,
+    # summing to soc[final] - min_soc_kwh) actually behave concavely: an
+    # LP minimizing cost (maximizing credit) will always fill the
+    # highest-rate segment first for any given amount of energy to
+    # allocate, purely from its own optimization pressure, no explicit
+    # ordering constraint needed -- but ONLY if rates are genuinely
+    # non-increasing; an increasing sequence would let the LP exploit it
+    # by skipping straight to a later segment, which is not what a
+    # concave value function means and would be a real modeling bug.
+    terminal_value_breakpoints: list[tuple[float, float]] | None = None
 
     def __post_init__(self) -> None:
         if not (0.0 < self.min_soc_kwh <= self.max_soc_kwh <= self.capacity_kwh):
@@ -357,6 +392,29 @@ class BatteryConfig:
                 "wash-trade degeneracy"
             )
             raise DegenerateConfigError(msg)
+        if self.terminal_value_breakpoints is not None:
+            widths = [w for w, _rate in self.terminal_value_breakpoints]
+            rates = [r for _w, r in self.terminal_value_breakpoints]
+            if any(w <= 0 for w in widths):
+                msg = f"terminal_value_breakpoints: every segment width must be > 0 (got {widths})"
+                raise ValueError(msg)
+            total_width = sum(widths)
+            expected_width = self.max_soc_kwh - self.min_soc_kwh
+            if abs(total_width - expected_width) > 1e-6:
+                msg = (
+                    f"terminal_value_breakpoints: segment widths must sum to exactly "
+                    f"max_soc_kwh - min_soc_kwh ({expected_width}), got {total_width} -- "
+                    "every kWh above the floor must be priced exactly once, no gaps, no overlap"
+                )
+                raise ValueError(msg)
+            if any(rates[i] < rates[i + 1] for i in range(len(rates) - 1)):
+                msg = (
+                    f"terminal_value_breakpoints rates must be non-increasing "
+                    f"(got {rates}) -- an increasing sequence is not a concave "
+                    "value function and would let the LP exploit it by skipping "
+                    "straight to a later, higher-rate segment"
+                )
+                raise DegenerateConfigError(msg)
 
 
 def _validate_confidence_band(
