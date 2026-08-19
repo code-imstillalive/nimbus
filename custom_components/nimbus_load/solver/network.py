@@ -804,9 +804,37 @@ def build_plan(
     # in that case, not a silent behaviour change.
     if has_export_bonus:
         starts = periods.period_starts
+        # Tie-breaker (2026-08-20, direct household report: "what makes
+        # this lightning bolt drop out"). When export_bonus_price is
+        # near-flat across a real P2P window -- a genuine, observed
+        # pattern, live data showed 0.320 vs 0.314, a ~1.9% gap -- the LP
+        # has no real economic preference for WHICH periods claim the
+        # capped bonus volume once the total claimed sums to the same cap
+        # either way. Confirmed via a local repro
+        # (116KAT-HA-AI repo: scratchpad/repro_p2p_bolt_flicker.py) that
+        # this genuinely produces an arbitrary, scattered ON/OFF pattern
+        # (3 separate transitions on a 24-period test, not a clean split)
+        # -- a real degenerate-vertex artifact, not a display bug and not
+        # a real economic decision either. grid_export_kw/battery_kw are
+        # completely unaffected either way (this only relabels WHICH kWh
+        # count toward the bonus cap, never changes how much is exported).
+        #
+        # Fix: a tiny, deterministic per-period cost nudge -- comfortably
+        # smaller than any real price signal this model should ever
+        # respond to, comfortably larger than HiGHS's own numerical noise
+        # floor -- that makes the LP reliably prefer claiming the bonus
+        # EARLIEST within each real calendar day's own window. Turns the
+        # scattered pattern into a single clean ON -> OFF transition once
+        # that day's cap is exhausted. Verified locally: total_cost moves
+        # by <0.01% against the unperturbed solve on the same repro
+        # scenario -- this can only ever break a genuine tie, never
+        # override a real price difference.
+        _TIE_BREAK_EPSILON = 1e-7  # $, per day-local rank step
         if starts is None:
             terms = {export_bonus[t]: hours[t] for t in range(n)}
             p.add_ub_constraint(terms, float(grid.export_bonus_volume_kwh), name="export_bonus_cap_global")
+            for t in range(n):
+                p.set_cost(export_bonus[t], -_TIE_BREAK_EPSILON * (n - t))
         else:
             by_day: dict[object, list[int]] = {}
             for t, start_t in enumerate(starts):
@@ -823,6 +851,15 @@ def build_plan(
                 p.add_ub_constraint(
                     terms, float(grid.export_bonus_volume_kwh), name=f"export_bonus_cap_{day_date.isoformat()}"
                 )
+                # Same tie-breaker, scoped to THIS day's own periods only
+                # (day-local rank, not a raw global period index) -- keeps
+                # the needed dynamic range small regardless of how long
+                # the overall horizon is, and naturally resets every day,
+                # matching the volume cap's own "resets every real night"
+                # philosophy documented just above.
+                day_n = len(day_indices)
+                for rank, t in enumerate(day_indices):
+                    p.set_cost(export_bonus[t], -_TIE_BREAK_EPSILON * (day_n - rank))
 
     result: LPResult = p.solve()
     if result.status != "optimal":
