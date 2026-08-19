@@ -26,6 +26,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.loader import async_get_integration
 
 from .const import (
     ATTR_FORECAST,
@@ -77,6 +78,16 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     coordinators: dict[str, NimbusCoordinator] = hass.data[DOMAIN][entry.entry_id]
+    # Real, live version, read from this integration's own manifest.json --
+    # single source of truth, no more hand-syncing a version string in a
+    # second place (this exact staleness bit a downstream dashboard card,
+    # topology-card-v4.js's own footer, showing "0.6.0" long after the
+    # real running version had moved on to 0.29.0). Attached to each
+    # device's own sw_version below so any consumer (HA's own device page,
+    # or a card reading hass.devices directly) can read the real version
+    # live instead of needing its own separately-maintained copy.
+    integration = await async_get_integration(hass, DOMAIN)
+    sw_version = str(integration.version) if integration.version else None
     for subentry in entry.subentries.values():
         if subentry.subentry_type not in _FORECASTABLE_SUBENTRY_TYPES:
             continue
@@ -84,7 +95,7 @@ async def async_setup_entry(
         if coordinator is None:
             continue
         async_add_entities(
-            [NimbusForecastSensor(coordinator, subentry)],
+            [NimbusForecastSensor(coordinator, subentry, sw_version)],
             config_subentry_id=subentry.subentry_id,
         )
 
@@ -111,7 +122,9 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
     # every individual UI that might recompute an average.
     _attr_suggested_display_precision = 3
 
-    def __init__(self, coordinator: NimbusCoordinator, subentry: ConfigSubentry) -> None:
+    def __init__(
+        self, coordinator: NimbusCoordinator, subentry: ConfigSubentry, sw_version: str | None = None
+    ) -> None:
         super().__init__(coordinator)
         # Deliberately NOT changed to a generic suffix for existing load
         # subentries -- an already-deployed entity's unique_id must never
@@ -148,6 +161,7 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
             name=subentry.title,
             manufacturer="Nimbus",
             model=model,
+            sw_version=sw_version,
         )
 
     @property
