@@ -13,6 +13,13 @@
   "options": {
     "step": {
       "init": {
+        "title": "Nimbus settings",
+        "menu_options": {
+          "forecaster": "Forecaster settings (shared sensors + tuning for every load/signal)",
+          "solver_battery": "Solver settings (your real battery/grid/solar setup, for dispatch planning)"
+        }
+      },
+      "forecaster": {
         "title": "Nimbus settings (shared by every load/signal)",
         "description": "These apply to every load or power signal you add -- set once here rather than re-entering them each time.",
         "data": {
@@ -26,6 +33,61 @@
           "forecast_horizon_hours": "Forecast horizon (hours)",
           "retrain_hour_local": "Retrain at this hour (local time, 0-23)",
           "train_days": "Days of history to train on"
+        }
+      },
+      "solver_battery": {
+        "title": "Solver: Battery (1 of 6)",
+        "description": "Your battery's own real, physical specs -- from the datasheet or your inverter/BMS's own app, not a guess. This is the ONE aggregate battery the Solver plans for: if you have more than one physical pack, add their capacities together and use a blended max power/efficiency -- your own inverter/BMS already handles how load is actually shared between packs internally, the Solver only needs to know the system's overall envelope.",
+        "data": {
+          "solver_battery_capacity_kwh": "Usable battery capacity (kWh) -- the real, nameplate usable capacity, not what a fresh cell rating claims",
+          "solver_battery_soh_percent": "State of Health (%, optional) -- if your battery/BMS reports a real SoH, use it to shrink usable capacity as the pack ages; leave at 100% if you don't track this",
+          "solver_battery_soc_sensor": "Battery State of Charge sensor (%) -- the live sensor your system already reports, e.g. from your inverter's own integration",
+          "solver_battery_min_soc_percent": "Minimum SoC to protect (%, optional) -- the floor the Solver should never plan to discharge below (battery longevity / your own reserve preference)",
+          "solver_battery_max_soc_percent": "Maximum SoC to charge to (%, optional) -- normally 100%, lower this if your own BMS caps charging below full for longevity"
+        }
+      },
+      "solver_power": {
+        "title": "Solver: Power & Efficiency (2 of 6)",
+        "description": "The real power limits and losses of your battery + inverter system together, as they actually behave end-to-end at the grid connection -- not a raw DC/cell-level figure from a datasheet if your inverter itself is the real bottleneck.",
+        "data": {
+          "solver_max_charge_kw": "Maximum charge power (kW) -- the fastest your system can actually charge, AC-side, as your inverter itself limits it",
+          "solver_max_discharge_kw": "Maximum discharge power (kW) -- the fastest your system can actually discharge, AC-side",
+          "solver_efficiency_percent": "Round-trip efficiency (%, optional) -- combined battery-chemistry + inverter conversion losses. 95% is a reasonable real-world default; NEVER set this to 100% -- a perfectly lossless battery gives the optimizer no real cost to charging and discharging back and forth for no reason, which produces nonsensical plans"
+        }
+      },
+      "solver_grid": {
+        "title": "Solver: Grid Connection (3 of 6)",
+        "description": "Your real grid connection limits and the live price sensors your electricity retailer or market integration already provides.",
+        "data": {
+          "solver_grid_max_import_kw": "Maximum grid import power (kW) -- your real connection/meter limit for buying from the grid",
+          "solver_grid_max_export_kw": "Maximum grid export power (kW) -- your real connection/meter limit for selling to the grid",
+          "solver_import_price_sensor": "Live import (buy) price sensor ($/kWh) -- from your own retailer/market integration",
+          "solver_export_price_sensor": "Live export (sell) price sensor ($/kWh) -- from your own retailer/market integration"
+        }
+      },
+      "solver_sources": {
+        "title": "Solver: Solar & Load Forecasts (4 of 6)",
+        "description": "Where the Solver gets its forward-looking view of what solar you'll generate and what your house will consume -- point these at your own forecast sensors (Solcast, Open-Meteo, Nimbus's own Power Signals, or anything similar that already exists on your system).",
+        "data": {
+          "solver_solar_forecast_sensor": "Solar generation forecast sensor (kW or kWh) -- your existing solar forecast integration",
+          "solver_load_forecast_sensor": "Household load forecast sensor (kW) -- e.g. a Nimbus Power Signal forecasting your own whole-house load"
+        }
+      },
+      "solver_policy": {
+        "title": "Solver: Economic Policy (5 of 6)",
+        "description": "Small, deliberate friction costs that keep the optimizer's plans sane -- without SOME real cost to cycling the battery, a mathematically \"free\" battery will charge and discharge pointlessly. The defaults are a safe, sensible starting point; you very rarely need to change them.",
+        "data": {
+          "solver_charge_cost": "Charge cost ($/kWh, optional) -- a small real cost/penalty applied to every kWh charged, discourages pointless cycling",
+          "solver_discharge_cost": "Discharge cost ($/kWh, optional) -- a small real cost/penalty applied to every kWh discharged",
+          "solver_salvage_value": "Salvage value ($/kWh, optional) -- how much a kWh still sitting in the battery at the end of the planning horizon is worth keeping vs. selling now; raise this if the optimizer sells the battery down to empty too eagerly"
+        }
+      },
+      "solver_p2p": {
+        "title": "Solver: Peer-to-Peer Bonus (6 of 6, optional)",
+        "description": "Only fill this in if you sell energy through a peer-to-peer/community trading scheme (like LocalVolts P2P) that pays a bonus rate for a LIMITED nightly volume, on top of your normal export price. Leave both fields at 0 if this doesn't apply to you.",
+        "data": {
+          "solver_p2p_bonus_price": "P2P bonus price ($/kWh, optional) -- the EXTRA amount paid per kWh above your normal export price, for volume within your nightly allotment",
+          "solver_p2p_bonus_volume_kwh": "Nightly P2P bonus volume (kWh, optional) -- how much export per night typically qualifies for the bonus rate before it reverts to normal export price"
         }
       }
     }

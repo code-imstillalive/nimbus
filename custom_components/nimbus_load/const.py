@@ -175,3 +175,89 @@ ATTR_VALIDATION_MASE: Final = "validation_mase"
 # reading this live attribute, rather than by hardcoding which specific
 # entity names belong to which category.
 ATTR_SUBENTRY_TYPE: Final = "subentry_type"
+
+# --- Solver configuration (2026-08-20) ---
+# Everything the Solver (custom_components/nimbus_load/solver/) needs to
+# build a real dispatch plan for ANY household, not just this one.
+# Previously these lived as bare input_number/entity helpers this
+# household hand-created (see research scripts under the sibling
+# 116KAT-HA-AI repo's own scripts/research/ for the exact entity IDs that
+# predate this), with no structured onboarding at all -- a real installer
+# would have had to know the precise entity names to create by hand.
+# Deliberately mirrors HAEO's own real schema (haeo_repo/core/schema/
+# elements/battery.py, grid.py, solar.py, inverter.py) as a proven
+# reference for what a complete config needs to cover, while keeping
+# Nimbus's own simpler, already-validated design: ONE aggregate battery
+# envelope (capacity/power/efficiency), not HAEO's separate
+# battery+inverter graph elements -- the owner's real inverter/EMS
+# firmware already handles internal routing; Nimbus only needs the
+# system-level numbers a real bill/nameplate/app screen would show. See
+# Solver audit item #8 (topology) in the sibling repo's own CLAUDE.md for
+# the full reasoning already validated on this exact point.
+CONF_SOLVER_BATTERY_CAPACITY_KWH: Final = "solver_battery_capacity_kwh"
+# Optional de-rating for real, aged battery capacity -- a real, honest
+# gap this integration has had no answer for at all until now: capacity
+# was previously a single static number, with no way to reflect real
+# degradation over the battery's life. Deliberately simple for a first
+# pass: one number the owner updates occasionally (from their own
+# inverter app/BMS reading), NOT an automated fade-tracking model --
+# effective_capacity = capacity_kwh * soh_percent / 100.
+CONF_SOLVER_BATTERY_SOH_PERCENT: Final = "solver_battery_soh_percent"
+# Entity reference, NOT a static number -- SoC changes continuously; this
+# must track a real live % sensor, same convention as every other sensor
+# field on this form.
+CONF_SOLVER_BATTERY_SOC_SENSOR: Final = "solver_battery_soc_sensor"
+CONF_SOLVER_BATTERY_MIN_SOC_PERCENT: Final = "solver_battery_min_soc_percent"
+CONF_SOLVER_BATTERY_MAX_SOC_PERCENT: Final = "solver_battery_max_soc_percent"
+# The AGGREGATE, grid-facing power envelope -- not per-inverter, not
+# per-cell. See the module-level comment above for why this is
+# deliberately one number each, not a per-device breakdown.
+CONF_SOLVER_MAX_CHARGE_KW: Final = "solver_max_charge_kw"
+CONF_SOLVER_MAX_DISCHARGE_KW: Final = "solver_max_discharge_kw"
+# ONE blended round-trip efficiency number (battery chemistry loss +
+# inverter AC-DC conversion loss combined) -- HAEO models these as two
+# separate numbers on two separate elements; Nimbus deliberately doesn't,
+# per the same already-validated simplification.
+CONF_SOLVER_EFFICIENCY_PERCENT: Final = "solver_efficiency_percent"
+CONF_SOLVER_GRID_MAX_IMPORT_KW: Final = "solver_grid_max_import_kw"
+CONF_SOLVER_GRID_MAX_EXPORT_KW: Final = "solver_grid_max_export_kw"
+CONF_SOLVER_IMPORT_PRICE_SENSOR: Final = "solver_import_price_sensor"
+CONF_SOLVER_EXPORT_PRICE_SENSOR: Final = "solver_export_price_sensor"
+# Entity references only -- panel size/tilt/azimuth/inverter model
+# numbers are deliberately NOT asked for here. That's a separate solar-
+# forecast integration's job (Solcast, Forecast.Solar, etc, which already
+# handle those specs in their own config); the Solver only needs to know
+# WHICH entity carries the resulting forecast, same division of
+# responsibility HAEO's own schema uses (core/schema/elements/solar.py --
+# a bare forecast entity reference, nothing about the panels themselves).
+CONF_SOLVER_SOLAR_FORECAST_SENSOR: Final = "solver_solar_forecast_sensor"
+CONF_SOLVER_LOAD_FORECAST_SENSOR: Final = "solver_load_forecast_sensor"
+# Economic POLICY, not hardware -- how cautious the solver should be
+# about cycling the battery. Real, non-obvious history worth remembering
+# if these are ever misconfigured: a household running this same solver
+# design found that a zero-friction (both costs at $0, 100% efficiency)
+# battery is mathematically a free wash-trade machine -- the LP can
+# simultaneously charge AND discharge at zero net cost, producing rapid,
+# meaningless oscillation. elements.py's own DegenerateConfigError guards
+# against exactly this (strict 0<efficiency<1 required) -- these three
+# fields are the other half of that same protection, and should never be
+# left at zero/100% together.
+CONF_SOLVER_CHARGE_COST: Final = "solver_charge_cost"
+CONF_SOLVER_DISCHARGE_COST: Final = "solver_discharge_cost"
+CONF_SOLVER_SALVAGE_VALUE: Final = "solver_salvage_value"
+# Optional, P2P-specific -- only relevant to an installer with a peer-to-
+# peer energy trading platform (e.g. LocalVolts in Australia). Left blank
+# (0) for anyone without one; the Solver simply never sees any bonus-
+# priced export opportunity in that case.
+CONF_SOLVER_P2P_BONUS_PRICE: Final = "solver_p2p_bonus_price"
+CONF_SOLVER_P2P_BONUS_VOLUME_KWH: Final = "solver_p2p_bonus_volume_kwh"
+
+DEFAULT_SOLVER_SOH_PERCENT: Final = 100.0
+DEFAULT_SOLVER_MIN_SOC_PERCENT: Final = 5.0
+DEFAULT_SOLVER_MAX_SOC_PERCENT: Final = 100.0
+DEFAULT_SOLVER_EFFICIENCY_PERCENT: Final = 95.0
+DEFAULT_SOLVER_CHARGE_COST: Final = 0.01
+DEFAULT_SOLVER_DISCHARGE_COST: Final = 0.01
+DEFAULT_SOLVER_SALVAGE_VALUE: Final = 0.15
+DEFAULT_SOLVER_P2P_BONUS_PRICE: Final = 0.0
+DEFAULT_SOLVER_P2P_BONUS_VOLUME_KWH: Final = 0.0
