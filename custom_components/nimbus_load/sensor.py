@@ -37,6 +37,25 @@ from .const import (
     ATTR_VALIDATION_MAE,
     ATTR_VALIDATION_MASE,
     CONF_LOAD_SENSOR,
+    CONF_SOLVER_BATTERY_CAPACITY_KWH,
+    CONF_SOLVER_BATTERY_MAX_SOC_PERCENT,
+    CONF_SOLVER_BATTERY_MIN_SOC_PERCENT,
+    CONF_SOLVER_BATTERY_SOC_SENSOR,
+    CONF_SOLVER_BATTERY_SOH_PERCENT,
+    CONF_SOLVER_CHARGE_COST,
+    CONF_SOLVER_DISCHARGE_COST,
+    CONF_SOLVER_EFFICIENCY_PERCENT,
+    CONF_SOLVER_EXPORT_PRICE_SENSOR,
+    CONF_SOLVER_GRID_MAX_EXPORT_KW,
+    CONF_SOLVER_GRID_MAX_IMPORT_KW,
+    CONF_SOLVER_IMPORT_PRICE_SENSOR,
+    CONF_SOLVER_LOAD_FORECAST_SENSOR,
+    CONF_SOLVER_MAX_CHARGE_KW,
+    CONF_SOLVER_MAX_DISCHARGE_KW,
+    CONF_SOLVER_P2P_BONUS_PRICE,
+    CONF_SOLVER_P2P_BONUS_VOLUME_KWH,
+    CONF_SOLVER_SALVAGE_VALUE,
+    CONF_SOLVER_SOLAR_FORECAST_SENSOR,
     DOMAIN,
     SUBENTRY_TYPE_LOAD,
     SUBENTRY_TYPE_SIGNAL,
@@ -44,6 +63,37 @@ from .const import (
 from .coordinator import NimbusCoordinator
 
 _FORECASTABLE_SUBENTRY_TYPES = (SUBENTRY_TYPE_LOAD, SUBENTRY_TYPE_SIGNAL)
+
+# The full set of Solver settings (see flows/hub_options.py's "Solver
+# settings" wizard) NimbusSolverConfigSensor exposes, below. Required
+# ones (state == "configured" needs every one of these to have a real
+# value) vs. the full set (everything, required + optional, published as
+# attributes either way -- optional ones already carry a real default
+# once the form's ever been saved once, since voluptuous fills in
+# vol.Optional(..., default=...) at submit time).
+_SOLVER_REQUIRED_KEYS = (
+    CONF_SOLVER_BATTERY_CAPACITY_KWH,
+    CONF_SOLVER_BATTERY_SOC_SENSOR,
+    CONF_SOLVER_MAX_CHARGE_KW,
+    CONF_SOLVER_MAX_DISCHARGE_KW,
+    CONF_SOLVER_GRID_MAX_IMPORT_KW,
+    CONF_SOLVER_GRID_MAX_EXPORT_KW,
+    CONF_SOLVER_IMPORT_PRICE_SENSOR,
+    CONF_SOLVER_EXPORT_PRICE_SENSOR,
+    CONF_SOLVER_SOLAR_FORECAST_SENSOR,
+    CONF_SOLVER_LOAD_FORECAST_SENSOR,
+)
+_SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
+    CONF_SOLVER_BATTERY_SOH_PERCENT,
+    CONF_SOLVER_BATTERY_MIN_SOC_PERCENT,
+    CONF_SOLVER_BATTERY_MAX_SOC_PERCENT,
+    CONF_SOLVER_EFFICIENCY_PERCENT,
+    CONF_SOLVER_CHARGE_COST,
+    CONF_SOLVER_DISCHARGE_COST,
+    CONF_SOLVER_SALVAGE_VALUE,
+    CONF_SOLVER_P2P_BONUS_PRICE,
+    CONF_SOLVER_P2P_BONUS_VOLUME_KWH,
+)
 
 
 def _object_id_from_source(load_sensor_entity_id: str) -> str:
@@ -98,6 +148,15 @@ async def async_setup_entry(
             [NimbusForecastSensor(coordinator, subentry, sw_version)],
             config_subentry_id=subentry.subentry_id,
         )
+
+    # One per hub, NOT per subentry (added straight to the top-level
+    # config entry, no config_subentry_id) -- the Solver's own config is
+    # hub-wide, not per-load. Created fresh every time this function runs,
+    # which itself re-runs on every options save (see __init__.py's own
+    # _async_update_listener -> async_reload) -- so this sensor's own
+    # attributes are always current with zero extra update-listener
+    # plumbing needed here.
+    async_add_entities([NimbusSolverConfigSensor(entry, sw_version)])
 
 
 class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
@@ -180,3 +239,63 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
             ATTR_VALIDATION_MASE: data.get("validation_mase", {}),
             ATTR_SUBENTRY_TYPE: self._subentry_type,
         }
+
+
+class NimbusSolverConfigSensor(SensorEntity):
+    """Bridges the hub's own Solver settings (flows/hub_options.py's
+    "Solver settings" wizard, entry.options) out to a plain sensor an
+    EXTERNAL host script can read -- see this class's own module-level
+    comment above _SOLVER_REQUIRED_KEYS for exactly why this bridge
+    exists (config_entries.options is not exposed via HA's plain REST
+    API, confirmed live 2026-08-20).
+
+    2026-08-20, direct household ask: "close this gap [installability]
+    ... or get rid of it totally - need its own installer and inputs
+    period." Before this sensor existed, nimbus_solver_forecast_writer.py
+    (the sibling 116KAT-HA-AI repo's standalone Solver script) read its
+    battery/grid config from a set of ad-hoc input_number.nimbus_solver_*
+    helpers that had to be hand-created via a separate YAML package file
+    -- a real installer for someone else (Mark Purcell, or anyone) would
+    have needed to know that undocumented convention existed at all. This
+    sensor is what lets the writer read the SAME config a normal HA user
+    fills in through the config-flow UI, with no YAML, no hand-editing.
+
+    One per hub, not per load/signal subentry -- there's exactly one real
+    battery/grid/inverter per household, this isn't a per-load setting.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Solver Config"
+    _attr_entity_category = None  # a real, actively-read data source, not a diagnostic
+
+    def __init__(self, entry: ConfigEntry, sw_version: str | None) -> None:
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_solver_config"
+        # Fixed entity_id (same technique/reasoning as NimbusForecastSensor's
+        # own entity_id assignment above) -- there's only ever one of these
+        # per hub, so a fixed, predictable name is correct here, not a
+        # HA-derived one.
+        self.entity_id = "sensor.nimbus_solver_config"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+            name="Nimbus",
+            manufacturer="Nimbus",
+            model="Hub",
+            sw_version=sw_version,
+        )
+
+    @property
+    def native_value(self) -> str:
+        """"configured" only once every REQUIRED Solver field has a real
+        value -- lets an external caller check this ONE field before
+        attempting to build a plan, instead of discovering a missing
+        field halfway through a solve with a confusing KeyError."""
+        opts = self._entry.options
+        if all(opts.get(k) not in (None, "") for k in _SOLVER_REQUIRED_KEYS):
+            return "configured"
+        return "unconfigured"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        opts = self._entry.options
+        return {key: opts.get(key) for key in _SOLVER_ALL_KEYS}
