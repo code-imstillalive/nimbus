@@ -15,7 +15,7 @@ core solve mechanism for -- this file implements ONE solve, callable at
 whatever cadence/horizon a caller wants; layering is a caller-level
 concern, not something build_plan() itself knows about.
 
-## Three stability mechanisms (2026-08-16)
+## Stability mechanisms (2026-08-16, extended 2026-08-20)
 
 A bare, single-solve LP is correct but not yet STABLE across repeated
 re-solves -- the user's own explicit concern: "i do not want mistakes...
@@ -73,6 +73,25 @@ distinct applications of the same mechanism:
     adjacent future periods, not just at the moment of dispatch.
   `max_rate_kw=None` (default) disables both -- current unconstrained
   behaviour.
+
+**4. Intra-plan smoothness** (`smoothness_weight`, added 2026-08-20) -- a
+SOFT cost, same L1-linearization technique as mechanism 1 above, but
+comparing each period against its own immediately preceding period WITHIN
+THE SAME SOLVE, not against a previous solve's plan. Real, direct finding
+that motivated this: a single solve's own battery_kw swung -1.25 -> -33.15
+-> -0.30 kW across three consecutive 5-minute periods while the real
+import price was byte-identical the whole time -- genuine LP degeneracy (a
+run of economically-tied periods has no cost preference for WHICH exact
+minute-by-minute shape delivers the same total energy), not a real
+decision. Deliberately NOT the same fix as enabling max_rate_kw's own
+intra-plan half: nimbus_solver_forecast_writer.py already explicitly
+declines to use max_rate_kw specifically because a HARD cap risks
+smearing a genuine, large, real transition (the 5pm P2P boundary). This
+mechanism is a soft nudge instead -- sized small enough (see
+DEFAULT_SMOOTHNESS_WEIGHT_KW's own docstring) to only ever break a
+genuine tie, never override a real multi-dollar economic decision.
+`smoothness_weight=0.0` (the default) disables it -- current unconstrained
+behaviour, byte-identical to before this mechanism existed.
 
 ## SAME-PERIOD WASH-TRADE PREVENTION (2026-08-16)
 
@@ -267,6 +286,17 @@ from .lp import LPProblem, LPResult
 # docstring for the full mechanism.
 DEFAULT_PROXIMAL_WEIGHT_KW: float = 0.005
 
+# Same principled derivation as DEFAULT_PROXIMAL_WEIGHT_KW just above (half
+# of MIN_CHARGE_DISCHARGE_COST_SPREAD) -- same "small enough to never
+# override a genuine economic signal" reasoning, applied to mechanism 4
+# (intra-plan smoothness, see this module's own docstring) instead of
+# mechanism 1. Deliberately the SAME value, not independently re-derived --
+# both mechanisms answer the identical question ("is this deviation a real
+# economic decision or an arbitrary tied vertex?"), just compared against a
+# different reference point (the previous solve's plan vs. this solve's own
+# immediately preceding period).
+DEFAULT_SMOOTHNESS_WEIGHT_KW: float = 0.005
+
 # How close two periods' own real start times need to be to count as
 # "the same real moment" for cross-solve alignment (proximal
 # regularization, rate limiting). 1 second comfortably absorbs any
@@ -426,6 +456,50 @@ def _add_proximal_penalty(
         p.add_eq_constraint({var_names[new_idx]: 1.0, dev_pos: -1.0, dev_neg: 1.0}, prev_value)
 
 
+def _add_intraplan_smoothness_penalty(
+    p: LPProblem,
+    var_names: list[str],
+    family: str,
+    n: int,
+    hours: NDArray[np.float64],
+    smoothness_weight: float,
+) -> None:
+    """Mechanism 4 (2026-08-20, see this module's own docstring): an
+    L1-linearized penalty (identical technique to _add_proximal_penalty
+    above -- two nonnegative "deviation" variables, both costed, an
+    equality constraint pinning their difference to the real delta) on how
+    much one dispatch-variable family changes between EACH CONSECUTIVE PAIR
+    of periods WITHIN THIS SAME SOLVE.
+
+    Deliberately NOT the same thing as mechanism 1 (proximal_weight, which
+    compares against a DIFFERENT solve's plan) or mechanism 2's intra-plan
+    half (max_rate_kw, a HARD cap the production writer deliberately never
+    enables -- see nimbus_solver_forecast_writer.py's own comment: a hard
+    cap risks smearing a genuine, large, real transition like the 5pm P2P
+    boundary). This is a SOFT cost instead, sized small enough (see
+    DEFAULT_SMOOTHNESS_WEIGHT_KW's own docstring) to only ever break a
+    genuine tie, never override a real price/cost difference -- so a real
+    multi-dollar transition still happens sharply, while a run of
+    economically-IDENTICAL adjacent periods (flat price, no real reason to
+    prefer one minute-by-minute shape over another) gets nudged toward the
+    smooth one instead of an arbitrary jagged vertex.
+
+    Real household finding this exists to fix: a single solve's own
+    battery_kw swung -1.25 -> -33.15 -> -0.30 kW across three consecutive
+    5-minute periods while the real import price was byte-identical across
+    all of them -- classic LP degeneracy, not a real decision.
+
+    No-op (adds nothing) when smoothness_weight is exactly 0.0 -- the
+    default, matching every other stability mechanism in this module.
+    """
+    if smoothness_weight <= 0.0:
+        return
+    for t in range(1, n):
+        dev_pos = p.add_variable(f"smooth_pos_{family}_{t}", lb=0.0, cost=smoothness_weight * hours[t])
+        dev_neg = p.add_variable(f"smooth_neg_{family}_{t}", lb=0.0, cost=smoothness_weight * hours[t])
+        p.add_eq_constraint({var_names[t]: 1.0, var_names[t - 1]: -1.0, dev_pos: -1.0, dev_neg: 1.0}, 0.0)
+
+
 def _add_rate_limit(
     p: LPProblem,
     var_names: list[str],
@@ -489,6 +563,7 @@ def build_plan(
     previous_plan: Plan | None = None,
     proximal_weight: float = DEFAULT_PROXIMAL_WEIGHT_KW,
     max_rate_kw: float | None = None,
+    smoothness_weight: float = 0.0,
     risk_aversion: float = 0.0,
 ) -> Plan:
     """Build and solve one LP for the given horizon/inputs. Pure function --
@@ -666,6 +741,7 @@ def build_plan(
         _add_proximal_penalty(p, var_names, family, alignment, prev_values, hours, proximal_weight)
         if max_rate_kw is not None:
             _add_rate_limit(p, var_names, family, n, alignment, prev_values, max_rate_kw)
+        _add_intraplan_smoothness_penalty(p, var_names, family, n, hours, smoothness_weight)
 
     # ---- SoC dynamics ----
     for t in range(n):
