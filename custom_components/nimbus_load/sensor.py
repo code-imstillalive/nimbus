@@ -64,13 +64,10 @@ from .coordinator import NimbusCoordinator
 
 _FORECASTABLE_SUBENTRY_TYPES = (SUBENTRY_TYPE_LOAD, SUBENTRY_TYPE_SIGNAL)
 
-# The full set of Solver settings (see flows/hub_options.py's "Solver
-# settings" wizard) NimbusSolverConfigSensor exposes, below. Required
-# ones (state == "configured" needs every one of these to have a real
-# value) vs. the full set (everything, required + optional, published as
-# attributes either way -- optional ones already carry a real default
-# once the form's ever been saved once, since voluptuous fills in
-# vol.Optional(..., default=...) at submit time).
+# The full set of Solver settings NimbusSolverConfigSensor exposes, below.
+# Required ones (state == "configured" needs every one of these to have a
+# real value) vs. the full set (everything, required + optional, published
+# as attributes either way).
 _SOLVER_REQUIRED_KEYS = (
     CONF_SOLVER_BATTERY_CAPACITY_KWH,
     CONF_SOLVER_BATTERY_SOC_SENSOR,
@@ -88,6 +85,33 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     CONF_SOLVER_BATTERY_MIN_SOC_PERCENT,
     CONF_SOLVER_BATTERY_MAX_SOC_PERCENT,
     CONF_SOLVER_EFFICIENCY_PERCENT,
+    CONF_SOLVER_CHARGE_COST,
+    CONF_SOLVER_DISCHARGE_COST,
+    CONF_SOLVER_SALVAGE_VALUE,
+    CONF_SOLVER_P2P_BONUS_PRICE,
+    CONF_SOLVER_P2P_BONUS_VOLUME_KWH,
+)
+# 2026-08-20: these 14 plain-numeric fields moved off entry.options entirely
+# -- they're now LIVE, dashboard-editable number.nimbus_solver_* entities
+# (number.py), so a household can tune discharge cost/salvage/grid limits
+# the same way they already tune everything else on a dashboard, instead of
+# re-opening the config-flow wizard every time. See number.py's own module
+# docstring for the full "why not just write these back into entry.options"
+# reasoning (avoids a full hub reload on every dashboard tweak). The 5
+# entity-pointer fields (SoC/price/forecast sensors) are genuinely one-time
+# "which entity is this" setup choices, not something anyone would slide on
+# a dashboard -- those stay wizard-only, sourced from entry.options exactly
+# as before.
+_SOLVER_NUMBER_ENTITY_KEYS = (
+    CONF_SOLVER_BATTERY_CAPACITY_KWH,
+    CONF_SOLVER_BATTERY_SOH_PERCENT,
+    CONF_SOLVER_BATTERY_MIN_SOC_PERCENT,
+    CONF_SOLVER_BATTERY_MAX_SOC_PERCENT,
+    CONF_SOLVER_MAX_CHARGE_KW,
+    CONF_SOLVER_MAX_DISCHARGE_KW,
+    CONF_SOLVER_EFFICIENCY_PERCENT,
+    CONF_SOLVER_GRID_MAX_IMPORT_KW,
+    CONF_SOLVER_GRID_MAX_EXPORT_KW,
     CONF_SOLVER_CHARGE_COST,
     CONF_SOLVER_DISCHARGE_COST,
     CONF_SOLVER_SALVAGE_VALUE,
@@ -284,18 +308,32 @@ class NimbusSolverConfigSensor(SensorEntity):
             sw_version=sw_version,
         )
 
+    def _resolve(self, key: str):
+        """One field's real current value, from whichever place is now
+        authoritative for it -- see this class's own module-level comment
+        above _SOLVER_NUMBER_ENTITY_KEYS for the full "two different
+        sources, on purpose" reasoning.
+        """
+        if key in _SOLVER_NUMBER_ENTITY_KEYS:
+            state = self.hass.states.get(f"number.nimbus_{key}")
+            if state is None or state.state in (None, "unknown", "unavailable"):
+                return None
+            try:
+                return float(state.state)
+            except ValueError:
+                return None
+        return self._entry.options.get(key)
+
     @property
     def native_value(self) -> str:
         """"configured" only once every REQUIRED Solver field has a real
         value -- lets an external caller check this ONE field before
         attempting to build a plan, instead of discovering a missing
         field halfway through a solve with a confusing KeyError."""
-        opts = self._entry.options
-        if all(opts.get(k) not in (None, "") for k in _SOLVER_REQUIRED_KEYS):
+        if all(self._resolve(k) not in (None, "") for k in _SOLVER_REQUIRED_KEYS):
             return "configured"
         return "unconfigured"
 
     @property
     def extra_state_attributes(self) -> dict:
-        opts = self._entry.options
-        return {key: opts.get(key) for key in _SOLVER_ALL_KEYS}
+        return {key: self._resolve(key) for key in _SOLVER_ALL_KEYS}
