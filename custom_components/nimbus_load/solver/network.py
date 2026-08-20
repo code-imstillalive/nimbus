@@ -895,22 +895,35 @@ def build_plan(
         # completely unaffected either way (this only relabels WHICH kWh
         # count toward the bonus cap, never changes how much is exported).
         #
-        # Fix: a tiny, deterministic per-period cost nudge -- comfortably
-        # smaller than any real price signal this model should ever
-        # respond to, comfortably larger than HiGHS's own numerical noise
-        # floor -- that makes the LP reliably prefer claiming the bonus
-        # EARLIEST within each real calendar day's own window. Turns the
-        # scattered pattern into a single clean ON -> OFF transition once
-        # that day's cap is exhausted. Verified locally: total_cost moves
-        # by <0.01% against the unperturbed solve on the same repro
-        # scenario -- this can only ever break a genuine tie, never
-        # override a real price difference.
+        # Direction flipped LATEST, not earliest (2026-08-20, same day,
+        # real live finding, direct household correction: "our window
+        # closes 0.00 not 23.50... period"). The original EARLIEST version
+        # of this tie-breaker had a real, undesirable side effect once the
+        # cap genuinely binds (not just a degenerate tie): confirmed live,
+        # a full evening's steady ~14kW discharge exhausted the day's
+        # export_bonus_volume_kwh estimate at 23:50, and because the LP
+        # had already been nudged to claim every bonus-eligible kWh as
+        # EARLY as possible, the plan simply stopped selling at the bonus
+        # rate 10 minutes before the real window's own close (00:00) --
+        # bonus_price itself was still fully $0.443 through 23:55, only
+        # the cap said "no more". LATEST is also the more robust choice,
+        # not just the one that matches the real boundary: export_bonus_
+        # volume_kwh is a HISTORICAL AVERAGE estimate (p2p_recent_avg_
+        # volume_kwh()), not a hard, known-in-advance number -- on any
+        # night where the real LocalVolts match volume comes in ABOVE that
+        # average, an earliest-claiming plan has already assumed the cap
+        # is spent and stops trying, while a latest-claiming plan keeps
+        # selling at the bonus rate for as long as the real window (and
+        # therefore the real, possibly-higher matched volume) allows.
+        # Same underlying mechanism, same epsilon, same "can only break a
+        # genuine tie, never override a real price difference" guarantee
+        # -- only the ranking direction changed.
         _TIE_BREAK_EPSILON = 1e-7  # $, per day-local rank step
         if starts is None:
             terms = {export_bonus[t]: hours[t] for t in range(n)}
             p.add_ub_constraint(terms, float(grid.export_bonus_volume_kwh), name="export_bonus_cap_global")
             for t in range(n):
-                p.set_cost(export_bonus[t], -_TIE_BREAK_EPSILON * (n - t))
+                p.set_cost(export_bonus[t], -_TIE_BREAK_EPSILON * (t + 1))
         else:
             by_day: dict[object, list[int]] = {}
             for t, start_t in enumerate(starts):
@@ -932,10 +945,12 @@ def build_plan(
                 # the needed dynamic range small regardless of how long
                 # the overall horizon is, and naturally resets every day,
                 # matching the volume cap's own "resets every real night"
-                # philosophy documented just above.
-                day_n = len(day_indices)
+                # philosophy documented just above. LATEST-preferred (see
+                # this block's own comment above for why) -- rank+1 grows
+                # with t, so the last period in the day gets the most
+                # negative (most preferred) cost.
                 for rank, t in enumerate(day_indices):
-                    p.set_cost(export_bonus[t], -_TIE_BREAK_EPSILON * (day_n - rank))
+                    p.set_cost(export_bonus[t], -_TIE_BREAK_EPSILON * (rank + 1))
 
     result: LPResult = p.solve()
     if result.status != "optimal":

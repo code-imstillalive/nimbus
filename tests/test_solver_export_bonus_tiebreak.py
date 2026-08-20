@@ -81,12 +81,20 @@ class TestExportBonusTieBreak(unittest.TestCase):
         plan = build_plan(periods=periods, grid=grid, battery=battery, solar=solar, loads=loads)
         self.assertEqual(plan.status, "optimal")
 
-        # The real, reported symptom must be gone: at most one ON->OFF
+        # The real, reported symptom must be gone: at most one OFF->ON
         # transition across the window, not scattered ON/OFF/ON/OFF.
         self.assertLessEqual(
             _transitions(plan.export_bonus_kw), 1,
-            "export_bonus_kw must form a single clean block (front-loaded), not flicker",
+            "export_bonus_kw must form a single clean block, not flicker",
         )
+        # Direction: LATEST-preferred, not earliest (2026-08-20, same day,
+        # direct household correction: "our window closes 0.00 not
+        # 23.50... period" -- see network.py's own comment for the full
+        # "earliest-claiming stops selling before the real window close on
+        # a night the cap genuinely binds" finding this reversed). The
+        # final period must claim the bonus; the first must not.
+        self.assertGreater(float(plan.export_bonus_kw[-1]), 0.01, "the LAST period should claim the bonus")
+        self.assertAlmostEqual(float(plan.export_bonus_kw[0]), 0.0, places=2, msg="the FIRST period should not")
         # Real dispatch itself is untouched by this fix -- grid_export_kw
         # stays flat regardless of which periods claim the bonus label.
         for ge in plan.grid_export_kw:
