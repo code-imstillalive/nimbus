@@ -605,7 +605,31 @@ def build_plan(
     discharge = [p.add_variable(f"battery_discharge_{t}", lb=0.0, ub=battery.max_discharge_kw) for t in range(n)]
     soc = [p.add_variable(f"battery_soc_{t}", lb=battery.min_soc_kwh, ub=battery.max_soc_kwh) for t in range(n)]
     grid_import = [p.add_variable(f"grid_import_{t}", lb=0.0, ub=grid.import_limit_kw) for t in range(n)]
-    grid_export = [p.add_variable(f"grid_export_{t}", lb=0.0, ub=grid.export_limit_kw) for t in range(n)]
+    # fixed_export_kw (see elements.py's own GridConfig docstring for the
+    # full "P2P needs a constant, pre-committed rate, not a price-chased
+    # one" finding) -- a period with a real (non-NaN) fixed value gets
+    # BOTH lb and ub of its own grid_export[t] variable pinned to exactly
+    # that number at construction time, forcing the LP to treat that
+    # period's export rate as a given rather than a free decision. Every
+    # other period (fixed_export_kw is None, or that period's own entry
+    # is NaN) keeps the normal [0, export_limit_kw] bounds, byte-
+    # identical to before this field existed.
+    grid_export = [
+        p.add_variable(
+            f"grid_export_{t}",
+            lb=(
+                float(grid.fixed_export_kw[t])
+                if grid.fixed_export_kw is not None and not np.isnan(grid.fixed_export_kw[t])
+                else 0.0
+            ),
+            ub=(
+                float(grid.fixed_export_kw[t])
+                if grid.fixed_export_kw is not None and not np.isnan(grid.fixed_export_kw[t])
+                else grid.export_limit_kw
+            ),
+        )
+        for t in range(n)
+    ]
 
     # Two-tier export bonus (see elements.py's own GridConfig docstring,
     # "export_bonus_price / export_bonus_volume_kwh") -- export_bonus[t]

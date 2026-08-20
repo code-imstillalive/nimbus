@@ -190,6 +190,44 @@ class GridConfig:
     # base/spot, resetting fresh the next real day."
     export_bonus_price: NDArray[np.float64] | None = None
     export_bonus_volume_kwh: float | None = None
+    # fixed_export_kw (2026-08-20, direct household finding, live chart
+    # evidence: the Solver's own proposed dispatch was swinging between
+    # near-40kW and near-zero chasing whichever 5-min period showed the
+    # highest real per-interval P2P rate, while the REAL, live automation
+    # -- and the real household's own explanation of how P2P actually
+    # works -- holds one flat, pre-committed rate for the WHOLE window.
+    # export_bonus_price/export_bonus_volume_kwh above (still real,
+    # unchanged) correctly capture WHAT gets a bonus credit and HOW MUCH
+    # total volume is eligible -- but say nothing about the real
+    # constraint this finding is about: P2P is not a plain price-taking
+    # market where each period can be independently re-decided based on
+    # that period's own momentary rate. It's closer to a matching
+    # arrangement where the CONSISTENCY of delivery is itself part of
+    # what earns the rate at all -- chasing the momentary best price
+    # doesn't execute a smarter version of the deal, per this project's
+    # own direct household explanation, it breaks the deal.
+    #
+    # A real, per-period array, NaN (via np.nan) meaning "no fixed value
+    # this period, decide normally" -- non-NaN entries FORCE grid_export
+    # [t] to exactly that value (both lb and ub of the LP variable
+    # itself, at construction time in network.py -- not an extra
+    # constraint, no larger LP). solar_used[t]/discharge[t]/charge[t]
+    # etc. are all still genuinely free variables even in a fixed-export
+    # period -- the LP still correctly reasons about WHERE that forced
+    # export is funded from (battery vs. direct solar) and, critically,
+    # about SoC continuity leading INTO the fixed period (e.g. daytime
+    # charging needs to be planned so there's enough charge to sustain
+    # it) -- only the export RATE itself stops being a free decision.
+    #
+    # None (the default) is a complete no-op -- every existing caller,
+    # every test predating this field, is byte-identical to before it
+    # existed. Deliberately household-agnostic at this layer: nothing
+    # here assumes a specific number, a specific window, or that a P2P
+    # scheme even exists -- the caller decides all of that (see
+    # nimbus_solver_forecast_writer.py's own real, portably-gated use of
+    # this field for exactly how one real household's own live
+    # configuration maps onto it).
+    fixed_export_kw: NDArray[np.float64] | None = None
 
     def __post_init__(self) -> None:
         if self.import_limit_kw < 0 or self.export_limit_kw < 0:
@@ -207,6 +245,14 @@ class GridConfig:
         if self.export_bonus_price is not None and len(self.export_bonus_price) != len(self.export_price):
             msg = "export_bonus_price must have the same length as export_price"
             raise ValueError(msg)
+        if self.fixed_export_kw is not None:
+            if len(self.fixed_export_kw) != len(self.export_price):
+                msg = "fixed_export_kw must have the same length as export_price"
+                raise ValueError(msg)
+            finite = self.fixed_export_kw[~np.isnan(self.fixed_export_kw)]
+            if finite.size and (finite.min() < 0 or finite.max() > self.export_limit_kw):
+                msg = "fixed_export_kw's non-NaN entries must be within [0, export_limit_kw]"
+                raise ValueError(msg)
         # REMOVED (2026-08-16): the price-spread config-time REJECT that
         # used to live here (import_price - export_price >= MIN_GRID_COST_
         # SPREAD everywhere, else raise DegenerateConfigError). Found to
