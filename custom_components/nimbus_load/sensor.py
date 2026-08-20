@@ -120,7 +120,7 @@ _SOLVER_NUMBER_ENTITY_KEYS = (
 )
 
 
-def _object_id_from_source(load_sensor_entity_id: str) -> str:
+def object_id_from_source(load_sensor_entity_id: str) -> str:
     """Turn 'sensor.logger_load_power' into
     'nimbus_logger_load_power_forecast' -- a clean, predictable,
     source-derived slug, rather than letting Home Assistant auto-combine
@@ -233,7 +233,7 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
         # to be renamed by hand. Setting entity_id directly is the one
         # mechanism the entity platform never overrides -- if it's already
         # set when the entity is added, generation is skipped entirely.
-        self.entity_id = f"sensor.{_object_id_from_source(subentry.data[CONF_LOAD_SENSOR])}"
+        self.entity_id = f"sensor.{object_id_from_source(subentry.data[CONF_LOAD_SENSOR])}"
         model = (
             "Power Signal Forecaster"
             if subentry.subentry_type == SUBENTRY_TYPE_SIGNAL
