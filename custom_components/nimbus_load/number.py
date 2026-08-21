@@ -67,7 +67,8 @@ from .const import (
     CONF_SOLVER_P2P_BLOCK_2_RATE_KW,
     CONF_SOLVER_P2P_BLOCK_2_START_HOUR,
     CONF_SOLVER_P2P_BLOCK_3_END_HOUR,
-    CONF_SOLVER_PRICE_RISK_AVERSION,
+    CONF_SOLVER_EXPORT_PRICE_RISK_AVERSION,
+    CONF_SOLVER_IMPORT_PRICE_RISK_AVERSION,
     CONF_SOLVER_RISK_AVERSION,
     CONF_SOLVER_P2P_BLOCK_3_RATE_KW,
     CONF_SOLVER_P2P_BLOCK_3_START_HOUR,
@@ -80,7 +81,8 @@ from .const import (
     DEFAULT_SOLVER_MAX_SOC_PERCENT,
     DEFAULT_SOLVER_MIN_SOC_PERCENT,
     DEFAULT_SOLVER_P2P_BLOCK_END_HOUR,
-    DEFAULT_SOLVER_PRICE_RISK_AVERSION,
+    DEFAULT_SOLVER_EXPORT_PRICE_RISK_AVERSION,
+    DEFAULT_SOLVER_IMPORT_PRICE_RISK_AVERSION,
     DEFAULT_SOLVER_RISK_AVERSION,
     DEFAULT_SOLVER_P2P_BLOCK_RATE_KW,
     DEFAULT_SOLVER_P2P_BLOCK_START_HOUR,
@@ -146,13 +148,20 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
     _SolverNumberDescription(CONF_SOLVER_P2P_BLOCK_3_START_HOUR, "P2P Block 3 Start Hour", DEFAULT_SOLVER_P2P_BLOCK_START_HOUR, 0, 23, 1, "hour"),
     _SolverNumberDescription(CONF_SOLVER_P2P_BLOCK_3_END_HOUR, "P2P Block 3 End Hour", DEFAULT_SOLVER_P2P_BLOCK_END_HOUR, 0, 24, 1, "hour"),
     # Risk-aversion dials (2026-08-21) -- 0.0 = trust the point forecast
-    # completely, 1.0 = fully hedge toward the pessimistic bound. Two
+    # completely, 1.0 = fully hedge toward the pessimistic bound. Three
     # separate dials on purpose (household ask: "more flexibility the
-    # better") -- Risk Aversion hedges solar/load forecast error, Price
-    # Risk Aversion hedges import/export price forecast error, and
-    # trusting one kind of forecast doesn't mean trusting the other.
+    # better") -- Risk Aversion hedges solar/load forecast error; Import/
+    # Export Price Risk Aversion each hedge their own side of the price
+    # forecast independently (2026-08-21 split, per Mark Purcell's direct
+    # feedback: a single shared price_risk_aversion scalar forces charge
+    # and discharge hedging to move together even though they're
+    # economically opposite decisions -- hedging "import might be more
+    # expensive than forecast" should never also force hedging "export
+    # might be worth less than forecast" by the same amount, and vice
+    # versa). Trusting one kind of forecast doesn't mean trusting another.
     _SolverNumberDescription(CONF_SOLVER_RISK_AVERSION, "Risk Aversion", DEFAULT_SOLVER_RISK_AVERSION, 0, 1, 0.05, None),
-    _SolverNumberDescription(CONF_SOLVER_PRICE_RISK_AVERSION, "Price Risk Aversion", DEFAULT_SOLVER_PRICE_RISK_AVERSION, 0, 1, 0.05, None),
+    _SolverNumberDescription(CONF_SOLVER_IMPORT_PRICE_RISK_AVERSION, "Import Price Risk Aversion", DEFAULT_SOLVER_IMPORT_PRICE_RISK_AVERSION, 0, 1, 0.05, None),
+    _SolverNumberDescription(CONF_SOLVER_EXPORT_PRICE_RISK_AVERSION, "Export Price Risk Aversion", DEFAULT_SOLVER_EXPORT_PRICE_RISK_AVERSION, 0, 1, 0.05, None),
 )
 
 

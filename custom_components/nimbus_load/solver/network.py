@@ -593,7 +593,8 @@ def build_plan(
     max_rate_kw: float | None = None,
     smoothness_weight: float = 0.0,
     risk_aversion: float = 0.0,
-    price_risk_aversion: float = 0.0,
+    import_price_risk_aversion: float = 0.0,
+    export_price_risk_aversion: float = 0.0,
 ) -> Plan:
     """Build and solve one LP for the given horizon/inputs. Pure function --
     no I/O, no HA dependency, safe to call from anywhere including a plain
@@ -604,18 +605,28 @@ def build_plan(
     docstring for the full design. All default to "off" (a bare, single-
     solve LP, unchanged from before these existed).
 
-    `price_risk_aversion` (2026-08-21) -- a genuinely SEPARATE dial from
-    `risk_aversion` above (which only ever hedges solar/load forecast
-    error). Direct household finding: "the forecasts are always wrong
-    but they tend to be more expensive in the afternoons, so waiting is
-    not a good idea." Uses GridConfig.import_price_upper/export_price_
+    `import_price_risk_aversion`/`export_price_risk_aversion` (2026-08-21,
+    split from a single `price_risk_aversion` scalar per direct Mark
+    Purcell feedback -- see number.py's own comment for the full
+    reasoning: "a single shared dial forces charge/discharge hedging to
+    move together even though they're economically opposite decisions").
+    Both are genuinely SEPARATE dials from `risk_aversion` above (which
+    only ever hedges solar/load forecast error). Direct household
+    finding: "the forecasts are always wrong but they tend to be more
+    expensive in the afternoons, so waiting is not a good idea." Each
+    uses its own half of GridConfig.import_price_upper/export_price_
     lower (both optional, None each = complete no-op) to bias the LP's
     OWN effective cost/revenue view of the future pessimistically --
-    assume import could cost more than the point forecast says, assume
-    export could earn less -- proportional to this value. Deliberately
-    independent from `risk_aversion` per the explicit household ask for
-    "more flexibility" -- trusting a load/solar forecast and trusting a
-    price forecast are genuinely different judgment calls.
+    `import_price_risk_aversion` assumes import could cost more than the
+    point forecast says (biasing the LP toward charging/importing
+    sooner, before it might get worse); `export_price_risk_aversion`
+    assumes export could earn less than the point forecast says (biasing
+    the LP toward discharging/exporting sooner, before it might get
+    worse) -- independently of each other and of `risk_aversion`,
+    matching the explicit household ask for "more flexibility": trusting
+    a load/solar forecast, trusting the import side of a price forecast,
+    and trusting the export side of a price forecast are three genuinely
+    different judgment calls.
     """
     loads = loads or []
     sheddable_loads = sheddable_loads or []
@@ -694,11 +705,12 @@ def build_plan(
 
     # Price-risk hedging (see this function's own docstring for the full
     # "afternoons tend to run more expensive than forecast" household
-    # finding) -- price_risk_aversion=0.0 or no band present leaves these
-    # identical to grid.import_price/export_price, used below in place
-    # of the raw arrays wherever the LP's own cost/revenue is set.
-    effective_import_price = _risk_adjusted_one_sided(grid.import_price, grid.import_price_upper, price_risk_aversion, direction="up")
-    effective_export_price = _risk_adjusted_one_sided(grid.export_price, grid.export_price_lower, price_risk_aversion, direction="down")
+    # finding, and the 2026-08-21 import/export split reasoning) -- each
+    # side's own risk_aversion=0.0 or no band present leaves that side
+    # identical to grid.import_price/export_price, used below in place of
+    # the raw arrays wherever the LP's own cost/revenue is set.
+    effective_import_price = _risk_adjusted_one_sided(grid.import_price, grid.import_price_upper, import_price_risk_aversion, direction="up")
+    effective_export_price = _risk_adjusted_one_sided(grid.export_price, grid.export_price_lower, export_price_risk_aversion, direction="down")
 
     # Mechanism 3 continued: sheddable loads' own effective (pessimistic-
     # leaning) demand -- both the shed ceiling and the balance-equation

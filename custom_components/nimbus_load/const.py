@@ -278,14 +278,23 @@ CONF_SOLVER_P2P_BLOCK_3_END_HOUR: Final = "solver_p2p_block_3_end_hour"
 # Risk-aversion dials (2026-08-21) -- CONF_SOLVER_RISK_AVERSION already
 # existed as a hardcoded writer-script constant (RISK_AVERSION=0.25);
 # this is just exposing it as a real, live, dashboard-editable setting
-# for the first time, same as every other Solver field. CONF_SOLVER_
-# PRICE_RISK_AVERSION is genuinely new -- see GridConfig's own comment
-# (solver/elements.py) for the full "afternoons tend to run more
-# expensive than forecast" household finding this closes. Deliberately
-# two SEPARATE dials, not one shared value -- direct household ask for
-# "more flexibility."
+# for the first time, same as every other Solver field.
 CONF_SOLVER_RISK_AVERSION: Final = "solver_risk_aversion"
-CONF_SOLVER_PRICE_RISK_AVERSION: Final = "solver_price_risk_aversion"
+# Import/export price risk aversion (2026-08-21, second pass, same
+# session) -- a single shared CONF_SOLVER_PRICE_RISK_AVERSION was built
+# first, then split into two independent dials within hours, following
+# real, direct Mark Purcell feedback: "price risk on the buy side says
+# move energy now and on the sell side says the same thing in the
+# opposite direction on the same state of charge, so a single control
+# will fight itself" -- confirmed correct and mirrored, per Mark's own
+# parallel, on how HAEO already handles this (separate weights for
+# battery-to-grid vs battery-to-load, unlike EMHASS's own single shared
+# weight covering everything). Genuinely replaced, not aliased --
+# the single-scalar version had been live only a couple of hours with
+# no real household usage to preserve, so a clean replacement is more
+# honest than a deprecated-but-kept alias.
+CONF_SOLVER_IMPORT_PRICE_RISK_AVERSION: Final = "solver_import_price_risk_aversion"
+CONF_SOLVER_EXPORT_PRICE_RISK_AVERSION: Final = "solver_export_price_risk_aversion"
 
 DEFAULT_SOLVER_SOH_PERCENT: Final = 100.0
 DEFAULT_SOLVER_MIN_SOC_PERCENT: Final = 5.0
@@ -307,9 +316,9 @@ DEFAULT_SOLVER_P2P_BLOCK_START_HOUR: Final = 0
 DEFAULT_SOLVER_P2P_BLOCK_END_HOUR: Final = 0
 # Matches the writer script's own pre-existing RISK_AVERSION=0.25 default
 # exactly -- rolling this platform out is a no-op for risk_aversion on an
-# already-configured household. price_risk_aversion defaults OFF (0.0)
-# since it's a genuinely new mechanism with no prior equivalent value to
-# preserve -- a fresh install (or this household, until set) sees zero
-# behaviour change.
+# already-configured household. Both import/export price risk aversion
+# default OFF (0.0) -- a fresh install (or this household, until set)
+# sees zero behaviour change on either side.
 DEFAULT_SOLVER_RISK_AVERSION: Final = 0.25
-DEFAULT_SOLVER_PRICE_RISK_AVERSION: Final = 0.0
+DEFAULT_SOLVER_IMPORT_PRICE_RISK_AVERSION: Final = 0.0
+DEFAULT_SOLVER_EXPORT_PRICE_RISK_AVERSION: Final = 0.0

@@ -236,15 +236,20 @@ class GridConfig:
     # solar/load forecast error -- this extends the SAME concept to
     # PRICE forecast error, which nothing previously covered at all
     # (import_price/export_price were always treated as trusted point
-    # forecasts). Deliberately a SEPARATE risk_aversion value from
-    # solar/load's own (network.py's price_risk_aversion parameter) --
-    # "more flexibility the better" was the explicit household ask, and
-    # trusting a load/solar forecast vs. trusting a price forecast are
-    # genuinely independent judgment calls, not the same dial.
+    # forecasts). Deliberately SEPARATE risk_aversion values from
+    # solar/load's own (network.py's import_price_risk_aversion/
+    # export_price_risk_aversion parameters -- themselves split from an
+    # original single price_risk_aversion scalar, per direct Mark
+    # Purcell feedback that a shared dial forces charge/discharge
+    # hedging to move together even though they're economically opposite
+    # decisions) -- "more flexibility the better" was the explicit
+    # household ask, and trusting a load/solar forecast vs. trusting the
+    # import side vs. the export side of a price forecast are three
+    # genuinely independent judgment calls, not one dial.
     #
     # import_price_upper: a real, pessimistic CEILING estimate for
-    # import price per period -- when price_risk_aversion > 0, the LP's
-    # effective import cost gets nudged UP toward this ceiling
+    # import price per period -- when import_price_risk_aversion > 0,
+    # the LP's effective import cost gets nudged UP toward this ceiling
     # (proportional to both the risk_aversion value and the gap between
     # the point forecast and this ceiling), biasing AWAY from delaying a
     # charge on the assumption a currently-cheap-looking forecast stays
