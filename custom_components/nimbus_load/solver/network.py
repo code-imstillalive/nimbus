@@ -778,21 +778,34 @@ def build_plan(
         # terminal_value_breakpoints docstring for why non-increasing
         # rates make this construction behave concavely with no explicit
         # ordering constraint needed). One small variable per breakpoint
-        # (only for the FINAL period, negligible LP cost regardless of
-        # horizon length), summing to exactly soc[n-1] - min_soc_kwh --
-        # every kWh above the floor priced exactly once, each at its own
-        # segment's rate.
-        seg_vars = [
-            p.add_variable(f"terminal_seg_{i}", lb=0.0, ub=width)
-            for i, (width, _rate) in enumerate(battery.terminal_value_breakpoints)
-        ]
-        p.add_eq_constraint(
-            {**{seg: 1.0 for seg in seg_vars}, soc[n - 1]: -1.0},
-            -battery.min_soc_kwh,
-            name="terminal_value_segments_fill",
+        # per applied period index (negligible LP cost regardless of
+        # horizon length), each summing to exactly soc[idx] - min_soc_kwh
+        # -- every kWh above the floor priced exactly once, each at its
+        # own segment's rate.
+        #
+        # Applied at every index in terminal_value_period_indices
+        # (2026-08-22, real household finding -- see that field's own
+        # docstring in elements.py) instead of hardcoded to just n-1:
+        # None (the default) preserves the exact original single-final-
+        # period behaviour, byte-identical to every scenario built before
+        # this extension existed.
+        period_indices = (
+            battery.terminal_value_period_indices
+            if battery.terminal_value_period_indices is not None
+            else [n - 1]
         )
-        for seg, (_width, rate) in zip(seg_vars, battery.terminal_value_breakpoints, strict=True):
-            p.set_cost(seg, -rate)
+        for idx in period_indices:
+            seg_vars = [
+                p.add_variable(f"terminal_seg_{idx}_{i}", lb=0.0, ub=width)
+                for i, (width, _rate) in enumerate(battery.terminal_value_breakpoints)
+            ]
+            p.add_eq_constraint(
+                {**{seg: 1.0 for seg in seg_vars}, soc[idx]: -1.0},
+                -battery.min_soc_kwh,
+                name=f"terminal_value_segments_fill_{idx}",
+            )
+            for seg, (_width, rate) in zip(seg_vars, battery.terminal_value_breakpoints, strict=True):
+                p.set_cost(seg, -rate)
     else:
         # Salvage value: a one-time credit on the FINAL period's soc -- without
         # this, a finite-horizon LP has no reason to ever hold charge past the

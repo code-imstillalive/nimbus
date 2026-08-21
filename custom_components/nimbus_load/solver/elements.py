@@ -495,6 +495,36 @@ class BatteryConfig:
     # concave value function means and would be a real modeling bug.
     terminal_value_breakpoints: list[tuple[float, float]] | None = None
 
+    # Apply the SAME terminal_value_breakpoints curve at ADDITIONAL
+    # period indices, not just the horizon's own final period (2026-08-22,
+    # real household finding: a multi-day horizon's LP had no incentive
+    # to hold ANY charge back across an intermediate day boundary, since
+    # terminal value only ever protected the true final period -- it
+    # would happily keep discharging past a real, committed delivery
+    # window's own close every single night except the horizon's last,
+    # because nothing told it "tomorrow has its own opportunity too".
+    # Confirmed live: export price stayed completely flat across the
+    # boundary in question, so the extra discharge wasn't chasing a real
+    # price signal -- it was genuinely just "nothing says stop".
+    #
+    # None (the default) is fully backward compatible -- falls through to
+    # applying the curve ONLY at period n-1, byte-identical to every
+    # scenario built before this field existed. When provided, REPLACES
+    # the implicit [n-1] default with exactly this list -- include n-1
+    # explicitly if the true horizon-end value should still apply
+    # alongside the intermediate checkpoints (the normal case: every day
+    # boundary AND the final period all get the same real "value of
+    # having charge available" credit).
+    #
+    # Deliberately reuses ONE curve at every index rather than a
+    # per-index curve -- the real question this answers ("what's a kWh
+    # of reserve worth going into the next delivery opportunity") has the
+    # same answer at every day boundary for a household with one
+    # recurring nightly window; a genuinely different rate per checkpoint
+    # would be a different, more complex feature, not needed to fix the
+    # actual problem found.
+    terminal_value_period_indices: list[int] | None = None
+
     # SoC-dependent max power curves (2026-08-21, direct household ask --
     # two real physical phenomena, precisely named: real lithium charge
     # current genuinely tapers as SoC approaches full (the CC->CV curve
@@ -594,6 +624,16 @@ class BatteryConfig:
                     "straight to a later, higher-rate segment"
                 )
                 raise DegenerateConfigError(msg)
+        if self.terminal_value_period_indices is not None:
+            if self.terminal_value_breakpoints is None:
+                msg = "terminal_value_period_indices was set but terminal_value_breakpoints is None -- there is no curve to apply it with, this would silently be a no-op"
+                raise ValueError(msg)
+            if any(idx < 0 for idx in self.terminal_value_period_indices):
+                msg = f"terminal_value_period_indices must all be non-negative period indices (got {self.terminal_value_period_indices})"
+                raise ValueError(msg)
+            if len(set(self.terminal_value_period_indices)) != len(self.terminal_value_period_indices):
+                msg = f"terminal_value_period_indices contains duplicates (got {self.terminal_value_period_indices}) -- the same period would be double-priced"
+                raise ValueError(msg)
         if self.charge_power_curve is not None:
             _validate_power_curve("charge_power_curve", self.charge_power_curve, self.min_soc_kwh, self.max_soc_kwh)
         if self.discharge_power_curve is not None:
