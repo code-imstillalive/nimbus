@@ -16,6 +16,19 @@ and is not wired to anything live -- this script is the very first (and
 so far only) thing that ever calls it against real data, and even this
 only produces a number to look at, not an action.
 
+PLATFORM REQUIREMENT -- this is a plain HOST cron script, not something
+HACS installs or HA runs for you. It needs real host-level shell + cron
+access to deploy at all, which means Docker or Supervised installs
+only -- Home Assistant OS has no general shell/cron surface for this to
+run on (same class of gap this project already solved once for a
+different writer via a pure rest:/template: HA-native rewrite -- see
+docs/localvolts-p2p-integration/files/*_haos.yaml in the sibling
+116KAT-HA-AI repo if that pattern is ever worth porting here). The
+Solver's own config-flow "Solver settings" wizard (Nimbus hub ->
+Configure) installs and works fine via HACS on ANY platform including
+HAOS -- it's specifically producing a LIVE forecast that needs this
+separate script running somewhere with shell access.
+
 Deliberately reads LocalVolts' own native price sensors
 (sensor.localvolts_price_forecast, sensor.localvolts_p2p_price_forecast)
 rather than HAEO's already-blended number.grid_import_price/
@@ -58,6 +71,18 @@ other writer script in this project):
   cd /opt/homeassistant && git pull origin main
   git show origin/main:scripts/nimbus_solver_forecast_writer.py > /opt/nimbus_solver_forecast_writer.py
   python3 -c "import numpy" || pip3 install --user numpy
+  python3 -c "import highspy" || pip3 install --break-system-packages highspy
+  # highspy is the real, compiled LP solver lp.py imports at module load
+  # time (import highspy, near the top of solver/lp.py) -- without it,
+  # the very first run crashes immediately with ModuleNotFoundError,
+  # before this script's own config/entity checks ever get a chance to
+  # run. --break-system-packages is needed on Debian-family hosts (PEP
+  # 668) since this isn't going in a venv -- confirmed live 2026-08-18
+  # installing a real matching manylinux wheel with zero build-from-
+  # source needed, on this project's own Debian-based NUC. Genuinely
+  # untested on any OS/architecture outside this household -- if the
+  # wheel doesn't exist for your platform, that's real, new information
+  # worth reporting back, not something to assume will "just work."
   # /opt is root-owned -- homehub cannot create a brand-new file directly
   # inside it (documented project-wide convention, CLAUDE.md "NUC Script
   # Deployment" section). Pre-create the log file with the right

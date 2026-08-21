@@ -32,6 +32,30 @@ whatever optimizer you already use (it publishes in the same `{time, value}` for
    18-circuit-breaker household) — no restart, no repeated integration setup, no re-entering
    the shared settings each time
 
+## Solver (optional, separate thing)
+
+Nimbus is actually two things: the Forecaster above (predicts a load), and a real LP-based
+battery/grid dispatch **Solver** (`custom_components/nimbus_load/solver/` —
+`network.py`/`elements.py`/`lp.py`, HiGHS-backed, zero Home Assistant imports, fully
+unit-tested on its own). The Solver's config surface — Nimbus hub → **Configure** → **Solver
+settings**, a 6-step wizard (battery, power & efficiency, grid, price/forecast sources,
+economic policy, optional P2P) — installs via HACS and works on any HA platform including
+HAOS, same as the Forecaster.
+
+Producing a *live* dispatch forecast from those settings is a separate step, though, and it
+has a real platform requirement the Forecaster doesn't: it needs a small standalone Python
+script (`nimbus_solver_forecast_writer.py`) running as a **host cron job**, not something
+HACS or HA runs for you — which means **Docker or Supervised installs only, not plain Home
+Assistant OS** (HAOS has no general shell/cron surface for a script like this to run on). It
+also needs `highspy` (the real, compiled LP solver) pip-installed on that same host —
+confirmed working via `pip install --break-system-packages highspy` on this project's own
+Debian-based host, genuinely untested elsewhere.
+
+A real, working (if household-specific) copy of that script, plus the LP-audit research
+scripts used to validate it, live in `docs/real-world-integration/` — read that folder's own
+README first; the deploy steps and platform requirement are documented in full in the writer
+script's own header docstring.
+
 ## What it publishes
 
 One sensor per configured instance, `native_value` = the current predicted load (kW), and a
