@@ -1,0 +1,29 @@
+#!/usr/bin/with-contenv bashio
+# ==============================================================================
+# Start the Nimbus Solver service
+# s6-overlay docs: https://github.com/just-containers/s6-overlay
+# ==============================================================================
+
+declare poll_interval
+
+poll_interval=$(bashio::config 'poll_interval_seconds')
+poll_interval=${poll_interval:-60}
+
+# NIMBUS_SOLVER_PATH points nimbus_solver_forecast_writer.py's own
+# sys.path.insert() at the solver/ package the Dockerfile copied in --
+# see that script's own 2026-08-21 "PORTABILITY" comment block for the
+# full env-var story (this is the exact same script the NUC-cron
+# deployment runs, byte-identical, driven entirely by environment here
+# instead of hardcoded NUC-specific defaults).
+export NIMBUS_SOLVER_PATH="/opt/nimbus_solver"
+
+bashio::log.info "Nimbus Solver starting, polling every ${poll_interval}s"
+
+while true; do
+    python3 /opt/nimbus_solver/nimbus_solver_forecast_writer.py
+    exit_code=$?
+    if [ "${exit_code}" -ne 0 ]; then
+        bashio::log.warning "Solver run exited with code ${exit_code} -- will retry next cycle, not treating as fatal"
+    fi
+    sleep "${poll_interval}"
+done

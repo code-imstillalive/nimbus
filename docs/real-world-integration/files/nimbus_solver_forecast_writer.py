@@ -163,26 +163,48 @@ from zoneinfo import ZoneInfo
 # this is also simpler and more robust than any UTC-offset arithmetic).
 BRISBANE_TZ = ZoneInfo("Australia/Brisbane")
 
-# PORTABILITY -- both of these are household-specific paths/values, MUST
-# be edited for any other install (this is exactly what a fresh Mark
-# Purcell-style deploy needs to change, nothing else below this point):
-sys.path.insert(0, "/opt/homeassistant/config/nimbus_repo/custom_components/nimbus_load")
+# PORTABILITY (2026-08-21, env-var-overridable -- was hardcoded, edit-the-
+# file-yourself before this) -- every one of these three household-
+# specific values now has a real default (this NUC's own exact current
+# setup, so behavior here is UNCHANGED with zero env vars set) but can be
+# overridden without touching a single line of actual solve logic. This
+# is what makes it possible for nimbus_solver_app/ (a real Home Assistant
+# Supervisor app -- see that folder, same repo) to run the EXACT same
+# script unmodified inside a container, rather than needing a forked/
+# drifted copy.
+sys.path.insert(0, os.environ.get(
+    "NIMBUS_SOLVER_PATH",
+    "/opt/homeassistant/config/nimbus_repo/custom_components/nimbus_load",
+))
 # ^ wherever your own clone of https://github.com/code-imstillalive/nimbus
-# actually lives on THIS device -- doesn't need to be inside an HA config
-# tree at all, this script never touches HA's filesystem, only imports
-# the pure-Python solver/ package from wherever it's checked out.
+# actually lives (NIMBUS_SOLVER_PATH env var, or this exact NUC path by
+# default) -- doesn't need to be inside an HA config tree at all, this
+# script never touches HA's filesystem, only imports the pure-Python
+# solver/ package from wherever it's checked out.
 from solver import elements, network  # noqa: E402
 import numpy as np  # noqa: E402
 
-HA_BASE = "http://localhost:8123"
-# ^ "localhost" only works if THIS script runs on the same machine as HA
-# itself (true here -- HA runs in Docker on this NUC, this script runs
-# on that same NUC's host). If HA is Home Assistant OS, or otherwise
-# runs somewhere this script can't reach via localhost, point this at
-# HA's real LAN IP instead (e.g. "http://192.168.1.50:8123") -- nothing
-# else in this script cares where it's physically running, every HA
-# interaction below is a plain HTTP GET/POST against this base URL.
-TOKEN_PATH = "/home/homehub/.ha_token"
+if os.environ.get("SUPERVISOR_TOKEN") and not os.environ.get("HA_BASE"):
+    # Running inside a real HA Supervisor app/add-on container with
+    # homeassistant_api: true set (see nimbus_solver_app/config.yaml) --
+    # Supervisor auto-injects SUPERVISOR_TOKEN and proxies the real REST
+    # API at this internal address. Best understanding from HA's own
+    # published docs as of 2026-08-21, NOT yet live-verified against a
+    # real Supervisor install -- if this base path is wrong, every
+    # ha_get()/POST call below will fail loudly (a plain HTTPError), not
+    # silently, so it'll be obvious on the very first real test run.
+    HA_BASE = "http://supervisor/core"
+else:
+    HA_BASE = os.environ.get("HA_BASE", "http://localhost:8123")
+# ^ "localhost" (the default) only works if THIS script runs on the same
+# machine as HA itself (true here -- HA runs in Docker on this NUC, this
+# script runs on that same NUC's host). If HA is Home Assistant OS, or
+# otherwise runs somewhere this script can't reach via localhost, set the
+# HA_BASE env var to HA's real LAN IP instead (e.g.
+# "http://192.168.1.50:8123") -- nothing else in this script cares where
+# it's physically running, every HA interaction below is a plain HTTP
+# GET/POST against this base URL.
+TOKEN_PATH = os.environ.get("HA_TOKEN_PATH", "/home/homehub/.ha_token")
 ENTITY_ID = "sensor.nimbus_solver_battery_forecast"
 # Real state file for plan-to-plan stability (2026-08-16, real finding:
 # two solves 4 minutes apart, same code, produced total_cost -$31 vs
@@ -456,8 +478,18 @@ def terminal_value_breakpoints_for(base_rate: float, min_soc_kwh: float, max_soc
         (above_floor * 0.30, base_rate * 0.35),
     ]
 
-with open(TOKEN_PATH, "r", encoding="utf-8") as f:
-    TOKEN = f.read().strip()
+# Same 2026-08-21 portability pass -- checked in order: SUPERVISOR_TOKEN
+# (auto-injected by HA's own Supervisor into a real app/add-on container,
+# no manual token setup at all) beats a raw HA_TOKEN env var (any other
+# non-Supervisor container/host) beats the original TOKEN_PATH file (this
+# NUC's own unchanged default).
+TOKEN = (
+    os.environ.get("SUPERVISOR_TOKEN")
+    or os.environ.get("HA_TOKEN")
+)
+if not TOKEN:
+    with open(TOKEN_PATH, "r", encoding="utf-8") as f:
+        TOKEN = f.read().strip()
 
 
 def ha_get(entity_id: str) -> dict:
