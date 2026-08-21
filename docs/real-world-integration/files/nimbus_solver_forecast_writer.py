@@ -17,17 +17,29 @@ so far only) thing that ever calls it against real data, and even this
 only produces a number to look at, not an action.
 
 PLATFORM REQUIREMENT -- this is a plain HOST cron script, not something
-HACS installs or HA runs for you. It needs real host-level shell + cron
-access to deploy at all, which means Docker or Supervised installs
-only -- Home Assistant OS has no general shell/cron surface for this to
-run on (same class of gap this project already solved once for a
-different writer via a pure rest:/template: HA-native rewrite -- see
-docs/localvolts-p2p-integration/files/*_haos.yaml in the sibling
-116KAT-HA-AI repo if that pattern is ever worth porting here). The
-Solver's own config-flow "Solver settings" wizard (Nimbus hub ->
-Configure) installs and works fine via HACS on ANY platform including
-HAOS -- it's specifically producing a LIVE forecast that needs this
-separate script running somewhere with shell access.
+HACS installs or HA runs for you, so it needs real shell + cron access
+to deploy at all. IMPORTANT, easy to get wrong: that does NOT mean HA
+itself has to run as Docker/Supervised. This script only ever talks to
+HA over plain HTTP (see HA_BASE below -- GET/POST against the REST API,
+nothing else), never touches HA's local filesystem or process, so it
+can run from ANY always-on shell-capable device on the same network as
+HA -- a Raspberry Pi, an old laptop, a NAS with Docker, a cheap VPS,
+whatever's already sitting around. If HA itself IS Docker/Supervised,
+the simplest option is just running this on that same box (HA_BASE =
+localhost, as below). If HA itself is Home Assistant OS specifically
+(genuinely no general shell/cron surface at all, confirmed no way
+around that), this script needs a SEPARATE device -- HA_BASE then
+points at HAOS's real LAN IP instead of localhost, and the required
+sensor.nimbus_solver_config/nimbus_solver_config still updates the same
+way regardless of where this script physically runs, since it's all
+just HTTP either way. Only if there's truly no other device available
+at all would a real HAOS Add-on (a proper Docker-packaged Supervisor
+add-on, not this bare script) be the honest next step -- a genuinely
+bigger, separate build, not attempted here. The Solver's own config-flow
+"Solver settings" wizard (Nimbus hub -> Configure) installs and works
+fine via HACS on ANY platform including HAOS regardless of any of the
+above -- it's specifically producing a LIVE forecast that needs this
+separate script running somewhere.
 
 Deliberately reads LocalVolts' own native price sensors
 (sensor.localvolts_price_forecast, sensor.localvolts_p2p_price_forecast)
@@ -151,11 +163,25 @@ from zoneinfo import ZoneInfo
 # this is also simpler and more robust than any UTC-offset arithmetic).
 BRISBANE_TZ = ZoneInfo("Australia/Brisbane")
 
+# PORTABILITY -- both of these are household-specific paths/values, MUST
+# be edited for any other install (this is exactly what a fresh Mark
+# Purcell-style deploy needs to change, nothing else below this point):
 sys.path.insert(0, "/opt/homeassistant/config/nimbus_repo/custom_components/nimbus_load")
+# ^ wherever your own clone of https://github.com/code-imstillalive/nimbus
+# actually lives on THIS device -- doesn't need to be inside an HA config
+# tree at all, this script never touches HA's filesystem, only imports
+# the pure-Python solver/ package from wherever it's checked out.
 from solver import elements, network  # noqa: E402
 import numpy as np  # noqa: E402
 
 HA_BASE = "http://localhost:8123"
+# ^ "localhost" only works if THIS script runs on the same machine as HA
+# itself (true here -- HA runs in Docker on this NUC, this script runs
+# on that same NUC's host). If HA is Home Assistant OS, or otherwise
+# runs somewhere this script can't reach via localhost, point this at
+# HA's real LAN IP instead (e.g. "http://192.168.1.50:8123") -- nothing
+# else in this script cares where it's physically running, every HA
+# interaction below is a plain HTTP GET/POST against this base URL.
 TOKEN_PATH = "/home/homehub/.ha_token"
 ENTITY_ID = "sensor.nimbus_solver_battery_forecast"
 # Real state file for plan-to-plan stability (2026-08-16, real finding:

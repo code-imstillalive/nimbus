@@ -43,13 +43,20 @@ economic policy, optional P2P) — installs via HACS and works on any HA platfor
 HAOS, same as the Forecaster.
 
 Producing a *live* dispatch forecast from those settings is a separate step, though, and it
-has a real platform requirement the Forecaster doesn't: it needs a small standalone Python
-script (`nimbus_solver_forecast_writer.py`) running as a **host cron job**, not something
-HACS or HA runs for you — which means **Docker or Supervised installs only, not plain Home
-Assistant OS** (HAOS has no general shell/cron surface for a script like this to run on). It
-also needs `highspy` (the real, compiled LP solver) pip-installed on that same host —
-confirmed working via `pip install --break-system-packages highspy` on this project's own
-Debian-based host, genuinely untested elsewhere.
+has a real requirement the Forecaster doesn't: it needs a small standalone Python script
+(`nimbus_solver_forecast_writer.py`) running somewhere with real shell + cron access, not
+something HACS or HA runs for you. **This does not have to be the same machine that runs
+Home Assistant** — the script only ever talks to HA over plain HTTP (its own `HA_BASE`
+constant), never touches HA's filesystem or process, so it's happy running from any
+always-on device on the same network: the HA host itself if HA runs in Docker/Supervised,
+or a completely separate box (a Raspberry Pi, an old laptop, a NAS, a cheap VPS) if HA is
+Home Assistant OS specifically, which genuinely has no shell/cron surface of its own for
+this to run on directly. It also needs `highspy` (the real, compiled LP solver) pip-installed
+on whichever device runs it — confirmed working via `pip install --break-system-packages
+highspy` on this project's own Debian-based host, genuinely untested elsewhere. If there's
+truly no other device available at all, a proper HAOS Add-on (a Docker-packaged Supervisor
+add-on, distinct from this bare script) would be the honest path — a real, separate, bigger
+build, not something that exists yet.
 
 A real, working (if household-specific) copy of that script, plus the LP-audit research
 scripts used to validate it, live in `docs/real-world-integration/` — read that folder's own
