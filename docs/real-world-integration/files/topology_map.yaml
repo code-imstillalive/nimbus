@@ -1,0 +1,124 @@
+# Topology skeleton — source of truth for the real switchboard wiring.
+#
+# NOT a live HA package (not loaded via !include_dir_named integrations) —
+# a plain data file, read by scripts/lovelace_build_topology_dashboard.py to
+# generate the topology dashboard view. Adding a new PV string or battery
+# tower (genuine physical wiring facts — not something any sensor naming
+# convention could infer) means adding an entry here and re-running that
+# script — never hand-edit dashboard cards for this view directly.
+#
+# LOADS ARE THE ONE EXCEPTION — deliberately NOT listed here since 2026-08-20
+# (v7 of topology-card-v4.js). Every Nimbus "load" subentry (HWS, pool, an
+# individual circuit breaker — anything added via the Nimbus hub's own
+# "+ Add" -> Load) auto-publishes a forecast sensor the card discovers
+# directly from live hass state on every render (see that file's own header
+# comment for the exact mechanism). Add a load in the Nimbus UI and it
+# appears on the topology card immediately — no editing this file, no
+# re-running the generator script, no restart.
+#
+# Real, confirmed data (not guessed) as of 2026-08-14:
+#   - 2 inverters: inv1 (SH25T) has 5 string inputs but only String 3 (->MPPT2)
+#     and String 5 (->MPPT3) are physically active (Strings 1/2/4 read 0W);
+#     inv2 (SH15T) has 2 string inputs, only String 1 (->MPPT1) is active.
+#     Confirmed by matching each active string's live power reading against
+#     its corresponding MPPT's own power reading -- they match exactly.
+#   - 4 real, distinct battery towers, mapped to inverters as confirmed
+#     directly by the user (interleaved, not paired by adjacent number):
+#     Tower 1 & 3 -> SH15T (inv2), Tower 2 & 4 -> SH25T (inv1).
+#   - Grid meter: sensor.logger_meter_total_active_power (the real, uncapped
+#     meter -- NOT sensor.grid_active_power, which is a HAEO plan/forecast
+#     sensor, not a measurement -- documented gotcha in this project).
+#   - Current buy/sell price and every daily kWh figure below: pulled
+#     directly from this system's own already-working sunsynk-power-flow-card
+#     and power-flow-card-plus YAML configs (supplied directly by the user,
+#     2026-08-14) -- these are real, live, currently-rendering entities on
+#     this exact system, not guessed. sensor.costsflexup/earningsflexup
+#     (LocalVolts real-time billing prices) were tried first and never
+#     confirmed to render; sensor.116kathouse_general_price/feed_in_price
+#     are the Amber price sensors HAEO itself still uses as its LP price
+#     source post-LV-cutover (Amber deliberately kept enabled for this,
+#     per CLAUDE.md) and are what the working sunsynk card actually uses.
+#   - Battery power: sensor.logger_battery_power -- the real Modbus-measured
+#     value (positive = discharging into the house, negative = charging),
+#     used to compute the switchboard's live source-mix coloring.
+#   - 18 loads, each already forecast by Nimbus (separate project/repo,
+#     see docs/localvolts-p2p-integration or CLAUDE.md for context) --
+#     entity names below confirmed live against the real Nimbus load list.
+
+# Weather entity: weather.pirateweather -- already this project's own
+# established live weather source (used for the temp-forecast series on
+# the LV-GRAPH chart, per CLAUDE.md). Real, confirmed live 2026-08-14:
+# state is a standard HA weather condition string (e.g. "clear-night"),
+# attributes.temperature is real. nimbus_version below is now only a
+# FALLBACK (2026-08-20, Nimbus v0.30.0+): topology-card-v4.js reads the
+# real, live version directly off any Nimbus device's own sw_version
+# (Nimbus's own sensor.py sets this from its manifest.json at startup,
+# single source of truth) and only falls back to this static string if
+# that live lookup can't find anything -- so this value going stale again
+# is no longer a real display bug, just an inert fallback that's never
+# actually shown once Nimbus itself is running v0.30.0+. Still kept
+# roughly current for the fallback path (older HA frontends, or before
+# Nimbus's own next restart picks up sw_version for the first time).
+weather: weather.pirateweather
+nimbus_version: "0.30.0"
+
+switchboard:
+  grid_meter: sensor.logger_meter_total_active_power
+  import_price: sensor.116kathouse_general_price
+  export_price: sensor.116kathouse_feed_in_price
+  battery_power: sensor.logger_battery_power
+  import_energy_daily: sensor.inverter_import_energy_daily
+  export_energy_daily: sensor.inverter_export_energy_daily
+  house_load_energy_daily: sensor.house_load_energy_daily
+  solar_energy_daily: sensor.combined_daily_pv_generation
+  battery_charge_daily: sensor.combined_daily_battery_charge
+  battery_discharge_daily: sensor.combined_daily_battery_discharge
+
+# Per-load and per-PV-string daily kWh (produced/consumed) were asked for
+# too -- the real sunsynk/power-flow-card-plus configs only track daily kWh
+# per COMBINED category (HWS, Pool, AC, whole-house, whole-solar, whole-
+# battery), not per individual Nimbus-forecast circuit. The card supports
+# an optional `energy_today: sensor.x` field on any load/pv_strings entry
+# below for whenever a real per-circuit sensor is confirmed -- inventing
+# one here would just show broken/misleading data instead of the real
+# thing.
+
+inverters:
+  - id: inv1
+    name: Inverter 1 (SH25T)
+    # Real, signed per-inverter battery power (confirmed live 2026-08-14,
+    # matches sensor.battery_power_signed_inv1/2 against a genuine
+    # discharge event): positive = discharging, negative = charging. No
+    # reliable per-tower power/current exists (both towers' _current read
+    # 0.0A even while their own inverter was actively discharging 13.4kW),
+    # so this per-inverter figure is the real, correct granularity to
+    # drive the battery-chain arrow direction/color on the topology card.
+    battery_power: sensor.battery_power_signed_inv1
+    pv_strings:
+      - entity: sensor.string3_power_inv1
+        mppt: 2
+      - entity: sensor.string5_power_inv1
+        mppt: 3
+    battery_towers:
+      - battery_tower_2
+      - battery_tower_4
+  - id: inv2
+    name: Inverter 2 (SH15T)
+    battery_power: sensor.battery_power_signed_inv2
+    pv_strings:
+      - entity: sensor.string1_power_inv2
+        mppt: 1
+    battery_towers:
+      - battery_tower_1
+      - battery_tower_3
+
+# battery_towers above reference the ID prefix only (e.g. "battery_tower_2")
+# -- each tower's own real entities all share this prefix:
+#   sensor.<prefix>_soc, _soh, _voltage, _current, _temperature, _status,
+#   sensor.<prefix>_total_battery_charge, _total_battery_discharge
+# The generator script expands these itself rather than listing every
+# entity by hand here.
+
+whole_house:
+  forecast: sensor.nimbus_logger_load_power_forecast
+  live: sensor.logger_load_power
