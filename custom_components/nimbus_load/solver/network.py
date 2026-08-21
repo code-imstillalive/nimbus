@@ -913,6 +913,42 @@ def build_plan(
         if has_export_bonus:
             p.add_ub_constraint({export_bonus[t]: 1.0, grid_export[t]: -1.0}, 0.0)
 
+    # ---- SoC-dependent power curves (see BatteryConfig's own
+    # charge_power_curve/discharge_power_curve docstring for the full
+    # "real CC->CV charge taper near full, BMS-precision caution near
+    # empty" reasoning). None (the default, either field) adds nothing
+    # here -- charge[t]/discharge[t] stay bounded only by the flat
+    # ub=max_charge_kw/max_discharge_kw already set at their own
+    # construction above, byte-identical to every scenario built before
+    # these fields existed.
+    #
+    # When provided: standard LP technique for a concave piecewise-
+    # linear UPPER BOUND -- the true achievable power at any soc equals
+    # the MINIMUM, over every curve segment, of that segment's own line
+    # (intercept + slope*soc) extended in both directions. Expressed as
+    # one <= constraint PER SEGMENT PER PERIOD on the already-existing
+    # charge[t]/discharge[t] and soc[t-1] variables -- no new LP
+    # variables at all (unlike terminal_value_breakpoints), so real LP
+    # growth here is purely additional constraint rows, nothing more.
+    # soc[t-1] is battery.initial_soc_kwh (a known constant) at t==0,
+    # same convention as the wash-trade-prevention constraint (2) just
+    # above -- moves straight to the RHS rather than needing a variable
+    # term.
+    for var_list, curve in ((charge, battery.charge_power_curve), (discharge, battery.discharge_power_curve)):
+        if curve is None:
+            continue
+        socs = [s for s, _pw in curve]
+        powers = [pw for _s, pw in curve]
+        for seg_i in range(len(curve) - 1):
+            slope = (powers[seg_i + 1] - powers[seg_i]) / (socs[seg_i + 1] - socs[seg_i])
+            intercept = powers[seg_i] - slope * socs[seg_i]
+            for t in range(n):
+                if t == 0:
+                    rhs = intercept + slope * battery.initial_soc_kwh
+                    p.add_ub_constraint({var_list[t]: 1.0}, rhs)
+                else:
+                    p.add_ub_constraint({var_list[t]: 1.0, soc[t - 1]: -slope}, intercept)
+
     # ---- Adequacy deadline constraints -- one inequality per adequacy
     # load, NOT per period: cumulative energy delivered through the
     # deadline must reach target_kwh. LPProblem only has <=, so this is

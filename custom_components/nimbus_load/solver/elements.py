@@ -495,6 +495,52 @@ class BatteryConfig:
     # concave value function means and would be a real modeling bug.
     terminal_value_breakpoints: list[tuple[float, float]] | None = None
 
+    # SoC-dependent max power curves (2026-08-21, direct household ask --
+    # two real physical phenomena, precisely named: real lithium charge
+    # current genuinely tapers as SoC approaches full (the CC->CV curve
+    # -- a battery physically cannot accept the same current near the
+    # top as it can mid-range), and most BMS units lose accurate SoC
+    # resolution below roughly 15% -- not just a wear concern, a real
+    # measurement-caution one, since the LP's own state estimate is
+    # least trustworthy exactly where a precise decision matters most.
+    #
+    # None (the default, both fields) is fully backward compatible --
+    # max_charge_kw/max_discharge_kw stay flat scalars, byte-identical
+    # to every scenario built before these fields existed.
+    #
+    # When provided: a list of (soc_kwh, max_power_kw) POINTS (not
+    # width/rate segments like terminal_value_breakpoints -- this
+    # describes an actual curve, sorted by ascending soc_kwh), covering
+    # the full real range: the first point's soc_kwh must equal
+    # min_soc_kwh, the last must equal max_soc_kwh, no gaps.
+    #
+    # Unlike terminal_value_breakpoints (which prices SEGMENTS and needs
+    # one new LP VARIABLE per segment), this is enforced purely via
+    # extra CONSTRAINT ROWS on the already-existing charge[t]/
+    # discharge[t] variables -- see network.py's own construction. No
+    # new variables at all; real LP growth is exactly (number of
+    # segments) extra rows per period, nothing more.
+    #
+    # The implied slope between each consecutive pair of points MUST be
+    # non-increasing (segment i's slope >= segment i+1's slope) -- this
+    # is the standard LP technique for a concave piecewise-linear UPPER
+    # BOUND: the true achievable power at any soc equals the MINIMUM,
+    # over every segment, of that segment's own line extended in both
+    # directions. It needs zero binary/integer variables and stays a
+    # pure LP -- but ONLY holds if the curve is genuinely concave
+    # (non-increasing slopes); a convex (increasing-slope) curve would
+    # silently produce a non-binding, WRONG bound instead of the real
+    # curve, which is why this is validated, not just documented.
+    #
+    # Concretely: a charge curve that ramps DOWN as soc rises (full
+    # rate, then a taper near max_soc) and a discharge curve that ramps
+    # UP as soc rises away from the floor (a taper near min_soc, then
+    # full rate) are BOTH concave shapes under this exact same
+    # non-increasing-slope test -- one mechanism, two directions, no
+    # direction-specific logic needed anywhere.
+    charge_power_curve: list[tuple[float, float]] | None = None
+    discharge_power_curve: list[tuple[float, float]] | None = None
+
     def __post_init__(self) -> None:
         if not (0.0 < self.min_soc_kwh <= self.max_soc_kwh <= self.capacity_kwh):
             msg = f"Invalid SoC bounds: 0 < min_soc({self.min_soc_kwh}) <= max_soc({self.max_soc_kwh}) <= capacity({self.capacity_kwh}) required"
@@ -548,6 +594,48 @@ class BatteryConfig:
                     "straight to a later, higher-rate segment"
                 )
                 raise DegenerateConfigError(msg)
+        if self.charge_power_curve is not None:
+            _validate_power_curve("charge_power_curve", self.charge_power_curve, self.min_soc_kwh, self.max_soc_kwh)
+        if self.discharge_power_curve is not None:
+            _validate_power_curve("discharge_power_curve", self.discharge_power_curve, self.min_soc_kwh, self.max_soc_kwh)
+
+
+def _validate_power_curve(name: str, curve: list[tuple[float, float]], min_soc_kwh: float, max_soc_kwh: float) -> None:
+    """Shared validation for BatteryConfig's own charge_power_curve/
+    discharge_power_curve -- see that field's own docstring for the full
+    "concave piecewise-linear upper bound, no binary variables needed"
+    reasoning this validation exists to protect.
+    """
+    if len(curve) < 2:
+        msg = f"{name}: needs at least 2 points to define a curve (got {len(curve)})"
+        raise ValueError(msg)
+    socs = [s for s, _p in curve]
+    powers = [pw for _s, pw in curve]
+    if socs != sorted(socs):
+        msg = f"{name}: points must be sorted by ascending soc_kwh (got {socs})"
+        raise ValueError(msg)
+    if any(socs[i] == socs[i + 1] for i in range(len(socs) - 1)):
+        msg = f"{name}: consecutive points cannot share the same soc_kwh (got {socs}) -- would divide by zero computing the segment's slope"
+        raise ValueError(msg)
+    if abs(socs[0] - min_soc_kwh) > 1e-6:
+        msg = f"{name}: first point's soc_kwh ({socs[0]}) must equal min_soc_kwh ({min_soc_kwh}) -- the full real SoC range must be covered, no gap"
+        raise ValueError(msg)
+    if abs(socs[-1] - max_soc_kwh) > 1e-6:
+        msg = f"{name}: last point's soc_kwh ({socs[-1]}) must equal max_soc_kwh ({max_soc_kwh}) -- the full real SoC range must be covered, no gap"
+        raise ValueError(msg)
+    if any(pw < 0 for pw in powers):
+        msg = f"{name}: max_power_kw values cannot be negative (got {powers})"
+        raise ValueError(msg)
+    slopes = [(powers[i + 1] - powers[i]) / (socs[i + 1] - socs[i]) for i in range(len(curve) - 1)]
+    if any(slopes[i] < slopes[i + 1] - 1e-9 for i in range(len(slopes) - 1)):
+        msg = (
+            f"{name}: implied slopes between consecutive points must be non-increasing "
+            f"(got {slopes}) -- an increasing-slope (convex) curve cannot be enforced as a "
+            "pure upper-bound LP constraint without binary variables; this would silently "
+            "produce a non-binding/WRONG bound instead of the real curve, not a clean error "
+            "at solve time, which is why it's rejected here instead"
+        )
+        raise DegenerateConfigError(msg)
 
 
 def _validate_confidence_band(

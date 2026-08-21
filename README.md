@@ -1,5 +1,7 @@
 # Nimbus
 
+*Just a different type of cloud.*
+
 A self-retraining ML load forecaster for Home Assistant.
 
 Nimbus watches a power sensor you choose, learns your home's real consumption pattern
