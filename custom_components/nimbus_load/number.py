@@ -60,6 +60,15 @@ from .const import (
     CONF_SOLVER_GRID_MAX_IMPORT_KW,
     CONF_SOLVER_MAX_CHARGE_KW,
     CONF_SOLVER_MAX_DISCHARGE_KW,
+    CONF_SOLVER_P2P_BLOCK_1_END_HOUR,
+    CONF_SOLVER_P2P_BLOCK_1_RATE_KW,
+    CONF_SOLVER_P2P_BLOCK_1_START_HOUR,
+    CONF_SOLVER_P2P_BLOCK_2_END_HOUR,
+    CONF_SOLVER_P2P_BLOCK_2_RATE_KW,
+    CONF_SOLVER_P2P_BLOCK_2_START_HOUR,
+    CONF_SOLVER_P2P_BLOCK_3_END_HOUR,
+    CONF_SOLVER_P2P_BLOCK_3_RATE_KW,
+    CONF_SOLVER_P2P_BLOCK_3_START_HOUR,
     CONF_SOLVER_P2P_BONUS_PRICE,
     CONF_SOLVER_P2P_BONUS_VOLUME_KWH,
     CONF_SOLVER_SALVAGE_VALUE,
@@ -68,6 +77,9 @@ from .const import (
     DEFAULT_SOLVER_EFFICIENCY_PERCENT,
     DEFAULT_SOLVER_MAX_SOC_PERCENT,
     DEFAULT_SOLVER_MIN_SOC_PERCENT,
+    DEFAULT_SOLVER_P2P_BLOCK_END_HOUR,
+    DEFAULT_SOLVER_P2P_BLOCK_RATE_KW,
+    DEFAULT_SOLVER_P2P_BLOCK_START_HOUR,
     DEFAULT_SOLVER_P2P_BONUS_PRICE,
     DEFAULT_SOLVER_P2P_BONUS_VOLUME_KWH,
     DEFAULT_SOLVER_SALVAGE_VALUE,
@@ -113,6 +125,22 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
     _SolverNumberDescription(CONF_SOLVER_SALVAGE_VALUE, "Salvage Value", DEFAULT_SOLVER_SALVAGE_VALUE, 0, 10, 0.001, "$/kWh"),
     _SolverNumberDescription(CONF_SOLVER_P2P_BONUS_PRICE, "P2P Bonus Price", DEFAULT_SOLVER_P2P_BONUS_PRICE, 0, 10, 0.001, "$/kWh"),
     _SolverNumberDescription(CONF_SOLVER_P2P_BONUS_VOLUME_KWH, "P2P Bonus Volume", DEFAULT_SOLVER_P2P_BONUS_VOLUME_KWH, 0, 10000, 0.1, "kWh"),
+    # P2P fixed-rate delivery blocks (2026-08-21) -- up to 3 independent
+    # windows, each holding export at a constant, user-set rate rather than
+    # letting the LP chase price within it. rate_kw=0 means "not
+    # configured" (see const.py's own comment for the full reasoning).
+    # end_hour uses 24 (not 23) as its max so a window can genuinely reach
+    # midnight, matching how this household's own real window is expressed
+    # (17-24, i.e. 5pm through the end of the day).
+    _SolverNumberDescription(CONF_SOLVER_P2P_BLOCK_1_RATE_KW, "P2P Block 1 Rate", DEFAULT_SOLVER_P2P_BLOCK_RATE_KW, 0, 1000, 0.1, "kW"),
+    _SolverNumberDescription(CONF_SOLVER_P2P_BLOCK_1_START_HOUR, "P2P Block 1 Start Hour", DEFAULT_SOLVER_P2P_BLOCK_START_HOUR, 0, 23, 1, "hour"),
+    _SolverNumberDescription(CONF_SOLVER_P2P_BLOCK_1_END_HOUR, "P2P Block 1 End Hour", DEFAULT_SOLVER_P2P_BLOCK_END_HOUR, 0, 24, 1, "hour"),
+    _SolverNumberDescription(CONF_SOLVER_P2P_BLOCK_2_RATE_KW, "P2P Block 2 Rate", DEFAULT_SOLVER_P2P_BLOCK_RATE_KW, 0, 1000, 0.1, "kW"),
+    _SolverNumberDescription(CONF_SOLVER_P2P_BLOCK_2_START_HOUR, "P2P Block 2 Start Hour", DEFAULT_SOLVER_P2P_BLOCK_START_HOUR, 0, 23, 1, "hour"),
+    _SolverNumberDescription(CONF_SOLVER_P2P_BLOCK_2_END_HOUR, "P2P Block 2 End Hour", DEFAULT_SOLVER_P2P_BLOCK_END_HOUR, 0, 24, 1, "hour"),
+    _SolverNumberDescription(CONF_SOLVER_P2P_BLOCK_3_RATE_KW, "P2P Block 3 Rate", DEFAULT_SOLVER_P2P_BLOCK_RATE_KW, 0, 1000, 0.1, "kW"),
+    _SolverNumberDescription(CONF_SOLVER_P2P_BLOCK_3_START_HOUR, "P2P Block 3 Start Hour", DEFAULT_SOLVER_P2P_BLOCK_START_HOUR, 0, 23, 1, "hour"),
+    _SolverNumberDescription(CONF_SOLVER_P2P_BLOCK_3_END_HOUR, "P2P Block 3 End Hour", DEFAULT_SOLVER_P2P_BLOCK_END_HOUR, 0, 24, 1, "hour"),
 )
 
 

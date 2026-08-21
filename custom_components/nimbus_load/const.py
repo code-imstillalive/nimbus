@@ -252,6 +252,29 @@ CONF_SOLVER_SALVAGE_VALUE: Final = "solver_salvage_value"
 CONF_SOLVER_P2P_BONUS_PRICE: Final = "solver_p2p_bonus_price"
 CONF_SOLVER_P2P_BONUS_VOLUME_KWH: Final = "solver_p2p_bonus_volume_kwh"
 
+# P2P fixed-rate delivery blocks (2026-08-21) -- distinct from the bonus
+# price/volume pair above. The bonus pair is an ECONOMIC INCENTIVE (extra
+# $/kWh up to a daily cap) that the LP is still free to decide WHEN to
+# claim. These blocks are a HARD CONSTRAINT: a real P2P trading platform
+# is a pre-committed delivery arrangement, not a price-taking market --
+# chasing the momentary best price within the window breaks the actual
+# deal (see GridConfig.fixed_export_kw's own docstring, solver/elements.py,
+# for the full real-world finding this was built from). Up to 3 fixed,
+# independent, optional blocks -- each is (rate_kw, start_hour, end_hour);
+# rate_kw <= 0 is the "this block isn't configured" signal (a $0 fixed
+# rate is meaningless, so no separate enable/disable flag is needed). A
+# fresh install with no P2P platform at all leaves every block at its
+# default (off) -- zero behaviour change, the LP decides export freely.
+CONF_SOLVER_P2P_BLOCK_1_RATE_KW: Final = "solver_p2p_block_1_rate_kw"
+CONF_SOLVER_P2P_BLOCK_1_START_HOUR: Final = "solver_p2p_block_1_start_hour"
+CONF_SOLVER_P2P_BLOCK_1_END_HOUR: Final = "solver_p2p_block_1_end_hour"
+CONF_SOLVER_P2P_BLOCK_2_RATE_KW: Final = "solver_p2p_block_2_rate_kw"
+CONF_SOLVER_P2P_BLOCK_2_START_HOUR: Final = "solver_p2p_block_2_start_hour"
+CONF_SOLVER_P2P_BLOCK_2_END_HOUR: Final = "solver_p2p_block_2_end_hour"
+CONF_SOLVER_P2P_BLOCK_3_RATE_KW: Final = "solver_p2p_block_3_rate_kw"
+CONF_SOLVER_P2P_BLOCK_3_START_HOUR: Final = "solver_p2p_block_3_start_hour"
+CONF_SOLVER_P2P_BLOCK_3_END_HOUR: Final = "solver_p2p_block_3_end_hour"
+
 DEFAULT_SOLVER_SOH_PERCENT: Final = 100.0
 DEFAULT_SOLVER_MIN_SOC_PERCENT: Final = 5.0
 DEFAULT_SOLVER_MAX_SOC_PERCENT: Final = 100.0
@@ -261,3 +284,12 @@ DEFAULT_SOLVER_DISCHARGE_COST: Final = 0.01
 DEFAULT_SOLVER_SALVAGE_VALUE: Final = 0.15
 DEFAULT_SOLVER_P2P_BONUS_PRICE: Final = 0.0
 DEFAULT_SOLVER_P2P_BONUS_VOLUME_KWH: Final = 0.0
+# Every block defaults OFF (rate_kw=0) regardless of which block number --
+# deliberately NOT seeded with any specific household's own real values,
+# so a fresh install for anyone else starts genuinely blank (see this
+# module's own comment above the block CONF_* keys). An already-configured
+# household enables a block by setting its own real rate/hours once,
+# manually, the same as tuning any other number.nimbus_solver_* entity.
+DEFAULT_SOLVER_P2P_BLOCK_RATE_KW: Final = 0.0
+DEFAULT_SOLVER_P2P_BLOCK_START_HOUR: Final = 0
+DEFAULT_SOLVER_P2P_BLOCK_END_HOUR: Final = 0
