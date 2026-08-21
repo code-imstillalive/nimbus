@@ -229,6 +229,41 @@ class GridConfig:
     # configuration maps onto it).
     fixed_export_kw: NDArray[np.float64] | None = None
 
+    # Price-risk hedging (2026-08-21, direct household finding: "the
+    # forecasts are always wrong but they tend to be more expensive in
+    # the afternoons, so waiting is not a good idea"). Mechanism 3
+    # (risk_aversion, see network.py's own docstring) already hedges
+    # solar/load forecast error -- this extends the SAME concept to
+    # PRICE forecast error, which nothing previously covered at all
+    # (import_price/export_price were always treated as trusted point
+    # forecasts). Deliberately a SEPARATE risk_aversion value from
+    # solar/load's own (network.py's price_risk_aversion parameter) --
+    # "more flexibility the better" was the explicit household ask, and
+    # trusting a load/solar forecast vs. trusting a price forecast are
+    # genuinely independent judgment calls, not the same dial.
+    #
+    # import_price_upper: a real, pessimistic CEILING estimate for
+    # import price per period -- when price_risk_aversion > 0, the LP's
+    # effective import cost gets nudged UP toward this ceiling
+    # (proportional to both the risk_aversion value and the gap between
+    # the point forecast and this ceiling), biasing AWAY from delaying a
+    # charge on the assumption a currently-cheap-looking forecast stays
+    # cheap. export_price_lower is the mirror image for discharge/export
+    # decisions (direct household ask: "i would do the same for
+    # discharge if possible") -- nudges the effective export price DOWN
+    # toward a pessimistic floor, so the LP doesn't over-trust an
+    # optimistic-looking future export price either.
+    #
+    # None (the default, either field independently) is a complete
+    # no-op -- every existing caller, every test predating this field,
+    # is byte-identical to before it existed. Deliberately household-
+    # agnostic here too: nothing assumes where these bounds come from --
+    # nimbus_solver_forecast_writer.py builds them from real historical
+    # price data for this one household's own real account; a different
+    # install could compute them differently or simply never set them.
+    import_price_upper: NDArray[np.float64] | None = None
+    export_price_lower: NDArray[np.float64] | None = None
+
     def __post_init__(self) -> None:
         if self.import_limit_kw < 0 or self.export_limit_kw < 0:
             msg = "Grid import/export limits must be >= 0"
@@ -253,6 +288,12 @@ class GridConfig:
             if finite.size and (finite.min() < 0 or finite.max() > self.export_limit_kw):
                 msg = "fixed_export_kw's non-NaN entries must be within [0, export_limit_kw]"
                 raise ValueError(msg)
+        if self.import_price_upper is not None and len(self.import_price_upper) != len(self.import_price):
+            msg = "import_price_upper must have the same length as import_price"
+            raise ValueError(msg)
+        if self.export_price_lower is not None and len(self.export_price_lower) != len(self.export_price):
+            msg = "export_price_lower must have the same length as export_price"
+            raise ValueError(msg)
         # REMOVED (2026-08-16): the price-spread config-time REJECT that
         # used to live here (import_price - export_price >= MIN_GRID_COST_
         # SPREAD everywhere, else raise DegenerateConfigError). Found to

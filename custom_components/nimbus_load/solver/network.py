@@ -428,6 +428,34 @@ def _risk_adjusted(
     return forecast_kw - risk_aversion * np.maximum(0.0, forecast_kw - lower_kw)
 
 
+def _risk_adjusted_one_sided(
+    forecast: NDArray[np.float64],
+    bound: NDArray[np.float64] | None,
+    risk_aversion: float,
+    *,
+    direction: str,
+) -> NDArray[np.float64]:
+    """Same blending as _risk_adjusted() above, but for a value that only
+    ever has ONE meaningful pessimistic side (price -- "could be higher
+    than forecast" for a buyer, "could be lower than forecast" for a
+    seller), not a genuine lower+upper pair. _risk_adjusted() requires
+    BOTH bounds to be non-None even though only one is ever used per
+    call site; that's fine for solar/load (a real band naturally has
+    both sides) but awkward here, so this is a clean, dedicated,
+    single-bound version instead of forcing a dummy value into the
+    unused side. `direction` is "up" (import price -- pessimistic means
+    MORE expensive) or "down" (export price -- pessimistic means LESS
+    revenue). Returns `forecast` completely unchanged when no bound is
+    given or risk_aversion is exactly 0.0 -- same no-op guarantee as
+    _risk_adjusted().
+    """
+    if bound is None or risk_aversion <= 0.0:
+        return forecast
+    if direction == "up":
+        return forecast + risk_aversion * np.maximum(0.0, bound - forecast)
+    return forecast - risk_aversion * np.maximum(0.0, forecast - bound)
+
+
 def _add_proximal_penalty(
     p: LPProblem,
     var_names: list[str],
@@ -565,6 +593,7 @@ def build_plan(
     max_rate_kw: float | None = None,
     smoothness_weight: float = 0.0,
     risk_aversion: float = 0.0,
+    price_risk_aversion: float = 0.0,
 ) -> Plan:
     """Build and solve one LP for the given horizon/inputs. Pure function --
     no I/O, no HA dependency, safe to call from anywhere including a plain
@@ -574,6 +603,19 @@ def build_plan(
     the three cross-solve stability mechanisms -- see this module's own
     docstring for the full design. All default to "off" (a bare, single-
     solve LP, unchanged from before these existed).
+
+    `price_risk_aversion` (2026-08-21) -- a genuinely SEPARATE dial from
+    `risk_aversion` above (which only ever hedges solar/load forecast
+    error). Direct household finding: "the forecasts are always wrong
+    but they tend to be more expensive in the afternoons, so waiting is
+    not a good idea." Uses GridConfig.import_price_upper/export_price_
+    lower (both optional, None each = complete no-op) to bias the LP's
+    OWN effective cost/revenue view of the future pessimistically --
+    assume import could cost more than the point forecast says, assume
+    export could earn less -- proportional to this value. Deliberately
+    independent from `risk_aversion` per the explicit household ask for
+    "more flexibility" -- trusting a load/solar forecast and trusting a
+    price forecast are genuinely different judgment calls.
     """
     loads = loads or []
     sheddable_loads = sheddable_loads or []
@@ -650,6 +692,14 @@ def build_plan(
     effective_solar_kw = _risk_adjusted(solar.forecast_kw, solar.lower_kw, solar.upper_kw, risk_aversion, conservative="lower")
     solar_used = [p.add_variable(f"solar_used_{t}", lb=0.0, ub=float(effective_solar_kw[t])) for t in range(n)]
 
+    # Price-risk hedging (see this function's own docstring for the full
+    # "afternoons tend to run more expensive than forecast" household
+    # finding) -- price_risk_aversion=0.0 or no band present leaves these
+    # identical to grid.import_price/export_price, used below in place
+    # of the raw arrays wherever the LP's own cost/revenue is set.
+    effective_import_price = _risk_adjusted_one_sided(grid.import_price, grid.import_price_upper, price_risk_aversion, direction="up")
+    effective_export_price = _risk_adjusted_one_sided(grid.export_price, grid.export_price_lower, price_risk_aversion, direction="down")
+
     # Mechanism 3 continued: sheddable loads' own effective (pessimistic-
     # leaning) demand -- both the shed ceiling and the balance-equation
     # contribution are computed from this, so "how much of this load MUST
@@ -692,8 +742,8 @@ def build_plan(
     charge_cost_arr = np.broadcast_to(np.asarray(battery.charge_cost, dtype=np.float64), (n,))
     discharge_cost_arr = np.broadcast_to(np.asarray(battery.discharge_cost, dtype=np.float64), (n,))
     for t in range(n):
-        p.set_cost(grid_import[t], grid.import_price[t] * hours[t])
-        p.set_cost(grid_export[t], -grid.export_price[t] * hours[t])
+        p.set_cost(grid_import[t], effective_import_price[t] * hours[t])
+        p.set_cost(grid_export[t], -effective_export_price[t] * hours[t])
         p.set_cost(charge[t], charge_cost_arr[t] * hours[t])
         p.set_cost(discharge[t], discharge_cost_arr[t] * hours[t])
         for sl in sheddable_loads:

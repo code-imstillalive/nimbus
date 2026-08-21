@@ -67,6 +67,8 @@ from .const import (
     CONF_SOLVER_P2P_BLOCK_2_RATE_KW,
     CONF_SOLVER_P2P_BLOCK_2_START_HOUR,
     CONF_SOLVER_P2P_BLOCK_3_END_HOUR,
+    CONF_SOLVER_PRICE_RISK_AVERSION,
+    CONF_SOLVER_RISK_AVERSION,
     CONF_SOLVER_P2P_BLOCK_3_RATE_KW,
     CONF_SOLVER_P2P_BLOCK_3_START_HOUR,
     CONF_SOLVER_P2P_BONUS_PRICE,
@@ -78,6 +80,8 @@ from .const import (
     DEFAULT_SOLVER_MAX_SOC_PERCENT,
     DEFAULT_SOLVER_MIN_SOC_PERCENT,
     DEFAULT_SOLVER_P2P_BLOCK_END_HOUR,
+    DEFAULT_SOLVER_PRICE_RISK_AVERSION,
+    DEFAULT_SOLVER_RISK_AVERSION,
     DEFAULT_SOLVER_P2P_BLOCK_RATE_KW,
     DEFAULT_SOLVER_P2P_BLOCK_START_HOUR,
     DEFAULT_SOLVER_P2P_BONUS_PRICE,
@@ -141,6 +145,14 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
     _SolverNumberDescription(CONF_SOLVER_P2P_BLOCK_3_RATE_KW, "P2P Block 3 Rate", DEFAULT_SOLVER_P2P_BLOCK_RATE_KW, 0, 1000, 0.1, "kW"),
     _SolverNumberDescription(CONF_SOLVER_P2P_BLOCK_3_START_HOUR, "P2P Block 3 Start Hour", DEFAULT_SOLVER_P2P_BLOCK_START_HOUR, 0, 23, 1, "hour"),
     _SolverNumberDescription(CONF_SOLVER_P2P_BLOCK_3_END_HOUR, "P2P Block 3 End Hour", DEFAULT_SOLVER_P2P_BLOCK_END_HOUR, 0, 24, 1, "hour"),
+    # Risk-aversion dials (2026-08-21) -- 0.0 = trust the point forecast
+    # completely, 1.0 = fully hedge toward the pessimistic bound. Two
+    # separate dials on purpose (household ask: "more flexibility the
+    # better") -- Risk Aversion hedges solar/load forecast error, Price
+    # Risk Aversion hedges import/export price forecast error, and
+    # trusting one kind of forecast doesn't mean trusting the other.
+    _SolverNumberDescription(CONF_SOLVER_RISK_AVERSION, "Risk Aversion", DEFAULT_SOLVER_RISK_AVERSION, 0, 1, 0.05, None),
+    _SolverNumberDescription(CONF_SOLVER_PRICE_RISK_AVERSION, "Price Risk Aversion", DEFAULT_SOLVER_PRICE_RISK_AVERSION, 0, 1, 0.05, None),
 )
 
 

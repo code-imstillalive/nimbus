@@ -275,6 +275,18 @@ CONF_SOLVER_P2P_BLOCK_3_RATE_KW: Final = "solver_p2p_block_3_rate_kw"
 CONF_SOLVER_P2P_BLOCK_3_START_HOUR: Final = "solver_p2p_block_3_start_hour"
 CONF_SOLVER_P2P_BLOCK_3_END_HOUR: Final = "solver_p2p_block_3_end_hour"
 
+# Risk-aversion dials (2026-08-21) -- CONF_SOLVER_RISK_AVERSION already
+# existed as a hardcoded writer-script constant (RISK_AVERSION=0.25);
+# this is just exposing it as a real, live, dashboard-editable setting
+# for the first time, same as every other Solver field. CONF_SOLVER_
+# PRICE_RISK_AVERSION is genuinely new -- see GridConfig's own comment
+# (solver/elements.py) for the full "afternoons tend to run more
+# expensive than forecast" household finding this closes. Deliberately
+# two SEPARATE dials, not one shared value -- direct household ask for
+# "more flexibility."
+CONF_SOLVER_RISK_AVERSION: Final = "solver_risk_aversion"
+CONF_SOLVER_PRICE_RISK_AVERSION: Final = "solver_price_risk_aversion"
+
 DEFAULT_SOLVER_SOH_PERCENT: Final = 100.0
 DEFAULT_SOLVER_MIN_SOC_PERCENT: Final = 5.0
 DEFAULT_SOLVER_MAX_SOC_PERCENT: Final = 100.0
@@ -293,3 +305,11 @@ DEFAULT_SOLVER_P2P_BONUS_VOLUME_KWH: Final = 0.0
 DEFAULT_SOLVER_P2P_BLOCK_RATE_KW: Final = 0.0
 DEFAULT_SOLVER_P2P_BLOCK_START_HOUR: Final = 0
 DEFAULT_SOLVER_P2P_BLOCK_END_HOUR: Final = 0
+# Matches the writer script's own pre-existing RISK_AVERSION=0.25 default
+# exactly -- rolling this platform out is a no-op for risk_aversion on an
+# already-configured household. price_risk_aversion defaults OFF (0.0)
+# since it's a genuinely new mechanism with no prior equivalent value to
+# preserve -- a fresh install (or this household, until set) sees zero
+# behaviour change.
+DEFAULT_SOLVER_RISK_AVERSION: Final = 0.25
+DEFAULT_SOLVER_PRICE_RISK_AVERSION: Final = 0.0
