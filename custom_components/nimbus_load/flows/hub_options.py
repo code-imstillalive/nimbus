@@ -49,10 +49,12 @@ from ..const import (
     CONF_SOLVER_BATTERY_SOC_SENSOR,
     CONF_SOLVER_EXPORT_PRICE_SENSOR,
     CONF_SOLVER_IMPORT_PRICE_SENSOR,
+    CONF_SOLVER_LOAD_FORECAST_ENTITIES,
     CONF_SOLVER_LOAD_FORECAST_SENSOR,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_2,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_3,
+    CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR,
     CONF_TEMPERATURE_FORECAST_SENSOR,
     CONF_TEMPERATURE_SENSOR,
     CONF_TRAIN_DAYS,
@@ -154,6 +156,15 @@ def _entity(domain: str = "sensor") -> selector.EntitySelector:
     return selector.EntitySelector(selector.EntitySelectorConfig(domain=domain))
 
 
+def _entity_multi(domain: str = "sensor") -> selector.EntitySelector:
+    """Real, native HA multi-entity picker -- for the granular, optional
+    per-circuit load-summation list (2026-08-23, issue #56's own fix).
+    Genuinely empty by default; picking zero entities is a complete no-op,
+    not a degraded mode -- see CONF_SOLVER_LOAD_FORECAST_ENTITIES's own
+    comment in const.py."""
+    return selector.EntitySelector(selector.EntitySelectorConfig(domain=domain, multiple=True))
+
+
 def _solver_battery_schema(defaults: dict[str, Any]) -> vol.Schema:
     return vol.Schema(
         {
@@ -205,6 +216,19 @@ def _solver_sources_schema(defaults: dict[str, Any]) -> vol.Schema:
             vol.Required(
                 CONF_SOLVER_LOAD_FORECAST_SENSOR, default=defaults.get(CONF_SOLVER_LOAD_FORECAST_SENSOR),
             ): _entity(),
+            # Both new, optional, real-bug-fix fields (2026-08-23, issue
+            # #56) -- blank/empty is a complete no-op on every install
+            # that doesn't set them, same suggested_value (not default=)
+            # pattern as the optional solar sources above so they can
+            # genuinely be cleared once set.
+            vol.Optional(
+                CONF_SOLVER_LOAD_FORECAST_ENTITIES,
+                description={"suggested_value": defaults.get(CONF_SOLVER_LOAD_FORECAST_ENTITIES)},
+            ): _entity_multi(),
+            vol.Optional(
+                CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR,
+                description={"suggested_value": defaults.get(CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR)},
+            ): _entity(),
         }
     )
 
@@ -237,6 +261,8 @@ _SOLVER_WIZARD_SCHEMA_KEYS = (
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_2,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_3,
     CONF_SOLVER_LOAD_FORECAST_SENSOR,
+    CONF_SOLVER_LOAD_FORECAST_ENTITIES,
+    CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR,
 )
 
 

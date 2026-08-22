@@ -129,9 +129,24 @@ async def async_run_solve(hass: HomeAssistant) -> bool:
     never raises. Called from a periodic timer (__init__.py), where one
     bad cycle must never take down the next one, and safe to call
     directly too (e.g. a future "solve now" button)."""
-    sw = _ensure_ready(hass)
 
     def _blocking() -> bool:
+        # _ensure_ready() deliberately called IN HERE, not before
+        # hass.async_add_executor_job() below (2026-08-23, real bug found
+        # live on the reference household's own first-ever restart with
+        # this feature enabled -- HA's own blocking-call detector caught
+        # solver_writer.py's module-level TOKEN_PATH file read happening
+        # ON THE EVENT LOOP, because _ensure_ready()'s own lazy `from .
+        # import solver_writer` -- which executes that module's full
+        # top-level code, including the token read, the FIRST time it's
+        # called -- was being invoked synchronously before this executor
+        # job even started. Only ever bites the very first call (every
+        # later call just returns the already-cached module, a trivial,
+        # genuinely non-blocking check) -- matches exactly one warning
+        # in the real log, not one per cycle. Moving the whole call in
+        # here means even that first-ever import (and its own blocking
+        # disk I/O) correctly happens on the worker thread.
+        sw = _ensure_ready(hass)
         if not sw.acquire_lock():
             _LOGGER.debug("Nimbus Solver: previous cycle still in progress -- skipping this one")
             return False

@@ -55,7 +55,9 @@
         "description": "Where the Solver gets its forward-looking view of what solar you'll generate and what your house will consume -- point these at your own forecast sensors (Solcast, Open-Meteo, Nimbus's own Power Signals, or anything similar that already exists on your system).",
         "data": {
           "solver_solar_forecast_sensor": "Solar generation forecast sensor (kW or kWh) -- your existing solar forecast integration",
-          "solver_load_forecast_sensor": "Household load forecast sensor (kW) -- e.g. a Nimbus Power Signal forecasting your own whole-house load"
+          "solver_load_forecast_sensor": "Household load forecast sensor (kW) -- e.g. a Nimbus Power Signal forecasting your own whole-house load",
+          "solver_load_forecast_entities": "Optional: individual circuit forecast sensors to sum instead of the single sensor above (kW each, e.g. Nimbus Power Signals for specific circuits) -- leave blank to use the sensor above",
+          "solver_whole_house_cross_check_sensor": "Optional: a real, live whole-house power sensor to sanity-check the very first forecast period against -- leave blank to skip"
         }
       }
     }

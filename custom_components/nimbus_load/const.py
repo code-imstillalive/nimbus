@@ -285,6 +285,26 @@ CONF_SOLVER_SOLAR_FORECAST_SENSOR_3: Final = "solver_solar_forecast_sensor_3"
 CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR: Final = "solver_auto_include_known_solar"
 DEFAULT_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR: Final = False
 CONF_SOLVER_LOAD_FORECAST_SENSOR: Final = "solver_load_forecast_sensor"
+# Optional, more granular alternative to the single sensor above (2026-08-23,
+# real bug found live: solver_writer.py used to hardcode a Python list of
+# ONE household's own 18 circuit-breaker forecast entities, non-empty on
+# every install, which made the config-flow-driven single-sensor fallback
+# above permanently unreachable dead code for anyone else -- see nimbus
+# repo issue #56, reported and precisely diagnosed by an independent
+# installer). Multi-entity selector, genuinely empty by default -- when
+# blank, the writer sums nothing here and falls through to
+# CONF_SOLVER_LOAD_FORECAST_SENSOR above, exactly the portable, config-
+# driven behaviour that field was always meant to provide. A household
+# that wants per-circuit summation (this project's own reference install
+# included) fills this in explicitly through the wizard; nobody else pays
+# for that sophistication by default.
+CONF_SOLVER_LOAD_FORECAST_ENTITIES: Final = "solver_load_forecast_entities"
+# Same real bug class, same issue #56: a single hardcoded cross-check
+# sensor name (this project's own sensor.cb_total_combined_power_adjusted_kw)
+# silently produced a permanently-null whole_house_cross_check_now_kw
+# attribute on every other install. Genuinely optional -- None/blank is a
+# clean no-op (the cross-check simply doesn't run), not a degraded mode.
+CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR: Final = "solver_whole_house_cross_check_sensor"
 # Economic POLICY, not hardware -- how cautious the solver should be
 # about cycling the battery. Real, non-obvious history worth remembering
 # if these are ever misconfigured: a household running this same solver
