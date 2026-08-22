@@ -75,7 +75,9 @@ class EPRResult:
     """
 
     epr: float  # dimensionless, 0.0-1.0 in the normal case (see compute_epr()'s own note on what a value outside that range would mean)
-    theoretical_maximum_yield: float  # $, j_ref - j_star -- the total value genuinely available in this window
+    theoretical_maximum_yield: (
+        float  # $, j_ref - j_star -- the total value genuinely available in this window
+    )
     value_captured: float  # $, j_ref - j_ach -- what was actually captured
     uplift_available: float  # $, j_ach - j_star -- same quantity regret.py calls R; kept as supporting detail, never the headline
 

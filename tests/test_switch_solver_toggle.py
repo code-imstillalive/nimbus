@@ -7,6 +7,7 @@ hass/entry objects, via tests/_ha_stubs.py's stand-in homeassistant.*
 modules -- the real `homeassistant` package isn't installed in this
 project's local dev environment.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -28,7 +29,9 @@ def _make_entity(key="auto_include_known_solar", default=False, options=None):
     entry = MagicMock()
     entry.entry_id = "test_entry_id"
     entry.options = options or {}
-    return NimbusSolverSwitch(entry, key, "Auto Include Known Solar", default, sw_version="9.9.9-test")
+    return NimbusSolverSwitch(
+        entry, key, "Auto Include Known Solar", default, sw_version="9.9.9-test"
+    )
 
 
 def test_entity_attribute_wiring():

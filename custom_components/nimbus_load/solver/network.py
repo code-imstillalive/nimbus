@@ -273,7 +273,15 @@ from datetime import timedelta
 import numpy as np
 from numpy.typing import NDArray
 
-from .elements import AdequacyLoadConfig, BatteryConfig, GridConfig, LoadConfig, PeriodGrid, SheddableLoadConfig, SolarConfig
+from .elements import (
+    AdequacyLoadConfig,
+    BatteryConfig,
+    GridConfig,
+    LoadConfig,
+    PeriodGrid,
+    SheddableLoadConfig,
+    SolarConfig,
+)
 from .lp import LPProblem, LPResult
 
 # Half of MIN_CHARGE_DISCHARGE_COST_SPREAD (elements.py) -- deliberately
@@ -375,7 +383,9 @@ class Plan:
         return self.status == "optimal"
 
 
-def _align_previous_periods(periods: PeriodGrid, previous_plan: Plan | None) -> dict[int, int]:
+def _align_previous_periods(
+    periods: PeriodGrid, previous_plan: Plan | None
+) -> dict[int, int]:
     """Map new-grid period index -> previous_plan period index, for every
     period whose REAL start time matches within _ALIGNMENT_TOLERANCE.
     Always returns a (possibly empty) dict, never None -- an empty dict
@@ -479,9 +489,19 @@ def _add_proximal_penalty(
         return
     for new_idx, old_idx in alignment.items():
         prev_value = float(previous_values[old_idx])
-        dev_pos = p.add_variable(f"prox_pos_{family}_{new_idx}", lb=0.0, cost=proximal_weight * hours[new_idx])
-        dev_neg = p.add_variable(f"prox_neg_{family}_{new_idx}", lb=0.0, cost=proximal_weight * hours[new_idx])
-        p.add_eq_constraint({var_names[new_idx]: 1.0, dev_pos: -1.0, dev_neg: 1.0}, prev_value)
+        dev_pos = p.add_variable(
+            f"prox_pos_{family}_{new_idx}",
+            lb=0.0,
+            cost=proximal_weight * hours[new_idx],
+        )
+        dev_neg = p.add_variable(
+            f"prox_neg_{family}_{new_idx}",
+            lb=0.0,
+            cost=proximal_weight * hours[new_idx],
+        )
+        p.add_eq_constraint(
+            {var_names[new_idx]: 1.0, dev_pos: -1.0, dev_neg: 1.0}, prev_value
+        )
 
 
 def _add_intraplan_smoothness_penalty(
@@ -523,9 +543,16 @@ def _add_intraplan_smoothness_penalty(
     if smoothness_weight <= 0.0:
         return
     for t in range(1, n):
-        dev_pos = p.add_variable(f"smooth_pos_{family}_{t}", lb=0.0, cost=smoothness_weight * hours[t])
-        dev_neg = p.add_variable(f"smooth_neg_{family}_{t}", lb=0.0, cost=smoothness_weight * hours[t])
-        p.add_eq_constraint({var_names[t]: 1.0, var_names[t - 1]: -1.0, dev_pos: -1.0, dev_neg: 1.0}, 0.0)
+        dev_pos = p.add_variable(
+            f"smooth_pos_{family}_{t}", lb=0.0, cost=smoothness_weight * hours[t]
+        )
+        dev_neg = p.add_variable(
+            f"smooth_neg_{family}_{t}", lb=0.0, cost=smoothness_weight * hours[t]
+        )
+        p.add_eq_constraint(
+            {var_names[t]: 1.0, var_names[t - 1]: -1.0, dev_pos: -1.0, dev_neg: 1.0},
+            0.0,
+        )
 
 
 def _add_rate_limit(
@@ -641,7 +668,10 @@ def build_plan(
             label = getattr(cfg, "name", cfg.__class__.__name__)
             msg = f"{label}: forecast_kw has {len(arr)} periods, expected {n} (PeriodGrid mismatch)"
             raise ValueError(msg)
-    for arr, label in ((grid.import_price, "grid.import_price"), (grid.export_price, "grid.export_price")):
+    for arr, label in (
+        (grid.import_price, "grid.import_price"),
+        (grid.export_price, "grid.export_price"),
+    ):
         if len(arr) != n:
             msg = f"{label} has {len(arr)} periods, expected {n} (PeriodGrid mismatch)"
             raise ValueError(msg)
@@ -654,10 +684,24 @@ def build_plan(
 
     p = LPProblem()
 
-    charge = [p.add_variable(f"battery_charge_{t}", lb=0.0, ub=battery.max_charge_kw) for t in range(n)]
-    discharge = [p.add_variable(f"battery_discharge_{t}", lb=0.0, ub=battery.max_discharge_kw) for t in range(n)]
-    soc = [p.add_variable(f"battery_soc_{t}", lb=battery.min_soc_kwh, ub=battery.max_soc_kwh) for t in range(n)]
-    grid_import = [p.add_variable(f"grid_import_{t}", lb=0.0, ub=grid.import_limit_kw) for t in range(n)]
+    charge = [
+        p.add_variable(f"battery_charge_{t}", lb=0.0, ub=battery.max_charge_kw)
+        for t in range(n)
+    ]
+    discharge = [
+        p.add_variable(f"battery_discharge_{t}", lb=0.0, ub=battery.max_discharge_kw)
+        for t in range(n)
+    ]
+    soc = [
+        p.add_variable(
+            f"battery_soc_{t}", lb=battery.min_soc_kwh, ub=battery.max_soc_kwh
+        )
+        for t in range(n)
+    ]
+    grid_import = [
+        p.add_variable(f"grid_import_{t}", lb=0.0, ub=grid.import_limit_kw)
+        for t in range(n)
+    ]
     # fixed_export_kw (see elements.py's own GridConfig docstring for the
     # full "P2P needs a constant, pre-committed rate, not a price-chased
     # one" finding) -- a period with a real (non-NaN) fixed value gets
@@ -672,12 +716,14 @@ def build_plan(
             f"grid_export_{t}",
             lb=(
                 float(grid.fixed_export_kw[t])
-                if grid.fixed_export_kw is not None and not np.isnan(grid.fixed_export_kw[t])
+                if grid.fixed_export_kw is not None
+                and not np.isnan(grid.fixed_export_kw[t])
                 else 0.0
             ),
             ub=(
                 float(grid.fixed_export_kw[t])
-                if grid.fixed_export_kw is not None and not np.isnan(grid.fixed_export_kw[t])
+                if grid.fixed_export_kw is not None
+                and not np.isnan(grid.fixed_export_kw[t])
                 else grid.export_limit_kw
             ),
         )
@@ -690,9 +736,14 @@ def build_plan(
     # constraint, not a variable upper bound, since grid_export[t] is
     # itself a variable not a constant); the cumulative volume cap is
     # added further below alongside the other whole-horizon constraints.
-    has_export_bonus = grid.export_bonus_price is not None and grid.export_bonus_volume_kwh is not None
+    has_export_bonus = (
+        grid.export_bonus_price is not None and grid.export_bonus_volume_kwh is not None
+    )
     export_bonus = (
-        [p.add_variable(f"export_bonus_{t}", lb=0.0, ub=grid.export_limit_kw) for t in range(n)]
+        [
+            p.add_variable(f"export_bonus_{t}", lb=0.0, ub=grid.export_limit_kw)
+            for t in range(n)
+        ]
         if has_export_bonus
         else None
     )
@@ -700,8 +751,17 @@ def build_plan(
     # Mechanism 3 (confidence-aware dispatch): solar's own EFFECTIVE
     # ceiling for what the LP can count on -- risk_aversion=0.0 or no
     # band present leaves this identical to solar.forecast_kw.
-    effective_solar_kw = _risk_adjusted(solar.forecast_kw, solar.lower_kw, solar.upper_kw, risk_aversion, conservative="lower")
-    solar_used = [p.add_variable(f"solar_used_{t}", lb=0.0, ub=float(effective_solar_kw[t])) for t in range(n)]
+    effective_solar_kw = _risk_adjusted(
+        solar.forecast_kw,
+        solar.lower_kw,
+        solar.upper_kw,
+        risk_aversion,
+        conservative="lower",
+    )
+    solar_used = [
+        p.add_variable(f"solar_used_{t}", lb=0.0, ub=float(effective_solar_kw[t]))
+        for t in range(n)
+    ]
 
     # Price-risk hedging (see this function's own docstring for the full
     # "afternoons tend to run more expensive than forecast" household
@@ -709,8 +769,18 @@ def build_plan(
     # side's own risk_aversion=0.0 or no band present leaves that side
     # identical to grid.import_price/export_price, used below in place of
     # the raw arrays wherever the LP's own cost/revenue is set.
-    effective_import_price = _risk_adjusted_one_sided(grid.import_price, grid.import_price_upper, import_price_risk_aversion, direction="up")
-    effective_export_price = _risk_adjusted_one_sided(grid.export_price, grid.export_price_lower, export_price_risk_aversion, direction="down")
+    effective_import_price = _risk_adjusted_one_sided(
+        grid.import_price,
+        grid.import_price_upper,
+        import_price_risk_aversion,
+        direction="up",
+    )
+    effective_export_price = _risk_adjusted_one_sided(
+        grid.export_price,
+        grid.export_price_lower,
+        export_price_risk_aversion,
+        direction="down",
+    )
 
     # Mechanism 3 continued: sheddable loads' own effective (pessimistic-
     # leaning) demand -- both the shed ceiling and the balance-equation
@@ -721,10 +791,19 @@ def build_plan(
     shed_vars: dict[str, list[str]] = {}
     effective_shed_forecast: dict[str, NDArray[np.float64]] = {}
     for sl in sheddable_loads:
-        eff = _risk_adjusted(sl.forecast_kw, sl.lower_kw, sl.upper_kw, risk_aversion, conservative="upper")
+        eff = _risk_adjusted(
+            sl.forecast_kw,
+            sl.lower_kw,
+            sl.upper_kw,
+            risk_aversion,
+            conservative="upper",
+        )
         effective_shed_forecast[sl.name] = eff
         max_shed = [(1.0 - sl.min_fraction) * float(eff[t]) for t in range(n)]
-        shed_vars[sl.name] = [p.add_variable(f"shed_{sl.name}_{t}", lb=0.0, ub=max_shed[t]) for t in range(n)]
+        shed_vars[sl.name] = [
+            p.add_variable(f"shed_{sl.name}_{t}", lb=0.0, ub=max_shed[t])
+            for t in range(n)
+        ]
 
     # Adequacy loads (2026-08-16, direct response to real feedback -- see
     # AdequacyLoadConfig's own docstring). No forecast at all: a power
@@ -739,7 +818,13 @@ def build_plan(
     adequacy_vars: dict[str, list[str]] = {}
     for al in adequacy_loads:
         adequacy_vars[al.name] = [
-            p.add_variable(f"adequacy_{al.name}_{t}", lb=0.0, ub=al.max_power_kw if al.earliest_period <= t <= al.deadline_period else 0.0)
+            p.add_variable(
+                f"adequacy_{al.name}_{t}",
+                lb=0.0,
+                ub=al.max_power_kw
+                if al.earliest_period <= t <= al.deadline_period
+                else 0.0,
+            )
             for t in range(n)
         ]
 
@@ -751,8 +836,12 @@ def build_plan(
     # never needs to know which form the caller passed. A caller-supplied
     # array whose own length doesn't match n raises here (a clear numpy
     # broadcast error), not silently later.
-    charge_cost_arr = np.broadcast_to(np.asarray(battery.charge_cost, dtype=np.float64), (n,))
-    discharge_cost_arr = np.broadcast_to(np.asarray(battery.discharge_cost, dtype=np.float64), (n,))
+    charge_cost_arr = np.broadcast_to(
+        np.asarray(battery.charge_cost, dtype=np.float64), (n,)
+    )
+    discharge_cost_arr = np.broadcast_to(
+        np.asarray(battery.discharge_cost, dtype=np.float64), (n,)
+    )
     # Real economic cycle-wear cost (Track B2, elements.py's own
     # degradation_cost_per_kwh -- see that field's own docstring for the
     # full "why a separate additive term, not folded into charge_cost/
@@ -763,8 +852,14 @@ def build_plan(
     for t in range(n):
         p.set_cost(grid_import[t], effective_import_price[t] * hours[t])
         p.set_cost(grid_export[t], -effective_export_price[t] * hours[t])
-        p.set_cost(charge[t], (charge_cost_arr[t] + battery.degradation_cost_per_kwh) * hours[t])
-        p.set_cost(discharge[t], (discharge_cost_arr[t] + battery.degradation_cost_per_kwh) * hours[t])
+        p.set_cost(
+            charge[t],
+            (charge_cost_arr[t] + battery.degradation_cost_per_kwh) * hours[t],
+        )
+        p.set_cost(
+            discharge[t],
+            (discharge_cost_arr[t] + battery.degradation_cost_per_kwh) * hours[t],
+        )
         for sl in sheddable_loads:
             p.set_cost(shed_vars[sl.name][t], sl.shed_cost * hours[t])
     # Two-tier export bonus (see elements.py's own GridConfig docstring):
@@ -811,7 +906,9 @@ def build_plan(
                 -battery.min_soc_kwh,
                 name=f"terminal_value_segments_fill_{idx}",
             )
-            for seg, (_width, rate) in zip(seg_vars, battery.terminal_value_breakpoints, strict=True):
+            for seg, (_width, rate) in zip(
+                seg_vars, battery.terminal_value_breakpoints, strict=True
+            ):
                 p.set_cost(seg, -rate)
     else:
         # Salvage value: a one-time credit on the FINAL period's soc -- without
@@ -835,19 +932,31 @@ def build_plan(
 
     # ---- Stability mechanisms 1 & 2 (see module docstring) ----
     prev_charge = previous_plan.battery_charge_kw if previous_plan is not None else None
-    prev_discharge = previous_plan.battery_discharge_kw if previous_plan is not None else None
-    prev_grid_import = previous_plan.grid_import_kw if previous_plan is not None else None
-    prev_grid_export = previous_plan.grid_export_kw if previous_plan is not None else None
+    prev_discharge = (
+        previous_plan.battery_discharge_kw if previous_plan is not None else None
+    )
+    prev_grid_import = (
+        previous_plan.grid_import_kw if previous_plan is not None else None
+    )
+    prev_grid_export = (
+        previous_plan.grid_export_kw if previous_plan is not None else None
+    )
     for var_names, family, prev_values in (
         (charge, "charge", prev_charge),
         (discharge, "discharge", prev_discharge),
         (grid_import, "grid_import", prev_grid_import),
         (grid_export, "grid_export", prev_grid_export),
     ):
-        _add_proximal_penalty(p, var_names, family, alignment, prev_values, hours, proximal_weight)
+        _add_proximal_penalty(
+            p, var_names, family, alignment, prev_values, hours, proximal_weight
+        )
         if max_rate_kw is not None:
-            _add_rate_limit(p, var_names, family, n, alignment, prev_values, max_rate_kw)
-        _add_intraplan_smoothness_penalty(p, var_names, family, n, hours, smoothness_weight)
+            _add_rate_limit(
+                p, var_names, family, n, alignment, prev_values, max_rate_kw
+            )
+        _add_intraplan_smoothness_penalty(
+            p, var_names, family, n, hours, smoothness_weight
+        )
 
     # ---- SoC dynamics ----
     for t in range(n):
@@ -868,7 +977,13 @@ def build_plan(
     # leaning) demand -- see the shed-load treatment above, same reasoning.
     plain_load_total = np.zeros(n)
     for load in loads:
-        plain_load_total += _risk_adjusted(load.forecast_kw, load.lower_kw, load.upper_kw, risk_aversion, conservative="upper")
+        plain_load_total += _risk_adjusted(
+            load.forecast_kw,
+            load.lower_kw,
+            load.upper_kw,
+            risk_aversion,
+            conservative="upper",
+        )
 
     for t in range(n):
         terms = {
@@ -913,7 +1028,9 @@ def build_plan(
         # (1) Direct grid pathway: export can only be funded by real
         # solar surplus or genuine battery discharge, never a same-period
         # grid_import[t] -- grid_export[t] - solar_used[t] - discharge[t] <= 0.
-        p.add_ub_constraint({grid_export[t]: 1.0, solar_used[t]: -1.0, discharge[t]: -1.0}, 0.0)
+        p.add_ub_constraint(
+            {grid_export[t]: 1.0, solar_used[t]: -1.0, discharge[t]: -1.0}, 0.0
+        )
         # (2) Battery-routed pathway: discharge[t] can only draw on SoC
         # that genuinely existed BEFORE this period's own charging, never
         # energy added within the same period -- discharge[t]*hours[t]/
@@ -922,9 +1039,14 @@ def build_plan(
         # moves straight to the RHS rather than needing a variable term).
         draw_coeff = hours[t] / battery.discharge_efficiency
         if t == 0:
-            p.add_ub_constraint({discharge[t]: draw_coeff}, battery.initial_soc_kwh - battery.min_soc_kwh)
+            p.add_ub_constraint(
+                {discharge[t]: draw_coeff},
+                battery.initial_soc_kwh - battery.min_soc_kwh,
+            )
         else:
-            p.add_ub_constraint({discharge[t]: draw_coeff, soc[t - 1]: -1.0}, -battery.min_soc_kwh)
+            p.add_ub_constraint(
+                {discharge[t]: draw_coeff, soc[t - 1]: -1.0}, -battery.min_soc_kwh
+            )
         # (3) Two-tier export bonus (see elements.py's own GridConfig
         # docstring): export_bonus[t] can never exceed that SAME period's
         # real total export[t] -- can't claim bonus volume for export
@@ -954,20 +1076,27 @@ def build_plan(
     # same convention as the wash-trade-prevention constraint (2) just
     # above -- moves straight to the RHS rather than needing a variable
     # term.
-    for var_list, curve in ((charge, battery.charge_power_curve), (discharge, battery.discharge_power_curve)):
+    for var_list, curve in (
+        (charge, battery.charge_power_curve),
+        (discharge, battery.discharge_power_curve),
+    ):
         if curve is None:
             continue
         socs = [s for s, _pw in curve]
         powers = [pw for _s, pw in curve]
         for seg_i in range(len(curve) - 1):
-            slope = (powers[seg_i + 1] - powers[seg_i]) / (socs[seg_i + 1] - socs[seg_i])
+            slope = (powers[seg_i + 1] - powers[seg_i]) / (
+                socs[seg_i + 1] - socs[seg_i]
+            )
             intercept = powers[seg_i] - slope * socs[seg_i]
             for t in range(n):
                 if t == 0:
                     rhs = intercept + slope * battery.initial_soc_kwh
                     p.add_ub_constraint({var_list[t]: 1.0}, rhs)
                 else:
-                    p.add_ub_constraint({var_list[t]: 1.0, soc[t - 1]: -slope}, intercept)
+                    p.add_ub_constraint(
+                        {var_list[t]: 1.0, soc[t - 1]: -slope}, intercept
+                    )
 
     # ---- Adequacy deadline constraints -- one inequality per adequacy
     # load, NOT per period: cumulative energy delivered through the
@@ -1063,7 +1192,11 @@ def build_plan(
         _TIE_BREAK_EPSILON = 1e-7  # $, per day-local rank step
         if starts is None:
             terms = {export_bonus[t]: hours[t] for t in range(n)}
-            p.add_ub_constraint(terms, float(grid.export_bonus_volume_kwh), name="export_bonus_cap_global")
+            p.add_ub_constraint(
+                terms,
+                float(grid.export_bonus_volume_kwh),
+                name="export_bonus_cap_global",
+            )
             for t in range(n):
                 p.set_cost(export_bonus[t], -_TIE_BREAK_EPSILON * (t + 1))
         else:
@@ -1080,7 +1213,9 @@ def build_plan(
             for day_date, day_indices in by_day.items():
                 terms = {export_bonus[t]: hours[t] for t in day_indices}
                 p.add_ub_constraint(
-                    terms, float(grid.export_bonus_volume_kwh), name=f"export_bonus_cap_{day_date.isoformat()}"
+                    terms,
+                    float(grid.export_bonus_volume_kwh),
+                    name=f"export_bonus_cap_{day_date.isoformat()}",
                 )
                 # Same tie-breaker, scoped to THIS day's own periods only
                 # (day-local rank, not a raw global period index) -- keeps
@@ -1114,7 +1249,10 @@ def build_plan(
             name=al.name,
             power_kw=(power_arr := _get(adequacy_vars[al.name])),
             delivered_by_deadline_kwh=float(
-                np.sum(power_arr[al.earliest_period : al.deadline_period + 1] * hours[al.earliest_period : al.deadline_period + 1])
+                np.sum(
+                    power_arr[al.earliest_period : al.deadline_period + 1]
+                    * hours[al.earliest_period : al.deadline_period + 1]
+                )
             ),
         )
         for al in adequacy_loads

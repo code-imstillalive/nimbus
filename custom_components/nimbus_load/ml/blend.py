@@ -71,7 +71,9 @@ def weights_from_mae(maes: list[float | None]) -> list[float]:
     return [w / total for w in inv]
 
 
-def blend_point_estimate(values: list[float], weights: list[float] | None = None) -> float:
+def blend_point_estimate(
+    values: list[float], weights: list[float] | None = None
+) -> float:
     """Weighted average of several sources' point estimates for the same
     quantity right now. `weights=None` (the default) is equal-weight --
     the honest bootstrap case, see this module's own docstring."""
@@ -86,7 +88,9 @@ def blend_point_estimate(values: list[float], weights: list[float] | None = None
     return float(np.average(values, weights=weights))
 
 
-def blend_forecast_array(arrays: list[NDArray[np.float64]], weights: list[float] | None = None) -> NDArray[np.float64]:
+def blend_forecast_array(
+    arrays: list[NDArray[np.float64]], weights: list[float] | None = None
+) -> NDArray[np.float64]:
     """Same as blend_point_estimate(), elementwise, for several sources'
     own full {time, value} forecast arrays that are already aligned to
     the same real timestamps (alignment/resampling across genuinely

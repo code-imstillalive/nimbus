@@ -21,6 +21,7 @@ against real solved output, not assumed -- two real test-design
 mistakes were found and fixed along the way (documented inline at the
 scenario's own definition below) before the numbers here were trusted.
 """
+
 import unittest
 
 import _solver_path  # noqa: F401
@@ -35,9 +36,17 @@ def _flat_grid(n: int, hours: float = 1.0) -> PeriodGrid:
 
 def _base_battery(**overrides) -> BatteryConfig:
     defaults = dict(
-        capacity_kwh=100.0, initial_soc_kwh=5.0, min_soc_kwh=5.0, max_soc_kwh=100.0,
-        max_charge_kw=20.0, max_discharge_kw=20.0, charge_efficiency=0.99, discharge_efficiency=0.99,
-        charge_cost=0.01, discharge_cost=0.01, salvage_value=0.0,
+        capacity_kwh=100.0,
+        initial_soc_kwh=5.0,
+        min_soc_kwh=5.0,
+        max_soc_kwh=100.0,
+        max_charge_kw=20.0,
+        max_discharge_kw=20.0,
+        charge_efficiency=0.99,
+        discharge_efficiency=0.99,
+        charge_cost=0.01,
+        discharge_cost=0.01,
+        salvage_value=0.0,
     )
     defaults.update(overrides)
     return BatteryConfig(**defaults)
@@ -75,7 +84,8 @@ def _hedging_grid() -> GridConfig:
     return GridConfig(
         import_price=np.array([0.05, 0.05, 0.50, 0.50]),
         export_price=np.array([0.0, 0.0, 0.0, 0.0]),
-        import_limit_kw=50.0, export_limit_kw=50.0,
+        import_limit_kw=50.0,
+        export_limit_kw=50.0,
     )
 
 
@@ -99,9 +109,13 @@ class TestValidation(unittest.TestCase):
     def _solve(self, **overrides):
         n = 4
         kwargs = dict(
-            periods=_flat_grid(n), grid=_hedging_grid(), battery=_base_battery(),
-            solar_scenarios=[_SUNNY, _CLOUDY], scenario_weights=[0.5, 0.5],
-            stochastic_start_period=2, load_kw=_LOAD,
+            periods=_flat_grid(n),
+            grid=_hedging_grid(),
+            battery=_base_battery(),
+            solar_scenarios=[_SUNNY, _CLOUDY],
+            scenario_weights=[0.5, 0.5],
+            stochastic_start_period=2,
+            load_kw=_LOAD,
         )
         kwargs.update(overrides)
         return build_stochastic_plan(**kwargs)
@@ -124,12 +138,16 @@ class TestValidation(unittest.TestCase):
 
     def test_branch_point_out_of_range_rejected(self):
         with self.assertRaises(ValueError):
-            self._solve(stochastic_start_period=4)  # must be < n, stage 2 needs >=1 period
+            self._solve(
+                stochastic_start_period=4
+            )  # must be < n, stage 2 needs >=1 period
         with self.assertRaises(ValueError):
             self._solve(stochastic_start_period=-1)
 
     def test_scenarios_disagreeing_before_branch_point_rejected(self):
-        diverges_early = np.array([1.0, 0.0, 0.0, 0.0])  # differs from _SUNNY at t=0, before the branch
+        diverges_early = np.array(
+            [1.0, 0.0, 0.0, 0.0]
+        )  # differs from _SUNNY at t=0, before the branch
         with self.assertRaises(ValueError):
             self._solve(solar_scenarios=[_SUNNY, diverges_early])
 
@@ -142,9 +160,13 @@ class TestGenuineHedgingBehaviour(unittest.TestCase):
 
     def _precharge(self, weight_cloudy: float) -> float:
         plan = build_stochastic_plan(
-            periods=_flat_grid(4), grid=_hedging_grid(), battery=_base_battery(),
-            solar_scenarios=[_SUNNY, _CLOUDY], scenario_weights=[1.0 - weight_cloudy, weight_cloudy],
-            stochastic_start_period=2, load_kw=_LOAD,
+            periods=_flat_grid(4),
+            grid=_hedging_grid(),
+            battery=_base_battery(),
+            solar_scenarios=[_SUNNY, _CLOUDY],
+            scenario_weights=[1.0 - weight_cloudy, weight_cloudy],
+            stochastic_start_period=2,
+            load_kw=_LOAD,
         )
         self.assertEqual(plan.status, "optimal")
         return float(sum(plan.stage1_charge_kw))
@@ -157,7 +179,9 @@ class TestGenuineHedgingBehaviour(unittest.TestCase):
     def test_full_hedge_above_breakeven(self):
         for w in (_BREAKEVEN_WEIGHT + 0.01, 0.15, 0.5, 1.0):
             with self.subTest(weight_cloudy=w):
-                self.assertAlmostEqual(self._precharge(w), _FULL_PRECHARGE_KWH, places=3)
+                self.assertAlmostEqual(
+                    self._precharge(w), _FULL_PRECHARGE_KWH, places=3
+                )
 
     def test_stage1_is_a_single_shared_decision_not_per_scenario(self):
         """Structural proof, not just behavioural -- stage1_charge_kw is
@@ -166,9 +190,13 @@ class TestGenuineHedgingBehaviour(unittest.TestCase):
         shared set of variables (real two-stage structure), not
         secretly duplicated per scenario."""
         plan = build_stochastic_plan(
-            periods=_flat_grid(4), grid=_hedging_grid(), battery=_base_battery(),
-            solar_scenarios=[_SUNNY, _CLOUDY], scenario_weights=[0.5, 0.5],
-            stochastic_start_period=2, load_kw=_LOAD,
+            periods=_flat_grid(4),
+            grid=_hedging_grid(),
+            battery=_base_battery(),
+            solar_scenarios=[_SUNNY, _CLOUDY],
+            scenario_weights=[0.5, 0.5],
+            stochastic_start_period=2,
+            load_kw=_LOAD,
         )
         self.assertEqual(len(plan.stage1_charge_kw), 2)
         self.assertEqual(len(plan.stage2_charge_kw), 2)  # one array per scenario
@@ -191,9 +219,13 @@ class TestSalvageValueOnlyAtTrueHorizonEnd(unittest.TestCase):
         # credit at the wrong (intermediate) period.
         battery = _base_battery(salvage_value=0.05)
         plan = build_stochastic_plan(
-            periods=_flat_grid(4), grid=_hedging_grid(), battery=battery,
-            solar_scenarios=[_SUNNY, _CLOUDY], scenario_weights=[1.0, 0.0],
-            stochastic_start_period=2, load_kw=_LOAD,
+            periods=_flat_grid(4),
+            grid=_hedging_grid(),
+            battery=battery,
+            solar_scenarios=[_SUNNY, _CLOUDY],
+            scenario_weights=[1.0, 0.0],
+            stochastic_start_period=2,
+            load_kw=_LOAD,
         )
         self.assertEqual(plan.status, "optimal")
         self.assertAlmostEqual(sum(plan.stage1_charge_kw), 0.0, places=3)

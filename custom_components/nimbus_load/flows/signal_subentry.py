@@ -23,7 +23,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from homeassistant.config_entries import SOURCE_RECONFIGURE, ConfigSubentryFlow, SubentryFlowResult
+from homeassistant.config_entries import (
+    SOURCE_RECONFIGURE,
+    ConfigSubentryFlow,
+    SubentryFlowResult,
+)
 from homeassistant.helpers import selector
 import voluptuous as vol
 
@@ -42,7 +46,11 @@ class NimbusSignalSubentryFlowHandler(ConfigSubentryFlow):
         Assistant routes a reconfigure through this same method, not a
         separate async_step_reconfigure invocation, for subentry flows.
         """
-        subentry = self._get_reconfigure_subentry() if self.source == SOURCE_RECONFIGURE else None
+        subentry = (
+            self._get_reconfigure_subentry()
+            if self.source == SOURCE_RECONFIGURE
+            else None
+        )
         return await self._async_step(user_input, subentry=subentry)
 
     async def async_step_reconfigure(
@@ -73,7 +81,9 @@ class NimbusSignalSubentryFlowHandler(ConfigSubentryFlow):
             {
                 vol.Required(
                     CONF_LOAD_SENSOR, default=current_data.get(CONF_LOAD_SENSOR)
-                ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(domain="sensor")
+                )
             }
         )
         return self.async_show_form(step_id="user", data_schema=schema)

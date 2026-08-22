@@ -29,6 +29,7 @@ Every expected numeric value below is hand-derived first, then
 confirmed against a real local solve before being written down --
 same discipline as test_solver_battery_power_curve.py.
 """
+
 import unittest
 
 import _solver_path  # noqa: F401
@@ -51,9 +52,17 @@ def _base_battery(**overrides) -> BatteryConfig:
     # isolate. Starting empty forces any real discharge to have been
     # funded by a real, priced charge earlier in the same horizon.
     defaults = dict(
-        capacity_kwh=100.0, initial_soc_kwh=5.0, min_soc_kwh=5.0, max_soc_kwh=100.0,
-        max_charge_kw=20.0, max_discharge_kw=20.0, charge_efficiency=0.95, discharge_efficiency=0.95,
-        charge_cost=0.01, discharge_cost=0.02, salvage_value=0.0,
+        capacity_kwh=100.0,
+        initial_soc_kwh=5.0,
+        min_soc_kwh=5.0,
+        max_soc_kwh=100.0,
+        max_charge_kw=20.0,
+        max_discharge_kw=20.0,
+        charge_efficiency=0.95,
+        discharge_efficiency=0.95,
+        charge_cost=0.01,
+        discharge_cost=0.02,
+        salvage_value=0.0,
     )
     defaults.update(overrides)
     return BatteryConfig(**defaults)
@@ -67,7 +76,12 @@ def _base_battery(**overrides) -> BatteryConfig:
 def _arbitrage_grid(n: int = 2) -> GridConfig:
     import_price = np.array([0.05, 0.40])
     export_price = np.array([0.05, 0.40])
-    return GridConfig(import_price=import_price, export_price=export_price, import_limit_kw=50.0, export_limit_kw=50.0)
+    return GridConfig(
+        import_price=import_price,
+        export_price=export_price,
+        import_limit_kw=50.0,
+        export_limit_kw=50.0,
+    )
 
 
 class TestBackwardCompatibility(unittest.TestCase):
@@ -76,13 +90,30 @@ class TestBackwardCompatibility(unittest.TestCase):
         periods = _flat_grid(n)
         grid = _arbitrage_grid(n)
         solar = SolarConfig(forecast_kw=np.zeros(n))
-        plan_default = build_plan(periods=periods, grid=grid, battery=_base_battery(), solar=solar)
-        plan_explicit = build_plan(periods=periods, grid=grid, battery=_base_battery(degradation_cost_per_kwh=0.0), solar=solar)
+        plan_default = build_plan(
+            periods=periods, grid=grid, battery=_base_battery(), solar=solar
+        )
+        plan_explicit = build_plan(
+            periods=periods,
+            grid=grid,
+            battery=_base_battery(degradation_cost_per_kwh=0.0),
+            solar=solar,
+        )
         self.assertEqual(plan_default.status, "optimal")
-        self.assertAlmostEqual(plan_default.total_cost, plan_explicit.total_cost, places=6)
+        self.assertAlmostEqual(
+            plan_default.total_cost, plan_explicit.total_cost, places=6
+        )
         for t in range(n):
-            self.assertAlmostEqual(plan_default.battery_charge_kw[t], plan_explicit.battery_charge_kw[t], places=6)
-            self.assertAlmostEqual(plan_default.battery_discharge_kw[t], plan_explicit.battery_discharge_kw[t], places=6)
+            self.assertAlmostEqual(
+                plan_default.battery_charge_kw[t],
+                plan_explicit.battery_charge_kw[t],
+                places=6,
+            )
+            self.assertAlmostEqual(
+                plan_default.battery_discharge_kw[t],
+                plan_explicit.battery_discharge_kw[t],
+                places=6,
+            )
 
 
 class TestValidation(unittest.TestCase):
@@ -107,8 +138,15 @@ class TestModerateDegradationCostPaidNotJustConfigured(unittest.TestCase):
         periods = _flat_grid(n)
         grid = _arbitrage_grid(n)
         solar = SolarConfig(forecast_kw=np.zeros(n))
-        plan_zero = build_plan(periods=periods, grid=grid, battery=_base_battery(), solar=solar)
-        plan_moderate = build_plan(periods=periods, grid=grid, battery=_base_battery(degradation_cost_per_kwh=0.05), solar=solar)
+        plan_zero = build_plan(
+            periods=periods, grid=grid, battery=_base_battery(), solar=solar
+        )
+        plan_moderate = build_plan(
+            periods=periods,
+            grid=grid,
+            battery=_base_battery(degradation_cost_per_kwh=0.05),
+            solar=solar,
+        )
         self.assertEqual(plan_zero.status, "optimal")
         self.assertEqual(plan_moderate.status, "optimal")
 
@@ -127,13 +165,23 @@ class TestModerateDegradationCostPaidNotJustConfigured(unittest.TestCase):
         # Same physical dispatch under moderate degradation -- proves the
         # cost didn't change WHAT the LP does here, only what it costs.
         for t in range(n):
-            self.assertAlmostEqual(plan_zero.battery_charge_kw[t], plan_moderate.battery_charge_kw[t], places=3)
-            self.assertAlmostEqual(plan_zero.battery_discharge_kw[t], plan_moderate.battery_discharge_kw[t], places=3)
+            self.assertAlmostEqual(
+                plan_zero.battery_charge_kw[t],
+                plan_moderate.battery_charge_kw[t],
+                places=3,
+            )
+            self.assertAlmostEqual(
+                plan_zero.battery_discharge_kw[t],
+                plan_moderate.battery_discharge_kw[t],
+                places=3,
+            )
 
         expected_extra_cost = (total_charge_kwh + total_discharge_kwh) * 0.05
         actual_extra_cost = plan_moderate.total_cost - plan_zero.total_cost
         self.assertAlmostEqual(actual_extra_cost, expected_extra_cost, places=3)
-        self.assertGreater(actual_extra_cost, 0.0)  # a real, positive extra cost, not zero
+        self.assertGreater(
+            actual_extra_cost, 0.0
+        )  # a real, positive extra cost, not zero
 
 
 class TestLargeDegradationCostStopsCycling(unittest.TestCase):
@@ -151,9 +199,16 @@ class TestLargeDegradationCostStopsCycling(unittest.TestCase):
         solar = SolarConfig(forecast_kw=np.zeros(n))
         # 1.0/kWh each direction -- 2.0/kWh round trip, far exceeding the
         # real 0.35/kWh export-import spread even before efficiency loss.
-        plan_large = build_plan(periods=periods, grid=grid, battery=_base_battery(degradation_cost_per_kwh=1.0), solar=solar)
+        plan_large = build_plan(
+            periods=periods,
+            grid=grid,
+            battery=_base_battery(degradation_cost_per_kwh=1.0),
+            solar=solar,
+        )
         self.assertEqual(plan_large.status, "optimal")
-        total_throughput = sum(plan_large.battery_charge_kw) + sum(plan_large.battery_discharge_kw)
+        total_throughput = sum(plan_large.battery_charge_kw) + sum(
+            plan_large.battery_discharge_kw
+        )
         # Genuinely near zero, not just "reduced" -- confirms the cost is
         # large enough to make cycling a real net loss, not merely a
         # smaller-but-still-positive gain.

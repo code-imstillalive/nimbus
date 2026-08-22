@@ -41,7 +41,9 @@ _FORECASTABLE_SUBENTRY_TYPES = (SUBENTRY_TYPE_LOAD, SUBENTRY_TYPE_SIGNAL)
 _LOGGER = logging.getLogger(__name__)
 
 
-async def _async_rename_stale_forecast_entities(hass: HomeAssistant, entry: NimbusConfigEntry) -> None:
+async def _async_rename_stale_forecast_entities(
+    hass: HomeAssistant, entry: NimbusConfigEntry
+) -> None:
     """A load/signal subentry's forecast entity_id is derived from its
     CURRENT source sensor at CREATION time (sensor.py's own
     object_id_from_source(), used in NimbusForecastSensor.__init__) but
@@ -83,12 +85,18 @@ async def _async_rename_stale_forecast_entities(hass: HomeAssistant, entry: Nimb
     for subentry in entry.subentries.values():
         if subentry.subentry_type not in _FORECASTABLE_SUBENTRY_TYPES:
             continue
-        suffix = "_signal_forecast" if subentry.subentry_type == SUBENTRY_TYPE_SIGNAL else "_load_forecast"
+        suffix = (
+            "_signal_forecast"
+            if subentry.subentry_type == SUBENTRY_TYPE_SIGNAL
+            else "_load_forecast"
+        )
         unique_id = f"{subentry.subentry_id}{suffix}"
         current_entity_id = registry.async_get_entity_id("sensor", DOMAIN, unique_id)
         if current_entity_id is None:
             continue
-        correct_entity_id = f"sensor.{object_id_from_source(subentry.data[CONF_LOAD_SENSOR])}"
+        correct_entity_id = (
+            f"sensor.{object_id_from_source(subentry.data[CONF_LOAD_SENSOR])}"
+        )
         if current_entity_id == correct_entity_id:
             continue
         if registry.async_get(correct_entity_id) is not None:
@@ -96,12 +104,14 @@ async def _async_rename_stale_forecast_entities(hass: HomeAssistant, entry: Nimb
                 "Nimbus: %s should rename to %s (source sensor was reconfigured) "
                 "but that entity_id is already taken by something else -- leaving "
                 "the old name in place rather than risk a collision",
-                current_entity_id, correct_entity_id,
+                current_entity_id,
+                correct_entity_id,
             )
             continue
         _LOGGER.info(
             "Nimbus: renaming %s -> %s (source sensor was reconfigured)",
-            current_entity_id, correct_entity_id,
+            current_entity_id,
+            correct_entity_id,
         )
         registry.async_update_entity(current_entity_id, new_entity_id=correct_entity_id)
 
@@ -125,10 +135,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: NimbusConfigEntry) -> bo
         # level reasoning: cosmetic entity-naming drift is real but never
         # worth taking the whole hub down over if something unexpected
         # happens here. Logged loudly, not silently swallowed.
-        _LOGGER.exception("Nimbus: stale forecast entity_id rename check failed, continuing setup anyway")
+        _LOGGER.exception(
+            "Nimbus: stale forecast entity_id rename check failed, continuing setup anyway"
+        )
 
     forecastable_subentries = [
-        s for s in entry.subentries.values() if s.subentry_type in _FORECASTABLE_SUBENTRY_TYPES
+        s
+        for s in entry.subentries.values()
+        if s.subentry_type in _FORECASTABLE_SUBENTRY_TYPES
     ]
 
     coordinators: dict[str, NimbusCoordinator] = {}
@@ -156,7 +170,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: NimbusConfigEntry) -> bo
     async def _periodic_solve(now) -> None:
         await solver_runtime.async_run_solve(hass)
 
-    entry.async_on_unload(async_track_time_interval(hass, _periodic_solve, _SOLVER_INTERVAL))
+    entry.async_on_unload(
+        async_track_time_interval(hass, _periodic_solve, _SOLVER_INTERVAL)
+    )
     # One immediate cycle at setup too, in the background -- so a fresh
     # install (or a restart) doesn't sit with an empty forecast for up to
     # a full _SOLVER_INTERVAL before anything shows up.

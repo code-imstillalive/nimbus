@@ -133,7 +133,9 @@ class LPProblem:
     _ub_row_names: list[str | None] = field(default_factory=list)
     _eq_row_names: list[str | None] = field(default_factory=list)
 
-    def add_variable(self, name: str, *, lb: float = 0.0, ub: float = float("inf"), cost: float = 0.0) -> str:
+    def add_variable(
+        self, name: str, *, lb: float = 0.0, ub: float = float("inf"), cost: float = 0.0
+    ) -> str:
         """Register a new variable. Returns `name` unchanged, so this can be
         chained inline where a variable is first used (`x = p.add_variable(...)`).
         Raises if `name` is already registered -- a silent overwrite here
@@ -166,7 +168,9 @@ class LPProblem:
             raise KeyError(name)
         self._cost[name] = self._cost.get(name, 0.0) + cost
 
-    def add_ub_constraint(self, terms: dict[str, float], rhs: float, *, name: str | None = None) -> None:
+    def add_ub_constraint(
+        self, terms: dict[str, float], rhs: float, *, name: str | None = None
+    ) -> None:
         """sum(coef * var for var, coef in terms) <= rhs.
 
         `name` (2026-08-18, optional, backward compatible) tags this row so
@@ -180,7 +184,9 @@ class LPProblem:
         self._ub_rows.append((dict(terms), rhs))
         self._ub_row_names.append(name)
 
-    def add_eq_constraint(self, terms: dict[str, float], rhs: float, *, name: str | None = None) -> None:
+    def add_eq_constraint(
+        self, terms: dict[str, float], rhs: float, *, name: str | None = None
+    ) -> None:
         """sum(coef * var for var, coef in terms) == rhs. This is the
         mechanism every real power-balance constraint (§ network.py) uses --
         "power in equals power out at this node, this period" is always an
@@ -271,10 +277,14 @@ def _solve_highs(problem: LPProblem) -> LPResult:
     ] + [given or f"eq_{i}" for i, given in enumerate(problem._eq_row_names)]
 
     for terms, rhs in problem._ub_rows:
-        expr = highspy.Highs.qsum(coef * var_array[problem._var_index[name]] for name, coef in terms.items())
+        expr = highspy.Highs.qsum(
+            coef * var_array[problem._var_index[name]] for name, coef in terms.items()
+        )
         h.addConstr(expr <= rhs)
     for terms, rhs in problem._eq_rows:
-        expr = highspy.Highs.qsum(coef * var_array[problem._var_index[name]] for name, coef in terms.items())
+        expr = highspy.Highs.qsum(
+            coef * var_array[problem._var_index[name]] for name, coef in terms.items()
+        )
         h.addConstr(expr == rhs)
 
     # Dense-style cost expression (every variable, defaulting missing
@@ -284,7 +294,8 @@ def _solve_highs(problem: LPProblem) -> LPResult:
     # never an empty one, regardless of whether ANY set_cost() call was
     # ever actually made for this particular problem.
     cost_expr = highspy.Highs.qsum(
-        problem._cost.get(name, 0.0) * var_array[i] for i, name in enumerate(problem._var_names)
+        problem._cost.get(name, 0.0) * var_array[i]
+        for i, name in enumerate(problem._var_names)
     )
     h.minimize(cost_expr)
 

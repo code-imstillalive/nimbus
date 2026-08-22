@@ -301,7 +301,9 @@ def resample_last_value(
     return out
 
 
-def _build_grid(start: datetime, end: datetime, resample_minutes: int) -> list[datetime]:
+def _build_grid(
+    start: datetime, end: datetime, resample_minutes: int
+) -> list[datetime]:
     step = timedelta(minutes=resample_minutes)
     grid = []
     t = start
@@ -312,7 +314,10 @@ def _build_grid(start: datetime, end: datetime, resample_minutes: int) -> list[d
 
 
 def _knn_predict_batch(
-    x_mean: np.ndarray, x_std: np.ndarray, x_train: np.ndarray, y_train: np.ndarray,
+    x_mean: np.ndarray,
+    x_std: np.ndarray,
+    x_train: np.ndarray,
+    y_train: np.ndarray,
     x_query_raw: np.ndarray,
 ) -> np.ndarray:
     x_query_std = (x_query_raw - x_mean) / x_std
@@ -427,16 +432,26 @@ def train_model(
     for (wd, hr, mb), vs in seasonal_sums.items():
         hour_mean = sum(hour_sums[hr]) / len(hour_sums[hr])
         n = len(vs)
-        seasonal_lookup[(wd, hr, mb)] = (sum(vs) + SHRINKAGE_K * hour_mean) / (n + SHRINKAGE_K)
-    temp_vals = resample_last_value(temp_events, grid) if temp_events else [None] * len(grid)
+        seasonal_lookup[(wd, hr, mb)] = (sum(vs) + SHRINKAGE_K * hour_mean) / (
+            n + SHRINKAGE_K
+        )
+    temp_vals = (
+        resample_last_value(temp_events, grid) if temp_events else [None] * len(grid)
+    )
     humidity_vals = (
-        resample_last_value(humidity_events, grid) if humidity_events else [None] * len(grid)
+        resample_last_value(humidity_events, grid)
+        if humidity_events
+        else [None] * len(grid)
     )
     curtailment_vals = (
-        resample_last_value(curtailment_events, grid) if curtailment_events else [None] * len(grid)
+        resample_last_value(curtailment_events, grid)
+        if curtailment_events
+        else [None] * len(grid)
     )
     battery_vals = (
-        resample_last_value(battery_events, grid) if battery_events else [None] * len(grid)
+        resample_last_value(battery_events, grid)
+        if battery_events
+        else [None] * len(grid)
     )
     grid_vals = (
         resample_last_value(grid_events, grid) if grid_events else [None] * len(grid)
@@ -470,10 +485,21 @@ def train_model(
         bv = battery_vals[i] if battery_vals[i] is not None else 0.0
         gv = grid_vals[i] if grid_vals[i] is not None else 0.0
         sv = solar_vals[i] if solar_vals[i] is not None else 0.0
-        x_rows.append(build_features(
-            grid[i], tv, hv, lag_short_v, lag_long_v, cv,
-            schedule_start_hour, schedule_end_hour, bv, gv, sv,
-        ))
+        x_rows.append(
+            build_features(
+                grid[i],
+                tv,
+                hv,
+                lag_short_v,
+                lag_long_v,
+                cv,
+                schedule_start_hour,
+                schedule_end_hour,
+                bv,
+                gv,
+                sv,
+            )
+        )
         y_vals.append(lv)
         grid_indices.append(i)
         lag_long_vals.append(lag_long_v)
@@ -481,7 +507,8 @@ def train_model(
     if len(x_rows) < min_training_points:
         _LOGGER.warning(
             "Only %d usable training points (need >= %d) -- skipping this cycle.",
-            len(x_rows), min_training_points,
+            len(x_rows),
+            min_training_points,
         )
         return None
 
@@ -495,7 +522,9 @@ def train_model(
     # the grid itself is, so a plain index cut is a real chronological
     # split, not a random one.
     split = int(len(x_all) * (1 - VALIDATION_HOLDOUT_FRACTION))
-    split = max(split, min_training_points // 2)  # keep a real training set even on a small window
+    split = max(
+        split, min_training_points // 2
+    )  # keep a real training set even on a small window
     x_tr, y_tr = x_all[:split], y_all[:split]
     x_val, y_val = x_all[split:], y_all[split:]
     grid_idx_tr, grid_idx_val = grid_idx_all[:split], grid_idx_all[split:]
@@ -508,7 +537,9 @@ def train_model(
 
     validation_mae: dict[str, float] = {}
     validation_mase: dict[str, float] = {}
-    model_type = "knn"  # safe default if validation set is too small to compare meaningfully
+    model_type = (
+        "knn"  # safe default if validation set is too small to compare meaningfully
+    )
     gbrt_lower_final: GBRT | None = None
     gbrt_upper_final: GBRT | None = None
 
@@ -530,11 +561,16 @@ def train_model(
         validation_mae["knn"] = _mae(y_val, knn_val_pred)
 
         gbrt_val = GBRT(
-            n_estimators=GBRT_N_ESTIMATORS, max_depth=GBRT_MAX_DEPTH,
-            learning_rate=GBRT_LEARNING_RATE, min_samples_leaf=GBRT_MIN_SAMPLES_LEAF,
+            n_estimators=GBRT_N_ESTIMATORS,
+            max_depth=GBRT_MAX_DEPTH,
+            learning_rate=GBRT_LEARNING_RATE,
+            min_samples_leaf=GBRT_MIN_SAMPLES_LEAF,
         )
         gbrt_val.fit(
-            x_tr_std, y_tr, x_val=x_val_std, y_val=y_val,
+            x_tr_std,
+            y_tr,
+            x_val=x_val_std,
+            y_val=y_val,
             early_stopping_rounds=GBRT_EARLY_STOPPING_ROUNDS,
         )
         gbrt_val_pred = gbrt_val.predict(x_val_std)
@@ -559,7 +595,10 @@ def train_model(
         model_type = "gbrt" if validation_mae["gbrt"] < validation_mae["knn"] else "knn"
         _LOGGER.info(
             "Model validation: knn_mae=%.4f gbrt_mae=%.4f naive_mae=%.4f -> using %s",
-            validation_mae["knn"], validation_mae["gbrt"], validation_mae["naive"], model_type,
+            validation_mae["knn"],
+            validation_mae["gbrt"],
+            validation_mae["naive"],
+            model_type,
         )
 
         # MASE: validation_mae scaled by the TRAINING set's own mean
@@ -582,7 +621,9 @@ def train_model(
                 validation_mase = {k: v / mase_scale for k, v in validation_mae.items()}
                 _LOGGER.info(
                     "Model validation (MASE, scale=%.4f): knn=%.3f gbrt=%.3f naive=%.3f",
-                    mase_scale, validation_mase["knn"], validation_mase["gbrt"],
+                    mase_scale,
+                    validation_mase["knn"],
+                    validation_mase["gbrt"],
                     validation_mase["naive"],
                 )
 
@@ -600,21 +641,31 @@ def train_model(
         # trade-off for genuinely being able to use early stopping.
         if model_type == "gbrt":
             gbrt_lower_final = GBRT(
-                n_estimators=GBRT_N_ESTIMATORS, max_depth=GBRT_MAX_DEPTH,
-                learning_rate=GBRT_LEARNING_RATE, min_samples_leaf=GBRT_MIN_SAMPLES_LEAF,
+                n_estimators=GBRT_N_ESTIMATORS,
+                max_depth=GBRT_MAX_DEPTH,
+                learning_rate=GBRT_LEARNING_RATE,
+                min_samples_leaf=GBRT_MIN_SAMPLES_LEAF,
                 quantile=GBRT_QUANTILE_LOWER,
             )
             gbrt_lower_final.fit(
-                x_tr_std, y_tr, x_val=x_val_std, y_val=y_val,
+                x_tr_std,
+                y_tr,
+                x_val=x_val_std,
+                y_val=y_val,
                 early_stopping_rounds=GBRT_EARLY_STOPPING_ROUNDS,
             )
             gbrt_upper_final = GBRT(
-                n_estimators=GBRT_N_ESTIMATORS, max_depth=GBRT_MAX_DEPTH,
-                learning_rate=GBRT_LEARNING_RATE, min_samples_leaf=GBRT_MIN_SAMPLES_LEAF,
+                n_estimators=GBRT_N_ESTIMATORS,
+                max_depth=GBRT_MAX_DEPTH,
+                learning_rate=GBRT_LEARNING_RATE,
+                min_samples_leaf=GBRT_MIN_SAMPLES_LEAF,
                 quantile=GBRT_QUANTILE_UPPER,
             )
             gbrt_upper_final.fit(
-                x_tr_std, y_tr, x_val=x_val_std, y_val=y_val,
+                x_tr_std,
+                y_tr,
+                x_val=x_val_std,
+                y_val=y_val,
                 early_stopping_rounds=GBRT_EARLY_STOPPING_ROUNDS,
             )
     else:
@@ -633,8 +684,10 @@ def train_model(
     gbrt_final: GBRT | None = None
     if model_type == "gbrt":
         gbrt_final = GBRT(
-            n_estimators=GBRT_N_ESTIMATORS, max_depth=GBRT_MAX_DEPTH,
-            learning_rate=GBRT_LEARNING_RATE, min_samples_leaf=GBRT_MIN_SAMPLES_LEAF,
+            n_estimators=GBRT_N_ESTIMATORS,
+            max_depth=GBRT_MAX_DEPTH,
+            learning_rate=GBRT_LEARNING_RATE,
+            min_samples_leaf=GBRT_MIN_SAMPLES_LEAF,
         )
         # No early stopping here, deliberately -- this refit trains on
         # x_all_std (train+val combined, once the model TYPE is already
@@ -661,7 +714,9 @@ def train_model(
     )
 
 
-def calibrated_band(residuals: list[float], point_value: float, lead_hours: float) -> float:
+def calibrated_band(
+    residuals: list[float], point_value: float, lead_hours: float
+) -> float:
     """Half-width of the confidence band around `point_value` at
     `lead_hours` ahead, given a rolling buffer of real one-update-cycle-
     ahead absolute residuals (coordinator.py owns collecting/persisting
@@ -796,12 +851,16 @@ def predict(
         and schedule_start_hour is not None
         and schedule_end_hour is not None
     ):
-        return PredictionResult(values=[
-            expected_load_kw
-            if _in_schedule(ts.hour + ts.minute / 60.0, schedule_start_hour, schedule_end_hour)
-            else 0.0
-            for ts in timestamps
-        ])
+        return PredictionResult(
+            values=[
+                expected_load_kw
+                if _in_schedule(
+                    ts.hour + ts.minute / 60.0, schedule_start_hour, schedule_end_hour
+                )
+                else 0.0
+                for ts in timestamps
+            ]
+        )
 
     step = timedelta(minutes=resample_minutes)
     # Rolling buffer of (timestamp, value), seeded from real history, that
@@ -859,11 +918,15 @@ def predict(
         mb = (ts.minute // 15) * 15
         return getattr(trained, "seasonal_lookup", {}).get((ts.weekday(), ts.hour, mb))
 
-    curtailment_list = curtailments if curtailments is not None else [0.0] * len(timestamps)
+    curtailment_list = (
+        curtailments if curtailments is not None else [0.0] * len(timestamps)
+    )
     battery_list = batteries_kw if batteries_kw is not None else [0.0] * len(timestamps)
     grid_list = grids_kw if grids_kw is not None else [0.0] * len(timestamps)
     solar_list = solars_kw if solars_kw is not None else [0.0] * len(timestamps)
-    has_quantile_models = trained.gbrt_lower is not None and trained.gbrt_upper is not None
+    has_quantile_models = (
+        trained.gbrt_lower is not None and trained.gbrt_upper is not None
+    )
 
     raw_preds: list[float] = []
     raw_half_widths: list[float] = []
@@ -873,7 +936,13 @@ def predict(
     # lag_long lookup, not a second, independently-derived guess.
     seasonal_anchored: list[bool] = []
     for ts, temp, humidity, curtailment, battery_kw, grid_kw, solar_kw in zip(
-        timestamps, temps, humidities, curtailment_list, battery_list, grid_list, solar_list,
+        timestamps,
+        temps,
+        humidities,
+        curtailment_list,
+        battery_list,
+        grid_list,
+        solar_list,
         strict=True,
     ):
         lag_short_t = ts - LAG_SHORT_STEPS * step
@@ -881,23 +950,42 @@ def predict(
         lag_short_v = lag_at(lag_short_t)
         lag_long_v = lag_at(lag_long_t)
         seasonal_anchored.append(
-            seasonal_anchor and (real_data_cutoff is None or lag_long_t > real_data_cutoff)
+            seasonal_anchor
+            and (real_data_cutoff is None or lag_long_t > real_data_cutoff)
         )
 
         x_row = np.array(
-            [build_features(
-                ts, temp, humidity, lag_short_v, lag_long_v, curtailment,
-                schedule_start_hour, schedule_end_hour, battery_kw, grid_kw, solar_kw,
-            )], dtype=np.float64
+            [
+                build_features(
+                    ts,
+                    temp,
+                    humidity,
+                    lag_short_v,
+                    lag_long_v,
+                    curtailment,
+                    schedule_start_hour,
+                    schedule_end_hour,
+                    battery_kw,
+                    grid_kw,
+                    solar_kw,
+                )
+            ],
+            dtype=np.float64,
         )
         x_row_std = (x_row - trained.x_mean) / trained.x_std
 
         if trained.model_type == "gbrt" and trained.gbrt is not None:
             pred = float(trained.gbrt.predict(x_row_std)[0])
         else:
-            pred = float(_knn_predict_batch(
-                trained.x_mean, trained.x_std, trained.x_train, trained.y_train, x_row
-            )[0])
+            pred = float(
+                _knn_predict_batch(
+                    trained.x_mean,
+                    trained.x_std,
+                    trained.x_train,
+                    trained.y_train,
+                    x_row,
+                )[0]
+            )
 
         # Seasonal blend (see SEASONAL_BLEND_WEIGHT's own docstring for
         # the full story) -- only for steps already seasonal-anchored,
@@ -908,7 +996,10 @@ def predict(
         if seasonal_anchored[-1]:
             seasonal_v = seasonal_at(ts)
             if seasonal_v is not None:
-                pred = SEASONAL_BLEND_WEIGHT * pred + (1 - SEASONAL_BLEND_WEIGHT) * seasonal_v
+                pred = (
+                    SEASONAL_BLEND_WEIGHT * pred
+                    + (1 - SEASONAL_BLEND_WEIGHT) * seasonal_v
+                )
 
         if not allow_negative:
             pred = max(0.0, pred)
@@ -956,6 +1047,10 @@ def predict(
     if allow_negative:
         model_lower = [v - hw for v, hw in zip(smoothed, raw_half_widths, strict=True)]
     else:
-        model_lower = [max(0.0, v - hw) for v, hw in zip(smoothed, raw_half_widths, strict=True)]
+        model_lower = [
+            max(0.0, v - hw) for v, hw in zip(smoothed, raw_half_widths, strict=True)
+        ]
     model_upper = [v + hw for v, hw in zip(smoothed, raw_half_widths, strict=True)]
-    return PredictionResult(values=smoothed, model_lower=model_lower, model_upper=model_upper)
+    return PredictionResult(
+        values=smoothed, model_lower=model_lower, model_upper=model_upper
+    )

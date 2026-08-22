@@ -156,25 +156,151 @@ class _SolverNumberDescription:
 # create an entity before, since async_added_to_hass() below always prefers
 # a real seeded/restored value first.
 _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
-    _SolverNumberDescription(CONF_SOLVER_BATTERY_CAPACITY_KWH, "Battery Capacity", 0.1, 0.1, 2000, 0.1, "kWh", device_class=NumberDeviceClass.ENERGY_STORAGE),
-    _SolverNumberDescription(CONF_SOLVER_BATTERY_SOH_PERCENT, "Battery State of Health", DEFAULT_SOLVER_SOH_PERCENT, 1, 100, 0.1, "%"),
-    _SolverNumberDescription(CONF_SOLVER_BATTERY_MIN_SOC_PERCENT, "Battery Min SoC", DEFAULT_SOLVER_MIN_SOC_PERCENT, 0, 100, 0.1, "%"),
-    _SolverNumberDescription(CONF_SOLVER_BATTERY_MAX_SOC_PERCENT, "Battery Max SoC", DEFAULT_SOLVER_MAX_SOC_PERCENT, 0, 100, 0.1, "%"),
-    _SolverNumberDescription(CONF_SOLVER_MAX_CHARGE_KW, "Max Charge Power", 0.1, 0.1, 1000, 0.1, "kW", device_class=NumberDeviceClass.POWER),
-    _SolverNumberDescription(CONF_SOLVER_MAX_DISCHARGE_KW, "Max Discharge Power", 0.1, 0.1, 1000, 0.1, "kW", device_class=NumberDeviceClass.POWER),
-    _SolverNumberDescription(CONF_SOLVER_EFFICIENCY_PERCENT, "Round-Trip Efficiency", DEFAULT_SOLVER_EFFICIENCY_PERCENT, 50, 100, 0.1, "%"),
-    _SolverNumberDescription(CONF_SOLVER_GRID_MAX_IMPORT_KW, "Grid Max Import", 0.1, 0.1, 1000, 0.1, "kW", device_class=NumberDeviceClass.POWER),
-    _SolverNumberDescription(CONF_SOLVER_GRID_MAX_EXPORT_KW, "Grid Max Export", 0.1, 0.1, 1000, 0.1, "kW", device_class=NumberDeviceClass.POWER),
-    _SolverNumberDescription(CONF_SOLVER_CHARGE_COST, "Charge Cost", DEFAULT_SOLVER_CHARGE_COST, 0, 10, 0.001, "$/kWh"),
-    _SolverNumberDescription(CONF_SOLVER_DISCHARGE_COST, "Discharge Cost", DEFAULT_SOLVER_DISCHARGE_COST, 0, 10, 0.001, "$/kWh"),
-    _SolverNumberDescription(CONF_SOLVER_SALVAGE_VALUE, "Salvage Value", DEFAULT_SOLVER_SALVAGE_VALUE, 0, 10, 0.001, "$/kWh"),
+    _SolverNumberDescription(
+        CONF_SOLVER_BATTERY_CAPACITY_KWH,
+        "Battery Capacity",
+        0.1,
+        0.1,
+        2000,
+        0.1,
+        "kWh",
+        device_class=NumberDeviceClass.ENERGY_STORAGE,
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_BATTERY_SOH_PERCENT,
+        "Battery State of Health",
+        DEFAULT_SOLVER_SOH_PERCENT,
+        1,
+        100,
+        0.1,
+        "%",
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_BATTERY_MIN_SOC_PERCENT,
+        "Battery Min SoC",
+        DEFAULT_SOLVER_MIN_SOC_PERCENT,
+        0,
+        100,
+        0.1,
+        "%",
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_BATTERY_MAX_SOC_PERCENT,
+        "Battery Max SoC",
+        DEFAULT_SOLVER_MAX_SOC_PERCENT,
+        0,
+        100,
+        0.1,
+        "%",
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_MAX_CHARGE_KW,
+        "Max Charge Power",
+        0.1,
+        0.1,
+        1000,
+        0.1,
+        "kW",
+        device_class=NumberDeviceClass.POWER,
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_MAX_DISCHARGE_KW,
+        "Max Discharge Power",
+        0.1,
+        0.1,
+        1000,
+        0.1,
+        "kW",
+        device_class=NumberDeviceClass.POWER,
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_EFFICIENCY_PERCENT,
+        "Round-Trip Efficiency",
+        DEFAULT_SOLVER_EFFICIENCY_PERCENT,
+        50,
+        100,
+        0.1,
+        "%",
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_GRID_MAX_IMPORT_KW,
+        "Grid Max Import",
+        0.1,
+        0.1,
+        1000,
+        0.1,
+        "kW",
+        device_class=NumberDeviceClass.POWER,
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_GRID_MAX_EXPORT_KW,
+        "Grid Max Export",
+        0.1,
+        0.1,
+        1000,
+        0.1,
+        "kW",
+        device_class=NumberDeviceClass.POWER,
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_CHARGE_COST,
+        "Charge Cost",
+        DEFAULT_SOLVER_CHARGE_COST,
+        0,
+        10,
+        0.001,
+        "$/kWh",
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_DISCHARGE_COST,
+        "Discharge Cost",
+        DEFAULT_SOLVER_DISCHARGE_COST,
+        0,
+        10,
+        0.001,
+        "$/kWh",
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_SALVAGE_VALUE,
+        "Salvage Value",
+        DEFAULT_SOLVER_SALVAGE_VALUE,
+        0,
+        10,
+        0.001,
+        "$/kWh",
+    ),
     # Real economic cycle-wear cost (2026-08-22, Track B2). See const.py's
     # own CONF_SOLVER_DEGRADATION_COST_PER_KWH comment for the full
     # "(replacement cost) / (2 * capacity * rated EFC)" derivation --
     # 0.0 (the default) is a genuine no-op.
-    _SolverNumberDescription(CONF_SOLVER_DEGRADATION_COST_PER_KWH, "Battery Degradation Cost", DEFAULT_SOLVER_DEGRADATION_COST_PER_KWH, 0, 10, 0.001, "$/kWh"),
-    _SolverNumberDescription(CONF_SOLVER_P2P_BONUS_PRICE, "P2P Bonus Price", DEFAULT_SOLVER_P2P_BONUS_PRICE, 0, 10, 0.001, "$/kWh"),
-    _SolverNumberDescription(CONF_SOLVER_P2P_BONUS_VOLUME_KWH, "P2P Bonus Volume", DEFAULT_SOLVER_P2P_BONUS_VOLUME_KWH, 0, 10000, 0.1, "kWh", device_class=NumberDeviceClass.ENERGY),
+    _SolverNumberDescription(
+        CONF_SOLVER_DEGRADATION_COST_PER_KWH,
+        "Battery Degradation Cost",
+        DEFAULT_SOLVER_DEGRADATION_COST_PER_KWH,
+        0,
+        10,
+        0.001,
+        "$/kWh",
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_P2P_BONUS_PRICE,
+        "P2P Bonus Price",
+        DEFAULT_SOLVER_P2P_BONUS_PRICE,
+        0,
+        10,
+        0.001,
+        "$/kWh",
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_P2P_BONUS_VOLUME_KWH,
+        "P2P Bonus Volume",
+        DEFAULT_SOLVER_P2P_BONUS_VOLUME_KWH,
+        0,
+        10000,
+        0.1,
+        "kWh",
+        device_class=NumberDeviceClass.ENERGY,
+    ),
     # P2P fixed-rate delivery blocks (2026-08-21) -- up to 3 independent
     # windows, each holding export at a constant, user-set rate rather than
     # letting the LP chase price within it. rate_kw=0 means "not
@@ -182,15 +308,90 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
     # end_hour uses 24 (not 23) as its max so a window can genuinely reach
     # midnight, matching how this household's own real window is expressed
     # (17-24, i.e. 5pm through the end of the day).
-    _SolverNumberDescription(CONF_SOLVER_P2P_BLOCK_1_RATE_KW, "P2P Block 1 Rate", DEFAULT_SOLVER_P2P_BLOCK_RATE_KW, 0, 1000, 0.1, "kW", device_class=NumberDeviceClass.POWER),
-    _SolverNumberDescription(CONF_SOLVER_P2P_BLOCK_1_START_HOUR, "P2P Block 1 Start Hour", DEFAULT_SOLVER_P2P_BLOCK_START_HOUR, 0, 23, 1, "hour"),
-    _SolverNumberDescription(CONF_SOLVER_P2P_BLOCK_1_END_HOUR, "P2P Block 1 End Hour", DEFAULT_SOLVER_P2P_BLOCK_END_HOUR, 0, 24, 1, "hour"),
-    _SolverNumberDescription(CONF_SOLVER_P2P_BLOCK_2_RATE_KW, "P2P Block 2 Rate", DEFAULT_SOLVER_P2P_BLOCK_RATE_KW, 0, 1000, 0.1, "kW", device_class=NumberDeviceClass.POWER),
-    _SolverNumberDescription(CONF_SOLVER_P2P_BLOCK_2_START_HOUR, "P2P Block 2 Start Hour", DEFAULT_SOLVER_P2P_BLOCK_START_HOUR, 0, 23, 1, "hour"),
-    _SolverNumberDescription(CONF_SOLVER_P2P_BLOCK_2_END_HOUR, "P2P Block 2 End Hour", DEFAULT_SOLVER_P2P_BLOCK_END_HOUR, 0, 24, 1, "hour"),
-    _SolverNumberDescription(CONF_SOLVER_P2P_BLOCK_3_RATE_KW, "P2P Block 3 Rate", DEFAULT_SOLVER_P2P_BLOCK_RATE_KW, 0, 1000, 0.1, "kW", device_class=NumberDeviceClass.POWER),
-    _SolverNumberDescription(CONF_SOLVER_P2P_BLOCK_3_START_HOUR, "P2P Block 3 Start Hour", DEFAULT_SOLVER_P2P_BLOCK_START_HOUR, 0, 23, 1, "hour"),
-    _SolverNumberDescription(CONF_SOLVER_P2P_BLOCK_3_END_HOUR, "P2P Block 3 End Hour", DEFAULT_SOLVER_P2P_BLOCK_END_HOUR, 0, 24, 1, "hour"),
+    _SolverNumberDescription(
+        CONF_SOLVER_P2P_BLOCK_1_RATE_KW,
+        "P2P Block 1 Rate",
+        DEFAULT_SOLVER_P2P_BLOCK_RATE_KW,
+        0,
+        1000,
+        0.1,
+        "kW",
+        device_class=NumberDeviceClass.POWER,
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_P2P_BLOCK_1_START_HOUR,
+        "P2P Block 1 Start Hour",
+        DEFAULT_SOLVER_P2P_BLOCK_START_HOUR,
+        0,
+        23,
+        1,
+        "hour",
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_P2P_BLOCK_1_END_HOUR,
+        "P2P Block 1 End Hour",
+        DEFAULT_SOLVER_P2P_BLOCK_END_HOUR,
+        0,
+        24,
+        1,
+        "hour",
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_P2P_BLOCK_2_RATE_KW,
+        "P2P Block 2 Rate",
+        DEFAULT_SOLVER_P2P_BLOCK_RATE_KW,
+        0,
+        1000,
+        0.1,
+        "kW",
+        device_class=NumberDeviceClass.POWER,
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_P2P_BLOCK_2_START_HOUR,
+        "P2P Block 2 Start Hour",
+        DEFAULT_SOLVER_P2P_BLOCK_START_HOUR,
+        0,
+        23,
+        1,
+        "hour",
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_P2P_BLOCK_2_END_HOUR,
+        "P2P Block 2 End Hour",
+        DEFAULT_SOLVER_P2P_BLOCK_END_HOUR,
+        0,
+        24,
+        1,
+        "hour",
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_P2P_BLOCK_3_RATE_KW,
+        "P2P Block 3 Rate",
+        DEFAULT_SOLVER_P2P_BLOCK_RATE_KW,
+        0,
+        1000,
+        0.1,
+        "kW",
+        device_class=NumberDeviceClass.POWER,
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_P2P_BLOCK_3_START_HOUR,
+        "P2P Block 3 Start Hour",
+        DEFAULT_SOLVER_P2P_BLOCK_START_HOUR,
+        0,
+        23,
+        1,
+        "hour",
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_P2P_BLOCK_3_END_HOUR,
+        "P2P Block 3 End Hour",
+        DEFAULT_SOLVER_P2P_BLOCK_END_HOUR,
+        0,
+        24,
+        1,
+        "hour",
+    ),
     # Real per-kWh import FEES on top of the raw spot price -- network
     # TOU tariff + a flat always-on charge (certificates, etc.), same
     # shape as the P2P blocks above (2026-08-22, direct household
@@ -207,17 +408,105 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
     # every one of these to a slightly-wrong value (0.2149 vs 0.214863,
     # a real ~$0.006/day-scale error compounded across every peak-hour
     # kWh) with no visible warning. "we should have matching precision."
-    _SolverNumberDescription(CONF_SOLVER_NETWORK_FEE_DEFAULT_RATE, "Network Fee Default Rate", DEFAULT_SOLVER_NETWORK_FEE_RATE, 0, 10, 0.000001, "$/kWh"),
-    _SolverNumberDescription(CONF_SOLVER_NETWORK_FEE_1_RATE, "Network Fee Block 1 Rate", DEFAULT_SOLVER_NETWORK_FEE_RATE, 0, 10, 0.000001, "$/kWh"),
-    _SolverNumberDescription(CONF_SOLVER_NETWORK_FEE_1_START_HOUR, "Network Fee Block 1 Start Hour", DEFAULT_SOLVER_NETWORK_FEE_START_HOUR, 0, 23, 1, "hour"),
-    _SolverNumberDescription(CONF_SOLVER_NETWORK_FEE_1_END_HOUR, "Network Fee Block 1 End Hour", DEFAULT_SOLVER_NETWORK_FEE_END_HOUR, 0, 24, 1, "hour"),
-    _SolverNumberDescription(CONF_SOLVER_NETWORK_FEE_2_RATE, "Network Fee Block 2 Rate", DEFAULT_SOLVER_NETWORK_FEE_RATE, 0, 10, 0.000001, "$/kWh"),
-    _SolverNumberDescription(CONF_SOLVER_NETWORK_FEE_2_START_HOUR, "Network Fee Block 2 Start Hour", DEFAULT_SOLVER_NETWORK_FEE_START_HOUR, 0, 23, 1, "hour"),
-    _SolverNumberDescription(CONF_SOLVER_NETWORK_FEE_2_END_HOUR, "Network Fee Block 2 End Hour", DEFAULT_SOLVER_NETWORK_FEE_END_HOUR, 0, 24, 1, "hour"),
-    _SolverNumberDescription(CONF_SOLVER_NETWORK_FEE_3_RATE, "Network Fee Block 3 Rate", DEFAULT_SOLVER_NETWORK_FEE_RATE, 0, 10, 0.000001, "$/kWh"),
-    _SolverNumberDescription(CONF_SOLVER_NETWORK_FEE_3_START_HOUR, "Network Fee Block 3 Start Hour", DEFAULT_SOLVER_NETWORK_FEE_START_HOUR, 0, 23, 1, "hour"),
-    _SolverNumberDescription(CONF_SOLVER_NETWORK_FEE_3_END_HOUR, "Network Fee Block 3 End Hour", DEFAULT_SOLVER_NETWORK_FEE_END_HOUR, 0, 24, 1, "hour"),
-    _SolverNumberDescription(CONF_SOLVER_FLAT_FEE_RATE, "Flat Fee Rate (e.g. Certificates)", DEFAULT_SOLVER_FLAT_FEE_RATE, 0, 10, 0.000001, "$/kWh"),
+    _SolverNumberDescription(
+        CONF_SOLVER_NETWORK_FEE_DEFAULT_RATE,
+        "Network Fee Default Rate",
+        DEFAULT_SOLVER_NETWORK_FEE_RATE,
+        0,
+        10,
+        0.000001,
+        "$/kWh",
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_NETWORK_FEE_1_RATE,
+        "Network Fee Block 1 Rate",
+        DEFAULT_SOLVER_NETWORK_FEE_RATE,
+        0,
+        10,
+        0.000001,
+        "$/kWh",
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_NETWORK_FEE_1_START_HOUR,
+        "Network Fee Block 1 Start Hour",
+        DEFAULT_SOLVER_NETWORK_FEE_START_HOUR,
+        0,
+        23,
+        1,
+        "hour",
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_NETWORK_FEE_1_END_HOUR,
+        "Network Fee Block 1 End Hour",
+        DEFAULT_SOLVER_NETWORK_FEE_END_HOUR,
+        0,
+        24,
+        1,
+        "hour",
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_NETWORK_FEE_2_RATE,
+        "Network Fee Block 2 Rate",
+        DEFAULT_SOLVER_NETWORK_FEE_RATE,
+        0,
+        10,
+        0.000001,
+        "$/kWh",
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_NETWORK_FEE_2_START_HOUR,
+        "Network Fee Block 2 Start Hour",
+        DEFAULT_SOLVER_NETWORK_FEE_START_HOUR,
+        0,
+        23,
+        1,
+        "hour",
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_NETWORK_FEE_2_END_HOUR,
+        "Network Fee Block 2 End Hour",
+        DEFAULT_SOLVER_NETWORK_FEE_END_HOUR,
+        0,
+        24,
+        1,
+        "hour",
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_NETWORK_FEE_3_RATE,
+        "Network Fee Block 3 Rate",
+        DEFAULT_SOLVER_NETWORK_FEE_RATE,
+        0,
+        10,
+        0.000001,
+        "$/kWh",
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_NETWORK_FEE_3_START_HOUR,
+        "Network Fee Block 3 Start Hour",
+        DEFAULT_SOLVER_NETWORK_FEE_START_HOUR,
+        0,
+        23,
+        1,
+        "hour",
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_NETWORK_FEE_3_END_HOUR,
+        "Network Fee Block 3 End Hour",
+        DEFAULT_SOLVER_NETWORK_FEE_END_HOUR,
+        0,
+        24,
+        1,
+        "hour",
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_FLAT_FEE_RATE,
+        "Flat Fee Rate (e.g. Certificates)",
+        DEFAULT_SOLVER_FLAT_FEE_RATE,
+        0,
+        10,
+        0.000001,
+        "$/kWh",
+    ),
     # Risk-aversion dials (2026-08-21) -- 0.0 = trust the point forecast
     # completely, 1.0 = fully hedge toward the pessimistic bound. Three
     # separate dials on purpose (household ask: "more flexibility the
@@ -230,9 +519,33 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
     # expensive than forecast" should never also force hedging "export
     # might be worth less than forecast" by the same amount, and vice
     # versa). Trusting one kind of forecast doesn't mean trusting another.
-    _SolverNumberDescription(CONF_SOLVER_RISK_AVERSION, "Risk Aversion", DEFAULT_SOLVER_RISK_AVERSION, 0, 1, 0.05, None),
-    _SolverNumberDescription(CONF_SOLVER_IMPORT_PRICE_RISK_AVERSION, "Import Price Risk Aversion", DEFAULT_SOLVER_IMPORT_PRICE_RISK_AVERSION, 0, 1, 0.05, None),
-    _SolverNumberDescription(CONF_SOLVER_EXPORT_PRICE_RISK_AVERSION, "Export Price Risk Aversion", DEFAULT_SOLVER_EXPORT_PRICE_RISK_AVERSION, 0, 1, 0.05, None),
+    _SolverNumberDescription(
+        CONF_SOLVER_RISK_AVERSION,
+        "Risk Aversion",
+        DEFAULT_SOLVER_RISK_AVERSION,
+        0,
+        1,
+        0.05,
+        None,
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_IMPORT_PRICE_RISK_AVERSION,
+        "Import Price Risk Aversion",
+        DEFAULT_SOLVER_IMPORT_PRICE_RISK_AVERSION,
+        0,
+        1,
+        0.05,
+        None,
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_EXPORT_PRICE_RISK_AVERSION,
+        "Export Price Risk Aversion",
+        DEFAULT_SOLVER_EXPORT_PRICE_RISK_AVERSION,
+        0,
+        1,
+        0.05,
+        None,
+    ),
 )
 
 
@@ -249,7 +562,9 @@ async def async_setup_entry(
     # first.
     integration = await async_get_integration(hass, DOMAIN)
     sw_version = str(integration.version) if integration.version else None
-    async_add_entities([NimbusSolverNumber(entry, desc, sw_version) for desc in _DESCRIPTIONS])
+    async_add_entities(
+        [NimbusSolverNumber(entry, desc, sw_version) for desc in _DESCRIPTIONS]
+    )
 
 
 class NimbusSolverNumber(RestoreNumber, NumberEntity):
@@ -260,7 +575,9 @@ class NimbusSolverNumber(RestoreNumber, NumberEntity):
     _attr_has_entity_name = True
     _attr_mode = NumberMode.BOX
 
-    def __init__(self, entry: ConfigEntry, desc: _SolverNumberDescription, sw_version: str | None) -> None:
+    def __init__(
+        self, entry: ConfigEntry, desc: _SolverNumberDescription, sw_version: str | None
+    ) -> None:
         self._entry = entry
         self._desc = desc
         self._attr_unique_id = f"{entry.entry_id}_{desc.key}"

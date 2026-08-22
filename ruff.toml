@@ -1,0 +1,18 @@
+# Minimal ruff configuration for the Nimbus repo.
+#
+# Kept intentionally small: pin only what's needed to make `ruff format` and
+# `ruff check` reproducible across contributors and CI. Broader configuration
+# (lint rule selection, mypy, pytest) is deferred to a future pyproject.toml
+# (see #36 DevOps roadmap and the CI follow-ups on PR #47).
+
+# Target the same Python baseline as the manifest and CI workflow.
+target-version = "py313"
+
+# Home Assistant's own style guide uses 88 (Black default). Keep parity.
+line-length = 88
+
+# Directories to include in every run.
+[format]
+# Preserve docstring content byte-for-byte so machine-generated evidence
+# strings in solver/ and ml/ modules stay untouched.
+docstring-code-format = false

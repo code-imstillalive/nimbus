@@ -61,8 +61,12 @@ def _leaf_value(residuals: np.ndarray, quantile: float | None) -> float:
 
 
 def _build_tree(
-    x: np.ndarray, residuals: np.ndarray, max_depth: int, min_samples_leaf: int,
-    depth: int = 0, quantile: float | None = None,
+    x: np.ndarray,
+    residuals: np.ndarray,
+    max_depth: int,
+    min_samples_leaf: int,
+    depth: int = 0,
+    quantile: float | None = None,
 ) -> _TreeNode:
     n, n_features = x.shape
     if depth >= max_depth or n < 2 * min_samples_leaf:
@@ -125,7 +129,9 @@ def _predict_tree(node: _TreeNode, x: np.ndarray) -> np.ndarray:
     return out
 
 
-def _predict_tree_rec(node: _TreeNode, x: np.ndarray, idx: np.ndarray, out: np.ndarray) -> None:
+def _predict_tree_rec(
+    node: _TreeNode, x: np.ndarray, idx: np.ndarray, out: np.ndarray
+) -> None:
     if node.is_leaf():
         out[idx] = node.value
         return
@@ -160,11 +166,17 @@ class GBRT:
         if self.quantile is None:
             return float(np.mean((y - pred) ** 2))
         diff = y - pred
-        return float(np.mean(np.maximum(self.quantile * diff, (self.quantile - 1) * diff)))
+        return float(
+            np.mean(np.maximum(self.quantile * diff, (self.quantile - 1) * diff))
+        )
 
     def fit(
-        self, x: np.ndarray, y: np.ndarray, *,
-        x_val: np.ndarray | None = None, y_val: np.ndarray | None = None,
+        self,
+        x: np.ndarray,
+        y: np.ndarray,
+        *,
+        x_val: np.ndarray | None = None,
+        y_val: np.ndarray | None = None,
         early_stopping_rounds: int | None = None,
     ) -> "GBRT":
         """x_val/y_val/early_stopping_rounds are all-or-nothing: pass all
@@ -178,13 +190,16 @@ class GBRT:
         y = np.asarray(y, dtype=np.float64)
         self.init_value = (
             float(np.percentile(y, self.quantile * 100))
-            if self.quantile is not None else float(np.mean(y))
+            if self.quantile is not None
+            else float(np.mean(y))
         )
         pred = np.full(y.shape, self.init_value)
         self.trees = []
 
         use_early_stopping = (
-            early_stopping_rounds is not None and x_val is not None and y_val is not None
+            early_stopping_rounds is not None
+            and x_val is not None
+            and y_val is not None
         )
         if use_early_stopping:
             x_val_arr = np.asarray(x_val, dtype=np.float64)
@@ -197,13 +212,19 @@ class GBRT:
         for round_idx in range(self.n_estimators):
             residuals = y - pred
             tree = _build_tree(
-                x, residuals, self.max_depth, self.min_samples_leaf, quantile=self.quantile
+                x,
+                residuals,
+                self.max_depth,
+                self.min_samples_leaf,
+                quantile=self.quantile,
             )
             pred = pred + self.learning_rate * _predict_tree(tree, x)
             self.trees.append(tree)
 
             if use_early_stopping:
-                val_pred = val_pred + self.learning_rate * _predict_tree(tree, x_val_arr)
+                val_pred = val_pred + self.learning_rate * _predict_tree(
+                    tree, x_val_arr
+                )
                 val_error = self._error(y_val_arr, val_pred)
                 if val_error < best_val_error - 1e-9:
                     best_val_error = val_error
