@@ -376,56 +376,50 @@ RISK_AVERSION = 0.25
 # (session history, sibling 116KAT-HA-AI repo's own CLAUDE.md).
 P2P_RECENT_AVG_VOLUME_FALLBACK_KWH = 60.0
 
-# Real per-load demand, summed from Nimbus's own 18 individually-
-# forecasted circuit breakers (2026-08-17, direct ask: "i was hoping not
-# to need whole house load if all 18 loads could be individually input
-# and measured and added into a total"). Confirmed live this is the
-# COMPLETE real load list -- every genuinely metered circuit on this
-# system's own Zigbee CB network, 18 entities, matching this project's
-# own long-documented "18 Nimbus-forecast Loads" count exactly (sibling
-# 116KAT-HA-AI repo's own CLAUDE.md, repeated across many sessions).
-# The single whole-house aggregate this writer used to read instead is
-# kept ONLY as a real, independent cross-check (see
-# WHOLE_HOUSE_CROSS_CHECK_SOURCE_SENSOR below, reported but never used
-# to price/dispatch anything) -- not removed outright, since a real
-# divergence between "sum of 18 real circuits" and "one real whole-house
-# meter" is itself useful, honest information (a missed/newly-added
-# circuit, a sensor drift) worth surfacing, not hiding.
+# Real per-load demand, OPTIONALLY summed from a household's own
+# individually-forecasted circuit breakers instead of one whole-house
+# forecast sensor (2026-08-17, direct ask on this project's own
+# reference install: "i was hoping not to need whole house load if all
+# 18 loads could be individually input and measured and added into a
+# total"). Real, richer-than-a-single-entity signal WHEN a household
+# fills this in via the wizard -- a genuine per-circuit health dot, and
+# a real cross-check against a separate whole-house meter (see
+# whole_house_cross_check_sensor below, reported but never used to
+# price/dispatch anything -- a real divergence between "sum of
+# configured circuits" and "one real whole-house meter" is itself
+# useful, honest information worth surfacing, not hiding). Genuinely
+# optional: a fresh install with neither field filled in falls back
+# cleanly to the wizard's own single load-forecast-sensor field below.
 #
-# 2026-08-20: this constant is the RAW SENSOR that whole-house signal is
-# derived from, not its own forecast entity_id -- the forecast entity
-# name is derived from it at read time (see below) specifically so a
-# future reconfigure (task #99's own auto-rename mechanism) can never
-# leave this cross-check silently pointing at a dead, renamed entity_id
-# again. Real, live-confirmed incident this replaces (2026-08-20): the
-# household's own "Whole House" Power Signal was reconfigured from
-# sensor.logger_load_power (the raw, noisy Modbus meter -- see this
-# project's own CLAUDE.md, "real P2P-window grid spikes root-caused")
-# to sensor.cb_total_combined_power_adjusted_kw. Task #99's auto-rename
-# correctly renamed the live forecast entity to match -- but this
-# writer's own hardcoded WHOLE_HOUSE_CROSS_CHECK_ENTITY was still the
-# OLD literal forecast entity_id, confirmed 404 the very next run.
-LOAD_FORECAST_ENTITIES = [
-    "sensor.nimbus_cb_pw_hws_l1_power_forecast",
-    "sensor.nimbus_cb_pw_hws_l3_power_forecast",
-    "sensor.nimbus_cb_pw_pool1_power_forecast",
-    "sensor.nimbus_cb_pw_pool_2_power_forecast",
-    "sensor.nimbus_cb_pw_comms_power_forecast",
-    "sensor.nimbus_cb_pw_ldry_power_forecast",
-    "sensor.nimbus_cb_pw_b1_power_forecast",
-    "sensor.nimbus_cb_pw_l1_power_forecast",
-    "sensor.nimbus_cb_lt_l1_power_forecast",
-    "sensor.nimbus_cb_lt_l2_power_forecast",
-    "sensor.nimbus_cb_pw_l2_power_forecast",
-    "sensor.nimbus_cb_pw_ac_l1_power_forecast",
-    "sensor.nimbus_cb_pw_ac_l2_power_forecast",
-    "sensor.nimbus_cb_pw_ac_b1_power_forecast",
-    "sensor.nimbus_cb_pw_ctp_power_forecast",
-    "sensor.nimbus_cb_pw_oven_power_forecast",
-    "sensor.nimbus_cb_pw_lounge_power_forecast",
-    "sensor.nimbus_cb_pw_heater_power_forecast",
-]
-WHOLE_HOUSE_CROSS_CHECK_SOURCE_SENSOR = "sensor.cb_total_combined_power_adjusted_kw"
+# 2026-08-20: the raw SOURCE sensor is what a household configures, not
+# its own forecast entity_id -- the forecast entity name is derived
+# from it at read time (see below) specifically so a future reconfigure
+# (task #99's own auto-rename mechanism) can never leave this cross-
+# check silently pointing at a dead, renamed entity_id again. Real,
+# live-confirmed incident that shaped this design (2026-08-20, this
+# project's own reference install): its "Whole House" Power Signal was
+# reconfigured from sensor.logger_load_power (the raw, noisy Modbus
+# meter -- see this project's own CLAUDE.md, "real P2P-window grid
+# spikes root-caused") to sensor.cb_total_combined_power_adjusted_kw.
+# Task #99's auto-rename correctly renamed the live forecast entity to
+# match -- but at the time, this writer's own hardcoded cross-check
+# pointer was still the OLD literal forecast entity_id, confirmed 404
+# the very next run.
+#
+# Real bug found live (nimbus repo issues #56/#60, reported by an
+# independent installer, 2026-08-22): these two used to be hardcoded
+# Python constants here -- one household's own 18 real circuit entity
+# IDs and one household's own real whole-house cross-check sensor. That
+# meant every OTHER install summed 18 nonexistent entities every solve
+# cycle (18 real 404 warnings per cycle, 216/hour at the default 5-min
+# cadence) and the config-flow's own single-sensor fallback field
+# below was permanently unreachable dead code for anyone but the
+# maintainer. Fixed 2026-08-23: both are now read live from cfg
+# (Nimbus's own Solver settings wizard) inside main() -- see
+# load_forecast_entities / whole_house_cross_check_sensor further down.
+# Genuinely empty/None by default for a fresh install; a household that
+# wants per-circuit summation and/or a whole-house cross-check fills
+# these in explicitly through the wizard.
 
 # Real, known, permanent inverter self-consumption bias (2026-08-17,
 # direct household confirmation: "the only thing which differs is
@@ -859,13 +853,15 @@ def fetch_load_forecast_safe(entity_id: str) -> list[dict]:
 def sum_load_forecasts(
     entity_ids: list[str], grid_times: list[datetime]
 ) -> tuple[list[float], list[float], list[float], list[str]]:
-    """Real household demand, summed from Nimbus's own 18 individually-
-    forecasted circuit breakers -- see LOAD_FORECAST_ENTITIES's own
-    comment for the full "why sum 18 instead of one whole-house entity"
-    reasoning. Each of the 18 is fetched via fetch_load_forecast_safe()
-    (individually guarded, never crashes the whole sum) and resampled
-    with the SAME resample_forecast() every other forecast entity in
-    this file already uses -- no new resampling logic needed.
+    """Real household demand, summed from a household's own individually-
+    forecasted circuits -- see load_forecast_entities in main() (the
+    comment right above the module-level "Real per-load demand" block
+    near the top of this file) for the full "why sum individual circuits
+    instead of one whole-house entity" reasoning. Each entity is fetched
+    via fetch_load_forecast_safe() (individually guarded, never crashes
+    the whole sum) and resampled with the SAME resample_forecast() every
+    other forecast entity in this file already uses -- no new resampling
+    logic needed.
 
     lower_kw/upper_kw are summed the same way (sum of each load's own
     real per-load lower bound, sum of each load's own real per-load
@@ -2078,26 +2074,19 @@ def main() -> None:
         except (ValueError, KeyError, TypeError):
             pass
 
-    # Real household demand. PRIMARY path (this household's own real
-    # setup): summed from the 18 real individually-forecasted circuits,
-    # not one opaque whole-house entity -- see LOAD_FORECAST_ENTITIES's
-    # own comment for the full reasoning. This is genuinely richer than
-    # anything a single-entity config field could express (a real, live
-    # health dot per circuit, a real cross-check against the whole-house
-    # meter below) -- kept as-is rather than flattened to match the
-    # generic case.
-    #
-    # FALLBACK (2026-08-20, for anyone else): LOAD_FORECAST_ENTITIES is
-    # still a hardcoded Python list -- a genuinely different household's
-    # own 18 circuit names would need hand-editing this constant, which
-    # is real, honest, NOT closed by this pass. What IS closed: leaving
-    # this list EMPTY (the realistic default for a fresh install nobody's
-    # customized yet) no longer crashes -- it falls back cleanly to the
-    # single sensor.solver_load_forecast_sensor entity every install
-    # already configures via the Solver settings wizard, same simple
-    # single-entity pattern already used for solar above.
-    if LOAD_FORECAST_ENTITIES:
-        load_kw, load_lower_kw, load_upper_kw, failed_load_entities = sum_load_forecasts(LOAD_FORECAST_ENTITIES, grid_times)
+    # Real household demand. OPTIONAL, richer path: sum a household's own
+    # individually-forecasted circuits, read live from cfg (the Solver
+    # settings wizard's own solver_load_forecast_entities field, 2026-08-23
+    # fix for nimbus repo issues #56/#60) instead of one opaque whole-
+    # house entity. When filled in, this is genuinely richer than a
+    # single-entity config field could express (a real, live health dot
+    # per circuit, a real cross-check against the whole-house meter
+    # below). Genuinely empty by default -- a fresh install falls
+    # straight to the single-sensor fallback below, same simple single-
+    # entity pattern already used for solar above.
+    load_forecast_entities = cfg.get("solver_load_forecast_entities") or []
+    if load_forecast_entities:
+        load_kw, load_lower_kw, load_upper_kw, failed_load_entities = sum_load_forecasts(load_forecast_entities, grid_times)
     else:
         load_fc = ha_get(cfg["solver_load_forecast_sensor"])["attributes"]["forecast"]
         load_kw = [max(0.0, v) for v in resample_forecast(load_fc, "value", grid_times)]
@@ -2113,42 +2102,49 @@ def main() -> None:
     # real, meaningful gap here is itself useful information (a missed
     # or newly-added circuit, sensor drift) worth surfacing on the
     # dashboard, not hiding silently.
-    try:
-        # Derived at read time from the real SOURCE sensor, not hardcoded
-        # as a forecast entity_id directly -- matches Nimbus's own real
-        # object_id_from_source() transform (nimbus repo, sensor.py) so a
-        # future reconfigure of this signal's source can never again
-        # leave this cross-check silently pointing at a dead, renamed
-        # entity_id (exactly what happened here 2026-08-20, see this
-        # constant's own comment above for the full incident).
-        object_id = WHOLE_HOUSE_CROSS_CHECK_SOURCE_SENSOR.split(".", 1)[-1]
-        whole_house_cross_check_entity = f"sensor.nimbus_{object_id}_forecast"
-        whole_house_fc = ha_get(whole_house_cross_check_entity)["attributes"]["forecast"]
-        whole_house_now_kw = max(0.0, resample_forecast(whole_house_fc, "value", grid_times[:1])[0])
-    except (urllib.error.HTTPError, urllib.error.URLError, KeyError, json.JSONDecodeError) as e:
-        print(f"WARN: whole-house cross-check unavailable ({e})", file=sys.stderr)
-        whole_house_now_kw = None
+    # Optional, read live from cfg (the wizard's own
+    # solver_whole_house_cross_check_sensor field, 2026-08-23 fix for
+    # nimbus repo issues #56/#60) -- None on a fresh install, a real
+    # no-op below rather than a crash on an empty entity_id.
+    whole_house_cross_check_sensor = cfg.get("solver_whole_house_cross_check_sensor") or None
+    whole_house_now_kw = None
+    if whole_house_cross_check_sensor:
+        try:
+            # Derived at read time from the real SOURCE sensor, not
+            # hardcoded as a forecast entity_id directly -- matches
+            # Nimbus's own real object_id_from_source() transform
+            # (nimbus repo, sensor.py) so a future reconfigure of this
+            # signal's source can never again leave this cross-check
+            # silently pointing at a dead, renamed entity_id (exactly
+            # what happened on this project's own reference install,
+            # 2026-08-20 -- see this field's own comment above).
+            object_id = whole_house_cross_check_sensor.split(".", 1)[-1]
+            whole_house_cross_check_entity = f"sensor.nimbus_{object_id}_forecast"
+            whole_house_fc = ha_get(whole_house_cross_check_entity)["attributes"]["forecast"]
+            whole_house_now_kw = max(0.0, resample_forecast(whole_house_fc, "value", grid_times[:1])[0])
+        except (urllib.error.HTTPError, urllib.error.URLError, KeyError, json.JSONDecodeError) as e:
+            print(f"WARN: whole-house cross-check unavailable ({e})", file=sys.stderr)
+            whole_house_now_kw = None
     summed_18_now_kw = load_kw[0]
 
     # Real, live anchor for the CURRENT period ONLY -- same mechanism
     # and reasoning as solar's own live anchor above (2026-08-22, direct
     # continuation of Mark Purcell's own request: "If you can fix
     # actuals for load and solar, becuase they are measured, then you
-    # get better calculates for battery and grid outcomes"). Reads
-    # WHOLE_HOUSE_CROSS_CHECK_SOURCE_SENSOR's own RAW state directly --
-    # NOT either forecast (not the 18-circuit sum, not the whole-house
-    # meter's own forecast-of-itself, both already captured above,
-    # UNCHANGED, for the real cross-check diagnostic) -- this is
-    # deliberately inserted AFTER summed_18_now_kw/whole_house_now_kw
-    # are captured so that diagnostic keeps comparing two genuine
-    # forecasts against each other, not a forecast against itself.
-    # Deliberately scoped to index 0 only, same as solar; every other
-    # period stays a genuine forecast. Zero-width band at this point --
-    # no forecast uncertainty in something already measured. Graceful
-    # no-op on any read failure.
-    if entity_exists(WHOLE_HOUSE_CROSS_CHECK_SOURCE_SENSOR):
+    # get better calculates for battery and grid outcomes"). Reads the
+    # cross-check sensor's own RAW state directly -- NOT either forecast
+    # (not the configured-circuits sum, not the whole-house meter's own
+    # forecast-of-itself, both already captured above, UNCHANGED, for the
+    # real cross-check diagnostic) -- this is deliberately inserted AFTER
+    # summed_18_now_kw/whole_house_now_kw are captured so that diagnostic
+    # keeps comparing two genuine forecasts against each other, not a
+    # forecast against itself. Deliberately scoped to index 0 only, same
+    # as solar; every other period stays a genuine forecast. Zero-width
+    # band at this point -- no forecast uncertainty in something already
+    # measured. Graceful no-op if unconfigured or on any read failure.
+    if whole_house_cross_check_sensor and entity_exists(whole_house_cross_check_sensor):
         try:
-            live_load_kw = float(ha_get(WHOLE_HOUSE_CROSS_CHECK_SOURCE_SENSOR)["state"])
+            live_load_kw = float(ha_get(whole_house_cross_check_sensor)["state"])
             load_kw[0] = max(0.0, live_load_kw)
             load_lower_kw[0] = load_kw[0]
             load_upper_kw[0] = load_kw[0]
@@ -2191,7 +2187,7 @@ def main() -> None:
                 }
                 for i in range(n_periods)
             ],
-            "source_entities": LOAD_FORECAST_ENTITIES,
+            "source_entities": load_forecast_entities,
             "failed_load_entities": failed_load_entities,
             "whole_house_cross_check_now_kw": round(whole_house_now_kw, 3) if whole_house_now_kw is not None else None,
             "inverter_self_consumption_kw": INVERTER_SELF_CONSUMPTION_KW,
