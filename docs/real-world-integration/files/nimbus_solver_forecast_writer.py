@@ -376,56 +376,50 @@ RISK_AVERSION = 0.25
 # (session history, sibling 116KAT-HA-AI repo's own CLAUDE.md).
 P2P_RECENT_AVG_VOLUME_FALLBACK_KWH = 60.0
 
-# Real per-load demand, summed from Nimbus's own 18 individually-
-# forecasted circuit breakers (2026-08-17, direct ask: "i was hoping not
-# to need whole house load if all 18 loads could be individually input
-# and measured and added into a total"). Confirmed live this is the
-# COMPLETE real load list -- every genuinely metered circuit on this
-# system's own Zigbee CB network, 18 entities, matching this project's
-# own long-documented "18 Nimbus-forecast Loads" count exactly (sibling
-# 116KAT-HA-AI repo's own CLAUDE.md, repeated across many sessions).
-# The single whole-house aggregate this writer used to read instead is
-# kept ONLY as a real, independent cross-check (see
-# WHOLE_HOUSE_CROSS_CHECK_SOURCE_SENSOR below, reported but never used
-# to price/dispatch anything) -- not removed outright, since a real
-# divergence between "sum of 18 real circuits" and "one real whole-house
-# meter" is itself useful, honest information (a missed/newly-added
-# circuit, a sensor drift) worth surfacing, not hiding.
+# Real per-load demand, OPTIONALLY summed from a household's own
+# individually-forecasted circuit breakers instead of one whole-house
+# forecast sensor (2026-08-17, direct ask on this project's own
+# reference install: "i was hoping not to need whole house load if all
+# 18 loads could be individually input and measured and added into a
+# total"). Real, richer-than-a-single-entity signal WHEN a household
+# fills this in via the wizard -- a genuine per-circuit health dot, and
+# a real cross-check against a separate whole-house meter (see
+# whole_house_cross_check_sensor below, reported but never used to
+# price/dispatch anything -- a real divergence between "sum of
+# configured circuits" and "one real whole-house meter" is itself
+# useful, honest information worth surfacing, not hiding). Genuinely
+# optional: a fresh install with neither field filled in falls back
+# cleanly to the wizard's own single load-forecast-sensor field below.
 #
-# 2026-08-20: this constant is the RAW SENSOR that whole-house signal is
-# derived from, not its own forecast entity_id -- the forecast entity
-# name is derived from it at read time (see below) specifically so a
-# future reconfigure (task #99's own auto-rename mechanism) can never
-# leave this cross-check silently pointing at a dead, renamed entity_id
-# again. Real, live-confirmed incident this replaces (2026-08-20): the
-# household's own "Whole House" Power Signal was reconfigured from
-# sensor.logger_load_power (the raw, noisy Modbus meter -- see this
-# project's own CLAUDE.md, "real P2P-window grid spikes root-caused")
-# to sensor.cb_total_combined_power_adjusted_kw. Task #99's auto-rename
-# correctly renamed the live forecast entity to match -- but this
-# writer's own hardcoded WHOLE_HOUSE_CROSS_CHECK_ENTITY was still the
-# OLD literal forecast entity_id, confirmed 404 the very next run.
-LOAD_FORECAST_ENTITIES = [
-    "sensor.nimbus_cb_pw_hws_l1_power_forecast",
-    "sensor.nimbus_cb_pw_hws_l3_power_forecast",
-    "sensor.nimbus_cb_pw_pool1_power_forecast",
-    "sensor.nimbus_cb_pw_pool_2_power_forecast",
-    "sensor.nimbus_cb_pw_comms_power_forecast",
-    "sensor.nimbus_cb_pw_ldry_power_forecast",
-    "sensor.nimbus_cb_pw_b1_power_forecast",
-    "sensor.nimbus_cb_pw_l1_power_forecast",
-    "sensor.nimbus_cb_lt_l1_power_forecast",
-    "sensor.nimbus_cb_lt_l2_power_forecast",
-    "sensor.nimbus_cb_pw_l2_power_forecast",
-    "sensor.nimbus_cb_pw_ac_l1_power_forecast",
-    "sensor.nimbus_cb_pw_ac_l2_power_forecast",
-    "sensor.nimbus_cb_pw_ac_b1_power_forecast",
-    "sensor.nimbus_cb_pw_ctp_power_forecast",
-    "sensor.nimbus_cb_pw_oven_power_forecast",
-    "sensor.nimbus_cb_pw_lounge_power_forecast",
-    "sensor.nimbus_cb_pw_heater_power_forecast",
-]
-WHOLE_HOUSE_CROSS_CHECK_SOURCE_SENSOR = "sensor.cb_total_combined_power_adjusted_kw"
+# 2026-08-20: the raw SOURCE sensor is what a household configures, not
+# its own forecast entity_id -- the forecast entity name is derived
+# from it at read time (see below) specifically so a future reconfigure
+# (task #99's own auto-rename mechanism) can never leave this cross-
+# check silently pointing at a dead, renamed entity_id again. Real,
+# live-confirmed incident that shaped this design (2026-08-20, this
+# project's own reference install): its "Whole House" Power Signal was
+# reconfigured from sensor.logger_load_power (the raw, noisy Modbus
+# meter -- see this project's own CLAUDE.md, "real P2P-window grid
+# spikes root-caused") to sensor.cb_total_combined_power_adjusted_kw.
+# Task #99's auto-rename correctly renamed the live forecast entity to
+# match -- but at the time, this writer's own hardcoded cross-check
+# pointer was still the OLD literal forecast entity_id, confirmed 404
+# the very next run.
+#
+# Real bug found live (nimbus repo issues #56/#60, reported by an
+# independent installer, 2026-08-22): these two used to be hardcoded
+# Python constants here -- one household's own 18 real circuit entity
+# IDs and one household's own real whole-house cross-check sensor. That
+# meant every OTHER install summed 18 nonexistent entities every solve
+# cycle (18 real 404 warnings per cycle, 216/hour at the default 5-min
+# cadence) and the config-flow's own single-sensor fallback field
+# below was permanently unreachable dead code for anyone but the
+# maintainer. Fixed 2026-08-23: both are now read live from cfg
+# (Nimbus's own Solver settings wizard) inside main() -- see
+# load_forecast_entities / whole_house_cross_check_sensor further down.
+# Genuinely empty/None by default for a fresh install; a household that
+# wants per-circuit summation and/or a whole-house cross-check fills
+# these in explicitly through the wizard.
 
 # Real, known, permanent inverter self-consumption bias (2026-08-17,
 # direct household confirmation: "the only thing which differs is
@@ -454,6 +448,42 @@ NETWORK_FEE_BLOCK_KEYS = (
 )
 
 
+def _cfg_num(cfg: dict, key: str, default: float) -> float:
+    """Return ``float(cfg[key])`` unless the value is missing/None, in
+    which case return ``default``.
+
+    REPLACES the pervasive ``float(cfg.get(key) or default)`` pattern
+    that used to appear throughout this file. That pattern silently
+    treats an intentional ``0.0`` as "unset" (0.0 is falsy in Python)
+    and swaps in the hardcoded default -- a real, live footgun for any
+    field where 0 is a legitimate user setting (min_soc_percent set to
+    0% by an installer as a temporary bypass being the specific case
+    that surfaced this: setting the dashboard number entity to 0.0 was
+    byte-identical to leaving it unset, and the solver silently reverted
+    to the 5.0% default and kept crashing).
+
+    Using ``is None`` distinguishes "user set 0" from "never configured,"
+    which is what a genuine numeric default should do. For fields where
+    the hardcoded default IS ``0.0``, this helper is functionally
+    identical to the old pattern -- swapped anyway for consistency and
+    defensiveness against a future default change.
+    """
+    val = cfg.get(key)
+    if val is None:
+        return default
+    return float(val)
+
+
+def _cfg_int(cfg: dict, key: str, default: int) -> int:
+    """Same as ``_cfg_num`` but returns ``int``. Used for hour-of-day
+    block boundaries where ``0`` is a legitimate value (midnight).
+    """
+    val = cfg.get(key)
+    if val is None:
+        return default
+    return int(val)
+
+
 def import_fee_rate(cfg: dict, hour: int) -> float:
     """Real, live, dashboard-configurable network TOU fee for a given
     hour -- REPLACES the old hardcoded network_energy_rate()
@@ -479,11 +509,11 @@ def import_fee_rate(cfg: dict, hour: int) -> float:
     Fees¢ shows 0, same honest "no data assumed" default as every
     other optional Solver field.
     """
-    default_rate = float(cfg.get("solver_network_fee_default_rate") or 0.0)
+    default_rate = _cfg_num(cfg, "solver_network_fee_default_rate", 0.0)
     for rate_key, start_key, end_key in NETWORK_FEE_BLOCK_KEYS:
-        rate = float(cfg.get(rate_key) or 0.0)
-        start_hour = int(cfg.get(start_key) or 0)
-        end_hour = int(cfg.get(end_key) or 0)
+        rate = _cfg_num(cfg, rate_key, 0.0)
+        start_hour = _cfg_int(cfg, start_key, 0)
+        end_hour = _cfg_int(cfg, end_key, 0)
         if rate <= 0 or end_hour <= start_hour:
             continue
         if start_hour <= hour < end_hour:
@@ -823,13 +853,15 @@ def fetch_load_forecast_safe(entity_id: str) -> list[dict]:
 def sum_load_forecasts(
     entity_ids: list[str], grid_times: list[datetime]
 ) -> tuple[list[float], list[float], list[float], list[str]]:
-    """Real household demand, summed from Nimbus's own 18 individually-
-    forecasted circuit breakers -- see LOAD_FORECAST_ENTITIES's own
-    comment for the full "why sum 18 instead of one whole-house entity"
-    reasoning. Each of the 18 is fetched via fetch_load_forecast_safe()
-    (individually guarded, never crashes the whole sum) and resampled
-    with the SAME resample_forecast() every other forecast entity in
-    this file already uses -- no new resampling logic needed.
+    """Real household demand, summed from a household's own individually-
+    forecasted circuits -- see load_forecast_entities in main() (the
+    comment right above the module-level "Real per-load demand" block
+    near the top of this file) for the full "why sum individual circuits
+    instead of one whole-house entity" reasoning. Each entity is fetched
+    via fetch_load_forecast_safe() (individually guarded, never crashes
+    the whole sum) and resampled with the SAME resample_forecast() every
+    other forecast entity in this file already uses -- no new resampling
+    logic needed.
 
     lower_kw/upper_kw are summed the same way (sum of each load's own
     real per-load lower bound, sum of each load's own real per-load
@@ -1093,9 +1125,9 @@ def fetch_p2p_fixed_export_kw(cfg: dict, grid_times: list[datetime]) -> list[flo
     blocks: list[tuple[float, int, int]] = []
     for rate_key, start_key, end_key in P2P_BLOCK_KEYS:
         try:
-            rate_kw = float(cfg.get(rate_key) or 0.0)
-            start_hour = int(cfg.get(start_key) or 0)
-            end_hour = int(cfg.get(end_key) or 0)
+            rate_kw = _cfg_num(cfg, rate_key, 0.0)
+            start_hour = _cfg_int(cfg, start_key, 0)
+            end_hour = _cfg_int(cfg, end_key, 0)
         except (TypeError, ValueError):
             continue
         if rate_kw <= 0 or end_hour <= start_hour:
@@ -1223,7 +1255,9 @@ def resample_generic_price_forecast(entity_id: str, grid_times: list[datetime]) 
     equivalent above), so this isn't Amber-specific despite the
     motivating case -- any future portable price source that produces
     this same shape gets picked up automatically, no config-flow change
-    needed.
+    needed. This household's own has_localvolts branch never reaches
+    this function -- it exists purely for the portable fallback path,
+    kept in sync with the sibling standalone script.
 
     Step ("hold the most recent point") lookup, deliberately NOT linear
     interpolation between two forecast points -- smearing a genuine
@@ -2039,26 +2073,19 @@ def main() -> None:
         except (ValueError, KeyError, TypeError):
             pass
 
-    # Real household demand. PRIMARY path (this household's own real
-    # setup): summed from the 18 real individually-forecasted circuits,
-    # not one opaque whole-house entity -- see LOAD_FORECAST_ENTITIES's
-    # own comment for the full reasoning. This is genuinely richer than
-    # anything a single-entity config field could express (a real, live
-    # health dot per circuit, a real cross-check against the whole-house
-    # meter below) -- kept as-is rather than flattened to match the
-    # generic case.
-    #
-    # FALLBACK (2026-08-20, for anyone else): LOAD_FORECAST_ENTITIES is
-    # still a hardcoded Python list -- a genuinely different household's
-    # own 18 circuit names would need hand-editing this constant, which
-    # is real, honest, NOT closed by this pass. What IS closed: leaving
-    # this list EMPTY (the realistic default for a fresh install nobody's
-    # customized yet) no longer crashes -- it falls back cleanly to the
-    # single sensor.solver_load_forecast_sensor entity every install
-    # already configures via the Solver settings wizard, same simple
-    # single-entity pattern already used for solar above.
-    if LOAD_FORECAST_ENTITIES:
-        load_kw, load_lower_kw, load_upper_kw, failed_load_entities = sum_load_forecasts(LOAD_FORECAST_ENTITIES, grid_times)
+    # Real household demand. OPTIONAL, richer path: sum a household's own
+    # individually-forecasted circuits, read live from cfg (the Solver
+    # settings wizard's own solver_load_forecast_entities field, 2026-08-23
+    # fix for nimbus repo issues #56/#60) instead of one opaque whole-
+    # house entity. When filled in, this is genuinely richer than a
+    # single-entity config field could express (a real, live health dot
+    # per circuit, a real cross-check against the whole-house meter
+    # below). Genuinely empty by default -- a fresh install falls
+    # straight to the single-sensor fallback below, same simple single-
+    # entity pattern already used for solar above.
+    load_forecast_entities = cfg.get("solver_load_forecast_entities") or []
+    if load_forecast_entities:
+        load_kw, load_lower_kw, load_upper_kw, failed_load_entities = sum_load_forecasts(load_forecast_entities, grid_times)
     else:
         load_fc = ha_get(cfg["solver_load_forecast_sensor"])["attributes"]["forecast"]
         load_kw = [max(0.0, v) for v in resample_forecast(load_fc, "value", grid_times)]
@@ -2074,42 +2101,49 @@ def main() -> None:
     # real, meaningful gap here is itself useful information (a missed
     # or newly-added circuit, sensor drift) worth surfacing on the
     # dashboard, not hiding silently.
-    try:
-        # Derived at read time from the real SOURCE sensor, not hardcoded
-        # as a forecast entity_id directly -- matches Nimbus's own real
-        # object_id_from_source() transform (nimbus repo, sensor.py) so a
-        # future reconfigure of this signal's source can never again
-        # leave this cross-check silently pointing at a dead, renamed
-        # entity_id (exactly what happened here 2026-08-20, see this
-        # constant's own comment above for the full incident).
-        object_id = WHOLE_HOUSE_CROSS_CHECK_SOURCE_SENSOR.split(".", 1)[-1]
-        whole_house_cross_check_entity = f"sensor.nimbus_{object_id}_forecast"
-        whole_house_fc = ha_get(whole_house_cross_check_entity)["attributes"]["forecast"]
-        whole_house_now_kw = max(0.0, resample_forecast(whole_house_fc, "value", grid_times[:1])[0])
-    except (urllib.error.HTTPError, urllib.error.URLError, KeyError, json.JSONDecodeError) as e:
-        print(f"WARN: whole-house cross-check unavailable ({e})", file=sys.stderr)
-        whole_house_now_kw = None
+    # Optional, read live from cfg (the wizard's own
+    # solver_whole_house_cross_check_sensor field, 2026-08-23 fix for
+    # nimbus repo issues #56/#60) -- None on a fresh install, a real
+    # no-op below rather than a crash on an empty entity_id.
+    whole_house_cross_check_sensor = cfg.get("solver_whole_house_cross_check_sensor") or None
+    whole_house_now_kw = None
+    if whole_house_cross_check_sensor:
+        try:
+            # Derived at read time from the real SOURCE sensor, not
+            # hardcoded as a forecast entity_id directly -- matches
+            # Nimbus's own real object_id_from_source() transform
+            # (nimbus repo, sensor.py) so a future reconfigure of this
+            # signal's source can never again leave this cross-check
+            # silently pointing at a dead, renamed entity_id (exactly
+            # what happened on this project's own reference install,
+            # 2026-08-20 -- see this field's own comment above).
+            object_id = whole_house_cross_check_sensor.split(".", 1)[-1]
+            whole_house_cross_check_entity = f"sensor.nimbus_{object_id}_forecast"
+            whole_house_fc = ha_get(whole_house_cross_check_entity)["attributes"]["forecast"]
+            whole_house_now_kw = max(0.0, resample_forecast(whole_house_fc, "value", grid_times[:1])[0])
+        except (urllib.error.HTTPError, urllib.error.URLError, KeyError, json.JSONDecodeError) as e:
+            print(f"WARN: whole-house cross-check unavailable ({e})", file=sys.stderr)
+            whole_house_now_kw = None
     summed_18_now_kw = load_kw[0]
 
     # Real, live anchor for the CURRENT period ONLY -- same mechanism
     # and reasoning as solar's own live anchor above (2026-08-22, direct
     # continuation of Mark Purcell's own request: "If you can fix
     # actuals for load and solar, becuase they are measured, then you
-    # get better calculates for battery and grid outcomes"). Reads
-    # WHOLE_HOUSE_CROSS_CHECK_SOURCE_SENSOR's own RAW state directly --
-    # NOT either forecast (not the 18-circuit sum, not the whole-house
-    # meter's own forecast-of-itself, both already captured above,
-    # UNCHANGED, for the real cross-check diagnostic) -- this is
-    # deliberately inserted AFTER summed_18_now_kw/whole_house_now_kw
-    # are captured so that diagnostic keeps comparing two genuine
-    # forecasts against each other, not a forecast against itself.
-    # Deliberately scoped to index 0 only, same as solar; every other
-    # period stays a genuine forecast. Zero-width band at this point --
-    # no forecast uncertainty in something already measured. Graceful
-    # no-op on any read failure.
-    if entity_exists(WHOLE_HOUSE_CROSS_CHECK_SOURCE_SENSOR):
+    # get better calculates for battery and grid outcomes"). Reads the
+    # cross-check sensor's own RAW state directly -- NOT either forecast
+    # (not the configured-circuits sum, not the whole-house meter's own
+    # forecast-of-itself, both already captured above, UNCHANGED, for the
+    # real cross-check diagnostic) -- this is deliberately inserted AFTER
+    # summed_18_now_kw/whole_house_now_kw are captured so that diagnostic
+    # keeps comparing two genuine forecasts against each other, not a
+    # forecast against itself. Deliberately scoped to index 0 only, same
+    # as solar; every other period stays a genuine forecast. Zero-width
+    # band at this point -- no forecast uncertainty in something already
+    # measured. Graceful no-op if unconfigured or on any read failure.
+    if whole_house_cross_check_sensor and entity_exists(whole_house_cross_check_sensor):
         try:
-            live_load_kw = float(ha_get(WHOLE_HOUSE_CROSS_CHECK_SOURCE_SENSOR)["state"])
+            live_load_kw = float(ha_get(whole_house_cross_check_sensor)["state"])
             load_kw[0] = max(0.0, live_load_kw)
             load_lower_kw[0] = load_kw[0]
             load_upper_kw[0] = load_kw[0]
@@ -2152,7 +2186,7 @@ def main() -> None:
                 }
                 for i in range(n_periods)
             ],
-            "source_entities": LOAD_FORECAST_ENTITIES,
+            "source_entities": load_forecast_entities,
             "failed_load_entities": failed_load_entities,
             "whole_house_cross_check_now_kw": round(whole_house_now_kw, 3) if whole_house_now_kw is not None else None,
             "inverter_self_consumption_kw": INVERTER_SELF_CONSUMPTION_KW,
@@ -2228,7 +2262,7 @@ def main() -> None:
         # cfg, same as every other Solver setting; a fresh install with
         # nothing configured correctly contributes 0 fees, same honest
         # no-op default as the fallback branch below already has.
-        flat_fee_rate = float(cfg.get("solver_flat_fee_rate") or 0.0)
+        flat_fee_rate = _cfg_num(cfg, "solver_flat_fee_rate", 0.0)
         import_price = [
             spot_import_raw[i] + import_fee_rate(cfg, grid_times[i].hour) + flat_fee_rate
             for i in range(n_periods)
@@ -2276,8 +2310,8 @@ def main() -> None:
         # Manual, static P2P bonus from the config-flow's own optional
         # block (both default to 0.0 -- a full no-op -- if the household
         # doesn't have any P2P/community-trading scheme at all).
-        p2p_recent_volume_kwh = float(cfg.get("solver_p2p_bonus_volume_kwh") or 0.0)
-        bonus_price_flat = float(cfg.get("solver_p2p_bonus_price") or 0.0)
+        p2p_recent_volume_kwh = _cfg_num(cfg, "solver_p2p_bonus_volume_kwh", 0.0)
+        bonus_price_flat = _cfg_num(cfg, "solver_p2p_bonus_price", 0.0)
         export_bonus_price = [bonus_price_flat] * n_periods
         # No real multi-day recorded history to build an empirical band
         # from for a generic install -- price_risk_aversion (if a household
@@ -2294,8 +2328,8 @@ def main() -> None:
     # file. A fresh install now needs nothing more than filling in
     # Nimbus's own hub "Configure" -> "Solver settings" form.
     capacity_kwh = float(cfg["solver_battery_capacity_kwh"])
-    min_pct = float(cfg.get("solver_battery_min_soc_percent") or 5.0)
-    max_pct = float(cfg.get("solver_battery_max_soc_percent") or 100.0)
+    min_pct = _cfg_num(cfg, "solver_battery_min_soc_percent", 5.0)
+    max_pct = _cfg_num(cfg, "solver_battery_max_soc_percent", 100.0)
     # The config-flow's own solver_battery_soc_sensor field replaces the
     # old hardcoded sensor.logger_battery_level_soc -- any household's
     # own real, live-measured SoC sensor now works, not just this one's.
@@ -2314,7 +2348,7 @@ def main() -> None:
         max_discharge_kw = ha_get(_max_discharge_entity)["attributes"]["max"]
     else:
         max_discharge_kw = float(cfg["solver_max_discharge_kw"])
-    charge_cost = float(cfg.get("solver_charge_cost") or 0.01)  # not scheduled -- real automations never touch this, manual control
+    charge_cost = _cfg_num(cfg, "solver_charge_cost", 0.01)  # not scheduled -- real automations never touch this, manual control
 
     if has_localvolts:
         # This household's own real, tuned day/night discharge-cost
@@ -2333,8 +2367,8 @@ def main() -> None:
         # from the config-flow's own Economic Policy step -- no day/night
         # schedule (that's tuned specifically around this household's own
         # P2P window, no portable equivalent yet).
-        discharge_cost_arr = np.full(n_periods, float(cfg.get("solver_discharge_cost") or 0.01))
-        salvage_value = float(cfg.get("solver_salvage_value") or 0.15)
+        discharge_cost_arr = np.full(n_periods, _cfg_num(cfg, "solver_discharge_cost", 0.01))
+        salvage_value = _cfg_num(cfg, "solver_salvage_value", 0.15)
 
     import_limit_kw = float(cfg["solver_grid_max_import_kw"])
     export_limit_kw = float(cfg["solver_grid_max_export_kw"])
@@ -2362,9 +2396,45 @@ def main() -> None:
 
     min_soc_kwh_val = capacity_kwh * min_pct / 100.0
     max_soc_kwh_val = capacity_kwh * max_pct / 100.0
+    initial_soc_kwh_raw = capacity_kwh * initial_pct / 100.0
+
+    # Clamp initial_soc_kwh into [min_soc_kwh, max_soc_kwh] before the
+    # BatteryConfig invariant check fires. Real, live cause this exists
+    # (2026-08-23): the SoC sensor genuinely can (and does) read below
+    # min_soc_percent for legitimate reasons -- the inverter runs the
+    # pack below its own configured Solver floor during a fault, a fresh
+    # install starts empty, a battery-cold event drops usable capacity
+    # below the static floor. Every one of those is a real state the
+    # world can be in, not a bad config; a live-sensor reading should
+    # not crash the entire solve. The invariant in
+    # elements.BatteryConfig.__post_init__ correctly protects USER-
+    # PROVIDED configs (someone typing initial_soc=200% into a static
+    # config file), but the writer's own initial_soc comes from a live
+    # sensor -- it needs to gracefully absorb real, transient reality
+    # rather than propagate a ValueError up through async_track_time_
+    # interval every minute (which is exactly what a household reported:
+    # 27+ crashes in a single window while SoC read 0.0% against a 5%
+    # min). Clamp, log the violation, keep solving.
+    initial_soc_kwh = min(max(initial_soc_kwh_raw, min_soc_kwh_val), max_soc_kwh_val)
+    if initial_soc_kwh != initial_soc_kwh_raw:
+        _initial_pct_raw = (
+            initial_soc_kwh_raw / capacity_kwh * 100.0 if capacity_kwh > 0 else 0.0
+        )
+        _initial_pct_clamped = (
+            initial_soc_kwh / capacity_kwh * 100.0 if capacity_kwh > 0 else 0.0
+        )
+        print(
+            f"WARN: live battery SoC {_initial_pct_raw:.2f}% is outside the "
+            f"configured Solver floor/ceiling [{min_pct:.2f}%, {max_pct:.2f}%] "
+            f"-- clamped initial_soc to {_initial_pct_clamped:.2f}% for this "
+            f"solve. If this repeats every period the real battery is stuck "
+            f"outside its own configured range (fault, cold pack, sensor drift) "
+            f"-- investigate rather than lower the floor.",
+            file=sys.stderr,
+        )
     battery = elements.BatteryConfig(
         capacity_kwh=capacity_kwh,
-        initial_soc_kwh=capacity_kwh * initial_pct / 100.0,
+        initial_soc_kwh=initial_soc_kwh,
         min_soc_kwh=min_soc_kwh_val,
         max_soc_kwh=max_soc_kwh_val,
         max_charge_kw=max_charge_kw,
@@ -2382,8 +2452,8 @@ def main() -> None:
         # just quietly degrade to "solver treats this as effectively
         # lossless," so this floor is deliberately kept even though a
         # correctly-filled-in form should never actually need it.
-        charge_efficiency=min(float(cfg.get("solver_efficiency_percent") or 95.0) / 100.0, 0.999) ** 0.5,
-        discharge_efficiency=min(float(cfg.get("solver_efficiency_percent") or 95.0) / 100.0, 0.999) ** 0.5,
+        charge_efficiency=min(_cfg_num(cfg, "solver_efficiency_percent", 95.0) / 100.0, 0.999) ** 0.5,
+        discharge_efficiency=min(_cfg_num(cfg, "solver_efficiency_percent", 95.0) / 100.0, 0.999) ** 0.5,
         charge_cost=charge_cost,
         discharge_cost=discharge_cost_arr,
         salvage_value=salvage_value,  # required field, but overridden by terminal_value_breakpoints below when set
@@ -2397,7 +2467,7 @@ def main() -> None:
         # Real economic cycle-wear cost (Track B2, 2026-08-22). 0.0
         # (unconfigured, the default) is a genuine no-op -- see
         # BatteryConfig's own degradation_cost_per_kwh docstring.
-        degradation_cost_per_kwh=float(cfg.get("solver_degradation_cost_per_kwh") or 0.0),
+        degradation_cost_per_kwh=_cfg_num(cfg, "solver_degradation_cost_per_kwh", 0.0),
     )
     fixed_export_kw = fetch_p2p_fixed_export_kw(cfg, grid_times)
     grid = elements.GridConfig(
@@ -2448,8 +2518,8 @@ def main() -> None:
     # this writer only ever had the single-scalar version live for a
     # brief window before the split, never a real production concern.
     risk_aversion = float(cfg.get("solver_risk_aversion") if cfg.get("solver_risk_aversion") is not None else RISK_AVERSION)
-    import_price_risk_aversion = float(cfg.get("solver_import_price_risk_aversion") or 0.0)
-    export_price_risk_aversion = float(cfg.get("solver_export_price_risk_aversion") or 0.0)
+    import_price_risk_aversion = _cfg_num(cfg, "solver_import_price_risk_aversion", 0.0)
+    export_price_risk_aversion = _cfg_num(cfg, "solver_export_price_risk_aversion", 0.0)
     # smoothness_weight (2026-08-20, real household finding: "why nimbus
     # decided to make such decisions and charge in bursts not
     # continuously") -- mechanism 4, network.py's own DEFAULT_SMOOTHNESS_
@@ -2505,6 +2575,43 @@ def main() -> None:
     equivalent_full_cycles = total_throughput_kwh / (2.0 * capacity_kwh) if capacity_kwh > 0 else 0.0
 
     net_battery = plan.battery_discharge_kw - plan.battery_charge_kw
+    corrected_grid_import = plan.grid_import_kw
+
+    # DEFENSIVE SAFETY NET (2026-08-22) -- a real, found root cause on
+    # this project's own reference install: a running process (native
+    # in-process runtime, a standalone cron process that hadn't picked
+    # up a fresh deploy yet, doesn't matter which) can genuinely keep
+    # executing an OLDER, already-superseded copy of network.py's own
+    # LP logic in memory for a while after a real upstream fix has
+    # landed in source -- Python doesn't hot-reload a running process's
+    # already-imported modules. If that stale copy is missing a real
+    # fix to the battery_charge bound during a committed fixed_export_kw
+    # period, it can return a mathematically-impossible plan (charging
+    # AND exporting at a fixed rate in the same period) despite the
+    # solver reporting status="optimal". This clamp is a permanent
+    # backstop against exactly that class of process-staleness bug,
+    # independent of cause -- it corrects the output rather than trust
+    # a stale process's own math, and logs loudly (stderr) whenever it
+    # actually fires, so a real staleness incident is never silent.
+    if grid.fixed_export_kw is not None:
+        _fixed_mask = ~np.isnan(grid.fixed_export_kw)
+        _violation_mask = _fixed_mask & (plan.battery_charge_kw > 0.05)
+        _n_violations = int(np.sum(_violation_mask))
+        if _n_violations > 0:
+            print(
+                f"[{now.isoformat()}] *** WARNING: solver returned {_n_violations} "
+                f"period(s) with battery_charge_kw>0 during a committed "
+                f"fixed_export_kw period -- mathematically should be impossible, "
+                f"applying defensive clamp before push. ***",
+                file=sys.stderr,
+            )
+            net_battery = np.where(_violation_mask, plan.battery_discharge_kw, net_battery)
+            corrected_grid_import = np.where(
+                _violation_mask,
+                np.maximum(0.0, plan.grid_import_kw - plan.battery_charge_kw),
+                plan.grid_import_kw,
+            )
+
     # Real per-period price/load/solar/net-cost fields added (2026-08-17,
     # direct ask: "still waiting for haeo like markdown table where I
     # can see forecasted costs fit load solar and soc% and period net")
@@ -2524,7 +2631,11 @@ def main() -> None:
             "time": grid_times[i].isoformat(),
             "battery_kw": round(float(net_battery[i]), 3),
             "soc_pct": round(float(plan.battery_soc_kwh[i] / capacity_kwh * 100), 2),
-            "grid_import_kw": round(float(plan.grid_import_kw[i]), 3),
+            # import side uses corrected_grid_import (see the defensive
+            # clamp above) -- keeps this consistent with battery_kw
+            # rather than silently reflecting the RAW, uncorrected import
+            # on any period the clamp touched.
+            "grid_import_kw": round(float(corrected_grid_import[i]), 3),
             "grid_export_kw": round(float(plan.grid_export_kw[i]), 3),
             # How much of grid_export_kw[i] earned the real, undiluted
             # P2P premium (vs the base/spot rate) -- exposed directly so
@@ -2564,7 +2675,7 @@ def main() -> None:
             # in, instead of assuming a fixed width.
             "hours": round(period_hours_arr[i], 4),
             "net_cost": round(
-                import_price[i] * float(plan.grid_import_kw[i]) * period_hours_arr[i]
+                import_price[i] * float(corrected_grid_import[i]) * period_hours_arr[i]
                 - export_price[i] * float(plan.grid_export_kw[i]) * period_hours_arr[i]
                 - export_bonus_price[i] * float(plan.export_bonus_kw[i]) * period_hours_arr[i],
                 4,
