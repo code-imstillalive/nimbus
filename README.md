@@ -14,9 +14,11 @@ OS, Supervised, and Docker installs.
 
 Most load forecasters in the Home Assistant energy-optimization world are either purely
 weather-correlated (no real learning from your own house) or bundled inside a much larger,
-harder-to-adopt optimizer. Nimbus does one thing: forecast the load. Feed its output into
-whatever optimizer you already use (it publishes in the same `{time, value}` forecast shape
-[HAEO](https://github.com/hass-energy/haeo) already reads natively).
+harder-to-adopt optimizer. Nimbus does one thing well: forecast the load, from your own real
+history, with zero manual retraining. It publishes a plain, stable `{time, value}` forecast
+shape — usable standalone, or fed into whatever dispatch/optimization layer you already run.
+Nimbus also ships its own optional LP-based Solver (see below) for households that want the
+whole stack — forecasting through to a real battery/grid dispatch plan — in one integration.
 
 ## Install (HACS)
 
@@ -36,6 +38,11 @@ whatever optimizer you already use (it publishes in the same `{time, value}` for
 
 ## Solver (optional, separate thing)
 
+**Requires a 64-bit host (`amd64` or `aarch64`)** — the Solver depends on `highspy`, a real
+compiled LP library with no wheel for 32-bit ARM (older Raspberry Pi 3/Zero). Check with
+`uname -m` before relying on it if you're unsure. The Forecaster above has no such
+restriction and runs fine on any architecture regardless.
+
 Nimbus is actually two things: the Forecaster above (predicts a load), and a real LP-based
 battery/grid dispatch **Solver** (`custom_components/nimbus_load/solver/` —
 `network.py`/`elements.py`/`lp.py`, HiGHS-backed, zero Home Assistant imports, fully
@@ -44,6 +51,19 @@ settings**, a 3-step wizard (Battery → Grid → Sources — sensor pointers on
 numeric setting, from battery capacity to salvage value, is its own live, dashboard-editable
 `number.nimbus_solver_*` entity instead) — installs via HACS and works on any HA platform
 including HAOS, same as the Forecaster.
+
+**Running the Solver settings wizard is mandatory, not optional, if you want the Solver at
+all.** Skip it and every `number.nimbus_solver_*` entity (battery capacity, max charge/
+discharge power, grid import/export limits) sits at its own defensive placeholder minimum
+(e.g. 0.1 kWh) — deliberately dispatch-safe, but useless: the Solver will happily run against
+these and produce a meaningless plan, with nothing in the UI to tell you it's not your real
+hardware. A persistent notification fires the moment the hub is created pointing you at
+Configure → Solver settings — but don't rely on the notification alone; if you dismiss it or
+restart HA before running the wizard, the placeholder values become sticky and won't
+auto-update from the wizard afterward (edit `number.nimbus_solver_*` directly in that case).
+Confirm `sensor.nimbus_solver_config` reads `configured` in Developer Tools → States before
+expecting a real plan. **If you only want load forecasting, skip this whole section** — the
+Forecaster works standalone with zero further setup.
 
 **Producing a live dispatch forecast (2026-08-22, now genuinely pure-integration):** install
 via HACS, run the wizard above, done — no separate device, no cron, no addon. The Solver runs
@@ -72,9 +92,9 @@ README first.
 ## What it publishes
 
 One sensor per configured instance, `native_value` = the current predicted load (kW), and a
-`forecast` attribute — a list of `{"time": ..., "value": ...}` points — in the same format
-already used by [HAEO](https://github.com/hass-energy/haeo)'s own native forecast sensors, so
-it can be wired straight into a HAEO Load element's forecast source.
+`forecast` attribute — a list of `{"time": ..., "value": ...}` points. A plain, stable,
+generic shape by design, so it can be wired straight into any dispatch/optimization layer's
+own forecast source, or used entirely on its own via the Solver below.
 
 ## How it works
 
