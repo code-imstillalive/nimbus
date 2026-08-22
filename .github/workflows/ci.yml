@@ -62,17 +62,21 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v5
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.13"
       - name: Install ruff
         run: pip install ruff
       - name: Ruff format check (advisory)
-        continue-on-error: true
-        run: ruff format --check custom_components/ tests/
+        # `|| true` (not continue-on-error: true) deliberately -- GitHub
+        # still marks a continue-on-error step as failed in the Files/
+        # Summary annotation view even though the JOB itself passes; the
+        # step exiting 0 on its own is what actually produces a clean,
+        # annotation-free green check. Real output (which files need
+        # reformatting) is still fully visible in the log either way.
+        run: ruff format --check custom_components/ tests/ || true
       - name: Ruff lint (advisory)
-        continue-on-error: true
-        run: ruff check custom_components/ tests/
+        run: ruff check custom_components/ tests/ || true
 
   # ---------------------------------------------------------------------------
   # ADVISORY: Type Check (mypy).
@@ -88,7 +92,7 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v5
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.13"
       - name: Install mypy
@@ -111,7 +115,7 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v5
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: "3.13"
       - name: Install test dependencies
@@ -131,7 +135,7 @@ jobs:
       - name: Upload coverage artifact
         if: always()
         continue-on-error: true
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: coverage-report
           path: coverage.xml
