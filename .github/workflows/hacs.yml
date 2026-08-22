@@ -1,0 +1,19 @@
+name: HACS Validation
+
+# Official HACS validator -- confirms this repo meets HACS's own structural
+# requirements (hacs.json, brand assets, repository topics/description).
+# Same zero-maintenance, zero-secrets rationale as hassfest.yml (issue #36,
+# DevOps lifecycle step 2).
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hacs/action@main
+        with:
+          category: integration

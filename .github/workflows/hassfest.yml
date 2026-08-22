@@ -1,0 +1,17 @@
+name: Validate with hassfest
+
+# Official Home Assistant manifest/structure validator -- catches manifest.json
+# errors, missing requirements, invalid domain names, and similar structural
+# issues before a user's HACS install ever hits them. Zero maintenance cost,
+# zero secrets, runs on every push and PR (issue #36, DevOps lifecycle step 2).
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: home-assistant/actions/hassfest@master
