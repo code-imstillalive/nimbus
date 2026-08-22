@@ -1130,21 +1130,42 @@ def fetch_price_history(entity_id: str, days: int = 5) -> list[tuple[datetime, f
     start = end - timedelta(days=days)
     if _NATIVE_HASS is not None:
         # Real recorder history, in-process -- no HTTP round-trip at all.
-        # Verified live (2026-08-22) against HA core's own current
-        # source: state_changes_during_period(hass, start, end, entity_id,
-        # no_attributes=..., ...) -> {entity_id: [State, ...]}. This is a
-        # genuine, blocking, database-hitting call -- safe here ONLY
-        # because solver_runtime.py (same repo) always runs this whole
-        # module's main() inside hass.async_add_executor_job(), never
-        # directly on the event loop. Import kept INSIDE the try so a
-        # wrong path/signature degrades to the same honest [] fallback
-        # every other failure mode here already uses, never a crash --
-        # this is a real, but non-critical, price-band enrichment.
+        # state_changes_during_period(hass, start, end, entity_id,
+        # no_attributes=..., ...) -> {entity_id: [State, ...]}, verified
+        # against HA core's own current source.
+        #
+        # Real bug caught and fixed live (2026-08-22, first native-mode
+        # test): calling this DIRECTLY from here -- a plain function
+        # running inside solver_runtime.py's own hass.async_add_executor_
+        # job() worker thread -- tripped HA's own recorder safety check:
+        # "accesses the database without the database executor." The
+        # recorder keeps its OWN dedicated executor, separate from HA's
+        # generic one this whole solve already runs inside, specifically
+        # because its underlying DB session isn't meant to be touched
+        # from just any worker thread. Recorder.async_add_executor_job()
+        # is itself event-loop-only (a @callback, returns an
+        # asyncio.Future) -- no public sync-callable variant exists to
+        # call it directly from here. asyncio.run_coroutine_threadsafe()
+        # is the standard, genuinely correct stdlib bridge for exactly
+        # this: schedule a coroutine onto hass's OWN event loop from this
+        # worker thread, block for the result via .result(). Import kept
+        # INSIDE the try so a wrong path/signature degrades to the same
+        # honest [] fallback every other failure mode here already uses,
+        # never a crash -- this is a real, but non-critical, price-band
+        # enrichment.
         try:
+            import asyncio
+            from homeassistant.components.recorder import get_instance as _recorder_get_instance
             from homeassistant.components.recorder import history as _recorder_history
-            changes = _recorder_history.state_changes_during_period(
-                _NATIVE_HASS, start, end, entity_id, no_attributes=True,
-            )
+
+            async def _fetch() -> dict:
+                return await _recorder_get_instance(_NATIVE_HASS).async_add_executor_job(
+                    _recorder_history.state_changes_during_period,
+                    _NATIVE_HASS, start, end, entity_id, True,  # no_attributes
+                )
+
+            future = asyncio.run_coroutine_threadsafe(_fetch(), _NATIVE_HASS.loop)
+            changes = future.result(timeout=30)
             states = changes.get(entity_id, [])
         except Exception:
             return []
