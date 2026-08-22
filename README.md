@@ -2,6 +2,15 @@
 
 *Just a different type of cloud.*
 
+> ⚠️ **Work in progress — active shadow-mode project, not a finished product.**
+> The Forecaster and Solver are both under real, ongoing development. Neither drives any
+> live battery/grid dispatch today — the Solver runs entirely in observe-only shadow mode
+> against real household data, and stays that way until a lot more evidence accumulates (see
+> the reference household's own "Nimbus → HAEO Replacement Readiness Checklist" for exactly
+> what that bar looks like). Expect rough edges, breaking changes, and real bugs — several
+> have been found and fixed in the days right around this repo going public. If you install
+> this, please open a GitHub issue rather than expect a polished, plug-and-play experience.
+
 A self-retraining ML load forecaster for Home Assistant.
 
 Nimbus watches a power sensor you choose, learns your home's real consumption pattern
