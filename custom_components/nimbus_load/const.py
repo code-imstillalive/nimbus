@@ -298,6 +298,16 @@ CONF_SOLVER_LOAD_FORECAST_SENSOR: Final = "solver_load_forecast_sensor"
 CONF_SOLVER_CHARGE_COST: Final = "solver_charge_cost"
 CONF_SOLVER_DISCHARGE_COST: Final = "solver_discharge_cost"
 CONF_SOLVER_SALVAGE_VALUE: Final = "solver_salvage_value"
+# Real economic cycle-wear cost (2026-08-22, Track B2). $/kWh, applied
+# per kWh of THROUGHPUT in EITHER direction (charge OR discharge) --
+# see BatteryConfig's own degradation_cost_per_kwh docstring (solver/
+# elements.py) for the full "why separate from charge_cost/
+# discharge_cost" reasoning and the real "(replacement cost) / (2 *
+# capacity * rated EFC)" derivation. 0.0 (the default) is a genuine
+# no-op -- byte-identical to every scenario built before this field
+# existed.
+CONF_SOLVER_DEGRADATION_COST_PER_KWH: Final = "solver_degradation_cost_per_kwh"
+DEFAULT_SOLVER_DEGRADATION_COST_PER_KWH: Final = 0.0
 # Optional, P2P-specific -- only relevant to an installer with a peer-to-
 # peer energy trading platform (e.g. LocalVolts in Australia). Left blank
 # (0) for anyone without one; the Solver simply never sees any bonus-

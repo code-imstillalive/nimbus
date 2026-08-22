@@ -86,7 +86,9 @@ from .const import (
     CONF_SOLVER_P2P_BONUS_PRICE,
     CONF_SOLVER_P2P_BONUS_VOLUME_KWH,
     CONF_SOLVER_SALVAGE_VALUE,
+    CONF_SOLVER_DEGRADATION_COST_PER_KWH,
     DEFAULT_SOLVER_CHARGE_COST,
+    DEFAULT_SOLVER_DEGRADATION_COST_PER_KWH,
     DEFAULT_SOLVER_DISCHARGE_COST,
     DEFAULT_SOLVER_EFFICIENCY_PERCENT,
     DEFAULT_SOLVER_FLAT_FEE_RATE,
@@ -144,6 +146,11 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
     _SolverNumberDescription(CONF_SOLVER_CHARGE_COST, "Charge Cost", DEFAULT_SOLVER_CHARGE_COST, 0, 10, 0.001, "$/kWh"),
     _SolverNumberDescription(CONF_SOLVER_DISCHARGE_COST, "Discharge Cost", DEFAULT_SOLVER_DISCHARGE_COST, 0, 10, 0.001, "$/kWh"),
     _SolverNumberDescription(CONF_SOLVER_SALVAGE_VALUE, "Salvage Value", DEFAULT_SOLVER_SALVAGE_VALUE, 0, 10, 0.001, "$/kWh"),
+    # Real economic cycle-wear cost (2026-08-22, Track B2). See const.py's
+    # own CONF_SOLVER_DEGRADATION_COST_PER_KWH comment for the full
+    # "(replacement cost) / (2 * capacity * rated EFC)" derivation --
+    # 0.0 (the default) is a genuine no-op.
+    _SolverNumberDescription(CONF_SOLVER_DEGRADATION_COST_PER_KWH, "Battery Degradation Cost", DEFAULT_SOLVER_DEGRADATION_COST_PER_KWH, 0, 10, 0.001, "$/kWh"),
     _SolverNumberDescription(CONF_SOLVER_P2P_BONUS_PRICE, "P2P Bonus Price", DEFAULT_SOLVER_P2P_BONUS_PRICE, 0, 10, 0.001, "$/kWh"),
     _SolverNumberDescription(CONF_SOLVER_P2P_BONUS_VOLUME_KWH, "P2P Bonus Volume", DEFAULT_SOLVER_P2P_BONUS_VOLUME_KWH, 0, 10000, 0.1, "kWh"),
     # P2P fixed-rate delivery blocks (2026-08-21) -- up to 3 independent

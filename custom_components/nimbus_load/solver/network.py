@@ -753,11 +753,18 @@ def build_plan(
     # broadcast error), not silently later.
     charge_cost_arr = np.broadcast_to(np.asarray(battery.charge_cost, dtype=np.float64), (n,))
     discharge_cost_arr = np.broadcast_to(np.asarray(battery.discharge_cost, dtype=np.float64), (n,))
+    # Real economic cycle-wear cost (Track B2, elements.py's own
+    # degradation_cost_per_kwh -- see that field's own docstring for the
+    # full "why a separate additive term, not folded into charge_cost/
+    # discharge_cost" reasoning). set_cost() is additive (see lp.py's
+    # own docstring), so this simply layers on top of whatever TOU-
+    # driven charge_cost/discharge_cost already priced -- 0.0 (the
+    # default) is a genuine no-op, adds nothing to either cost.
     for t in range(n):
         p.set_cost(grid_import[t], effective_import_price[t] * hours[t])
         p.set_cost(grid_export[t], -effective_export_price[t] * hours[t])
-        p.set_cost(charge[t], charge_cost_arr[t] * hours[t])
-        p.set_cost(discharge[t], discharge_cost_arr[t] * hours[t])
+        p.set_cost(charge[t], (charge_cost_arr[t] + battery.degradation_cost_per_kwh) * hours[t])
+        p.set_cost(discharge[t], (discharge_cost_arr[t] + battery.degradation_cost_per_kwh) * hours[t])
         for sl in sheddable_loads:
             p.set_cost(shed_vars[sl.name][t], sl.shed_cost * hours[t])
     # Two-tier export bonus (see elements.py's own GridConfig docstring):

@@ -571,6 +571,44 @@ class BatteryConfig:
     charge_power_curve: list[tuple[float, float]] | None = None
     discharge_power_curve: list[tuple[float, float]] | None = None
 
+    # Real economic cycle-wear cost (2026-08-22, Track B2 -- the plan's
+    # own long-flagged "genuinely separate mechanism" companion to the
+    # SoC-dependent power curves above). Confirmed absent everywhere
+    # this same day: regret.py's own docstring explicitly excludes it,
+    # charge_cost/discharge_cost above are TOU-driven not wear-driven,
+    # and nimbus_solver_forecast_writer.py's own equivalent_full_cycles
+    # is real code but REPORTING-only, computed AFTER the solve, never
+    # fed back into what the LP actually optimizes against -- its own
+    # comment says plainly "degradation isn't in the objective, so it
+    # will look free when it isn't". This field is what closes that gap.
+    #
+    # $/kWh, applied per kWh of THROUGHPUT in EITHER direction (charge
+    # OR discharge) -- deliberately the SAME basis as equivalent_full_
+    # cycles' own total_throughput_kwh = charge_kwh + discharge_kwh
+    # convention (network.py:2187 in the sibling writer script: one
+    # "equivalent full cycle" = 2x capacity_kwh of total throughput), so
+    # the two stay consistent with each other. To derive a real value
+    # from a battery's own spec sheet: (replacement cost in $) / (2 *
+    # capacity_kwh * rated cycle life in EFC) -- e.g. a $15,000 pack
+    # rated for 6,000 EFC at 122.2kWh capacity gives roughly $0.0205/kWh.
+    #
+    # 0.0 (the default) is fully backward compatible -- byte-identical
+    # to every scenario built before this field existed. Deliberately a
+    # SEPARATE additive term from charge_cost/discharge_cost, not folded
+    # into them -- those represent TOU/feed-in economics the household
+    # can see and reason about on their own; this represents a distinct,
+    # physically-motivated cost, and keeping it separate is what lets a
+    # future report actually answer "how much of my battery cost is
+    # degradation vs. missed arbitrage" instead of one blended number.
+    #
+    # Deliberately NOT coupled into the MIN_CHARGE_DISCHARGE_COST_SPREAD
+    # wash-trade guard below -- that guard already requires charge_cost +
+    # discharge_cost alone to clear the structural floor; a positive
+    # degradation_cost_per_kwh only ever ADDS more real friction on top
+    # (never subtracts), so checking the guard without it is the
+    # conservative direction, not a gap.
+    degradation_cost_per_kwh: float = 0.0
+
     def __post_init__(self) -> None:
         if not (0.0 < self.min_soc_kwh <= self.max_soc_kwh <= self.capacity_kwh):
             msg = f"Invalid SoC bounds: 0 < min_soc({self.min_soc_kwh}) <= max_soc({self.max_soc_kwh}) <= capacity({self.capacity_kwh}) required"
@@ -638,6 +676,9 @@ class BatteryConfig:
             _validate_power_curve("charge_power_curve", self.charge_power_curve, self.min_soc_kwh, self.max_soc_kwh)
         if self.discharge_power_curve is not None:
             _validate_power_curve("discharge_power_curve", self.discharge_power_curve, self.min_soc_kwh, self.max_soc_kwh)
+        if self.degradation_cost_per_kwh < 0:
+            msg = f"degradation_cost_per_kwh must be >= 0 (got {self.degradation_cost_per_kwh}) -- a negative value would mean cycling the battery PAYS the household, which is not a real cost"
+            raise ValueError(msg)
 
 
 def _validate_power_curve(name: str, curve: list[tuple[float, float]], min_soc_kwh: float, max_soc_kwh: float) -> None:
