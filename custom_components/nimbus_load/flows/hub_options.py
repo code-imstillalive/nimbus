@@ -333,6 +333,18 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
             merged = dict(self.config_entry.options)
             for key in _SOLVER_WIZARD_SCHEMA_KEYS:
                 merged[key] = self._solver_data.get(key)
+            # Dismiss config_flow.py's first-run "not configured yet" nudge,
+            # if it's still showing -- this is the step that actually seeds
+            # number.py's placeholder entities with real values (via the
+            # hub reload this options-flow completion triggers), so it's
+            # the right moment to clear it. Wrapped for the same reason as
+            # its creation -- never let this block a real save.
+            try:
+                await self.hass.services.async_call(
+                    "persistent_notification", "dismiss", {"notification_id": "nimbus_setup_incomplete"},
+                )
+            except Exception:  # noqa: BLE001
+                pass
             return self.async_create_entry(title="", data=merged)
         return self.async_show_form(
             step_id="solver_sources", data_schema=_solver_sources_schema(dict(self.config_entry.options))

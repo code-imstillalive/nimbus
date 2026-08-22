@@ -47,6 +47,46 @@ class NimbusConfigFlow(ConfigFlow, domain=DOMAIN):
         subentries on the hub's own device page."""
         await self.async_set_unique_id(DOMAIN)
         self._abort_if_unique_id_configured()
+        # Real gap found live, 2026-08-22 (a genuine third-party install,
+        # not a hypothetical): a fresh install lands straight on the hub's
+        # own device page with no prompt at all -- and number.py's own
+        # Solver number entities (battery capacity, max charge/discharge,
+        # grid import/export limits) start there at a clearly-a-placeholder
+        # default (their own min bound, e.g. 0.1 kWh), with nothing on
+        # screen distinguishing that from a real configured value. Nothing
+        # here crashes or produces a malformed entry -- this is a silent-
+        # wrong-value trap, not a broken flow: an installer who doesn't
+        # notice can have the Solver running against a comically undersized
+        # battery model with zero error, zero warning. A loud, hard-to-miss
+        # nudge instead. Wrapped -- hub creation must succeed regardless of
+        # whether this notification does.
+        try:
+            await self.hass.services.async_call(
+                "persistent_notification",
+                "create",
+                {
+                    "title": "Nimbus: one more step",
+                    "message": (
+                        "Nimbus is installed, but not yet configured for your "
+                        "own system. Go to **Settings > Devices & services > "
+                        "Nimbus > Configure > Solver settings** now, in this "
+                        "same session, and step through Battery -> Grid -> "
+                        "Sources -- the Solver won't produce a meaningful plan "
+                        "until this is done (right now every hardware number is "
+                        "sitting at a placeholder minimum, not your real "
+                        "battery/grid values).\n\n"
+                        "If you restart Home Assistant before doing this, the "
+                        "placeholder values become \"sticky\" and won't "
+                        "auto-update from the wizard afterward -- in that case, "
+                        "edit the `number.nimbus_solver_*` entities directly "
+                        "instead (Settings > Devices & services > Nimbus > "
+                        "entities)."
+                    ),
+                    "notification_id": "nimbus_setup_incomplete",
+                },
+            )
+        except Exception:  # noqa: BLE001 -- a notification failure must never block real hub setup
+            pass
         return self.async_create_entry(title="Nimbus", data={})
 
     @classmethod
