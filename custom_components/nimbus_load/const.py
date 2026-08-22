@@ -231,6 +231,17 @@ CONF_SOLVER_EXPORT_PRICE_SENSOR: Final = "solver_export_price_sensor"
 # responsibility HAEO's own schema uses (core/schema/elements/solar.py --
 # a bare forecast entity reference, nothing about the panels themselves).
 CONF_SOLVER_SOLAR_FORECAST_SENSOR: Final = "solver_solar_forecast_sensor"
+# Optional SECOND solar source (2026-08-22, direct household ask, after
+# real live evidence: on one real morning, Open-Meteo's own forecast
+# (2.3kW) was significantly FURTHER from real conditions (5.1-7.3kW)
+# than the primary source's own model (6.2kW) was -- proving neither
+# single source is reliably right on its own, the exact scenario a real
+# blend is meant to help with. Optional and blank by default -- a
+# fresh/single-source install behaves byte-identically to before this
+# field existed; only configuring it turns blending on at all. See
+# ml/blend.py's own module docstring for the "every forecast is wrong,
+# so blend rather than pick one" reasoning this implements.
+CONF_SOLVER_SOLAR_FORECAST_SENSOR_2: Final = "solver_solar_forecast_sensor_2"
 CONF_SOLVER_LOAD_FORECAST_SENSOR: Final = "solver_load_forecast_sensor"
 # Economic POLICY, not hardware -- how cautious the solver should be
 # about cycling the battery. Real, non-obvious history worth remembering
