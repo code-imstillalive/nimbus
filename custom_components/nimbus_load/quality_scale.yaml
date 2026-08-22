@@ -24,7 +24,7 @@ rules:
   entity-event-setup: done
   entity-unique-id: done
   has-entity-name: done
-  runtime-data: todo  # coordinator stored on hass.data[DOMAIN], not entry.runtime_data
+  runtime-data: done  # 2026-08-22: entry.runtime_data (a `type NimbusConfigEntry = ConfigEntry[dict[str, NimbusCoordinator]]` alias in coordinator.py, the one import-cycle-free place every consumer already shares) replaces hass.data[DOMAIN][entry.entry_id] everywhere -- __init__.py, sensor.py, diagnostics.py
   test-before-configure:
     status: exempt
     comment: >

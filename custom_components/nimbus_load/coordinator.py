@@ -79,6 +79,18 @@ _LOGGER = logging.getLogger(__name__)
 # threshold could wrongly reject).
 MAX_SANE_POWER_KW = 1000.0
 
+# runtime-data (Quality Scale, Bronze): entry.runtime_data replaces the old
+# hass.data[DOMAIN][entry.entry_id] pattern. Defined HERE, not in
+# __init__.py -- __init__.py already imports FROM sensor.py
+# (object_id_from_source), and sensor.py/diagnostics.py both already import
+# NimbusCoordinator from THIS module, so this is the one place every
+# consumer can import the type alias from without creating an import
+# cycle. Forward-references NimbusCoordinator (defined a few lines below,
+# not yet at this point in the file) -- safe because PEP 695 `type`
+# statements are lazily evaluated on first access, not at definition time,
+# by which point the whole module has finished executing.
+type NimbusConfigEntry = ConfigEntry[dict[str, NimbusCoordinator]]
+
 
 class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Owns one load's model lifecycle and produces its published forecast

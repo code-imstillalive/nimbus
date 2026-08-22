@@ -22,7 +22,7 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorStateClass,
 )
-from homeassistant.config_entries import ConfigEntry, ConfigSubentry
+from homeassistant.config_entries import ConfigSubentry
 from homeassistant.const import UnitOfPower
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
@@ -89,7 +89,7 @@ from .const import (
     SUBENTRY_TYPE_LOAD,
     SUBENTRY_TYPE_SIGNAL,
 )
-from .coordinator import NimbusCoordinator
+from .coordinator import NimbusConfigEntry, NimbusCoordinator
 
 # All real work (the retrain/inference cycle) happens once per coordinator,
 # already serialized by its own async_track_time_change/interval scheduling
@@ -243,10 +243,10 @@ def object_id_from_source(load_sensor_entity_id: str) -> str:
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: NimbusConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    coordinators: dict[str, NimbusCoordinator] = hass.data[DOMAIN][entry.entry_id]
+    coordinators = entry.runtime_data
     # Real, live version, read from this integration's own manifest.json --
     # single source of truth, no more hand-syncing a version string in a
     # second place (this exact staleness bit a downstream dashboard card,
@@ -445,7 +445,7 @@ class NimbusSolverConfigSensor(SensorEntity):
     _attr_name = "Solver Config"
     _attr_entity_category = None  # a real, actively-read data source, not a diagnostic
 
-    def __init__(self, entry: ConfigEntry, sw_version: str | None) -> None:
+    def __init__(self, entry: NimbusConfigEntry, sw_version: str | None) -> None:
         self._entry = entry
         self._attr_unique_id = f"{entry.entry_id}_solver_config"
         # Fixed entity_id (same technique/reasoning as NimbusForecastSensor's

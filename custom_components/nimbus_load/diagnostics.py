@@ -23,20 +23,18 @@ from __future__ import annotations
 from typing import Any
 
 from homeassistant.components.diagnostics import async_redact_data
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 
-from .const import DOMAIN
-from .coordinator import NimbusCoordinator
+from .coordinator import NimbusConfigEntry
 
 TO_REDACT: tuple[str, ...] = ()
 
 
 async def async_get_config_entry_diagnostics(
-    hass: HomeAssistant, entry: ConfigEntry
+    hass: HomeAssistant, entry: NimbusConfigEntry
 ) -> dict[str, Any]:
     """Return diagnostics for a Nimbus hub config entry."""
-    coordinators: dict[str, NimbusCoordinator] = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
+    coordinators = entry.runtime_data
 
     subentries: list[dict[str, Any]] = []
     for subentry_id, coordinator in coordinators.items():

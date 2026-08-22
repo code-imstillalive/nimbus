@@ -17,7 +17,6 @@ from __future__ import annotations
 import logging
 from datetime import timedelta
 
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
@@ -25,7 +24,7 @@ from homeassistant.helpers.event import async_track_time_interval
 
 from . import solver_runtime
 from .const import CONF_LOAD_SENSOR, DOMAIN, SUBENTRY_TYPE_LOAD, SUBENTRY_TYPE_SIGNAL
-from .coordinator import NimbusCoordinator
+from .coordinator import NimbusConfigEntry, NimbusCoordinator
 from .sensor import object_id_from_source
 
 PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.NUMBER, Platform.SWITCH]
@@ -42,7 +41,7 @@ _FORECASTABLE_SUBENTRY_TYPES = (SUBENTRY_TYPE_LOAD, SUBENTRY_TYPE_SIGNAL)
 _LOGGER = logging.getLogger(__name__)
 
 
-async def _async_rename_stale_forecast_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
+async def _async_rename_stale_forecast_entities(hass: HomeAssistant, entry: NimbusConfigEntry) -> None:
     """A load/signal subentry's forecast entity_id is derived from its
     CURRENT source sensor at CREATION time (sensor.py's own
     object_id_from_source(), used in NimbusForecastSensor.__init__) but
@@ -107,12 +106,12 @@ async def _async_rename_stale_forecast_entities(hass: HomeAssistant, entry: Conf
         registry.async_update_entity(current_entity_id, new_entity_id=correct_entity_id)
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: NimbusConfigEntry) -> bool:
     """Set up the Nimbus hub -- one coordinator per load/power_signal subentry.
 
-    hass.data[DOMAIN][entry.entry_id] is a dict keyed by subentry_id, not a
-    single coordinator -- sensor.py iterates it to create one entity per
-    load/signal. A hub with zero subentries yet (right after first install,
+    entry.runtime_data is a dict keyed by subentry_id, not a single
+    coordinator -- sensor.py iterates it to create one entity per load/
+    signal. A hub with zero subentries yet (right after first install,
     before anything's been added via "+ Add") is valid and simply sets up
     nothing further until the first one exists.
     """
@@ -139,7 +138,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         await coordinator.async_config_entry_first_refresh()
         coordinators[subentry.subentry_id] = coordinator
 
-    hass.data.setdefault(DOMAIN, {})[entry.entry_id] = coordinators
+    entry.runtime_data = coordinators
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
@@ -166,7 +165,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
-async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
+async def _async_update_listener(hass: HomeAssistant, entry: NimbusConfigEntry) -> None:
     """Reload the whole hub when a load subentry is added, edited, or
     removed. Home Assistant's own subentry flow (async_create_entry /
     async_update_and_abort / subentry deletion) triggers this automatically
@@ -176,11 +175,10 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
     await hass.config_entries.async_reload(entry.entry_id)
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: NimbusConfigEntry) -> bool:
     """Unload the Nimbus hub and every one of its load coordinators."""
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
-        coordinators: dict[str, NimbusCoordinator] = hass.data[DOMAIN].pop(entry.entry_id, {})
-        for coordinator in coordinators.values():
+        for coordinator in entry.runtime_data.values():
             coordinator.async_unload()
     return unload_ok
