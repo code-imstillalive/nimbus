@@ -4,6 +4,11 @@ name: HACS Validation
 # requirements (hacs.json, brand assets, repository topics/description).
 # Same zero-maintenance, zero-secrets rationale as hassfest.yml (issue #36,
 # DevOps lifecycle step 2).
+#
+# Skipped while the repo is private: the HACS action's fetchers cannot read
+# private-repo content through the default GITHUB_TOKEN, so `hacsjson` and
+# `integration_manifest` always fail with "Got None" (see issue #49). The
+# job auto-re-enables once the repo is made public.
 on:
   push:
     branches: [main]
@@ -11,6 +16,7 @@ on:
 
 jobs:
   validate:
+    if: github.event.repository.visibility != 'private'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
