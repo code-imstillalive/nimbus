@@ -63,14 +63,30 @@ from ..const import (
 
 
 def _forecaster_schema(defaults: dict[str, Any]) -> vol.Schema:
+    # Real fix (2026-08-22, direct household report: "its not letting me
+    # delete anything it remains there even after deleting"). Every
+    # Optional ENTITY field below was built with `default=defaults.get(
+    # key)` -- the classic, well-documented HA config-flow trap: a
+    # voluptuous `default=` isn't just a display hint, it's what
+    # voluptuous itself SUPPLIES during validation whenever the
+    # submitted payload omits that key. When a user clears an entity
+    # picker and submits, the frontend omits the key -- and voluptuous
+    # silently refills it right back in with the OLD value from
+    # `default=`, so the field can never actually go blank. The correct
+    # pattern for a genuinely clearable field is `description={
+    # "suggested_value": ...}` -- a pure frontend pre-fill hint that
+    # does NOT get injected back into validation, so a real blank
+    # submission stays genuinely blank. (`vol.Required` fields below
+    # are unaffected -- HA won't let a required field submit truly
+    # empty anyway, so "sticky" is the correct behaviour there.)
     return vol.Schema(
         {
             vol.Optional(
-                CONF_TEMPERATURE_SENSOR, default=defaults.get(CONF_TEMPERATURE_SENSOR)
+                CONF_TEMPERATURE_SENSOR, description={"suggested_value": defaults.get(CONF_TEMPERATURE_SENSOR)}
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
             vol.Optional(
                 CONF_TEMPERATURE_FORECAST_SENSOR,
-                default=defaults.get(CONF_TEMPERATURE_FORECAST_SENSOR),
+                description={"suggested_value": defaults.get(CONF_TEMPERATURE_FORECAST_SENSOR)},
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
             # Optional -- humidity is a real, validated contributor to
             # forecast accuracy (2026-08-14 backtest), but not every
@@ -78,7 +94,7 @@ def _forecaster_schema(defaults: dict[str, Any]) -> vol.Schema:
             # defaults to a neutral 50% when this isn't configured, so
             # leaving it unset degrades gracefully rather than breaking.
             vol.Optional(
-                CONF_HUMIDITY_SENSOR, default=defaults.get(CONF_HUMIDITY_SENSOR)
+                CONF_HUMIDITY_SENSOR, description={"suggested_value": defaults.get(CONF_HUMIDITY_SENSOR)}
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
             # Optional -- HAEO's own solar-curtailment status entity
             # (switch.solar_curtailment on the real system this was built
@@ -86,7 +102,7 @@ def _forecaster_schema(defaults: dict[str, Any]) -> vol.Schema:
             # this is a genuinely different entity type than every other
             # field on this form.
             vol.Optional(
-                CONF_CURTAILMENT_SENSOR, default=defaults.get(CONF_CURTAILMENT_SENSOR)
+                CONF_CURTAILMENT_SENSOR, description={"suggested_value": defaults.get(CONF_CURTAILMENT_SENSOR)}
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="switch")),
             # Optional -- REAL MEASURED power sensors only (this
             # household's own Modbus/inverter readings), never an
@@ -95,13 +111,13 @@ def _forecaster_schema(defaults: dict[str, Any]) -> vol.Schema:
             # power sensors -- there's no assumed naming here, unlike
             # the entities this was originally (wrongly) built against.
             vol.Optional(
-                CONF_BATTERY_SENSOR, default=defaults.get(CONF_BATTERY_SENSOR)
+                CONF_BATTERY_SENSOR, description={"suggested_value": defaults.get(CONF_BATTERY_SENSOR)}
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
             vol.Optional(
-                CONF_GRID_SENSOR, default=defaults.get(CONF_GRID_SENSOR)
+                CONF_GRID_SENSOR, description={"suggested_value": defaults.get(CONF_GRID_SENSOR)}
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
             vol.Optional(
-                CONF_SOLAR_SENSOR, default=defaults.get(CONF_SOLAR_SENSOR)
+                CONF_SOLAR_SENSOR, description={"suggested_value": defaults.get(CONF_SOLAR_SENSOR)}
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
             vol.Optional(
                 CONF_FORECAST_HORIZON_HOURS,
@@ -169,16 +185,22 @@ def _solver_sources_schema(defaults: dict[str, Any]) -> vol.Schema:
             ): _entity(),
             # Optional second solar source (2026-08-22) -- see
             # CONF_SOLVER_SOLAR_FORECAST_SENSOR_2's own comment in
-            # const.py for why. Blank (the default) is a complete no-op,
-            # byte-identical to every install before this field existed.
+            # const.py for why. Blank is a complete no-op, byte-identical
+            # to every install before this field existed --
+            # description={"suggested_value": ...}, NOT default=, so it
+            # can genuinely be cleared once set (see this schema
+            # function's own sibling _forecaster_schema's top-of-function
+            # comment for the full "why default= traps a field" story).
             vol.Optional(
-                CONF_SOLVER_SOLAR_FORECAST_SENSOR_2, default=defaults.get(CONF_SOLVER_SOLAR_FORECAST_SENSOR_2),
+                CONF_SOLVER_SOLAR_FORECAST_SENSOR_2,
+                description={"suggested_value": defaults.get(CONF_SOLVER_SOLAR_FORECAST_SENSOR_2)},
             ): _entity(),
             # Optional THIRD solar source (2026-08-22) -- see CONF_SOLVER_
             # SOLAR_FORECAST_SENSOR_3's own comment in const.py for why.
             # Same complete-no-op-when-blank guarantee.
             vol.Optional(
-                CONF_SOLVER_SOLAR_FORECAST_SENSOR_3, default=defaults.get(CONF_SOLVER_SOLAR_FORECAST_SENSOR_3),
+                CONF_SOLVER_SOLAR_FORECAST_SENSOR_3,
+                description={"suggested_value": defaults.get(CONF_SOLVER_SOLAR_FORECAST_SENSOR_3)},
             ): _entity(),
             vol.Required(
                 CONF_SOLVER_LOAD_FORECAST_SENSOR, default=defaults.get(CONF_SOLVER_LOAD_FORECAST_SENSOR),
