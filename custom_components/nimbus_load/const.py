@@ -254,6 +254,36 @@ CONF_SOLVER_SOLAR_FORECAST_SENSOR_2: Final = "solver_solar_forecast_sensor_2"
 # time. Blank (the default) is a complete no-op, same guarantee as
 # _2 above.
 CONF_SOLVER_SOLAR_FORECAST_SENSOR_3: Final = "solver_solar_forecast_sensor_3"
+# Real, live, dashboard-editable toggle (switch.py) -- deliberately NOT
+# entangled with sources 1/2/3 above (2026-08-22, direct household
+# design after a sharp catch: the writer script was silently including
+# two hardcoded, known-integration solar sources -- Open-Meteo and
+# Solcast -- OUTSIDE the 3 config fields entirely, with no way to see
+# or turn it off. "then what is the purposed of having 3 inputs since
+# it forces user ot autodetect... that feels wrong." Household's own
+# spec, verbatim: "user should pick 1... or 1+2... or 1+2+3 to get
+# their desired blend... or yes can tick auto detect from existing...
+# for ease... otherwise it should be just a setting they chose."
+#
+# Default False, not True -- a genuinely fresh/different install (Mark
+# Purcell, or anyone else) gets EXACTLY what they configured in sources
+# 1/2/3, nothing more, matching every other "no hardcoded inputs" field
+# built this session. This household's own live install needs the
+# switch turned ON explicitly to keep its current blend behaviour --
+# that is a one-time, visible, deliberate choice now, not silent magic.
+#
+# Worth remembering if this is ever revisited: the two anchors behind
+# this toggle are NOT equally portable. Solcast's anchor entity_id
+# (sensor.solcast_pv_forecast_forecast_today) is fixed by that
+# integration's own code, genuinely the same for any install. Open-
+# Meteo Solar Forecast's anchor (sensor.home_energy_production_today)
+# is whatever THIS household happened to name their own config entry
+# at setup time -- there is no guarantee a different household's install
+# of the same integration uses that name at all. The toggle makes the
+# behaviour visible and switchable either way, but does not by itself
+# make the Open-Meteo half of it portable.
+CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR: Final = "solver_auto_include_known_solar"
+DEFAULT_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR: Final = False
 CONF_SOLVER_LOAD_FORECAST_SENSOR: Final = "solver_load_forecast_sensor"
 # Economic POLICY, not hardware -- how cautious the solver should be
 # about cycling the battery. Real, non-obvious history worth remembering

@@ -37,6 +37,7 @@ from .const import (
     ATTR_VALIDATION_MAE,
     ATTR_VALIDATION_MASE,
     CONF_LOAD_SENSOR,
+    CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
     CONF_SOLVER_BATTERY_CAPACITY_KWH,
     CONF_SOLVER_BATTERY_MAX_SOC_PERCENT,
     CONF_SOLVER_BATTERY_MIN_SOC_PERCENT,
@@ -108,6 +109,7 @@ _SOLVER_REQUIRED_KEYS = (
 _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_2,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_3,
+    CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
     CONF_SOLVER_BATTERY_SOH_PERCENT,
     CONF_SOLVER_BATTERY_MIN_SOC_PERCENT,
     CONF_SOLVER_BATTERY_MAX_SOC_PERCENT,
@@ -191,6 +193,13 @@ _SOLVER_NUMBER_ENTITY_KEYS = (
     CONF_SOLVER_IMPORT_PRICE_RISK_AVERSION,
     CONF_SOLVER_EXPORT_PRICE_RISK_AVERSION,
 )
+# 2026-08-22: switch.py's own one live boolean toggle -- same
+# "resolve from a live entity, not entry.options" mechanism as
+# _SOLVER_NUMBER_ENTITY_KEYS above, just a different entity domain
+# (switch.nimbus_{key}, "on"/"off" state -> bool) since HA has no
+# combined number-or-boolean entity type. See switch.py's own module
+# docstring for the full "why this exists" story.
+_SOLVER_SWITCH_ENTITY_KEYS = (CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,)
 
 
 def object_id_from_source(load_sensor_entity_id: str) -> str:
@@ -395,6 +404,11 @@ class NimbusSolverConfigSensor(SensorEntity):
                 return float(state.state)
             except ValueError:
                 return None
+        if key in _SOLVER_SWITCH_ENTITY_KEYS:
+            state = self.hass.states.get(f"switch.nimbus_{key}")
+            if state is None or state.state in (None, "unknown", "unavailable"):
+                return None
+            return state.state == "on"
         return self._entry.options.get(key)
 
     @property

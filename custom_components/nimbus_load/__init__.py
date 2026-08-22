@@ -25,7 +25,7 @@ from .const import CONF_LOAD_SENSOR, DOMAIN, SUBENTRY_TYPE_LOAD, SUBENTRY_TYPE_S
 from .coordinator import NimbusCoordinator
 from .sensor import object_id_from_source
 
-PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.NUMBER]
+PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.NUMBER, Platform.SWITCH]
 
 _FORECASTABLE_SUBENTRY_TYPES = (SUBENTRY_TYPE_LOAD, SUBENTRY_TYPE_SIGNAL)
 
