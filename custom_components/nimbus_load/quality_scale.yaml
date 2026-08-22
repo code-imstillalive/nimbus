@@ -66,7 +66,7 @@ rules:
     comment: >
       No external service authentication; the integration reads local HA
       sensors and does not authenticate against any remote service.
-  test-coverage: todo  # solver/ + ml/blend.py well-covered; coordinator.py, sensor.py, number.py, switch.py, config_flow.py, flows/*.py have zero tests
+  test-coverage: todo  # solver/ + ml/blend.py well-covered. 2026-08-22: also fixed tests/_ha_stubs.py's own real gap (missing async_track_time_interval was silently breaking test_init_forecast_entity_rename.py's collection entirely -- its 6 tests are real and now genuinely running again, not new but were broken), and added real new coverage for number.py (_DESCRIPTIONS table invariants + NimbusSolverNumber entity wiring, 9 tests) and switch.py (NimbusSolverSwitch's full 3-branch restore-state logic + turn_on/off, 9 tests). Still genuinely zero: coordinator.py's own graceful-degradation helpers (_current_measured_power, _load_model_from_disk's incompatible-model-discard path -- has real bug history, session 2026-08-15), NimbusForecastSensor/NimbusSolverConfigSensor entity classes in sensor.py, config_flow.py, flows/*.py (see config-flow-test-coverage)
 
   # Gold -- issue #39
   devices: done

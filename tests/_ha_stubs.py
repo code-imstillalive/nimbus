@@ -18,12 +18,33 @@ import types
 from unittest.mock import MagicMock
 
 
+async def _noop_async_added_to_hass(self) -> None:
+    pass
+
+
 def _generic_stub_class(name: str) -> type:
     """A stub base class that tolerates HA's own generic-subscript usage,
     e.g. `class Foo(CoordinatorEntity[MyCoordinator], SensorEntity):` --
     plain `object` isn't subscriptable and would raise TypeError there.
+
+    Also carries a no-op async_added_to_hass() -- any real entity class
+    calling `await super().async_added_to_hass()` inside its own override
+    (e.g. NimbusSolverSwitch's real restore-state logic) needs SOMETHING
+    at that point in the MRO to resolve to, or the call raises
+    AttributeError before ever reaching the entity's own real code being
+    tested. A no-op is the correct stand-in -- the real base class's own
+    restore-state-loading internals are exactly the black box a test here
+    shouldn't need to know about, only the entity's own logic that runs
+    around it.
     """
-    return type(name, (), {"__class_getitem__": classmethod(lambda cls, item: cls)})
+    return type(
+        name,
+        (),
+        {
+            "__class_getitem__": classmethod(lambda cls, item: cls),
+            "async_added_to_hass": _noop_async_added_to_hass,
+        },
+    )
 
 
 def install_ha_stubs() -> None:
@@ -44,6 +65,25 @@ def install_ha_stubs() -> None:
         SensorEntity=_generic_stub_class("SensorEntity"),
         SensorStateClass=MagicMock(),
     )
+    # Real string values, not MagicMock -- number.py's own tests assert
+    # "the right device_class landed on the right field," which only
+    # means something if these compare/hash like the real StrEnum members
+    # they stand in for (plain strings do, since HA's own NumberDeviceClass
+    # IS a StrEnum -- confirmed 2026-08-22 against HA core's real current
+    # source before this project ever used these values).
+    module(
+        "homeassistant.components.number",
+        NumberDeviceClass=types.SimpleNamespace(
+            POWER="power", ENERGY="energy", ENERGY_STORAGE="energy_storage"
+        ),
+        NumberEntity=_generic_stub_class("NumberEntity"),
+        NumberMode=types.SimpleNamespace(BOX="box"),
+        RestoreNumber=_generic_stub_class("RestoreNumber"),
+    )
+    module(
+        "homeassistant.components.switch",
+        SwitchEntity=_generic_stub_class("SwitchEntity"),
+    )
     module(
         "homeassistant.config_entries",
         ConfigEntry=_generic_stub_class("ConfigEntry"),
@@ -52,10 +92,28 @@ def install_ha_stubs() -> None:
     module("homeassistant.const", UnitOfPower=MagicMock(), Platform=MagicMock())
     module("homeassistant.core", HomeAssistant=_generic_stub_class("HomeAssistant"))
     module("homeassistant.helpers")
-    module("homeassistant.helpers.entity", DeviceInfo=_generic_stub_class("DeviceInfo"))
+    # DeviceInfo is a TypedDict in real HA -- calling it like DeviceInfo(x=1)
+    # just returns a plain dict at runtime (TypedDict's own __call__
+    # behaviour), NOT a class instance needing __init__ to accept kwargs.
+    # A _generic_stub_class here would break on the very first real call
+    # site (confirmed live 2026-08-22: number.py's own DeviceInfo(...)
+    # call raised "takes no arguments" before this fix).
+    module("homeassistant.helpers.entity", DeviceInfo=dict)
     module("homeassistant.helpers.entity_platform", AddEntitiesCallback=_generic_stub_class("AddEntitiesCallback"))
     module("homeassistant.helpers.entity_registry", async_get=MagicMock())
-    module("homeassistant.helpers.event", async_track_time_change=MagicMock())
+    module("homeassistant.helpers.restore_state", RestoreEntity=_generic_stub_class("RestoreEntity"))
+    module(
+        "homeassistant.helpers.event",
+        async_track_time_change=MagicMock(),
+        # Added 2026-08-22, real gap this exact bug hit: __init__.py's own
+        # Solver-runtime scheduling imports this at module level, and this
+        # stub not having it made EVERY test importing custom_components.
+        # nimbus_load (not just __init__.py's own tests) fail to collect
+        # at all with a raw ImportError -- not a hypothetical, this is what
+        # broke test_init_forecast_entity_rename.py's real, already-passing
+        # test suite the moment that import landed.
+        async_track_time_interval=MagicMock(),
+    )
     module(
         "homeassistant.helpers.update_coordinator",
         DataUpdateCoordinator=_generic_stub_class("DataUpdateCoordinator"),
