@@ -40,30 +40,34 @@ Nimbus is actually two things: the Forecaster above (predicts a load), and a rea
 battery/grid dispatch **Solver** (`custom_components/nimbus_load/solver/` —
 `network.py`/`elements.py`/`lp.py`, HiGHS-backed, zero Home Assistant imports, fully
 unit-tested on its own). The Solver's config surface — Nimbus hub → **Configure** → **Solver
-settings**, a 6-step wizard (battery, power & efficiency, grid, price/forecast sources,
-economic policy, optional P2P) — installs via HACS and works on any HA platform including
-HAOS, same as the Forecaster.
+settings**, a 3-step wizard (Battery → Grid → Sources — sensor pointers only; every plain
+numeric setting, from battery capacity to salvage value, is its own live, dashboard-editable
+`number.nimbus_solver_*` entity instead) — installs via HACS and works on any HA platform
+including HAOS, same as the Forecaster.
 
-Producing a *live* dispatch forecast from those settings is a separate step, though, and it
-has a real requirement the Forecaster doesn't: it needs a small standalone Python script
-(`nimbus_solver_forecast_writer.py`) running somewhere with real shell + cron access, not
-something HACS or HA runs for you. **This does not have to be the same machine that runs
-Home Assistant** — the script only ever talks to HA over plain HTTP (its own `HA_BASE`
-constant), never touches HA's filesystem or process, so it's happy running from any
-always-on device on the same network: the HA host itself if HA runs in Docker/Supervised,
-or a completely separate box (a Raspberry Pi, an old laptop, a NAS, a cheap VPS) if HA is
-Home Assistant OS specifically, which genuinely has no shell/cron surface of its own for
-this to run on directly. It also needs `highspy` (the real, compiled LP solver) pip-installed
-on whichever device runs it — confirmed working via `pip install --break-system-packages
-highspy` on this project's own Debian-based host, genuinely untested elsewhere. If there's
-truly no other device available at all, a proper HAOS Add-on (a Docker-packaged Supervisor
-add-on, distinct from this bare script) would be the honest path — a real, separate, bigger
-build, not something that exists yet.
+**Producing a live dispatch forecast (2026-08-22, now genuinely pure-integration):** install
+via HACS, run the wizard above, done — no separate device, no cron, no addon. The Solver runs
+natively in-process (`solver_runtime.py`, on a 1-minute timer) the moment `highspy` (the real,
+compiled LP solver — an automatic `manifest.json` requirement, real prebuilt wheels for
+amd64/aarch64, **not** for 32-bit armv7) finishes installing. This is what actually closes the
+gap a real, live third-party install (Mark Purcell) hit trying the addon path below against
+this private repo — Supervisor's own "Add repository" flow does a raw, unauthenticated git
+clone with no token support at all, so it can't reach a private repo regardless of HACS
+itself working fine.
+
+Two older, still fully supported paths remain, for anything the native path can't cover
+(genuinely no `highspy` wheel for your architecture; you'd rather run the Solver on a
+separate always-on device than inside HA's own process): a standalone Python script
+(`nimbus_solver_forecast_writer.py`, real shell + cron access, any always-on device on the
+same network, not just the HA host — see its own header docstring for the full deploy story),
+or `nimbus_solver_app` (a proper Docker-packaged HAOS Supervisor add-on running that same
+script). All three paths run the exact same, byte-identical solve logic — see
+`solver_writer.py`'s own "PURE INTEGRATION seam" comment for how one script serves all three
+without being forked three ways.
 
 A real, working (if household-specific) copy of that script, plus the LP-audit research
 scripts used to validate it, live in `docs/real-world-integration/` — read that folder's own
-README first; the deploy steps and platform requirement are documented in full in the writer
-script's own header docstring.
+README first.
 
 ## What it publishes
 

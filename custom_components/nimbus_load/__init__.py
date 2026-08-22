@@ -15,17 +15,27 @@ expected-load fields don't apply to a Battery/Solar/Grid power signal).
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.event import async_track_time_interval
 
+from . import solver_runtime
 from .const import CONF_LOAD_SENSOR, DOMAIN, SUBENTRY_TYPE_LOAD, SUBENTRY_TYPE_SIGNAL
 from .coordinator import NimbusCoordinator
 from .sensor import object_id_from_source
 
 PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.NUMBER, Platform.SWITCH]
+
+# Same real cron cadence already proven live on this household's own NUC
+# (solver_writer.py's own module docstring -- "* * * * *", the fastest a
+# 1-tick-per-run schedule can safely go given real measured solve times).
+# solver_runtime.async_run_solve()'s own PID-file overlap guard makes
+# this safe even if a cycle occasionally runs long.
+_SOLVER_INTERVAL = timedelta(minutes=1)
 
 _FORECASTABLE_SUBENTRY_TYPES = (SUBENTRY_TYPE_LOAD, SUBENTRY_TYPE_SIGNAL)
 
@@ -133,6 +143,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
+
+    # Native Solver runtime (2026-08-22) -- see solver_runtime.py's own
+    # module docstring for the full "why this exists" story. Scheduled
+    # unconditionally, at the hub level (there is only ever one hub) --
+    # solver_runtime.async_run_solve() itself already handles "Solver
+    # settings not configured yet" gracefully (a clear, expected log
+    # line, not an error), so scheduling it before the wizard's been run
+    # is safe, not premature. entry.async_on_unload() with the interval
+    # tracker's own returned unsubscribe callable is the same, already-
+    # proven pattern as the update listener two lines above -- correctly
+    # cancels the timer on unload/reload, no leaked callback.
+    async def _periodic_solve(now) -> None:
+        await solver_runtime.async_run_solve(hass)
+
+    entry.async_on_unload(async_track_time_interval(hass, _periodic_solve, _SOLVER_INTERVAL))
+    # One immediate cycle at setup too, in the background -- so a fresh
+    # install (or a restart) doesn't sit with an empty forecast for up to
+    # a full _SOLVER_INTERVAL before anything shows up.
+    hass.async_create_task(solver_runtime.async_run_solve(hass))
+
     return True
 
 

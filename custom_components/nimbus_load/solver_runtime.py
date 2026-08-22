@@ -1,0 +1,153 @@
+"""Native, in-process runtime for the Nimbus Solver -- the "pure
+integration" path (2026-08-22).
+
+Real motivation, not a nice-to-have: Mark Purcell hit a genuine wall
+trying to install nimbus_solver_app (this repo's HAOS Supervisor add-on)
+against this private repo -- Supervisor's own "Add repository" flow does
+a raw, unauthenticated `git clone`, no PAT support at all, so it fails
+outright (`fatal: could not read Username for 'https://github.com'`)
+regardless of the HACS integration itself already working fine for him
+(HACS CAN authenticate). Separately, and more importantly, he flagged
+the deeper architectural point directly: "EMHASS had the addon, which
+was always a complication for access logs and sending commands... HAEO
+runs as a pure integration." Right on both counts -- Nimbus has zero
+live control today so that complication hasn't bitten yet, but it's the
+right foundation to have in place BEFORE it ever does.
+
+This module is the fix: it runs solver_writer.py (this same package,
+BYTE-IDENTICAL to the sibling 116KAT-HA-AI repo's own scripts/
+nimbus_solver_forecast_writer.py -- see that file's own module docstring
+for the full "why one script, kept in sync" story) natively, in-process,
+on a timer -- no separate device, no cron, no addon, no Add-on Store
+auth wall, no manual token file. Install via HACS, run the "Solver
+settings" wizard, done.
+
+HOW, without rewriting solver_writer.py's own ~2400 lines of already-
+correct, already-live-tested business logic: that file already funnels
+every single HA interaction through exactly three functions (ha_get,
+ha_post_state, fetch_price_history) -- see its own "PURE INTEGRATION
+seam" comment. set_native_hass(hass), called once below, switches all
+three from REST calls to native hass.states/recorder calls. Every one
+of the other ~2400 lines still just calls those three functions BY NAME,
+completely unchanged, whether running standalone (cron/addon, REST
+mode) or natively here.
+
+THREADING MODEL, stated plainly (a real, deliberate tradeoff, not an
+oversight): solver_writer.main() -- gathering every live sensor input
+AND running the actual LP solve -- runs as ONE unit inside
+hass.async_add_executor_job() below, on a worker thread, not the event
+loop. Two real consequences, both accepted:
+  1. The actual LP solve is genuinely blocking CPU work (real, measured
+     ~0.4s at this project's own production scale) -- this is exactly
+     what async_add_executor_job() exists for, no different from any
+     other integration offloading real compute off the event loop.
+  2. solver_writer.ha_get() therefore calls hass.states.get() FROM that
+     worker thread, not the event loop -- a plain, synchronous, in-
+     memory dict lookup under CPython's own GIL, which is safe in
+     practice (no real data-race risk, worst case a very slightly stale
+     read) even though HA's own documented convention is event-loop-only
+     state access. This is the pragmatic, low-risk choice given the real
+     alternative (restructuring ~2400 lines of interleaved fetch/compute
+     logic into a strict "gather on the loop, then compute" two-phase
+     shape) -- flagged here plainly rather than glossed over, per this
+     project's own standing "don't overclaim, state the real tradeoff"
+     discipline. solver_writer.ha_post_state()'s own native branch does
+     NOT take this shortcut -- writing back to HA's state machine
+     genuinely must happen on the event loop, so it hops back via
+     hass.add_job() (HA's own thread-safe scheduling primitive),
+     regardless of which thread called it from.
+
+NOT YET LIVE-VERIFIED against a real HA instance -- built and reasoned
+through carefully (see this project's own many "verify before shipping"
+sessions for what that discipline normally looks like), including a live
+web check of the real HA core recorder API this module's own
+solver_writer.py native branch calls, but there is no live HA instance
+in this dev environment to actually run it against. Every failure mode
+here (missing entity, solve error, not-yet-configured) is caught and
+logged rather than propagated, so a wrong assumption should surface as
+a clear log line on the very first real test, not a crash that takes
+down the rest of the integration.
+"""
+from __future__ import annotations
+
+import logging
+
+from homeassistant.core import HomeAssistant
+
+_LOGGER = logging.getLogger(__name__)
+
+# Lazily imported (see _ensure_ready() below) -- this module's own
+# env-var-overridable state/lock file paths (NIMBUS_SOLVER_PLAN_STATE_
+# PATH / NIMBUS_SOLVER_LOCK_PATH) are read ONCE, as plain module-level
+# `os.environ.get(...)` assignments, at first import -- they MUST be set
+# before that import happens, not after, or they'd silently fall back to
+# this file's own /opt/... NUC-specific defaults (wrong, and very likely
+# unwritable, inside a real HA container).
+_solver_writer = None
+
+
+def _ensure_ready(hass: HomeAssistant):
+    global _solver_writer
+    if _solver_writer is not None:
+        return _solver_writer
+    import os
+
+    # Real bug caught before it ever shipped (2026-08-22): solver_writer.py
+    # is BYTE-IDENTICAL to the sibling standalone script, which means its
+    # own `sys.path.insert(0, os.environ.get("NIMBUS_SOLVER_PATH", ...))`
+    # line is ALSO still in here -- defaulting to THIS HOUSEHOLD's own
+    # hardcoded NUC path (/opt/homeassistant/config/nimbus_repo/
+    # custom_components/nimbus_load). Left unset, that would make
+    # solver_writer.py try to import its own `solver`/`ml` sibling
+    # packages from a path that doesn't exist on anyone else's system --
+    # wrong even though those exact packages are sitting right next to it
+    # RIGHT NOW. Point it at THIS file's own real, actual directory
+    # (wherever HACS/HA really installed nimbus_load -- Docker, Supervised,
+    # HAOS, doesn't matter) before the very first import.
+    os.environ.setdefault("NIMBUS_SOLVER_PATH", os.path.dirname(os.path.abspath(__file__)))
+    # HA's own real, persistent, always-writable storage location --
+    # correct on Docker, Supervised, and HAOS alike, unlike the sibling
+    # standalone script's own NUC-specific /opt/... defaults.
+    os.environ.setdefault(
+        "NIMBUS_SOLVER_PLAN_STATE_PATH", hass.config.path("nimbus_solver_last_plan.json")
+    )
+    os.environ.setdefault(
+        "NIMBUS_SOLVER_LOCK_PATH", hass.config.path("nimbus_solver_writer.lock")
+    )
+    from . import solver_writer as _sw  # noqa: PLC0415 -- deliberately deferred, see above
+
+    _sw.set_native_hass(hass)
+    _solver_writer = _sw
+    return _solver_writer
+
+
+async def async_run_solve(hass: HomeAssistant) -> bool:
+    """Run one real Solver cycle in-process, right now. Returns True on a
+    genuine, successful push to sensor.nimbus_solver_battery_forecast;
+    False on any handled failure (Solver settings not configured yet, a
+    previous cycle still genuinely in progress, a real solve error) --
+    never raises. Called from a periodic timer (__init__.py), where one
+    bad cycle must never take down the next one, and safe to call
+    directly too (e.g. a future "solve now" button)."""
+    sw = _ensure_ready(hass)
+
+    def _blocking() -> bool:
+        if not sw.acquire_lock():
+            _LOGGER.debug("Nimbus Solver: previous cycle still in progress -- skipping this one")
+            return False
+        try:
+            sw.main()
+            return True
+        except RuntimeError as e:
+            # fetch_solver_config()'s own "Solver settings not configured
+            # yet" message -- expected on a fresh install before the
+            # wizard's been run, not a real error.
+            _LOGGER.warning("Nimbus Solver: %s", e)
+            return False
+        except Exception:  # noqa: BLE001 -- a bad solve cycle must never crash the timer loop
+            _LOGGER.exception("Nimbus Solver: solve cycle failed")
+            return False
+        finally:
+            sw.release_lock()
+
+    return await hass.async_add_executor_job(_blocking)
