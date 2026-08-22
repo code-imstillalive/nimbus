@@ -2439,6 +2439,48 @@ def main() -> None:
     equivalent_full_cycles = total_throughput_kwh / (2.0 * capacity_kwh) if capacity_kwh > 0 else 0.0
 
     net_battery = plan.battery_discharge_kw - plan.battery_charge_kw
+    corrected_grid_import = plan.grid_import_kw
+
+    # DEFENSIVE SAFETY NET (2026-08-22) -- this file's own real, found
+    # root cause. THIS module IS the native in-process solve path
+    # (solver_runtime.py imports it exactly once, at container startup,
+    # via a lazy module-level singleton that's never re-imported for the
+    # life of the process) -- see the sibling standalone script's own
+    # matching comment (116KAT-HA-AI repo, scripts/
+    # nimbus_solver_forecast_writer.py) for the full incident writeup.
+    # Short version: this container's most recent restart (2026-08-22
+    # ~15:25 AEST, to deploy the native runtime itself) happened nearly 2
+    # hours BEFORE the real network.py fix landed (commit 3f90c1f,
+    # 17:20:03) -- so THIS path, specifically, has been the one silently
+    # running the old, unfixed battery_charge bound every minute since,
+    # racing the standalone cron writer's own always-current code. This
+    # clamp stays in place permanently regardless of cause, as a genuine
+    # backstop -- see the sibling file's own comment for exactly what it
+    # corrects and why. A future container restart flushes this module's
+    # own stale in-memory code (there's no other way to force a re-import
+    # here); until then, disabling the Nimbus integration was used as an
+    # immediate same-night mitigation, since that correctly cancels this
+    # module's own timer (entry.async_on_unload, __init__.py) without a
+    # restart.
+    if grid.fixed_export_kw is not None:
+        _fixed_mask = ~np.isnan(grid.fixed_export_kw)
+        _violation_mask = _fixed_mask & (plan.battery_charge_kw > 0.05)
+        _n_violations = int(np.sum(_violation_mask))
+        if _n_violations > 0:
+            print(
+                f"[{now.isoformat()}] *** WARNING: solver returned {_n_violations} "
+                f"period(s) with battery_charge_kw>0 during a committed "
+                f"fixed_export_kw period -- mathematically should be impossible, "
+                f"applying defensive clamp before push. ***",
+                file=sys.stderr,
+            )
+            net_battery = np.where(_violation_mask, plan.battery_discharge_kw, net_battery)
+            corrected_grid_import = np.where(
+                _violation_mask,
+                np.maximum(0.0, plan.grid_import_kw - plan.battery_charge_kw),
+                plan.grid_import_kw,
+            )
+
     # Real per-period price/load/solar/net-cost fields added (2026-08-17,
     # direct ask: "still waiting for haeo like markdown table where I
     # can see forecasted costs fit load solar and soc% and period net")
@@ -2458,7 +2500,11 @@ def main() -> None:
             "time": grid_times[i].isoformat(),
             "battery_kw": round(float(net_battery[i]), 3),
             "soc_pct": round(float(plan.battery_soc_kwh[i] / capacity_kwh * 100), 2),
-            "grid_import_kw": round(float(plan.grid_import_kw[i]), 3),
+            # import side uses corrected_grid_import (see the defensive
+            # clamp above) -- keeps this consistent with battery_kw
+            # rather than silently reflecting the RAW, uncorrected import
+            # on any period the clamp touched.
+            "grid_import_kw": round(float(corrected_grid_import[i]), 3),
             "grid_export_kw": round(float(plan.grid_export_kw[i]), 3),
             # How much of grid_export_kw[i] earned the real, undiluted
             # P2P premium (vs the base/spot rate) -- exposed directly so
@@ -2498,7 +2544,7 @@ def main() -> None:
             # in, instead of assuming a fixed width.
             "hours": round(period_hours_arr[i], 4),
             "net_cost": round(
-                import_price[i] * float(plan.grid_import_kw[i]) * period_hours_arr[i]
+                import_price[i] * float(corrected_grid_import[i]) * period_hours_arr[i]
                 - export_price[i] * float(plan.grid_export_kw[i]) * period_hours_arr[i]
                 - export_bonus_price[i] * float(plan.export_bonus_kw[i]) * period_hours_arr[i],
                 4,
