@@ -169,17 +169,26 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
     # HARDCODED INPUTS - this has to work as user setting"). See const.py's
     # own comment on CONF_SOLVER_NETWORK_FEE_DEFAULT_RATE for the full
     # "how a flat/2-tier/3-tier retailer each configures this" story.
-    _SolverNumberDescription(CONF_SOLVER_NETWORK_FEE_DEFAULT_RATE, "Network Fee Default Rate", DEFAULT_SOLVER_NETWORK_FEE_RATE, 0, 10, 0.0001, "$/kWh"),
-    _SolverNumberDescription(CONF_SOLVER_NETWORK_FEE_1_RATE, "Network Fee Block 1 Rate", DEFAULT_SOLVER_NETWORK_FEE_RATE, 0, 10, 0.0001, "$/kWh"),
+    #
+    # step=0.000001 (not 0.0001) on every rate field below: a real,
+    # bill-verified Energex NTC 6900 tariff (2026-08-22, direct household
+    # bill cross-check) needs a full 6 significant digits to enter exactly
+    # (e.g. Peak 0.214863 $/kWh, Shoulder 0.066759, Off-peak 0.004774,
+    # Certificates 0.008246) -- the old 4-decimal step silently rounded
+    # every one of these to a slightly-wrong value (0.2149 vs 0.214863,
+    # a real ~$0.006/day-scale error compounded across every peak-hour
+    # kWh) with no visible warning. "we should have matching precision."
+    _SolverNumberDescription(CONF_SOLVER_NETWORK_FEE_DEFAULT_RATE, "Network Fee Default Rate", DEFAULT_SOLVER_NETWORK_FEE_RATE, 0, 10, 0.000001, "$/kWh"),
+    _SolverNumberDescription(CONF_SOLVER_NETWORK_FEE_1_RATE, "Network Fee Block 1 Rate", DEFAULT_SOLVER_NETWORK_FEE_RATE, 0, 10, 0.000001, "$/kWh"),
     _SolverNumberDescription(CONF_SOLVER_NETWORK_FEE_1_START_HOUR, "Network Fee Block 1 Start Hour", DEFAULT_SOLVER_NETWORK_FEE_START_HOUR, 0, 23, 1, "hour"),
     _SolverNumberDescription(CONF_SOLVER_NETWORK_FEE_1_END_HOUR, "Network Fee Block 1 End Hour", DEFAULT_SOLVER_NETWORK_FEE_END_HOUR, 0, 24, 1, "hour"),
-    _SolverNumberDescription(CONF_SOLVER_NETWORK_FEE_2_RATE, "Network Fee Block 2 Rate", DEFAULT_SOLVER_NETWORK_FEE_RATE, 0, 10, 0.0001, "$/kWh"),
+    _SolverNumberDescription(CONF_SOLVER_NETWORK_FEE_2_RATE, "Network Fee Block 2 Rate", DEFAULT_SOLVER_NETWORK_FEE_RATE, 0, 10, 0.000001, "$/kWh"),
     _SolverNumberDescription(CONF_SOLVER_NETWORK_FEE_2_START_HOUR, "Network Fee Block 2 Start Hour", DEFAULT_SOLVER_NETWORK_FEE_START_HOUR, 0, 23, 1, "hour"),
     _SolverNumberDescription(CONF_SOLVER_NETWORK_FEE_2_END_HOUR, "Network Fee Block 2 End Hour", DEFAULT_SOLVER_NETWORK_FEE_END_HOUR, 0, 24, 1, "hour"),
-    _SolverNumberDescription(CONF_SOLVER_NETWORK_FEE_3_RATE, "Network Fee Block 3 Rate", DEFAULT_SOLVER_NETWORK_FEE_RATE, 0, 10, 0.0001, "$/kWh"),
+    _SolverNumberDescription(CONF_SOLVER_NETWORK_FEE_3_RATE, "Network Fee Block 3 Rate", DEFAULT_SOLVER_NETWORK_FEE_RATE, 0, 10, 0.000001, "$/kWh"),
     _SolverNumberDescription(CONF_SOLVER_NETWORK_FEE_3_START_HOUR, "Network Fee Block 3 Start Hour", DEFAULT_SOLVER_NETWORK_FEE_START_HOUR, 0, 23, 1, "hour"),
     _SolverNumberDescription(CONF_SOLVER_NETWORK_FEE_3_END_HOUR, "Network Fee Block 3 End Hour", DEFAULT_SOLVER_NETWORK_FEE_END_HOUR, 0, 24, 1, "hour"),
-    _SolverNumberDescription(CONF_SOLVER_FLAT_FEE_RATE, "Flat Fee Rate (e.g. Certificates)", DEFAULT_SOLVER_FLAT_FEE_RATE, 0, 10, 0.0001, "$/kWh"),
+    _SolverNumberDescription(CONF_SOLVER_FLAT_FEE_RATE, "Flat Fee Rate (e.g. Certificates)", DEFAULT_SOLVER_FLAT_FEE_RATE, 0, 10, 0.000001, "$/kWh"),
     # Risk-aversion dials (2026-08-21) -- 0.0 = trust the point forecast
     # completely, 1.0 = fully hedge toward the pessimistic bound. Three
     # separate dials on purpose (household ask: "more flexibility the
