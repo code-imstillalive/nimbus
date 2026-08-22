@@ -654,7 +654,35 @@ def build_plan(
 
     p = LPProblem()
 
-    charge = [p.add_variable(f"battery_charge_{t}", lb=0.0, ub=battery.max_charge_kw) for t in range(n)]
+    # HARD gate against charging during a fixed_export_kw (P2P-committed)
+    # period -- 2026-08-22, real live incident: with only grid_export[t]
+    # pinned (below), nothing stopped the LP from ALSO importing grid
+    # power and charging the battery during the same committed-export
+    # period whenever the terminal-value mechanism's implied $/kWh for a
+    # higher end-of-day SoC outweighed the real cost -- confirmed live via
+    # the pushed forecast's own net_cost field actually going POSITIVE
+    # during the charge (0.47-0.89 $/period) vs. the -0.08 to -0.42 $/period
+    # it was making right before, i.e. this was never a real economically
+    # rational trade the LP correctly found, it was the terminal-value
+    # incentive overriding real near-term economics because charging was
+    # simply never taken off the table. lb=ub=0.0 technique already used
+    # elsewhere in this file for a disabled battery/charge (see the
+    # adequacy-load comment below) -- makes this mathematically impossible
+    # for the LP to choose, not just costed against, matching what the
+    # REAL p2p_battery_sell_5pm_midnight automation already does (always
+    # VPP-Discharge, never charge, for its entire committed window).
+    charge = [
+        p.add_variable(
+            f"battery_charge_{t}",
+            lb=0.0,
+            ub=(
+                0.0
+                if grid.fixed_export_kw is not None and not np.isnan(grid.fixed_export_kw[t])
+                else battery.max_charge_kw
+            ),
+        )
+        for t in range(n)
+    ]
     discharge = [p.add_variable(f"battery_discharge_{t}", lb=0.0, ub=battery.max_discharge_kw) for t in range(n)]
     soc = [p.add_variable(f"battery_soc_{t}", lb=battery.min_soc_kwh, ub=battery.max_soc_kwh) for t in range(n)]
     grid_import = [p.add_variable(f"grid_import_{t}", lb=0.0, ub=grid.import_limit_kw) for t in range(n)]

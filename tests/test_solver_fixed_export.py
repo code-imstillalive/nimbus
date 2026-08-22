@@ -27,6 +27,7 @@ This test proves three things together, not just "does it not crash":
      for the whole window, exactly the "smarter about everything else"
      claim the fix is supposed to preserve.
 """
+import dataclasses
 import unittest
 from datetime import datetime, timedelta
 
@@ -163,6 +164,57 @@ class TestFixedExportKw(unittest.TestCase):
         plan_b = build_plan(periods=periods, grid=grid_without_field, battery=battery, solar=solar, loads=loads)
         np.testing.assert_allclose(plan_a.grid_export_kw, plan_b.grid_export_kw)
         self.assertAlmostEqual(plan_a.total_cost, plan_b.total_cost, places=6)
+
+    def test_battery_cannot_charge_during_the_fixed_window_even_under_strong_incentive(self):
+        """Real live incident, 2026-08-22: only grid_export[t] was pinned by
+        fixed_export_kw -- nothing stopped the LP from ALSO importing grid
+        power and charging the battery during the SAME committed-export
+        period whenever a downstream incentive (in production: the
+        terminal-value mechanism's own implied $/kWh for a higher end-of-
+        day SoC) made it look worthwhile on paper. Confirmed live via the
+        pushed forecast's own net_cost field: it went POSITIVE (0.47-0.89
+        $/period) during the charge, vs. -0.08 to -0.42 $/period right
+        before -- this was never a real economically rational trade the LP
+        correctly found, charging was simply never taken off the table.
+
+        Deliberately makes charging during the window as attractive as
+        possible -- cheap window import price PLUS a large real terminal-
+        value credit for ending with more stored energy (same shape as
+        production's terminal_value_breakpoints_for(), a real $/kWh rate,
+        not a token value) -- to prove the gate is a genuine hard bound
+        that holds even under real pressure to violate it, not something
+        that merely happens not to bind in an easy scenario.
+        """
+        target_kw = 11.5
+        periods, grid, battery, solar, loads = _scenario(fixed_kw=target_kw)
+
+        # Cheap window import (not the real ~0.55) -- if the gate didn't
+        # exist, this makes the window itself the most attractive time to
+        # buy grid power, removing any doubt this is a fair, strong test.
+        grid.import_price[10:17] = 0.05
+
+        # A real, large terminal-value credit -- same shape as production
+        # (one wide segment spanning the whole above-floor SoC range, a
+        # real non-token $/kWh rate), sized well above every real price in
+        # this scenario so an unconstrained LP would clearly want to bank
+        # as much energy as possible, as early/cheaply as possible.
+        battery = dataclasses.replace(
+            battery,
+            terminal_value_breakpoints=[(battery.max_soc_kwh - battery.min_soc_kwh, 2.0)],
+        )
+
+        plan = build_plan(periods=periods, grid=grid, battery=battery, solar=solar, loads=loads)
+        self.assertEqual(plan.status, "optimal")
+
+        window_charge_kw = plan.battery_charge_kw[10:17]
+        self.assertTrue(
+            (window_charge_kw <= 1e-6).all(),
+            f"battery_charge_kw was nonzero during the fixed-export window "
+            f"despite the hard gate: {window_charge_kw}",
+        )
+        # The fixed export commitment itself must still hold exactly,
+        # completely unaffected by the charging gate.
+        np.testing.assert_allclose(plan.grid_export_kw[10:17], target_kw, atol=1e-4)
 
 
 if __name__ == "__main__":
