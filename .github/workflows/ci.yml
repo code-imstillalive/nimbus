@@ -1,0 +1,143 @@
+name: CI
+
+# Stage 2 of the DevOps cycle described in issue #36.
+#
+# This first pass of CI runs every check but tolerates existing tree drift.
+# Rationale: the tree has never had ruff, mypy, or a HA-surface pytest run
+# against it before, so a strict pass fails on ~33 mypy findings, 33 files
+# needing format, and 1 lint finding — all of which are real work that
+# belongs in follow-up PRs, not in this "add CI plumbing" PR.
+#
+# The advisory jobs use `continue-on-error: true` at the step level so the
+# job itself succeeds and the check-run reports green, while the step's
+# real output is still fully visible in the run log.
+#
+# Follow-up PRs will flip each advisory job to strict once its underlying
+# issue is addressed:
+#   - Lint / Format          — after a repo-wide ruff format pass
+#   - Type Check             — after the 33 mypy findings are triaged (see #40 Platinum work)
+#   - Unit Tests             — after test dependencies are pinned in a pyproject.toml
+#   - Add-on Build           — after #48 fixes the Dockerfile build context
+#   - HACS Validation        — after #49 fixes the three repo-shape gaps
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+
+  # ---------------------------------------------------------------------------
+  # STRICT: hassfest is the only check that already passes clean on the tree.
+  # Every future PR is gated by this — real HA manifest/strings/translations
+  # regression is a genuine bug and should block merge.
+  # ---------------------------------------------------------------------------
+
+  hassfest:
+    name: HA Manifest / Strings / Translations
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+      - name: Run hassfest
+        uses: home-assistant/actions/hassfest@master
+
+  # ---------------------------------------------------------------------------
+  # ADVISORY: Lint (ruff format + ruff check).
+  # Format check will report 33 files needing reformat until a repo-wide
+  # `ruff format` PR lands. `ruff check` currently reports 1 unused-variable
+  # finding in solver/lp.py.
+  # ---------------------------------------------------------------------------
+
+  lint:
+    name: Lint (ruff) [advisory]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install ruff
+        run: pip install ruff
+      - name: Ruff format check (advisory)
+        continue-on-error: true
+        run: ruff format --check custom_components/ tests/
+      - name: Ruff lint (advisory)
+        continue-on-error: true
+        run: ruff check custom_components/ tests/
+
+  # ---------------------------------------------------------------------------
+  # ADVISORY: Type Check (mypy).
+  # 33 findings on current tree, mostly "Optional not handled" patterns in
+  # solver/network.py, ml/model.py, and ml/gbrt.py. Real work, tracked as
+  # part of #40 (Platinum quality-scale strict-typing).
+  # ---------------------------------------------------------------------------
+
+  typecheck:
+    name: Type Check (mypy) [advisory]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install mypy
+        run: pip install mypy numpy
+      - name: Run mypy (advisory)
+        continue-on-error: true
+        run: mypy custom_components/nimbus_load --ignore-missing-imports
+
+  # ---------------------------------------------------------------------------
+  # ADVISORY: Unit Tests (pytest).
+  # Current tests are all solver+ML and pass locally; CI fails on missing
+  # HA test-helper dependencies until a pyproject.toml or requirements-test.txt
+  # pins them properly.
+  # ---------------------------------------------------------------------------
+
+  test:
+    name: Unit Tests (pytest) [advisory]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install test dependencies
+        continue-on-error: true
+        run: |
+          pip install pytest pytest-cov pytest-asyncio
+          pip install numpy highspy
+          pip install "pytest-homeassistant-custom-component"
+      - name: Run pytest (advisory)
+        continue-on-error: true
+        run: |
+          pytest tests/ \
+            --cov=custom_components/nimbus_load \
+            --cov-report=term-missing \
+            --cov-report=xml \
+            -v
+      - name: Upload coverage artifact
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+          retention-days: 7
+          if-no-files-found: warn
+
+  # HACS validation and Add-on build are deferred until #48 (Dockerfile
+  # context) and #49 (HACS repo-shape gaps) land. Re-added in a follow-up
+  # PR once those are addressed.
