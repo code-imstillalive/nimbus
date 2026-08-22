@@ -454,6 +454,42 @@ NETWORK_FEE_BLOCK_KEYS = (
 )
 
 
+def _cfg_num(cfg: dict, key: str, default: float) -> float:
+    """Return ``float(cfg[key])`` unless the value is missing/None, in
+    which case return ``default``.
+
+    REPLACES the pervasive ``float(cfg.get(key) or default)`` pattern
+    that used to appear throughout this file. That pattern silently
+    treats an intentional ``0.0`` as "unset" (0.0 is falsy in Python)
+    and swaps in the hardcoded default -- a real, live footgun for any
+    field where 0 is a legitimate user setting (min_soc_percent set to
+    0% by an installer as a temporary bypass being the specific case
+    that surfaced this: setting the dashboard number entity to 0.0 was
+    byte-identical to leaving it unset, and the solver silently reverted
+    to the 5.0% default and kept crashing).
+
+    Using ``is None`` distinguishes "user set 0" from "never configured,"
+    which is what a genuine numeric default should do. For fields where
+    the hardcoded default IS ``0.0``, this helper is functionally
+    identical to the old pattern -- swapped anyway for consistency and
+    defensiveness against a future default change.
+    """
+    val = cfg.get(key)
+    if val is None:
+        return default
+    return float(val)
+
+
+def _cfg_int(cfg: dict, key: str, default: int) -> int:
+    """Same as ``_cfg_num`` but returns ``int``. Used for hour-of-day
+    block boundaries where ``0`` is a legitimate value (midnight).
+    """
+    val = cfg.get(key)
+    if val is None:
+        return default
+    return int(val)
+
+
 def import_fee_rate(cfg: dict, hour: int) -> float:
     """Real, live, dashboard-configurable network TOU fee for a given
     hour -- REPLACES the old hardcoded network_energy_rate()
@@ -479,11 +515,11 @@ def import_fee_rate(cfg: dict, hour: int) -> float:
     Fees¢ shows 0, same honest "no data assumed" default as every
     other optional Solver field.
     """
-    default_rate = float(cfg.get("solver_network_fee_default_rate") or 0.0)
+    default_rate = _cfg_num(cfg, "solver_network_fee_default_rate", 0.0)
     for rate_key, start_key, end_key in NETWORK_FEE_BLOCK_KEYS:
-        rate = float(cfg.get(rate_key) or 0.0)
-        start_hour = int(cfg.get(start_key) or 0)
-        end_hour = int(cfg.get(end_key) or 0)
+        rate = _cfg_num(cfg, rate_key, 0.0)
+        start_hour = _cfg_int(cfg, start_key, 0)
+        end_hour = _cfg_int(cfg, end_key, 0)
         if rate <= 0 or end_hour <= start_hour:
             continue
         if start_hour <= hour < end_hour:
@@ -1093,9 +1129,9 @@ def fetch_p2p_fixed_export_kw(cfg: dict, grid_times: list[datetime]) -> list[flo
     blocks: list[tuple[float, int, int]] = []
     for rate_key, start_key, end_key in P2P_BLOCK_KEYS:
         try:
-            rate_kw = float(cfg.get(rate_key) or 0.0)
-            start_hour = int(cfg.get(start_key) or 0)
-            end_hour = int(cfg.get(end_key) or 0)
+            rate_kw = _cfg_num(cfg, rate_key, 0.0)
+            start_hour = _cfg_int(cfg, start_key, 0)
+            end_hour = _cfg_int(cfg, end_key, 0)
         except (TypeError, ValueError):
             continue
         if rate_kw <= 0 or end_hour <= start_hour:
@@ -2231,7 +2267,7 @@ def main() -> None:
         # cfg, same as every other Solver setting; a fresh install with
         # nothing configured correctly contributes 0 fees, same honest
         # no-op default as the fallback branch below already has.
-        flat_fee_rate = float(cfg.get("solver_flat_fee_rate") or 0.0)
+        flat_fee_rate = _cfg_num(cfg, "solver_flat_fee_rate", 0.0)
         import_price = [
             spot_import_raw[i] + import_fee_rate(cfg, grid_times[i].hour) + flat_fee_rate
             for i in range(n_periods)
@@ -2279,8 +2315,8 @@ def main() -> None:
         # Manual, static P2P bonus from the config-flow's own optional
         # block (both default to 0.0 -- a full no-op -- if the household
         # doesn't have any P2P/community-trading scheme at all).
-        p2p_recent_volume_kwh = float(cfg.get("solver_p2p_bonus_volume_kwh") or 0.0)
-        bonus_price_flat = float(cfg.get("solver_p2p_bonus_price") or 0.0)
+        p2p_recent_volume_kwh = _cfg_num(cfg, "solver_p2p_bonus_volume_kwh", 0.0)
+        bonus_price_flat = _cfg_num(cfg, "solver_p2p_bonus_price", 0.0)
         export_bonus_price = [bonus_price_flat] * n_periods
         # No real multi-day recorded history to build an empirical band
         # from for a generic install -- price_risk_aversion (if a household
@@ -2297,8 +2333,8 @@ def main() -> None:
     # file. A fresh install now needs nothing more than filling in
     # Nimbus's own hub "Configure" -> "Solver settings" form.
     capacity_kwh = float(cfg["solver_battery_capacity_kwh"])
-    min_pct = float(cfg.get("solver_battery_min_soc_percent") or 5.0)
-    max_pct = float(cfg.get("solver_battery_max_soc_percent") or 100.0)
+    min_pct = _cfg_num(cfg, "solver_battery_min_soc_percent", 5.0)
+    max_pct = _cfg_num(cfg, "solver_battery_max_soc_percent", 100.0)
     # The config-flow's own solver_battery_soc_sensor field replaces the
     # old hardcoded sensor.logger_battery_level_soc -- any household's
     # own real, live-measured SoC sensor now works, not just this one's.
@@ -2317,7 +2353,7 @@ def main() -> None:
         max_discharge_kw = ha_get(_max_discharge_entity)["attributes"]["max"]
     else:
         max_discharge_kw = float(cfg["solver_max_discharge_kw"])
-    charge_cost = float(cfg.get("solver_charge_cost") or 0.01)  # not scheduled -- real automations never touch this, manual control
+    charge_cost = _cfg_num(cfg, "solver_charge_cost", 0.01)  # not scheduled -- real automations never touch this, manual control
 
     if has_localvolts:
         # This household's own real, tuned day/night discharge-cost
@@ -2336,8 +2372,8 @@ def main() -> None:
         # from the config-flow's own Economic Policy step -- no day/night
         # schedule (that's tuned specifically around this household's own
         # P2P window, no portable equivalent yet).
-        discharge_cost_arr = np.full(n_periods, float(cfg.get("solver_discharge_cost") or 0.01))
-        salvage_value = float(cfg.get("solver_salvage_value") or 0.15)
+        discharge_cost_arr = np.full(n_periods, _cfg_num(cfg, "solver_discharge_cost", 0.01))
+        salvage_value = _cfg_num(cfg, "solver_salvage_value", 0.15)
 
     import_limit_kw = float(cfg["solver_grid_max_import_kw"])
     export_limit_kw = float(cfg["solver_grid_max_export_kw"])
@@ -2365,9 +2401,45 @@ def main() -> None:
 
     min_soc_kwh_val = capacity_kwh * min_pct / 100.0
     max_soc_kwh_val = capacity_kwh * max_pct / 100.0
+    initial_soc_kwh_raw = capacity_kwh * initial_pct / 100.0
+
+    # Clamp initial_soc_kwh into [min_soc_kwh, max_soc_kwh] before the
+    # BatteryConfig invariant check fires. Real, live cause this exists
+    # (2026-08-23): the SoC sensor genuinely can (and does) read below
+    # min_soc_percent for legitimate reasons -- the inverter runs the
+    # pack below its own configured Solver floor during a fault, a fresh
+    # install starts empty, a battery-cold event drops usable capacity
+    # below the static floor. Every one of those is a real state the
+    # world can be in, not a bad config; a live-sensor reading should
+    # not crash the entire solve. The invariant in
+    # elements.BatteryConfig.__post_init__ correctly protects USER-
+    # PROVIDED configs (someone typing initial_soc=200% into a static
+    # config file), but the writer's own initial_soc comes from a live
+    # sensor -- it needs to gracefully absorb real, transient reality
+    # rather than propagate a ValueError up through async_track_time_
+    # interval every minute (which is exactly what a household reported:
+    # 27+ crashes in a single window while SoC read 0.0% against a 5%
+    # min). Clamp, log the violation, keep solving.
+    initial_soc_kwh = min(max(initial_soc_kwh_raw, min_soc_kwh_val), max_soc_kwh_val)
+    if initial_soc_kwh != initial_soc_kwh_raw:
+        _initial_pct_raw = (
+            initial_soc_kwh_raw / capacity_kwh * 100.0 if capacity_kwh > 0 else 0.0
+        )
+        _initial_pct_clamped = (
+            initial_soc_kwh / capacity_kwh * 100.0 if capacity_kwh > 0 else 0.0
+        )
+        print(
+            f"WARN: live battery SoC {_initial_pct_raw:.2f}% is outside the "
+            f"configured Solver floor/ceiling [{min_pct:.2f}%, {max_pct:.2f}%] "
+            f"-- clamped initial_soc to {_initial_pct_clamped:.2f}% for this "
+            f"solve. If this repeats every period the real battery is stuck "
+            f"outside its own configured range (fault, cold pack, sensor drift) "
+            f"-- investigate rather than lower the floor.",
+            file=sys.stderr,
+        )
     battery = elements.BatteryConfig(
         capacity_kwh=capacity_kwh,
-        initial_soc_kwh=capacity_kwh * initial_pct / 100.0,
+        initial_soc_kwh=initial_soc_kwh,
         min_soc_kwh=min_soc_kwh_val,
         max_soc_kwh=max_soc_kwh_val,
         max_charge_kw=max_charge_kw,
@@ -2385,8 +2457,8 @@ def main() -> None:
         # just quietly degrade to "solver treats this as effectively
         # lossless," so this floor is deliberately kept even though a
         # correctly-filled-in form should never actually need it.
-        charge_efficiency=min(float(cfg.get("solver_efficiency_percent") or 95.0) / 100.0, 0.999) ** 0.5,
-        discharge_efficiency=min(float(cfg.get("solver_efficiency_percent") or 95.0) / 100.0, 0.999) ** 0.5,
+        charge_efficiency=min(_cfg_num(cfg, "solver_efficiency_percent", 95.0) / 100.0, 0.999) ** 0.5,
+        discharge_efficiency=min(_cfg_num(cfg, "solver_efficiency_percent", 95.0) / 100.0, 0.999) ** 0.5,
         charge_cost=charge_cost,
         discharge_cost=discharge_cost_arr,
         salvage_value=salvage_value,  # required field, but overridden by terminal_value_breakpoints below when set
@@ -2400,7 +2472,7 @@ def main() -> None:
         # Real economic cycle-wear cost (Track B2, 2026-08-22). 0.0
         # (unconfigured, the default) is a genuine no-op -- see
         # BatteryConfig's own degradation_cost_per_kwh docstring.
-        degradation_cost_per_kwh=float(cfg.get("solver_degradation_cost_per_kwh") or 0.0),
+        degradation_cost_per_kwh=_cfg_num(cfg, "solver_degradation_cost_per_kwh", 0.0),
     )
     fixed_export_kw = fetch_p2p_fixed_export_kw(cfg, grid_times)
     grid = elements.GridConfig(
@@ -2451,8 +2523,8 @@ def main() -> None:
     # this writer only ever had the single-scalar version live for a
     # brief window before the split, never a real production concern.
     risk_aversion = float(cfg.get("solver_risk_aversion") if cfg.get("solver_risk_aversion") is not None else RISK_AVERSION)
-    import_price_risk_aversion = float(cfg.get("solver_import_price_risk_aversion") or 0.0)
-    export_price_risk_aversion = float(cfg.get("solver_export_price_risk_aversion") or 0.0)
+    import_price_risk_aversion = _cfg_num(cfg, "solver_import_price_risk_aversion", 0.0)
+    export_price_risk_aversion = _cfg_num(cfg, "solver_export_price_risk_aversion", 0.0)
     # smoothness_weight (2026-08-20, real household finding: "why nimbus
     # decided to make such decisions and charge in bursts not
     # continuously") -- mechanism 4, network.py's own DEFAULT_SMOOTHNESS_
