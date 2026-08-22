@@ -89,8 +89,17 @@ rules:
   docs-troubleshooting: todo
   docs-use-cases: todo
   dynamic-devices: done
-  entity-category: todo
-  entity-device-class: todo
+  entity-category:
+    status: exempt
+    comment: >
+      NimbusSolverConfigSensor is deliberately EntityCategory=None (see its
+      own _attr_entity_category comment) -- it's a real, actively-read data
+      source (the writer script's own config input), not a diagnostic. The
+      NumberEntity/SwitchEntity Solver settings are primary, user-set
+      configuration a household is expected to interact with regularly, not
+      background diagnostics either. Nothing in this integration fits
+      EntityCategory.DIAGNOSTIC/CONFIG's real intent.
+  entity-device-class: done  # 2026-08-22: NumberDeviceClass set on every field where HA's own DEVICE_CLASS_UNITS table (checked live against core source) genuinely accepts the field's exact unit -- POWER/ENERGY/ENERGY_STORAGE on 10 fields; deliberately left None elsewhere ($/kWh, "%", "hour" fields have no real matching class, see number.py's own _SolverNumberDescription.device_class comment)
   entity-disabled-by-default: todo
   entity-translations: todo
   exception-translations: todo
