@@ -298,6 +298,42 @@ CONF_SOLVER_P2P_BLOCK_3_RATE_KW: Final = "solver_p2p_block_3_rate_kw"
 CONF_SOLVER_P2P_BLOCK_3_START_HOUR: Final = "solver_p2p_block_3_start_hour"
 CONF_SOLVER_P2P_BLOCK_3_END_HOUR: Final = "solver_p2p_block_3_end_hour"
 
+# Real, per-kWh import FEES on top of the raw spot/commodity price --
+# network TOU tariff + any flat always-on charge (certificates, etc.)
+# (2026-08-22, direct household demand, after the 8.4c vs 7.1c Buy¢/
+# Fees¢ split: "how do they configure fees column... I TOLD U NO
+# HARDCODED INPUTS - this has to work as user setting" -- the writer
+# script's own network_energy_rate()/CERTIFICATES_RATE had been plain
+# hardcoded Python constants tuned to THIS household's own real Energex
+# NTC 6900 tariff, with zero way for anyone on a different retailer/
+# network/region to configure their own).
+#
+# SAME shape as the P2P blocks above, deliberately -- rate<=0 is the
+# "not configured" signal for the 3 override blocks, no separate
+# enable flag needed. Genuinely portable: a flat single-rate tariff
+# just sets DEFAULT_RATE and leaves all 3 blocks off; a 2-tier
+# peak/offpeak retailer sets DEFAULT_RATE (offpeak) + one block
+# (peak); this household's own real 3-tier structure (peak/offpeak/
+# shoulder) is DEFAULT_RATE=shoulder + Block1=peak + Block2=offpeak.
+# A household that hasn't bothered figuring out their own network
+# tariff at all (or is on a plan where it's simply not tracked) leaves
+# everything at 0 -- Fees¢ correctly shows 0, exactly as honest/no-op
+# as every other optional Solver field.
+CONF_SOLVER_NETWORK_FEE_DEFAULT_RATE: Final = "solver_network_fee_default_rate"
+CONF_SOLVER_NETWORK_FEE_1_RATE: Final = "solver_network_fee_1_rate"
+CONF_SOLVER_NETWORK_FEE_1_START_HOUR: Final = "solver_network_fee_1_start_hour"
+CONF_SOLVER_NETWORK_FEE_1_END_HOUR: Final = "solver_network_fee_1_end_hour"
+CONF_SOLVER_NETWORK_FEE_2_RATE: Final = "solver_network_fee_2_rate"
+CONF_SOLVER_NETWORK_FEE_2_START_HOUR: Final = "solver_network_fee_2_start_hour"
+CONF_SOLVER_NETWORK_FEE_2_END_HOUR: Final = "solver_network_fee_2_end_hour"
+CONF_SOLVER_NETWORK_FEE_3_RATE: Final = "solver_network_fee_3_rate"
+CONF_SOLVER_NETWORK_FEE_3_START_HOUR: Final = "solver_network_fee_3_start_hour"
+CONF_SOLVER_NETWORK_FEE_3_END_HOUR: Final = "solver_network_fee_3_end_hour"
+# A separate, always-on flat per-kWh add-on (this household's own real
+# use: Certificates $0.008246/kWh) -- distinct from the TOU blocks
+# above since a flat fee applies regardless of hour, no window needed.
+CONF_SOLVER_FLAT_FEE_RATE: Final = "solver_flat_fee_rate"
+
 # Risk-aversion dials (2026-08-21) -- CONF_SOLVER_RISK_AVERSION already
 # existed as a hardcoded writer-script constant (RISK_AVERSION=0.25);
 # this is just exposing it as a real, live, dashboard-editable setting
@@ -337,6 +373,15 @@ DEFAULT_SOLVER_P2P_BONUS_VOLUME_KWH: Final = 0.0
 DEFAULT_SOLVER_P2P_BLOCK_RATE_KW: Final = 0.0
 DEFAULT_SOLVER_P2P_BLOCK_START_HOUR: Final = 0
 DEFAULT_SOLVER_P2P_BLOCK_END_HOUR: Final = 0
+# Every fee field defaults to 0 -- deliberately NOT seeded with this
+# household's own real tariff (same "genuinely blank for anyone else"
+# principle as the P2P blocks above). This household's own real values
+# get set once, manually, the same as tuning any other number.nimbus_
+# solver_* entity -- never hardcoded into the integration itself again.
+DEFAULT_SOLVER_NETWORK_FEE_RATE: Final = 0.0
+DEFAULT_SOLVER_NETWORK_FEE_START_HOUR: Final = 0
+DEFAULT_SOLVER_NETWORK_FEE_END_HOUR: Final = 0
+DEFAULT_SOLVER_FLAT_FEE_RATE: Final = 0.0
 # Matches the writer script's own pre-existing RISK_AVERSION=0.25 default
 # exactly -- rolling this platform out is a no-op for risk_aversion on an
 # already-configured household. Both import/export price risk aversion
