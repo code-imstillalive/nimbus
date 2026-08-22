@@ -22,6 +22,23 @@ async def _noop_async_added_to_hass(self) -> None:
     pass
 
 
+class _StubPowerConverter:
+    """Real W/kW/MW conversion, not an opaque mock -- pairs with the real
+    UnitOfPower stub above. Deliberately narrow (only the 3 units this
+    integration could plausibly ever see from a real power sensor) rather
+    than a faithful reimplementation of HA's own full unit-conversion
+    framework, which isn't what's under test here.
+    """
+
+    _TO_WATTS = {"W": 1.0, "kW": 1000.0, "MW": 1_000_000.0}
+
+    @classmethod
+    def convert(cls, value: float, from_unit: str, to_unit: str) -> float:
+        if from_unit not in cls._TO_WATTS or to_unit not in cls._TO_WATTS:
+            raise ValueError(f"unsupported unit in stub converter: {from_unit!r} -> {to_unit!r}")
+        return value * cls._TO_WATTS[from_unit] / cls._TO_WATTS[to_unit]
+
+
 def _generic_stub_class(name: str) -> type:
     """A stub base class that tolerates HA's own generic-subscript usage,
     e.g. `class Foo(CoordinatorEntity[MyCoordinator], SensorEntity):` --
@@ -89,7 +106,17 @@ def install_ha_stubs() -> None:
         ConfigEntry=_generic_stub_class("ConfigEntry"),
         ConfigSubentry=_generic_stub_class("ConfigSubentry"),
     )
-    module("homeassistant.const", UnitOfPower=MagicMock(), Platform=MagicMock())
+    # Real string values + a REAL converter, not opaque MagicMocks -- this
+    # exact area (a solar sensor reporting W while battery/grid sensors
+    # report kW) has real, documented live bug history (confirmed
+    # 2026-08-15), so a test exercising _current_measured_power()'s unit
+    # handling needs genuine numeric conversion to mean anything, not just
+    # "was PowerConverter.convert() called."
+    module(
+        "homeassistant.const",
+        UnitOfPower=types.SimpleNamespace(WATT="W", KILO_WATT="kW", MEGA_WATT="MW"),
+        Platform=MagicMock(),
+    )
     module("homeassistant.core", HomeAssistant=_generic_stub_class("HomeAssistant"))
     module("homeassistant.helpers")
     # DeviceInfo is a TypedDict in real HA -- calling it like DeviceInfo(x=1)
@@ -121,4 +148,4 @@ def install_ha_stubs() -> None:
     )
     module("homeassistant.loader", async_get_integration=MagicMock())
     module("homeassistant.util", dt=MagicMock())
-    module("homeassistant.util.unit_conversion", PowerConverter=MagicMock())
+    module("homeassistant.util.unit_conversion", PowerConverter=_StubPowerConverter)
