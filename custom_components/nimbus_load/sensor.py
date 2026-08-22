@@ -91,6 +91,12 @@ from .const import (
 )
 from .coordinator import NimbusCoordinator
 
+# All real work (the retrain/inference cycle) happens once per coordinator,
+# already serialized by its own async_track_time_change/interval scheduling
+# -- entity updates here are just reading already-computed coordinator.data,
+# so there's no hub call to protect by limiting concurrency.
+PARALLEL_UPDATES = 0
+
 _LOGGER = logging.getLogger(__name__)
 
 _FORECASTABLE_SUBENTRY_TYPES = (SUBENTRY_TYPE_LOAD, SUBENTRY_TYPE_SIGNAL)

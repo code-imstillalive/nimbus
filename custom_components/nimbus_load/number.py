@@ -110,6 +110,10 @@ from .const import (
     DOMAIN,
 )
 
+# These entities are plain, locally-restored settings (RestoreNumber) --
+# no hub/API to overload, so there's no reason to serialize updates.
+PARALLEL_UPDATES = 0
+
 
 @dataclass(frozen=True)
 class _SolverNumberDescription:

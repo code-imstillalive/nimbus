@@ -109,6 +109,22 @@ own forecast source, or used entirely on its own via the Solver below.
 - Everything (training + prediction) is offloaded to an executor thread, never blocking Home
   Assistant's own event loop.
 
+## Removing Nimbus
+
+1. Settings → Devices & Services → **Nimbus** → the three-dot menu on the hub card →
+   **Delete** — this removes the hub and every load/power-signal subentry under it, along
+   with all of their entities and devices.
+2. HACS → **Nimbus** → the three-dot menu → **Remove**, to uninstall the integration itself.
+3. Two things Nimbus writes to disk that neither of the above steps clears (harmless to leave,
+   but here in case you want a completely clean uninstall): each load's persisted
+   model/residual files at `.storage/nimbus_load_*.pkl`/`.json`, and, if you ever ran the
+   Solver's pure-integration mode, its plan-state/lock files at the paths shown in
+   `solver_writer.py`'s own `PLAN_STATE_PATH`/`LOCK_PATH` (both env-var overridable, see that
+   file — defaults live under `.storage/` too).
+4. If you also installed the separate `nimbus_solver_app` Supervisor add-on: Settings →
+   Add-ons → **Nimbus Solver** → **Uninstall**, then remove the repository from Add-on Store →
+   Repositories if you added it there.
+
 ## Status
 
 Early — built for and being validated against a real house before wider use. Not yet

@@ -40,6 +40,10 @@ from .const import (
     DOMAIN,
 )
 
+# Same reasoning as number.py: a plain restored local toggle, no hub to
+# overload by parallelizing.
+PARALLEL_UPDATES = 0
+
 
 async def async_setup_entry(
     hass: HomeAssistant,

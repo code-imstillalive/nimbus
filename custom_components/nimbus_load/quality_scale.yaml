@@ -8,7 +8,7 @@ rules:
   common-modules: done
   config-flow-test-coverage: todo
   config-flow: done
-  dependency-transparency: todo  # highspy is unpinned in manifest.json requirements
+  dependency-transparency: done  # 2026-08-22: highspy>=1.15.1 pinned in manifest.json (floor = the version confirmed live on the household's own NUC)
   docs-actions:
     status: exempt
     comment: No service actions.
@@ -18,15 +18,36 @@ rules:
   docs-conditions:
     status: exempt
     comment: No conditions.
-  docs-high-level-description: todo
+  docs-high-level-description: done  # README's opening paragraph + "Why" section already cover this
   docs-installation-instructions: done
-  docs-removal-instructions: todo
+  docs-removal-instructions: done  # 2026-08-22: added "Removing Nimbus" section to README.md
   entity-event-setup: done
   entity-unique-id: done
   has-entity-name: done
   runtime-data: todo  # coordinator stored on hass.data[DOMAIN], not entry.runtime_data
-  test-before-configure: todo
-  test-before-setup: todo  # async_setup_entry doesn't raise ConfigEntryNotReady on missing deps
+  test-before-configure:
+    status: exempt
+    comment: >
+      The hub-creation step (config_flow.py's async_step_user) has no
+      external service to validate against -- it's a local unique_id
+      check only. Nothing to "test" before configuring.
+  test-before-setup:
+    status: exempt
+    comment: >
+      Deliberately not implemented as a ConfigEntryNotReady raise.
+      Nimbus has no external network/API dependency to probe -- it
+      reads local HA sensor states only, and every one of those reads
+      (coordinator.py's _current_measured_power/_async_fetch_history/
+      etc.) is already designed to degrade gracefully (fall back to a
+      sane default) rather than fail, matching this integration's own
+      "the show goes on" philosophy (see entity-unavailable's own real-
+      world story below). A genuinely unrecoverable case -- a persisted
+      model pickle that predates a feature-set change -- is already
+      handled BETTER than a blanket ConfigEntryNotReady would: it's
+      caught in _load_model_from_disk() and the stale model is silently
+      discarded + retrained fresh, confirmed live 2026-08-15 fixing a
+      real stuck "Config entry not ready yet" retry loop that a naive
+      raise would have produced instead.
   unique-config-entry: done
 
   # Silver -- issue #38
@@ -39,7 +60,7 @@ rules:
   entity-unavailable: done  # fixed 2026-08-22: NimbusForecastSensor.available checks last_update_success, coordinator.data, and the real live source sensor state
   integration-owner: done
   log-when-unavailable: done  # fixed alongside entity-unavailable, same commit -- logs exactly once per real transition, not per-tick
-  parallel-updates: todo
+  parallel-updates: done  # 2026-08-22: PARALLEL_UPDATES=0 in sensor.py/number.py/switch.py -- no hub/API for any of them to overload
   reauthentication-flow:
     status: exempt
     comment: >
