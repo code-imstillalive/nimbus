@@ -767,7 +767,29 @@ def ha_post_state(entity_id: str, state, attributes: dict) -> None:
         resp.read()
 
 
-def parse_iso(s: str) -> datetime:
+def parse_iso(s) -> datetime:
+    # Real bug, confirmed live 2026-08-22 (first-ever native-mode run):
+    # every call site here was written and only ever tested against
+    # REST-sourced data, where a timestamp is ALWAYS a plain string --
+    # HA's own JSON serialization stringifies every datetime on the way
+    # out over HTTP, so REST mode's ha_get() never sees anything else.
+    # Native mode's ha_get() (solver_runtime.py / set_native_hass())
+    # reads state.attributes directly, the RAW unserialized Python
+    # object -- and at least one real integration (Solcast, confirmed
+    # via the live traceback) stores its own forecast[]'s own "time"
+    # field as a genuine datetime object internally, not a string.
+    # `s.replace("Z", "+00:00")` on a real datetime silently resolves to
+    # datetime.replace() instead of str.replace() -- a completely
+    # different method (year/month/day/... as integers), so Python
+    # raises the confusing "'str' object cannot be interpreted as an
+    # integer" rather than any hint this was ever a type mismatch.
+    if isinstance(s, datetime):
+        # Already a real datetime -- nothing to parse. HA's own internal
+        # convention is that stored datetimes are timezone-aware
+        # (almost certainly true here), but fall back to explicit UTC on
+        # the off chance it's naive, matching what a bare "...Z"-suffixed
+        # string would have meant on the REST-mode path above.
+        return s if s.tzinfo is not None else s.replace(tzinfo=timezone.utc)
     return datetime.fromisoformat(s.replace("Z", "+00:00"))
 
 
