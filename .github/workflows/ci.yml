@@ -72,12 +72,17 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install ruff
-        # Pinned to keep strict `ruff check` deterministic; ruff's default
-        # rule set expands across minor releases and can turn a clean
-        # tree red after an unrelated CI cache refresh.
         run: pip install "ruff==0.15.18"
-      - name: Ruff lint (strict)
-        run: ruff check custom_components/ tests/
+      - name: Show ruff version and env
+        run: |
+          which ruff
+          ruff --version
+          python --version
+          pwd
+          ls -la
+          ls custom_components/nimbus_load/solver/ | head
+      - name: Ruff lint (strict) verbose
+        run: ruff check --output-format=full custom_components/ tests/
 
   # ---------------------------------------------------------------------------
   # ADVISORY: Ruff format check.
