@@ -1,0 +1,170 @@
+# Amber Electric forecast helper for the Nimbus Solver
+#
+# WHY THIS EXISTS: the base Amber Electric price sensors (whatever you
+# picked as "Live import price sensor" / "Live export price sensor" in
+# the Solver settings wizard) only ever expose the CURRENT interval's
+# price -- there is no `forecast` attribute on them. Without one, the
+# Solver's portable fallback path (nimbus_solver_forecast_writer.py,
+# 2026-08-20) can only hold that one current value flat across its
+# entire forecast horizon -- correct, honest behaviour with no forward-
+# looking data, but not what you actually want if Amber Electric's own
+# real, dynamic forecast is available.
+#
+# Amber DOES expose a real forecast, but only via a separate service
+# call (amberelectric.get_forecasts) -- this file is that missing piece:
+# two small trigger-based template sensors that call the service every
+# minute and expose the result as a real `forecast` attribute, in the
+# same {"time": ..., "value": ...} shape the Solver's own
+# resample_generic_price_forecast() already knows how to read. Nothing
+# else needs to change once these are in place -- point the Solver
+# settings wizard's Import/Export price fields at these two new
+# sensors (instead of your raw Amber current-price sensors) and the
+# flat-line problem goes away on the Solver's very next solve, no code
+# change, no restart needed.
+#
+# This is a real, proven pattern -- it's a direct generalisation of
+# what the reference household running this project actually uses in
+# production (their own amber_sensor.yaml, feeding HAEO rather than
+# Nimbus, same underlying mechanism). Verified locally against real,
+# live data pulled from that household's own equivalent sensor before
+# this file was written.
+#
+# SETUP (three things to change below, marked CHANGE ME):
+#
+# 1. config_entry_id -- your OWN Amber Electric integration's config
+#    entry ID, not the reference household's. Two ways to find it:
+#    a) Settings -> Devices & Services -> Amber Electric -> click into
+#       the integration -- the URL bar will show something like
+#       .../config/integrations/integration/amberelectric#config_entry-<ID>
+#       -- copy the ID after "config_entry-".
+#    b) Developer Tools -> Actions -> search for "Amber Electric: Get
+#       Forecasts" -> switch to YAML mode in the action editor and pick
+#       your account from the "Config entry" field there -- it'll fill
+#       in the real ID for you, which you can then copy into this file.
+#
+# 2. entity_id (the `platform: state` trigger below) -- point this at
+#    YOUR OWN current-price sensor for each channel (general/import and
+#    feed_in/export), matching whatever you already configured in the
+#    Solver settings wizard.
+#
+# 3. channel_type -- "general" for import/buy, "feed_in" for export/
+#    sell. Leave these as-is unless your own Amber site uses a
+#    different channel naming (check Developer Tools -> States for your
+#    own sensor.<your_site>_general_price-style entities to confirm).
+#
+# DEPLOY: paste this whole file's content into a new file under your
+# own HA config's packages/ directory (or add it inline to
+# configuration.yaml under a top-level `template:` key if you don't use
+# packages), then either restart HA or use Developer Tools -> YAML ->
+# "Template Entities" reload (no full restart needed for template
+# sensors specifically).
+#
+# THEN: go to the Nimbus hub's Configure -> Solver settings -> Grid
+# Prices step, and change the Import/Export price sensor fields to
+# point at these two new sensors (sensor.amber_forecast_for_solver_import
+# / sensor.amber_forecast_for_solver_export) instead of your raw current-
+# price sensors. Submit. The Solver's next scheduled solve will pick up
+# real, time-varying prices instead of a flat line.
+
+template:
+  - trigger:
+      - platform: homeassistant
+        event: start
+      - platform: state
+        entity_id: sensor.CHANGE_ME_your_amber_general_price_sensor  # CHANGE ME
+      - platform: time_pattern
+        minutes: "/1"
+    action:
+      - action: amberelectric.get_forecasts
+        data:
+          channel_type: general
+          config_entry_id: CHANGE_ME_your_own_config_entry_id  # CHANGE ME
+        response_variable: amber
+        continue_on_error: true
+    sensor:
+      - name: "Amber Forecast for Solver (Import)"
+        unique_id: amber_forecast_for_solver_import
+        device_class: monetary
+        unit_of_measurement: "$/kWh"
+        icon: mdi:transmission-tower-import
+        availability: >
+          {{ amber is defined and amber.forecasts is defined and amber.forecasts | length > 0 }}
+        state: >
+          {% if amber is defined and amber.forecasts %}
+            {{ amber.forecasts[0].advanced_price_predicted }}
+          {% else %}
+            unknown
+          {% endif %}
+        attributes:
+          # {time, value} shape -- the same simple convention
+          # resample_generic_price_forecast() in the Solver writer
+          # already knows how to read. Each real Amber interval is
+          # duplicated at its own start_time and end_time (both
+          # carrying the same value) so the Solver sees a genuine step,
+          # not a smoothed ramp between two points -- Amber's own
+          # forecast really is step-shaped (fixed price per interval),
+          # and smearing that into a fake ramp would be actively wrong.
+          forecast: >
+            {% if amber is defined and amber.forecasts %}
+              [
+                {% for f in amber.forecasts %}
+                  {% set start_ts = as_timestamp(f.start_time) %}
+                  {% set end_ts = as_timestamp(f.end_time) %}
+                  {% set start_rounded = (((start_ts + 30) / 60) | int) * 60 %}
+                  {% set end_rounded = (((end_ts + 30) / 60) | int) * 60 %}
+                  {% set start_local = as_local(as_datetime(start_rounded)) %}
+                  {% set end_local = as_local(as_datetime(end_rounded)) %}
+                  {"time": "{{ start_local.strftime('%Y-%m-%dT%H:%M:%S%z') }}", "value": {{ f.advanced_price_predicted }} },
+                  {"time": "{{ end_local.strftime('%Y-%m-%dT%H:%M:%S%z') }}", "value": {{ f.advanced_price_predicted }} }{% if not loop.last %},{% endif %}
+                {% endfor %}
+              ]
+            {% else %}
+              []
+            {% endif %}
+
+  - trigger:
+      - platform: homeassistant
+        event: start
+      - platform: state
+        entity_id: sensor.CHANGE_ME_your_amber_feed_in_price_sensor  # CHANGE ME
+      - platform: time_pattern
+        minutes: "/1"
+    action:
+      - action: amberelectric.get_forecasts
+        data:
+          channel_type: feed_in
+          config_entry_id: CHANGE_ME_your_own_config_entry_id  # CHANGE ME (same ID as above)
+        response_variable: amber
+        continue_on_error: true
+    sensor:
+      - name: "Amber Forecast for Solver (Export)"
+        unique_id: amber_forecast_for_solver_export
+        device_class: monetary
+        unit_of_measurement: "$/kWh"
+        icon: mdi:transmission-tower-export
+        availability: >
+          {{ amber is defined and amber.forecasts is defined and amber.forecasts | length > 0 }}
+        state: >
+          {% if amber is defined and amber.forecasts %}
+            {{ amber.forecasts[0].advanced_price_predicted }}
+          {% else %}
+            unknown
+          {% endif %}
+        attributes:
+          forecast: >
+            {% if amber is defined and amber.forecasts %}
+              [
+                {% for f in amber.forecasts %}
+                  {% set start_ts = as_timestamp(f.start_time) %}
+                  {% set end_ts = as_timestamp(f.end_time) %}
+                  {% set start_rounded = (((start_ts + 30) / 60) | int) * 60 %}
+                  {% set end_rounded = (((end_ts + 30) / 60) | int) * 60 %}
+                  {% set start_local = as_local(as_datetime(start_rounded)) %}
+                  {% set end_local = as_local(as_datetime(end_rounded)) %}
+                  {"time": "{{ start_local.strftime('%Y-%m-%dT%H:%M:%S%z') }}", "value": {{ f.advanced_price_predicted }} },
+                  {"time": "{{ end_local.strftime('%Y-%m-%dT%H:%M:%S%z') }}", "value": {{ f.advanced_price_predicted }} }{% if not loop.last %},{% endif %}
+                {% endfor %}
+              ]
+            {% else %}
+              []
+            {% endif %}

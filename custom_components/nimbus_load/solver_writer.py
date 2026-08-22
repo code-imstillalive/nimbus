@@ -1204,6 +1204,70 @@ def fetch_price_history(entity_id: str, days: int = 5) -> list[tuple[datetime, f
     return sorted(out, key=lambda x: x[0])
 
 
+def resample_generic_price_forecast(entity_id: str, grid_times: list[datetime]) -> list[float] | None:
+    """Generic {time, value}-shaped forecast resampler for the portable
+    FALLBACK price path below (2026-08-22, real ask from Mark Purcell's
+    own install: his configured price sensors ARE real, live, genuinely
+    dynamic Amber Electric sensors -- not a hardcoded placeholder -- but
+    the BASE amberelectric price sensor carries no forecast attribute at
+    all; Amber only exposes forward-looking prices via a separate
+    service call (amberelectric.get_forecasts), which needs its own
+    small helper sensor to expose as a real attribute -- see this
+    project's docs/real-world-integration/files/
+    amber_forecast_for_solver.yaml for a real, working example any
+    Amber-using installer can drop in).
+
+    Works for ANY price sensor whose own `forecast` attribute is a list
+    of {"time": <iso datetime string>, "value": <float>} dicts -- the
+    same simple convention this project's own LocalVolts sensors already
+    use (see resample_price_with_extrapolation()'s own real-world
+    equivalent above), so this isn't Amber-specific despite the
+    motivating case -- any future portable price source that produces
+    this same shape gets picked up automatically, no config-flow change
+    needed. This household's own has_localvolts branch never reaches
+    this function -- it exists purely for the portable fallback path,
+    kept in sync with the sibling standalone script.
+
+    Step ("hold the most recent point") lookup, deliberately NOT linear
+    interpolation between two forecast points -- smearing a genuine
+    price step into a fake ramp is a real, already-documented bug class
+    in this project's own history (HAEO's own forecast_fuser, see
+    CLAUDE.md's session-41-era investigation) and Amber's own forecasts
+    are themselves already step-shaped (each interval duplicated at its
+    own start_time and end_time, both carrying the same value -- see the
+    real amber_forecast_for_solver.yaml companion file).
+
+    Returns None (caller falls back to the flat current-value repeat) if
+    the entity has no `forecast` attribute, it's empty, or nothing in it
+    parses -- never raises. A period at or before the earliest available
+    forecast point uses that point's own value (best available), rather
+    than leaving a real gap.
+    """
+    try:
+        state = ha_get(entity_id)
+    except Exception:
+        return None
+    forecast = state.get("attributes", {}).get("forecast")
+    if not forecast:
+        return None
+    points: list[tuple[datetime, float]] = []
+    for f in forecast:
+        try:
+            t = parse_iso(f["time"])
+            v = float(f["value"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        points.append((t, v))
+    if not points:
+        return None
+    points.sort(key=lambda p: p[0])
+    result: list[float] = []
+    for gt in grid_times:
+        candidates = [v for t, v in points if t <= gt]
+        result.append(candidates[-1] if candidates else points[0][1])
+    return result
+
+
 def fetch_aemo_forecast() -> list[tuple[datetime, float]]:
     """Real, FORWARD-looking AEMO NEM QLD1 spot price forecast -- covers
     the FULL 96h horizon (confirmed live 2026-08-16: 367 real 30-min
@@ -2190,22 +2254,27 @@ def main() -> None:
         p2p_recent_volume_kwh = p2p_recent_avg_volume_kwh()
         export_bonus_price = [max(0.0, p2p_export[i] - spot_export[i]) for i in range(n_periods)]
     else:
-        # FALLBACK (2026-08-20, for anyone else): the household's own
-        # configured import/export price sensor's CURRENT value, held
-        # flat across the whole horizon -- the only thing genuinely
-        # possible without knowing anything about the installer's own
-        # retailer/region/tariff structure. No AEMO extrapolation, no
-        # network TOU tables, no live P2P-window detection -- all of
-        # those are this-household/Australian-NEM-specific and have no
-        # portable equivalent yet (a real, honest, separately-tracked
-        # gap, not pretended away).
-        import_price = [num(cfg["solver_import_price_sensor"])] * n_periods
+        # FALLBACK (2026-08-20, for anyone else): PREFERS a real, live
+        # forecast if the configured sensor exposes one (2026-08-22, real
+        # finding from Mark Purcell's own install -- see
+        # resample_generic_price_forecast()'s own docstring for the full
+        # story). Falls back to the sensor's CURRENT value held flat
+        # across the whole horizon only when no usable forecast is found
+        # -- the only thing genuinely possible with truly no forward-
+        # looking data at all. No AEMO extrapolation, no network TOU
+        # tables, no live P2P-window detection -- all of those are this-
+        # household/Australian-NEM-specific and have no portable
+        # equivalent yet (a real, honest, separately-tracked gap, not
+        # pretended away).
+        _import_fc = resample_generic_price_forecast(cfg["solver_import_price_sensor"], grid_times)
+        import_price = _import_fc if _import_fc is not None else [num(cfg["solver_import_price_sensor"])] * n_periods
         # No real fee breakdown exists for a generic install -- the whole
         # configured value IS the raw price, no separate network/
         # certificates add-on to split out (see import_price_raw's own
         # comment where it's pushed, below).
         spot_import_raw = list(import_price)
-        spot_export = [num(cfg["solver_export_price_sensor"])] * n_periods
+        _export_fc = resample_generic_price_forecast(cfg["solver_export_price_sensor"], grid_times)
+        spot_export = _export_fc if _export_fc is not None else [num(cfg["solver_export_price_sensor"])] * n_periods
         match_fraction = 0.0
         # Manual, static P2P bonus from the config-flow's own optional
         # block (both default to 0.0 -- a full no-op -- if the household
