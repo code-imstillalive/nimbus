@@ -52,6 +52,7 @@ from .const import (
     CONF_SOLVER_GRID_MAX_EXPORT_KW,
     CONF_SOLVER_GRID_MAX_IMPORT_KW,
     CONF_SOLVER_IMPORT_PRICE_SENSOR,
+    CONF_SOLVER_LOAD_FORECAST_ENTITIES,
     CONF_SOLVER_LOAD_FORECAST_SENSOR,
     CONF_SOLVER_MAX_CHARGE_KW,
     CONF_SOLVER_MAX_DISCHARGE_KW,
@@ -85,6 +86,7 @@ from .const import (
     CONF_SOLVER_SOLAR_FORECAST_SENSOR,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_2,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_3,
+    CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR,
     DOMAIN,
     SUBENTRY_TYPE_LOAD,
     SUBENTRY_TYPE_SIGNAL,
@@ -120,6 +122,19 @@ _SOLVER_REQUIRED_KEYS = (
 _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_2,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_3,
+    # Real bug found live (2026-08-23): both added to _SOLVER_WIZARD_
+    # SCHEMA_KEYS (flows/hub_options.py) and genuinely saved into
+    # entry.options by the wizard, but never added HERE -- meaning this
+    # bridge sensor never exposed them at all, so
+    # nimbus_solver_forecast_writer.py's fetch_solver_config() (which
+    # reads config ONLY through this sensor's own attributes, never
+    # entry.options directly -- see that function's own docstring for
+    # why) could never see them regardless of how many times the wizard
+    # was resubmitted. The real, saved value in entry.options was never
+    # the problem; this sensor silently omitting it from what it exposes
+    # was.
+    CONF_SOLVER_LOAD_FORECAST_ENTITIES,
+    CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR,
     CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
     CONF_SOLVER_BATTERY_SOH_PERCENT,
     CONF_SOLVER_BATTERY_MIN_SOC_PERCENT,
