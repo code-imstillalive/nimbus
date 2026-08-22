@@ -163,7 +163,7 @@ class LPProblem:
         """
         if name not in self._var_index:
             msg = f"Unknown variable {name!r}"
-            raise KeyError(name)
+            raise KeyError(msg)
         self._cost[name] = self._cost.get(name, 0.0) + cost
 
     def add_ub_constraint(self, terms: dict[str, float], rhs: float, *, name: str | None = None) -> None:
