@@ -54,14 +54,37 @@ jobs:
         uses: home-assistant/actions/hassfest@master
 
   # ---------------------------------------------------------------------------
-  # ADVISORY: Lint (ruff format + ruff check).
-  # Format check will report 33 files needing reformat until a repo-wide
-  # `ruff format` PR lands. `ruff check` currently reports 1 unused-variable
-  # finding in solver/lp.py.
+  # STRICT: Lint (ruff check).
+  # `ruff check` gates real lint findings on every PR. Format check is
+  # split out to a separate advisory job below because the tree still has
+  # ~26 files awaiting a repo-wide `ruff format` sweep, which is deferred
+  # while test coverage lands rapidly on main.
   # ---------------------------------------------------------------------------
 
   lint:
-    name: Lint (ruff) [advisory]
+    name: Lint (ruff check)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v5
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - name: Install ruff
+        run: pip install ruff
+      - name: Ruff lint (strict)
+        run: ruff check custom_components/ tests/
+
+  # ---------------------------------------------------------------------------
+  # ADVISORY: Ruff format check.
+  # Reports ~26 files needing reformat until a repo-wide `ruff format`
+  # sweep lands. Kept advisory so PRs don't get gated on format churn
+  # while tests are still landing on main every few hours.
+  # ---------------------------------------------------------------------------
+
+  format:
+    name: Format (ruff format) [advisory]
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
@@ -73,15 +96,9 @@ jobs:
       - name: Install ruff
         run: pip install ruff
       - name: Ruff format check (advisory)
-        # `|| true` (not continue-on-error: true) deliberately -- GitHub
-        # still marks a continue-on-error step as failed in the Files/
-        # Summary annotation view even though the JOB itself passes; the
-        # step exiting 0 on its own is what actually produces a clean,
-        # annotation-free green check. Real output (which files need
-        # reformatting) is still fully visible in the log either way.
+        # `|| true` (not continue-on-error: true) -- see Raf 4ccf9ba9a1dc
+        # for the rationale.
         run: ruff format --check custom_components/ tests/ || true
-      - name: Ruff lint (advisory)
-        run: ruff check custom_components/ tests/ || true
 
   # ---------------------------------------------------------------------------
   # ADVISORY: Type Check (mypy).
