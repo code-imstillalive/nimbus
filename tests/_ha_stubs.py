@@ -22,6 +22,106 @@ async def _noop_async_added_to_hass(self) -> None:
     pass
 
 
+class _StubSelectorConfig(dict):
+    """Real HA *SelectorConfig classes are typed dataclasses that also
+    serialize like a dict -- a plain dict subclass captures everything a
+    schema-building test needs to inspect (which domain/min/max/mode got
+    attached) without replicating the exact dataclass machinery."""
+
+    def __init__(self, **kwargs) -> None:
+        super().__init__(**kwargs)
+
+
+class _StubSelectorBase:
+    """Real HA selectors are themselves voluptuous-schema-compatible
+    CALLABLES (used directly as the value-validator in
+    vol.Schema({key: selector_instance})) -- this stores its own config
+    for inspection and passes any value through unchanged when called,
+    which is all a schema-building/merge-logic test needs. This
+    integration's own tested logic never depends on real selector-side
+    UI validation/coercion, only on which selector type + config ended
+    up attached to which field.
+    """
+
+    def __init__(self, config: dict | None = None) -> None:
+        self.config = config
+
+    def __call__(self, value):
+        return value
+
+
+class _StubEntitySelector(_StubSelectorBase):
+    pass
+
+
+class _StubNumberSelector(_StubSelectorBase):
+    pass
+
+
+class _StubFlowBase:
+    """Bare stand-in for HA's real ConfigSubentryFlow / OptionsFlowWith-
+    ConfigEntry. Real flow-control methods (async_create_entry /
+    async_update_and_abort / async_show_form / async_show_menu) return a
+    plain, inspectable dict describing what was decided, instead of
+    running HA's own real flow-manager machinery (multi-step state
+    tracking, translation lookup) underneath -- a test only needs to see
+    WHAT a flow step decided (create vs. update vs. show a form for step
+    X with schema Y), not HA's own already-proven plumbing for actually
+    presenting it.
+
+    __init__ is deliberately NOT overridden here -- real tests construct
+    instances via ClassName.__new__(ClassName) (same bypass-heavy-
+    __init__ technique already used for NimbusCoordinator) and set only
+    the specific attributes (self.hass, self.source, self.config_entry,
+    self._solver_data, ...) each test's own method under test actually
+    reads.
+    """
+
+    def __class_getitem__(cls, item):
+        return cls
+
+    def __init__(self, config_entry=None) -> None:
+        # Matches real HA's OptionsFlowWithConfigEntry.__init__(self,
+        # config_entry) signature/behavior closely enough for
+        # NimbusHubOptionsFlow's own __init__ (which calls
+        # super().__init__(*args, **kwargs) before setting its own
+        # self._solver_data) to actually work when constructed the real
+        # way (NimbusHubOptionsFlow(config_entry)), not just via the
+        # __new__()-bypass technique used elsewhere in these tests.
+        self.config_entry = config_entry
+
+    def async_create_entry(self, *, title: str, data: dict):
+        return {"type": "create_entry", "title": title, "data": data}
+
+    def async_update_and_abort(self, entry, subentry, *, title: str, data: dict):
+        return {"type": "update_and_abort", "title": title, "data": data}
+
+    def async_show_form(self, *, step_id: str, data_schema):
+        return {"type": "form", "step_id": step_id, "data_schema": data_schema}
+
+    def async_show_menu(self, *, step_id: str, menu_options: list):
+        return {"type": "menu", "step_id": step_id, "menu_options": menu_options}
+
+
+class _StubConfigFlow(_StubFlowBase):
+    """Adds just enough of ConfigFlow's own class-level contract for
+    `class NimbusConfigFlow(ConfigFlow, domain=DOMAIN):` to import
+    successfully -- real ConfigFlow.__init_subclass__ does real domain-
+    registry bookkeeping HA needs at runtime; a test has no such registry
+    to register into, so this simply swallows the domain= (and any other
+    future) class kwarg rather than replicate that bookkeeping.
+    """
+
+    def __init_subclass__(cls, **kwargs) -> None:
+        super().__init_subclass__()
+
+    async def async_set_unique_id(self, unique_id: str) -> None:
+        self.unique_id = unique_id
+
+    def _abort_if_unique_id_configured(self) -> None:
+        pass
+
+
 class _StubPowerConverter:
     """Real W/kW/MW conversion, not an opaque mock -- pairs with the real
     UnitOfPower stub above. Deliberately narrow (only the 3 units this
@@ -105,6 +205,27 @@ def install_ha_stubs() -> None:
         "homeassistant.config_entries",
         ConfigEntry=_generic_stub_class("ConfigEntry"),
         ConfigSubentry=_generic_stub_class("ConfigSubentry"),
+        ConfigFlow=_StubConfigFlow,
+        ConfigFlowResult=dict,
+        ConfigSubentryFlow=_StubFlowBase,
+        OptionsFlow=_StubFlowBase,
+        OptionsFlowWithConfigEntry=_StubFlowBase,
+        # Real string values, verified 2026-08-22 against HA core's actual
+        # current source (homeassistant/config_entries.py) rather than
+        # guessed -- this integration's own real logic branches on
+        # `self.source == SOURCE_RECONFIGURE`, so a wrong stand-in value
+        # here would make a test pass for the wrong reason.
+        SOURCE_USER="user",
+        SOURCE_RECONFIGURE="reconfigure",
+        SubentryFlowResult=dict,
+    )
+    module(
+        "homeassistant.helpers.selector",
+        EntitySelector=_StubEntitySelector,
+        EntitySelectorConfig=_StubSelectorConfig,
+        NumberSelector=_StubNumberSelector,
+        NumberSelectorConfig=_StubSelectorConfig,
+        NumberSelectorMode=types.SimpleNamespace(BOX="box", SLIDER="slider"),
     )
     # Real string values + a REAL converter, not opaque MagicMocks -- this
     # exact area (a solar sensor reporting W while battery/grid sensors
@@ -117,7 +238,14 @@ def install_ha_stubs() -> None:
         UnitOfPower=types.SimpleNamespace(WATT="W", KILO_WATT="kW", MEGA_WATT="MW"),
         Platform=MagicMock(),
     )
-    module("homeassistant.core", HomeAssistant=_generic_stub_class("HomeAssistant"))
+    module(
+        "homeassistant.core",
+        HomeAssistant=_generic_stub_class("HomeAssistant"),
+        # Real HA's @callback just marks a function as event-loop-safe and
+        # returns it unchanged -- a plain identity decorator is a faithful
+        # stand-in, not a simplification that loses real behavior.
+        callback=lambda func: func,
+    )
     module("homeassistant.helpers")
     # DeviceInfo is a TypedDict in real HA -- calling it like DeviceInfo(x=1)
     # just returns a plain dict at runtime (TypedDict's own __call__

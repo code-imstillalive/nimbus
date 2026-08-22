@@ -6,7 +6,7 @@ rules:
   appropriate-polling: done
   brands: todo  # icon exists in repo, not yet upstreamed to home-assistant/brands
   common-modules: done
-  config-flow-test-coverage: todo
+  config-flow-test-coverage: done  # 2026-08-22: 48 new tests across config_flow.py + all 3 flows/*.py files, including real voluptuous (installed locally, not stubbed) for genuine schema assertions and a real, functional selector stub. Directly encodes every documented live bug in this area as a regression test: hub_options.py's 2026-08-22 merge-not-replace clear-stays-cleared fix ("its not letting me delete anything"), load_subentry.py's 2026-08-15 None-default frontend crash guard ("Cannot read properties of null"), both files' 2026-08-14 reconfigure-vs-new routing fix, and config_flow.py's "a failing notification must never block real hub creation" guarantee
   config-flow: done
   dependency-transparency: done  # 2026-08-22: highspy>=1.15.1 pinned in manifest.json (floor = the version confirmed live on the household's own NUC)
   docs-actions:
@@ -66,7 +66,7 @@ rules:
     comment: >
       No external service authentication; the integration reads local HA
       sensors and does not authenticate against any remote service.
-  test-coverage: todo  # solver/ + ml/blend.py well-covered. 2026-08-22: also fixed tests/_ha_stubs.py's own real gap (missing async_track_time_interval was silently breaking test_init_forecast_entity_rename.py's collection entirely -- its 6 tests are real and now genuinely running again, not new but were broken), and added real new coverage for number.py (_DESCRIPTIONS table invariants + NimbusSolverNumber entity wiring, 9 tests), switch.py (NimbusSolverSwitch's full 3-branch restore-state logic + turn_on/off, 9 tests), and coordinator.py's module-level pure helpers (_parse_time_to_hour, _nearest_temp, _step_lookup) + its two graceful-degradation bound methods (_current_humidity, _current_measured_power -- including the exact 2026-08-15 real unit-mismatch bug scenario, via a real functional PowerConverter/UnitOfPower stub, not an opaque mock) -- 30 tests. Still genuinely zero: _load_model_from_disk's own incompatible-model-discard path (needs real pickle round-tripping + a Path-backed fixture, a bigger lift than the pure-function/bound-method tests done so far), NimbusForecastSensor/NimbusSolverConfigSensor entity classes in sensor.py, config_flow.py, flows/*.py (see config-flow-test-coverage)
+  test-coverage: todo  # solver/ + ml/blend.py well-covered. 2026-08-22 batch: rescued 6 real tests that had gone dark (a stub gap silently broke their collection), added 30 tests for coordinator.py's pure helpers + 2 graceful-degradation bound methods (real, documented 2026-08-15 unit-mismatch/bare-float bugs directly encoded), 9 for number.py, 9 for switch.py, and 48 across config_flow.py/flows/*.py (see config-flow-test-coverage, now done). Full local suite: 183 tests + 11 subtests, all passing, zero --ignore flags needed. Still genuinely untested: _load_model_from_disk's own incompatible-model-discard path (needs real pickle round-tripping + a Path-backed fixture -- has real 2026-08-15 bug history, a bigger lift than what's been done so far) and the sensor.py entity classes themselves (NimbusForecastSensor/NimbusSolverConfigSensor -- the module-level rename FUNCTION they sit alongside is already tested, the entity classes' own coordinator-update/availability wiring is not)
 
   # Gold -- issue #39
   devices: done
