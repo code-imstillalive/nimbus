@@ -209,6 +209,37 @@ def _solver_sources_schema(defaults: dict[str, Any]) -> vol.Schema:
     )
 
 
+# Explicit key lists for the "always take from this submission, never
+# silently fall back to whatever's already stored" merge fix (2026-08-22
+# -- see async_step_forecaster's own comment for the full story). Kept
+# as plain constants, one per schema, so they can't silently drift out
+# of sync with whichever fields each schema function actually defines --
+# any future field added to a schema needs adding here too, deliberately
+# (a missed key here just means that ONE new field keeps the old,
+# safer "never touched by this form" merge behaviour, not a crash).
+_FORECASTER_SCHEMA_KEYS = (
+    CONF_TEMPERATURE_SENSOR,
+    CONF_TEMPERATURE_FORECAST_SENSOR,
+    CONF_HUMIDITY_SENSOR,
+    CONF_CURTAILMENT_SENSOR,
+    CONF_BATTERY_SENSOR,
+    CONF_GRID_SENSOR,
+    CONF_SOLAR_SENSOR,
+    CONF_FORECAST_HORIZON_HOURS,
+    CONF_RETRAIN_HOUR_LOCAL,
+    CONF_TRAIN_DAYS,
+)
+_SOLVER_WIZARD_SCHEMA_KEYS = (
+    CONF_SOLVER_BATTERY_SOC_SENSOR,
+    CONF_SOLVER_IMPORT_PRICE_SENSOR,
+    CONF_SOLVER_EXPORT_PRICE_SENSOR,
+    CONF_SOLVER_SOLAR_FORECAST_SENSOR,
+    CONF_SOLVER_SOLAR_FORECAST_SENSOR_2,
+    CONF_SOLVER_SOLAR_FORECAST_SENSOR_3,
+    CONF_SOLVER_LOAD_FORECAST_SENSOR,
+)
+
+
 class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
     """Edit the settings shared by every load, reached via the hub's own
     "Configure" button (not the per-load "+ Add"/edit).
@@ -236,21 +267,35 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
 
     async def async_step_forecaster(self, user_input: dict[str, Any] | None = None) -> Any:
         if user_input is not None:
-            # MERGE onto the existing options, never a blind replace
-            # (2026-08-17, real, flagged risk: "the Nimbus hub's shared
-            # Battery/Solar/Grid sensor config can be silently cleared by
-            # a stale options-form resubmission"). async_create_entry's
-            # own `data=` argument REPLACES config_entry.options wholesale
-            # -- if a submitted payload is ever missing a key this schema
-            # currently defines (a stale cached frontend form from before
-            # a field was added, a future field added to a schema an
-            # in-flight flow instance doesn't yet know about, or any other
-            # future path that stores an options key this flow doesn't
-            # itself render), a plain `data=user_input` would silently
-            # DROP that key from the live config rather than leave it
-            # untouched. Spreading the existing options first means only
-            # fields THIS submission actually included ever change.
-            return self.async_create_entry(title="", data={**self.config_entry.options, **user_input})
+            # MERGE onto the existing options (2026-08-17, real, flagged
+            # risk: "the Nimbus hub's shared Battery/Solar/Grid sensor
+            # config can be silently cleared by a stale options-form
+            # resubmission") -- but a plain `{**old, **user_input}` spread
+            # has its OWN real bug (2026-08-22, direct household report:
+            # "its not letting me delete anything... i have found open
+            # meteo came back... why?"): when an Optional field is
+            # genuinely cleared in the UI, voluptuous can validate that
+            # as the key being ABSENT from user_input entirely (not
+            # present-with-value-None) -- and a plain spread treats
+            # "absent" as "untouched", so the OLD value silently survives
+            # forever, and the very next time this form opens, its own
+            # `description={"suggested_value": ...}` hint reads that same
+            # never-actually-cleared old value straight back out of
+            # config_entry.options, making a cleared field visually
+            # "come back". Fix: for every key THIS schema actually
+            # defines, always take `user_input.get(key)` explicitly
+            # (correctly resolves to None whether the key was submitted
+            # as None or omitted entirely) -- submitting this form means
+            # every field it displays becomes exactly what's shown,
+            # including genuinely blank. Only keys OUTSIDE this schema
+            # (dashboard number.nimbus_solver_* values, the Solver
+            # wizard's own separate fields) are preserved untouched from
+            # the existing options -- the real risk the original 2026-08-
+            # 17 fix was protecting against, still fully intact.
+            merged = dict(self.config_entry.options)
+            for key in _FORECASTER_SCHEMA_KEYS:
+                merged[key] = user_input.get(key)
+            return self.async_create_entry(title="", data=merged)
 
         return self.async_show_form(
             step_id="forecaster", data_schema=_forecaster_schema(dict(self.config_entry.options))
@@ -275,12 +320,20 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
     async def async_step_solver_sources(self, user_input: dict[str, Any] | None = None) -> Any:
         if user_input is not None:
             self._solver_data.update(user_input)
-            # Same merge-not-replace discipline as async_step_forecaster --
-            # only what this whole 3-step wizard actually collected changes;
-            # everything else in config_entry.options (Forecaster settings,
-            # and every number.nimbus_solver_* entity's own separately-
-            # tracked value, included) is left untouched.
-            return self.async_create_entry(title="", data={**self.config_entry.options, **self._solver_data})
+            # Same explicit-key-list fix as async_step_forecaster (see its
+            # own comment for the full story) -- self._solver_data now
+            # holds whatever was actually submitted across all 3 Solver
+            # wizard steps; every key the wizard's own 3 schemas define
+            # gets taken explicitly from it (None if genuinely cleared or
+            # never touched this run), so a cleared optional source
+            # actually stays cleared. Everything else in config_entry.
+            # options (Forecaster settings, every number.nimbus_solver_*
+            # dashboard value) is preserved untouched -- the real risk the
+            # original merge-not-replace fix was protecting against.
+            merged = dict(self.config_entry.options)
+            for key in _SOLVER_WIZARD_SCHEMA_KEYS:
+                merged[key] = self._solver_data.get(key)
+            return self.async_create_entry(title="", data=merged)
         return self.async_show_form(
             step_id="solver_sources", data_schema=_solver_sources_schema(dict(self.config_entry.options))
         )
