@@ -70,7 +70,7 @@ rules:
 
   # Gold -- issue #39
   devices: done
-  diagnostics: todo
+  diagnostics: done  # 2026-08-22: diagnostics.py -- per-subentry config + coordinator health snapshot (trained_at, training_points, validation MAE/MASE, forecast point count), TO_REDACT deliberately empty+documented (no credentials anywhere in Nimbus's config)
   discovery-update-info:
     status: exempt
     comment: No network discovery.
