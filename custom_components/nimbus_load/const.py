@@ -242,6 +242,18 @@ CONF_SOLVER_SOLAR_FORECAST_SENSOR: Final = "solver_solar_forecast_sensor"
 # ml/blend.py's own module docstring for the "every forecast is wrong,
 # so blend rather than pick one" reasoning this implements.
 CONF_SOLVER_SOLAR_FORECAST_SENSOR_2: Final = "solver_solar_forecast_sensor_2"
+# Optional THIRD solar source (2026-08-22, direct household finding: a
+# real live check showed the primary AND second source both
+# overpredicting real measured solar by 36-57% at the SAME moment --
+# proof two sources sharing the same directional bias don't cancel out
+# when averaged, they just average the bias. A third, genuinely
+# differently-modeled source (this household's own real install:
+# Solcast, satellite-imagery-anchored, architecturally distinct from
+# both a self-trained ML model and a different NWP provider) gives the
+# blend a real chance at partially-uncorrelated error for the first
+# time. Blank (the default) is a complete no-op, same guarantee as
+# _2 above.
+CONF_SOLVER_SOLAR_FORECAST_SENSOR_3: Final = "solver_solar_forecast_sensor_3"
 CONF_SOLVER_LOAD_FORECAST_SENSOR: Final = "solver_load_forecast_sensor"
 # Economic POLICY, not hardware -- how cautious the solver should be
 # about cycling the battery. Real, non-obvious history worth remembering

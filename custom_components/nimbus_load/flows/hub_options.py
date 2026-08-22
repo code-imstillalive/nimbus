@@ -52,6 +52,7 @@ from ..const import (
     CONF_SOLVER_LOAD_FORECAST_SENSOR,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_2,
+    CONF_SOLVER_SOLAR_FORECAST_SENSOR_3,
     CONF_TEMPERATURE_FORECAST_SENSOR,
     CONF_TEMPERATURE_SENSOR,
     CONF_TRAIN_DAYS,
@@ -172,6 +173,12 @@ def _solver_sources_schema(defaults: dict[str, Any]) -> vol.Schema:
             # byte-identical to every install before this field existed.
             vol.Optional(
                 CONF_SOLVER_SOLAR_FORECAST_SENSOR_2, default=defaults.get(CONF_SOLVER_SOLAR_FORECAST_SENSOR_2),
+            ): _entity(),
+            # Optional THIRD solar source (2026-08-22) -- see CONF_SOLVER_
+            # SOLAR_FORECAST_SENSOR_3's own comment in const.py for why.
+            # Same complete-no-op-when-blank guarantee.
+            vol.Optional(
+                CONF_SOLVER_SOLAR_FORECAST_SENSOR_3, default=defaults.get(CONF_SOLVER_SOLAR_FORECAST_SENSOR_3),
             ): _entity(),
             vol.Required(
                 CONF_SOLVER_LOAD_FORECAST_SENSOR, default=defaults.get(CONF_SOLVER_LOAD_FORECAST_SENSOR),
