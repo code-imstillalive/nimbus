@@ -15,6 +15,8 @@ goes bad), not folded into one combined device.
 
 from __future__ import annotations
 
+import logging
+
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
@@ -88,6 +90,8 @@ from .const import (
     SUBENTRY_TYPE_SIGNAL,
 )
 from .coordinator import NimbusCoordinator
+
+_LOGGER = logging.getLogger(__name__)
 
 _FORECASTABLE_SUBENTRY_TYPES = (SUBENTRY_TYPE_LOAD, SUBENTRY_TYPE_SIGNAL)
 
@@ -308,6 +312,21 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
         # attribute at runtime, not by hardcoding entity names. Same
         # design principle already applied to ATTR_MODE.
         self._subentry_type = subentry.subentry_type
+        # Silver `entity-unavailable` (2026-08-22, real Mark Purcell audit
+        # finding, confirmed correct against this module's own docstring
+        # goal above -- "independently able to show unavailable if that
+        # one's data goes bad" was always the intent, just never actually
+        # wired up): stored so available() below can check the REAL,
+        # LIVE source sensor, not just whether the coordinator's last
+        # update technically succeeded.
+        self._source_sensor = subentry.data[CONF_LOAD_SENSOR]
+        # Same Silver finding's log-when-unavailable pairing -- tracks
+        # whether the last _handle_coordinator_update() call found this
+        # entity available, so a genuine state CHANGE logs exactly once
+        # in each direction rather than either staying silent or
+        # spamming a log line on every coordinator refresh regardless of
+        # whether anything actually changed.
+        self._was_available: bool | None = None
         # Setting entity_id directly, not _attr_suggested_object_id.
         # Confirmed live 2026-08-14, twice, that _attr_suggested_object_id
         # is NOT respected here: with _attr_has_entity_name = True, Home
@@ -331,6 +350,49 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
             model=model,
             sw_version=sw_version,
         )
+
+    @property
+    def available(self) -> bool:
+        """Silver `entity-unavailable` fix (2026-08-22). Overrides
+        CoordinatorEntity's own default (`coordinator.last_update_success`
+        alone) -- that default only catches a coordinator update that
+        actively FAILED, not the real, distinct case this was built to
+        catch: the coordinator's last update genuinely succeeded (maybe
+        hours ago, maybe just before a retrain), but the real, live
+        SOURCE sensor has since gone unavailable. Without this, the
+        forecast entity keeps confidently reporting its last-known value
+        forever -- a silently wrong dashboard reading, worse than an
+        honest "unavailable," which is exactly the real bug this closes.
+        """
+        if not self.coordinator.last_update_success:
+            return False
+        if self.coordinator.data is None:
+            return False
+        source_state = self.hass.states.get(self._source_sensor)
+        if source_state is None or source_state.state in ("unavailable", "unknown"):
+            return False
+        return True
+
+    def _handle_coordinator_update(self) -> None:
+        """Same Silver fix's log-when-unavailable pairing -- logs exactly
+        once on a genuine transition in either direction, never per-tick.
+        `available` above is a pure property (no side effects, safe to
+        call as often as HA likes) -- this hook is the one place that
+        only fires once per real coordinator refresh, so it's the
+        correct place to detect and log a CHANGE rather than a snapshot.
+        """
+        now_available = self.available
+        if self._was_available is not None and now_available != self._was_available:
+            if now_available:
+                _LOGGER.info("Nimbus: %s is available again", self.entity_id)
+            else:
+                _LOGGER.info(
+                    "Nimbus: %s is now unavailable (source sensor %s unavailable, or "
+                    "the last coordinator update failed)",
+                    self.entity_id, self._source_sensor,
+                )
+        self._was_available = now_available
+        super()._handle_coordinator_update()
 
     @property
     def native_value(self) -> float | None:
