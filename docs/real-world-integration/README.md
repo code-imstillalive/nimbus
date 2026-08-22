@@ -72,6 +72,91 @@ deterministic entity_id transform, not a guess).
 `lovelace_build_topology_dashboard.py` is the generator that turns
 `topology_map.yaml` into the actual dashboard view config.
 
+## `files/lovelace_add_nimbus_solver_view.py` — the Solver dashboard scaffold
+
+Builds the actual "Solver" view (`type: sections`) that the forecast
+table, quality card, and merged chart below all get added into. Self-
+locating and idempotent (finds the dashboard by title, skips cleanly if
+the view already exists) — same pattern as every lovelace-editing
+script in this project. Run this first if you're building the Solver
+dashboard from scratch.
+
+## `files/lovelace_add_nimbus_solver_forecast_table.py` — the forecast table card
+
+A markdown card iterating `sensor.nimbus_solver_battery_forecast`'s own
+`forecast` array into a real table: Time / Buy¢ / Fees¢ / Sell¢ / P2P¢ /
+Load / Solar / Batt / SoC% / Net$, one row per period. The Fees¢ column
+(network TOU + certificates, split out from the raw commodity price) is
+genuinely household-specific rate data — see `number.nimbus_solver_
+network_fee_*`/`flat_fee_rate` (this repo's own `const.py`/`number.py`)
+for the live, dashboard-configurable fields that drive it; a fresh
+install with those left at their 0.0 defaults gets a Fees¢ column that
+correctly reads 0 throughout, not a crash.
+
+## `files/lovelace_add_nimbus_solver_quality_card.py` — the EPR / regret quality card
+
+Renders `sensor.nimbus_solver_quality_report`'s own pushed attributes
+(EPR, regret in dollars, tracking fidelity, real settled P2P dollars)
+as a real dashboard card, plus the day-over-day history trend. Purely a
+display layer over whatever `nimbus_solver_quality_writer.py` (below)
+computes — genuinely portable on its own, since it just reads whatever
+that sensor happens to contain.
+
+## `files/lovelace_build_merged_forecast_chart.py` — the combined Power Signal + Load chart
+
+One apexcharts-card showing every Nimbus Power Signal (Battery/Grid/
+Solar/Whole House, header tiles) and every Nimbus Load (small legend
+entries, live-discovered from `hass.states` the same way the topology
+card discovers loads — see that card's own `_discoverLoads()`) on one
+chart, history and forecast both. Colors are hash-derived from each
+entity_id by default (see this file's own `_hash_color_for()`) so a
+different household's own real load list gets sensible, distinct
+colors automatically, no manual palette needed.
+
+## `files/nimbus_counterfactual_writer.py` — Stage 1: "would Nimbus alone have been ready tonight"
+
+Runs once daily, replays the PREVIOUS day using the real production
+`network.build_plan()` (same solver, same code path as the live
+forecast writer) with SoC evolved PURELY from Nimbus's own decisions —
+never reading the real, externally-influenced SoC at any step. This is
+what actually answers "if Nimbus alone had been deciding since
+midnight, would the battery still have been ready for tonight's
+delivery window" — a real, evidence-based readiness signal, not a
+guess. See this repo's own `custom_components/nimbus_load/solver/
+network.py` — nothing here is special-cased for this household, the
+counterfactual re-derivation itself is generic; only the specific
+sensors it reads (battery SoC, load, solar, price history) are wired
+to this household's real entity IDs.
+
+## `files/nimbus_solver_quality_writer.py` — the regret / EPR scorer (NOT directly portable)
+
+Unlike every other file in this folder, this one is genuinely NOT
+meant to be copied as-is — it reads this household's own real
+LocalVolts P2P settlement API directly (`secrets.yaml` credentials,
+`sensor.lv_v2_p2p_confirmed_history`), this household's own real
+automation entity names (`input_number.p2p_grid_export_target_kw`,
+`config/automations.yaml`'s own P2P/self-consume automations), and a
+real, bill-verified Energex TOU tariff table. Included anyway, same
+"show the real wiring, not a sanitized example" philosophy as
+`nimbus_solver_forecast_writer.py` above -- specifically because of a
+real, general, worth-reusing FINDING made fixing it (2026-08-22, direct
+Mark Purcell question: "why is it missing so much of the mark?"):
+
+**If you build your own regret/EPR scorer against a perfect-foresight
+oracle, make sure the oracle is held to the SAME real-world
+constraints your actual controller operates under** -- any fixed-rate
+delivery commitment, any hard self-consume/blackout window, anything
+the real system can't deviate from even with perfect price knowledge.
+This household's own oracle was silently free of two such constraints
+(a fixed P2P export rate, a hard midnight-to-4am self-consume lock) --
+fixing both dropped a $16.44 regret reading to something meaningfully
+smaller and genuinely trustworthy. Search this file for `fixed_export_
+kw`/`SELF_CONSUME_HOURS_AFTER_MIDNIGHT_CLOSE` for the real mechanism;
+`solver/regret.py`'s own `oracle_dispatch()` (this repo) is the
+underlying, fully generic piece -- it takes whatever `GridConfig` you
+give it, so applying the same real constraint on your own install is a
+config change here, not a new mechanism to build.
+
 ## `files/research/*.py` — the Solver audit scripts
 
 These are the scripts used to work through (and mostly close) a real,
