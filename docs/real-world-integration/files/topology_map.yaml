@@ -94,6 +94,19 @@ inverters:
     # so this per-inverter figure is the real, correct granularity to
     # drive the battery-chain arrow direction/color on the topology card.
     battery_power: sensor.battery_power_signed_inv1
+    # Real per-inverter total DC power (sensor.total_dc_power_inv1, real
+    # Sungrow register -- confirmed live 2026-08-22: 1020W vs the sum of
+    # this inverter's own 2 active strings, 541+545=1086W, close enough
+    # given the two readings land a few seconds apart from independent
+    # poll cycles, not a mismatch). This is genuinely different from
+    # battery_power above -- DC power is total PV throughput regardless
+    # of whether the battery is doing anything at all (confirmed live:
+    # battery_power was legitimately 0W with both towers full while DC
+    # power was a real, nonzero >1000W, solar flowing straight through to
+    # the switchboard). Direct household catch: the card's own inverter
+    # header was showing ONLY battery_power, making a fully-charged,
+    # solar-producing inverter look falsely idle.
+    dc_power: sensor.total_dc_power_inv1
     pv_strings:
       - entity: sensor.string3_power_inv1
         mppt: 2
@@ -105,6 +118,7 @@ inverters:
   - id: inv2
     name: Inverter 2 (SH15T)
     battery_power: sensor.battery_power_signed_inv2
+    dc_power: sensor.total_dc_power_inv2
     pv_strings:
       - entity: sensor.string1_power_inv2
         mppt: 1

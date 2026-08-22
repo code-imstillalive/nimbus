@@ -72,6 +72,20 @@ deterministic entity_id transform, not a guess).
 `lovelace_build_topology_dashboard.py` is the generator that turns
 `topology_map.yaml` into the actual dashboard view config.
 
+**2026-08-22 update, worth knowing if your own inverter has a real DC
+power sensor:** each inverter's header used to show only its signed
+battery-flow sensor, which made a fully-charged, solar-producing
+inverter (battery legitimately idle at 0W) look falsely dead — real
+solar was flowing straight through to the switchboard and nothing on
+the card said so. Fixed by adding an optional `dc_power:` field per
+inverter in `topology_map.yaml` (a real per-inverter total-DC-power
+sensor, genuinely different from battery flow — it's nonzero whenever
+that inverter's own PV strings are producing, regardless of what the
+battery is doing) and showing it as the primary header reading, with
+battery flow appended only when actually nonzero. `dc_power:` is
+optional — omit it and the header falls back to battery-flow-only,
+same as before.
+
 ## `files/lovelace_add_nimbus_solver_view.py` — the Solver dashboard scaffold
 
 Builds the actual "Solver" view (`type: sections`) that the forecast

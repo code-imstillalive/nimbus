@@ -606,15 +606,36 @@ class TopologyCard extends HTMLElement {
       const invLabel = svgEl("text", { x: invX, y: invTop - 20, "text-anchor": "middle", class: "node-label", style: `fill:${COLORS.text}` });
       invLabel.textContent = inv.name;
       invGroup.appendChild(invLabel);
-      if (battState) {
-        const battLabel = svgEl("text", {
+
+      // Real per-inverter total DC power (sensor.total_dc_power_inv{1,2}) --
+      // genuinely different from battery_power above: DC power is total PV
+      // throughput regardless of whether the battery is doing anything at
+      // all. Direct household catch, 2026-08-22: this header used to show
+      // ONLY battery_power, so a fully-charged inverter with real solar
+      // flowing straight through to the switchboard (battery legitimately
+      // 0W, both its towers full) looked falsely idle. Kept as ONE combined
+      // line (not a new third text row) deliberately -- this card has real,
+      // documented history of layout-overlap bugs from stacking more text
+      // than a header's own reserved vertical space accounts for; a single
+      // line needs zero new headroom. Battery flow is appended only when
+      // genuinely active (not shown as "▲ 0 W" clutter when idle, which
+      // is most of the time) -- it's still fully represented separately by
+      // the tower-connector arrows below regardless of whether it's named
+      // here.
+      const dcState = inv.dc_power ? this._entityState(inv.dc_power) : undefined;
+      const dcVal = fmtValue(dcState);
+      const dcW = toWatts(dcState);
+      const dcHealthy = dcVal.healthy;
+      if (dcState || battState) {
+        const parts = [];
+        if (dcHealthy) parts.push(dcVal.text);
+        if (battActive && battVal.healthy) parts.push(`${discharging ? "▼" : "▲"} ${battVal.text}`);
+        const subLabel = svgEl("text", {
           x: invX, y: invTop - 8, "text-anchor": "middle", class: "node-value-sub",
-          style: `fill:${battActive ? COLORS.battery : COLORS.textDim}`,
+          style: `fill:${dcHealthy && dcW > 5 ? COLORS.solar : (battActive ? COLORS.battery : COLORS.textDim)}`,
         });
-        battLabel.textContent = battVal.healthy
-          ? `${discharging ? "▼" : charging ? "▲" : ""} ${battVal.text}`.trim()
-          : "—";
-        invGroup.appendChild(battLabel);
+        subLabel.textContent = parts.length ? parts.join(" · ") : "—";
+        invGroup.appendChild(subLabel);
       }
       nodes.push(invGroup);
 
