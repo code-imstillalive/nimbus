@@ -398,6 +398,42 @@ CONF_SOLVER_LOAD_FORECAST_ENTITIES: Final = "solver_load_forecast_entities"
 CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR: Final = (
     "solver_whole_house_cross_check_sensor"
 )
+# Real, PORTABILITY BUG found and fixed live (nimbus repo issue #100,
+# Mark Purcell -- an independent installer's own health-check, findings
+# 1 & 2): the multi-circuit summing path (sum_load_forecasts()) used to
+# unconditionally add a bare, hardcoded module-level constant --
+# INVERTER_SELF_CONSUMPTION_KW = 0.215 -- to every load total and every
+# load confidence band, on EVERY install, regardless of whether that
+# household's own hardware has any such bias at all, let alone one of
+# exactly 215W. That constant's own original comment (still true, and
+# still the right value -- for ONE specific household) explains where
+# it came from: "the Sungrow logger's own internal accounting draws a
+# constant real ~215W nothing on the Zigbee CB network can ever see."
+# Real, specific, and completely inapplicable to anyone with different
+# hardware -- exactly the class of thing this whole config-flow
+# refactor (2026-08-20 onward) exists to eliminate.
+#
+# Concretely, this is what produced BOTH of Mark's own findings from a
+# single mechanism: (1) his lower-band values sitting dead flat at
+# 0.215 for 362/363 points -- his own source's real lower/upper keys
+# resample to ~0 whenever unset, the household-specific constant was
+# then unconditionally added on top, and the defensive upper-clamp
+# (`max(total_upper_kw[i], total_kw[i])`) hid the same addition on the
+# upper side once the real point value grew past it; (2) a genuinely
+# wrong, if small (215W), bias baked into every OTHER install's own
+# load total and band width, silently, with zero way to turn it off or
+# even see it was being added at all before this field existed.
+#
+# 0.0 (the default) is a genuine no-op -- an install that's never set
+# this returns exactly the sum of its own configured circuits, nothing
+# added. This project's own reference household (116KAT-HA-AI) needs to
+# set this to 0.215 ONCE, manually, on its own dashboard after this
+# field first ships -- there is nothing in entry.options for a
+# brand-new field to seed itself from, so even the household whose real
+# hardware this constant was originally measured against starts at 0.0
+# too, same as everyone else, until set.
+CONF_SOLVER_INVERTER_SELF_CONSUMPTION_KW: Final = "solver_inverter_self_consumption_kw"
+DEFAULT_SOLVER_INVERTER_SELF_CONSUMPTION_KW: Final = 0.0
 # Economic POLICY, not hardware -- how cautious the solver should be
 # about cycling the battery. Real, non-obvious history worth remembering
 # if these are ever misconfigured: a household running this same solver

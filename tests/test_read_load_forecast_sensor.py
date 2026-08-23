@@ -120,12 +120,19 @@ class TestEmhassShape(unittest.TestCase):
                 "sensor.p_load_forecast_custom_model", _grid_times_aest()
             )
         self.assertIsNone(error, f"expected success, got error: {error}")
-        # 691.67 W -> 0.69167 kW, NOT the flat 0.215 INVERTER_SELF_
-        # CONSUMPTION_KW placeholder from the real bug.
+        # 691.67 W -> 0.69167 kW, NOT a flat 0.215 kW -- the value this
+        # project's own reference install eventually confirmed as a
+        # DIFFERENT, real, permanent inverter self-consumption bias
+        # (now a real, optional, per-household number.py setting --
+        # see const.py's own CONF_SOLVER_INVERTER_SELF_CONSUMPTION_KW
+        # comment -- not a module constant read_load_forecast_sensor()
+        # has ever touched at all). Kept as a bare literal here, not a
+        # module attribute reference, specifically so this regression
+        # guard survives that field being renamed/removed/reconfigured
+        # in the future -- 0.215 is this test's own known historical
+        # bad value, not a live dependency on any current constant.
         self.assertAlmostEqual(load_kw[0], 0.69167, places=4)
-        self.assertNotAlmostEqual(
-            load_kw[0], solver_writer.INVERTER_SELF_CONSUMPTION_KW, places=2
-        )
+        self.assertNotAlmostEqual(load_kw[0], 0.215, places=2)
         # No real band info in this shape -- zero-width around the point.
         self.assertEqual(lower[0], load_kw[0])
         self.assertEqual(upper[0], load_kw[0])
