@@ -68,6 +68,7 @@ from .const import (
     CONF_SOLVER_GRID_MAX_EXPORT_KW,
     CONF_SOLVER_GRID_MAX_IMPORT_KW,
     CONF_SOLVER_IMPORT_PRICE_RISK_AVERSION,
+    CONF_SOLVER_INVERTER_SELF_CONSUMPTION_KW,
     CONF_SOLVER_MAX_CHARGE_KW,
     CONF_SOLVER_MAX_DISCHARGE_KW,
     CONF_SOLVER_NETWORK_FEE_1_END_HOUR,
@@ -100,6 +101,7 @@ from .const import (
     DEFAULT_SOLVER_EXPORT_PRICE_RISK_AVERSION,
     DEFAULT_SOLVER_FLAT_FEE_RATE,
     DEFAULT_SOLVER_IMPORT_PRICE_RISK_AVERSION,
+    DEFAULT_SOLVER_INVERTER_SELF_CONSUMPTION_KW,
     DEFAULT_SOLVER_MAX_SOC_PERCENT,
     DEFAULT_SOLVER_MIN_SOC_PERCENT,
     DEFAULT_SOLVER_NETWORK_FEE_END_HOUR,
@@ -282,6 +284,26 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         10,
         0.001,
         "$/kWh",
+    ),
+    # Real portability bug found and fixed live (nimbus repo issue #100,
+    # Mark Purcell). See const.py's own CONF_SOLVER_INVERTER_SELF_
+    # CONSUMPTION_KW comment for the full "this used to be a hardcoded
+    # 116KAT-HA-AI-specific constant, silently added to every OTHER
+    # install's own load total" story. 0.0 (the default) is a genuine
+    # no-op. min=0/max=5/step=0.001 -- a real inverter self-consumption
+    # bias is a small correction (this project's own reference value is
+    # 0.215 kW), not a hardware capacity number; the finer 0.001 step
+    # (vs. the 0.1 step every kW hardware field above uses) is needed to
+    # enter that reference value exactly.
+    _SolverNumberDescription(
+        CONF_SOLVER_INVERTER_SELF_CONSUMPTION_KW,
+        "Inverter Self-Consumption",
+        DEFAULT_SOLVER_INVERTER_SELF_CONSUMPTION_KW,
+        0,
+        5,
+        0.001,
+        "kW",
+        device_class=NumberDeviceClass.POWER,
     ),
     _SolverNumberDescription(
         CONF_SOLVER_P2P_BONUS_PRICE,

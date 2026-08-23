@@ -458,7 +458,24 @@ P2P_RECENT_AVG_VOLUME_FALLBACK_KWH = 60.0
 # 18-load sum would silently under-serve real demand by ~215W every
 # single period (≈20.6kWh of real, invisible demand across a 96h
 # horizon), biasing the LP toward under-provisioning battery/import.
-INVERTER_SELF_CONSUMPTION_KW = 0.215
+#
+# Real PORTABILITY BUG found and fixed (2026-08-24, nimbus repo issue
+# #100, Mark Purcell -- an independent installer's own live health-check
+# found his own load total's confidence band stuck dead flat at exactly
+# 0.215 for 362/363 points, with no household hardware of his own that
+# would explain that specific number). This used to be a bare, hardcoded
+# module-level constant -- meaning EVERY OTHER Nimbus install got this
+# household's own specific 215W bias silently added to their own load
+# total and band, whether or not their own hardware has any such bias at
+# all. No longer a module constant -- now read live from cfg (see
+# main()'s own sum_load_forecasts() call site below), same
+# number.nimbus_solver_* config-flow pattern every other economic/
+# hardware Solver setting already uses (const.py's own
+# CONF_SOLVER_INVERTER_SELF_CONSUMPTION_KW comment has the full story).
+# 0.0 is the real, portable default for anyone else; this project's own
+# reference install needs number.nimbus_solver_inverter_self_consumption_kw
+# set to 0.215 once, manually, after this change first deploys -- there
+# is nothing in entry.options for a brand-new field to seed itself from.
 
 
 # Same real, live config-flow keys as P2P_BLOCK_KEYS above, mirrored
@@ -1004,7 +1021,9 @@ def fetch_load_forecast_safe(entity_id: str) -> list[dict]:
 
 
 def sum_load_forecasts(
-    entity_ids: list[str], grid_times: list[datetime]
+    entity_ids: list[str],
+    grid_times: list[datetime],
+    inverter_self_consumption_kw: float = 0.0,
 ) -> tuple[list[float], list[float], list[float], list[str]]:
     """Real household demand, summed from a household's own individually-
     forecasted circuits -- see load_forecast_entities in main() (the
@@ -1015,6 +1034,11 @@ def sum_load_forecasts(
     the whole sum) and resampled with the SAME resample_forecast() every
     other forecast entity in this file already uses -- no new resampling
     logic needed.
+
+    inverter_self_consumption_kw: a real, permanent, per-household bias
+    (own comment above CONF_SOLVER_INVERTER_SELF_CONSUMPTION_KW in
+    const.py has the full story) -- 0.0 is a genuine no-op, the caller's
+    own responsibility to pass a real value if their install has one.
 
     lower_kw/upper_kw are summed the same way (sum of each load's own
     real per-load lower bound, sum of each load's own real per-load
@@ -1055,13 +1079,15 @@ def sum_load_forecasts(
             total_kw[i] += max(0.0, pt_kw[i])
             total_lower_kw[i] += max(0.0, pt_lower[i])
             total_upper_kw[i] += max(0.0, pt_upper[i])
-    # Real, known, permanent inverter self-consumption bias (see
-    # INVERTER_SELF_CONSUMPTION_KW's own comment) -- added flat to every
-    # period, point AND band alike (a known constant carries no real
-    # uncertainty of its own to widen the band with).
-    total_kw = [v + INVERTER_SELF_CONSUMPTION_KW for v in total_kw]
-    total_lower_kw = [v + INVERTER_SELF_CONSUMPTION_KW for v in total_lower_kw]
-    total_upper_kw = [v + INVERTER_SELF_CONSUMPTION_KW for v in total_upper_kw]
+    # Real, known, permanent inverter self-consumption bias (see this
+    # function's own inverter_self_consumption_kw parameter docstring
+    # above) -- added flat to every period, point AND band alike (a
+    # known constant carries no real uncertainty of its own to widen the
+    # band with). 0.0 by default -- a genuine no-op for any install that
+    # hasn't configured a real value.
+    total_kw = [v + inverter_self_consumption_kw for v in total_kw]
+    total_lower_kw = [v + inverter_self_consumption_kw for v in total_lower_kw]
+    total_upper_kw = [v + inverter_self_consumption_kw for v in total_upper_kw]
     # Defensive bracket, same reasoning as solar/load's own clamp
     # elsewhere in this file: guarantee lower <= point <= upper even if
     # one per-load band was individually inconsistent (elements.py's own
@@ -2524,7 +2550,11 @@ def main() -> None:
     load_forecast_error = None
     if load_forecast_entities:
         load_kw, load_lower_kw, load_upper_kw, failed_load_entities = (
-            sum_load_forecasts(load_forecast_entities, grid_times)
+            sum_load_forecasts(
+                load_forecast_entities,
+                grid_times,
+                _cfg_num(cfg, "solver_inverter_self_consumption_kw", 0.0),
+            )
         )
     else:
         # Validated read (2026-08-23, real fix for nimbus repo issue
@@ -2670,7 +2700,9 @@ def main() -> None:
             "whole_house_cross_check_now_kw": round(whole_house_now_kw, 3)
             if whole_house_now_kw is not None
             else None,
-            "inverter_self_consumption_kw": INVERTER_SELF_CONSUMPTION_KW,
+            "inverter_self_consumption_kw": _cfg_num(
+                cfg, "solver_inverter_self_consumption_kw", 0.0
+            ),
             # None on success -- the exact human-readable reason on
             # failure, real proposal #2 from nimbus repo issue #66.
             "load_forecast_source_error": load_forecast_error,
