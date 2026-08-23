@@ -7,7 +7,7 @@ run as a separate pytest invocation from the stub-based tests -- see
 tests/hass_integration/README.md for why both together are needed for
 real isolation.
 
-The four things this conftest does:
+The five things this conftest does:
 
   1. Autouse `enable_custom_integrations` so every test here gets the
      custom_components/ path treatment without asking for the fixture
@@ -23,6 +23,14 @@ The four things this conftest does:
   4. Bind this test's `hass` into `solver_writer` and unbind it after,
      so the entity dispatch seam is live and nothing leaks between
      tests.
+  5. Set pytest-asyncio's `asyncio_mode = "auto"` so `async def
+     test_...` functions are awaited automatically, matching pytest-
+     homeassistant-custom-component's own convention.
+
+Both are directory-local -- setting `asyncio_mode` in the top-level
+`pyproject.toml` would flip the mode for the stub tests too (they run
+in a separate pytest invocation, but a globally-set option would still
+be picked up by both), so scoping it here keeps the boundary clean.
 
 Note on Python versions: 3.14.0 through 3.14.3 cannot run this suite.
 `recorder_mock` patches recorder functions with `autospec=True`, and on
@@ -33,15 +41,6 @@ inside recorder. CPython fixed it by passing `Format.FORWARDREF`
 (`Lib/unittest/mock.py`, `_get_signature_object`); 3.14.3 does not have
 that call and 3.14.4 does. Hence the `>=3.14.4` floor in
 `pyproject.toml` rather than a workaround in here.
-
-  5. Set pytest-asyncio's `asyncio_mode = "auto"` so `async def
-     test_...` functions are awaited automatically, matching pytest-
-     homeassistant-custom-component's own convention.
-
-Both are directory-local -- setting `asyncio_mode` in the top-level
-`pyproject.toml` would flip the mode for the stub tests too (they run
-in a separate pytest invocation, but a globally-set option would still
-be picked up by both), so scoping it here keeps the boundary clean.
 """
 
 from __future__ import annotations
