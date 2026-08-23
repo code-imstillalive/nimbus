@@ -16,7 +16,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from homeassistant.config_entries import SOURCE_RECONFIGURE, ConfigSubentryFlow, SubentryFlowResult
+from homeassistant.config_entries import (
+    SOURCE_RECONFIGURE,
+    ConfigSubentryFlow,
+    SubentryFlowResult,
+)
 from homeassistant.helpers import selector
 import voluptuous as vol
 
@@ -38,12 +42,18 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
     # to give at all. Same None-default crash avoidance already proven
     # in load_subentry.py (2026-08-15 finding: an EntitySelector is safe
     # with default=None, unlike a NumberSelector).
-    schema_dict[vol.Optional(
-        CONF_POWER_SOURCE_BATTERY_SENSOR, default=defaults.get(CONF_POWER_SOURCE_BATTERY_SENSOR)
-    )] = selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
-    schema_dict[vol.Optional(
-        CONF_POWER_SOURCE_DC_SENSOR, default=defaults.get(CONF_POWER_SOURCE_DC_SENSOR)
-    )] = selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
+    schema_dict[
+        vol.Optional(
+            CONF_POWER_SOURCE_BATTERY_SENSOR,
+            default=defaults.get(CONF_POWER_SOURCE_BATTERY_SENSOR),
+        )
+    ] = selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
+    schema_dict[
+        vol.Optional(
+            CONF_POWER_SOURCE_DC_SENSOR,
+            default=defaults.get(CONF_POWER_SOURCE_DC_SENSOR),
+        )
+    ] = selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
     return vol.Schema(schema_dict)
 
 
@@ -56,7 +66,11 @@ class NimbusPowerSourceSubentryFlowHandler(ConfigSubentryFlow):
         """Same self.source-driven reconfigure-detection as every other
         Nimbus subentry flow (see load_subentry.py's own identical
         comment for why)."""
-        subentry = self._get_reconfigure_subentry() if self.source == SOURCE_RECONFIGURE else None
+        subentry = (
+            self._get_reconfigure_subentry()
+            if self.source == SOURCE_RECONFIGURE
+            else None
+        )
         return await self._async_step(user_input, subentry=subentry)
 
     async def async_step_reconfigure(

@@ -8,6 +8,7 @@ constraint NimbusSolverConfigSensor already documents).
 Imports and exercises the REAL class (not a reimplementation) against
 tests/_ha_stubs.py's stand-in homeassistant.* modules.
 """
+
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -35,7 +36,9 @@ from custom_components.nimbus_load.const import (  # noqa: E402
 )
 
 
-def _fake_subentry(subentry_id: str, subentry_type: str, data: dict, title: str | None = None) -> MagicMock:
+def _fake_subentry(
+    subentry_id: str, subentry_type: str, data: dict, title: str | None = None
+) -> MagicMock:
     s = MagicMock()
     s.subentry_id = subentry_id
     s.subentry_type = subentry_type
@@ -110,7 +113,9 @@ def test_extra_state_attributes_groups_by_subentry_type():
     assert attrs["pv_strings"][0][CONF_PV_STRING_POWER_SOURCE] == "ps1"
 
     assert len(attrs["battery_towers"]) == 1
-    assert attrs["battery_towers"][0][CONF_BATTERY_TOWER_SOC_SENSOR] == "sensor.tower1_soc"
+    assert (
+        attrs["battery_towers"][0][CONF_BATTERY_TOWER_SOC_SENSOR] == "sensor.tower1_soc"
+    )
     # 2026-08-23: battery towers have no name-like data field of their own
     # (unlike Power Source/PV String) -- title is their only real identity,
     # a real gap found live migrating this household's own 4 real towers.
@@ -121,7 +126,9 @@ def test_extra_state_attributes_groups_by_subentry_type():
     assert all(t["subentry_id"] != "load1" for t in attrs["pv_strings"])
     assert all(t["subentry_id"] != "load1" for t in attrs["battery_towers"])
 
-    assert attrs["switchboard"][CONF_SWITCHBOARD_GRID_METER_SENSOR] == "sensor.grid_meter"
+    assert (
+        attrs["switchboard"][CONF_SWITCHBOARD_GRID_METER_SENSOR] == "sensor.grid_meter"
+    )
 
 
 def test_missing_optional_fields_resolve_to_none_not_a_crash():

@@ -16,7 +16,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from homeassistant.config_entries import SOURCE_RECONFIGURE, ConfigSubentryFlow, SubentryFlowResult
+from homeassistant.config_entries import (
+    SOURCE_RECONFIGURE,
+    ConfigSubentryFlow,
+    SubentryFlowResult,
+)
 from homeassistant.helpers import selector
 import voluptuous as vol
 
@@ -46,30 +50,40 @@ def _power_source_options(entry: Any) -> list[dict[str, str]]:
 
 
 def _schema(defaults: dict[str, Any], entry: Any) -> vol.Schema:
-    entity_selector = selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
+    entity_selector = selector.EntitySelector(
+        selector.EntitySelectorConfig(domain="sensor")
+    )
     schema_dict: dict[Any, Any] = {
         # SoC is the single most important field for the diagram (the
         # visible fill-bar), but still genuinely Optional -- a household
         # mid-way through the wizard shouldn't hit a hard validation
         # error on a partially-filled-in tower.
         vol.Optional(
-            CONF_BATTERY_TOWER_SOC_SENSOR, default=defaults.get(CONF_BATTERY_TOWER_SOC_SENSOR)
+            CONF_BATTERY_TOWER_SOC_SENSOR,
+            default=defaults.get(CONF_BATTERY_TOWER_SOC_SENSOR),
         ): entity_selector,
         vol.Optional(
-            CONF_BATTERY_TOWER_SOH_SENSOR, default=defaults.get(CONF_BATTERY_TOWER_SOH_SENSOR)
+            CONF_BATTERY_TOWER_SOH_SENSOR,
+            default=defaults.get(CONF_BATTERY_TOWER_SOH_SENSOR),
         ): entity_selector,
         vol.Optional(
-            CONF_BATTERY_TOWER_VOLTAGE_SENSOR, default=defaults.get(CONF_BATTERY_TOWER_VOLTAGE_SENSOR)
+            CONF_BATTERY_TOWER_VOLTAGE_SENSOR,
+            default=defaults.get(CONF_BATTERY_TOWER_VOLTAGE_SENSOR),
         ): entity_selector,
         vol.Optional(
-            CONF_BATTERY_TOWER_TEMPERATURE_SENSOR, default=defaults.get(CONF_BATTERY_TOWER_TEMPERATURE_SENSOR)
+            CONF_BATTERY_TOWER_TEMPERATURE_SENSOR,
+            default=defaults.get(CONF_BATTERY_TOWER_TEMPERATURE_SENSOR),
         ): entity_selector,
     }
-    schema_dict[vol.Optional(
-        CONF_BATTERY_TOWER_POWER_SOURCE, default=defaults.get(CONF_BATTERY_TOWER_POWER_SOURCE)
-    )] = selector.SelectSelector(
+    schema_dict[
+        vol.Optional(
+            CONF_BATTERY_TOWER_POWER_SOURCE,
+            default=defaults.get(CONF_BATTERY_TOWER_POWER_SOURCE),
+        )
+    ] = selector.SelectSelector(
         selector.SelectSelectorConfig(
-            options=_power_source_options(entry), mode=selector.SelectSelectorMode.DROPDOWN
+            options=_power_source_options(entry),
+            mode=selector.SelectSelectorMode.DROPDOWN,
         )
     )
     return vol.Schema(schema_dict)
@@ -81,7 +95,11 @@ class NimbusBatteryTowerSubentryFlowHandler(ConfigSubentryFlow):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> SubentryFlowResult:
-        subentry = self._get_reconfigure_subentry() if self.source == SOURCE_RECONFIGURE else None
+        subentry = (
+            self._get_reconfigure_subentry()
+            if self.source == SOURCE_RECONFIGURE
+            else None
+        )
         return await self._async_step(user_input, subentry=subentry)
 
     async def async_step_reconfigure(
@@ -103,7 +121,9 @@ class NimbusBatteryTowerSubentryFlowHandler(ConfigSubentryFlow):
                 )
             return self.async_create_entry(title=title, data=user_input)
 
-        return self.async_show_form(step_id="user", data_schema=_schema(current_data, entry))
+        return self.async_show_form(
+            step_id="user", data_schema=_schema(current_data, entry)
+        )
 
     def _derive_title(self, soc_entity_id: str | None) -> str:
         """No single obviously-right field to name a battery tower after

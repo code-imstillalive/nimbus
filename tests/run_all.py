@@ -36,6 +36,7 @@ as ``discover`` does it internally.
 Usage: python tests/run_all.py
 Exit code 0 if everything passed, 1 if anything failed.
 """
+
 import glob
 import os
 import subprocess
@@ -87,12 +88,18 @@ def main() -> int:
     testcase_total = result.testsRun
     testcase_ok = testcase_total - len(result.failures) - len(result.errors)
 
-    print(f"\n=== Category 2: bare-function-style ({len(bare_function_files)} files, run as subprocesses) ===")
+    print(
+        f"\n=== Category 2: bare-function-style ({len(bare_function_files)} files, run as subprocesses) ==="
+    )
     bare_total, bare_ok = 0, 0
     bare_failed_files = []
     for f in bare_function_files:
         proc = subprocess.run([sys.executable, f], capture_output=True, text=True)
-        last_line = proc.stdout.strip().splitlines()[-1] if proc.stdout.strip() else "(no output)"
+        last_line = (
+            proc.stdout.strip().splitlines()[-1]
+            if proc.stdout.strip()
+            else "(no output)"
+        )
         name = os.path.basename(f)
         if proc.returncode == 0 and "/" in last_line:
             ok, total = last_line.split("/", 1)
@@ -108,8 +115,10 @@ def main() -> int:
 
     grand_total = testcase_total + bare_total
     grand_ok = testcase_ok + bare_ok
-    print(f"\n=== TOTAL: {grand_ok}/{grand_total} passed "
-          f"({len(testcase_files)} TestCase files + {len(bare_function_files)} bare-function files) ===")
+    print(
+        f"\n=== TOTAL: {grand_ok}/{grand_total} passed "
+        f"({len(testcase_files)} TestCase files + {len(bare_function_files)} bare-function files) ==="
+    )
 
     return 0 if grand_ok == grand_total else 1
 

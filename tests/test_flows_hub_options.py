@@ -341,6 +341,7 @@ def test_solver_sources_step_save_never_blocked_by_a_failing_notification():
 def test_switchboard_step_no_input_shows_the_form():
     flow = _make_flow(options={CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR: "sensor.old"})
     import asyncio
+
     result = asyncio.run(flow.async_step_switchboard(None))
     assert result["type"] == "form"
     assert result["step_id"] == "switchboard"
@@ -348,7 +349,10 @@ def test_switchboard_step_no_input_shows_the_form():
 
 def test_switchboard_step_genuinely_cleared_field_stays_cleared():
     import asyncio
-    flow = _make_flow(options={CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR: "sensor.old_stale_value"})
+
+    flow = _make_flow(
+        options={CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR: "sensor.old_stale_value"}
+    )
     result = asyncio.run(flow.async_step_switchboard({}))
     assert result["type"] == "create_entry"
     assert result["data"][CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR] is None
@@ -356,18 +360,24 @@ def test_switchboard_step_genuinely_cleared_field_stays_cleared():
 
 def test_switchboard_step_untouched_dashboard_value_is_preserved():
     import asyncio
+
     flow = _make_flow(options={"solver_battery_capacity_kwh": 122.2})
     result = asyncio.run(
-        flow.async_step_switchboard({CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR: "sensor.new"})
+        flow.async_step_switchboard(
+            {CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR: "sensor.new"}
+        )
     )
     assert result["data"]["solver_battery_capacity_kwh"] == 122.2
 
 
 def test_switchboard_step_real_submitted_value_is_used():
     import asyncio
+
     flow = _make_flow(options={CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR: "sensor.old"})
     result = asyncio.run(
-        flow.async_step_switchboard({CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR: "sensor.new"})
+        flow.async_step_switchboard(
+            {CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR: "sensor.new"}
+        )
     )
     assert result["data"][CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR] == "sensor.new"
 
@@ -404,20 +414,24 @@ def test_suggests_grid_import_and_export_when_type_and_class_match():
     import asyncio
     from unittest.mock import patch, AsyncMock
 
-    states = dict([
-        _energy_state("sensor.real_import", "energy", "total_increasing"),
-        _energy_state("sensor.real_export", "energy", "total_increasing"),
-    ])
-    hass = _hass_with_states(states)
-    manager = MagicMock(data={
-        "energy_sources": [
-            {
-                "type": "grid",
-                "flow_from": [{"stat_energy_from": "sensor.real_import"}],
-                "flow_to": [{"stat_energy_to": "sensor.real_export"}],
-            }
+    states = dict(
+        [
+            _energy_state("sensor.real_import", "energy", "total_increasing"),
+            _energy_state("sensor.real_export", "energy", "total_increasing"),
         ]
-    })
+    )
+    hass = _hass_with_states(states)
+    manager = MagicMock(
+        data={
+            "energy_sources": [
+                {
+                    "type": "grid",
+                    "flow_from": [{"stat_energy_from": "sensor.real_import"}],
+                    "flow_to": [{"stat_energy_to": "sensor.real_export"}],
+                }
+            ]
+        }
+    )
     with patch(
         "homeassistant.components.energy.data.async_get_manager",
         new=AsyncMock(return_value=manager),
@@ -433,25 +447,36 @@ def test_suggests_solar_and_battery_when_type_and_class_match():
     import asyncio
     from unittest.mock import patch, AsyncMock
 
-    states = dict([
-        _energy_state("sensor.real_solar", "energy", "total_increasing"),
-        _energy_state("sensor.real_discharge", "energy", "total"),
-        _energy_state("sensor.real_charge", "energy", "total"),
-    ])
-    hass = _hass_with_states(states)
-    manager = MagicMock(data={
-        "energy_sources": [
-            {"type": "solar", "stat_energy_from": "sensor.real_solar"},
-            {"type": "battery", "stat_energy_from": "sensor.real_discharge", "stat_energy_to": "sensor.real_charge"},
+    states = dict(
+        [
+            _energy_state("sensor.real_solar", "energy", "total_increasing"),
+            _energy_state("sensor.real_discharge", "energy", "total"),
+            _energy_state("sensor.real_charge", "energy", "total"),
         ]
-    })
+    )
+    hass = _hass_with_states(states)
+    manager = MagicMock(
+        data={
+            "energy_sources": [
+                {"type": "solar", "stat_energy_from": "sensor.real_solar"},
+                {
+                    "type": "battery",
+                    "stat_energy_from": "sensor.real_discharge",
+                    "stat_energy_to": "sensor.real_charge",
+                },
+            ]
+        }
+    )
     with patch(
         "homeassistant.components.energy.data.async_get_manager",
         new=AsyncMock(return_value=manager),
     ):
         result = asyncio.run(_energy_dashboard_switchboard_suggestions(hass))
     assert result[CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR] == "sensor.real_solar"
-    assert result[CONF_SWITCHBOARD_BATTERY_DISCHARGE_DAILY_SENSOR] == "sensor.real_discharge"
+    assert (
+        result[CONF_SWITCHBOARD_BATTERY_DISCHARGE_DAILY_SENSOR]
+        == "sensor.real_discharge"
+    )
     assert result[CONF_SWITCHBOARD_BATTERY_CHARGE_DAILY_SENSOR] == "sensor.real_charge"
 
 
@@ -462,11 +487,17 @@ def test_wrong_device_class_is_never_suggested():
     import asyncio
     from unittest.mock import patch, AsyncMock
 
-    states = dict([_energy_state("sensor.actually_a_power_sensor", "power", "measurement")])
+    states = dict(
+        [_energy_state("sensor.actually_a_power_sensor", "power", "measurement")]
+    )
     hass = _hass_with_states(states)
-    manager = MagicMock(data={
-        "energy_sources": [{"type": "solar", "stat_energy_from": "sensor.actually_a_power_sensor"}]
-    })
+    manager = MagicMock(
+        data={
+            "energy_sources": [
+                {"type": "solar", "stat_energy_from": "sensor.actually_a_power_sensor"}
+            ]
+        }
+    )
     with patch(
         "homeassistant.components.energy.data.async_get_manager",
         new=AsyncMock(return_value=manager),
@@ -481,9 +512,13 @@ def test_wrong_state_class_is_never_suggested():
 
     states = dict([_energy_state("sensor.instantaneous_only", "energy", "measurement")])
     hass = _hass_with_states(states)
-    manager = MagicMock(data={
-        "energy_sources": [{"type": "solar", "stat_energy_from": "sensor.instantaneous_only"}]
-    })
+    manager = MagicMock(
+        data={
+            "energy_sources": [
+                {"type": "solar", "stat_energy_from": "sensor.instantaneous_only"}
+            ]
+        }
+    )
     with patch(
         "homeassistant.components.energy.data.async_get_manager",
         new=AsyncMock(return_value=manager),
@@ -530,20 +565,33 @@ def test_switchboard_step_prefers_saved_value_over_energy_dashboard_suggestion()
     import asyncio
     from unittest.mock import patch, AsyncMock
 
-    flow = _make_flow(options={CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR: "sensor.household_own_real_choice"})
-    manager = MagicMock(data={
-        "energy_sources": [{"type": "solar", "stat_energy_from": "sensor.energy_dashboard_guess"}]
-    })
+    flow = _make_flow(
+        options={
+            CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR: "sensor.household_own_real_choice"
+        }
+    )
+    manager = MagicMock(
+        data={
+            "energy_sources": [
+                {"type": "solar", "stat_energy_from": "sensor.energy_dashboard_guess"}
+            ]
+        }
+    )
     flow.hass.states.get = lambda eid: (
-        MagicMock(attributes={"device_class": "energy", "state_class": "total_increasing"})
-        if eid == "sensor.energy_dashboard_guess" else None
+        MagicMock(
+            attributes={"device_class": "energy", "state_class": "total_increasing"}
+        )
+        if eid == "sensor.energy_dashboard_guess"
+        else None
     )
     with patch(
         "homeassistant.components.energy.data.async_get_manager",
         new=AsyncMock(return_value=manager),
     ):
         result = asyncio.run(flow.async_step_switchboard(None))
-    marker = _find_marker(result["data_schema"], CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR)
+    marker = _find_marker(
+        result["data_schema"], CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR
+    )
     assert marker.description == {"suggested_value": "sensor.household_own_real_choice"}
 
 
@@ -552,19 +600,28 @@ def test_switchboard_step_fills_a_genuine_gap_with_a_suggestion():
     from unittest.mock import patch, AsyncMock
 
     flow = _make_flow(options={})  # nothing saved yet at all
-    manager = MagicMock(data={
-        "energy_sources": [{"type": "solar", "stat_energy_from": "sensor.energy_dashboard_guess"}]
-    })
+    manager = MagicMock(
+        data={
+            "energy_sources": [
+                {"type": "solar", "stat_energy_from": "sensor.energy_dashboard_guess"}
+            ]
+        }
+    )
     flow.hass.states.get = lambda eid: (
-        MagicMock(attributes={"device_class": "energy", "state_class": "total_increasing"})
-        if eid == "sensor.energy_dashboard_guess" else None
+        MagicMock(
+            attributes={"device_class": "energy", "state_class": "total_increasing"}
+        )
+        if eid == "sensor.energy_dashboard_guess"
+        else None
     )
     with patch(
         "homeassistant.components.energy.data.async_get_manager",
         new=AsyncMock(return_value=manager),
     ):
         result = asyncio.run(flow.async_step_switchboard(None))
-    marker = _find_marker(result["data_schema"], CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR)
+    marker = _find_marker(
+        result["data_schema"], CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR
+    )
     assert marker.description == {"suggested_value": "sensor.energy_dashboard_guess"}
     # Still fully optional, still overridable, still never a locked-in default.
     assert marker.default is vol.UNDEFINED

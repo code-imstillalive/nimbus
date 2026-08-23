@@ -270,7 +270,8 @@ LOCK_PATH = os.environ.get(
 # every single cron cycle -- same env-var-overridable /opt-default
 # convention as PLAN_STATE_PATH/LOCK_PATH above.
 LOAD_FORECAST_ERROR_NOTIFIED_PATH = os.environ.get(
-    "NIMBUS_SOLVER_LOAD_ERROR_NOTIFIED_PATH", "/opt/nimbus_solver_load_forecast_error.txt"
+    "NIMBUS_SOLVER_LOAD_ERROR_NOTIFIED_PATH",
+    "/opt/nimbus_solver_load_forecast_error.txt",
 )
 
 # Tiered horizon (2026-08-16, real ask: "how about 5 days forecast?" /
@@ -1076,15 +1077,25 @@ def read_load_forecast_sensor(
         # (EMHASS's own scheduled_forecast/date/<object_id> pattern).
         alt_fc = attrs.get("scheduled_forecast")
         object_id = entity_id.split(".", 1)[-1]
-        if isinstance(alt_fc, list) and alt_fc and isinstance(alt_fc[0], dict) and object_id in alt_fc[0]:
+        if (
+            isinstance(alt_fc, list)
+            and alt_fc
+            and isinstance(alt_fc[0], dict)
+            and object_id in alt_fc[0]
+        ):
             raw_fc, time_key, value_key, has_bands = alt_fc, "date", object_id, False
         else:
             available = sorted(k for k, v in attrs.items() if isinstance(v, list))
-            return None, None, None, (
-                f"{entity_id} has no usable 'forecast' attribute (list-valued "
-                f"attributes present: {available or 'none'}). Expected a list "
-                f"of dicts with a 'time' and 'value' key -- see the canonical "
-                f"shape any sensor.nimbus_<load>_forecast entity publishes."
+            return (
+                None,
+                None,
+                None,
+                (
+                    f"{entity_id} has no usable 'forecast' attribute (list-valued "
+                    f"attributes present: {available or 'none'}). Expected a list "
+                    f"of dicts with a 'time' and 'value' key -- see the canonical "
+                    f"shape any sensor.nimbus_<load>_forecast entity publishes."
+                ),
             )
 
     parsed_points = []
@@ -1102,9 +1113,14 @@ def read_load_forecast_sensor(
         parsed_points.append(point)
 
     if not parsed_points:
-        return None, None, None, (
-            f"{entity_id}'s forecast has {len(raw_fc)} point(s) but none "
-            f"parsed cleanly under keys '{time_key}'/'{value_key}'."
+        return (
+            None,
+            None,
+            None,
+            (
+                f"{entity_id}'s forecast has {len(raw_fc)} point(s) but none "
+                f"parsed cleanly under keys '{time_key}'/'{value_key}'."
+            ),
         )
 
     # Unit hint: W -> kW, using the sensor's own unit_of_measurement --
@@ -1113,7 +1129,11 @@ def read_load_forecast_sensor(
     # Nimbus's own canonical forecast entities are always already kW, so
     # this only ever fires on the alternate-shape path in practice, but
     # checked unconditionally rather than assumed.
-    scale = 1.0 / 1000.0 if str(attrs.get("unit_of_measurement", "")).strip().lower() == "w" else 1.0
+    scale = (
+        1.0 / 1000.0
+        if str(attrs.get("unit_of_measurement", "")).strip().lower() == "w"
+        else 1.0
+    )
 
     fc_dicts = []
     for point in parsed_points:
@@ -1133,10 +1153,18 @@ def read_load_forecast_sensor(
         # then widens that to [0, load_kw] rather than a zero-width band
         # -- preserved as-is for backward compatibility with any
         # existing install already relying on this exact shape.
-        load_lower_kw = [max(0.0, v) for v in resample_forecast(fc_dicts, "lower", grid_times)]
-        load_upper_kw = [max(0.0, v) for v in resample_forecast(fc_dicts, "upper", grid_times)]
-        load_lower_kw = [min(load_lower_kw[i], load_kw[i]) for i in range(len(grid_times))]
-        load_upper_kw = [max(load_upper_kw[i], load_kw[i]) for i in range(len(grid_times))]
+        load_lower_kw = [
+            max(0.0, v) for v in resample_forecast(fc_dicts, "lower", grid_times)
+        ]
+        load_upper_kw = [
+            max(0.0, v) for v in resample_forecast(fc_dicts, "upper", grid_times)
+        ]
+        load_lower_kw = [
+            min(load_lower_kw[i], load_kw[i]) for i in range(len(grid_times))
+        ]
+        load_upper_kw = [
+            max(load_upper_kw[i], load_kw[i]) for i in range(len(grid_times))
+        ]
     else:
         # EMHASS's own shape carries no confidence band at all -- zero-
         # width around the point estimate, same convention already used
@@ -1173,7 +1201,7 @@ def _notify_load_forecast_error_once(error: str) -> None:
                     f"{error}\n\nThe Solver is using a flat 0.0 kW load "
                     "placeholder until this is fixed -- the plan it "
                     "publishes is not usable while this stands. Open the "
-                    "Nimbus hub's \"Solver settings\" and check the load "
+                    'Nimbus hub\'s "Solver settings" and check the load '
                     "forecast source, or configure individual Load "
                     "subentries instead."
                 ),
@@ -2440,8 +2468,8 @@ def main() -> None:
         # of the plan are still real and worth publishing even with load
         # wrong) plus a loud stderr WARN and a one-time persistent
         # notification, both naming the exact real reason.
-        load_kw, load_lower_kw, load_upper_kw, load_forecast_error = read_load_forecast_sensor(
-            cfg["solver_load_forecast_sensor"], grid_times
+        load_kw, load_lower_kw, load_upper_kw, load_forecast_error = (
+            read_load_forecast_sensor(cfg["solver_load_forecast_sensor"], grid_times)
         )
         if load_forecast_error is not None:
             print(f"WARN: {load_forecast_error}", file=sys.stderr)

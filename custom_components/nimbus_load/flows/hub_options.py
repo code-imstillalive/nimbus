@@ -367,25 +367,36 @@ async def _energy_dashboard_switchboard_suggestions(hass: Any) -> dict[str, str]
                 for flow in source.get("flow_from", []):
                     candidate = _ok(flow.get("stat_energy_from"))
                     if candidate:
-                        suggestions.setdefault(CONF_SWITCHBOARD_IMPORT_ENERGY_DAILY_SENSOR, candidate)
+                        suggestions.setdefault(
+                            CONF_SWITCHBOARD_IMPORT_ENERGY_DAILY_SENSOR, candidate
+                        )
                 for flow in source.get("flow_to", []):
                     candidate = _ok(flow.get("stat_energy_to"))
                     if candidate:
-                        suggestions.setdefault(CONF_SWITCHBOARD_EXPORT_ENERGY_DAILY_SENSOR, candidate)
+                        suggestions.setdefault(
+                            CONF_SWITCHBOARD_EXPORT_ENERGY_DAILY_SENSOR, candidate
+                        )
             elif source_type == "solar":
                 candidate = _ok(source.get("stat_energy_from"))
                 if candidate:
-                    suggestions.setdefault(CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR, candidate)
+                    suggestions.setdefault(
+                        CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR, candidate
+                    )
             elif source_type == "battery":
                 # from-battery == discharge, to-battery == charge (HA's
                 # own Energy Dashboard convention, matches this file's
                 # own real switchboard field names below).
                 discharge_candidate = _ok(source.get("stat_energy_from"))
                 if discharge_candidate:
-                    suggestions.setdefault(CONF_SWITCHBOARD_BATTERY_DISCHARGE_DAILY_SENSOR, discharge_candidate)
+                    suggestions.setdefault(
+                        CONF_SWITCHBOARD_BATTERY_DISCHARGE_DAILY_SENSOR,
+                        discharge_candidate,
+                    )
                 charge_candidate = _ok(source.get("stat_energy_to"))
                 if charge_candidate:
-                    suggestions.setdefault(CONF_SWITCHBOARD_BATTERY_CHARGE_DAILY_SENSOR, charge_candidate)
+                    suggestions.setdefault(
+                        CONF_SWITCHBOARD_BATTERY_CHARGE_DAILY_SENSOR, charge_candidate
+                    )
     except Exception:  # noqa: BLE001 -- see docstring: must never break the wizard
         return {}
     return suggestions
@@ -424,7 +435,9 @@ def _switchboard_schema(defaults: dict[str, Any]) -> vol.Schema:
     blank is a valid, working configuration."""
     schema_dict: dict[Any, Any] = {}
     for key in _SWITCHBOARD_SCHEMA_KEYS:
-        schema_dict[vol.Optional(key, description={"suggested_value": defaults.get(key)})] = _entity()
+        schema_dict[
+            vol.Optional(key, description={"suggested_value": defaults.get(key)})
+        ] = _entity()
     return vol.Schema(schema_dict)
 
 
@@ -550,7 +563,9 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
         existing = dict(self.config_entry.options)
         suggestions = await _energy_dashboard_switchboard_suggestions(self.hass)
         form_defaults = {**suggestions, **existing}
-        return self.async_show_form(step_id="switchboard", data_schema=_switchboard_schema(form_defaults))
+        return self.async_show_form(
+            step_id="switchboard", data_schema=_switchboard_schema(form_defaults)
+        )
 
     async def async_step_solver_battery(
         self, user_input: dict[str, Any] | None = None

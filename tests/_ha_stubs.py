@@ -228,16 +228,22 @@ def install_ha_stubs() -> None:
     def _real_async_redact_data(data, to_redact):
         if isinstance(data, dict):
             return {
-                k: "**REDACTED**" if k in to_redact else _real_async_redact_data(v, to_redact)
+                k: "**REDACTED**"
+                if k in to_redact
+                else _real_async_redact_data(v, to_redact)
                 for k, v in data.items()
             }
         if isinstance(data, list):
             return [_real_async_redact_data(v, to_redact) for v in data]
         return data
 
-    module("homeassistant.components.diagnostics", async_redact_data=_real_async_redact_data)
+    module(
+        "homeassistant.components.diagnostics",
+        async_redact_data=_real_async_redact_data,
+    )
     module("homeassistant.components.recorder", get_instance=MagicMock())
     module("homeassistant.components.energy")
+
     # async_get_manager is a placeholder here -- real tests monkeypatch
     # it per-test via unittest.mock.patch("homeassistant.components.
     # energy.data.async_get_manager", ...) to control what fake energy
@@ -249,7 +255,10 @@ def install_ha_stubs() -> None:
     async def _default_async_get_manager(hass):
         return types.SimpleNamespace(data={})
 
-    module("homeassistant.components.energy.data", async_get_manager=_default_async_get_manager)
+    module(
+        "homeassistant.components.energy.data",
+        async_get_manager=_default_async_get_manager,
+    )
     module(
         "homeassistant.components.recorder.history", get_significant_states=MagicMock()
     )

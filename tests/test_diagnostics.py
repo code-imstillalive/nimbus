@@ -8,6 +8,7 @@ debug") to debug a real solver crash/flatline he hit (nimbus issues #63,
 Imports and exercises the REAL module (not a reimplementation) against
 tests/_ha_stubs.py's stand-in homeassistant.* modules.
 """
+
 import sys
 from pathlib import Path
 from types import SimpleNamespace
@@ -22,7 +23,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from custom_components.nimbus_load import diagnostics  # noqa: E402
 
 
-def _fake_subentry(subentry_id: str, subentry_type: str, data: dict, title: str = "Test") -> MagicMock:
+def _fake_subentry(
+    subentry_id: str, subentry_type: str, data: dict, title: str = "Test"
+) -> MagicMock:
     s = MagicMock()
     s.subentry_id = subentry_id
     s.subentry_type = subentry_type
@@ -31,7 +34,9 @@ def _fake_subentry(subentry_id: str, subentry_type: str, data: dict, title: str 
     return s
 
 
-def _fake_coordinator(subentry, data: dict, last_update_success: bool = True) -> MagicMock:
+def _fake_coordinator(
+    subentry, data: dict, last_update_success: bool = True
+) -> MagicMock:
     c = MagicMock()
     c.subentry = subentry
     c.data = data
@@ -66,7 +71,8 @@ def test_solver_diagnostics_reads_real_health_fields_not_the_forecast_array():
             return _fake_state(
                 "13.4",
                 {
-                    "forecast": [{"time": "t", "value": 1.0}] * 400,  # must NOT appear below
+                    "forecast": [{"time": "t", "value": 1.0}]
+                    * 400,  # must NOT appear below
                     "status": "optimal",
                     "generated_at": "2026-08-23T00:00:00+00:00",
                     "solve_seconds": 0.42,
@@ -118,14 +124,23 @@ def test_solver_diagnostics_surfaces_the_real_issue_66_failure_shape():
 
     hass.states.get.side_effect = fake_get
     result = diagnostics._solver_diagnostics(hass)
-    assert result["load_forecast_source_error"] == "sensor.emhass_deferrable0 has no 'forecast' attribute"
+    assert (
+        result["load_forecast_source_error"]
+        == "sensor.emhass_deferrable0 has no 'forecast' attribute"
+    )
     assert result["load_failed_entities"] == ["sensor.emhass_deferrable0"]
 
 
 def test_get_config_entry_diagnostics_groups_subentries_and_includes_solver():
-    ps = _fake_subentry("ps1", "power_source", {"power_source_name": "Inverter 1"}, title="Inverter 1")
-    coordinators = {"ps1": _fake_coordinator(ps, {"forecast": [{"time": "t"}], "trained_at": "x"})}
-    entry = _fake_entry(coordinators, {"switchboard_grid_meter_sensor": "sensor.grid_meter"})
+    ps = _fake_subentry(
+        "ps1", "power_source", {"power_source_name": "Inverter 1"}, title="Inverter 1"
+    )
+    coordinators = {
+        "ps1": _fake_coordinator(ps, {"forecast": [{"time": "t"}], "trained_at": "x"})
+    }
+    entry = _fake_entry(
+        coordinators, {"switchboard_grid_meter_sensor": "sensor.grid_meter"}
+    )
 
     hass = MagicMock()
     hass.states.get.return_value = None  # Solver never configured for this fake entry
@@ -135,7 +150,10 @@ def test_get_config_entry_diagnostics_groups_subentries_and_includes_solver():
     result = asyncio.run(diagnostics.async_get_config_entry_diagnostics(hass, entry))
 
     assert result["entry"]["title"] == "Nimbus"
-    assert result["entry"]["options"]["switchboard_grid_meter_sensor"] == "sensor.grid_meter"
+    assert (
+        result["entry"]["options"]["switchboard_grid_meter_sensor"]
+        == "sensor.grid_meter"
+    )
     assert len(result["subentries"]) == 1
     assert result["subentries"][0]["subentry_id"] == "ps1"
     assert result["subentries"][0]["coordinator"]["forecast_point_count"] == 1
@@ -155,7 +173,9 @@ def test_get_config_entry_diagnostics_redacts_configured_fields():
         hass.states.get.return_value = None
         import asyncio
 
-        result = asyncio.run(diagnostics.async_get_config_entry_diagnostics(hass, entry))
+        result = asyncio.run(
+            diagnostics.async_get_config_entry_diagnostics(hass, entry)
+        )
         assert result["entry"]["options"]["secret_token"] == "**REDACTED**"
         assert result["entry"]["options"]["safe_field"] == "visible"
     finally:

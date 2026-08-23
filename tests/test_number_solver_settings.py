@@ -37,9 +37,9 @@ _NO_DEVICE_CLASS_UNITS = {"$/kWh", "%", "hour", None}
 
 def test_no_duplicate_keys():
     keys = [d.key for d in _DESCRIPTIONS]
-    assert len(keys) == len(set(keys)), (
-        f"duplicate _SolverNumberDescription.key found: {keys}"
-    )
+    assert len(keys) == len(
+        set(keys)
+    ), f"duplicate _SolverNumberDescription.key found: {keys}"
 
 
 def test_every_default_is_within_its_own_bounds():
@@ -53,9 +53,9 @@ def test_kw_fields_are_device_class_power():
     kw_fields = [d for d in _DESCRIPTIONS if d.unit == "kW"]
     assert kw_fields, "expected at least one kW field to exist"
     for d in kw_fields:
-        assert d.device_class == NumberDeviceClass.POWER, (
-            f"{d.key}: expected POWER, got {d.device_class}"
-        )
+        assert (
+            d.device_class == NumberDeviceClass.POWER
+        ), f"{d.key}: expected POWER, got {d.device_class}"
 
 
 def test_battery_capacity_is_energy_storage():

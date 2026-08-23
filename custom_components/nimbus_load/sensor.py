@@ -125,8 +125,16 @@ from .coordinator import NimbusConfigEntry, NimbusCoordinator
 # for why these need bridging out to a plain sensor the same way the
 # Solver's own hub-level options do (config_entries.subentries is not
 # exposed via HA's plain REST API either, same root constraint).
-_POWER_SOURCE_KEYS = (CONF_POWER_SOURCE_NAME, CONF_POWER_SOURCE_BATTERY_SENSOR, CONF_POWER_SOURCE_DC_SENSOR)
-_PV_STRING_KEYS = (CONF_PV_STRING_ENTITY, CONF_PV_STRING_LABEL, CONF_PV_STRING_POWER_SOURCE)
+_POWER_SOURCE_KEYS = (
+    CONF_POWER_SOURCE_NAME,
+    CONF_POWER_SOURCE_BATTERY_SENSOR,
+    CONF_POWER_SOURCE_DC_SENSOR,
+)
+_PV_STRING_KEYS = (
+    CONF_PV_STRING_ENTITY,
+    CONF_PV_STRING_LABEL,
+    CONF_PV_STRING_POWER_SOURCE,
+)
 _BATTERY_TOWER_KEYS = (
     CONF_BATTERY_TOWER_SOC_SENSOR,
     CONF_BATTERY_TOWER_SOH_SENSOR,
@@ -638,7 +646,9 @@ class NimbusTopologyConfigSensor(SensorEntity):
         without a caller needing to inspect the attribute lists
         first."""
         return sum(
-            1 for s in self._entry.subentries.values() if s.subentry_type == SUBENTRY_TYPE_POWER_SOURCE
+            1
+            for s in self._entry.subentries.values()
+            if s.subentry_type == SUBENTRY_TYPE_POWER_SOURCE
         )
 
     @property
@@ -647,11 +657,17 @@ class NimbusTopologyConfigSensor(SensorEntity):
         for subentry in self._entry.subentries.values():
             if subentry.subentry_type == SUBENTRY_TYPE_POWER_SOURCE:
                 power_sources.append(
-                    {"subentry_id": subentry.subentry_id, **{k: subentry.data.get(k) for k in _POWER_SOURCE_KEYS}}
+                    {
+                        "subentry_id": subentry.subentry_id,
+                        **{k: subentry.data.get(k) for k in _POWER_SOURCE_KEYS},
+                    }
                 )
             elif subentry.subentry_type == SUBENTRY_TYPE_PV_STRING:
                 pv_strings.append(
-                    {"subentry_id": subentry.subentry_id, **{k: subentry.data.get(k) for k in _PV_STRING_KEYS}}
+                    {
+                        "subentry_id": subentry.subentry_id,
+                        **{k: subentry.data.get(k) for k in _PV_STRING_KEYS},
+                    }
                 )
             elif subentry.subentry_type == SUBENTRY_TYPE_BATTERY_TOWER:
                 # Unlike Power Source (power_source_name) and PV String

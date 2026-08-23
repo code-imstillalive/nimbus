@@ -564,9 +564,21 @@ CONF_SWITCHBOARD_EXPORT_PRICE_SENSOR: Final = "switchboard_export_price_sensor"
 # household with only one of the two configured shouldn't lose either
 # feature.
 CONF_SWITCHBOARD_BATTERY_POWER_SENSOR: Final = "switchboard_battery_power_sensor"
-CONF_SWITCHBOARD_IMPORT_ENERGY_DAILY_SENSOR: Final = "switchboard_import_energy_daily_sensor"
-CONF_SWITCHBOARD_EXPORT_ENERGY_DAILY_SENSOR: Final = "switchboard_export_energy_daily_sensor"
-CONF_SWITCHBOARD_HOUSE_LOAD_ENERGY_DAILY_SENSOR: Final = "switchboard_house_load_energy_daily_sensor"
-CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR: Final = "switchboard_solar_energy_daily_sensor"
-CONF_SWITCHBOARD_BATTERY_CHARGE_DAILY_SENSOR: Final = "switchboard_battery_charge_daily_sensor"
-CONF_SWITCHBOARD_BATTERY_DISCHARGE_DAILY_SENSOR: Final = "switchboard_battery_discharge_daily_sensor"
+CONF_SWITCHBOARD_IMPORT_ENERGY_DAILY_SENSOR: Final = (
+    "switchboard_import_energy_daily_sensor"
+)
+CONF_SWITCHBOARD_EXPORT_ENERGY_DAILY_SENSOR: Final = (
+    "switchboard_export_energy_daily_sensor"
+)
+CONF_SWITCHBOARD_HOUSE_LOAD_ENERGY_DAILY_SENSOR: Final = (
+    "switchboard_house_load_energy_daily_sensor"
+)
+CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR: Final = (
+    "switchboard_solar_energy_daily_sensor"
+)
+CONF_SWITCHBOARD_BATTERY_CHARGE_DAILY_SENSOR: Final = (
+    "switchboard_battery_charge_daily_sensor"
+)
+CONF_SWITCHBOARD_BATTERY_DISCHARGE_DAILY_SENSOR: Final = (
+    "switchboard_battery_discharge_daily_sensor"
+)

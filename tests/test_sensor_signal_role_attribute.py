@@ -7,6 +7,7 @@ full "why explicit, not inferred from naming" reasoning.
 Imports and exercises the REAL class (not a reimplementation) against
 tests/_ha_stubs.py's stand-in homeassistant.* modules.
 """
+
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -30,7 +31,9 @@ from custom_components.nimbus_load.const import (  # noqa: E402
 )
 
 
-def _fake_subentry(subentry_id: str, subentry_type: str, data: dict, title: str = "Test") -> MagicMock:
+def _fake_subentry(
+    subentry_id: str, subentry_type: str, data: dict, title: str = "Test"
+) -> MagicMock:
     s = MagicMock()
     s.subentry_id = subentry_id
     s.subentry_type = subentry_type
@@ -49,7 +52,10 @@ def test_grid_role_is_exposed_as_a_live_attribute():
     subentry = _fake_subentry(
         "ps1",
         SUBENTRY_TYPE_SIGNAL,
-        {CONF_LOAD_SENSOR: "sensor.logger_meter_total_active_power", CONF_SIGNAL_ROLE: SIGNAL_ROLE_GRID},
+        {
+            CONF_LOAD_SENSOR: "sensor.logger_meter_total_active_power",
+            CONF_SIGNAL_ROLE: SIGNAL_ROLE_GRID,
+        },
     )
     s = _make_sensor(subentry)
     assert s.extra_state_attributes[ATTR_SIGNAL_ROLE] == SIGNAL_ROLE_GRID
@@ -59,7 +65,10 @@ def test_battery_role_is_exposed_as_a_live_attribute():
     subentry = _fake_subentry(
         "ps2",
         SUBENTRY_TYPE_SIGNAL,
-        {CONF_LOAD_SENSOR: "sensor.logger_battery_power", CONF_SIGNAL_ROLE: SIGNAL_ROLE_BATTERY},
+        {
+            CONF_LOAD_SENSOR: "sensor.logger_battery_power",
+            CONF_SIGNAL_ROLE: SIGNAL_ROLE_BATTERY,
+        },
     )
     s = _make_sensor(subentry)
     assert s.extra_state_attributes[ATTR_SIGNAL_ROLE] == SIGNAL_ROLE_BATTERY
@@ -80,7 +89,9 @@ def test_a_power_signal_with_no_role_set_also_defaults_to_other():
     # A signal created before this feature existed (real, live case for
     # this household's own 4 pre-existing Power Signals).
     subentry = _fake_subentry(
-        "ps3", SUBENTRY_TYPE_SIGNAL, {CONF_LOAD_SENSOR: "sensor.combined_total_dc_power"}
+        "ps3",
+        SUBENTRY_TYPE_SIGNAL,
+        {CONF_LOAD_SENSOR: "sensor.combined_total_dc_power"},
     )
     s = _make_sensor(subentry)
     assert s.extra_state_attributes[ATTR_SIGNAL_ROLE] == SIGNAL_ROLE_OTHER

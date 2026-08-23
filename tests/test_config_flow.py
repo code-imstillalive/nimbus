@@ -29,7 +29,9 @@ from custom_components.nimbus_load.const import (  # noqa: E402
     SUBENTRY_TYPE_PV_STRING,
     SUBENTRY_TYPE_SIGNAL,
 )
-from custom_components.nimbus_load.flows.battery_tower_subentry import NimbusBatteryTowerSubentryFlowHandler  # noqa: E402
+from custom_components.nimbus_load.flows.battery_tower_subentry import (
+    NimbusBatteryTowerSubentryFlowHandler,
+)  # noqa: E402
 from custom_components.nimbus_load.flows.hub_options import NimbusHubOptionsFlow  # noqa: E402
 from custom_components.nimbus_load.flows.load_subentry import (  # noqa: E402
     NimbusLoadSubentryFlowHandler,

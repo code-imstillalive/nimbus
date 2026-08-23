@@ -120,7 +120,10 @@ def test_role_is_preserved_through_a_real_submission():
 def test_reconfigure_prefills_role_from_existing_data_not_reset_to_other():
     flow = _make_flow(source="reconfigure")
     fake_subentry = MagicMock(
-        data={CONF_LOAD_SENSOR: "sensor.battery_power", CONF_SIGNAL_ROLE: SIGNAL_ROLE_BATTERY}
+        data={
+            CONF_LOAD_SENSOR: "sensor.battery_power",
+            CONF_SIGNAL_ROLE: SIGNAL_ROLE_BATTERY,
+        }
     )
     flow._get_reconfigure_subentry = MagicMock(return_value=fake_subentry)
     result = asyncio.run(flow.async_step_user(None))

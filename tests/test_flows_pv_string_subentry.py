@@ -8,6 +8,7 @@ own friendly name.
 Imports and exercises the REAL methods (not a reimplementation) against
 real `voluptuous` and tests/_ha_stubs.py's stand-in homeassistant.* modules.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -40,11 +41,15 @@ def _fake_entry(subentries: dict) -> MagicMock:
     return entry
 
 
-def _make_flow(source: str = "user", entry: MagicMock | None = None) -> NimbusPvStringSubentryFlowHandler:
+def _make_flow(
+    source: str = "user", entry: MagicMock | None = None
+) -> NimbusPvStringSubentryFlowHandler:
     flow = NimbusPvStringSubentryFlowHandler.__new__(NimbusPvStringSubentryFlowHandler)
     flow.source = source
     flow.hass = MagicMock()
-    flow._get_entry = MagicMock(return_value=entry if entry is not None else _fake_entry({}))
+    flow._get_entry = MagicMock(
+        return_value=entry if entry is not None else _fake_entry({})
+    )
     return flow
 
 
@@ -52,8 +57,12 @@ def test_power_source_options_includes_only_power_source_subentries():
     # A real, direct test of the dropdown-building logic: a Load
     # subentry sitting alongside a real Power Source must NOT leak into
     # the options list.
-    ps1 = MagicMock(subentry_id="ps1", subentry_type=SUBENTRY_TYPE_POWER_SOURCE, title="Inverter 1")
-    load1 = MagicMock(subentry_id="load1", subentry_type=SUBENTRY_TYPE_LOAD, title="Pool Pump")
+    ps1 = MagicMock(
+        subentry_id="ps1", subentry_type=SUBENTRY_TYPE_POWER_SOURCE, title="Inverter 1"
+    )
+    load1 = MagicMock(
+        subentry_id="load1", subentry_type=SUBENTRY_TYPE_LOAD, title="Pool Pump"
+    )
     entry = _fake_entry({"ps1": ps1, "load1": load1})
     options = _power_source_options(entry)
     assert options == [{"value": "ps1", "label": "Inverter 1"}]
@@ -83,20 +92,27 @@ def test_fresh_add_with_input_creates_a_new_entry():
 
 def test_title_prefers_user_label_over_friendly_name():
     flow = _make_flow(source="user")
-    flow.hass.states.get.return_value = MagicMock(attributes={"friendly_name": "String 3 Power"})
+    flow.hass.states.get.return_value = MagicMock(
+        attributes={"friendly_name": "String 3 Power"}
+    )
     assert flow._derive_title("sensor.string3_power_inv1", "West array") == "West array"
 
 
 def test_title_falls_back_to_friendly_name_when_no_label():
     flow = _make_flow(source="user")
-    flow.hass.states.get.return_value = MagicMock(attributes={"friendly_name": "String 3 Power"})
+    flow.hass.states.get.return_value = MagicMock(
+        attributes={"friendly_name": "String 3 Power"}
+    )
     assert flow._derive_title("sensor.string3_power_inv1", None) == "String 3 Power"
 
 
 def test_title_falls_back_to_entity_id_when_no_label_or_friendly_name():
     flow = _make_flow(source="user")
     flow.hass.states.get.return_value = None
-    assert flow._derive_title("sensor.string3_power_inv1", "") == "sensor.string3_power_inv1"
+    assert (
+        flow._derive_title("sensor.string3_power_inv1", "")
+        == "sensor.string3_power_inv1"
+    )
 
 
 def test_reconfigure_source_updates_existing_entry_not_creates_new():
@@ -104,7 +120,9 @@ def test_reconfigure_source_updates_existing_entry_not_creates_new():
     fake_subentry = MagicMock(data={CONF_PV_STRING_ENTITY: "sensor.old_string"})
     flow._get_reconfigure_subentry = MagicMock(return_value=fake_subentry)
     flow.hass.states.get.return_value = None
-    result = asyncio.run(flow.async_step_user({CONF_PV_STRING_ENTITY: "sensor.old_string"}))
+    result = asyncio.run(
+        flow.async_step_user({CONF_PV_STRING_ENTITY: "sensor.old_string"})
+    )
     flow._get_reconfigure_subentry.assert_called_once()
     assert result["type"] == "update_and_abort"
 

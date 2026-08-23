@@ -13,7 +13,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from homeassistant.config_entries import SOURCE_RECONFIGURE, ConfigSubentryFlow, SubentryFlowResult
+from homeassistant.config_entries import (
+    SOURCE_RECONFIGURE,
+    ConfigSubentryFlow,
+    SubentryFlowResult,
+)
 from homeassistant.helpers import selector
 import voluptuous as vol
 
@@ -47,11 +51,15 @@ def _schema(defaults: dict[str, Any], entry: Any) -> vol.Schema:
             CONF_PV_STRING_LABEL, default=defaults.get(CONF_PV_STRING_LABEL, "")
         ): selector.TextSelector(),
     }
-    schema_dict[vol.Optional(
-        CONF_PV_STRING_POWER_SOURCE, default=defaults.get(CONF_PV_STRING_POWER_SOURCE)
-    )] = selector.SelectSelector(
+    schema_dict[
+        vol.Optional(
+            CONF_PV_STRING_POWER_SOURCE,
+            default=defaults.get(CONF_PV_STRING_POWER_SOURCE),
+        )
+    ] = selector.SelectSelector(
         selector.SelectSelectorConfig(
-            options=_power_source_options(entry), mode=selector.SelectSelectorMode.DROPDOWN
+            options=_power_source_options(entry),
+            mode=selector.SelectSelectorMode.DROPDOWN,
         )
     )
     return vol.Schema(schema_dict)
@@ -63,7 +71,11 @@ class NimbusPvStringSubentryFlowHandler(ConfigSubentryFlow):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> SubentryFlowResult:
-        subentry = self._get_reconfigure_subentry() if self.source == SOURCE_RECONFIGURE else None
+        subentry = (
+            self._get_reconfigure_subentry()
+            if self.source == SOURCE_RECONFIGURE
+            else None
+        )
         return await self._async_step(user_input, subentry=subentry)
 
     async def async_step_reconfigure(
@@ -78,14 +90,18 @@ class NimbusPvStringSubentryFlowHandler(ConfigSubentryFlow):
         entry = self._get_entry()
 
         if user_input is not None:
-            title = self._derive_title(user_input[CONF_PV_STRING_ENTITY], user_input.get(CONF_PV_STRING_LABEL))
+            title = self._derive_title(
+                user_input[CONF_PV_STRING_ENTITY], user_input.get(CONF_PV_STRING_LABEL)
+            )
             if subentry is not None:
                 return self.async_update_and_abort(
                     entry, subentry, title=title, data=user_input
                 )
             return self.async_create_entry(title=title, data=user_input)
 
-        return self.async_show_form(step_id="user", data_schema=_schema(current_data, entry))
+        return self.async_show_form(
+            step_id="user", data_schema=_schema(current_data, entry)
+        )
 
     def _derive_title(self, entity_id: str, label: str | None) -> str:
         """Prefer the user's own free-text label if given (e.g. "West

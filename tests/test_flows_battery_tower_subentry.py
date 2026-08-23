@@ -8,6 +8,7 @@ source sensor does).
 Imports and exercises the REAL methods (not a reimplementation) against
 real `voluptuous` and tests/_ha_stubs.py's stand-in homeassistant.* modules.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -33,11 +34,17 @@ def _fake_entry(subentries: dict) -> MagicMock:
     return entry
 
 
-def _make_flow(source: str = "user", entry: MagicMock | None = None) -> NimbusBatteryTowerSubentryFlowHandler:
-    flow = NimbusBatteryTowerSubentryFlowHandler.__new__(NimbusBatteryTowerSubentryFlowHandler)
+def _make_flow(
+    source: str = "user", entry: MagicMock | None = None
+) -> NimbusBatteryTowerSubentryFlowHandler:
+    flow = NimbusBatteryTowerSubentryFlowHandler.__new__(
+        NimbusBatteryTowerSubentryFlowHandler
+    )
     flow.source = source
     flow.hass = MagicMock()
-    flow._get_entry = MagicMock(return_value=entry if entry is not None else _fake_entry({}))
+    flow._get_entry = MagicMock(
+        return_value=entry if entry is not None else _fake_entry({})
+    )
     return flow
 
 
@@ -59,7 +66,9 @@ def test_fresh_add_with_no_soc_sensor_still_creates_an_entry():
 
 def test_title_strips_trailing_soc_suffix():
     flow = _make_flow(source="user")
-    flow.hass.states.get.return_value = MagicMock(attributes={"friendly_name": "Battery Tower 2 SoC"})
+    flow.hass.states.get.return_value = MagicMock(
+        attributes={"friendly_name": "Battery Tower 2 SoC"}
+    )
     assert flow._derive_title("sensor.battery_tower_2_soc") == "Battery Tower 2"
 
 
@@ -79,7 +88,9 @@ def test_reconfigure_source_updates_existing_entry_not_creates_new():
     fake_subentry = MagicMock(data={CONF_BATTERY_TOWER_SOC_SENSOR: "sensor.old_soc"})
     flow._get_reconfigure_subentry = MagicMock(return_value=fake_subentry)
     flow.hass.states.get.return_value = None
-    result = asyncio.run(flow.async_step_user({CONF_BATTERY_TOWER_SOC_SENSOR: "sensor.old_soc"}))
+    result = asyncio.run(
+        flow.async_step_user({CONF_BATTERY_TOWER_SOC_SENSOR: "sensor.old_soc"})
+    )
     flow._get_reconfigure_subentry.assert_called_once()
     assert result["type"] == "update_and_abort"
 

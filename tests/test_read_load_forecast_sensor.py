@@ -8,6 +8,7 @@ per-point keys `date`/`<object_id>`, string values, unit_of_measurement
 "W" -- is used verbatim as the primary test case, not a simplified
 stand-in.
 """
+
 import unittest
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
@@ -42,8 +43,18 @@ class TestCanonicalShape(unittest.TestCase):
             "attributes": {
                 "unit_of_measurement": "kW",
                 "forecast": [
-                    {"time": "2026-08-23T09:00:00+00:00", "value": 1.2, "lower": 1.0, "upper": 1.5},
-                    {"time": "2026-08-23T09:30:00+00:00", "value": 1.4, "lower": 1.1, "upper": 1.7},
+                    {
+                        "time": "2026-08-23T09:00:00+00:00",
+                        "value": 1.2,
+                        "lower": 1.0,
+                        "upper": 1.5,
+                    },
+                    {
+                        "time": "2026-08-23T09:30:00+00:00",
+                        "value": 1.4,
+                        "lower": 1.1,
+                        "upper": 1.7,
+                    },
                 ],
             },
         }
@@ -87,9 +98,18 @@ class TestEmhassShape(unittest.TestCase):
             "attributes": {
                 "unit_of_measurement": "W",
                 "scheduled_forecast": [
-                    {"date": "2026-08-23T09:00:00+10:00", "p_load_forecast_custom_model": "691.67"},
-                    {"date": "2026-08-23T09:30:00+10:00", "p_load_forecast_custom_model": "576.36"},
-                    {"date": "2026-08-23T10:00:00+10:00", "p_load_forecast_custom_model": "840.69"},
+                    {
+                        "date": "2026-08-23T09:00:00+10:00",
+                        "p_load_forecast_custom_model": "691.67",
+                    },
+                    {
+                        "date": "2026-08-23T09:30:00+10:00",
+                        "p_load_forecast_custom_model": "576.36",
+                    },
+                    {
+                        "date": "2026-08-23T10:00:00+10:00",
+                        "p_load_forecast_custom_model": "840.69",
+                    },
                 ],
             },
         }
@@ -103,7 +123,9 @@ class TestEmhassShape(unittest.TestCase):
         # 691.67 W -> 0.69167 kW, NOT the flat 0.215 INVERTER_SELF_
         # CONSUMPTION_KW placeholder from the real bug.
         self.assertAlmostEqual(load_kw[0], 0.69167, places=4)
-        self.assertNotAlmostEqual(load_kw[0], solver_writer.INVERTER_SELF_CONSUMPTION_KW, places=2)
+        self.assertNotAlmostEqual(
+            load_kw[0], solver_writer.INVERTER_SELF_CONSUMPTION_KW, places=2
+        )
         # No real band info in this shape -- zero-width around the point.
         self.assertEqual(lower[0], load_kw[0])
         self.assertEqual(upper[0], load_kw[0])
@@ -172,18 +194,30 @@ class TestNotifyOnce(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as d:
             sentinel = os.path.join(d, "notified.txt")
-            with patch.object(solver_writer, "LOAD_FORECAST_ERROR_NOTIFIED_PATH", sentinel), \
-                 patch.object(solver_writer, "ha_call_service") as mock_call:
+            with (
+                patch.object(
+                    solver_writer, "LOAD_FORECAST_ERROR_NOTIFIED_PATH", sentinel
+                ),
+                patch.object(solver_writer, "ha_call_service") as mock_call,
+            ):
                 solver_writer._notify_load_forecast_error_once("error A")
                 solver_writer._notify_load_forecast_error_once("error A")
-                self.assertEqual(mock_call.call_count, 1, "same error must not re-notify")
+                self.assertEqual(
+                    mock_call.call_count, 1, "same error must not re-notify"
+                )
                 solver_writer._notify_load_forecast_error_once("error B")
-                self.assertEqual(mock_call.call_count, 2, "a genuinely different error must notify again")
+                self.assertEqual(
+                    mock_call.call_count,
+                    2,
+                    "a genuinely different error must notify again",
+                )
 
     def test_a_failed_notify_never_raises(self):
         # Deliberately swallowed -- a notification courtesy must never
         # be allowed to break the real solve.
-        with patch.object(solver_writer, "ha_call_service", side_effect=RuntimeError("boom")):
+        with patch.object(
+            solver_writer, "ha_call_service", side_effect=RuntimeError("boom")
+        ):
             try:
                 solver_writer._notify_load_forecast_error_once("some error")
             except Exception as e:  # noqa: BLE001

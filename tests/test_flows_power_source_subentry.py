@@ -5,6 +5,7 @@ routing and title-derivation pattern as load_subentry.py/signal_subentry.py
 Imports and exercises the REAL methods (not a reimplementation) against
 real `voluptuous` and tests/_ha_stubs.py's stand-in homeassistant.* modules.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -25,7 +26,9 @@ from custom_components.nimbus_load.flows.power_source_subentry import (  # noqa:
 
 
 def _make_flow(source: str = "user") -> NimbusPowerSourceSubentryFlowHandler:
-    flow = NimbusPowerSourceSubentryFlowHandler.__new__(NimbusPowerSourceSubentryFlowHandler)
+    flow = NimbusPowerSourceSubentryFlowHandler.__new__(
+        NimbusPowerSourceSubentryFlowHandler
+    )
     flow.source = source
     flow.hass = MagicMock()
     return flow
@@ -40,7 +43,9 @@ def test_fresh_add_with_no_input_shows_the_form():
 
 def test_fresh_add_with_input_creates_a_new_entry_titled_from_the_name_field():
     flow = _make_flow(source="user")
-    result = asyncio.run(flow.async_step_user({CONF_POWER_SOURCE_NAME: "Inverter 1 (SH25T)"}))
+    result = asyncio.run(
+        flow.async_step_user({CONF_POWER_SOURCE_NAME: "Inverter 1 (SH25T)"})
+    )
     assert result["type"] == "create_entry"
     assert result["title"] == "Inverter 1 (SH25T)"
     assert result["data"] == {CONF_POWER_SOURCE_NAME: "Inverter 1 (SH25T)"}
@@ -62,7 +67,9 @@ def test_reconfigure_with_no_input_prefills_form_from_existing_data():
     flow._get_reconfigure_subentry = MagicMock(return_value=fake_subentry)
     result = asyncio.run(flow.async_step_user(None))
     assert result["type"] == "form"
-    marker = next(k for k in result["data_schema"].schema if k == CONF_POWER_SOURCE_NAME)
+    marker = next(
+        k for k in result["data_schema"].schema if k == CONF_POWER_SOURCE_NAME
+    )
     assert marker.default() == "Inverter 2 (SH15T)"
 
 
@@ -71,7 +78,9 @@ def test_step_reconfigure_alias_delegates_to_step_user():
     fake_subentry = MagicMock(data={CONF_POWER_SOURCE_NAME: "Existing"})
     flow._get_reconfigure_subentry = MagicMock(return_value=fake_subentry)
     flow._get_entry = MagicMock(return_value=MagicMock())
-    result = asyncio.run(flow.async_step_reconfigure({CONF_POWER_SOURCE_NAME: "Existing"}))
+    result = asyncio.run(
+        flow.async_step_reconfigure({CONF_POWER_SOURCE_NAME: "Existing"})
+    )
     assert result["type"] == "update_and_abort"
 
 
