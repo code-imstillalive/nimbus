@@ -34,6 +34,12 @@ _Add new entries here as each PR lands. They roll into the next tagged release._
 - `hacs.json`: pinned `homeassistant` min-version, dropped redundant `zip_release` ([#49](https://github.com/code-imstillalive/nimbus/pull/49)).
 - Ruff F401: removed unused imports in `test_flows_pv_string_subentry.py` ([#71](https://github.com/code-imstillalive/nimbus/pull/71)).
 - Test E402 noqa placement: moved onto the import statement's own start line ([fc29321](https://github.com/code-imstillalive/nimbus/commit/fc29321)).
+- `manifest.json`: pinned `numpy>=1.24,<3` and `highspy>=1.15.1,<2` instead of an unpinned `highspy` requirement (Quality Scale Bronze `dependency-transparency`).
+- `solver_runtime.py`: an `ImportError`/`ModuleNotFoundError` from a missing `highspy` wheel now fires a real, one-time `persistent_notification` and returns cleanly, instead of propagating out of the periodic solve timer as a bare, buried exception (Bronze `test-before-setup`).
+- `strings.json`: every config-flow/options field now has a `data_description` (Bronze `data-description`); `translations/en.json` was found stale relative to it (still describing a removed 2-step switchboard flow) and re-synced.
+- `sensor.py`: `_NimbusSolverPushSensor` (the Solver's own `battery_forecast`/`household_load_total_forecast` outputs) now goes `unavailable` if the Solver stops producing a fresh plan for more than 5 minutes, instead of showing a stale plan indefinitely — the same class of fix `NimbusForecastSensor` already had, extended to the entities that didn't have a coordinator to drive it automatically (Silver `entity-unavailable`).
+- `custom_components/nimbus_load/quality_scale.yaml` added: every Bronze rule re-verified directly against current code rather than an older snapshot — 21/22 resolved, `brands` genuinely still open (tracked separately, [#80](https://github.com/code-imstillalive/nimbus/issues/80)).
+- README refreshed for v0.73.0 — Forecaster, Solver (native in-process path), and Topology all documented against current behaviour ([#81](https://github.com/code-imstillalive/nimbus/pull/81), thanks @purcell-lab).
 
 ## [0.72.0] — 2026-08-23
 
