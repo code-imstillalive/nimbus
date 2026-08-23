@@ -94,6 +94,149 @@ statistics, and automations — not something to do lightly. Read `nimbus_load` 
 `Nimbus` as the same thing; the domain name doesn't reflect current scope, and
 there's no plan to silently migrate it.
 
+## Understanding the configuration model
+
+Everything lives under one Nimbus hub (one "Add Integration"), but the model has
+genuinely grown — 5 subentry types plus a 3-way Configure menu — and it splits into
+two completely separate concerns sharing that one hub:
+
+1. **Forecasting** — `Load` and `Power Signal` subentries. Both feed the same
+   k-NN/GBRT ML engine (`ml/model.py`, `coordinator.py`) and both produce a real
+   `sensor.nimbus_<x>_forecast` entity with training/validation.
+2. **Topology/wiring** — `Power Source`, `PV String`, `Battery Tower` subentries.
+   Pure metadata for the dashboard's topology diagram card. **No ML model, no
+   coordinator, no forecast sensor.** These exist purely so the diagram knows what's
+   physically wired to what.
+
+If a subentry doesn't produce a `_forecast` sensor, it's topology metadata, not a
+forecast target. That single fact resolves most of the "why doesn't X have a
+forecast line" confusion.
+
+### 1. Load subentry
+
+One real appliance/circuit — a pool pump, a hot water system, an EV charger, an AC
+zone. Deliberately **one required field** (the source power sensor); everything else
+that used to be per-load (temperature, retrain hour, training window) moved to the
+hub's shared Forecaster settings, since it's the same answer for every load in the
+same house.
+
+Two genuinely optional extras, only useful for a load on a real fixed daily timer:
+- `schedule_start_hour` / `schedule_end_hour` — lets the model learn a sharp on/off
+  boundary directly instead of approximating it through hour-of-day sin/cos features.
+  Blank = no-op.
+- `expected_load_kw` — a "deterministic mode" hint for a load whose draw is
+  basically constant whenever it's on (a resistive heater, say) rather than
+  something worth training a full model against.
+
+Title is auto-derived from the source sensor's own `friendly_name`.
+
+### 2. Power Signal subentry
+
+Same ML engine as Load, but forecasting a whole-system quantity — Battery, Solar,
+Grid, or "other" — as its own genuine forecast target, not just as context for a
+load's model. **No schedule/expected-load fields at all** — a system-level power
+signal doesn't run on a timer the way an appliance does.
+
+Two fields: the source sensor (required), and `signal_role` — an explicit dropdown
+(Battery / Solar / Grid / Other), **deliberately not inferred from the entity's
+name**. A real check against a live install found the actual Battery sensor named
+"Logger Battery power" (would match a naive keyword guess), but the real Solar
+sensor was "Combined Total DC Power" (no "solar" anywhere) and the real Grid sensor
+was "Logger Meter total active power" (no "grid" anywhere). Naming alone can't
+reliably tell these apart on anyone's real hardware, so it's a one-time explicit
+choice instead. The topology card auto-wires its own Grid/Battery flow lines
+straight from whichever Power Signal carries that role — zero extra config needed.
+
+### 3. Power Source subentry
+
+Pure topology metadata — one real physical hardware unit that connects to the
+switchboard: an inverter, a hybrid battery/inverter, or a battery-only BMS.
+Deliberately called "Power Source," not "Inverter" — a real household might have a
+battery-only unit, or PV wired through something that isn't a battery inverter at
+all.
+
+Fields: a name (required), plus two **optional** sensors — total battery power, and
+total DC/PV throughput. Both optional because a PV-only unit has no battery power to
+report, and vice versa.
+
+### 4. PV String subentry
+
+One real physical PV string/array. One required field (its own live power sensor),
+one optional free-text label ("West array", "MPPT2" — deliberately not a structured
+MPPT-number field, since that's Sungrow-specific, not universal), and an **optional**
+link to a Power Source.
+
+That link is optional on purpose — it came directly out of testing against real,
+different hardware (a SigenStor battery/inverter plus a wholly separate third-party
+SolarEdge PV system). The SolarEdge strings aren't wired through the Sigen inverter
+at all — they're an independent source feeding the switchboard on their own. Leaving
+the Power Source field blank renders that string as its own independent branch on
+the diagram, rather than forcing it under a Power Source that doesn't actually own
+it.
+
+### 5. Battery Tower subentry
+
+One real physical battery pack. Four sensor fields, all optional (SoC, SoH, Voltage,
+Temperature — the only four the topology card's own rendering function actually
+displays), plus the same optional Power Source link as PV String, same reasoning.
+
+SoC is the one field worth filling in first if you only do one — it drives the
+visible fill-bar on the diagram — but the form won't block you from submitting with
+nothing filled in yet.
+
+### The hub wizard — how you actually reach all of this
+
+Two separate buttons on the Nimbus hub's device page, doing two separate things:
+
+**"+ Add"** → a menu of the 5 subentry types above. Pick one, fill in its (short)
+form, submit. No restart, repeat as many times as needed — this is what makes
+adding 18 circuit breakers, or several PV strings/towers, fast.
+
+**"Configure"** → a 3-way menu of shared, hub-level settings that apply across
+everything:
+
+- **Forecaster settings** — the ML input features every Load/Power Signal model can
+  use for context: temperature, a temperature forecast sensor, humidity, a
+  curtailment sensor, plus real measured battery/grid/solar power sensors.
+  **Important gotcha**: these battery/grid/solar sensors are a *different concept*
+  from a Power Signal subentry — they're not forecast targets, they're context
+  features so a load's model can tell "was the battery charging at this exact
+  moment" apart from genuine load-driven signal. All independent and optional. Also:
+  forecast horizon, retrain hour, training window (days of history).
+- **Solver settings** — the 3-step wizard (Battery → Grid → Sources) described
+  below, pointing the LP dispatch optimizer at its own SoC sensor, import/export
+  price sensors, and solar/load forecast sources. The actual numeric settings
+  (capacity, max charge/discharge, efficiency, cost/salvage values) live as real
+  dashboard-editable `number.*` entities, not in this wizard — so they can be tuned
+  live without reopening Configure.
+- **Switchboard** — everything the topology card can show beyond what it
+  auto-detects: import/export price sensors, a switchboard-level battery power
+  sensor (deliberately separate from the Solver's own SoC sensor — different unit,
+  different purpose), and the 6 daily-kWh headline stats. All optional; a blank form
+  is a valid config. This form also auto-suggests entities pulled from Home
+  Assistant's own Energy Dashboard config wherever a field is still unset — filtered
+  to real `device_class: energy` sensors first, and only ever shown as an editable,
+  pre-filled suggestion a human still has to confirm, never silently applied.
+
+### The recurring gotcha, spelled out directly
+
+"Battery" and "Grid" show up in **four genuinely different places** with different
+meanings:
+
+| Where | What it actually is |
+|---|---|
+| Forecaster settings → `battery_sensor`/`grid_sensor`/`solar_sensor` | Real measured power, used only as ML **context features** for Load/Power Signal models |
+| Power Signal subentry with `signal_role=battery` | The battery's own power, forecasted as a genuine ML **output target** |
+| Solver settings → battery SoC sensor | The **LP optimizer's own input** — a %, not a power |
+| Switchboard → battery power sensor | The **topology card's** own signed kW reading, for diagram coloring |
+| Battery Tower subentry → SoC/SoH/Voltage/Temp | **Per-physical-pack** topology metadata, no forecasting involved at all |
+
+None of these are wrong or redundant — they're genuinely serving different
+subsystems (ML context, ML forecast target, LP optimizer, dashboard diagram,
+per-hardware-unit display) — but nothing else currently explains that they're
+different, which is exactly the kind of thing that reads as confusing/broken on a
+fresh install.
+
 ## Running the Solver
 
 **Running the Solver settings wizard is mandatory, not optional, if you want the
