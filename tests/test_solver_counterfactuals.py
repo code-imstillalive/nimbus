@@ -41,17 +41,17 @@ def test_no_control_dispatch_soc_never_moves():
 # --- two_threshold_dispatch: the three real branches ------------------------
 
 
-_BASE_KWARGS = dict(
-    initial_soc_kwh=50.0,
-    min_soc_kwh=10.0,
-    max_soc_kwh=100.0,
-    max_charge_kw=10.0,
-    max_discharge_kw=10.0,
-    charge_efficiency=1.0,
-    discharge_efficiency=1.0,
-    threshold_low=0.10,
-    threshold_high=0.30,
-)
+_BASE_KWARGS = {
+    "initial_soc_kwh": 50.0,
+    "min_soc_kwh": 10.0,
+    "max_soc_kwh": 100.0,
+    "max_charge_kw": 10.0,
+    "max_discharge_kw": 10.0,
+    "charge_efficiency": 1.0,
+    "discharge_efficiency": 1.0,
+    "threshold_low": 0.10,
+    "threshold_high": 0.30,
+}
 
 
 def test_discharges_at_max_rate_when_price_above_high_threshold():

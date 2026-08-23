@@ -205,19 +205,19 @@ class TestTerminalValueCheckpoints(unittest.TestCase):
 
 
 def _base_kwargs(**overrides):
-    kwargs = dict(
-        capacity_kwh=100.0,
-        initial_soc_kwh=50.0,
-        min_soc_kwh=5.0,
-        max_soc_kwh=100.0,
-        max_charge_kw=10.0,
-        max_discharge_kw=10.0,
-        charge_efficiency=0.95,
-        discharge_efficiency=0.95,
-        charge_cost=0.005,
-        discharge_cost=0.01,
-        salvage_value=0.15,
-    )
+    kwargs = {
+        "capacity_kwh": 100.0,
+        "initial_soc_kwh": 50.0,
+        "min_soc_kwh": 5.0,
+        "max_soc_kwh": 100.0,
+        "max_charge_kw": 10.0,
+        "max_discharge_kw": 10.0,
+        "charge_efficiency": 0.95,
+        "discharge_efficiency": 0.95,
+        "charge_cost": 0.005,
+        "discharge_cost": 0.01,
+        "salvage_value": 0.15,
+    }
     kwargs.update(overrides)
     return kwargs
 

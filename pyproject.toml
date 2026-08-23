@@ -214,7 +214,12 @@ ignore = [
     # per-file-ignores block below for the one remaining category
     # (test-collector boilerplate) that's a deliberate pattern repeated
     # across 23 files, not 23 separate judgment calls.
-    "DTZ001", # call-datetime-without-tzinfo (8) -- Stage 2
+    # DTZ001 (call-datetime-without-tzinfo, 8 findings) done, 2026-08-23:
+    # all 8 real sites (tests/, synthetic PeriodGrid.start anchors) now
+    # carry an explicit UTC tzinfo, closing a real (if narrow) fidelity
+    # gap versus production (real PeriodGrid.start values are genuinely
+    # tz-aware) that a naive datetime never caught, since every site
+    # compared naive-to-naive consistently within its own file.
     # S110 (try-except-pass, 3 findings) done, 2026-08-23: the 3 real
     # sites (all a notification/sentinel-write failure that must never
     # block the real, more important operation) each now carry a
@@ -222,7 +227,14 @@ ignore = [
     # BLE001 already touched, one shared reason covers both rules'
     # concerns (don't catch too broadly / don't silently discard with
     # no logging).
-    "C408",   # unnecessary-collection-call (12) -- Stage 2
+    # C408 (unnecessary-collection-call, 12 findings) done, 2026-08-23:
+    # all 12 were the identical, genuinely safe pattern -- a test
+    # fixture helper's own `defaults = dict(key=val, ...)` (every key
+    # a plain identifier, no **kwargs spread, no duplicate-key risk) --
+    # rewritten to a literal via `ruff check --fix --unsafe-fixes`
+    # (ruff's own generic conservative default for this rule family,
+    # not a sign any of these 12 specific sites carried real risk;
+    # confirmed via diff -- purely mechanical, zero semantic change).
     # Stage 3 (all 6 singleton rules) done, 2026-08-23, same pass:
     #   EXE001 (shebang-not-executable): a real, live CI failure caught
     #     the exact opposite of what local verification on Windows had
@@ -269,6 +281,18 @@ ignore = [
     #     with only `card` genuinely unused each time -- renamed to
     #     `_card`, standard convention, `view`/`section` both confirmed
     #     used afterward in every file before renaming.
+    #
+    # #72's own entire ruff 0.6.0->0.16.4 backlog (BLE001/DTZ001/S110/
+    # C408 Stage 2 + all 6 Stage 3 singletons) is now fully resolved --
+    # this list is intentionally empty of real rule codes. Real gotcha
+    # hit landing this: PRs #95/#96/#98 merged close together, each
+    # based on a slightly different prior version of this exact array
+    # -- git's own line-based 3-way merge briefly left "DTZ001"/"C408"
+    # reintroduced on main even after their own PRs had already fixed
+    # the real code, confirmed harmless at the time (`ruff check
+    # --select DTZ001 --config "lint.ignore=[]"` found zero real
+    # findings) but a real, demonstrated way several PRs touching the
+    # SAME small list can silently un-fix each other's own bookkeeping.
 ]
 
 # BLE001 in tests/test_*.py (23 sites, 2026-08-23): every one of these
