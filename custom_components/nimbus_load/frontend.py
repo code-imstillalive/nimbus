@@ -94,9 +94,7 @@ async def async_register_frontend(hass: HomeAssistant, version: str) -> None:
             ]
         )
         hass.data[f"{DOMAIN}_frontend_registered"] = True
-        _LOGGER.debug(
-            "Nimbus: serving %s from %s", FRONTEND_URL_PATH, card_path
-        )
+        _LOGGER.debug("Nimbus: serving %s from %s", FRONTEND_URL_PATH, card_path)
 
     # 2) Auto-register the Lovelace resource. Nothing to do in YAML-mode
     # Lovelace (the user manages resources themselves in configuration.
@@ -141,9 +139,7 @@ async def async_register_frontend(hass: HomeAssistant, version: str) -> None:
             break
 
     if existing is None:
-        await resources.async_create_item(
-            {"res_type": "module", "url": versioned_url}
-        )
+        await resources.async_create_item({"res_type": "module", "url": versioned_url})
         _LOGGER.info(
             "Nimbus: registered Lovelace resource %s -- the "
             "switchboard-topology-card is now available in every dashboard",
@@ -155,6 +151,4 @@ async def async_register_frontend(hass: HomeAssistant, version: str) -> None:
         await resources.async_update_item(
             existing["id"], {"res_type": "module", "url": versioned_url}
         )
-        _LOGGER.debug(
-            "Nimbus: bumped topology-card resource to %s", versioned_url
-        )
+        _LOGGER.debug("Nimbus: bumped topology-card resource to %s", versioned_url)

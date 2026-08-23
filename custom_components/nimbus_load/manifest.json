@@ -4,7 +4,7 @@
   "after_dependencies": ["energy"],
   "codeowners": ["@code-imstillalive"],
   "config_flow": true,
-  "dependencies": ["recorder"],
+  "dependencies": ["http", "recorder"],
   "documentation": "https://github.com/code-imstillalive/nimbus",
   "integration_type": "service",
   "iot_class": "calculated",
