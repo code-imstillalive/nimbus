@@ -2636,7 +2636,23 @@ def main() -> None:
     # topology card's own JS -- that's a real, separate follow-up.
     ha_post_state(
         "sensor.nimbus_household_load_total_forecast",
-        round(summed_18_now_kw, 3),
+        # Real bug found via a real-install health check (nimbus repo
+        # #100, Mark Purcell): this sensor's own `state` was using
+        # summed_18_now_kw -- a snapshot taken BEFORE the live cross-
+        # check anchor above (2607-2614) can overwrite load_kw[0] --
+        # while `forecast[0].value` below uses load_kw[0] AFTER that
+        # same overwrite. Whenever a household configures the whole-
+        # house cross-check sensor, this sensor's own headline `state`
+        # and its own `forecast[0].value` would silently disagree --
+        # two numbers a reasonable reader assumes are the same thing.
+        # `sensor.nimbus_solver_config`'s own load_summed_18_now_kw
+        # diagnostic (below) is DELIBERATELY left reading the pre-
+        # anchor summed_18_now_kw -- its whole documented purpose is
+        # comparing two genuinely independent forecasts, not a
+        # forecast against an already-live-corrected value (see that
+        # field's own comment). This fix is scoped to just this one
+        # sensor's own internal state/forecast consistency.
+        round(load_kw[0], 3),
         {
             "unit_of_measurement": "kW",
             "friendly_name": "Nimbus Household Load Total (Summed)",
