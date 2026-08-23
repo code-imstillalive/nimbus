@@ -383,6 +383,14 @@ def install_ha_stubs() -> None:
         "homeassistant.const",
         UnitOfPower=types.SimpleNamespace(WATT="W", KILO_WATT="kW", MEGA_WATT="MW"),
         Platform=MagicMock(),
+        # Real string values, not a MagicMock -- confirmed against HA
+        # core's own current source (2026-08-23, Gold entity-category
+        # work): EntityCategory is a StrEnum with exactly CONFIG/
+        # DIAGNOSTIC members. A test asserting `entity.entity_category
+        # == EntityCategory.CONFIG` needs real, stable string identity
+        # across every import of this module, which a fresh MagicMock()
+        # per-attribute-access would not reliably give.
+        EntityCategory=types.SimpleNamespace(CONFIG="config", DIAGNOSTIC="diagnostic"),
     )
     module(
         "homeassistant.core",

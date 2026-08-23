@@ -105,6 +105,14 @@ def test_turn_off_sets_is_on_and_writes_state():
     entity.async_write_ha_state.assert_called_once()
 
 
+def test_is_entity_category_config():
+    """Gold entity-category (2026-08-23) -- same reasoning as
+    NimbusSolverNumber: a Solver tuning toggle, not a primary reading."""
+    from homeassistant.const import EntityCategory
+
+    assert NimbusSolverSwitch._attr_entity_category == EntityCategory.CONFIG
+
+
 if __name__ == "__main__":
     tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
     failed = 0

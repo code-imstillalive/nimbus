@@ -10,6 +10,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.73.2] — 2026-08-23
+
+### Fixed
+- **Critical**: `sensor.nimbus_solver_battery_forecast` and `sensor.nimbus_household_load_total_forecast` flapped between a real plan and `unknown` on a ~60-second cycle on real HA — found by Mark Purcell within hours of the v0.73.1 fix landing ([#83](https://github.com/code-imstillalive/nimbus/issues/83)). Root cause: `_async_recheck_availability()` (the periodic self-driven timer added in v0.73.1 to catch a Solver going genuinely stale) called `async_write_ha_state()` unconditionally on every tick, republishing `native_value` regardless of whether anything had actually changed — including before the very first real push, when `native_value` is honestly `None`. Racing against `update_from_solver()`'s own real pushes on the same ~60s cadence, this periodically clobbered a fresh plan with `unknown` moments after it was published, only for the next solve to overwrite it again. Fixed: the recheck now only calls `async_write_ha_state()` (and logs) on a genuine transition in `available`'s own value — a no-op tick (the overwhelming majority of ticks, by design) does nothing at all. Two new regression tests lock in the exact flap scenario: a first tick before any push has landed, and repeated ticks while nothing has changed.
+
 ## [0.73.1] — 2026-08-23
 
 ### Fixed

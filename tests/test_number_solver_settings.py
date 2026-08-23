@@ -134,6 +134,16 @@ def test_entity_wiring_carries_through_for_a_field_with_no_device_class():
     assert entity._attr_native_unit_of_measurement == "%"
 
 
+def test_every_solver_number_is_entity_category_config():
+    """Gold entity-category (2026-08-23): every one of these 38 entities
+    IS a Solver tuning knob by NimbusSolverNumber's own class definition
+    -- unlike device_class (a real per-field judgment call, tested
+    above), CONFIG applies uniformly here with no exceptions."""
+    from homeassistant.const import EntityCategory
+
+    assert NimbusSolverNumber._attr_entity_category == EntityCategory.CONFIG
+
+
 if __name__ == "__main__":
     tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
     failed = 0

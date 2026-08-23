@@ -191,6 +191,51 @@ def test_recheck_logs_recovery_on_transition_back_to_available():
     assert instance._was_available is True
 
 
+# --- issue #83: the recheck must NEVER write on a no-op tick --------------
+# --- (Mark Purcell's real v0.73.1 flap: unconditional async_write_ha_    --
+# --- state() on every tick raced against real pushes on a 60s cadence,   --
+# --- publishing native_value=None/"unknown" whenever the recheck landed  --
+# --- between two solves.) ---------------------------------------------
+
+
+def test_recheck_before_first_push_does_not_write_or_log():
+    """The exact clobbering path from issue #83: a brand-new instance
+    (no push has ever landed, self._state is None) whose very first
+    recheck tick fires before update_from_solver() ever has. `available`
+    is honestly True here (pre-first-solve, not "broken") -- there is no
+    transition to report and, critically, nothing to correct in the
+    state machine yet either. Must be a pure baseline-record, zero
+    writes, zero log lines."""
+    instance = _construct()
+    instance.hass = None
+    instance.async_write_ha_state = MagicMock()
+    assert instance._was_available is None  # sanity: genuinely first tick
+
+    instance._async_recheck_availability(now=None)
+
+    assert instance._was_available is True  # baseline recorded
+    instance.async_write_ha_state.assert_not_called()
+
+
+def test_recheck_is_a_noop_while_available_stays_unchanged():
+    """The real flap scenario: a solve landed, the entity is fresh and
+    available, and the periodic recheck ticks one or more times before
+    the NEXT solve lands (this timer's whole point -- it runs 5x more
+    often than the staleness threshold). None of those in-between ticks
+    should ever touch the state machine."""
+    instance = _construct()
+    instance.hass = None
+    instance.async_write_ha_state = MagicMock()
+    instance.update_from_solver(1.5, {"forecast": []})
+
+    instance._async_recheck_availability(now=None)  # baseline tick
+    instance.async_write_ha_state.assert_not_called()
+
+    instance._async_recheck_availability(now=None)  # still available -- no-op
+    instance._async_recheck_availability(now=None)  # still available -- no-op
+    instance.async_write_ha_state.assert_not_called()
+
+
 # --- async_added_to_hass: the real self-driven re-check registration ------
 
 

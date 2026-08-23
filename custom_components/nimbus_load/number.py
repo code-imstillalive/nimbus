@@ -48,6 +48,7 @@ from homeassistant.components.number import (
     RestoreNumber,
 )
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -574,6 +575,14 @@ class NimbusSolverNumber(RestoreNumber, NumberEntity):
 
     _attr_has_entity_name = True
     _attr_mode = NumberMode.BOX
+    # Gold entity-category (2026-08-23): every one of these 38 entities IS
+    # a Solver tuning knob, by this class's own definition -- unlike
+    # entity-device-class (deliberately left unset per-field where HA has
+    # no real matching device class, see _SolverNumberDescription's own
+    # comment above), CONFIG is correct uniformly here, no per-field
+    # judgment call needed. Groups these under "Configuration" in the HA
+    # UI instead of cluttering the main entity list.
+    _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(
         self, entry: ConfigEntry, desc: _SolverNumberDescription, sw_version: str | None

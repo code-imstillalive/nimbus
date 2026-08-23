@@ -931,34 +931,55 @@ class _NimbusSolverPushSensor(SensorEntity):
 
     @callback
     def _async_recheck_availability(self, now) -> None:
-        """Same Silver fix's log-when-unavailable pairing as
-        NimbusForecastSensor -- logs exactly once on a genuine
-        transition in either direction, never per-tick.
+        """Issue #83 fix (2026-08-23, Mark Purcell): this used to call
+        async_write_ha_state() unconditionally on every tick. That's
+        exactly what caused the flap he found in v0.73.1 -- a periodic
+        re-publish of `native_value` (== self._state) racing against
+        update_from_solver()'s own real pushes has no reason to fire at
+        all unless something has actually changed, and doing so purely
+        to "catch a staleness transition" is a correctness bug wearing a
+        watchdog's clothes: this recheck's ONLY job is to force
+        `available`'s property getter to be re-evaluated on a schedule
+        independent of solver activity (see async_added_to_hass's own
+        docstring) -- publishing state on a tick where nothing changed
+        was never needed for that, and publishing it before the first
+        real push (self._state is None) actively clobbers whatever a
+        concurrent/stale entity instance may have already written.
+
+        Now: exit early, no write at all, unless `available` has
+        genuinely flipped since the last check (both the "log the
+        transition" and the "actually publish it" concerns collapse into
+        the same guard, which is also just a more honest read of what
+        this method is for). native_value/extra_state_attributes are
+        completely unaffected either way -- self._state/self._attrs are
+        never touched here, only ever by update_from_solver().
 
         @callback for the same real reason as update_from_solver() above
         (see its own comment for the full issue #82 story) -- this
         method is registered directly as async_track_time_interval's own
-        callback, and ALSO ends with an async_write_ha_state() call.
-        Undecorated, HA's own job-type detection would have routed every
-        single tick to the executor thread pool too -- a second instance
-        of the exact same bug class, in code that's never been live-
-        tested yet (this whole staleness mechanism shipped the same
-        session as this fix), caught here proactively rather than
-        waiting to hit it live a second time.
+        callback. Undecorated, HA's own job-type detection would have
+        routed every single tick to the executor thread pool too.
         """
         now_available = self.available
-        if self._was_available is not None and now_available != self._was_available:
-            if now_available:
-                _LOGGER.info("Nimbus: %s is available again", self.entity_id)
-            else:
-                _LOGGER.warning(
-                    "Nimbus: %s has not received a fresh Solver plan in over "
-                    "%d seconds -- marking unavailable rather than continue "
-                    "showing a stale plan",
-                    self.entity_id,
-                    self._STALE_AFTER_SECONDS,
-                )
+        if self._was_available is None:
+            # First-ever tick after this instance was added -- record a
+            # baseline, but there is nothing to "transition" from yet,
+            # and no earlier publish of ours exists to correct.
+            self._was_available = now_available
+            return
+        if now_available == self._was_available:
+            return  # nothing changed -- exactly the flap this exists to avoid
         self._was_available = now_available
+        if now_available:
+            _LOGGER.info("Nimbus: %s is available again", self.entity_id)
+        else:
+            _LOGGER.warning(
+                "Nimbus: %s has not received a fresh Solver plan in over "
+                "%d seconds -- marking unavailable rather than continue "
+                "showing a stale plan",
+                self.entity_id,
+                self._STALE_AFTER_SECONDS,
+            )
         self.async_write_ha_state()
 
     async def async_will_remove_from_hass(self) -> None:
