@@ -72,7 +72,10 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install ruff
-        run: pip install ruff
+        # Pinned to match .pre-commit-config.yaml so local hooks and CI
+        # enforce the same ruleset. Bumping this and the pre-commit rev
+        # together is a deliberate, reviewable act.
+        run: pip install "ruff==0.6.0"
       - name: Ruff format check
         run: ruff format --check custom_components/ tests/
       - name: Ruff lint
