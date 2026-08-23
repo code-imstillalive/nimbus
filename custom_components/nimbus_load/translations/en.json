@@ -34,6 +34,18 @@
           "forecast_horizon_hours": "Forecast horizon (hours)",
           "retrain_hour_local": "Retrain at this hour (local time, 0-23)",
           "train_days": "Days of history to train on"
+        },
+        "data_description": {
+          "temperature_sensor": "A real outdoor/ambient temperature sensor. Used as an input feature so the model can learn e.g. \"AC load rises with temperature\" -- purely optional, every load forecasts fine without it, just less precisely for weather-sensitive loads.",
+          "temperature_forecast_sensor": "A sensor exposing a forward-looking temperature forecast attribute (e.g. from a weather integration's own forecast service). Lets the model use tomorrow's forecast temperature, not just today's reading, when predicting future periods.",
+          "humidity_sensor": "A real outdoor/ambient humidity sensor, same role as temperature above -- helps loads whose behaviour correlates with humidity (e.g. some HVAC/dehumidifier patterns).",
+          "curtailment_sensor": "A real switch/binary_sensor that's ON when your inverter is actively curtailing solar. Only relevant for a load specifically run to absorb otherwise-wasted solar (e.g. a pool heater) -- lets the model learn that pattern directly instead of only inferring it from time-of-day.",
+          "battery_sensor": "Your real, live battery power sensor (positive/negative for charge/discharge, whatever convention your inverter integration uses) -- must be a genuine measurement, not a HAEO/EMHASS/optimizer plan entity, or the model will learn from its own future decisions.",
+          "grid_sensor": "Your real, live grid import/export power sensor -- same caution as battery_sensor: a measured value, never an optimizer's own forecast/plan.",
+          "solar_sensor": "Your real, live solar production power sensor -- same caution as above.",
+          "forecast_horizon_hours": "How many hours ahead each load's forecast array extends. Longer horizons cost more compute per retrain but let downstream consumers (like the Solver) plan further ahead.",
+          "retrain_hour_local": "The local hour (0-23) Nimbus retrains every load's model from scratch against your Recorder history. Pick a quiet hour (e.g. 3am) since a retrain briefly uses real CPU.",
+          "train_days": "How many days of Recorder history each retrain looks back over. More days generally means a more stable model, at the cost of a slower retrain and adapting more slowly to a genuine change in your own usage pattern."
         }
       },
       "solver_battery": {
@@ -41,6 +53,9 @@
         "description": "Which sensor reports your battery's live State of Charge. Every other battery setting (capacity, SoH, min/max SoC, max charge/discharge power, efficiency) now lives on its own dashboard-editable number entity instead of this wizard -- look for a new \"Nimbus\" device with a Battery Capacity, Max Charge Power, etc. after saving, and set your real values there.",
         "data": {
           "solver_battery_soc_sensor": "Battery State of Charge sensor (%) -- the live sensor your system already reports, e.g. from your inverter's own integration"
+        },
+        "data_description": {
+          "solver_battery_soc_sensor": "The Solver reads this at the start of every solve to know your real current State of Charge -- must be a genuine measurement (0-100%), not a target/setpoint entity. Everything else about your battery (capacity, power limits, efficiency) is configured separately as live number.* entities so you can tune them without re-running this wizard."
         }
       },
       "solver_grid": {
@@ -49,6 +64,10 @@
         "data": {
           "solver_import_price_sensor": "Live import (buy) price sensor ($/kWh) -- from your own retailer/market integration",
           "solver_export_price_sensor": "Live export (sell) price sensor ($/kWh) -- from your own retailer/market integration"
+        },
+        "data_description": {
+          "solver_import_price_sensor": "Whatever your electricity retailer's own HA integration (Amber, LocalVolts, a generic template sensor, etc.) exposes as the current $/kWh you're charged to import. If this sensor also has its own forecast attribute, the Solver uses it directly for planning; otherwise it holds the current value flat across the whole horizon. Also drives the Topology dashboard card's live price display, as a fallback if the Switchboard wizard's own price field isn't set.",
+          "solver_export_price_sensor": "The mirror of the above for what you're paid to export -- same forecast-attribute preference, same Topology dashboard fallback role."
         }
       },
       "solver_sources": {
@@ -59,28 +78,36 @@
           "solver_load_forecast_sensor": "Household load forecast sensor (kW) -- e.g. a Nimbus Power Signal forecasting your own whole-house load",
           "solver_load_forecast_entities": "Optional: individual circuit forecast sensors to sum instead of the single sensor above (kW each, e.g. Nimbus Power Signals for specific circuits) -- leave blank to use the sensor above",
           "solver_whole_house_cross_check_sensor": "Optional: a real, live whole-house power sensor to sanity-check the very first forecast period against -- leave blank to skip"
+        },
+        "data_description": {
+          "solver_solar_forecast_sensor": "Any sensor exposing a forward-looking solar generation forecast (Solcast, Open-Meteo Solar Forecast, or a Nimbus Power Signal pointed at your own inverter's DC power). The Solver reads its forecast attribute directly if present; if the referenced entity has no forecast, its shape is validated and a clear error is surfaced rather than silently producing a flat, useless plan.",
+          "solver_load_forecast_sensor": "The single sensor the Solver treats as \"total household load\" for planning. A Nimbus Power Signal on your own whole-house power meter is the simplest choice -- or leave this and use the per-circuit list below instead, which is summed automatically.",
+          "solver_load_forecast_entities": "If you'd rather the Solver build its total household load from several individual circuit forecasts (e.g. one Nimbus load per circuit breaker) instead of one whole-house sensor, list them here -- they're summed together every solve. Leave blank to use the single sensor above instead.",
+          "solver_whole_house_cross_check_sensor": "A real, currently-measured whole-house power sensor (not a forecast) the Solver compares its own very-first forecast period against, purely as a live sanity check surfaced on the forecast sensor's own attributes -- has no effect on the actual dispatch plan itself."
         }
       },
       "switchboard": {
         "title": "Topology diagram: Switchboard",
-        "description": "Just one field to get the diagram showing real data -- everything else (prices, daily kWh, battery coloring) is on the next screen, and every field there is optional too, skip anything you don't have.",
-        "data": {
-          "switchboard_grid_meter_sensor": "Grid meter power sensor (real, uncapped meter -- not a plan/forecast entity)"
-        }
-      },
-      "switchboard_details": {
-        "title": "Topology diagram: Switchboard (optional details)",
-        "description": "Every field here is optional -- the topology dashboard card shows whichever rows you fill in and skips the rest. Leave anything blank and submit; you can always come back and fill in more later. None of this affects Solver dispatch planning, it's purely for the diagram.",
+        "description": "Grid power, battery power, and every Load are auto-detected -- nothing to configure here for those. Every field below is optional and covers only what Nimbus has no equivalent for: current prices and the 6 daily-kWh headline stats. Leave anything blank and submit; the diagram works fine without it, add more anytime.",
         "data": {
           "switchboard_import_price_sensor": "Current buy (import) price sensor",
           "switchboard_export_price_sensor": "Current sell (export) price sensor",
-          "switchboard_battery_power_sensor": "Switchboard-level battery power sensor (signed: + = discharging, - = charging)",
           "switchboard_import_energy_daily_sensor": "Import energy today (kWh)",
           "switchboard_export_energy_daily_sensor": "Export energy today (kWh)",
           "switchboard_house_load_energy_daily_sensor": "House load energy today (kWh)",
           "switchboard_solar_energy_daily_sensor": "Solar energy today (kWh)",
           "switchboard_battery_charge_daily_sensor": "Battery charged today (kWh)",
           "switchboard_battery_discharge_daily_sensor": "Battery discharged today (kWh)"
+        },
+        "data_description": {
+          "switchboard_import_price_sensor": "Fallback only -- if any Nimbus Solver settings are configured (see \"Solver: Grid Prices\" above), the Topology card reads price live from there instead and this field is never read. Only fill this in if you're using the Topology diagram without the Solver.",
+          "switchboard_export_price_sensor": "Same fallback-only role as the import price field above, for the sell/export price shown on the diagram.",
+          "switchboard_import_energy_daily_sensor": "A daily-resetting utility_meter (or equivalent) tracking total kWh imported today -- shown as a headline stat on the Topology diagram. Nimbus has no equivalent of its own for daily energy totals (it forecasts power, not accumulated energy), so this genuinely needs your own sensor.",
+          "switchboard_export_energy_daily_sensor": "Same as above, for total kWh exported today.",
+          "switchboard_house_load_energy_daily_sensor": "Same as above, for total household load energy consumed today.",
+          "switchboard_solar_energy_daily_sensor": "Same as above, for total solar energy generated today.",
+          "switchboard_battery_charge_daily_sensor": "Same as above, for total energy charged into the battery today.",
+          "switchboard_battery_discharge_daily_sensor": "Same as above, for total energy discharged from the battery today."
         }
       }
     }
@@ -99,6 +126,9 @@
           "description": "Pick the power sensor this load should learn from. Temperature sensors and tuning settings are shared across every load -- set them once via the hub's own \"Configure\" instead.",
           "data": {
             "load_sensor": "Power sensor to learn from"
+          },
+          "data_description": {
+            "load_sensor": "A real, measured power sensor for one specific circuit/appliance (kW or W) -- e.g. a smart circuit breaker on your hot water system, pool pump, or EV charger. Nimbus trains a dedicated model against this sensor's own Recorder history and publishes a matching forecast sensor once training completes."
           }
         }
       }
@@ -117,6 +147,10 @@
           "data": {
             "load_sensor": "Power sensor to forecast",
             "signal_role": "Role (optional -- pick Battery/Solar/Grid so the topology dashboard card can auto-wire this signal; leave as Other for anything else)"
+          },
+          "data_description": {
+            "load_sensor": "A real, measured whole-system power sensor -- e.g. your inverter's total battery power, total DC/solar power, or your grid meter's total active power. Must be a genuine measurement, not an optimizer's own plan/forecast entity, or the forecaster will learn from its own predictions.",
+            "signal_role": "Purely a labelling hint for the Topology dashboard card's auto-detection -- has no effect on forecasting itself. Setting Battery/Solar/Grid lets the card wire this signal into the diagram automatically, without needing the Switchboard wizard's own fallback fields filled in."
           }
         }
       }
@@ -136,6 +170,11 @@
             "power_source_name": "Name (shown on the diagram, e.g. \"Inverter 1\")",
             "power_source_battery_sensor": "Battery power sensor (optional -- leave blank for a PV-only source)",
             "power_source_dc_sensor": "Total DC power sensor (optional)"
+          },
+          "data_description": {
+            "power_source_name": "Free text, purely cosmetic -- whatever label makes sense on your own diagram (e.g. the inverter's model number or a physical location like \"Garage Inverter\").",
+            "power_source_battery_sensor": "This specific inverter's own signed battery power (positive = discharging, negative = charging, matching whatever convention your inverter integration reports). Leave blank if this source has no attached battery (a solar-only inverter).",
+            "power_source_dc_sensor": "This specific inverter's own total DC power -- genuinely different from battery power, since it reflects real solar throughput regardless of what the battery is doing. Without it, a fully-charged inverter that's still actively producing solar can look falsely idle on the diagram."
           }
         }
       }
@@ -155,6 +194,11 @@
             "pv_string_entity": "Power sensor for this string",
             "pv_string_label": "Label on the diagram (optional, e.g. \"West array\")",
             "pv_string_power_source": "Power Source this string is wired through (optional)"
+          },
+          "data_description": {
+            "pv_string_entity": "The real, per-string power sensor your inverter reports -- e.g. an MPPT/string-level power register, not the inverter's own total DC power.",
+            "pv_string_label": "Free text, purely cosmetic -- e.g. compass direction or roof section (\"West array\", \"Garage roof\"). Defaults to a generic label if left blank.",
+            "pv_string_power_source": "Which Power Source (inverter) this string physically feeds into, if any. Leave blank for a string wired independently of any inverter you've configured here (e.g. a separate optimizer/micro-inverter setup)."
           }
         }
       }
@@ -176,6 +220,13 @@
             "battery_tower_voltage_sensor": "Voltage sensor (optional)",
             "battery_tower_temperature_sensor": "Temperature sensor (optional)",
             "battery_tower_power_source": "Power Source this tower belongs to (optional)"
+          },
+          "data_description": {
+            "battery_tower_soc_sensor": "This specific physical tower/pack's own State of Charge (%), if your hardware exposes it per-tower rather than only as one combined battery-wide figure.",
+            "battery_tower_soh_sensor": "This tower's own State of Health (%), if your hardware exposes it -- a measure of the pack's remaining capacity relative to new, not related to State of Charge.",
+            "battery_tower_voltage_sensor": "This tower's own real-time voltage, if your hardware exposes it per-tower.",
+            "battery_tower_temperature_sensor": "This tower's own temperature, if your hardware exposes it per-tower -- shown on the diagram, and can matter for real thermal-derating awareness on some chemistries.",
+            "battery_tower_power_source": "Which Power Source (inverter) this tower physically belongs to, if your system has more than one inverter/battery pairing. Leave blank if there's only one Power Source, or if this tower isn't tied to a specific inverter."
           }
         }
       }
