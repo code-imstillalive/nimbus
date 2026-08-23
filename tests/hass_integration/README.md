@@ -36,9 +36,29 @@ existing tests already prove it.
   hypothesis for #85 (stale second instance publishing `unknown` every
   recheck tick).
 
-## Cost
+## Cost + isolation
 
 `pytest-homeassistant-custom-component` pulls in the full HA runtime
-(~200 MB). It's opt-in per subdirectory via the autouse
-`enable_custom_integrations` fixture in this directory's `conftest.py`,
-so the stub-based tests in the parent directory pay no cost.
+(~200 MB) and, more importantly, registers its plugin **globally via
+pytest entry_points** the moment it's installed. Its session-scoped
+autouse fixtures (`enable_event_loop_debug` and friends) apply to
+every test in the same pytest process, not just tests that ask for
+them -- so a single `pytest tests/` run would collect the stub tree
+and break every stub test on collection.
+
+A directory-local `conftest.py` can't neutralise this: plugin
+registration is process-wide, and adding directory-scoped fixtures
+doesn't unregister the globals. **Two separate pytest invocations is
+what actually isolates the two test styles**:
+
+```bash
+# Fast stub suite (300+ tests, no HA runtime):
+pytest tests/ --ignore=tests/hass_integration/
+
+# Real HA integration tests (this directory, ~200 MB + slower):
+pytest tests/hass_integration/
+```
+
+CI (`.github/workflows/ci.yml`) runs both as separate steps, so both
+report independently on every PR.
+

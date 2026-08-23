@@ -108,9 +108,7 @@ def _fake_plan_attributes() -> dict:
     return {
         "unit_of_measurement": "kW",
         "friendly_name": "Nimbus Solver Battery Forecast",
-        "forecast": [
-            {"time": f"t{i}", "value": 1.0 + i * 0.1} for i in range(4)
-        ],
+        "forecast": [{"time": f"t{i}", "value": 1.0 + i * 0.1} for i in range(4)],
         "status": "optimal",
         "total_cost": 16.43,
         "equivalent_full_cycles": 1.536,
@@ -205,9 +203,7 @@ async def test_both_push_sensors_stay_stable(
         {
             "unit_of_measurement": "kW",
             "friendly_name": "Nimbus Household Load Total",
-            "forecast": [
-                {"time": "t0", "value": 1.4, "lower": 1.2, "upper": 1.6}
-            ],
+            "forecast": [{"time": "t0", "value": 1.4, "lower": 1.2, "upper": 1.6}],
             "whole_house_cross_check_now_kw": 1.411,
         },
     )

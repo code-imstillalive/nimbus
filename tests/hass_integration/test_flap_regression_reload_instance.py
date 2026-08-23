@@ -284,7 +284,6 @@ async def test_state_stays_stable_after_reload(
     state = hass.states.get(_BATTERY_FORECAST_ENTITY_ID)
     assert state is not None
     assert state.state != STATE_UNKNOWN, (
-        "Post-reload recheck clobbered the fresh push -- the #85 "
-        "regression signature."
+        "Post-reload recheck clobbered the fresh push -- the #85 regression signature."
     )
     assert state.state == "3.14"

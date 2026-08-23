@@ -160,10 +160,34 @@ jobs:
           python-version: "3.13"
       - name: Install dev dependencies
         run: pip install -e '.[dev]'
-      - name: Run pytest
+      # Two separate pytest invocations, on purpose.
+      #
+      # `pytest-homeassistant-custom-component` registers its plugin
+      # globally via entry_points the moment it is installed --
+      # session-scoped autouse fixtures like `enable_event_loop_debug`
+      # apply to EVERY test in the same pytest process, not just tests
+      # that request them. That collides with the 320+ stub-based
+      # tests under `tests/*.py` (they don't use HA, don't want
+      # HA fixtures materialised into their session), and the
+      # collision surfaces as a mass `PytestRemovedIn9Warning` /
+      # collection error across the whole stub suite -- see PR #86
+      # discussion.
+      #
+      # Directory-scoped `conftest.py` can't neutralise this because
+      # plugin registration is process-wide. Two invocations, one per
+      # test style, is what actually isolates them.
+      - name: Run pytest (stub-based, fast)
         run: |
-          pytest tests/ \
+          pytest tests/ --ignore=tests/hass_integration/ \
             --cov=custom_components/nimbus_load \
+            --cov-report=term-missing \
+            --cov-report=xml \
+            -v
+      - name: Run pytest (real HA harness, hass_integration only)
+        run: |
+          pytest tests/hass_integration/ \
+            --cov=custom_components/nimbus_load \
+            --cov-append \
             --cov-report=term-missing \
             --cov-report=xml \
             -v

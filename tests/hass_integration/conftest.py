@@ -2,50 +2,40 @@
 
 These tests use the REAL Home Assistant test harness
 (`pytest-homeassistant-custom-component`) instead of the stub tree
-under `tests/_ha_stubs.py`. They live in their own subdirectory for
-two reasons:
+under `tests/_ha_stubs.py`. They live in their own subdirectory AND
+run as a separate pytest invocation from the stub-based tests -- see
+tests/hass_integration/README.md for why both together are needed for
+real isolation.
 
-  1. Isolation. The stub-based tests deliberately don't import HA
-     itself -- installing HA into `sys.modules` at collection time
-     (which pytest-homeassistant-custom-component does) would clobber
-     those stubs and break the 313 existing tests. Keeping the two
-     test styles in separate directories prevents any cross-
-     contamination via pytest's collection-time imports.
+The two things this conftest does:
 
-  2. Opt-in cost. `pytest-homeassistant-custom-component` pulls in the
-     full HA runtime (~200 MB, ~5s collection overhead). The stub
-     tests stay fast; only these files pay the cost, and only when
-     specifically requested (`pytest tests/hass_integration/` or the
-     full-suite CI job).
+  1. Autouse `enable_custom_integrations` so every test here gets the
+     custom_components/ path treatment without asking for the fixture
+     by name.
+  2. Set pytest-asyncio's `asyncio_mode = "auto"` so `async def
+     test_...` functions are awaited automatically, matching pytest-
+     homeassistant-custom-component's own convention.
 
-The `enable_custom_integrations` and `auto_enable_custom_integrations`
-fixtures come from `pytest-homeassistant-custom-component`. The
-auto-enable version fires for every test in this directory without
-each test having to request the fixture by name.
+Both are directory-local -- setting `asyncio_mode` in the top-level
+`pyproject.toml` would flip the mode for the stub tests too (they run
+in a separate pytest invocation, but a globally-set option would still
+be picked up by both), so scoping it here keeps the boundary clean.
 """
 
 from __future__ import annotations
 
 import pytest
 
-# All tests in this subdirectory are `async def` and use the real HA
-# event loop from the `hass` fixture. `asyncio_mode = "auto"` scoped
-# here (not globally in pyproject.toml) means pytest-asyncio auto-
-# awaits them without every test needing `@pytest.mark.asyncio`, and
-# leaves the (non-async) tests in the sibling directory untouched.
-collect_ignore_glob: list[str] = []
 
-
-def pytest_collection_modifyitems(config, items):
-    """Force asyncio mode for every test in this subdir. Same effect
-    as `pytest.ini`'s `asyncio_mode = auto`, but scoped -- doesn't
-    change the marker mode for the sibling stub-based tests."""
-    import pytest_asyncio  # noqa: F401 -- import proves the plugin is installed
-
-    for item in items:
-        if "hass_integration" in str(item.fspath):
-            if not any(m.name == "asyncio" for m in item.iter_markers()):
-                item.add_marker(pytest.mark.asyncio)
+def pytest_configure(config):
+    """Set pytest-asyncio's mode for this invocation only. When CI (or
+    a dev) runs `pytest tests/hass_integration/`, this sets mode=auto
+    so plain `async def test_...` functions work without decorators.
+    The stub-based suite runs as a SEPARATE pytest invocation and
+    isn't affected -- see .github/workflows/ci.yml for the two-step
+    layout.
+    """
+    config.option.asyncio_mode = "auto"
 
 
 @pytest.fixture(autouse=True)

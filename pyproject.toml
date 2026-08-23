@@ -72,6 +72,14 @@ dev = [
     # test-collection surface fast. This dep only comes into play for
     # the two files that specifically ASK for the real hass fixture.
     "pytest-homeassistant-custom-component>=0.13",
+    # Explicit floor: Nimbus uses `ConfigSubentryFlow`
+    # (`custom_components/nimbus_load/flows/*_subentry.py`), which
+    # landed in HA core 2025.3. Without this floor, `pip install -e
+    # '.[dev]'` on some platforms/resolvers picks up an older HA
+    # (e.g. 2025.1.4 seen on Windows during PR #86 review), and the
+    # coordinator import fails at collection time with a confusing
+    # `ImportError` rather than a clean version-mismatch message.
+    "homeassistant>=2025.3",
 ]
 
 [project.urls]
