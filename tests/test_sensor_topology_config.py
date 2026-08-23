@@ -14,20 +14,20 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ha_stubs import install_ha_stubs  # noqa: E402
+from _ha_stubs import install_ha_stubs
 
 install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from custom_components.nimbus_load import sensor  # noqa: E402
-from custom_components.nimbus_load.const import (  # noqa: E402
+from custom_components.nimbus_load import sensor
+from custom_components.nimbus_load.const import (
+    CONF_BATTERY_TOWER_SOC_SENSOR,
     CONF_POWER_SOURCE_BATTERY_SENSOR,
     CONF_POWER_SOURCE_DC_SENSOR,
     CONF_POWER_SOURCE_NAME,
     CONF_PV_STRING_ENTITY,
     CONF_PV_STRING_LABEL,
     CONF_PV_STRING_POWER_SOURCE,
-    CONF_BATTERY_TOWER_SOC_SENSOR,
     CONF_SWITCHBOARD_GRID_METER_SENSOR,
     SUBENTRY_TYPE_BATTERY_TOWER,
     SUBENTRY_TYPE_LOAD,

@@ -28,16 +28,21 @@
 #
 # Ruff version-pin coherence:
 #   Both the ruff-pre-commit rev below AND the CI's `pip install` line
-#   pin the same ruff version (0.6.0 -- the version CI resolved at PR
-#   #68's merge time, when the strict-flip was verified green apart from
-#   the 2 F401 findings in tests/test_flows_pv_string_subentry.py that
-#   slipped in on a later commit). Bumping ruff is a deliberate act that
+#   pin the same ruff version. Bumping ruff is a deliberate act that
 #   changes what the linter enforces; `pre-commit autoupdate` and a
 #   matching one-liner in .github/workflows/ci.yml keep the two in sync
 #   in a single reviewable PR.
 #
-# Related: #36 (DevOps lifecycle, Stage 1). Ruff config itself lives in
-# pyproject.toml (added in #69), so hooks and CI read the same ruleset.
+#   2026-08-23 (#72 Stage 1): bumped 0.6.0 -> 0.16.4. At 0.6.0 the
+#   check-side hook id was plain `ruff`; 0.16.4 renamed the canonical id
+#   to `ruff-check` (confirmed directly against ruff-pre-commit's own
+#   .pre-commit-hooks.yaml at the v0.16.4 tag) and kept `ruff` around
+#   only as a legacy alias -- switched to the canonical id below rather
+#   than lean on an alias that could be dropped in a future release.
+#
+# Related: #36 (DevOps lifecycle, Stage 1), #72 (ruff version bump).
+# Ruff config itself lives in pyproject.toml (added in #69), so hooks
+# and CI read the same ruleset.
 
 default_language_version:
   python: python3.12
@@ -53,19 +58,21 @@ repos:
   # pyproject.toml, so local and CI stay bit-identical.
   # ---------------------------------------------------------------------
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.6.0
+    rev: v0.16.4
     hooks:
-      # `ruff-format` at v0.6.0 defaults to `ruff format` (writes). Add
-      # --check so it matches CI's `ruff format --check` -- report only,
-      # non-zero on findings, no rewrites.
+      # `ruff-format`'s own entry is `ruff format --force-exclude` (no
+      # --check by default) -- --check added explicitly so it matches
+      # CI's `ruff format --check` exactly: report only, non-zero on
+      # findings, no rewrites.
       - id: ruff-format
         name: ruff format --check (custom_components/ tests/)
         args: [--check]
         files: ^(custom_components|tests)/
-      # At v0.6.0 the ruff-check hook is just `ruff`; entry is already
-      # `ruff check --force-exclude` with no --fix, so this matches CI
-      # exactly by default.
-      - id: ruff
+      # Canonical check-side hook id as of 0.16.4 (was plain `ruff` at
+      # 0.6.0 -- see this file's own header comment). Entry is already
+      # `ruff check --force-exclude` with no --fix, matching CI exactly
+      # by default.
+      - id: ruff-check
         name: ruff check (custom_components/ tests/)
         files: ^(custom_components|tests)/
 

@@ -55,16 +55,16 @@ directly on Home Assistant's event loop -- see coordinator.py.
 
 from __future__ import annotations
 
+import logging
 from bisect import bisect_right
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-import logging
 
 import numpy as np
 
+from ..const import LAG_LONG_STEPS, LAG_SHORT_STEPS, VALIDATION_HOLDOUT_FRACTION
 from .features import build_features
 from .gbrt import GBRT
-from ..const import LAG_LONG_STEPS, LAG_SHORT_STEPS, VALIDATION_HOLDOUT_FRACTION
 
 _LOGGER = logging.getLogger(__name__)
 

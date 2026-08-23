@@ -23,13 +23,13 @@ from __future__ import annotations
 
 from typing import Any
 
+import voluptuous as vol
 from homeassistant.config_entries import (
     SOURCE_RECONFIGURE,
     ConfigSubentryFlow,
     SubentryFlowResult,
 )
 from homeassistant.helpers import selector
-import voluptuous as vol
 
 from ..const import (
     CONF_LOAD_SENSOR,

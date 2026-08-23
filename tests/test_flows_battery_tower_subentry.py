@@ -17,13 +17,15 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ha_stubs import install_ha_stubs  # noqa: E402
+from _ha_stubs import install_ha_stubs
 
 install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from custom_components.nimbus_load.const import CONF_BATTERY_TOWER_SOC_SENSOR  # noqa: E402
-from custom_components.nimbus_load.flows.battery_tower_subentry import (  # noqa: E402
+from custom_components.nimbus_load.const import (
+    CONF_BATTERY_TOWER_SOC_SENSOR,
+)
+from custom_components.nimbus_load.flows.battery_tower_subentry import (
     NimbusBatteryTowerSubentryFlowHandler,
 )
 

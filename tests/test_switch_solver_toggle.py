@@ -16,13 +16,13 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ha_stubs import install_ha_stubs  # noqa: E402
+from _ha_stubs import install_ha_stubs
 
 install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from custom_components.nimbus_load.const import DOMAIN  # noqa: E402
-from custom_components.nimbus_load.switch import NimbusSolverSwitch  # noqa: E402
+from custom_components.nimbus_load.const import DOMAIN
+from custom_components.nimbus_load.switch import NimbusSolverSwitch
 
 
 def _make_entity(key="auto_include_known_solar", default=False, options=None):

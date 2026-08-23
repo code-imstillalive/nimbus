@@ -10,7 +10,7 @@ stand-in.
 """
 
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from unittest.mock import patch
 
 import _solver_path  # noqa: F401
@@ -18,7 +18,7 @@ import solver_writer
 
 
 def _grid_times(n=4):
-    base = datetime(2026, 8, 23, 9, 0, tzinfo=timezone.utc)
+    base = datetime(2026, 8, 23, 9, 0, tzinfo=UTC)
     return [base + timedelta(minutes=30 * i) for i in range(n)]
 
 
@@ -189,8 +189,8 @@ class TestGenuinelyUnrecognizedShape(unittest.TestCase):
 
 class TestNotifyOnce(unittest.TestCase):
     def test_fires_once_for_a_new_error_not_again_for_the_same_one(self):
-        import tempfile
         import os
+        import tempfile
 
         with tempfile.TemporaryDirectory() as d:
             sentinel = os.path.join(d, "notified.txt")

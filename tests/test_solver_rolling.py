@@ -18,10 +18,14 @@ import numpy as np
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import _solver_path  # noqa: E402, F401  -- side-effect: puts solver/ + ml/ on sys.path
-
-from solver.elements import BatteryConfig, GridConfig, PeriodGrid, SolarConfig  # noqa: E402
-from solver.rolling import (  # noqa: E402
+import _solver_path  # noqa: F401  -- side-effect: puts solver/ + ml/ on sys.path
+from solver.elements import (
+    BatteryConfig,
+    GridConfig,
+    PeriodGrid,
+    SolarConfig,
+)
+from solver.rolling import (
     RollingInputs,
     RollingRefinementConfig,
     run_rolling_refinement,

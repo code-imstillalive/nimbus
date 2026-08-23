@@ -111,8 +111,11 @@ jobs:
       - name: Install ruff
         # Pinned to match .pre-commit-config.yaml so local hooks and CI
         # enforce the same ruleset. Bumping this and the pre-commit rev
-        # together is a deliberate, reviewable act.
-        run: pip install "ruff==0.6.0"
+        # together is a deliberate, reviewable act -- see #72 for the
+        # 0.6.0 -> 0.16.4 bump's own staged plan (Stage 1: mechanical
+        # auto-fixes + the pin itself; Stage 2/3: the real per-rule-
+        # family findings ruff's expanded default ruleset now surfaces).
+        run: pip install "ruff==0.16.4"
       - name: Ruff format check
         run: ruff format --check custom_components/ tests/
       - name: Ruff lint

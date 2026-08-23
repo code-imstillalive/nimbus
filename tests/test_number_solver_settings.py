@@ -20,14 +20,18 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ha_stubs import install_ha_stubs  # noqa: E402
+from _ha_stubs import install_ha_stubs
 
 install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from homeassistant.components.number import NumberDeviceClass  # noqa: E402
-from custom_components.nimbus_load.const import DOMAIN  # noqa: E402
-from custom_components.nimbus_load.number import _DESCRIPTIONS, NimbusSolverNumber  # noqa: E402
+from homeassistant.components.number import NumberDeviceClass
+
+from custom_components.nimbus_load.const import DOMAIN
+from custom_components.nimbus_load.number import (
+    _DESCRIPTIONS,
+    NimbusSolverNumber,
+)
 
 # Units with no real matching NumberDeviceClass (verified 2026-08-22 against
 # HA core's own current DEVICE_CLASS_UNITS table) -- device_class must be
@@ -37,9 +41,9 @@ _NO_DEVICE_CLASS_UNITS = {"$/kWh", "%", "hour", None}
 
 def test_no_duplicate_keys():
     keys = [d.key for d in _DESCRIPTIONS]
-    assert len(keys) == len(
-        set(keys)
-    ), f"duplicate _SolverNumberDescription.key found: {keys}"
+    assert len(keys) == len(set(keys)), (
+        f"duplicate _SolverNumberDescription.key found: {keys}"
+    )
 
 
 def test_every_default_is_within_its_own_bounds():
@@ -53,9 +57,9 @@ def test_kw_fields_are_device_class_power():
     kw_fields = [d for d in _DESCRIPTIONS if d.unit == "kW"]
     assert kw_fields, "expected at least one kW field to exist"
     for d in kw_fields:
-        assert (
-            d.device_class == NumberDeviceClass.POWER
-        ), f"{d.key}: expected POWER, got {d.device_class}"
+        assert d.device_class == NumberDeviceClass.POWER, (
+            f"{d.key}: expected POWER, got {d.device_class}"
+        )
 
 
 def test_battery_capacity_is_energy_storage():

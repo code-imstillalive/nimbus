@@ -17,17 +17,17 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ha_stubs import install_ha_stubs  # noqa: E402
+from _ha_stubs import install_ha_stubs
 
 install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from custom_components.nimbus_load.const import (  # noqa: E402
+from custom_components.nimbus_load.const import (
     CONF_PV_STRING_ENTITY,
     SUBENTRY_TYPE_LOAD,
     SUBENTRY_TYPE_POWER_SOURCE,
 )
-from custom_components.nimbus_load.flows.pv_string_subentry import (  # noqa: E402
+from custom_components.nimbus_load.flows.pv_string_subentry import (
     NimbusPvStringSubentryFlowHandler,
     _power_source_options,
 )

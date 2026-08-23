@@ -17,12 +17,12 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ha_stubs import install_ha_stubs  # noqa: E402
+from _ha_stubs import install_ha_stubs
 
 install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from custom_components.nimbus_load.const import (  # noqa: E402
+from custom_components.nimbus_load.const import (
     CONF_LOAD_SENSOR,
     CONF_SIGNAL_ROLE,
     SIGNAL_ROLE_BATTERY,
@@ -30,7 +30,7 @@ from custom_components.nimbus_load.const import (  # noqa: E402
     SIGNAL_ROLE_OTHER,
     SIGNAL_ROLE_SOLAR,
 )
-from custom_components.nimbus_load.flows.signal_subentry import (  # noqa: E402
+from custom_components.nimbus_load.flows.signal_subentry import (
     NimbusSignalSubentryFlowHandler,
 )
 

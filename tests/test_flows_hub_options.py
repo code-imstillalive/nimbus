@@ -17,14 +17,14 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ha_stubs import install_ha_stubs  # noqa: E402
+from _ha_stubs import install_ha_stubs
 
 install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import voluptuous as vol  # noqa: E402
+import voluptuous as vol
 
-from custom_components.nimbus_load.const import (  # noqa: E402
+from custom_components.nimbus_load.const import (
     CONF_BATTERY_SENSOR,
     CONF_FORECAST_HORIZON_HOURS,
     CONF_SOLVER_BATTERY_SOC_SENSOR,
@@ -42,7 +42,7 @@ from custom_components.nimbus_load.const import (  # noqa: E402
     CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR,
     CONF_TEMPERATURE_SENSOR,
 )
-from custom_components.nimbus_load.flows.hub_options import (  # noqa: E402
+from custom_components.nimbus_load.flows.hub_options import (
     NimbusHubOptionsFlow,
     _energy_dashboard_switchboard_suggestions,
     _forecaster_schema,
@@ -412,7 +412,7 @@ def _hass_with_states(states: dict):
 
 def test_suggests_grid_import_and_export_when_type_and_class_match():
     import asyncio
-    from unittest.mock import patch, AsyncMock
+    from unittest.mock import AsyncMock, patch
 
     states = dict(
         [
@@ -445,7 +445,7 @@ def test_suggests_grid_import_and_export_when_type_and_class_match():
 
 def test_suggests_solar_and_battery_when_type_and_class_match():
     import asyncio
-    from unittest.mock import patch, AsyncMock
+    from unittest.mock import AsyncMock, patch
 
     states = dict(
         [
@@ -485,7 +485,7 @@ def test_wrong_device_class_is_never_suggested():
     # sensor that is genuinely the wrong KIND (e.g. a power sensor, or a
     # HAEO plan/forecast sensor) must never be proposed at all.
     import asyncio
-    from unittest.mock import patch, AsyncMock
+    from unittest.mock import AsyncMock, patch
 
     states = dict(
         [_energy_state("sensor.actually_a_power_sensor", "power", "measurement")]
@@ -508,7 +508,7 @@ def test_wrong_device_class_is_never_suggested():
 
 def test_wrong_state_class_is_never_suggested():
     import asyncio
-    from unittest.mock import patch, AsyncMock
+    from unittest.mock import AsyncMock, patch
 
     states = dict([_energy_state("sensor.instantaneous_only", "energy", "measurement")])
     hass = _hass_with_states(states)
@@ -529,7 +529,7 @@ def test_wrong_state_class_is_never_suggested():
 
 def test_no_energy_dashboard_configured_degrades_to_empty_not_a_crash():
     import asyncio
-    from unittest.mock import patch, AsyncMock
+    from unittest.mock import AsyncMock, patch
 
     hass = _hass_with_states({})
     manager = MagicMock(data={})  # nothing configured at all
@@ -547,7 +547,7 @@ def test_manager_api_failure_degrades_to_empty_never_raises():
     # any failure here (component not loaded, shape changed) must never
     # break the wizard.
     import asyncio
-    from unittest.mock import patch, AsyncMock
+    from unittest.mock import AsyncMock, patch
 
     hass = _hass_with_states({})
     with patch(
@@ -563,7 +563,7 @@ def test_switchboard_step_prefers_saved_value_over_energy_dashboard_suggestion()
     # value must never be silently overwritten by a fresh suggestion,
     # every single time this form is opened.
     import asyncio
-    from unittest.mock import patch, AsyncMock
+    from unittest.mock import AsyncMock, patch
 
     flow = _make_flow(
         options={
@@ -597,7 +597,7 @@ def test_switchboard_step_prefers_saved_value_over_energy_dashboard_suggestion()
 
 def test_switchboard_step_fills_a_genuine_gap_with_a_suggestion():
     import asyncio
-    from unittest.mock import patch, AsyncMock
+    from unittest.mock import AsyncMock, patch
 
     flow = _make_flow(options={})  # nothing saved yet at all
     manager = MagicMock(

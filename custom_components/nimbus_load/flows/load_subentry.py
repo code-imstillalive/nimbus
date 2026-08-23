@@ -17,13 +17,13 @@ from __future__ import annotations
 
 from typing import Any
 
+import voluptuous as vol
 from homeassistant.config_entries import (
     SOURCE_RECONFIGURE,
     ConfigSubentryFlow,
     SubentryFlowResult,
 )
 from homeassistant.helpers import selector
-import voluptuous as vol
 
 from ..const import (
     CONF_EXPECTED_LOAD_KW,
@@ -31,7 +31,6 @@ from ..const import (
     CONF_SCHEDULE_END_HOUR,
     CONF_SCHEDULE_START_HOUR,
 )
-
 
 # REVERTED from a real HH:MM TimeSelector back to a plain 24-hour decimal
 # number box. Confirmed live 2026-08-15: HA's TimeSelector renders in

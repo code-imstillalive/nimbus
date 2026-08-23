@@ -44,15 +44,14 @@ from pathlib import Path
 from unittest.mock import MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import _solver_path  # noqa: E402, F401  -- side-effect: puts solver/ + ml/ on sys.path
-from _ha_stubs import install_ha_stubs  # noqa: E402
+import _solver_path  # noqa: F401  -- side-effect: puts solver/ + ml/ on sys.path
+from _ha_stubs import install_ha_stubs
 
 install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from custom_components.nimbus_load import sensor, solver_writer  # noqa: E402
-from custom_components.nimbus_load.const import DOMAIN  # noqa: E402
-
+from custom_components.nimbus_load import sensor, solver_writer
+from custom_components.nimbus_load.const import DOMAIN
 
 # --- helpers ---------------------------------------------------------------
 

@@ -131,7 +131,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: NimbusConfigEntry) -> bo
     # reconciles cleanly instead of a rename racing entity creation.
     try:
         await _async_rename_stale_forecast_entities(hass, entry)
-    except Exception:  # noqa: BLE001 -- see this function's own module-
+    except Exception:
         # level reasoning: cosmetic entity-naming drift is real but never
         # worth taking the whole hub down over if something unexpected
         # happens here. Logged loudly, not silently swallowed.
