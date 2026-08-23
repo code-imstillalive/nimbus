@@ -87,11 +87,62 @@ from .const import (
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_2,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_3,
     CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR,
+    CONF_BATTERY_TOWER_POWER_SOURCE,
+    CONF_BATTERY_TOWER_SOC_SENSOR,
+    CONF_BATTERY_TOWER_SOH_SENSOR,
+    CONF_BATTERY_TOWER_TEMPERATURE_SENSOR,
+    CONF_BATTERY_TOWER_VOLTAGE_SENSOR,
+    CONF_POWER_SOURCE_BATTERY_SENSOR,
+    CONF_POWER_SOURCE_DC_SENSOR,
+    CONF_POWER_SOURCE_NAME,
+    CONF_PV_STRING_ENTITY,
+    CONF_PV_STRING_LABEL,
+    CONF_PV_STRING_POWER_SOURCE,
+    CONF_SWITCHBOARD_BATTERY_CHARGE_DAILY_SENSOR,
+    CONF_SWITCHBOARD_BATTERY_DISCHARGE_DAILY_SENSOR,
+    CONF_SWITCHBOARD_BATTERY_POWER_SENSOR,
+    CONF_SWITCHBOARD_EXPORT_ENERGY_DAILY_SENSOR,
+    CONF_SWITCHBOARD_EXPORT_PRICE_SENSOR,
+    CONF_SWITCHBOARD_GRID_METER_SENSOR,
+    CONF_SWITCHBOARD_HOUSE_LOAD_ENERGY_DAILY_SENSOR,
+    CONF_SWITCHBOARD_IMPORT_ENERGY_DAILY_SENSOR,
+    CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR,
+    CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR,
     DOMAIN,
+    SUBENTRY_TYPE_BATTERY_TOWER,
     SUBENTRY_TYPE_LOAD,
+    SUBENTRY_TYPE_POWER_SOURCE,
+    SUBENTRY_TYPE_PV_STRING,
     SUBENTRY_TYPE_SIGNAL,
 )
 from .coordinator import NimbusConfigEntry, NimbusCoordinator
+
+# All real fields a topology-metadata subentry can carry, keyed by its
+# own subentry_type -- see NimbusTopologyConfigSensor's own docstring
+# for why these need bridging out to a plain sensor the same way the
+# Solver's own hub-level options do (config_entries.subentries is not
+# exposed via HA's plain REST API either, same root constraint).
+_POWER_SOURCE_KEYS = (CONF_POWER_SOURCE_NAME, CONF_POWER_SOURCE_BATTERY_SENSOR, CONF_POWER_SOURCE_DC_SENSOR)
+_PV_STRING_KEYS = (CONF_PV_STRING_ENTITY, CONF_PV_STRING_LABEL, CONF_PV_STRING_POWER_SOURCE)
+_BATTERY_TOWER_KEYS = (
+    CONF_BATTERY_TOWER_SOC_SENSOR,
+    CONF_BATTERY_TOWER_SOH_SENSOR,
+    CONF_BATTERY_TOWER_VOLTAGE_SENSOR,
+    CONF_BATTERY_TOWER_TEMPERATURE_SENSOR,
+    CONF_BATTERY_TOWER_POWER_SOURCE,
+)
+_SWITCHBOARD_KEYS = (
+    CONF_SWITCHBOARD_GRID_METER_SENSOR,
+    CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR,
+    CONF_SWITCHBOARD_EXPORT_PRICE_SENSOR,
+    CONF_SWITCHBOARD_BATTERY_POWER_SENSOR,
+    CONF_SWITCHBOARD_IMPORT_ENERGY_DAILY_SENSOR,
+    CONF_SWITCHBOARD_EXPORT_ENERGY_DAILY_SENSOR,
+    CONF_SWITCHBOARD_HOUSE_LOAD_ENERGY_DAILY_SENSOR,
+    CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR,
+    CONF_SWITCHBOARD_BATTERY_CHARGE_DAILY_SENSOR,
+    CONF_SWITCHBOARD_BATTERY_DISCHARGE_DAILY_SENSOR,
+)
 
 # All real work (the retrain/inference cycle) happens once per coordinator,
 # already serialized by its own async_track_time_change/interval scheduling
@@ -291,6 +342,17 @@ async def async_setup_entry(
     # attributes are always current with zero extra update-listener
     # plumbing needed here.
     async_add_entities([NimbusSolverConfigSensor(entry, sw_version)])
+
+    # Same "one per hub" reasoning as NimbusSolverConfigSensor above --
+    # topology-card-v4.js's own live discovery (_discoverLoads()) works
+    # for Load subentries because every one of those publishes a real
+    # sensor.nimbus_*_forecast entity to scan hass.states for. Power
+    # Source / PV String / Battery Tower subentries publish NOTHING --
+    # they're pure wiring metadata, no coordinator, no forecast, by
+    # design (see const.py's own comment above SUBENTRY_TYPE_POWER_
+    # SOURCE) -- so without this bridge the topology card would have no
+    # way to see them at all.
+    async_add_entities([NimbusTopologyConfigSensor(entry, sw_version)])
 
 
 class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
@@ -510,3 +572,72 @@ class NimbusSolverConfigSensor(SensorEntity):
     @property
     def extra_state_attributes(self) -> dict:
         return {key: self._resolve(key) for key in _SOLVER_ALL_KEYS}
+
+
+class NimbusTopologyConfigSensor(SensorEntity):
+    """Bridges Power Source / PV String / Battery Tower subentries
+    (config_entries.subentries) plus the hub-level switchboard fields
+    (entry.options) out to a plain sensor -- same root reason
+    NimbusSolverConfigSensor exists (2026-08-23): neither
+    config_entries.subentries nor .options is exposed via HA's plain
+    REST API, and topology-card-v4.js's own live-discovery mechanism
+    (_discoverLoads()) only works for subentry types that publish a
+    real forecast sensor to scan hass.states for -- these three
+    genuinely don't (pure wiring metadata, no coordinator at all).
+
+    One per hub, not per subentry -- unlike NimbusForecastSensor (one
+    real entity per load, since each load genuinely has its own
+    forecast to publish), there's nothing per-subentry worth its own
+    HA entity here; the topology card needs the whole wiring picture
+    in one read, not N separate small sensors it would have to
+    reassemble itself.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Topology Config"
+    _attr_entity_category = None  # a real, actively-read data source, not a diagnostic
+
+    def __init__(self, entry: NimbusConfigEntry, sw_version: str | None) -> None:
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_topology_config"
+        self.entity_id = "sensor.nimbus_topology_config"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+            name="Nimbus",
+            manufacturer="Nimbus",
+            model="Hub",
+            sw_version=sw_version,
+        )
+
+    @property
+    def native_value(self) -> int:
+        """Count of configured Power Source (inverter) subentries --
+        the one number that answers "is there anything here at all"
+        without a caller needing to inspect the attribute lists
+        first."""
+        return sum(
+            1 for s in self._entry.subentries.values() if s.subentry_type == SUBENTRY_TYPE_POWER_SOURCE
+        )
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        power_sources, pv_strings, battery_towers = [], [], []
+        for subentry in self._entry.subentries.values():
+            if subentry.subentry_type == SUBENTRY_TYPE_POWER_SOURCE:
+                power_sources.append(
+                    {"subentry_id": subentry.subentry_id, **{k: subentry.data.get(k) for k in _POWER_SOURCE_KEYS}}
+                )
+            elif subentry.subentry_type == SUBENTRY_TYPE_PV_STRING:
+                pv_strings.append(
+                    {"subentry_id": subentry.subentry_id, **{k: subentry.data.get(k) for k in _PV_STRING_KEYS}}
+                )
+            elif subentry.subentry_type == SUBENTRY_TYPE_BATTERY_TOWER:
+                battery_towers.append(
+                    {"subentry_id": subentry.subentry_id, **{k: subentry.data.get(k) for k in _BATTERY_TOWER_KEYS}}
+                )
+        return {
+            "power_sources": power_sources,
+            "pv_strings": pv_strings,
+            "battery_towers": battery_towers,
+            "switchboard": {k: self._entry.options.get(k) for k in _SWITCHBOARD_KEYS},
+        }
