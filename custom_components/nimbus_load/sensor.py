@@ -26,7 +26,7 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.config_entries import ConfigSubentry
 from homeassistant.const import UnitOfPower
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
@@ -854,10 +854,30 @@ class _NimbusSolverPushSensor(SensorEntity):
     def extra_state_attributes(self) -> dict:
         return self._attrs
 
+    @callback
     def update_from_solver(self, state, attributes: dict) -> None:
         """Called on the event loop by solver_writer.ha_post_state()'s
         dispatch table (via hass.add_job) after each solve. Stores the
         fresh state and attributes and asks HA to publish them.
+
+        @callback is not decoration, it's the actual fix for a real,
+        live-breaking bug (issue #82, found by Mark Purcell's own real
+        v0.73.0 install -- both push sensors stuck at `unknown` forever,
+        every single solve tick crashing). Root cause: hass.add_job()
+        inspects its target's own HassJob type to decide how to run it --
+        a coroutine gets scheduled as a task, something marked @callback
+        runs directly via loop.call_soon(), but a PLAIN, undecorated sync
+        method (what this was, the whole time since PR #77 first shipped
+        it) gets treated as potentially-blocking and dispatched to HA's
+        executor THREAD POOL instead. Once there, this method's own
+        async_write_ha_state() call below -- which genuinely requires the
+        event loop -- raised RuntimeError on every single call, silently
+        (HA logs "Future exception was never retrieved," not a crash
+        anyone would necessarily notice without watching the log). This
+        method has always been fast, non-blocking, pure state-machine
+        work (matching async_write_ha_state()'s own @callback contract
+        on Entity) -- @callback is the textbook-correct fix, not new
+        behaviour.
 
         Silently drops the update if the entity has not been added to
         hass yet -- the very-first solve after a config-entry setup can
@@ -909,10 +929,23 @@ class _NimbusSolverPushSensor(SensorEntity):
             )
         )
 
+    @callback
     def _async_recheck_availability(self, now) -> None:
         """Same Silver fix's log-when-unavailable pairing as
         NimbusForecastSensor -- logs exactly once on a genuine
-        transition in either direction, never per-tick."""
+        transition in either direction, never per-tick.
+
+        @callback for the same real reason as update_from_solver() above
+        (see its own comment for the full issue #82 story) -- this
+        method is registered directly as async_track_time_interval's own
+        callback, and ALSO ends with an async_write_ha_state() call.
+        Undecorated, HA's own job-type detection would have routed every
+        single tick to the executor thread pool too -- a second instance
+        of the exact same bug class, in code that's never been live-
+        tested yet (this whole staleness mechanism shipped the same
+        session as this fix), caught here proactively rather than
+        waiting to hit it live a second time.
+        """
         now_available = self.available
         if self._was_available is not None and now_available != self._was_available:
             if now_available:

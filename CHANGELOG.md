@@ -10,6 +10,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.73.1] — 2026-08-23
+
+### Fixed
+- **Critical**: `sensor.nimbus_solver_battery_forecast` and `sensor.nimbus_household_load_total_forecast` were stuck at `unknown` forever, crashing on every single solve tick, on any real (non-test-stub) Home Assistant instance — found by Mark Purcell's own live v0.73.0 install within hours of release ([#82](https://github.com/code-imstillalive/nimbus/issues/82)). Root cause: `update_from_solver()` (the entity method `solver_writer.ha_post_state()`'s dispatch table calls via `hass.add_job()`) and `_async_recheck_availability()` (registered directly as `async_track_time_interval`'s own callback) were both plain, undecorated methods — real HA's `add_job()` inspects a target for the `_hass_callback` marker to decide whether to run it directly on the event loop or dispatch it to the executor thread pool; undecorated, both were routed to a worker thread, where their own `async_write_ha_state()` call (genuinely requires the event loop) raised `RuntimeError` silently on every call. Fixed by marking both `@callback`, the textbook-correct fix for a fast, non-blocking, pure state-machine method. Neither the unit test suite nor its `homeassistant.core.callback` stub (previously a plain identity lambda) could have caught this — the stub is now a faithful replica of real HA's own marker-setting behaviour, and two new regression tests assert the marker directly.
+
 ## [0.73.0] — 2026-08-23
 
 ### Deprecated

@@ -23,6 +23,16 @@ async def _noop_async_added_to_hass(self) -> None:
     pass
 
 
+def _stub_callback(func):
+    """Real HA's homeassistant.core.callback -- setattr(func,
+    "_hass_callback", True), verified against HA core's own current
+    source (2026-08-23, chasing issue #82). See install_ha_stubs()'s own
+    comment on why an identity-only stand-in was a real, proven-wrong
+    gap, not a harmless simplification."""
+    func._hass_callback = True
+    return func
+
+
 def _stub_async_on_remove(self, func) -> None:
     """Real Entity.async_on_remove(func) contract: store func, call it
     (in reverse-registration order, in the real base class) when the
@@ -377,10 +387,19 @@ def install_ha_stubs() -> None:
     module(
         "homeassistant.core",
         HomeAssistant=_generic_stub_class("HomeAssistant"),
-        # Real HA's @callback just marks a function as event-loop-safe and
-        # returns it unchanged -- a plain identity decorator is a faithful
-        # stand-in, not a simplification that loses real behavior.
-        callback=lambda func: func,
+        # Real, load-bearing behaviour, NOT just "marks a function and
+        # returns it unchanged" (that was this comment's own claim before
+        # issue #82, 2026-08-23 -- a real, live-breaking bug in this
+        # exact area proved it wrong: a plain identity lambda has zero
+        # ability to catch a missing @callback, because hass.add_job()'s
+        # REAL implementation inspects a function for the _hass_callback
+        # attribute specifically to decide whether to run it directly on
+        # the event loop or dispatch it to the executor thread pool --
+        # confirmed via HA core's own real source. Sets the identical
+        # attribute HA's own decorator sets, so a test can genuinely
+        # assert "this method is safe to call from hass.add_job()" the
+        # same way real HA's own job-dispatch logic would check.
+        callback=_stub_callback,
     )
     module("homeassistant.helpers")
     # DeviceInfo is a TypedDict in real HA -- calling it like DeviceInfo(x=1)
