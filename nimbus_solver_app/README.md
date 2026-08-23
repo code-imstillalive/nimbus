@@ -1,12 +1,28 @@
 # Nimbus Solver (app)
 
+> **DEPRECATED as of v0.73.0 (2026-08-23) — will be REMOVED in v1.0.0.** The Nimbus HACS
+> integration now runs the Solver natively in-process on HAOS
+> (`custom_components/nimbus_load/solver_runtime.py`, one-minute timer, `highspy`
+> auto-installed as a `manifest.json` requirement). That path covers every architecture
+> this add-on covers (`amd64`/`aarch64` — everywhere `highspy` has a published wheel) with
+> less operational overhead and no three-way copy discipline. See the top-level README's
+> **Producing a live dispatch forecast** section for the native install, or
+> `docs/real-world-integration/` for the standalone off-host script if you want the Solver
+> running on a separate always-on device rather than inside HA's own process. Tracking
+> issue: [#76](https://github.com/code-imstillalive/nimbus/issues/76).
+>
+> **If you have this add-on installed today:** uninstall it (Settings → Add-ons → Nimbus
+> Solver → Uninstall) and finish the Nimbus integration's own **Solver settings** wizard
+> under Settings → Devices & services → Nimbus → Configure — the native path takes over
+> the same `sensor.nimbus_solver_*` outputs with no config migration needed.
+
 Runs [Nimbus](https://github.com/code-imstillalive/nimbus)'s LP battery/grid dispatch Solver
 against your live Home Assistant sensors on a schedule, and publishes the result to
 `sensor.nimbus_solver_battery_forecast` — same script, same output, as the reference NUC-cron
 deployment documented in `docs/real-world-integration/`, just packaged to run anywhere a real
 Home Assistant Supervisor can install and run an app/add-on, including Home Assistant OS.
 
-## Why this exists
+## Why this exists (historical)
 
 The Nimbus integration itself (installed separately via HACS — see the top-level README's
 own "Install (HACS)" and "Solver" sections) works everywhere, HAOS included. But *producing*

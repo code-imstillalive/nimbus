@@ -84,15 +84,22 @@ this private repo — Supervisor's own "Add repository" flow does a raw, unauthe
 clone with no token support at all, so it can't reach a private repo regardless of HACS
 itself working fine.
 
-Two older, still fully supported paths remain, for anything the native path can't cover
-(genuinely no `highspy` wheel for your architecture; you'd rather run the Solver on a
-separate always-on device than inside HA's own process): a standalone Python script
-(`nimbus_solver_forecast_writer.py`, real shell + cron access, any always-on device on the
-same network, not just the HA host — see its own header docstring for the full deploy story),
-or `nimbus_solver_app` (a proper Docker-packaged HAOS Supervisor add-on running that same
-script). All three paths run the exact same, byte-identical solve logic — see
-`solver_writer.py`'s own "PURE INTEGRATION seam" comment for how one script serves all three
-without being forked three ways.
+One older, still fully supported path remains, for the one case the native path genuinely
+can't cover — you'd rather run the Solver on a separate always-on device than inside HA's
+own process: the standalone Python script (`nimbus_solver_forecast_writer.py`, real shell +
+cron access, any always-on device on the same network, not just the HA host — see its own
+header docstring for the full deploy story). Both paths run the exact same, byte-identical
+solve logic — see `solver_writer.py`'s own "PURE INTEGRATION seam" comment for how one
+script serves both without being forked.
+
+**Deprecated (2026-08-23):** the third path, `nimbus_solver_app` (a Supervisor add-on that
+wrapped the same standalone script for HAOS), is deprecated as of v0.73.0 and will be
+removed in v1.0.0 — the native in-process path above covers every architecture the add-on
+covered (both need a `highspy` wheel, so both are amd64/aarch64 only), with no separate
+container, no version-lockstep discipline, and no three-way copy sync. If you have it
+installed: uninstall it and finish the integration's own Solver settings wizard — the
+native path takes over the same `sensor.nimbus_solver_*` outputs with no config migration
+needed. Tracking: [#76](https://github.com/code-imstillalive/nimbus/issues/76).
 
 A real, working (if household-specific) copy of that script, plus the LP-audit research
 scripts used to validate it, live in `docs/real-world-integration/` — read that folder's own
