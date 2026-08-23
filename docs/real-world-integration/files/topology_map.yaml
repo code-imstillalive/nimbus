@@ -1,11 +1,46 @@
-# Topology skeleton — source of truth for the real switchboard wiring.
+# !!! DO NOT COPY THIS FILE VERBATIM FOR YOUR OWN INSTALL !!!
+#
+# This is 116KAT's OWN real hardware — its actual, literal sensor entity
+# IDs (sensor.battery_power_signed_inv1, sensor.string3_power_inv1, etc.)
+# for ONE specific household's Sungrow inverter setup. None of these
+# entities exist on your system. Copying this file as-is will produce an
+# empty/broken topology card, not a working one.
+#
+# THE REAL, PORTABLE WAY TO CONFIGURE YOUR OWN TOPOLOGY: Nimbus's own
+# hub -> Configure -> "Solver settings" -> Topology wizard (Power
+# Source / PV String / Battery Tower / Switchboard steps -- real HA UI
+# forms, your own entity pickers, your own real sensors). The wizard's
+# live-discovered data (exposed via sensor.nimbus_topology_config,
+# NimbusTopologyConfigSensor) WHOLESALE-OVERRIDES this file the moment
+# even one Power Source subentry exists -- topology-card-v4.js's own
+# _discoverTopologyConfig() checks for that first, on every render, and
+# only ever falls back to a static file like this one if the wizard has
+# genuinely never been run. This is the only file `topology-card-v4.js`
+# needs zero configuration for -- it has no hardcoded device-entity
+# reference anywhere in its own JS logic; every sensor.* it displays
+# comes from whatever config reaches it (live wizard data, or a static
+# file like this).
+#
+# What this file IS actually useful for: a real, worked, end-to-end
+# example of the shape the wizard produces -- read it to understand the
+# fields, not to fill in your own entity IDs by hand. If you never run
+# the wizard, it also serves as `lovelace_build_topology_dashboard.py`'s
+# initial-generate INPUT (the very first version of the dashboard view,
+# before any live data exists to override it) -- for that purpose alone,
+# you WOULD need to replace every sensor.* below with your own real
+# entities. The wizard is still the easier, recommended path; editing
+# this file by hand is the fallback for anyone who'd rather not use a
+# config-flow UI.
 #
 # NOT a live HA package (not loaded via !include_dir_named integrations) —
 # a plain data file, read by scripts/lovelace_build_topology_dashboard.py to
-# generate the topology dashboard view. Adding a new PV string or battery
-# tower (genuine physical wiring facts — not something any sensor naming
-# convention could infer) means adding an entry here and re-running that
-# script — never hand-edit dashboard cards for this view directly.
+# generate the topology dashboard view's INITIAL card config (the live
+# per-render wizard discovery above then overrides it, for any install
+# that has migrated). Adding a new PV string or battery tower to a
+# static-file-only setup (genuine physical wiring facts — not something
+# any sensor naming convention could infer) means adding an entry here
+# and re-running that script — never hand-edit dashboard cards for this
+# view directly.
 #
 # LOADS ARE THE ONE EXCEPTION — deliberately NOT listed here since 2026-08-20
 # (v7 of topology-card-v4.js). Every Nimbus "load" subentry (HWS, pool, an

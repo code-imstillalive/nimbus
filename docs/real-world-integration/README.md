@@ -90,21 +90,40 @@ Switchboard bus, Inverters, PV strings, battery towers, Grid, and every
 Nimbus Load, with live proportional color-mixing showing what's
 actually supplying the bus right now.
 
-`topology_map.yaml` is the real, hand-confirmed physical wiring facts
-(which PV strings are active, which battery towers belong to which
-inverter, which entities are the real measurements vs. HAEO's own
-plan/forecast sensors) — genuinely can't be inferred from sensor
-naming alone, has to be confirmed against the real hardware once. Read
-its own header comment for the full story. As of the current version,
-**loads are the one thing NOT in this file** — every Nimbus load
-subentry (HWS, pool, any circuit breaker) auto-publishes its own
-forecast sensor, and the card discovers all of them directly from live
-`hass.states` on every render, no config file edit needed. See
-`topology-card-v4.js`'s own `_discoverLoads()` for the mechanism (a
-deterministic entity_id transform, not a guess).
+**The card's own JS has zero hardcoded device-entity references —
+every `sensor.*` it displays comes from configuration, never a
+built-in assumption.** Two sources feed that configuration, and the
+recommended one needs no file edits at all:
+
+1. **Recommended: Nimbus's own hub -> Configure -> "Solver settings" ->
+   Topology wizard** (Power Source / PV String / Battery Tower /
+   Switchboard steps — real HA UI forms with real entity pickers for
+   *your* system). The moment even one Power Source subentry exists,
+   the card's own `_discoverTopologyConfig()` reads it live from
+   `sensor.nimbus_topology_config` on every render and wholesale-
+   overrides everything below — no file to edit, no redeploy, no
+   restart.
+2. **Fallback: `topology_map.yaml`** — a plain data file, only used
+   before the wizard's ever been run. **This copy in the repo is
+   116KAT's own real hardware's literal entity IDs — read its own
+   header comment before touching it, do not copy it verbatim
+   expecting it to work on your system.** Use the wizard instead;
+   this file exists as a worked example of the shape, and as
+   `lovelace_build_topology_dashboard.py`'s initial-generate input for
+   anyone who'd genuinely rather hand-edit YAML than use a config-flow
+   UI.
+
+**Loads are the one thing never in either source above** — every
+Nimbus load subentry (HWS, pool, any circuit breaker) auto-publishes
+its own forecast sensor, and the card discovers all of them directly
+from live `hass.states` on every render, fully independent of both the
+wizard and the static file. See `topology-card-v4.js`'s own
+`_discoverLoads()` for the mechanism (a deterministic entity_id
+transform, not a guess).
 
 `lovelace_build_topology_dashboard.py` is the generator that turns
-`topology_map.yaml` into the actual dashboard view config.
+`topology_map.yaml` into the dashboard view's *initial* card config —
+only relevant if you're going the fallback/hand-edit route above.
 
 **2026-08-22 update, worth knowing if your own inverter has a real DC
 power sensor:** each inverter's header used to show only its signed
