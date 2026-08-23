@@ -87,6 +87,27 @@ dev = [
     # on Python 3.13. 0.13.357 pins homeassistant==2026.8.3, which is
     # the core series this integration is actually installed on.
     "pytest-homeassistant-custom-component==0.13.357",
+    # Real, separate PyPI package (NOT bundled by pytest-homeassistant-
+    # custom-component -- confirmed missing live in CI, 2026-08-23:
+    # `ERROR: Error during setup of component frontend: No module
+    # named 'hass_frontend'`). HA core's own `frontend` component
+    # imports `hass_frontend` (the compiled static-asset bundle) at
+    # homeassistant/components/frontend/__init__.py's own
+    # `_frontend_root()`, unconditionally, well before anything
+    # reaches `add_extra_js_url()` -- so calling the real
+    # `async_setup_component(hass, "frontend", {})` (needed to test
+    # frontend.py's async_register_frontend(), which this repo's own
+    # topology-card integration genuinely calls) hard-requires this
+    # package to be importable, unlike almost every other custom
+    # integration test, which never touches `frontend` at all.
+    # Deliberately unpinned -- unlike homeassistant itself (which the
+    # exact-pinned pytest-homeassistant-custom-component above needs
+    # to match 1:1, since it dictates the real API surface under
+    # test), our own tests never read a single actual frontend asset
+    # file; we only need hass_frontend.where() to resolve to SOME
+    # real, importable directory so StaticPathConfig registration
+    # (a route registration, not a file existence check) succeeds.
+    "home-assistant-frontend",
 ]
 
 [project.urls]
