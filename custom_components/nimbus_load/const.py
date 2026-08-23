@@ -376,7 +376,9 @@ CONF_SOLVER_LOAD_FORECAST_ENTITIES: Final = "solver_load_forecast_entities"
 # silently produced a permanently-null whole_house_cross_check_now_kw
 # attribute on every other install. Genuinely optional -- None/blank is a
 # clean no-op (the cross-check simply doesn't run), not a degraded mode.
-CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR: Final = "solver_whole_house_cross_check_sensor"
+CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR: Final = (
+    "solver_whole_house_cross_check_sensor"
+)
 # Economic POLICY, not hardware -- how cautious the solver should be
 # about cycling the battery. Real, non-obvious history worth remembering
 # if these are ever misconfigured: a household running this same solver

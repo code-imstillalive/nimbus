@@ -19,7 +19,7 @@ name: CI
 #
 # Follow-up PRs will replace the ` || true` sink with the real strict
 # invocation once each underlying issue is addressed:
-#   - Lint / Format          -- after a repo-wide ruff format pass
+#   - Lint / Format          -- DONE (this PR: ruff format repo-wide + 1 F401 + 3 E402 noqa placement)
 #   - Type Check             -- after the 33 mypy findings are triaged (see #40 Platinum work)
 #   - Unit Tests             -- after test dependencies are pinned in a pyproject.toml
 #   - Add-on Build           -- after #48 fixes the Dockerfile build context
@@ -54,14 +54,15 @@ jobs:
         uses: home-assistant/actions/hassfest@master
 
   # ---------------------------------------------------------------------------
-  # ADVISORY: Lint (ruff format + ruff check).
-  # Format check will report 33 files needing reformat until a repo-wide
-  # `ruff format` PR lands. `ruff check` currently reports 1 unused-variable
-  # finding in solver/lp.py.
+  # STRICT: Lint (ruff format + ruff check).
+  # Flipped from advisory in the same PR that ran `ruff format` repo-wide
+  # and cleared the 1 F401 unused-import + 3 E402 noqa-placement findings
+  # uncovered by the format pass. F841 in solver/lp.py was fixed upstream
+  # in an earlier merge. Any future regression should block merge.
   # ---------------------------------------------------------------------------
 
   lint:
-    name: Lint (ruff) [advisory]
+    name: Lint (ruff)
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
@@ -72,16 +73,10 @@ jobs:
           python-version: "3.13"
       - name: Install ruff
         run: pip install ruff
-      - name: Ruff format check (advisory)
-        # `|| true` (not continue-on-error: true) deliberately -- GitHub
-        # still marks a continue-on-error step as failed in the Files/
-        # Summary annotation view even though the JOB itself passes; the
-        # step exiting 0 on its own is what actually produces a clean,
-        # annotation-free green check. Real output (which files need
-        # reformatting) is still fully visible in the log either way.
-        run: ruff format --check custom_components/ tests/ || true
-      - name: Ruff lint (advisory)
-        run: ruff check custom_components/ tests/ || true
+      - name: Ruff format check
+        run: ruff format --check custom_components/ tests/
+      - name: Ruff lint
+        run: ruff check custom_components/ tests/
 
   # ---------------------------------------------------------------------------
   # ADVISORY: Type Check (mypy).

@@ -8,6 +8,7 @@ objects, via tests/_ha_stubs.py's stand-in homeassistant.* modules --
 the real `homeassistant` package isn't installed in this project's local
 dev environment.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -43,10 +44,12 @@ def _make_registry(entity_id_lookup: dict, existing_entities: set) -> MagicMock:
     existing_entities: entity_ids that already exist (async_get(x) is truthy)
     """
     registry = MagicMock()
-    registry.async_get_entity_id.side_effect = lambda domain, platform, uid: entity_id_lookup.get(
-        (domain, platform, uid)
+    registry.async_get_entity_id.side_effect = lambda domain, platform, uid: (
+        entity_id_lookup.get((domain, platform, uid))
     )
-    registry.async_get.side_effect = lambda entity_id: (object() if entity_id in existing_entities else None)
+    registry.async_get.side_effect = lambda entity_id: (
+        object() if entity_id in existing_entities else None
+    )
     return registry
 
 
@@ -59,7 +62,9 @@ def _run(hass, entry, registry) -> MagicMock:
 
 
 def test_stale_entity_id_gets_renamed_when_target_is_free():
-    sub = _make_subentry("abc123", SUBENTRY_TYPE_SIGNAL, "sensor.cb_total_combined_power_adjusted_kw")
+    sub = _make_subentry(
+        "abc123", SUBENTRY_TYPE_SIGNAL, "sensor.cb_total_combined_power_adjusted_kw"
+    )
     entry = MagicMock()
     entry.subentries = {"abc123": sub}
     old_id = "sensor.nimbus_logger_load_power_forecast"
@@ -69,7 +74,8 @@ def test_stale_entity_id_gets_renamed_when_target_is_free():
     )
     registry = _run(hass=MagicMock(), entry=entry, registry=registry)
     registry.async_update_entity.assert_called_once_with(
-        old_id, new_entity_id="sensor.nimbus_cb_total_combined_power_adjusted_kw_forecast"
+        old_id,
+        new_entity_id="sensor.nimbus_cb_total_combined_power_adjusted_kw_forecast",
     )
 
 
@@ -87,14 +93,18 @@ def test_already_correct_entity_id_is_a_no_op():
 
 
 def test_collision_with_existing_entity_blocks_the_rename():
-    sub = _make_subentry("abc123", SUBENTRY_TYPE_SIGNAL, "sensor.cb_total_combined_power_adjusted_kw")
+    sub = _make_subentry(
+        "abc123", SUBENTRY_TYPE_SIGNAL, "sensor.cb_total_combined_power_adjusted_kw"
+    )
     entry = MagicMock()
     entry.subentries = {"abc123": sub}
     old_id = "sensor.nimbus_logger_load_power_forecast"
     target_id = "sensor.nimbus_cb_total_combined_power_adjusted_kw_forecast"
     registry = _make_registry(
         entity_id_lookup={("sensor", DOMAIN, "abc123_signal_forecast"): old_id},
-        existing_entities={target_id},  # something else already lives at the target name
+        existing_entities={
+            target_id
+        },  # something else already lives at the target name
     )
     registry = _run(hass=MagicMock(), entry=entry, registry=registry)
     registry.async_update_entity.assert_not_called()

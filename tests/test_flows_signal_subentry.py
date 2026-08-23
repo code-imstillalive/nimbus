@@ -8,6 +8,7 @@ plain default=, unlike load_subentry.py's schedule/expected-load fields).
 Imports and exercises the REAL methods (not a reimplementation) against
 real `voluptuous` and tests/_ha_stubs.py's stand-in homeassistant.* modules.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -22,7 +23,9 @@ install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from custom_components.nimbus_load.const import CONF_LOAD_SENSOR  # noqa: E402
-from custom_components.nimbus_load.flows.signal_subentry import NimbusSignalSubentryFlowHandler  # noqa: E402
+from custom_components.nimbus_load.flows.signal_subentry import (  # noqa: E402
+    NimbusSignalSubentryFlowHandler,
+)
 
 
 def _make_flow(source: str = "user") -> NimbusSignalSubentryFlowHandler:
@@ -34,7 +37,9 @@ def _make_flow(source: str = "user") -> NimbusSignalSubentryFlowHandler:
 
 def test_derive_title_uses_friendly_name_when_present():
     flow = _make_flow()
-    flow.hass.states.get.return_value = MagicMock(attributes={"friendly_name": "Logger Battery Power"})
+    flow.hass.states.get.return_value = MagicMock(
+        attributes={"friendly_name": "Logger Battery Power"}
+    )
     assert flow._derive_title("sensor.battery_power") == "Logger Battery Power"
 
 
@@ -54,7 +59,9 @@ def test_fresh_add_with_no_input_shows_the_form():
 def test_fresh_add_with_input_creates_a_new_entry():
     flow = _make_flow(source="user")
     flow.hass.states.get.return_value = None
-    result = asyncio.run(flow.async_step_user({CONF_LOAD_SENSOR: "sensor.battery_power"}))
+    result = asyncio.run(
+        flow.async_step_user({CONF_LOAD_SENSOR: "sensor.battery_power"})
+    )
     assert result["type"] == "create_entry"
     assert result["data"] == {CONF_LOAD_SENSOR: "sensor.battery_power"}
 
@@ -86,7 +93,9 @@ def test_step_reconfigure_alias_delegates_to_step_user():
     flow._get_reconfigure_subentry = MagicMock(return_value=fake_subentry)
     flow._get_entry = MagicMock(return_value=MagicMock())
     flow.hass.states.get.return_value = None
-    result = asyncio.run(flow.async_step_reconfigure({CONF_LOAD_SENSOR: "sensor.existing"}))
+    result = asyncio.run(
+        flow.async_step_reconfigure({CONF_LOAD_SENSOR: "sensor.existing"})
+    )
     assert result["type"] == "update_and_abort"
 
 

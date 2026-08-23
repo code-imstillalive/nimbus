@@ -7,6 +7,7 @@ registration and options-flow wiring.
 Imports and exercises the REAL class (not a reimplementation) against
 tests/_ha_stubs.py's stand-in homeassistant.* modules.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -30,10 +31,18 @@ from custom_components.nimbus_load.const import (  # noqa: E402
 )
 from custom_components.nimbus_load.flows.battery_tower_subentry import NimbusBatteryTowerSubentryFlowHandler  # noqa: E402
 from custom_components.nimbus_load.flows.hub_options import NimbusHubOptionsFlow  # noqa: E402
-from custom_components.nimbus_load.flows.load_subentry import NimbusLoadSubentryFlowHandler  # noqa: E402
-from custom_components.nimbus_load.flows.power_source_subentry import NimbusPowerSourceSubentryFlowHandler  # noqa: E402
-from custom_components.nimbus_load.flows.pv_string_subentry import NimbusPvStringSubentryFlowHandler  # noqa: E402
-from custom_components.nimbus_load.flows.signal_subentry import NimbusSignalSubentryFlowHandler  # noqa: E402
+from custom_components.nimbus_load.flows.load_subentry import (  # noqa: E402
+    NimbusLoadSubentryFlowHandler,
+)
+from custom_components.nimbus_load.flows.power_source_subentry import (  # noqa: E402
+    NimbusPowerSourceSubentryFlowHandler,
+)
+from custom_components.nimbus_load.flows.pv_string_subentry import (  # noqa: E402
+    NimbusPvStringSubentryFlowHandler,
+)
+from custom_components.nimbus_load.flows.signal_subentry import (  # noqa: E402
+    NimbusSignalSubentryFlowHandler,
+)
 
 
 def _make_flow() -> NimbusConfigFlow:
@@ -69,7 +78,9 @@ def test_hub_creation_still_succeeds_even_if_the_notification_call_raises():
     # hiccup) -- it must never prevent the actual hub entry from being
     # created.
     flow = _make_flow()
-    flow.hass.services.async_call = MagicMock(side_effect=RuntimeError("services not ready"))
+    flow.hass.services.async_call = MagicMock(
+        side_effect=RuntimeError("services not ready")
+    )
     result = asyncio.run(flow.async_step_user(None))
     assert result["type"] == "create_entry"
     assert result["title"] == "Nimbus"

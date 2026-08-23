@@ -140,7 +140,9 @@ def compute_tracking_fidelity(
 
     commanded_activity = float(np.sum(np.abs(commanded_kw) * hours))
     gap_energy = float(np.sum(abs_gap * hours))
-    tracking_fidelity = 1.0 if commanded_activity < 1e-9 else 1.0 - gap_energy / commanded_activity
+    tracking_fidelity = (
+        1.0 if commanded_activity < 1e-9 else 1.0 - gap_energy / commanded_activity
+    )
 
     shortfall_kwh = float(np.sum(np.maximum(0.0, gap) * hours))
     worst_idx = int(np.argmax(abs_gap))

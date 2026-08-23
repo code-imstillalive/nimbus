@@ -68,6 +68,7 @@ logged rather than propagated, so a wrong assumption should surface as
 a clear log line on the very first real test, not a crash that takes
 down the rest of the integration.
 """
+
 from __future__ import annotations
 
 import logging
@@ -105,12 +106,15 @@ def _ensure_ready(hass: HomeAssistant):
     # RIGHT NOW. Point it at THIS file's own real, actual directory
     # (wherever HACS/HA really installed nimbus_load -- Docker, Supervised,
     # HAOS, doesn't matter) before the very first import.
-    os.environ.setdefault("NIMBUS_SOLVER_PATH", os.path.dirname(os.path.abspath(__file__)))
+    os.environ.setdefault(
+        "NIMBUS_SOLVER_PATH", os.path.dirname(os.path.abspath(__file__))
+    )
     # HA's own real, persistent, always-writable storage location --
     # correct on Docker, Supervised, and HAOS alike, unlike the sibling
     # standalone script's own NUC-specific /opt/... defaults.
     os.environ.setdefault(
-        "NIMBUS_SOLVER_PLAN_STATE_PATH", hass.config.path("nimbus_solver_last_plan.json")
+        "NIMBUS_SOLVER_PLAN_STATE_PATH",
+        hass.config.path("nimbus_solver_last_plan.json"),
     )
     os.environ.setdefault(
         "NIMBUS_SOLVER_LOCK_PATH", hass.config.path("nimbus_solver_writer.lock")
@@ -153,7 +157,9 @@ async def async_run_solve(hass: HomeAssistant) -> bool:
         # disk I/O) correctly happens on the worker thread.
         sw = _ensure_ready(hass)
         if not sw.acquire_lock():
-            _LOGGER.debug("Nimbus Solver: previous cycle still in progress -- skipping this one")
+            _LOGGER.debug(
+                "Nimbus Solver: previous cycle still in progress -- skipping this one"
+            )
             return False
         try:
             sw.main()

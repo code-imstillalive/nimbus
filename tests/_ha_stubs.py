@@ -11,6 +11,7 @@ once, before importing anything under custom_components.nimbus_load, to
 register these stand-ins in sys.modules. Idempotent -- safe to call from
 more than one test module without double-registering anything odd.
 """
+
 from __future__ import annotations
 
 import sys
@@ -143,7 +144,9 @@ class _StubPowerConverter:
     @classmethod
     def convert(cls, value: float, from_unit: str, to_unit: str) -> float:
         if from_unit not in cls._TO_WATTS or to_unit not in cls._TO_WATTS:
-            raise ValueError(f"unsupported unit in stub converter: {from_unit!r} -> {to_unit!r}")
+            raise ValueError(
+                f"unsupported unit in stub converter: {from_unit!r} -> {to_unit!r}"
+            )
         return value * cls._TO_WATTS[from_unit] / cls._TO_WATTS[to_unit]
 
 
@@ -214,7 +217,9 @@ def install_ha_stubs() -> None:
         return types.SimpleNamespace(data={})
 
     module("homeassistant.components.energy.data", async_get_manager=_default_async_get_manager)
-    module("homeassistant.components.recorder.history", get_significant_states=MagicMock())
+    module(
+        "homeassistant.components.recorder.history", get_significant_states=MagicMock()
+    )
     module(
         "homeassistant.components.sensor",
         SensorDeviceClass=MagicMock(),
@@ -302,9 +307,15 @@ def install_ha_stubs() -> None:
     # site (confirmed live 2026-08-22: number.py's own DeviceInfo(...)
     # call raised "takes no arguments" before this fix).
     module("homeassistant.helpers.entity", DeviceInfo=dict)
-    module("homeassistant.helpers.entity_platform", AddEntitiesCallback=_generic_stub_class("AddEntitiesCallback"))
+    module(
+        "homeassistant.helpers.entity_platform",
+        AddEntitiesCallback=_generic_stub_class("AddEntitiesCallback"),
+    )
     module("homeassistant.helpers.entity_registry", async_get=MagicMock())
-    module("homeassistant.helpers.restore_state", RestoreEntity=_generic_stub_class("RestoreEntity"))
+    module(
+        "homeassistant.helpers.restore_state",
+        RestoreEntity=_generic_stub_class("RestoreEntity"),
+    )
     module(
         "homeassistant.helpers.event",
         async_track_time_change=MagicMock(),

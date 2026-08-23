@@ -156,8 +156,12 @@ def build_stochastic_plan(
         raise ValueError(msg)
 
     p = LPProblem()
-    charge_cost_arr = np.broadcast_to(np.asarray(battery.charge_cost, dtype=np.float64), (n,))
-    discharge_cost_arr = np.broadcast_to(np.asarray(battery.discharge_cost, dtype=np.float64), (n,))
+    charge_cost_arr = np.broadcast_to(
+        np.asarray(battery.charge_cost, dtype=np.float64), (n,)
+    )
+    discharge_cost_arr = np.broadcast_to(
+        np.asarray(battery.discharge_cost, dtype=np.float64), (n,)
+    )
 
     def _add_period_vars_and_constraints(
         suffix: str,
@@ -189,21 +193,63 @@ def build_stochastic_plan(
         reflect what's actually being modeled. Harmless when salvage_
         value happens to be 0.0 (as in this module's own verification
         scenario), but a real, silent bug for any nonzero value."""
-        charge = {t: p.add_variable(f"charge{suffix}_{t}", lb=0.0, ub=battery.max_charge_kw) for t in t_range}
-        discharge = {t: p.add_variable(f"discharge{suffix}_{t}", lb=0.0, ub=battery.max_discharge_kw) for t in t_range}
-        soc = {t: p.add_variable(f"soc{suffix}_{t}", lb=battery.min_soc_kwh, ub=battery.max_soc_kwh) for t in t_range}
-        grid_import = {t: p.add_variable(f"grid_import{suffix}_{t}", lb=0.0, ub=grid.import_limit_kw) for t in t_range}
-        grid_export = {t: p.add_variable(f"grid_export{suffix}_{t}", lb=0.0, ub=grid.export_limit_kw) for t in t_range}
-        solar_used = {t: p.add_variable(f"solar_used{suffix}_{t}", lb=0.0, ub=max(0.0, float(solar_kw[t]))) for t in t_range}
+        charge = {
+            t: p.add_variable(f"charge{suffix}_{t}", lb=0.0, ub=battery.max_charge_kw)
+            for t in t_range
+        }
+        discharge = {
+            t: p.add_variable(
+                f"discharge{suffix}_{t}", lb=0.0, ub=battery.max_discharge_kw
+            )
+            for t in t_range
+        }
+        soc = {
+            t: p.add_variable(
+                f"soc{suffix}_{t}", lb=battery.min_soc_kwh, ub=battery.max_soc_kwh
+            )
+            for t in t_range
+        }
+        grid_import = {
+            t: p.add_variable(
+                f"grid_import{suffix}_{t}", lb=0.0, ub=grid.import_limit_kw
+            )
+            for t in t_range
+        }
+        grid_export = {
+            t: p.add_variable(
+                f"grid_export{suffix}_{t}", lb=0.0, ub=grid.export_limit_kw
+            )
+            for t in t_range
+        }
+        solar_used = {
+            t: p.add_variable(
+                f"solar_used{suffix}_{t}", lb=0.0, ub=max(0.0, float(solar_kw[t]))
+            )
+            for t in t_range
+        }
 
         for t in t_range:
             p.set_cost(grid_import[t], weight * float(grid.import_price[t]) * hours[t])
             p.set_cost(grid_export[t], -weight * float(grid.export_price[t]) * hours[t])
-            p.set_cost(charge[t], weight * (float(charge_cost_arr[t]) + battery.degradation_cost_per_kwh) * hours[t])
-            p.set_cost(discharge[t], weight * (float(discharge_cost_arr[t]) + battery.degradation_cost_per_kwh) * hours[t])
+            p.set_cost(
+                charge[t],
+                weight
+                * (float(charge_cost_arr[t]) + battery.degradation_cost_per_kwh)
+                * hours[t],
+            )
+            p.set_cost(
+                discharge[t],
+                weight
+                * (float(discharge_cost_arr[t]) + battery.degradation_cost_per_kwh)
+                * hours[t],
+            )
 
         for t in t_range:
-            terms = {soc[t]: 1.0, charge[t]: -battery.charge_efficiency * hours[t], discharge[t]: hours[t] / battery.discharge_efficiency}
+            terms = {
+                soc[t]: 1.0,
+                charge[t]: -battery.charge_efficiency * hours[t],
+                discharge[t]: hours[t] / battery.discharge_efficiency,
+            }
             if t == t_range.start:
                 if isinstance(prev_soc_ref, str):
                     terms[prev_soc_ref] = -1.0
@@ -216,21 +262,36 @@ def build_stochastic_plan(
 
         for t in t_range:
             p.add_eq_constraint(
-                {solar_used[t]: 1.0, discharge[t]: 1.0, grid_import[t]: 1.0, charge[t]: -1.0, grid_export[t]: -1.0},
+                {
+                    solar_used[t]: 1.0,
+                    discharge[t]: 1.0,
+                    grid_import[t]: 1.0,
+                    charge[t]: -1.0,
+                    grid_export[t]: -1.0,
+                },
                 float(load[t]),
             )
             # Same-period wash-trade prevention (see network.py's own
             # docstring for the full "two independent pathways" finding
             # -- both required, replicated here identically).
-            p.add_ub_constraint({grid_export[t]: 1.0, solar_used[t]: -1.0, discharge[t]: -1.0}, 0.0)
+            p.add_ub_constraint(
+                {grid_export[t]: 1.0, solar_used[t]: -1.0, discharge[t]: -1.0}, 0.0
+            )
             draw_coeff = hours[t] / battery.discharge_efficiency
             if t == t_range.start:
                 if isinstance(prev_soc_ref, str):
-                    p.add_ub_constraint({discharge[t]: draw_coeff, prev_soc_ref: -1.0}, -battery.min_soc_kwh)
+                    p.add_ub_constraint(
+                        {discharge[t]: draw_coeff, prev_soc_ref: -1.0},
+                        -battery.min_soc_kwh,
+                    )
                 else:
-                    p.add_ub_constraint({discharge[t]: draw_coeff}, prev_soc_ref - battery.min_soc_kwh)
+                    p.add_ub_constraint(
+                        {discharge[t]: draw_coeff}, prev_soc_ref - battery.min_soc_kwh
+                    )
             else:
-                p.add_ub_constraint({discharge[t]: draw_coeff, soc[t - 1]: -1.0}, -battery.min_soc_kwh)
+                p.add_ub_constraint(
+                    {discharge[t]: draw_coeff, soc[t - 1]: -1.0}, -battery.min_soc_kwh
+                )
 
         # Terminal value ONLY at the true horizon end (apply_terminal_
         # value=True, stage 2 only) -- plain flat salvage_value (see this
@@ -250,7 +311,11 @@ def build_stochastic_plan(
     stage1_names = None
     if stochastic_start_period > 0:
         stage1_names = _add_period_vars_and_constraints(
-            "", stage1_range, solar_scenarios[0], weight=1.0, prev_soc_ref=battery.initial_soc_kwh,
+            "",
+            stage1_range,
+            solar_scenarios[0],
+            weight=1.0,
+            prev_soc_ref=battery.initial_soc_kwh,
             apply_terminal_value=False,
         )
 
@@ -258,11 +323,17 @@ def build_stochastic_plan(
     stage2_range = range(stochastic_start_period, n)
     for s in range(n_scenarios):
         if stochastic_start_period > 0:
-            prev_ref: str | float = stage1_names[2][-1]  # shared stage-1 final soc variable name
+            prev_ref: str | float = stage1_names[2][
+                -1
+            ]  # shared stage-1 final soc variable name
         else:
             prev_ref = battery.initial_soc_kwh
         names = _add_period_vars_and_constraints(
-            f"_s{s}", stage2_range, solar_scenarios[s], weight=scenario_weights[s], prev_soc_ref=prev_ref,
+            f"_s{s}",
+            stage2_range,
+            solar_scenarios[s],
+            weight=scenario_weights[s],
+            prev_soc_ref=prev_ref,
             apply_terminal_value=True,
         )
         stage2_names.append(names)

@@ -146,6 +146,7 @@ Solver source: /opt/homeassistant/config/nimbus_repo/custom_components/nimbus_lo
 (the real git clone of code-imstillalive/nimbus -- see CLAUDE.md's own
 "What is and isn't tracked in git" section for this layout)
 """
+
 from __future__ import annotations
 
 import functools
@@ -195,10 +196,13 @@ BRISBANE_TZ = ZoneInfo("Australia/Brisbane")
 # Supervisor app -- see that folder, same repo) to run the EXACT same
 # script unmodified inside a container, rather than needing a forked/
 # drifted copy.
-sys.path.insert(0, os.environ.get(
-    "NIMBUS_SOLVER_PATH",
-    "/opt/homeassistant/config/nimbus_repo/custom_components/nimbus_load",
-))
+sys.path.insert(
+    0,
+    os.environ.get(
+        "NIMBUS_SOLVER_PATH",
+        "/opt/homeassistant/config/nimbus_repo/custom_components/nimbus_load",
+    ),
+)
 # ^ wherever your own clone of https://github.com/code-imstillalive/nimbus
 # actually lives (NIMBUS_SOLVER_PATH env var, or this exact NUC path by
 # default) -- doesn't need to be inside an HA config tree at all, this
@@ -248,12 +252,16 @@ ENTITY_ID = "sensor.nimbus_solver_battery_forecast"
 # solver_runtime.py, same repo) points this at hass.config.path(...)
 # instead -- HA's own real, persistent, always-writable storage
 # directory, correct on any HA install regardless of platform.
-PLAN_STATE_PATH = os.environ.get("NIMBUS_SOLVER_PLAN_STATE_PATH", "/opt/nimbus_solver_last_plan.json")
+PLAN_STATE_PATH = os.environ.get(
+    "NIMBUS_SOLVER_PLAN_STATE_PATH", "/opt/nimbus_solver_last_plan.json"
+)
 # Real PID-file overlap guard (2026-08-17, see the deploy docstring's own
 # "* * * * *" comment above) -- per the usual /opt-is-root-owned gotcha,
 # this file needs the same one-time `sudo touch` + `chown` on first
 # deploy as PLAN_STATE_PATH. Same env-var-overridable reasoning as above.
-LOCK_PATH = os.environ.get("NIMBUS_SOLVER_LOCK_PATH", "/opt/nimbus_solver_forecast_writer.lock")
+LOCK_PATH = os.environ.get(
+    "NIMBUS_SOLVER_LOCK_PATH", "/opt/nimbus_solver_forecast_writer.lock"
+)
 # Real bug found live (nimbus repo issue #66, Mark Purcell, 2026-08-23):
 # a load-forecast sensor with an unrecognized attribute shape degraded
 # or crashed with zero operator-visible signal. The persistent
@@ -304,12 +312,16 @@ LOAD_FORECAST_ERROR_NOTIFIED_PATH = os.environ.get(
 # a tick cleanly if the previous run is still solving, degrading from
 # "every minute" to "every ~1.5-2 minutes" in the worst case rather
 # than ever running two solves concurrently or crashing.
-TIER0_MINUTES = 5.0        # ultra-fine tier: how far out 1-min resolution runs
+TIER0_MINUTES = 5.0  # ultra-fine tier: how far out 1-min resolution runs
 TIER0_PERIOD_MINUTES = 1.0
-TIER1_HOURS = 24.0        # fine tier: how far out 5-min resolution runs (from TIER0's own end)
+TIER1_HOURS = (
+    24.0  # fine tier: how far out 5-min resolution runs (from TIER0's own end)
+)
 TIER1_PERIOD_HOURS = 5.0 / 60.0
-TIER2_HOURS = 72.0        # coarse tier: additional span beyond tier 1
-TIER2_PERIOD_HOURS = 1.0  # -> 24h + 72h = 96h total (plus tier0's own 5 real minutes), ~360 periods
+TIER2_HOURS = 72.0  # coarse tier: additional span beyond tier 1
+TIER2_PERIOD_HOURS = (
+    1.0  # -> 24h + 72h = 96h total (plus tier0's own 5 real minutes), ~360 periods
+)
 
 # Real, bill-confirmed TOU network rates and certificates rate (2026-08-16,
 # real ask: "it needs ot be super accurate") -- reused directly from this
@@ -452,9 +464,21 @@ INVERTER_SELF_CONSUMPTION_KW = 0.215
 # exactly for network TOU fees (2026-08-22 -- see import_fee_rate()'s
 # own docstring for the full "no hardcoded tariff" story).
 NETWORK_FEE_BLOCK_KEYS = (
-    ("solver_network_fee_1_rate", "solver_network_fee_1_start_hour", "solver_network_fee_1_end_hour"),
-    ("solver_network_fee_2_rate", "solver_network_fee_2_start_hour", "solver_network_fee_2_end_hour"),
-    ("solver_network_fee_3_rate", "solver_network_fee_3_start_hour", "solver_network_fee_3_end_hour"),
+    (
+        "solver_network_fee_1_rate",
+        "solver_network_fee_1_start_hour",
+        "solver_network_fee_1_end_hour",
+    ),
+    (
+        "solver_network_fee_2_rate",
+        "solver_network_fee_2_start_hour",
+        "solver_network_fee_2_end_hour",
+    ),
+    (
+        "solver_network_fee_3_rate",
+        "solver_network_fee_3_start_hour",
+        "solver_network_fee_3_end_hour",
+    ),
 )
 
 
@@ -551,13 +575,17 @@ def import_fee_rate(cfg: dict, hour: int) -> float:
 # nimbus repo commit "BatteryConfig.charge_cost/discharge_cost: allow a
 # real per-period array").
 BATTERY_DISCHARGE_COST_NIGHT = 0.01  # 5pm-7am (P2P window + midnight-7am)
-BATTERY_DISCHARGE_COST_DAY = 0.09    # 7am-5pm
-BATTERY_SALVAGE_VALUE_NIGHT = 0.3    # 5pm-midnight (P2P window only)
-BATTERY_SALVAGE_VALUE_OTHER = 0.15   # midnight-5pm
+BATTERY_DISCHARGE_COST_DAY = 0.09  # 7am-5pm
+BATTERY_SALVAGE_VALUE_NIGHT = 0.3  # 5pm-midnight (P2P window only)
+BATTERY_SALVAGE_VALUE_OTHER = 0.15  # midnight-5pm
 
 
 def battery_discharge_cost_rate(hour: int) -> float:
-    return BATTERY_DISCHARGE_COST_NIGHT if (hour >= 17 or hour < 7) else BATTERY_DISCHARGE_COST_DAY
+    return (
+        BATTERY_DISCHARGE_COST_NIGHT
+        if (hour >= 17 or hour < 7)
+        else BATTERY_DISCHARGE_COST_DAY
+    )
 
 
 def battery_salvage_value_rate(hour: int) -> float:
@@ -600,7 +628,9 @@ def midnight_boundary_period_indices(grid_times: list[datetime]) -> list[int]:
     return indices
 
 
-def terminal_value_breakpoints_for(base_rate: float, min_soc_kwh: float, max_soc_kwh: float) -> list:
+def terminal_value_breakpoints_for(
+    base_rate: float, min_soc_kwh: float, max_soc_kwh: float
+) -> list:
     """Concave piecewise-linear terminal value (Solver audit item #7,
     Nimbus PR #35) -- switched on live 2026-08-19, replacing the flat
     salvage_value mechanism above. Proven on 2 real household nights
@@ -626,6 +656,7 @@ def terminal_value_breakpoints_for(base_rate: float, min_soc_kwh: float, max_soc
         (above_floor * 0.30, base_rate * 0.35),
     ]
 
+
 # Same 2026-08-21 portability pass -- checked in order: SUPERVISOR_TOKEN
 # (auto-injected by HA's own Supervisor into a real app/add-on container,
 # no manual token setup at all) beats a raw HA_TOKEN env var (any other
@@ -649,10 +680,7 @@ def terminal_value_breakpoints_for(base_rate: float, min_soc_kwh: float, max_soc
 # which never reads TOKEN at all (see ha_get()/ha_post_state()/
 # fetch_price_history() above -- every REST branch that would actually
 # USE this value is skipped entirely once _NATIVE_HASS is set).
-TOKEN = (
-    os.environ.get("SUPERVISOR_TOKEN")
-    or os.environ.get("HA_TOKEN")
-)
+TOKEN = os.environ.get("SUPERVISOR_TOKEN") or os.environ.get("HA_TOKEN")
 if not TOKEN:
     try:
         with open(TOKEN_PATH, "r", encoding="utf-8") as f:
@@ -699,7 +727,10 @@ def _native_http_error(entity_id: str, code: int, msg: str) -> urllib.error.HTTP
     # way instead -- confirmed by reading urllib.error.HTTPError's own
     # real implementation (it's a thin wrapper over its own `fp`).
     return urllib.error.HTTPError(
-        url=f"native://{entity_id}", code=code, msg=msg, hdrs=None,
+        url=f"native://{entity_id}",
+        code=code,
+        msg=msg,
+        hdrs=None,
         fp=io.BytesIO(msg.encode("utf-8")),
     )
 
@@ -716,7 +747,11 @@ def ha_get(entity_id: str) -> dict:
         state = _NATIVE_HASS.states.get(entity_id)
         if state is None:
             raise _native_http_error(entity_id, 404, f"Entity {entity_id} not found")
-        return {"entity_id": state.entity_id, "state": state.state, "attributes": dict(state.attributes)}
+        return {
+            "entity_id": state.entity_id,
+            "state": state.state,
+            "attributes": dict(state.attributes),
+        }
     req = urllib.request.Request(
         f"{HA_BASE}/api/states/{entity_id}",
         headers={"Authorization": f"Bearer {TOKEN}"},
@@ -771,7 +806,7 @@ def fetch_solver_config() -> dict:
     if state["state"] != "configured":
         msg = (
             "Nimbus Solver is not configured yet. Open the Nimbus hub's own "
-            "\"Configure\" button in Home Assistant, choose \"Solver settings\", "
+            '"Configure" button in Home Assistant, choose "Solver settings", '
             "and fill in every required field (battery capacity/SoC sensor, "
             "max charge/discharge power, grid import/export limits, live "
             "import/export price sensors, solar/load forecast sensors) "
@@ -790,7 +825,9 @@ def ha_post_state(entity_id: str, state, attributes: dict) -> None:
         # thread-safe scheduling primitive for exactly this: safe to call
         # from any thread, correctly hops onto the event loop itself.
         _NATIVE_HASS.add_job(
-            functools.partial(_NATIVE_HASS.states.async_set, entity_id, state, attributes)
+            functools.partial(
+                _NATIVE_HASS.states.async_set, entity_id, state, attributes
+            )
         )
         return
     body = json.dumps({"state": state, "attributes": attributes}).encode("utf-8")
@@ -881,8 +918,16 @@ def fetch_load_forecast_safe(entity_id: str) -> list[dict]:
     """
     try:
         return ha_get(entity_id)["attributes"]["forecast"]
-    except (urllib.error.HTTPError, urllib.error.URLError, KeyError, json.JSONDecodeError) as e:
-        print(f"WARN: {entity_id} unavailable ({e}) -- treating as 0.0 kW for this solve", file=sys.stderr)
+    except (
+        urllib.error.HTTPError,
+        urllib.error.URLError,
+        KeyError,
+        json.JSONDecodeError,
+    ) as e:
+        print(
+            f"WARN: {entity_id} unavailable ({e}) -- treating as 0.0 kW for this solve",
+            file=sys.stderr,
+        )
         return []
 
 
@@ -927,7 +972,9 @@ def sum_load_forecasts(
     for entity_id in entity_ids:
         fc = fetch_load_forecast_safe(entity_id)
         if not fc:
-            failed_entities.append(entity_id)  # already warned inside fetch_load_forecast_safe(); this load contributes 0.0 for every period
+            failed_entities.append(
+                entity_id
+            )  # already warned inside fetch_load_forecast_safe(); this load contributes 0.0 for every period
             continue
         pt_kw = resample_forecast(fc, "value", grid_times)
         pt_lower = resample_forecast(fc, "lower", grid_times)
@@ -947,18 +994,28 @@ def sum_load_forecasts(
     # elsewhere in this file: guarantee lower <= point <= upper even if
     # one per-load band was individually inconsistent (elements.py's own
     # _validate_confidence_band() requires this exactly, at every period).
-    total_lower_kw = [min(total_lower_kw[i], total_kw[i]) for i in range(len(grid_times))]
-    total_upper_kw = [max(total_upper_kw[i], total_kw[i]) for i in range(len(grid_times))]
+    total_lower_kw = [
+        min(total_lower_kw[i], total_kw[i]) for i in range(len(grid_times))
+    ]
+    total_upper_kw = [
+        max(total_upper_kw[i], total_kw[i]) for i in range(len(grid_times))
+    ]
     return total_kw, total_lower_kw, total_upper_kw, failed_entities
 
 
-def resample_forecast(forecast: list[dict], value_key: str, grid_times: list[datetime]) -> list[float]:
+def resample_forecast(
+    forecast: list[dict], value_key: str, grid_times: list[datetime]
+) -> list[float]:
     """Nearest-at-or-before lookup against the source's own native
     resolution -- must resample against the RAW forecast array, never an
     already-quantized grid (real bug found and fixed earlier in this
     build when this exact mistake flattened 5 of 6 test values)."""
     pts = sorted(
-        ((parse_iso(p["time"]), p[value_key]) for p in forecast if p.get(value_key) is not None),
+        (
+            (parse_iso(p["time"]), p[value_key])
+            for p in forecast
+            if p.get(value_key) is not None
+        ),
         key=lambda x: x[0],
     )
     out = []
@@ -1212,7 +1269,9 @@ def resample_real_p2p_rate(grid_times: list[datetime]) -> list[float]:
 
     last_real_time = pts[-1][0]
     real_positive_rates = [r for _, r in pts if r > 0.0]
-    fallback_rate = statistics.median(real_positive_rates) if real_positive_rates else 0.0
+    fallback_rate = (
+        statistics.median(real_positive_rates) if real_positive_rates else 0.0
+    )
 
     out = []
     for gt in grid_times:
@@ -1262,9 +1321,21 @@ def resample_real_p2p_rate(grid_times: list[datetime]) -> list[float]:
 # (number.nimbus_solver_p2p_block_1_rate_kw/start_hour/end_hour) --
 # nothing carries over automatically from the old entity.
 P2P_BLOCK_KEYS = (
-    ("solver_p2p_block_1_rate_kw", "solver_p2p_block_1_start_hour", "solver_p2p_block_1_end_hour"),
-    ("solver_p2p_block_2_rate_kw", "solver_p2p_block_2_start_hour", "solver_p2p_block_2_end_hour"),
-    ("solver_p2p_block_3_rate_kw", "solver_p2p_block_3_start_hour", "solver_p2p_block_3_end_hour"),
+    (
+        "solver_p2p_block_1_rate_kw",
+        "solver_p2p_block_1_start_hour",
+        "solver_p2p_block_1_end_hour",
+    ),
+    (
+        "solver_p2p_block_2_rate_kw",
+        "solver_p2p_block_2_start_hour",
+        "solver_p2p_block_2_end_hour",
+    ),
+    (
+        "solver_p2p_block_3_rate_kw",
+        "solver_p2p_block_3_start_hour",
+        "solver_p2p_block_3_end_hour",
+    ),
 )
 
 # Real, live household automation design (config/automations.yaml):
@@ -1282,7 +1353,9 @@ P2P_BLOCK_KEYS = (
 SELF_CONSUME_HOURS_AFTER_MIDNIGHT_CLOSE = 4
 
 
-def fetch_p2p_fixed_export_kw(cfg: dict, grid_times: list[datetime]) -> list[float] | None:
+def fetch_p2p_fixed_export_kw(
+    cfg: dict, grid_times: list[datetime]
+) -> list[float] | None:
     """Builds the per-period fixed-export-rate array from however many of
     the 3 P2P blocks are actually configured (rate_kw > 0 -- see
     const.py's own comment on CONF_SOLVER_P2P_BLOCK_1_RATE_KW for why 0
@@ -1329,7 +1402,9 @@ def fetch_p2p_fixed_export_kw(cfg: dict, grid_times: list[datetime]) -> list[flo
     if not blocks:
         return None
 
-    runs_through_midnight = any(end_hour == 24 for _rate_kw, _start_hour, end_hour in blocks)
+    runs_through_midnight = any(
+        end_hour == 24 for _rate_kw, _start_hour, end_hour in blocks
+    )
 
     result: list[float] = []
     for gt in grid_times:
@@ -1379,13 +1454,21 @@ def fetch_price_history(entity_id: str, days: int = 5) -> list[tuple[datetime, f
         # enrichment.
         try:
             import asyncio
-            from homeassistant.components.recorder import get_instance as _recorder_get_instance
+            from homeassistant.components.recorder import (
+                get_instance as _recorder_get_instance,
+            )
             from homeassistant.components.recorder import history as _recorder_history
 
             async def _fetch() -> dict:
-                return await _recorder_get_instance(_NATIVE_HASS).async_add_executor_job(
+                return await _recorder_get_instance(
+                    _NATIVE_HASS
+                ).async_add_executor_job(
                     _recorder_history.state_changes_during_period,
-                    _NATIVE_HASS, start, end, entity_id, True,  # no_attributes
+                    _NATIVE_HASS,
+                    start,
+                    end,
+                    entity_id,
+                    True,  # no_attributes
                 )
 
             future = asyncio.run_coroutine_threadsafe(_fetch(), _NATIVE_HASS.loop)
@@ -1428,7 +1511,9 @@ def fetch_price_history(entity_id: str, days: int = 5) -> list[tuple[datetime, f
     return sorted(out, key=lambda x: x[0])
 
 
-def resample_generic_price_forecast(entity_id: str, grid_times: list[datetime]) -> list[float] | None:
+def resample_generic_price_forecast(
+    entity_id: str, grid_times: list[datetime]
+) -> list[float] | None:
     """Generic {time, value}-shaped forecast resampler for the portable
     FALLBACK price path below (2026-08-22, real ask from Mark Purcell's
     own install: his configured price sensors ARE real, live, genuinely
@@ -1522,16 +1607,24 @@ def fetch_aemo_forecast() -> list[tuple[datetime, float]]:
     falls back further) if unavailable -- must never crash the writer.
     """
     try:
-        fc = ha_get("sensor.nem_pd7day_qld1_nem_spot_price_forecast")["attributes"]["forecast"]
+        fc = ha_get("sensor.nem_pd7day_qld1_nem_spot_price_forecast")["attributes"][
+            "forecast"
+        ]
     except (urllib.error.HTTPError, KeyError, json.JSONDecodeError):
         return []
     return sorted(
-        ((parse_iso(p["time"]), p["calibrated"]) for p in fc if p.get("calibrated") is not None),
+        (
+            (parse_iso(p["time"]), p["calibrated"])
+            for p in fc
+            if p.get("calibrated") is not None
+        ),
         key=lambda x: x[0],
     )
 
 
-def compute_5min_offset(real_history: list[tuple[datetime, float]], days: int = 5) -> dict[int, float]:
+def compute_5min_offset(
+    real_history: list[tuple[datetime, float]], days: int = 5
+) -> dict[int, float]:
     """Real, empirical (LV retail price - AEMO wholesale spot) offset,
     binned by 5-MINUTE-of-day (288 buckets: hour*12 + minute//5) from
     real, multi-day RECORDED history for both sides -- not a single
@@ -1558,7 +1651,9 @@ def compute_5min_offset(real_history: list[tuple[datetime, float]], days: int = 
     either side's real history is unavailable -- must never crash the
     writer.
     """
-    aemo_history = fetch_price_history("sensor.aemo_nem_qld1_current_5min_period_price", days=days)
+    aemo_history = fetch_price_history(
+        "sensor.aemo_nem_qld1_current_5min_period_price", days=days
+    )
     if not real_history or not aemo_history:
         return {}
 
@@ -1581,7 +1676,9 @@ def compute_5min_offset(real_history: list[tuple[datetime, float]], days: int = 
     return {b: sum(vals) / len(vals) for b, vals in by_bucket.items()}
 
 
-def compute_price_percentile_band(price_history: list[tuple[datetime, float]], percentile: float) -> dict[int, float]:
+def compute_price_percentile_band(
+    price_history: list[tuple[datetime, float]], percentile: float
+) -> dict[int, float]:
     """Real, empirical price band by 5-MINUTE-of-day (288 buckets), from
     real multi-day recorded history -- same bucketing technique as
     compute_5min_offset() above, reused rather than re-derived. Builds
@@ -1616,7 +1713,9 @@ def compute_price_percentile_band(price_history: list[tuple[datetime, float]], p
     return {b: float(np.percentile(vals, percentile)) for b, vals in by_bucket.items()}
 
 
-def apply_price_band(point_price: list[float], grid_times: list[datetime], band_by_5min: dict[int, float]) -> list[float] | None:
+def apply_price_band(
+    point_price: list[float], grid_times: list[datetime], band_by_5min: dict[int, float]
+) -> list[float] | None:
     """Maps a 5-min-of-day percentile band (compute_price_percentile_band())
     onto this solve's own real grid_times. Returns None (a complete no-op,
     matching GridConfig.import_price_upper/export_price_lower's own
@@ -1652,7 +1751,11 @@ def resample_price_with_extrapolation(
     must never crash the writer.
     """
     pts = sorted(
-        ((parse_iso(p["time"]), p[value_key]) for p in forecast if p.get(value_key) is not None),
+        (
+            (parse_iso(p["time"]), p[value_key])
+            for p in forecast
+            if p.get(value_key) is not None
+        ),
         key=lambda x: x[0],
     )
     if not pts:
@@ -1660,7 +1763,9 @@ def resample_price_with_extrapolation(
     last_real_time = pts[-1][0]
     last_real_value = pts[-1][1]
 
-    def nearest_before(source_pts: list[tuple[datetime, float]], gt: datetime) -> float | None:
+    def nearest_before(
+        source_pts: list[tuple[datetime, float]], gt: datetime
+    ) -> float | None:
         if not source_pts:
             return None
         val = source_pts[0][1]
@@ -1804,16 +1909,22 @@ def load_previous_plan() -> network.Plan | None:
     try:
         hours_arr = np.array(data["period_hours"])
         n = len(hours_arr)
-        periods = elements.PeriodGrid(hours=hours_arr, start=parse_iso(data["period_start"]))
+        periods = elements.PeriodGrid(
+            hours=hours_arr, start=parse_iso(data["period_start"])
+        )
         return network.Plan(
             status="optimal",
             periods=periods,
             battery_charge_kw=np.array(data["battery_charge_kw"]),
             battery_discharge_kw=np.array(data["battery_discharge_kw"]),
-            battery_soc_kwh=np.zeros(n),  # not read by the stability mechanisms, zero-fill is fine
+            battery_soc_kwh=np.zeros(
+                n
+            ),  # not read by the stability mechanisms, zero-fill is fine
             grid_import_kw=np.array(data["grid_import_kw"]),
             grid_export_kw=np.array(data["grid_export_kw"]),
-            export_bonus_kw=np.zeros(n),  # not read by the stability mechanisms, zero-fill is fine
+            export_bonus_kw=np.zeros(
+                n
+            ),  # not read by the stability mechanisms, zero-fill is fine
             solar_used_kw=np.zeros(n),
             solar_curtailed_kw=np.zeros(n),
             sheddable_loads=[],
@@ -1825,7 +1936,9 @@ def load_previous_plan() -> network.Plan | None:
         return None
 
 
-def save_plan_state(plan: network.Plan, period_hours_arr: list[float], period_start: datetime) -> None:
+def save_plan_state(
+    plan: network.Plan, period_hours_arr: list[float], period_start: datetime
+) -> None:
     """Persist this solve's own dispatch arrays for the NEXT run's
     load_previous_plan() to pick up. Best-effort -- a failure here
     should never take down an otherwise-successful solve."""
@@ -1844,7 +1957,10 @@ def save_plan_state(plan: network.Plan, period_hours_arr: list[float], period_st
                 f,
             )
     except OSError as e:
-        print(f"WARN: could not save plan state ({e}) -- next run will solve without stability continuity", file=sys.stderr)
+        print(
+            f"WARN: could not save plan state ({e}) -- next run will solve without stability continuity",
+            file=sys.stderr,
+        )
 
 
 def p2p_match_fraction(recent_days: int = 5) -> float:
@@ -1920,7 +2036,11 @@ def p2p_recent_avg_volume_kwh(recent_days: int = 5) -> float:
     except (urllib.error.HTTPError, KeyError, json.JSONDecodeError):
         return P2P_RECENT_AVG_VOLUME_FALLBACK_KWH
     dates = sorted(hist.keys())[-recent_days:]
-    volumes = [hist[d].get("export_volume", 0.0) for d in dates if hist[d].get("export_volume", 0.0) > 0]
+    volumes = [
+        hist[d].get("export_volume", 0.0)
+        for d in dates
+        if hist[d].get("export_volume", 0.0) > 0
+    ]
     if not volumes:
         return P2P_RECENT_AVG_VOLUME_FALLBACK_KWH
     return sum(volumes) / len(volumes)
@@ -1979,7 +2099,11 @@ def main() -> None:
     def num(entity_id: str) -> float:
         return float(ha_get(entity_id)["state"])
 
-    now = datetime.now(timezone.utc).astimezone(BRISBANE_TZ).replace(second=0, microsecond=0)
+    now = (
+        datetime.now(timezone.utc)
+        .astimezone(BRISBANE_TZ)
+        .replace(second=0, microsecond=0)
+    )
     grid_times, period_hours_arr = build_tiered_grid(now)
     n_periods = len(grid_times)
 
@@ -2041,7 +2165,9 @@ def main() -> None:
     # state right now), equal weight is the correct, defensible
     # default, not a shortcut. Same, uniform treatment for EVERY
     # period, including "now" -- no special-cased override anywhere.
-    def fetch_solar_source_safe(entity_id: str) -> tuple[list[float], list[float], list[float]] | None:
+    def fetch_solar_source_safe(
+        entity_id: str,
+    ) -> tuple[list[float], list[float], list[float]] | None:
         """(value, lower, upper) kW arrays for ONE solar source that
         already publishes a standard forecast:[{time,value,lower,upper}]
         array, or None on any failure -- see this section's own comment
@@ -2054,22 +2180,33 @@ def main() -> None:
             value = [max(0.0, v) for v in resample_forecast(fc, "value", grid_times)]
             has_bounds = any(p.get("lower") is not None for p in fc)
             if has_bounds:
-                lower = [max(0.0, v) for v in resample_forecast(fc, "lower", grid_times)]
-                upper = [max(0.0, v) for v in resample_forecast(fc, "upper", grid_times)]
+                lower = [
+                    max(0.0, v) for v in resample_forecast(fc, "lower", grid_times)
+                ]
+                upper = [
+                    max(0.0, v) for v in resample_forecast(fc, "upper", grid_times)
+                ]
                 lower = [min(lower[i], value[i]) for i in range(n_periods)]
                 upper = [max(upper[i], value[i]) for i in range(n_periods)]
             else:
                 lower = list(value)
                 upper = list(value)
             return value, lower, upper
-        except (urllib.error.HTTPError, urllib.error.URLError, KeyError, json.JSONDecodeError) as e:
+        except (
+            urllib.error.HTTPError,
+            urllib.error.URLError,
+            KeyError,
+            json.JSONDecodeError,
+        ) as e:
             print(
                 f"WARN: solar source {entity_id} unavailable ({e}) -- dropped from this solve's blend",
                 file=sys.stderr,
             )
             return None
 
-    def fetch_open_meteo_solar_raw() -> tuple[list[float], list[float], list[float]] | None:
+    def fetch_open_meteo_solar_raw() -> (
+        tuple[list[float], list[float], list[float]] | None
+    ):
         """Real, DIRECT read of Open-Meteo Solar Forecast's own 8 native
         entities (today/tomorrow/d2..d7) -- reshaped from their native
         {timestamp: watts} dict shape (15-min resolution, Watts) into
@@ -2108,7 +2245,9 @@ def main() -> None:
         value = [max(0.0, v) for v in resample_forecast(entries, "value", grid_times)]
         return value, list(value), list(value)
 
-    def fetch_solcast_solar_raw() -> tuple[list[float], list[float], list[float]] | None:
+    def fetch_solcast_solar_raw() -> (
+        tuple[list[float], list[float], list[float]] | None
+    ):
         """Real, DIRECT read of Solcast's own 2 native entities
         (today/tomorrow) -- reshaped from their native detailedForecast
         list shape (30-min resolution, period_start/pv_estimate/
@@ -2192,7 +2331,10 @@ def main() -> None:
     # a different household's own install), or a second pointer at the
     # same known integration if wanted. Blank (the default) contributes
     # nothing, same guarantee as every other optional field.
-    for entity_id in (cfg.get("solver_solar_forecast_sensor_2"), cfg.get("solver_solar_forecast_sensor_3")):
+    for entity_id in (
+        cfg.get("solver_solar_forecast_sensor_2"),
+        cfg.get("solver_solar_forecast_sensor_3"),
+    ):
         if not entity_id:
             continue
         result = fetch_solar_source_safe(entity_id)
@@ -2228,9 +2370,13 @@ def main() -> None:
         combined_lower = np.min(np.stack(solar_lowers, axis=0), axis=0)
         combined_upper = np.max(np.stack(solar_uppers, axis=0), axis=0)
         solar_lower_kw = [
-            max(0.0, min(combined_lower[i], solar_kw[i]) - spread[i] / 2) for i in range(n_periods)
+            max(0.0, min(combined_lower[i], solar_kw[i]) - spread[i] / 2)
+            for i in range(n_periods)
         ]
-        solar_upper_kw = [max(combined_upper[i], solar_kw[i]) + spread[i] / 2 for i in range(n_periods)]
+        solar_upper_kw = [
+            max(combined_upper[i], solar_kw[i]) + spread[i] / 2
+            for i in range(n_periods)
+        ]
 
     # Real, live anchor for the CURRENT period ONLY (2026-08-22, direct
     # household decision, after Mark Purcell's own question: "Why
@@ -2259,7 +2405,9 @@ def main() -> None:
     # degradation convention as every other optional source in this file.
     if entity_exists("sensor.combined_total_dc_power"):
         try:
-            live_solar_kw = float(ha_get("sensor.combined_total_dc_power")["state"]) / 1000.0
+            live_solar_kw = (
+                float(ha_get("sensor.combined_total_dc_power")["state"]) / 1000.0
+            )
             solar_kw[0] = max(0.0, live_solar_kw)
             solar_lower_kw[0] = solar_kw[0]
             solar_upper_kw[0] = solar_kw[0]
@@ -2279,7 +2427,9 @@ def main() -> None:
     load_forecast_entities = cfg.get("solver_load_forecast_entities") or []
     load_forecast_error = None
     if load_forecast_entities:
-        load_kw, load_lower_kw, load_upper_kw, failed_load_entities = sum_load_forecasts(load_forecast_entities, grid_times)
+        load_kw, load_lower_kw, load_upper_kw, failed_load_entities = (
+            sum_load_forecasts(load_forecast_entities, grid_times)
+        )
     else:
         # Validated read (2026-08-23, real fix for nimbus repo issue
         # #66) -- the old bare ha_get(...)["attributes"]["forecast"]
@@ -2311,7 +2461,9 @@ def main() -> None:
     # solver_whole_house_cross_check_sensor field, 2026-08-23 fix for
     # nimbus repo issues #56/#60) -- None on a fresh install, a real
     # no-op below rather than a crash on an empty entity_id.
-    whole_house_cross_check_sensor = cfg.get("solver_whole_house_cross_check_sensor") or None
+    whole_house_cross_check_sensor = (
+        cfg.get("solver_whole_house_cross_check_sensor") or None
+    )
     whole_house_now_kw = None
     if whole_house_cross_check_sensor:
         try:
@@ -2325,9 +2477,18 @@ def main() -> None:
             # 2026-08-20 -- see this field's own comment above).
             object_id = whole_house_cross_check_sensor.split(".", 1)[-1]
             whole_house_cross_check_entity = f"sensor.nimbus_{object_id}_forecast"
-            whole_house_fc = ha_get(whole_house_cross_check_entity)["attributes"]["forecast"]
-            whole_house_now_kw = max(0.0, resample_forecast(whole_house_fc, "value", grid_times[:1])[0])
-        except (urllib.error.HTTPError, urllib.error.URLError, KeyError, json.JSONDecodeError) as e:
+            whole_house_fc = ha_get(whole_house_cross_check_entity)["attributes"][
+                "forecast"
+            ]
+            whole_house_now_kw = max(
+                0.0, resample_forecast(whole_house_fc, "value", grid_times[:1])[0]
+            )
+        except (
+            urllib.error.HTTPError,
+            urllib.error.URLError,
+            KeyError,
+            json.JSONDecodeError,
+        ) as e:
             print(f"WARN: whole-house cross-check unavailable ({e})", file=sys.stderr)
             whole_house_now_kw = None
     summed_18_now_kw = load_kw[0]
@@ -2394,7 +2555,9 @@ def main() -> None:
             ],
             "source_entities": load_forecast_entities,
             "failed_load_entities": failed_load_entities,
-            "whole_house_cross_check_now_kw": round(whole_house_now_kw, 3) if whole_house_now_kw is not None else None,
+            "whole_house_cross_check_now_kw": round(whole_house_now_kw, 3)
+            if whole_house_now_kw is not None
+            else None,
             "inverter_self_consumption_kw": INVERTER_SELF_CONSUMPTION_KW,
             # None on success -- the exact human-readable reason on
             # failure, real proposal #2 from nimbus repo issue #66.
@@ -2414,7 +2577,9 @@ def main() -> None:
     if has_localvolts:
         # PRIMARY path -- this household's own real, live setup,
         # unchanged from before 2026-08-20's config-flow wiring.
-        lv_price_fc = ha_get("sensor.localvolts_price_forecast")["attributes"]["forecast"]
+        lv_price_fc = ha_get("sensor.localvolts_price_forecast")["attributes"][
+            "forecast"
+        ]
         # Real AEMO-anchored, 5-min-of-day price extrapolation (2026-08-16,
         # see compute_5min_offset()'s own docstring for the full real
         # finding) -- replaces the old flat-hold-last-value / hourly-average
@@ -2450,7 +2615,11 @@ def main() -> None:
             lv_price_fc, "costsflexup", grid_times, aemo_forecast, import_offset_by_5min
         )
         spot_export = resample_price_with_extrapolation(
-            lv_price_fc, "earningsflexup", grid_times, aemo_forecast, export_offset_by_5min
+            lv_price_fc,
+            "earningsflexup",
+            grid_times,
+            aemo_forecast,
+            export_offset_by_5min,
         )
         p2p_export = resample_real_p2p_rate(grid_times)
 
@@ -2473,7 +2642,9 @@ def main() -> None:
         # no-op default as the fallback branch below already has.
         flat_fee_rate = _cfg_num(cfg, "solver_flat_fee_rate", 0.0)
         import_price = [
-            spot_import_raw[i] + import_fee_rate(cfg, grid_times[i].hour) + flat_fee_rate
+            spot_import_raw[i]
+            + import_fee_rate(cfg, grid_times[i].hour)
+            + flat_fee_rate
             for i in range(n_periods)
         ]
 
@@ -2492,7 +2663,9 @@ def main() -> None:
         # context -- no longer used to price the LP.
         match_fraction = p2p_match_fraction()
         p2p_recent_volume_kwh = p2p_recent_avg_volume_kwh()
-        export_bonus_price = [max(0.0, p2p_export[i] - spot_export[i]) for i in range(n_periods)]
+        export_bonus_price = [
+            max(0.0, p2p_export[i] - spot_export[i]) for i in range(n_periods)
+        ]
     else:
         # FALLBACK (2026-08-20, for anyone else): PREFERS a real, live
         # forecast if the configured sensor exposes one (2026-08-22, real
@@ -2506,15 +2679,27 @@ def main() -> None:
         # household/Australian-NEM-specific and have no portable
         # equivalent yet (a real, honest, separately-tracked gap, not
         # pretended away).
-        _import_fc = resample_generic_price_forecast(cfg["solver_import_price_sensor"], grid_times)
-        import_price = _import_fc if _import_fc is not None else [num(cfg["solver_import_price_sensor"])] * n_periods
+        _import_fc = resample_generic_price_forecast(
+            cfg["solver_import_price_sensor"], grid_times
+        )
+        import_price = (
+            _import_fc
+            if _import_fc is not None
+            else [num(cfg["solver_import_price_sensor"])] * n_periods
+        )
         # No real fee breakdown exists for a generic install -- the whole
         # configured value IS the raw price, no separate network/
         # certificates add-on to split out (see import_price_raw's own
         # comment where it's pushed, below).
         spot_import_raw = list(import_price)
-        _export_fc = resample_generic_price_forecast(cfg["solver_export_price_sensor"], grid_times)
-        spot_export = _export_fc if _export_fc is not None else [num(cfg["solver_export_price_sensor"])] * n_periods
+        _export_fc = resample_generic_price_forecast(
+            cfg["solver_export_price_sensor"], grid_times
+        )
+        spot_export = (
+            _export_fc
+            if _export_fc is not None
+            else [num(cfg["solver_export_price_sensor"])] * n_periods
+        )
         match_fraction = 0.0
         # Manual, static P2P bonus from the config-flow's own optional
         # block (both default to 0.0 -- a full no-op -- if the household
@@ -2557,7 +2742,9 @@ def main() -> None:
         max_discharge_kw = ha_get(_max_discharge_entity)["attributes"]["max"]
     else:
         max_discharge_kw = float(cfg["solver_max_discharge_kw"])
-    charge_cost = _cfg_num(cfg, "solver_charge_cost", 0.01)  # not scheduled -- real automations never touch this, manual control
+    charge_cost = _cfg_num(
+        cfg, "solver_charge_cost", 0.01
+    )  # not scheduled -- real automations never touch this, manual control
 
     if has_localvolts:
         # This household's own real, tuned day/night discharge-cost
@@ -2569,14 +2756,18 @@ def main() -> None:
         # value just to look more "generic" would be a real regression
         # to money this household actually earns, not a genuine
         # improvement for anyone.
-        discharge_cost_arr = np.array([battery_discharge_cost_rate(t.hour) for t in grid_times])
+        discharge_cost_arr = np.array(
+            [battery_discharge_cost_rate(t.hour) for t in grid_times]
+        )
         salvage_value = battery_salvage_value_rate(grid_times[-1].hour)
     else:
         # FALLBACK (2026-08-20, for anyone else): flat values straight
         # from the config-flow's own Economic Policy step -- no day/night
         # schedule (that's tuned specifically around this household's own
         # P2P window, no portable equivalent yet).
-        discharge_cost_arr = np.full(n_periods, _cfg_num(cfg, "solver_discharge_cost", 0.01))
+        discharge_cost_arr = np.full(
+            n_periods, _cfg_num(cfg, "solver_discharge_cost", 0.01)
+        )
         salvage_value = _cfg_num(cfg, "solver_salvage_value", 0.15)
 
     import_limit_kw = float(cfg["solver_grid_max_import_kw"])
@@ -2594,14 +2785,20 @@ def main() -> None:
     # export_price; the real P2P premium goes through export_bonus_price
     # instead (see above) -- neither is diluted or clamped.
     export_price = list(spot_export)
-    n_clamped = 0  # kept in the pushed sensor's own attributes for continuity; always 0 now
+    n_clamped = (
+        0  # kept in the pushed sensor's own attributes for continuity; always 0 now
+    )
 
     # Real empirical price bands, mapped onto this solve's own real
     # grid_times (2026-08-21, task #128) -- None (a complete no-op) for
     # any household without the multi-day history to build one from (the
     # fallback branch above already sets both to {}).
-    import_price_upper = apply_price_band(import_price, grid_times, import_price_upper_band)
-    export_price_lower = apply_price_band(export_price, grid_times, export_price_lower_band)
+    import_price_upper = apply_price_band(
+        import_price, grid_times, import_price_upper_band
+    )
+    export_price_lower = apply_price_band(
+        export_price, grid_times, export_price_lower_band
+    )
 
     min_soc_kwh_val = capacity_kwh * min_pct / 100.0
     max_soc_kwh_val = capacity_kwh * max_pct / 100.0
@@ -2661,18 +2858,26 @@ def main() -> None:
         # just quietly degrade to "solver treats this as effectively
         # lossless," so this floor is deliberately kept even though a
         # correctly-filled-in form should never actually need it.
-        charge_efficiency=min(_cfg_num(cfg, "solver_efficiency_percent", 95.0) / 100.0, 0.999) ** 0.5,
-        discharge_efficiency=min(_cfg_num(cfg, "solver_efficiency_percent", 95.0) / 100.0, 0.999) ** 0.5,
+        charge_efficiency=min(
+            _cfg_num(cfg, "solver_efficiency_percent", 95.0) / 100.0, 0.999
+        )
+        ** 0.5,
+        discharge_efficiency=min(
+            _cfg_num(cfg, "solver_efficiency_percent", 95.0) / 100.0, 0.999
+        )
+        ** 0.5,
         charge_cost=charge_cost,
         discharge_cost=discharge_cost_arr,
         salvage_value=salvage_value,  # required field, but overridden by terminal_value_breakpoints below when set
-        terminal_value_breakpoints=terminal_value_breakpoints_for(salvage_value, min_soc_kwh_val, max_soc_kwh_val),
+        terminal_value_breakpoints=terminal_value_breakpoints_for(
+            salvage_value, min_soc_kwh_val, max_soc_kwh_val
+        ),
         # Every real day boundary in the horizon, plus the true final
         # period -- see midnight_boundary_period_indices()'s own
         # docstring above for the real 2026-08-22 finding this fixes.
-        terminal_value_period_indices=sorted(set(
-            midnight_boundary_period_indices(grid_times) + [len(grid_times) - 1]
-        )),
+        terminal_value_period_indices=sorted(
+            set(midnight_boundary_period_indices(grid_times) + [len(grid_times) - 1])
+        ),
         # Real economic cycle-wear cost (Track B2, 2026-08-22). 0.0
         # (unconfigured, the default) is a genuine no-op -- see
         # BatteryConfig's own degradation_cost_per_kwh docstring.
@@ -2686,18 +2891,29 @@ def main() -> None:
         export_limit_kw=export_limit_kw,
         export_bonus_price=np.array(export_bonus_price),
         export_bonus_volume_kwh=p2p_recent_volume_kwh,
-        fixed_export_kw=np.array(fixed_export_kw) if fixed_export_kw is not None else None,
-        import_price_upper=np.array(import_price_upper) if import_price_upper is not None else None,
-        export_price_lower=np.array(export_price_lower) if export_price_lower is not None else None,
+        fixed_export_kw=np.array(fixed_export_kw)
+        if fixed_export_kw is not None
+        else None,
+        import_price_upper=np.array(import_price_upper)
+        if import_price_upper is not None
+        else None,
+        export_price_lower=np.array(export_price_lower)
+        if export_price_lower is not None
+        else None,
     )
     solar = elements.SolarConfig(
         forecast_kw=np.array(solar_kw),
-        lower_kw=np.array(solar_lower_kw), upper_kw=np.array(solar_upper_kw),
+        lower_kw=np.array(solar_lower_kw),
+        upper_kw=np.array(solar_upper_kw),
     )
-    loads = [elements.LoadConfig(
-        name="household_load_summed_18", forecast_kw=np.array(load_kw),
-        lower_kw=np.array(load_lower_kw), upper_kw=np.array(load_upper_kw),
-    )]
+    loads = [
+        elements.LoadConfig(
+            name="household_load_summed_18",
+            forecast_kw=np.array(load_kw),
+            lower_kw=np.array(load_lower_kw),
+            upper_kw=np.array(load_upper_kw),
+        )
+    ]
     periods = elements.PeriodGrid(hours=np.array(period_hours_arr), start=grid_times[0])
 
     # Plan-to-plan stability (2026-08-16, see PLAN_STATE_PATH's own
@@ -2726,7 +2942,11 @@ def main() -> None:
     # forces charge/discharge hedging to move together" reasoning) --
     # this writer only ever had the single-scalar version live for a
     # brief window before the split, never a real production concern.
-    risk_aversion = float(cfg.get("solver_risk_aversion") if cfg.get("solver_risk_aversion") is not None else RISK_AVERSION)
+    risk_aversion = float(
+        cfg.get("solver_risk_aversion")
+        if cfg.get("solver_risk_aversion") is not None
+        else RISK_AVERSION
+    )
     import_price_risk_aversion = _cfg_num(cfg, "solver_import_price_risk_aversion", 0.0)
     export_price_risk_aversion = _cfg_num(cfg, "solver_export_price_risk_aversion", 0.0)
     # smoothness_weight (2026-08-20, real household finding: "why nimbus
@@ -2740,8 +2960,13 @@ def main() -> None:
     # large, real transition (an 80kW price-step scenario, on or off,
     # within $0.07 either way).
     plan = network.build_plan(
-        periods=periods, grid=grid, battery=battery, solar=solar, loads=loads,
-        previous_plan=previous_plan, risk_aversion=risk_aversion,
+        periods=periods,
+        grid=grid,
+        battery=battery,
+        solar=solar,
+        loads=loads,
+        previous_plan=previous_plan,
+        risk_aversion=risk_aversion,
         import_price_risk_aversion=import_price_risk_aversion,
         export_price_risk_aversion=export_price_risk_aversion,
         smoothness_weight=network.DEFAULT_SMOOTHNESS_WEIGHT_KW,
@@ -2759,7 +2984,9 @@ def main() -> None:
     # -- the tiered grid has two different period widths) / 24, not just
     # added flat.
     horizon_days = sum(period_hours_arr) / 24.0
-    total_cost_with_fixed_costs = (plan.total_cost or 0.0) + horizon_days * FIXED_DAILY_CHARGES
+    total_cost_with_fixed_costs = (
+        plan.total_cost or 0.0
+    ) + horizon_days * FIXED_DAILY_CHARGES
 
     # Real battery throughput/cycling exposure (2026-08-21, direct Mark
     # Purcell finding, relayed via the household: "degradation isn't in
@@ -2781,7 +3008,9 @@ def main() -> None:
     # (manufacturer cycle-life ratings are quoted in full-equivalent-
     # cycles, not raw kWh moved), so this is directly comparable to a
     # real spec sheet, not an invented metric.
-    equivalent_full_cycles = total_throughput_kwh / (2.0 * capacity_kwh) if capacity_kwh > 0 else 0.0
+    equivalent_full_cycles = (
+        total_throughput_kwh / (2.0 * capacity_kwh) if capacity_kwh > 0 else 0.0
+    )
 
     net_battery = plan.battery_discharge_kw - plan.battery_charge_kw
     corrected_grid_import = plan.grid_import_kw
@@ -2819,7 +3048,9 @@ def main() -> None:
                 f"applying defensive clamp before push. ***",
                 file=sys.stderr,
             )
-            net_battery = np.where(_violation_mask, plan.battery_discharge_kw, net_battery)
+            net_battery = np.where(
+                _violation_mask, plan.battery_discharge_kw, net_battery
+            )
             corrected_grid_import = np.where(
                 _violation_mask,
                 np.maximum(0.0, plan.grid_import_kw - plan.battery_charge_kw),
@@ -2891,7 +3122,9 @@ def main() -> None:
             "net_cost": round(
                 import_price[i] * float(corrected_grid_import[i]) * period_hours_arr[i]
                 - export_price[i] * float(plan.grid_export_kw[i]) * period_hours_arr[i]
-                - export_bonus_price[i] * float(plan.export_bonus_kw[i]) * period_hours_arr[i],
+                - export_bonus_price[i]
+                * float(plan.export_bonus_kw[i])
+                * period_hours_arr[i],
                 4,
             ),
         }
@@ -2917,7 +3150,10 @@ def main() -> None:
     binding_now_value_per_kwh = None
     for var_key, label in _BINDING_FAMILIES.items():
         val = plan.reduced_costs.get(var_key, 0.0)
-        if abs(val) > 1e-6 and (binding_now_value_per_kwh is None or abs(val) > abs(binding_now_value_per_kwh)):
+        if abs(val) > 1e-6 and (
+            binding_now_value_per_kwh is None
+            or abs(val) > abs(binding_now_value_per_kwh)
+        ):
             binding_now = label
             binding_now_value_per_kwh = round(val, 4)
     if binding_now is None:
@@ -2925,8 +3161,14 @@ def main() -> None:
     # Earliest export_bonus_cap_<date> entry (ISO date strings sort
     # correctly as plain strings) is always tonight's/the current cap --
     # None when the two-tier export bonus mechanism isn't active at all.
-    _p2p_cap_keys = sorted(k for k in plan.duals if k.startswith("export_bonus_cap_") and k != "export_bonus_cap_global")
-    p2p_volume_cap_shadow_price = round(plan.duals[_p2p_cap_keys[0]], 4) if _p2p_cap_keys else None
+    _p2p_cap_keys = sorted(
+        k
+        for k in plan.duals
+        if k.startswith("export_bonus_cap_") and k != "export_bonus_cap_global"
+    )
+    p2p_volume_cap_shadow_price = (
+        round(plan.duals[_p2p_cap_keys[0]], 4) if _p2p_cap_keys else None
+    )
 
     ha_post_state(
         ENTITY_ID,
@@ -2948,7 +3190,9 @@ def main() -> None:
             "equivalent_full_cycles": round(equivalent_full_cycles, 3),
             "p2p_recent_avg_volume_kwh": round(p2p_recent_volume_kwh, 2),
             "load_summed_18_now_kw": round(summed_18_now_kw, 3),
-            "load_whole_house_cross_check_now_kw": round(whole_house_now_kw, 3) if whole_house_now_kw is not None else None,
+            "load_whole_house_cross_check_now_kw": round(whole_house_now_kw, 3)
+            if whole_house_now_kw is not None
+            else None,
             "failed_load_entities": failed_load_entities,
             # None on success -- real fix for nimbus repo issue #66
             # ("no attribute on sensor.nimbus_solver_battery_forecast
@@ -2964,11 +3208,17 @@ def main() -> None:
             "generated_at": now.isoformat(),
             "binding_constraint_now": binding_now,
             "binding_constraint_shadow_price": binding_now_value_per_kwh,
-            "energy_shadow_price_now": round(plan.duals.get("power_balance_t0", 0.0), 4),
+            "energy_shadow_price_now": round(
+                plan.duals.get("power_balance_t0", 0.0), 4
+            ),
             "p2p_volume_cap_shadow_price": p2p_volume_cap_shadow_price,
         },
     )
-    cross_check_str = f"{whole_house_now_kw:.2f}kW" if whole_house_now_kw is not None else "unavailable"
+    cross_check_str = (
+        f"{whole_house_now_kw:.2f}kW"
+        if whole_house_now_kw is not None
+        else "unavailable"
+    )
     print(
         f"[{now.isoformat()}] pushed {ENTITY_ID}: status={plan.status} "
         f"n_periods={n_periods} horizon={horizon_days * 24:.1f}h solve_time={solve_seconds:.2f}s "
@@ -2983,12 +3233,18 @@ def main() -> None:
 
 if __name__ == "__main__":
     if not acquire_lock():
-        print(f"[{datetime.now(timezone.utc).astimezone(BRISBANE_TZ).isoformat()}] previous run still in progress -- skipping this tick", flush=True)
+        print(
+            f"[{datetime.now(timezone.utc).astimezone(BRISBANE_TZ).isoformat()}] previous run still in progress -- skipping this tick",
+            flush=True,
+        )
         sys.exit(0)
     try:
         main()
     except urllib.error.HTTPError as e:
-        print(f"HTTP error: {e.code} {e.read().decode('utf-8', errors='replace')}", file=sys.stderr)
+        print(
+            f"HTTP error: {e.code} {e.read().decode('utf-8', errors='replace')}",
+            file=sys.stderr,
+        )
         raise
     finally:
         release_lock()

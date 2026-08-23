@@ -36,12 +36,19 @@ export_price for discharging) so the LP has a genuine reason to push
 against whatever limit is actually binding, rather than sitting idle at
 zero because nothing rewards it either way.
 """
+
 import time
 import unittest
 
 import _solver_path  # noqa: F401
 import numpy as np
-from solver.elements import BatteryConfig, DegenerateConfigError, GridConfig, PeriodGrid, SolarConfig
+from solver.elements import (
+    BatteryConfig,
+    DegenerateConfigError,
+    GridConfig,
+    PeriodGrid,
+    SolarConfig,
+)
 from solver.network import build_plan
 
 
@@ -51,9 +58,17 @@ def _flat_grid(n: int, hours: float = 1.0) -> PeriodGrid:
 
 def _base_battery(**overrides) -> BatteryConfig:
     defaults = dict(
-        capacity_kwh=100.0, initial_soc_kwh=40.0, min_soc_kwh=5.0, max_soc_kwh=100.0,
-        max_charge_kw=10.0, max_discharge_kw=10.0, charge_efficiency=0.99, discharge_efficiency=0.99,
-        charge_cost=0.01, discharge_cost=0.01, salvage_value=0.0,
+        capacity_kwh=100.0,
+        initial_soc_kwh=40.0,
+        min_soc_kwh=5.0,
+        max_soc_kwh=100.0,
+        max_charge_kw=10.0,
+        max_discharge_kw=10.0,
+        charge_efficiency=0.99,
+        discharge_efficiency=0.99,
+        charge_cost=0.01,
+        discharge_cost=0.01,
+        salvage_value=0.0,
     )
     defaults.update(overrides)
     return BatteryConfig(**defaults)
@@ -80,9 +95,16 @@ class TestBackwardCompatibility(unittest.TestCase):
         comfortably under max_soc=100 (no ceiling collision)."""
         n = 1
         periods = _flat_grid(n)
-        grid = GridConfig(import_price=np.full(n, 0.001), export_price=np.full(n, 0.02), import_limit_kw=50.0, export_limit_kw=50.0)
+        grid = GridConfig(
+            import_price=np.full(n, 0.001),
+            export_price=np.full(n, 0.02),
+            import_limit_kw=50.0,
+            export_limit_kw=50.0,
+        )
         solar = SolarConfig(forecast_kw=np.zeros(n))
-        battery = _base_battery(salvage_value=0.05)  # real, unambiguous reason to end with more charge
+        battery = _base_battery(
+            salvage_value=0.05
+        )  # real, unambiguous reason to end with more charge
         plan = build_plan(periods=periods, grid=grid, battery=battery, solar=solar)
         self.assertEqual(plan.status, "optimal")
         self.assertAlmostEqual(plan.battery_charge_kw[0], 10.0, places=3)
@@ -99,11 +121,15 @@ class TestValidation(unittest.TestCase):
 
     def test_wrong_first_point_rejected(self):
         with self.assertRaises(ValueError):
-            _base_battery(charge_power_curve=[(10.0, 10.0), (100.0, 0.0)])  # doesn't start at min_soc_kwh=5.0
+            _base_battery(
+                charge_power_curve=[(10.0, 10.0), (100.0, 0.0)]
+            )  # doesn't start at min_soc_kwh=5.0
 
     def test_wrong_last_point_rejected(self):
         with self.assertRaises(ValueError):
-            _base_battery(charge_power_curve=[(5.0, 10.0), (99.0, 0.0)])  # doesn't end at max_soc_kwh=100.0
+            _base_battery(
+                charge_power_curve=[(5.0, 10.0), (99.0, 0.0)]
+            )  # doesn't end at max_soc_kwh=100.0
 
     def test_negative_power_rejected(self):
         with self.assertRaises(ValueError):
@@ -119,7 +145,9 @@ class TestValidation(unittest.TestCase):
             _base_battery(charge_power_curve=[(5.0, 1.0), (50.0, 2.0), (100.0, 10.0)])
 
     def test_valid_curves_accepted(self):
-        battery = _base_battery(charge_power_curve=CHARGE_CURVE, discharge_power_curve=DISCHARGE_CURVE)
+        battery = _base_battery(
+            charge_power_curve=CHARGE_CURVE, discharge_power_curve=DISCHARGE_CURVE
+        )
         self.assertEqual(battery.charge_power_curve, CHARGE_CURVE)
         self.assertEqual(battery.discharge_power_curve, DISCHARGE_CURVE)
 
@@ -134,9 +162,18 @@ class TestChargeCurveGenuinelyBinds(unittest.TestCase):
     def _solve(self, initial_soc_kwh: float, curve):
         n = 1
         periods = _flat_grid(n)
-        grid = GridConfig(import_price=np.full(n, 0.001), export_price=np.full(n, 0.02), import_limit_kw=50.0, export_limit_kw=50.0)
+        grid = GridConfig(
+            import_price=np.full(n, 0.001),
+            export_price=np.full(n, 0.02),
+            import_limit_kw=50.0,
+            export_limit_kw=50.0,
+        )
         solar = SolarConfig(forecast_kw=np.zeros(n))
-        battery = _base_battery(initial_soc_kwh=initial_soc_kwh, charge_power_curve=curve, salvage_value=0.05)
+        battery = _base_battery(
+            initial_soc_kwh=initial_soc_kwh,
+            charge_power_curve=curve,
+            salvage_value=0.05,
+        )
         return build_plan(periods=periods, grid=grid, battery=battery, solar=solar)
 
     def test_low_soc_charges_at_full_flat_rate(self):
@@ -174,9 +211,16 @@ class TestDischargeCurveGenuinelyBinds(unittest.TestCase):
         # discharge as much as physically/curve-allowed, isolating
         # exactly the mechanism under test (same reasoning as the
         # charge tests' own salvage_value, applied to the other side).
-        grid = GridConfig(import_price=np.full(n, 0.30), export_price=np.full(n, 5.0), import_limit_kw=50.0, export_limit_kw=50.0)
+        grid = GridConfig(
+            import_price=np.full(n, 0.30),
+            export_price=np.full(n, 5.0),
+            import_limit_kw=50.0,
+            export_limit_kw=50.0,
+        )
         solar = SolarConfig(forecast_kw=np.zeros(n))
-        battery = _base_battery(initial_soc_kwh=initial_soc_kwh, discharge_power_curve=curve)
+        battery = _base_battery(
+            initial_soc_kwh=initial_soc_kwh, discharge_power_curve=curve
+        )
         return build_plan(periods=periods, grid=grid, battery=battery, solar=solar)
 
     def test_near_floor_discharge_is_tapered(self):
@@ -214,12 +258,20 @@ class TestSolveTimeStaysCheap(unittest.TestCase):
         grid = GridConfig(
             import_price=0.15 + 0.10 * rng.random(n),
             export_price=0.05 + 0.05 * rng.random(n),
-            import_limit_kw=40.0, export_limit_kw=40.0,
+            import_limit_kw=40.0,
+            export_limit_kw=40.0,
         )
-        solar = SolarConfig(forecast_kw=np.clip(10.0 * np.sin(np.linspace(0, np.pi, n)), 0, None))
+        solar = SolarConfig(
+            forecast_kw=np.clip(10.0 * np.sin(np.linspace(0, np.pi, n)), 0, None)
+        )
         battery = _base_battery(
-            capacity_kwh=122.2, initial_soc_kwh=61.0, min_soc_kwh=2.4, max_soc_kwh=122.2,
-            max_charge_kw=40.0, max_discharge_kw=40.0, salvage_value=0.10,
+            capacity_kwh=122.2,
+            initial_soc_kwh=61.0,
+            min_soc_kwh=2.4,
+            max_soc_kwh=122.2,
+            max_charge_kw=40.0,
+            max_discharge_kw=40.0,
+            salvage_value=0.10,
             # Slopes: 0, then (2-40)/(122.2-97.8)=-1.5574 -- non-increasing, valid.
             charge_power_curve=[(2.4, 40.0), (97.8, 40.0), (122.2, 2.0)],
             # Slopes: (40-3)/(18.3-2.4)=2.3270, then 0 -- non-increasing, valid.
@@ -234,7 +286,11 @@ class TestSolveTimeStaysCheap(unittest.TestCase):
         # this 288-period test) measured ~0.4s under the highspy
         # backend. 5s leaves very wide margin while still catching any
         # real regression toward the old multi-minute crisis.
-        self.assertLess(elapsed, 5.0, f"solve took {elapsed:.2f}s, expected well under 5s at this scale")
+        self.assertLess(
+            elapsed,
+            5.0,
+            f"solve took {elapsed:.2f}s, expected well under 5s at this scale",
+        )
 
 
 if __name__ == "__main__":

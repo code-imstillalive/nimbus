@@ -9,11 +9,17 @@ separate, not-yet-scoped piece -- see this project's own CLAUDE.md
 session log for why that wiring was deliberately deferred rather than
 rushed the same night).
 """
+
 import unittest
 
 import _solver_path  # noqa: F401 -- adds custom_components/nimbus_load to sys.path
 import numpy as np
-from ml.blend import blend_forecast_array, blend_point_estimate, cross_source_spread, weights_from_mae
+from ml.blend import (
+    blend_forecast_array,
+    blend_point_estimate,
+    cross_source_spread,
+    weights_from_mae,
+)
 
 
 class TestWeightsFromMae(unittest.TestCase):
@@ -126,7 +132,9 @@ class TestCrossSourceSpread(unittest.TestCase):
         b = np.array([15.0])
         c = np.array([8.0])
         result = cross_source_spread([a, b, c])
-        np.testing.assert_allclose(result, [7.0])  # max(15) - min(8), not any single pairwise difference
+        np.testing.assert_allclose(
+            result, [7.0]
+        )  # max(15) - min(8), not any single pairwise difference
 
     def test_identical_sources_have_zero_spread(self):
         a = np.array([10.0, 20.0])
