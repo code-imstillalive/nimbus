@@ -63,10 +63,11 @@ class TestDefaultIsANoOp(unittest.TestCase):
     def test_zero_bias_leaves_the_sum_unchanged(self):
         state = _state_with_no_band([1.0, 2.0, 3.0, 4.0])
         with patch.object(solver_writer, "ha_get", return_value=state):
-            total_kw, lower_kw, upper_kw, failed = solver_writer.sum_load_forecasts(
-                ["sensor.one_circuit"], _grid_times(4)
+            total_kw, lower_kw, upper_kw, failed, warnings = (
+                solver_writer.sum_load_forecasts(["sensor.one_circuit"], _grid_times(4))
             )
         self.assertEqual(failed, [])
+        self.assertEqual(warnings, {})
         self.assertEqual(total_kw, [1.0, 2.0, 3.0, 4.0])
         # No real band info -> resample_forecast() returns 0.0 for lower
         # AND upper. The defensive clamp is NOT symmetric: lower is
@@ -98,10 +99,13 @@ class TestConfiguredBiasReproducesFinding2Exactly(unittest.TestCase):
         # reference value -- see const.py's own comment for why).
         state = _state_with_no_band([1.0, 16.49, 18.91, 2.0])
         with patch.object(solver_writer, "ha_get", return_value=state):
-            total_kw, lower_kw, upper_kw, failed = solver_writer.sum_load_forecasts(
-                ["sensor.one_circuit"], _grid_times(4), 0.215
+            total_kw, lower_kw, upper_kw, failed, warnings = (
+                solver_writer.sum_load_forecasts(
+                    ["sensor.one_circuit"], _grid_times(4), 0.215
+                )
             )
         self.assertEqual(failed, [])
+        self.assertEqual(warnings, {})
         self.assertEqual(total_kw, [1.215, 16.705, 19.125, 2.215])
         # Every point: lower is exactly the bias (0 real signal + 0.215),
         # matching Mark's own reported {lower: 0.215} on 362/363 points.
@@ -124,13 +128,78 @@ class TestConfiguredBiasReproducesFinding2Exactly(unittest.TestCase):
             return state_a if entity_id == "sensor.a" else state_b
 
         with patch.object(solver_writer, "ha_get", side_effect=_fake_ha_get):
-            total_kw, _, _, failed = solver_writer.sum_load_forecasts(
+            total_kw, _, _, failed, warnings = solver_writer.sum_load_forecasts(
                 ["sensor.a", "sensor.b"], _grid_times(2), 0.215
             )
         self.assertEqual(failed, [])
+        self.assertEqual(warnings, {})
         # 1.0 + 2.0 + 0.215 (once, not 0.215 + 0.215) = 3.215.
         self.assertAlmostEqual(total_kw[0], 3.215, places=6)
         self.assertAlmostEqual(total_kw[1], 3.215, places=6)
+
+
+class TestMalformedCircuitGetsARealDiagnosticNotJustDropped(unittest.TestCase):
+    """The actual point of issue #105: a genuinely malformed/wrong-shape
+    source entity on the multi-circuit summing path used to be either
+    silently corrupting the sum (if fetch_load_forecast_safe() happened
+    to return SOMETHING that superficially looked like a list) or
+    dropped to a bare "unavailable" with zero real diagnostic -- the
+    exact class of problem #66 already fixed on the single-sensor path.
+    A healthy circuit summed alongside a malformed one must still
+    produce a correct sum, not be corrupted by its neighbour."""
+
+    def test_malformed_shape_is_excluded_with_a_real_reason_not_silently_summed(self):
+        healthy = _state_with_no_band([2.0, 2.0])
+        malformed = {
+            "state": "unknown",
+            "attributes": {"unit_of_measurement": "kW", "not_forecast_at_all": []},
+        }
+
+        def _fake_ha_get(entity_id):
+            return healthy if entity_id == "sensor.healthy" else malformed
+
+        with patch.object(solver_writer, "ha_get", side_effect=_fake_ha_get):
+            total_kw, _, _, failed, warnings = solver_writer.sum_load_forecasts(
+                ["sensor.healthy", "sensor.malformed"], _grid_times(2)
+            )
+        # The healthy circuit's own real contribution must be unaffected
+        # by its malformed neighbour -- not corrupted, not zeroed.
+        self.assertEqual(total_kw, [2.0, 2.0])
+        self.assertEqual(failed, ["sensor.malformed"])
+        self.assertIn("sensor.malformed", warnings)
+        # A REAL, specific reason -- not just "unavailable" -- naming
+        # the actual attribute shape problem, matching #66's own bar.
+        self.assertIn("no usable 'forecast' attribute", warnings["sensor.malformed"])
+
+    def test_wrong_unit_is_auto_scaled_the_same_way_the_single_sensor_path_already_is(
+        self,
+    ):
+        """A real, concrete test of the class of bug #105 itself
+        speculated about ('is unit scaling wrong for one of the
+        sources?') -- a source publishing genuine watts under
+        unit_of_measurement 'W' must be scaled to kW on the multi-
+        circuit path exactly like it already is on the single-sensor
+        path (read_load_forecast_sensor()), not silently misread as
+        already-kW."""
+        times = _grid_times(2)
+        state_in_watts = {
+            "state": "1500",
+            "attributes": {
+                "unit_of_measurement": "W",
+                "forecast": [
+                    {"time": times[0].isoformat(), "value": 1500.0},
+                    {"time": times[1].isoformat(), "value": 3000.0},
+                ],
+            },
+        }
+        with patch.object(solver_writer, "ha_get", return_value=state_in_watts):
+            total_kw, _, _, failed, warnings = solver_writer.sum_load_forecasts(
+                ["sensor.watts_source"], times
+            )
+        self.assertEqual(failed, [])
+        self.assertEqual(warnings, {})
+        self.assertAlmostEqual(total_kw[0], 1.5, places=6)
+        self.assertAlmostEqual(total_kw[1], 3.0, places=6)
 
 
 if __name__ == "__main__":

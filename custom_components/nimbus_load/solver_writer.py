@@ -985,28 +985,49 @@ def parse_iso(s) -> datetime:
     return datetime.fromisoformat(s)
 
 
-def fetch_load_forecast_safe(entity_id: str) -> list[dict]:
-    """Real, per-entity-guarded fetch for ONE of the 18 real load
-    forecasts (2026-08-17, direct ask: "and individually wrapped into
-    float 0"). Returns [] (never raises) on ANY failure -- entity
-    missing/renamed, HTTP error, malformed JSON, no "forecast" attribute
-    at all -- so sum_load_forecasts() below can treat a genuinely
-    unavailable circuit as a safe, honest 0.0 contribution rather than
-    let it corrupt or crash the whole 18-load sum.
+def fetch_load_forecast_safe(entity_id: str) -> tuple[list[dict] | None, str | None]:
+    """Real, per-entity-guarded, VALIDATED fetch for ONE of a household's
+    own individually-forecasted circuits (2026-08-17, direct ask: "and
+    individually wrapped into float 0"). Returns (None, error) (never
+    raises) on ANY failure -- entity missing/renamed, HTTP error,
+    malformed JSON, no usable 'forecast' attribute, wrong per-point
+    shape, wrong unit -- so sum_load_forecasts() below can treat a
+    genuinely unavailable OR malformed circuit as a safe, honest 0.0
+    contribution rather than let it corrupt or crash the whole sum.
+
+    Real bug found live (nimbus repo issue #105, Mark Purcell, a real
+    independent installer's own live health-check, 2026-08-24 -- direct
+    follow-up to #66): this function used to be a bare, unvalidated
+    `ha_get(entity_id)["attributes"]["forecast"]` -- zero shape check,
+    zero unit-hint scaling, zero per-point validation, the EXACT class
+    of bug #66 already fixed on the single-sensor path
+    (read_load_forecast_sensor()) but never applied here. A source
+    entity publishing the wrong shape either got silently summed as
+    raw, un-validated points (risking a garbage contribution to the
+    whole sum, not just a dropped one) or, if the bare `["forecast"]`
+    lookup itself raised, got silently zeroed with only a generic
+    "unavailable" message -- no way to tell "this circuit's sensor is
+    down" apart from "this circuit's sensor is UP but publishing
+    something Nimbus can't parse," which is exactly the diagnostic gap
+    that made #105's own real-world root cause (a genuinely wrong-shape
+    or wrong-unit third-party forecast entity) hard to see from the
+    outside. Now shares the SAME real validation as the single-sensor
+    path -- see _validate_and_parse_load_forecast_attrs()'s own
+    docstring for the full mechanism.
 
     Same real lesson already learned and documented once this project
     (sibling 116KAT-HA-AI repo's own CLAUDE.md, 2026-08-16 session,
-    sensor.cb_total_combined_power_adjusted_kw): 18 independent
-    Zigbee-mesh circuit sensors collectively have a meaningfully HIGHER
-    chance that "at least one is briefly offline" than a single Modbus
-    connection does -- guarding only the OUTER sum, not each individual
-    term, doesn't help (a raw string-concatenation or KeyError from one
-    bad entity happens before any outer guard gets a chance to catch
-    it). Every one of the 18 fetches below is wrapped exactly this way,
-    individually, not just the total.
+    sensor.cb_total_combined_power_adjusted_kw): a household's own
+    circuit sensors collectively have a meaningfully HIGHER chance that
+    "at least one is briefly offline" than a single Modbus connection
+    does -- guarding only the OUTER sum, not each individual term,
+    doesn't help (a raw string-concatenation or KeyError from one bad
+    entity happens before any outer guard gets a chance to catch it).
+    Every entity sum_load_forecasts() fetches is wrapped exactly this
+    way, individually, not just the total.
     """
     try:
-        return ha_get(entity_id)["attributes"]["forecast"]
+        state = ha_get(entity_id)
     except (
         urllib.error.HTTPError,
         urllib.error.URLError,
@@ -1017,23 +1038,32 @@ def fetch_load_forecast_safe(entity_id: str) -> list[dict]:
             f"WARN: {entity_id} unavailable ({e}) -- treating as 0.0 kW for this solve",
             file=sys.stderr,
         )
-        return []
+        return None, f"{entity_id} unavailable ({e})"
+
+    attrs = state.get("attributes", {}) if isinstance(state, dict) else {}
+    fc_dicts, _has_bands, error = _validate_and_parse_load_forecast_attrs(
+        entity_id, attrs
+    )
+    if error is not None:
+        print(f"WARN: {error} -- treating as 0.0 kW for this solve", file=sys.stderr)
+        return None, error
+    return fc_dicts, None
 
 
 def sum_load_forecasts(
     entity_ids: list[str],
     grid_times: list[datetime],
     inverter_self_consumption_kw: float = 0.0,
-) -> tuple[list[float], list[float], list[float], list[str]]:
+) -> tuple[list[float], list[float], list[float], list[str], dict[str, str]]:
     """Real household demand, summed from a household's own individually-
     forecasted circuits -- see load_forecast_entities in main() (the
     comment right above the module-level "Real per-load demand" block
     near the top of this file) for the full "why sum individual circuits
     instead of one whole-house entity" reasoning. Each entity is fetched
-    via fetch_load_forecast_safe() (individually guarded, never crashes
-    the whole sum) and resampled with the SAME resample_forecast() every
-    other forecast entity in this file already uses -- no new resampling
-    logic needed.
+    via fetch_load_forecast_safe() (individually guarded AND validated,
+    never crashes or silently corrupts the whole sum) and resampled with
+    the SAME resample_forecast() every other forecast entity in this
+    file already uses -- no new resampling logic needed.
 
     inverter_self_consumption_kw: a real, permanent, per-household bias
     (own comment above CONF_SOLVER_INVERTER_SELF_CONSUMPTION_KW in
@@ -1059,18 +1089,28 @@ def sum_load_forecasts(
     ENTITY_ID_LOAD_TOTAL push) so a future topology-card change can
     cross-reference this list against its own already-built per-load
     health dots (see the sibling repo's own topology-card.js, PR #611)
-    without needing to poll each of the 18 entities itself.
+    without needing to poll each of the 18 entities itself. This list's
+    own shape (a bare list[str] of entity_ids) is UNCHANGED from before
+    -- kept backward compatible with that existing external contract.
+
+    NEW (2026-08-24, issue #105): a fifth return value, `warnings` --
+    entity_id -> the exact human-readable reason it was excluded (not
+    just "unavailable", the real shape/unit-mismatch diagnostic
+    fetch_load_forecast_safe() now surfaces). Genuinely additive --
+    every existing caller destructuring the first 4 values still works.
     """
     total_kw = [0.0] * len(grid_times)
     total_lower_kw = [0.0] * len(grid_times)
     total_upper_kw = [0.0] * len(grid_times)
     failed_entities: list[str] = []
+    warnings: dict[str, str] = {}
     for entity_id in entity_ids:
-        fc = fetch_load_forecast_safe(entity_id)
-        if not fc:
-            failed_entities.append(
-                entity_id
-            )  # already warned inside fetch_load_forecast_safe(); this load contributes 0.0 for every period
+        fc, error = fetch_load_forecast_safe(entity_id)
+        if fc is None:
+            failed_entities.append(entity_id)
+            if error is not None:
+                warnings[entity_id] = error
+            continue  # this load contributes 0.0 for every period
             continue
         pt_kw = resample_forecast(fc, "value", grid_times)
         pt_lower = resample_forecast(fc, "lower", grid_times)
@@ -1098,7 +1138,7 @@ def sum_load_forecasts(
     total_upper_kw = [
         max(total_upper_kw[i], total_kw[i]) for i in range(len(grid_times))
     ]
-    return total_kw, total_lower_kw, total_upper_kw, failed_entities
+    return total_kw, total_lower_kw, total_upper_kw, failed_entities, warnings
 
 
 def resample_forecast(
@@ -1128,22 +1168,26 @@ def resample_forecast(
     return out
 
 
-def read_load_forecast_sensor(
-    entity_id: str, grid_times: list[datetime]
-) -> tuple[list[float] | None, list[float] | None, list[float] | None, str | None]:
-    """Validated read of the single-sensor load-forecast fallback (the
-    solver_load_forecast_sensor wizard field -- used when a household
-    hasn't configured individual Nimbus Load subentries).
+def _validate_and_parse_load_forecast_attrs(
+    entity_id: str, attrs: dict
+) -> tuple[list[dict] | None, bool, str | None]:
+    """Shared shape/unit validation for ANY load-forecast source entity
+    -- extracted (2026-08-24, nimbus repo issue #105, real follow-up to
+    #66) from what used to be read_load_forecast_sensor()'s own inline
+    logic, so BOTH the single-sensor path (solver_load_forecast_sensor)
+    AND the multi-circuit summing path (fetch_load_forecast_safe(),
+    used by sum_load_forecasts()) get the same real protection --
+    previously only the single-sensor path did, meaning a malformed or
+    wrong-unit source configured in solver_load_forecast_entities could
+    silently corrupt or 0.0-drop one circuit's own contribution to an
+    18-circuit sum with zero diagnostic signal, the exact same class of
+    problem #66 already fixed on the OTHER path.
 
     Real bug found live (nimbus repo issue #66, Mark Purcell, 2026-08-23):
-    the original version of this read was a bare
-    `ha_get(entity_id)["attributes"]["forecast"]`, zero validation.
-    Any sensor publishing its forecast under a different attribute name,
-    or with different per-point keys, either crashed this whole script
-    (an uncaught KeyError propagating out of main() -- the dashboard
-    just freezes at whatever the LAST successful plan was, no crash
-    visible anywhere except this script's own log) or degraded with a
-    genuinely useless flat plan and no operator-visible signal at all.
+    a bare `attrs["forecast"]` read, zero validation, either crashed
+    (an uncaught KeyError) or degraded with a genuinely useless flat
+    plan and no operator-visible signal at all on any sensor publishing
+    a different shape.
 
     Genuinely common in practice, not a hypothetical: EMHASS's own
     load-forecast sensors publish under `scheduled_forecast` (not
@@ -1155,17 +1199,12 @@ def read_load_forecast_sensor(
     sensor's own object_id names its value column), to convert safely
     rather than just report a clearer error.
 
-    Returns (load_kw, load_lower_kw, load_upper_kw, error) -- error is
-    None on success. The three arrays are None together with error on
-    failure -- callers must check error, not just truthiness (an
-    all-zero real forecast is a valid, if unusual, success).
+    Returns (fc_dicts, has_bands, error) -- fc_dicts is None together
+    with a non-None error on failure. Callers must check error, not
+    just truthiness of fc_dicts (an entity that resolves to zero points
+    after real filtering is itself the error case, not a valid empty
+    success).
     """
-    try:
-        state = ha_get(entity_id)
-    except (urllib.error.HTTPError, urllib.error.URLError) as e:
-        return None, None, None, f"{entity_id} could not be read ({e})"
-
-    attrs = state.get("attributes", {}) if isinstance(state, dict) else {}
     raw_fc = attrs.get("forecast")
     time_key, value_key, has_bands = "time", "value", True
 
@@ -1185,8 +1224,7 @@ def read_load_forecast_sensor(
             available = sorted(k for k, v in attrs.items() if isinstance(v, list))
             return (
                 None,
-                None,
-                None,
+                False,
                 (
                     f"{entity_id} has no usable 'forecast' attribute (list-valued "
                     f"attributes present: {available or 'none'}). Expected a list "
@@ -1212,8 +1250,7 @@ def read_load_forecast_sensor(
     if not parsed_points:
         return (
             None,
-            None,
-            None,
+            False,
             (
                 f"{entity_id}'s forecast has {len(raw_fc)} point(s) but none "
                 f"parsed cleanly under keys '{time_key}'/'{value_key}'."
@@ -1241,6 +1278,37 @@ def read_load_forecast_sensor(
             if point.get("upper") is not None:
                 entry["upper"] = point["upper"]
         fc_dicts.append(entry)
+
+    return fc_dicts, has_bands, None
+
+
+def read_load_forecast_sensor(
+    entity_id: str, grid_times: list[datetime]
+) -> tuple[list[float] | None, list[float] | None, list[float] | None, str | None]:
+    """Validated read of the single-sensor load-forecast fallback (the
+    solver_load_forecast_sensor wizard field -- used when a household
+    hasn't configured individual Nimbus Load subentries). Shape/unit
+    validation itself lives in _validate_and_parse_load_forecast_attrs()
+    (see that function's own docstring for the full #66 history) --
+    this function's own job is just the fetch and the resample/clamp
+    into a grid-aligned (value, lower, upper) triple.
+
+    Returns (load_kw, load_lower_kw, load_upper_kw, error) -- error is
+    None on success. The three arrays are None together with error on
+    failure -- callers must check error, not just truthiness (an
+    all-zero real forecast is a valid, if unusual, success).
+    """
+    try:
+        state = ha_get(entity_id)
+    except (urllib.error.HTTPError, urllib.error.URLError) as e:
+        return None, None, None, f"{entity_id} could not be read ({e})"
+
+    attrs = state.get("attributes", {}) if isinstance(state, dict) else {}
+    fc_dicts, has_bands, error = _validate_and_parse_load_forecast_attrs(
+        entity_id, attrs
+    )
+    if error is not None:
+        return None, None, None, error
 
     load_kw = [max(0.0, v) for v in resample_forecast(fc_dicts, "value", grid_times)]
     if has_bands:
@@ -2549,12 +2617,16 @@ def main() -> None:
     load_forecast_entities = cfg.get("solver_load_forecast_entities") or []
     load_forecast_error = None
     if load_forecast_entities:
-        load_kw, load_lower_kw, load_upper_kw, failed_load_entities = (
-            sum_load_forecasts(
-                load_forecast_entities,
-                grid_times,
-                _cfg_num(cfg, "solver_inverter_self_consumption_kw", 0.0),
-            )
+        (
+            load_kw,
+            load_lower_kw,
+            load_upper_kw,
+            failed_load_entities,
+            load_forecast_warnings,
+        ) = sum_load_forecasts(
+            load_forecast_entities,
+            grid_times,
+            _cfg_num(cfg, "solver_inverter_self_consumption_kw", 0.0),
         )
     else:
         # Validated read (2026-08-23, real fix for nimbus repo issue
@@ -2576,6 +2648,7 @@ def main() -> None:
             load_upper_kw = [0.0] * n_periods
             _notify_load_forecast_error_once(load_forecast_error)
         failed_load_entities = []
+        load_forecast_warnings = {}
 
     # Real, honest cross-check (reported only, never used to price or
     # dispatch anything): how far does "sum of 18 real circuits" diverge
@@ -2697,6 +2770,13 @@ def main() -> None:
             ],
             "source_entities": load_forecast_entities,
             "failed_load_entities": failed_load_entities,
+            # NEW (2026-08-24, issue #105): entity_id -> the exact real
+            # reason each failed_load_entities member was excluded --
+            # was previously invisible on the multi-circuit summing
+            # path (a bare "unavailable" in the log, nothing on this
+            # sensor at all). See sum_load_forecasts()'s own docstring
+            # for the full "why this exists" story.
+            "load_forecast_warnings": load_forecast_warnings,
             "whole_house_cross_check_now_kw": round(whole_house_now_kw, 3)
             if whole_house_now_kw is not None
             else None,
@@ -3338,6 +3418,11 @@ def main() -> None:
             if whole_house_now_kw is not None
             else None,
             "failed_load_entities": failed_load_entities,
+            # NEW (2026-08-24, issue #105) -- same dual-publication
+            # convention as failed_load_entities/load_forecast_source_
+            # error immediately below: present here AND on sensor.
+            # nimbus_household_load_total_forecast.
+            "load_forecast_warnings": load_forecast_warnings,
             # None on success -- real fix for nimbus repo issue #66
             # ("no attribute on sensor.nimbus_solver_battery_forecast
             # telling the operator the sensor shape they wired in was
