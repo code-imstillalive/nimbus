@@ -148,9 +148,9 @@ async def test_state_stays_stable_across_the_full_recheck_cadence(
         "This is the exact shape of the #83/#85 flap regression."
     )
     assert state.state == "4.225"
-    assert (
-        "forecast" in state.attributes
-    ), "Recheck stripped the `forecast` attribute -- clobber regression"
+    assert "forecast" in state.attributes, (
+        "Recheck stripped the `forecast` attribute -- clobber regression"
+    )
 
 
 async def test_state_stays_stable_across_many_solve_cycles(
@@ -218,9 +218,9 @@ async def test_both_push_sensors_stay_stable(
     ):
         state = hass.states.get(entity_id)
         assert state is not None
-        assert (
-            state.state != STATE_UNKNOWN
-        ), f"{entity_id} clobbered to unknown after one recheck tick"
+        assert state.state != STATE_UNKNOWN, (
+            f"{entity_id} clobbered to unknown after one recheck tick"
+        )
         assert state.state == expected
 
 

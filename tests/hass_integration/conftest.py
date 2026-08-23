@@ -176,7 +176,7 @@ def solver_writer_bound_to_hass(hass):
     solver_writer.set_native_hass(hass)
     yield
     solver_writer.set_native_hass(None)
-    solver_writer._ENTITY_UPDATE_HANDLERS.clear()  # noqa: SLF001
+    solver_writer._ENTITY_UPDATE_HANDLERS.clear()
 
 
 @pytest.fixture(autouse=True)

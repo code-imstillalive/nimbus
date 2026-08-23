@@ -185,9 +185,9 @@ async def test_exactly_one_instance_survives_many_reloads(
     that runs the first time but is idempotent-skipped the second).
     """
     for i in range(5):
-        assert await hass.config_entries.async_reload(
-            nimbus_entry.entry_id
-        ), f"Reload #{i + 1} returned False"
+        assert await hass.config_entries.async_reload(nimbus_entry.entry_id), (
+            f"Reload #{i + 1} returned False"
+        )
         await hass.async_block_till_done()
 
     for entity_id in (
@@ -283,7 +283,7 @@ async def test_state_stays_stable_after_reload(
 
     state = hass.states.get(_BATTERY_FORECAST_ENTITY_ID)
     assert state is not None
-    assert (
-        state.state != STATE_UNKNOWN
-    ), "Post-reload recheck clobbered the fresh push -- the #85 regression signature."
+    assert state.state != STATE_UNKNOWN, (
+        "Post-reload recheck clobbered the fresh push -- the #85 regression signature."
+    )
     assert state.state == "3.14"
