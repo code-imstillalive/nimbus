@@ -10,6 +10,24 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.74.0] — 2026-08-23
+
+### Added
+- **Topology card ships bundled with the integration**: install Nimbus via HACS, restart HA, drop `type: custom:switchboard-topology-card` into any dashboard view — it resolves immediately, with no `www/` file copy and no manual Settings → Dashboards → Resources step ([#79](https://github.com/code-imstillalive/nimbus/issues/79), [#92](https://github.com/code-imstillalive/nimbus/pull/92)). `custom_components/nimbus_load/frontend/switchboard-topology-card.js` is the same file as `docs/real-world-integration/files/topology-card-v4.js`; a new `frontend.py` module owns registration. HTTP serving via `hass.http.async_register_static_paths([StaticPathConfig(...)])` at `/nimbus_load/switchboard-topology-card.js`, plus registration as an extra JS module via `homeassistant.components.frontend.add_extra_js_url(hass, url)` — HA's own public, documented API for injecting frontend JS from an integration, so both storage-mode and YAML-mode Lovelace dashboards see the module with no writes to the user's `.storage/lovelace_resources`. Cache-busting via `?v=<manifest-version>`. Both steps are idempotent and non-fatal — a failure at registration is logged and the forecaster, sensors, and solver all still work.
+
+### Changed
+- `manifest.json` declares `"http"` as a dependency (needed by the static-path registration, caught by hassfest during PR #92 CI review).
+- `nimbus_solver_app/config.yaml` version bumped in lockstep to `0.74.0`.
+
+## [0.73.3] — 2026-08-23
+
+### Added
+- `sensor.nimbus_solver_config` now logs on every real `configured → unconfigured` transition (WARNING) and on recovery (INFO), instead of staying silent — a startup race (`RestoreEntity` still restoring the wizard's `number.nimbus_solver_*` entities when this sensor is first polled) is now directly visible in the log rather than only surfacing as an unattributed "not configured yet" warning from the Solver runtime. Logging is on-transition only; a stable `configured` or `unconfigured` state produces no repeated log spam.
+- New `unresolved_required_keys` extra state attribute on `sensor.nimbus_solver_config` — empty on the happy path, otherwise names exactly which of the 10 required Solver fields aren't resolved yet. Readable over plain REST (`/api/states/sensor.nimbus_solver_config`) for triage without needing HA's own logs.
+- 9 new regression tests (`tests/test_sensor_solver_config_flap.py`) covering the transition logging, the new attribute, and log-on-transition discipline (no per-poll spam).
+
+No behavioural change to `native_value` itself — this release is observation-only. Real, live-verified data (Mark Purcell, [#85](https://github.com/code-imstillalive/nimbus/issues/85)): every HA restart produces a single ~30-second `configured → unconfigured → configured` window while the wizard's number entities restore; this is a separate, narrower, self-healing race distinct from the mid-session flap fixed in v0.73.2/[#90](https://github.com/code-imstillalive/nimbus/pull/90) — a real fix for the startup race is still open for follow-up.
+
 ## [0.73.2] — 2026-08-23
 
 ### Fixed
