@@ -183,6 +183,19 @@ def install_ha_stubs() -> None:
     module("homeassistant")
     module("homeassistant.components")
     module("homeassistant.components.recorder", get_instance=MagicMock())
+    module("homeassistant.components.energy")
+    # async_get_manager is a placeholder here -- real tests monkeypatch
+    # it per-test via unittest.mock.patch("homeassistant.components.
+    # energy.data.async_get_manager", ...) to control what fake energy
+    # config a given test scenario returns. Registered as a real
+    # (awaitable) async function, not a bare MagicMock, so an
+    # un-monkeypatched call still returns something await-able instead
+    # of raising -- matches this project's own "degrade gracefully by
+    # default" convention.
+    async def _default_async_get_manager(hass):
+        return types.SimpleNamespace(data={})
+
+    module("homeassistant.components.energy.data", async_get_manager=_default_async_get_manager)
     module("homeassistant.components.recorder.history", get_significant_states=MagicMock())
     module(
         "homeassistant.components.sensor",

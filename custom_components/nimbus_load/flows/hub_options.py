@@ -243,6 +243,118 @@ def _solver_sources_schema(defaults: dict[str, Any]) -> vol.Schema:
     )
 
 
+async def _energy_dashboard_switchboard_suggestions(hass: Any) -> dict[str, str]:
+    """Real HA Energy Dashboard config (Settings -> Energy), read in-
+    process, as a genuine starting-point SUGGESTION for 5 of the 6
+    daily-kWh switchboard fields -- never silently trusted, never a
+    `default=` (a locked-in value the household can't tell was auto-
+    picked), always folded into `_switchboard_schema()`'s own
+    `suggested_value` mechanism: visibly pre-filled, still fully
+    editable, still needs an explicit form submit before it's ever
+    saved -- the exact same mechanism every other field in this wizard
+    already uses. 2026-08-23, direct request (Mark Purcell, relayed):
+    "Grab the entities from energy dash to start population of
+    wizard" -- and the direct household follow-up worth answering
+    honestly, not glossing over: "how would we know its correctness?"
+    We don't claim to -- see the two safeguards below.
+
+    Safeguard 1 (type-safety, cheap and real): only ever suggests an
+    entity whose device_class == "energy" and state_class in ("total",
+    "total_increasing") -- catches "wrong KIND of sensor entirely"
+    before it's ever proposed. This project has a real, documented
+    precedent for exactly the failure this guards against
+    (topology_map.yaml's own comment: sensor.grid_active_power LOOKS
+    like the obvious grid sensor but is actually a HAEO plan/forecast
+    sensor, not a real measurement).
+
+    Safeguard 2 (never silent): the caller only uses a suggestion for a
+    field that's genuinely unset in the household's already-saved
+    options -- a real saved value always wins, a suggestion never
+    overwrites it. And a suggestion is only ever a `suggested_value`,
+    visibly sitting in the form for a human to look at and confirm (or
+    fix) before it's ever submitted -- never applied without that.
+
+    What safeguard 1 CANNOT catch (a semantic mismatch -- the right
+    KIND of sensor, but genuinely the wrong one) is exactly what
+    safeguard 2 is for: a human still has to look at it.
+
+    Real, honest limitation: HA's Energy Dashboard's own configured
+    source stat is typically a LIFETIME cumulative total (state_class
+    total_increasing, never resets) -- not literally "today's kWh" the
+    way e.g. sensor.inverter_import_energy_daily (a daily-resetting
+    utility_meter) already is on this household's own real install.
+    Suggesting it anyway is still worth it as a starting point -- it
+    names the right underlying physical sensor, which is most of the
+    real friction in filling this field out cold -- but the household
+    may still need a separate daily-resetting utility_meter helper
+    built FROM this suggestion (Settings -> Helpers -> Utility Meter),
+    not this sensor plugged in directly. No auto-suggestion exists for
+    house_load_energy_daily -- HA's Energy Dashboard has no single
+    whole-house consumption stat (only per-device, via its own separate
+    device_consumption list), inventing one here would be a guess, not
+    a suggestion.
+
+    Uses homeassistant.components.energy.data.async_get_manager() --
+    genuinely internal HA core API, not a stable, documented public
+    contract the way config_entries/entity_registry are (confirmed
+    against this repo's own general HA-core familiarity, NOT verified
+    against a live HA instance -- no live HA available in this dev
+    environment). Wrapped in one broad except for exactly this reason:
+    any failure (component not loaded, API shape changed since this was
+    written, nothing configured at all) must degrade to "no
+    suggestions" silently, the same graceful-degradation convention
+    used everywhere else in this codebase -- never break the wizard.
+    """
+    suggestions: dict[str, str] = {}
+    try:
+        from homeassistant.components.energy.data import async_get_manager
+
+        manager = await async_get_manager(hass)
+        sources = (manager.data or {}).get("energy_sources", [])
+
+        def _ok(entity_id: str | None) -> str | None:
+            if not entity_id:
+                return None
+            state = hass.states.get(entity_id)
+            if state is None:
+                return None
+            attrs = state.attributes
+            if attrs.get("device_class") != "energy":
+                return None
+            if attrs.get("state_class") not in ("total", "total_increasing"):
+                return None
+            return entity_id
+
+        for source in sources:
+            source_type = source.get("type")
+            if source_type == "grid":
+                for flow in source.get("flow_from", []):
+                    candidate = _ok(flow.get("stat_energy_from"))
+                    if candidate:
+                        suggestions.setdefault(CONF_SWITCHBOARD_IMPORT_ENERGY_DAILY_SENSOR, candidate)
+                for flow in source.get("flow_to", []):
+                    candidate = _ok(flow.get("stat_energy_to"))
+                    if candidate:
+                        suggestions.setdefault(CONF_SWITCHBOARD_EXPORT_ENERGY_DAILY_SENSOR, candidate)
+            elif source_type == "solar":
+                candidate = _ok(source.get("stat_energy_from"))
+                if candidate:
+                    suggestions.setdefault(CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR, candidate)
+            elif source_type == "battery":
+                # from-battery == discharge, to-battery == charge (HA's
+                # own Energy Dashboard convention, matches this file's
+                # own real switchboard field names below).
+                discharge_candidate = _ok(source.get("stat_energy_from"))
+                if discharge_candidate:
+                    suggestions.setdefault(CONF_SWITCHBOARD_BATTERY_DISCHARGE_DAILY_SENSOR, discharge_candidate)
+                charge_candidate = _ok(source.get("stat_energy_to"))
+                if charge_candidate:
+                    suggestions.setdefault(CONF_SWITCHBOARD_BATTERY_CHARGE_DAILY_SENSOR, charge_candidate)
+    except Exception:  # noqa: BLE001 -- see docstring: must never break the wizard
+        return {}
+    return suggestions
+
+
 def _switchboard_schema(defaults: dict[str, Any]) -> vol.Schema:
     """Every field genuinely Optional -- the topology dashboard card's
     own top-of-diagram sensors (2026-08-23, direct household ask: "i do
@@ -389,9 +501,14 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
                 merged[key] = user_input.get(key)
             return self.async_create_entry(title="", data=merged)
 
-        return self.async_show_form(
-            step_id="switchboard", data_schema=_switchboard_schema(dict(self.config_entry.options))
-        )
+        # Energy Dashboard suggestions (2026-08-23) fill in ONLY the
+        # gaps -- an already-saved real value always wins, a fresh
+        # suggestion never overwrites it. {**suggestions, **saved} is
+        # deliberate: saved keys on the right win the dict-merge.
+        existing = dict(self.config_entry.options)
+        suggestions = await _energy_dashboard_switchboard_suggestions(self.hass)
+        form_defaults = {**suggestions, **existing}
+        return self.async_show_form(step_id="switchboard", data_schema=_switchboard_schema(form_defaults))
 
     async def async_step_solver_battery(self, user_input: dict[str, Any] | None = None) -> Any:
         if user_input is not None:

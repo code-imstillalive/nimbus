@@ -32,11 +32,18 @@ from custom_components.nimbus_load.const import (  # noqa: E402
     CONF_SOLVER_LOAD_FORECAST_SENSOR,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_2,
+    CONF_SWITCHBOARD_BATTERY_CHARGE_DAILY_SENSOR,
+    CONF_SWITCHBOARD_BATTERY_DISCHARGE_DAILY_SENSOR,
+    CONF_SWITCHBOARD_EXPORT_ENERGY_DAILY_SENSOR,
     CONF_SWITCHBOARD_GRID_METER_SENSOR,
+    CONF_SWITCHBOARD_HOUSE_LOAD_ENERGY_DAILY_SENSOR,
+    CONF_SWITCHBOARD_IMPORT_ENERGY_DAILY_SENSOR,
+    CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR,
     CONF_TEMPERATURE_SENSOR,
 )
 from custom_components.nimbus_load.flows.hub_options import (  # noqa: E402
     NimbusHubOptionsFlow,
+    _energy_dashboard_switchboard_suggestions,
     _forecaster_schema,
     _solver_battery_schema,
     _solver_grid_schema,
@@ -327,6 +334,191 @@ def test_switchboard_schema_every_field_is_optional():
     assert len(schema.schema) == 10
     for key in schema.schema:
         assert type(key).__name__ == "Optional"
+
+
+# -- _energy_dashboard_switchboard_suggestions (2026-08-23) --
+
+
+def _energy_state(entity_id: str, device_class: str, state_class: str):
+    st = MagicMock()
+    st.attributes = {"device_class": device_class, "state_class": state_class}
+    return entity_id, st
+
+
+def _hass_with_states(states: dict):
+    hass = MagicMock()
+    hass.states.get = lambda eid: states.get(eid)
+    return hass
+
+
+def test_suggests_grid_import_and_export_when_type_and_class_match():
+    import asyncio
+    from unittest.mock import patch, AsyncMock
+
+    states = dict([
+        _energy_state("sensor.real_import", "energy", "total_increasing"),
+        _energy_state("sensor.real_export", "energy", "total_increasing"),
+    ])
+    hass = _hass_with_states(states)
+    manager = MagicMock(data={
+        "energy_sources": [
+            {
+                "type": "grid",
+                "flow_from": [{"stat_energy_from": "sensor.real_import"}],
+                "flow_to": [{"stat_energy_to": "sensor.real_export"}],
+            }
+        ]
+    })
+    with patch(
+        "homeassistant.components.energy.data.async_get_manager",
+        new=AsyncMock(return_value=manager),
+    ):
+        result = asyncio.run(_energy_dashboard_switchboard_suggestions(hass))
+    assert result[CONF_SWITCHBOARD_IMPORT_ENERGY_DAILY_SENSOR] == "sensor.real_import"
+    assert result[CONF_SWITCHBOARD_EXPORT_ENERGY_DAILY_SENSOR] == "sensor.real_export"
+    # No Energy Dashboard concept of whole-house load -- must never guess.
+    assert CONF_SWITCHBOARD_HOUSE_LOAD_ENERGY_DAILY_SENSOR not in result
+
+
+def test_suggests_solar_and_battery_when_type_and_class_match():
+    import asyncio
+    from unittest.mock import patch, AsyncMock
+
+    states = dict([
+        _energy_state("sensor.real_solar", "energy", "total_increasing"),
+        _energy_state("sensor.real_discharge", "energy", "total"),
+        _energy_state("sensor.real_charge", "energy", "total"),
+    ])
+    hass = _hass_with_states(states)
+    manager = MagicMock(data={
+        "energy_sources": [
+            {"type": "solar", "stat_energy_from": "sensor.real_solar"},
+            {"type": "battery", "stat_energy_from": "sensor.real_discharge", "stat_energy_to": "sensor.real_charge"},
+        ]
+    })
+    with patch(
+        "homeassistant.components.energy.data.async_get_manager",
+        new=AsyncMock(return_value=manager),
+    ):
+        result = asyncio.run(_energy_dashboard_switchboard_suggestions(hass))
+    assert result[CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR] == "sensor.real_solar"
+    assert result[CONF_SWITCHBOARD_BATTERY_DISCHARGE_DAILY_SENSOR] == "sensor.real_discharge"
+    assert result[CONF_SWITCHBOARD_BATTERY_CHARGE_DAILY_SENSOR] == "sensor.real_charge"
+
+
+def test_wrong_device_class_is_never_suggested():
+    # Real, documented precedent this guards against: a plausible-looking
+    # sensor that is genuinely the wrong KIND (e.g. a power sensor, or a
+    # HAEO plan/forecast sensor) must never be proposed at all.
+    import asyncio
+    from unittest.mock import patch, AsyncMock
+
+    states = dict([_energy_state("sensor.actually_a_power_sensor", "power", "measurement")])
+    hass = _hass_with_states(states)
+    manager = MagicMock(data={
+        "energy_sources": [{"type": "solar", "stat_energy_from": "sensor.actually_a_power_sensor"}]
+    })
+    with patch(
+        "homeassistant.components.energy.data.async_get_manager",
+        new=AsyncMock(return_value=manager),
+    ):
+        result = asyncio.run(_energy_dashboard_switchboard_suggestions(hass))
+    assert CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR not in result
+
+
+def test_wrong_state_class_is_never_suggested():
+    import asyncio
+    from unittest.mock import patch, AsyncMock
+
+    states = dict([_energy_state("sensor.instantaneous_only", "energy", "measurement")])
+    hass = _hass_with_states(states)
+    manager = MagicMock(data={
+        "energy_sources": [{"type": "solar", "stat_energy_from": "sensor.instantaneous_only"}]
+    })
+    with patch(
+        "homeassistant.components.energy.data.async_get_manager",
+        new=AsyncMock(return_value=manager),
+    ):
+        result = asyncio.run(_energy_dashboard_switchboard_suggestions(hass))
+    assert CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR not in result
+
+
+def test_no_energy_dashboard_configured_degrades_to_empty_not_a_crash():
+    import asyncio
+    from unittest.mock import patch, AsyncMock
+
+    hass = _hass_with_states({})
+    manager = MagicMock(data={})  # nothing configured at all
+    with patch(
+        "homeassistant.components.energy.data.async_get_manager",
+        new=AsyncMock(return_value=manager),
+    ):
+        result = asyncio.run(_energy_dashboard_switchboard_suggestions(hass))
+    assert result == {}
+
+
+def test_manager_api_failure_degrades_to_empty_never_raises():
+    # The real, honest reason for the broad except in the real function:
+    # this is genuinely-internal HA API, not a stable public contract --
+    # any failure here (component not loaded, shape changed) must never
+    # break the wizard.
+    import asyncio
+    from unittest.mock import patch, AsyncMock
+
+    hass = _hass_with_states({})
+    with patch(
+        "homeassistant.components.energy.data.async_get_manager",
+        new=AsyncMock(side_effect=RuntimeError("energy component not loaded")),
+    ):
+        result = asyncio.run(_energy_dashboard_switchboard_suggestions(hass))
+    assert result == {}
+
+
+def test_switchboard_step_prefers_saved_value_over_energy_dashboard_suggestion():
+    # Safeguard 2 from the real function's own docstring: a real saved
+    # value must never be silently overwritten by a fresh suggestion,
+    # every single time this form is opened.
+    import asyncio
+    from unittest.mock import patch, AsyncMock
+
+    flow = _make_flow(options={CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR: "sensor.household_own_real_choice"})
+    manager = MagicMock(data={
+        "energy_sources": [{"type": "solar", "stat_energy_from": "sensor.energy_dashboard_guess"}]
+    })
+    flow.hass.states.get = lambda eid: (
+        MagicMock(attributes={"device_class": "energy", "state_class": "total_increasing"})
+        if eid == "sensor.energy_dashboard_guess" else None
+    )
+    with patch(
+        "homeassistant.components.energy.data.async_get_manager",
+        new=AsyncMock(return_value=manager),
+    ):
+        result = asyncio.run(flow.async_step_switchboard(None))
+    marker = _find_marker(result["data_schema"], CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR)
+    assert marker.description == {"suggested_value": "sensor.household_own_real_choice"}
+
+
+def test_switchboard_step_fills_a_genuine_gap_with_a_suggestion():
+    import asyncio
+    from unittest.mock import patch, AsyncMock
+
+    flow = _make_flow(options={})  # nothing saved yet at all
+    manager = MagicMock(data={
+        "energy_sources": [{"type": "solar", "stat_energy_from": "sensor.energy_dashboard_guess"}]
+    })
+    flow.hass.states.get = lambda eid: (
+        MagicMock(attributes={"device_class": "energy", "state_class": "total_increasing"})
+        if eid == "sensor.energy_dashboard_guess" else None
+    )
+    with patch(
+        "homeassistant.components.energy.data.async_get_manager",
+        new=AsyncMock(return_value=manager),
+    ):
+        result = asyncio.run(flow.async_step_switchboard(None))
+    marker = _find_marker(result["data_schema"], CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR)
+    assert marker.description == {"suggested_value": "sensor.energy_dashboard_guess"}
+    # Still fully optional, still overridable, still never a locked-in default.
+    assert marker.default is vol.UNDEFINED
 
 
 def test_init_step_shows_the_forecaster_vs_solver_vs_switchboard_menu():
