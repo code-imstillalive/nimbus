@@ -10,6 +10,9 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+### Deprecated
+- `nimbus_solver_app` (the HAOS Supervisor add-on) is deprecated as of v0.73.0 and will be removed in v1.0.0. The Nimbus HACS integration now runs the Solver natively in-process on HAOS (`custom_components/nimbus_load/solver_runtime.py`, one-minute timer, `highspy` auto-installed as a `manifest.json` requirement), covering every architecture the add-on covered (both need a `highspy` wheel, so both are amd64/aarch64 only) with no separate container, no three-way copy sync, and no version-lockstep discipline. Existing installs: uninstall the add-on and finish the integration's own **Solver settings** wizard — the native path takes over the same `sensor.nimbus_solver_*` outputs with no config migration needed. See the add-on's own README.md and its startup log for the same notice; the top-level README has moved the add-on out of the supported-paths list into a Deprecated note pointing at the native path. Tracking: [#76](https://github.com/code-imstillalive/nimbus/issues/76).
+
 ### Added
 - `pyproject.toml` with a `[dev]` extra: `pip install -e '.[dev]'` from a fresh clone now runs the full test suite ([#69](https://github.com/code-imstillalive/nimbus/pull/69), #36 Stage 1).
 - CI: `Unit Tests (pytest)` is now a **strict** gate on every PR, sourced from `pyproject.toml`'s `[dev]` extra ([#73](https://github.com/code-imstillalive/nimbus/pull/73), #36 Stage 2).
