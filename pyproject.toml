@@ -58,6 +58,20 @@ dev = [
     "pytest-asyncio>=0.23",
     "ruff>=0.6",
     "highspy>=1.15.1",
+    # Real Home Assistant test harness -- gives tests a genuine `hass`
+    # fixture with a real state machine, real event loop, and
+    # `async_fire_time_changed` so time-dependent behaviour can be
+    # exercised deterministically. Added 2026-08-23 to lock in the
+    # flap regression coverage for the two Solver push sensors (see
+    # tests/test_flap_regression_state_stability.py and
+    # tests/test_flap_regression_reload_instance.py) -- the three-
+    # release chain (#82 crash, #83 flap, #85 flap-still) all lived
+    # in the gap between our unit tests and real HA runtime behaviour.
+    # The stub-based tests under _ha_stubs.py stay -- they exercise
+    # everything that doesn't need a real state machine, and keep the
+    # test-collection surface fast. This dep only comes into play for
+    # the two files that specifically ASK for the real hass fixture.
+    "pytest-homeassistant-custom-component>=0.13",
 ]
 
 [project.urls]
