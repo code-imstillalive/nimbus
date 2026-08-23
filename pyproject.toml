@@ -1,0 +1,123 @@
+# Nimbus repo tooling config.
+#
+# This file is intentionally NOT an installable Python package -- Nimbus
+# is a Home Assistant custom_component (installed via HACS / Supervisor,
+# not pip) plus a separate Supervisor add-on. The pyproject here exists
+# for tooling only:
+#
+#   1. Give a fresh clone a single, reproducible dev-deps install command
+#      (`pip install -e '.[dev]'`) so `pytest` runs green without inferring
+#      what the CI test job installs.
+#   2. Move the ruff format + lint configuration out of ad-hoc invocations
+#      and into a versioned config, so local dev and CI apply the same rules.
+#   3. Configure pytest's test discovery + sys.path so `tests/_solver_path.py`
+#      is no longer the only way test modules can find `solver/` and `ml/`
+#      under `custom_components/nimbus_load/`.
+#
+# The single source of truth for the release version is still
+# `custom_components/nimbus_load/manifest.json` -- pyproject deliberately
+# does not carry a version number to avoid two-place drift.
+#
+# Related: #36 (DevOps lifecycle, Stage 1), unblocks flipping the pytest CI
+# job from advisory (`|| true`) to strict once #36's `pyproject.toml` step
+# is complete.
+
+[build-system]
+# Required by PEP 621 even though we don't build a distribution -- keeps
+# `pip install -e '.[dev]'` working.
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nimbus-dev"
+# Deliberately kept low and *not* synced with the HA manifest -- see header.
+version = "0.0.0"
+description = "Dev-tooling shim for the Nimbus Home Assistant custom_component + Supervisor add-on. Not a distributable package."
+requires-python = ">=3.12"
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Raf", email = "code-imstillalive@users.noreply.github.com" }]
+
+# Runtime deps mirror custom_components/nimbus_load/manifest.json so a
+# fresh clone can actually import and unit-test the solver + ML modules.
+# Kept minimal on purpose: the full HA runtime is NOT needed for the 249
+# existing tests (see tests/_ha_stubs.py -- HA is stubbed).
+dependencies = [
+    "numpy>=1.24",
+    "voluptuous>=0.13",
+]
+
+[project.optional-dependencies]
+# Everything a fresh clone needs to run `pytest -q` green.
+# Verified against the current tree: 249 tests pass with these deps
+# plus the base [project.dependencies] above. highspy is a hard import
+# in solver/stochastic.py -- can't be optional at collection time.
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "pytest-asyncio>=0.23",
+    "ruff>=0.6",
+    "highspy>=1.15.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/code-imstillalive/nimbus"
+Issues = "https://github.com/code-imstillalive/nimbus/issues"
+
+# ---------------------------------------------------------------------------
+# setuptools: this repo is NOT a Python distribution. Tell setuptools to
+# find no packages so `pip install -e .` doesn't try to wheel up
+# `custom_components/` (which HA installs its own way).
+# ---------------------------------------------------------------------------
+
+[tool.setuptools]
+packages = []
+
+# ---------------------------------------------------------------------------
+# pytest
+# ---------------------------------------------------------------------------
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+# Path setup:
+#   - custom_components/nimbus_load contains solver/ and ml/ that tests
+#     import as bare `solver.xxx` / `ml.xxx`. This replaces
+#     tests/_solver_path.py's manual sys.path manipulation.
+#   - tests/ itself has to be importable so test modules can
+#     `import _solver_path` (their existing convention).
+# _solver_path.py is retained so plain `python tests/test_X.py` still
+# works without pytest.
+pythonpath = ["custom_components/nimbus_load", "tests"]
+addopts = [
+    "-ra",
+    "--strict-markers",
+    "--strict-config",
+]
+filterwarnings = [
+    "error",
+    # HA + numpy compatibility warnings we don't own -- keep the escape hatch
+    # narrow so real regressions still surface.
+    "ignore::DeprecationWarning:homeassistant.*",
+    "ignore::PendingDeprecationWarning:homeassistant.*",
+]
+
+# ---------------------------------------------------------------------------
+# ruff
+#
+# Deliberately minimal: this PR pins ruff for reproducibility (via the
+# [dev] extra) and sets target-version so pyupgrade-style checks don't
+# guess. It does NOT change what CI enforces today -- the ruff format +
+# ruff check invocations in .github/workflows/ci.yml already passed at
+# PR #68 merge, and expanding the ruleset now would silently reintroduce
+# lint failures on main. Rule-set expansion (I / UP / B, wider line-length,
+# etc.) belongs in its own PR where the diff is reviewable.
+# ---------------------------------------------------------------------------
+
+[tool.ruff]
+target-version = "py312"
+extend-exclude = [
+    "__pycache__",
+    "build",
+    "dist",
+]
