@@ -19,11 +19,11 @@ name: CI
 #
 # Follow-up PRs will replace the ` || true` sink with the real strict
 # invocation once each underlying issue is addressed:
-#   - Lint / Format          -- DONE (this PR: ruff format repo-wide + 1 F401 + 3 E402 noqa placement)
+#   - Lint / Format          -- DONE (#68: ruff format repo-wide + 1 F401 + 3 E402 noqa placement)
+#   - Unit Tests             -- DONE (this PR: [dev] extra from #69 wired in)
 #   - Type Check             -- after the 33 mypy findings are triaged (see #40 Platinum work)
-#   - Unit Tests             -- after test dependencies are pinned in a pyproject.toml
 #   - Add-on Build           -- after #48 fixes the Dockerfile build context
-#   - HACS Validation        -- after #49 fixes the three repo-shape gaps (currently guarded by #51)
+#   - HACS Validation        -- DONE via separate workflow (guarded by #51 during private-repo phase)
 
 on:
   pull_request:
@@ -101,14 +101,15 @@ jobs:
         run: mypy custom_components/nimbus_load --ignore-missing-imports || true
 
   # ---------------------------------------------------------------------------
-  # ADVISORY: Unit Tests (pytest).
-  # Current tests are all solver+ML and pass locally; CI fails on missing
-  # HA test-helper dependencies until a pyproject.toml or requirements-test.txt
-  # pins them properly.
+  # STRICT: Unit Tests (pytest).
+  # Wired via pyproject.toml's [dev] extra (#69) -- `pip install -e '.[dev]'`
+  # is now the single source of truth for the test dependency set. No more
+  # ad-hoc `|| true`-piped installs of pytest / numpy / highspy /
+  # pytest-homeassistant-custom-component. 257 tests pass green from a fresh
+  # venv via this path.
   # ---------------------------------------------------------------------------
-
   test:
-    name: Unit Tests (pytest) [advisory]
+    name: Unit Tests (pytest)
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
@@ -117,18 +118,15 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: "3.13"
-      - name: Install test dependencies
-        run: |
-          pip install pytest pytest-cov pytest-asyncio || true
-          pip install numpy highspy || true
-          pip install "pytest-homeassistant-custom-component" || true
-      - name: Run pytest (advisory)
+      - name: Install dev dependencies
+        run: pip install -e '.[dev]'
+      - name: Run pytest
         run: |
           pytest tests/ \
             --cov=custom_components/nimbus_load \
             --cov-report=term-missing \
             --cov-report=xml \
-            -v || true
+            -v
       - name: Upload coverage artifact
         if: always()
         continue-on-error: true
