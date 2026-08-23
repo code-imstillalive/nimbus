@@ -94,3 +94,72 @@ rules:
       async_setup_entry never touches highspy at all, only the later,
       genuinely-async periodic timer does.
   unique-config-entry: done
+
+  # Silver
+  action-exceptions:
+    status: exempt
+    comment: No service actions.
+  config-entry-unloading:
+    status: done
+    comment: >-
+      Both real timers are correctly cancelled via entry.async_on_unload():
+      the 1-minute native Solver timer (__init__.py) and the daily-retrain
+      time_change listener per coordinator (coordinator.py's _unsub_retrain,
+      stored + called in async_unload()). Verified directly, not assumed --
+      the original Silver checklist flagged this as "worth double-checking,"
+      now confirmed correct.
+  docs-configuration-parameters:
+    status: done
+    comment: >-
+      docs/configuration-reference.md -- every field across every Configure
+      step and every subentry type, plus a full default/range/unit table
+      for all 36 number.nimbus_solver_* entities, generated directly from
+      number.py's own real _DESCRIPTIONS tuple.
+  docs-installation-parameters:
+    status: done
+    comment: Same doc as docs-configuration-parameters above -- covers both.
+  entity-unavailable:
+    status: done
+    comment: >-
+      NimbusForecastSensor already had this (2026-08-22, via
+      CoordinatorEntity's own re-poll-on-a-schedule). The two Solver push
+      sensors (_NimbusSolverPushSensor) had no coordinator and no
+      `available` override at all -- fixed 2026-08-23 with a staleness
+      threshold (5 min, 5x the native runtime's 1-min cadence) plus a
+      self-driven periodic re-check timer (async_added_to_hass), since a
+      pure elapsed-time property alone never gets re-evaluated once the
+      Solver genuinely stops calling update_from_solver().
+  integration-owner: done
+  log-when-unavailable:
+    status: done
+    comment: >-
+      Both entity classes log exactly once per genuine transition (both
+      directions), never per-tick -- confirmed via dedicated tests
+      (test_recheck_does_not_log_again_on_a_second_still_unavailable_tick).
+  parallel-updates:
+    status: done
+    comment: >-
+      PARALLEL_UPDATES = 0 already present in sensor.py, number.py, and
+      switch.py -- correct given the coordinator design handles its own
+      rate-limiting.
+  reauthentication-flow:
+    status: exempt
+    comment: >-
+      No external service authentication; the integration reads local HA
+      sensors and does not authenticate against any remote service.
+  test-coverage:
+    status: todo
+    comment: >-
+      Real, measured (not assumed): 59% overall as of 2026-08-23, up from
+      54% at the start of this pass (a pytest-cov config bug was also
+      found and fixed here -- the tool had been silently reporting the
+      entire solver/ package at 0% due to a dotted-vs-bare import-path
+      artifact, hiding real existing coverage). 3 previously-zero-coverage
+      solver modules (modes.py, counterfactuals.py, rolling.py) taken to
+      100% this pass (34 new tests) -- all three are currently dead code,
+      not yet wired into anything live. Real remaining gaps: coordinator.py
+      (38%), ml/model.py + ml/gbrt.py (~21-23%), solver_writer.py (22%,
+      ~2400 lines, largely I/O-heavy and historically validated against
+      real live data rather than pure unit tests). Silver's own bar is
+      95% across all integration modules -- honestly far from met, left
+      as a real, sized, future body of work rather than claimed done.
