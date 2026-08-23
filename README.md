@@ -177,6 +177,10 @@ edit inline on the dashboard without touching the wizard:
 - Sources: `auto_include_known_solar` switch, plus an optional multi-entity
   load-forecast list for granular per-circuit summation.
 
+See [`docs/configuration-reference.md`](docs/configuration-reference.md) for
+every field across every wizard step and subentry type, plus the full
+default/range/unit table for every `number.nimbus_solver_*` entity above.
+
 ## How it works
 
 ### Forecaster
