@@ -210,9 +210,33 @@ class _StubCoordinatorEntity:
 
 def install_ha_stubs() -> None:
     def module(name: str, **attrs) -> types.ModuleType:
+        # First-call-wins per attribute (2026-08-23): this module's own
+        # docstring promises "idempotent -- safe to call from more than
+        # one test module," but the previous unconditional setattr()
+        # broke that promise for any attrs value built fresh at call
+        # time (MagicMock(), etc.) -- every test FILE that calls
+        # install_ha_stubs() re-evaluates e.g. SensorDeviceClass=
+        # MagicMock() below, producing a NEW mock object each time,
+        # while any class that already imported the OLD mock (e.g.
+        # custom_components.nimbus_load.sensor's own class-attribute
+        # `_attr_device_class = SensorDeviceClass.POWER`, bound once at
+        # that module's own first import and cached by Python's normal
+        # module system) stays pinned to the stale identity. A later
+        # test file's `is SensorDeviceClass.POWER` assertion then
+        # compares against a DIFFERENT MagicMock instance and fails --
+        # reproducible only when the full suite runs in an order that
+        # imports custom_components.nimbus_load.sensor before this
+        # particular test file's own install_ha_stubs() call, which is
+        # exactly why it passed in isolation and failed in the full
+        # suite. install_ha_stubs() takes no arguments, so every call
+        # already passes the exact same literal kwargs -- "first call
+        # wins, later calls are true no-ops for already-set attributes"
+        # changes nothing about intended behaviour, it just makes the
+        # docstring's own claim actually true.
         mod = sys.modules.get(name) or types.ModuleType(name)
         for k, v in attrs.items():
-            setattr(mod, k, v)
+            if not hasattr(mod, k):
+                setattr(mod, k, v)
         sys.modules[name] = mod
         return mod
 
