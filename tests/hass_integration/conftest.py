@@ -7,7 +7,7 @@ run as a separate pytest invocation from the stub-based tests -- see
 tests/hass_integration/README.md for why both together are needed for
 real isolation.
 
-The five things this conftest does:
+The six things this conftest does:
 
   1. Autouse `enable_custom_integrations` so every test here gets the
      custom_components/ path treatment without asking for the fixture
@@ -18,12 +18,17 @@ The five things this conftest does:
      `async_setup_entry` fails with `KeyError: 'recorder'` from
      recorder/core.py and every test here fails before it reaches the
      behaviour it is testing.
-  3. Redirect the solver's on-disk state files into `tmp_path`, so a
+  3. Autouse setup of the `http` and `frontend` components. Nimbus
+     also declares `"http"` as a dependency as of v0.74.0 (the
+     bundled switchboard-topology-card frontend registration), so
+     HA refuses to set the entry up at all without it -- same class
+     of trap as #2, same shape of fix.
+  4. Redirect the solver's on-disk state files into `tmp_path`, so a
      real solve does not try to write to `/opt/`.
-  4. Bind this test's `hass` into `solver_writer` and unbind it after,
+  5. Bind this test's `hass` into `solver_writer` and unbind it after,
      so the entity dispatch seam is live and nothing leaks between
      tests.
-  5. Set pytest-asyncio's `asyncio_mode = "auto"` so `async def
+  6. Set pytest-asyncio's `asyncio_mode = "auto"` so `async def
      test_...` functions are awaited automatically, matching pytest-
      homeassistant-custom-component's own convention.
 
@@ -135,4 +140,39 @@ def auto_ha_environment(recorder_mock, enable_custom_integrations):
     has to be on the import path for the harness to load Nimbus as if
     it were HACS-installed.
     """
+    yield
+
+
+@pytest.fixture(autouse=True)
+async def http_and_frontend_set_up(hass):
+    """Set up `http` and `frontend` components before Nimbus's entry setup.
+
+    Nimbus declares `"http"` as a manifest dependency as of v0.74.0
+    (needed by `frontend.async_register_frontend()` to serve the
+    bundled `switchboard-topology-card.js` via
+    `hass.http.async_register_static_paths`, and to register the
+    module URL with the Lovelace frontend via
+    `frontend.add_extra_js_url()`). Without this fixture the test
+    harness starts `hass` without the `http` component wired up,
+    so `hass.config_entries.async_setup(entry.entry_id)` never
+    completes -- HA refuses to set the entry up at all -- and every
+    test here fails with 0 live entity instances rather than
+    reaching the behaviour it is trying to test.
+
+    `frontend` is set up alongside because `add_extra_js_url` reads
+    and mutates `hass.data[DATA_EXTRA_MODULE_URL]`, which
+    `frontend`'s own setup initialises. The `try/except Exception`
+    guard around the registration in `__init__.py` would swallow a
+    genuine failure here without any visible symptom, so bringing
+    the component up matches the production path.
+
+    Kept as a directory-local, autouse fixture (rather than a
+    top-level pytest plugin) so it stays scoped to the tests that
+    genuinely need it and doesn't accidentally leak into the
+    stub-based suite.
+    """
+    from homeassistant.setup import async_setup_component
+
+    assert await async_setup_component(hass, "http", {})
+    assert await async_setup_component(hass, "frontend", {})
     yield

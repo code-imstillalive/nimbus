@@ -10,6 +10,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.74.0] — 2026-08-23
+
+### Added
+- **Topology card ships bundled with the integration**: install Nimbus via HACS, restart HA, drop `type: custom:switchboard-topology-card` into any dashboard view — it resolves immediately, with no `www/` file copy and no manual Settings → Dashboards → Resources step ([#79](https://github.com/code-imstillalive/nimbus/issues/79), [#92](https://github.com/code-imstillalive/nimbus/pull/92)). `custom_components/nimbus_load/frontend/switchboard-topology-card.js` is the same file as `docs/real-world-integration/files/topology-card-v4.js`; a new `frontend.py` module owns registration. HTTP serving via `hass.http.async_register_static_paths([StaticPathConfig(...)])` at `/nimbus_load/switchboard-topology-card.js`, plus registration as an extra JS module via `homeassistant.components.frontend.add_extra_js_url(hass, url)` — HA's own public, documented API for injecting frontend JS from an integration, so both storage-mode and YAML-mode Lovelace dashboards see the module with no writes to the user's `.storage/lovelace_resources`. Cache-busting via `?v=<manifest-version>`. Both steps are idempotent and non-fatal — a failure at registration is logged and the forecaster, sensors, and solver all still work.
+
+### Changed
+- `manifest.json` declares `"http"` as a dependency (needed by the static-path registration, caught by hassfest during PR #92 CI review).
+- `nimbus_solver_app/config.yaml` version bumped in lockstep to `0.74.0`.
+
 ## [0.73.3] — 2026-08-23
 
 ### Added

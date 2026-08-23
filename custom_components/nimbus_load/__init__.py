@@ -21,8 +21,9 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.loader import async_get_integration
 
-from . import solver_runtime
+from . import frontend, solver_runtime
 from .const import CONF_LOAD_SENSOR, DOMAIN, SUBENTRY_TYPE_LOAD, SUBENTRY_TYPE_SIGNAL
 from .coordinator import NimbusConfigEntry, NimbusCoordinator
 from .sensor import object_id_from_source
@@ -125,6 +126,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: NimbusConfigEntry) -> bo
     before anything's been added via "+ Add") is valid and simply sets up
     nothing further until the first one exists.
     """
+    # Ship the switchboard-topology-card Lovelace resource -- served
+    # over HTTP and registered as an extra JS module via
+    # frontend.add_extra_js_url(), so a fresh HACS install gets the card
+    # without a `www/` file copy or a manual Settings -> Dashboards ->
+    # Resources step (issue #79). Works identically for storage-mode
+    # and YAML-mode Lovelace. Non-fatal: a failure here (missing asset,
+    # unexpected exception) still leaves the forecaster, sensors, and
+    # solver fully functional -- the user can add the resource manually
+    # the same way as before.
+    try:
+        integration = await async_get_integration(hass, DOMAIN)
+        await frontend.async_register_frontend(hass, integration.version)
+    except Exception:
+        _LOGGER.exception(
+            "Nimbus: topology-card frontend registration failed, "
+            "the integration itself will still run -- the card can be "
+            "registered manually via Settings -> Dashboards -> Resources"
+        )
+
     # Runs before anything else -- a rename must land BEFORE the sensor
     # platform tries to add NimbusForecastSensor with its own freshly-
     # derived entity_id, so the platform sees "already exactly this" and
