@@ -237,6 +237,19 @@ per-hardware-unit display) — but nothing else currently explains that they're
 different, which is exactly the kind of thing that reads as confusing/broken on a
 fresh install.
 
+### Two more real gotchas: which load-forecast field actually wins, and the aggregator trap
+
+Solver settings has **two** fields that both sound like "my household load":
+
+| Field | What it actually does |
+|---|---|
+| **Household load forecast sensor** (`solver_load_forecast_sensor`) | A single entity's own forecast, used as-is |
+| **Optional: individual circuit forecast sensors to sum instead** (`solver_load_forecast_entities`) | Sums N entities together — **wins outright over the field above the instant it has even one entry**, regardless of what's configured there |
+
+Found live (issue [#111](https://github.com/code-imstillalive/nimbus/issues/111)): if you've ever pointed the "individual circuits" field at a single third-party forecast sensor while experimenting, it silently keeps winning even after you change the single-sensor field to something else — there's no warning, no error, the Solver just quietly keeps reading whichever field is non-empty. **If you only want one forecast source, leave "individual circuit sensors" completely blank.**
+
+The second trap is sharper: **never point "Household load forecast sensor" at `sensor.nimbus_household_load_total_forecast`** (or any other Nimbus aggregator sensor) — that entity **is** the thing this field feeds *into*, not a valid source for it. With the "individual circuits" list empty, the aggregator has nothing to sum, so it publishes a real, structurally-valid series that's near-all-zero except a single live "now" reading — a genuine confident-looking plan built on the belief nobody in the house consumes anything (real reported impact, issue [#118](https://github.com/code-imstillalive/nimbus/issues/118): a $46/day misplan with every health-check field reporting green). This specific case is now caught automatically (a load forecast under 10% non-trivially-nonzero is rejected with a message naming this exact mistake) — but picking the right entity in the first place (a real `sensor.nimbus_<your_load_signal>_forecast`, from a Load or Power Signal subentry you created yourself) avoids hitting that guard at all.
+
 ## Running the Solver
 
 **Running the Solver settings wizard is mandatory, not optional, if you want the
