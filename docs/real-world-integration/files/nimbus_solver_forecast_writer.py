@@ -254,6 +254,16 @@ PLAN_STATE_PATH = os.environ.get("NIMBUS_SOLVER_PLAN_STATE_PATH", "/opt/nimbus_s
 # this file needs the same one-time `sudo touch` + `chown` on first
 # deploy as PLAN_STATE_PATH. Same env-var-overridable reasoning as above.
 LOCK_PATH = os.environ.get("NIMBUS_SOLVER_LOCK_PATH", "/opt/nimbus_solver_forecast_writer.lock")
+# Real bug found live (nimbus repo issue #66, Mark Purcell, 2026-08-23):
+# a load-forecast sensor with an unrecognized attribute shape degraded
+# or crashed with zero operator-visible signal. The persistent
+# notification this sentinel gates (see _notify_load_forecast_error_once())
+# fires once per genuinely-new error message, not once ever and not
+# every single cron cycle -- same env-var-overridable /opt-default
+# convention as PLAN_STATE_PATH/LOCK_PATH above.
+LOAD_FORECAST_ERROR_NOTIFIED_PATH = os.environ.get(
+    "NIMBUS_SOLVER_LOAD_ERROR_NOTIFIED_PATH", "/opt/nimbus_solver_load_forecast_error.txt"
+)
 
 # Tiered horizon (2026-08-16, real ask: "how about 5 days forecast?" /
 # "how about 96hrs?"), same real architecture HAEO's own horizon already
@@ -797,6 +807,32 @@ def ha_post_state(entity_id: str, state, attributes: dict) -> None:
         resp.read()
 
 
+def ha_call_service(domain: str, service: str, data: dict) -> None:
+    """Fire-and-forget HA service call -- same native/REST dual-mode
+    split as ha_get()/ha_post_state() above. Currently used only for
+    the one-time load-forecast-shape persistent notification (see
+    _notify_load_forecast_error_once()) -- any failure here is
+    deliberately swallowed by the caller, since a failed notification
+    must never be allowed to break the actual solve."""
+    if _NATIVE_HASS is not None:
+        _NATIVE_HASS.add_job(
+            functools.partial(_NATIVE_HASS.services.async_call, domain, service, data)
+        )
+        return
+    body = json.dumps(data).encode("utf-8")
+    req = urllib.request.Request(
+        f"{HA_BASE}/api/services/{domain}/{service}",
+        data=body,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {TOKEN}",
+            "Content-Type": "application/json",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        resp.read()
+
+
 def parse_iso(s) -> datetime:
     # Real bug, confirmed live 2026-08-22 (first-ever native-mode run):
     # every call site here was written and only ever tested against
@@ -935,6 +971,162 @@ def resample_forecast(forecast: list[dict], value_key: str, grid_times: list[dat
                 break
         out.append(float(val))
     return out
+
+
+def read_load_forecast_sensor(
+    entity_id: str, grid_times: list[datetime]
+) -> tuple[list[float] | None, list[float] | None, list[float] | None, str | None]:
+    """Validated read of the single-sensor load-forecast fallback (the
+    solver_load_forecast_sensor wizard field -- used when a household
+    hasn't configured individual Nimbus Load subentries).
+
+    Real bug found live (nimbus repo issue #66, Mark Purcell, 2026-08-23):
+    the original version of this read was a bare
+    `ha_get(entity_id)["attributes"]["forecast"]`, zero validation.
+    Any sensor publishing its forecast under a different attribute name,
+    or with different per-point keys, either crashed this whole script
+    (an uncaught KeyError propagating out of main() -- the dashboard
+    just freezes at whatever the LAST successful plan was, no crash
+    visible anywhere except this script's own log) or degraded with a
+    genuinely useless flat plan and no operator-visible signal at all.
+
+    Genuinely common in practice, not a hypothetical: EMHASS's own
+    load-forecast sensors publish under `scheduled_forecast` (not
+    `forecast`), with per-point keys `date`/`<the sensor's own
+    object_id>` (not `time`/`value`), as STRING values, frequently in W
+    not kW. Auto-detected and handled here as a known, safe alternate
+    shape -- not because every possible shape can be guessed, but
+    because this one is common enough, and unambiguous enough (the
+    sensor's own object_id names its value column), to convert safely
+    rather than just report a clearer error.
+
+    Returns (load_kw, load_lower_kw, load_upper_kw, error) -- error is
+    None on success. The three arrays are None together with error on
+    failure -- callers must check error, not just truthiness (an
+    all-zero real forecast is a valid, if unusual, success).
+    """
+    try:
+        state = ha_get(entity_id)
+    except (urllib.error.HTTPError, urllib.error.URLError) as e:
+        return None, None, None, f"{entity_id} could not be read ({e})"
+
+    attrs = state.get("attributes", {}) if isinstance(state, dict) else {}
+    raw_fc = attrs.get("forecast")
+    time_key, value_key, has_bands = "time", "value", True
+
+    if not isinstance(raw_fc, list) or not raw_fc:
+        # Not the canonical shape -- try the one known common alternate
+        # (EMHASS's own scheduled_forecast/date/<object_id> pattern).
+        alt_fc = attrs.get("scheduled_forecast")
+        object_id = entity_id.split(".", 1)[-1]
+        if isinstance(alt_fc, list) and alt_fc and isinstance(alt_fc[0], dict) and object_id in alt_fc[0]:
+            raw_fc, time_key, value_key, has_bands = alt_fc, "date", object_id, False
+        else:
+            available = sorted(k for k, v in attrs.items() if isinstance(v, list))
+            return None, None, None, (
+                f"{entity_id} has no usable 'forecast' attribute (list-valued "
+                f"attributes present: {available or 'none'}). Expected a list "
+                f"of dicts with a 'time' and 'value' key -- see the canonical "
+                f"shape any sensor.nimbus_<load>_forecast entity publishes."
+            )
+
+    parsed_points = []
+    for point in raw_fc:
+        if not isinstance(point, dict):
+            continue
+        t_raw, v_raw = point.get(time_key), point.get(value_key)
+        if t_raw is None or v_raw is None:
+            continue
+        try:
+            parse_iso(t_raw)
+            float(v_raw)
+        except (ValueError, TypeError):
+            continue
+        parsed_points.append(point)
+
+    if not parsed_points:
+        return None, None, None, (
+            f"{entity_id}'s forecast has {len(raw_fc)} point(s) but none "
+            f"parsed cleanly under keys '{time_key}'/'{value_key}'."
+        )
+
+    # Unit hint: W -> kW, using the sensor's own unit_of_measurement --
+    # real, live, not guessed (EMHASS's own repro published exactly this
+    # combination: unit_of_measurement 'W', raw values in the hundreds).
+    # Nimbus's own canonical forecast entities are always already kW, so
+    # this only ever fires on the alternate-shape path in practice, but
+    # checked unconditionally rather than assumed.
+    scale = 1.0 / 1000.0 if str(attrs.get("unit_of_measurement", "")).strip().lower() == "w" else 1.0
+
+    fc_dicts = []
+    for point in parsed_points:
+        entry = {"time": point[time_key], "value": float(point[value_key]) * scale}
+        if has_bands:
+            if point.get("lower") is not None:
+                entry["lower"] = point["lower"]
+            if point.get("upper") is not None:
+                entry["upper"] = point["upper"]
+        fc_dicts.append(entry)
+
+    load_kw = [max(0.0, v) for v in resample_forecast(fc_dicts, "value", grid_times)]
+    if has_bands:
+        # Exactly the original pre-#66 behavior for the canonical shape:
+        # resample_forecast() returns 0.0 for every point when a source
+        # genuinely has no lower/upper keys at all, and the clamp below
+        # then widens that to [0, load_kw] rather than a zero-width band
+        # -- preserved as-is for backward compatibility with any
+        # existing install already relying on this exact shape.
+        load_lower_kw = [max(0.0, v) for v in resample_forecast(fc_dicts, "lower", grid_times)]
+        load_upper_kw = [max(0.0, v) for v in resample_forecast(fc_dicts, "upper", grid_times)]
+        load_lower_kw = [min(load_lower_kw[i], load_kw[i]) for i in range(len(grid_times))]
+        load_upper_kw = [max(load_upper_kw[i], load_kw[i]) for i in range(len(grid_times))]
+    else:
+        # EMHASS's own shape carries no confidence band at all -- zero-
+        # width around the point estimate, same convention already used
+        # elsewhere in this file for a genuinely bandless input.
+        load_lower_kw, load_upper_kw = list(load_kw), list(load_kw)
+
+    return load_kw, load_lower_kw, load_upper_kw, None
+
+
+def _notify_load_forecast_error_once(error: str) -> None:
+    """Fires a real HA persistent_notification, but only once per
+    genuinely NEW error message -- an unchanging misconfiguration
+    shouldn't re-notify every single cron cycle, but a DIFFERENT new
+    error (e.g. the sensor started, then broke a different way) should
+    still surface. Tracked via a plain sentinel file (see
+    LOAD_FORECAST_ERROR_NOTIFIED_PATH's own comment) holding the exact
+    last-notified message. Any failure here (can't write the sentinel,
+    can't reach HA's service-call endpoint) is deliberately swallowed --
+    a notification is a courtesy, never allowed to break the real solve.
+    """
+    try:
+        already = ""
+        if os.path.exists(LOAD_FORECAST_ERROR_NOTIFIED_PATH):
+            with open(LOAD_FORECAST_ERROR_NOTIFIED_PATH, "r", encoding="utf-8") as f:
+                already = f.read()
+        if already == error:
+            return
+        ha_call_service(
+            "persistent_notification",
+            "create",
+            {
+                "title": "Nimbus Solver: load forecast misconfigured",
+                "message": (
+                    f"{error}\n\nThe Solver is using a flat 0.0 kW load "
+                    "placeholder until this is fixed -- the plan it "
+                    "publishes is not usable while this stands. Open the "
+                    "Nimbus hub's \"Solver settings\" and check the load "
+                    "forecast source, or configure individual Load "
+                    "subentries instead."
+                ),
+                "notification_id": "nimbus_solver_load_forecast_error",
+            },
+        )
+        with open(LOAD_FORECAST_ERROR_NOTIFIED_PATH, "w", encoding="utf-8") as f:
+            f.write(error)
+    except Exception:
+        pass
 
 
 def resample_real_p2p_rate(grid_times: list[datetime]) -> list[float]:
@@ -1245,8 +1437,9 @@ def resample_generic_price_forecast(entity_id: str, grid_times: list[datetime]) 
     all; Amber only exposes forward-looking prices via a separate
     service call (amberelectric.get_forecasts), which needs its own
     small helper sensor to expose as a real attribute -- see this
-    directory's own amber_forecast_for_solver.yaml for a real, working
-    example any Amber-using installer can drop in).
+    project's docs/real-world-integration/files/
+    amber_forecast_for_solver.yaml for a real, working example any
+    Amber-using installer can drop in).
 
     Works for ANY price sensor whose own `forecast` attribute is a list
     of {"time": <iso datetime string>, "value": <float>} dicts -- the
@@ -2084,15 +2277,28 @@ def main() -> None:
     # straight to the single-sensor fallback below, same simple single-
     # entity pattern already used for solar above.
     load_forecast_entities = cfg.get("solver_load_forecast_entities") or []
+    load_forecast_error = None
     if load_forecast_entities:
         load_kw, load_lower_kw, load_upper_kw, failed_load_entities = sum_load_forecasts(load_forecast_entities, grid_times)
     else:
-        load_fc = ha_get(cfg["solver_load_forecast_sensor"])["attributes"]["forecast"]
-        load_kw = [max(0.0, v) for v in resample_forecast(load_fc, "value", grid_times)]
-        load_lower_kw = [max(0.0, v) for v in resample_forecast(load_fc, "lower", grid_times)]
-        load_upper_kw = [max(0.0, v) for v in resample_forecast(load_fc, "upper", grid_times)]
-        load_lower_kw = [min(load_lower_kw[i], load_kw[i]) for i in range(n_periods)]
-        load_upper_kw = [max(load_upper_kw[i], load_kw[i]) for i in range(n_periods)]
+        # Validated read (2026-08-23, real fix for nimbus repo issue
+        # #66) -- the old bare ha_get(...)["attributes"]["forecast"]
+        # either crashed this whole script or degraded silently on any
+        # sensor shape other than the canonical {time, value}, with no
+        # signal to the operator either way. On failure: a flat, honest
+        # 0.0 kW placeholder (never a crash -- price/battery/grid parts
+        # of the plan are still real and worth publishing even with load
+        # wrong) plus a loud stderr WARN and a one-time persistent
+        # notification, both naming the exact real reason.
+        load_kw, load_lower_kw, load_upper_kw, load_forecast_error = read_load_forecast_sensor(
+            cfg["solver_load_forecast_sensor"], grid_times
+        )
+        if load_forecast_error is not None:
+            print(f"WARN: {load_forecast_error}", file=sys.stderr)
+            load_kw = [0.0] * n_periods
+            load_lower_kw = [0.0] * n_periods
+            load_upper_kw = [0.0] * n_periods
+            _notify_load_forecast_error_once(load_forecast_error)
         failed_load_entities = []
 
     # Real, honest cross-check (reported only, never used to price or
@@ -2190,6 +2396,9 @@ def main() -> None:
             "failed_load_entities": failed_load_entities,
             "whole_house_cross_check_now_kw": round(whole_house_now_kw, 3) if whole_house_now_kw is not None else None,
             "inverter_self_consumption_kw": INVERTER_SELF_CONSUMPTION_KW,
+            # None on success -- the exact human-readable reason on
+            # failure, real proposal #2 from nimbus repo issue #66.
+            "load_forecast_source_error": load_forecast_error,
             "generated_at": now.isoformat(),
         },
     )
@@ -2577,22 +2786,27 @@ def main() -> None:
     net_battery = plan.battery_discharge_kw - plan.battery_charge_kw
     corrected_grid_import = plan.grid_import_kw
 
-    # DEFENSIVE SAFETY NET (2026-08-22) -- a real, found root cause on
-    # this project's own reference install: a running process (native
-    # in-process runtime, a standalone cron process that hadn't picked
-    # up a fresh deploy yet, doesn't matter which) can genuinely keep
-    # executing an OLDER, already-superseded copy of network.py's own
-    # LP logic in memory for a while after a real upstream fix has
-    # landed in source -- Python doesn't hot-reload a running process's
-    # already-imported modules. If that stale copy is missing a real
-    # fix to the battery_charge bound during a committed fixed_export_kw
-    # period, it can return a mathematically-impossible plan (charging
-    # AND exporting at a fixed rate in the same period) despite the
-    # solver reporting status="optimal". This clamp is a permanent
-    # backstop against exactly that class of process-staleness bug,
-    # independent of cause -- it corrects the output rather than trust
-    # a stale process's own math, and logs loudly (stderr) whenever it
-    # actually fires, so a real staleness incident is never silent.
+    # DEFENSIVE SAFETY NET (2026-08-22) -- this file's own real, found
+    # root cause. THIS module IS the native in-process solve path
+    # (solver_runtime.py imports it exactly once, at container startup,
+    # via a lazy module-level singleton that's never re-imported for the
+    # life of the process) -- see the sibling standalone script's own
+    # matching comment (116KAT-HA-AI repo, scripts/
+    # nimbus_solver_forecast_writer.py) for the full incident writeup.
+    # Short version: this container's most recent restart (2026-08-22
+    # ~15:25 AEST, to deploy the native runtime itself) happened nearly 2
+    # hours BEFORE the real network.py fix landed (commit 3f90c1f,
+    # 17:20:03) -- so THIS path, specifically, has been the one silently
+    # running the old, unfixed battery_charge bound every minute since,
+    # racing the standalone cron writer's own always-current code. This
+    # clamp stays in place permanently regardless of cause, as a genuine
+    # backstop -- see the sibling file's own comment for exactly what it
+    # corrects and why. A future container restart flushes this module's
+    # own stale in-memory code (there's no other way to force a re-import
+    # here); until then, disabling the Nimbus integration was used as an
+    # immediate same-night mitigation, since that correctly cancels this
+    # module's own timer (entry.async_on_unload, __init__.py) without a
+    # restart.
     if grid.fixed_export_kw is not None:
         _fixed_mask = ~np.isnan(grid.fixed_export_kw)
         _violation_mask = _fixed_mask & (plan.battery_charge_kw > 0.05)
@@ -2736,6 +2950,13 @@ def main() -> None:
             "load_summed_18_now_kw": round(summed_18_now_kw, 3),
             "load_whole_house_cross_check_now_kw": round(whole_house_now_kw, 3) if whole_house_now_kw is not None else None,
             "failed_load_entities": failed_load_entities,
+            # None on success -- real fix for nimbus repo issue #66
+            # ("no attribute on sensor.nimbus_solver_battery_forecast
+            # telling the operator the sensor shape they wired in was
+            # rejected"). Present here (this entity) AND on sensor.
+            # nimbus_household_load_total_forecast above -- the issue
+            # named both.
+            "load_forecast_source_error": load_forecast_error,
             "n_clamped_periods": n_clamped,
             "n_periods": n_periods,
             "horizon_hours": round(horizon_days * 24, 1),

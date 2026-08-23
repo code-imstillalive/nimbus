@@ -78,7 +78,8 @@ _LOGGER = logging.getLogger(__name__)
 
 # Lazily imported (see _ensure_ready() below) -- this module's own
 # env-var-overridable state/lock file paths (NIMBUS_SOLVER_PLAN_STATE_
-# PATH / NIMBUS_SOLVER_LOCK_PATH) are read ONCE, as plain module-level
+# PATH / NIMBUS_SOLVER_LOCK_PATH / NIMBUS_SOLVER_LOAD_ERROR_NOTIFIED_
+# PATH) are read ONCE, as plain module-level
 # `os.environ.get(...)` assignments, at first import -- they MUST be set
 # before that import happens, not after, or they'd silently fall back to
 # this file's own /opt/... NUC-specific defaults (wrong, and very likely
@@ -113,6 +114,10 @@ def _ensure_ready(hass: HomeAssistant):
     )
     os.environ.setdefault(
         "NIMBUS_SOLVER_LOCK_PATH", hass.config.path("nimbus_solver_writer.lock")
+    )
+    os.environ.setdefault(
+        "NIMBUS_SOLVER_LOAD_ERROR_NOTIFIED_PATH",
+        hass.config.path("nimbus_solver_load_forecast_error.txt"),
     )
     from . import solver_writer as _sw  # noqa: PLC0415 -- deliberately deferred, see above
 
