@@ -15,12 +15,30 @@ RUN apk add --no-cache python3 py3-pip py3-numpy \
     && pip3 install --break-system-packages --no-cache-dir highspy
 
 # The pure-Python solver/ package (network.py/elements.py/lp.py) this
-# whole app runs, plus the real writer script it wraps -- both copied
-# straight from this same repo's own tracked source, never duplicated/
-# forked. NIMBUS_SOLVER_PATH (set in the run script) points the writer
-# script's own sys.path.insert() at wherever this lands.
-COPY custom_components/nimbus_load/solver /opt/nimbus_solver/solver
-COPY docs/real-world-integration/files/nimbus_solver_forecast_writer.py \
+# whole app runs, plus the real writer script it wraps. NIMBUS_SOLVER_
+# PATH (set in the run script) points the writer script's own sys.path.
+# insert() at wherever this lands.
+#
+# 2026-08-23 (issue #48): these used to COPY straight from
+# custom_components/nimbus_load/solver/ and docs/real-world-integration/
+# files/ -- both OUTSIDE this add-on's own directory. That works in CI
+# only because PR #47's workflow widens the build context to the repo
+# root; a real HA Supervisor build always roots the context at the
+# add-on's own folder (nimbus_solver_app/), so those two COPYs fail
+# identically on any real install (Docker can't COPY a path outside its
+# build context, full stop -- confirmed by the CI failure Mark filed
+# this issue against). Fixed by keeping genuine, git-tracked COPIES of
+# both trees INSIDE this add-on directory (solver/,
+# nimbus_solver_forecast_writer.py) -- the same synced-copy convention
+# already used for the writer script across 3 other locations in this
+# repo (nimbus's own solver_writer.py, the portable docs/ copy, and
+# 116KAT-HA-AI's own scripts/ copy). Keep these in sync manually after
+# any change to the real source (custom_components/nimbus_load/solver/,
+# docs/real-world-integration/files/nimbus_solver_forecast_writer.py) --
+# `diff -rq` both before committing, same discipline as the other 3
+# copies.
+COPY solver /opt/nimbus_solver/solver
+COPY nimbus_solver_forecast_writer.py \
      /opt/nimbus_solver/nimbus_solver_forecast_writer.py
 
 # Copy root filesystem (the s6-overlay service definition -- see
