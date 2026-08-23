@@ -446,6 +446,17 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
     # is -- fixes the display everywhere at once instead of chasing
     # every individual UI that might recompute an average.
     _attr_suggested_display_precision = 3
+    # Recorder's own 16 KB per-attribute limit (issue #59) -- real fix
+    # #99: PR #77 added this to _NimbusSolverPushSensor (below) but
+    # missed this class, so subentry-published load/signal forecasts
+    # (the ones an installer actually configures -- a real household's
+    # own 18 loads, or Mark's own confirmed-live #99 report showing
+    # this warning firing hundreds of times for his signal forecasts)
+    # kept hitting the same "exceeds maximum size of 16384 bytes"
+    # warning #77 was meant to close everywhere. Same reasoning as the
+    # sibling class: the forecast is a projection, not a historical
+    # fact worth keeping in the long-term stats database.
+    _unrecorded_attributes = frozenset({"forecast"})
 
     def __init__(
         self,
