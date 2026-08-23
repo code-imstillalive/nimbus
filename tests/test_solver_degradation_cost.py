@@ -51,19 +51,19 @@ def _base_battery(**overrides) -> BatteryConfig:
     # round-trip (charge-then-discharge) behaviour this test needs to
     # isolate. Starting empty forces any real discharge to have been
     # funded by a real, priced charge earlier in the same horizon.
-    defaults = dict(
-        capacity_kwh=100.0,
-        initial_soc_kwh=5.0,
-        min_soc_kwh=5.0,
-        max_soc_kwh=100.0,
-        max_charge_kw=20.0,
-        max_discharge_kw=20.0,
-        charge_efficiency=0.95,
-        discharge_efficiency=0.95,
-        charge_cost=0.01,
-        discharge_cost=0.02,
-        salvage_value=0.0,
-    )
+    defaults = {
+        "capacity_kwh": 100.0,
+        "initial_soc_kwh": 5.0,
+        "min_soc_kwh": 5.0,
+        "max_soc_kwh": 100.0,
+        "max_charge_kw": 20.0,
+        "max_discharge_kw": 20.0,
+        "charge_efficiency": 0.95,
+        "discharge_efficiency": 0.95,
+        "charge_cost": 0.01,
+        "discharge_cost": 0.02,
+        "salvage_value": 0.0,
+    }
     defaults.update(overrides)
     return BatteryConfig(**defaults)
 

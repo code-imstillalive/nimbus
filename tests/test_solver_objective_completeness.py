@@ -37,20 +37,20 @@ def _flat_grid(n: int, hours: float = 1.0) -> PeriodGrid:
 
 
 def _base_battery(**overrides) -> BatteryConfig:
-    defaults = dict(
-        capacity_kwh=20.0,
-        initial_soc_kwh=10.0,
-        min_soc_kwh=2.0,
-        max_soc_kwh=20.0,
-        max_charge_kw=10.0,
-        max_discharge_kw=10.0,
-        charge_efficiency=0.99,
-        discharge_efficiency=0.99,
-        charge_cost=0.01,
-        discharge_cost=0.01,
-        salvage_value=0.0,
-        headroom_value=0.0,
-    )
+    defaults = {
+        "capacity_kwh": 20.0,
+        "initial_soc_kwh": 10.0,
+        "min_soc_kwh": 2.0,
+        "max_soc_kwh": 20.0,
+        "max_charge_kw": 10.0,
+        "max_discharge_kw": 10.0,
+        "charge_efficiency": 0.99,
+        "discharge_efficiency": 0.99,
+        "charge_cost": 0.01,
+        "discharge_cost": 0.01,
+        "salvage_value": 0.0,
+        "headroom_value": 0.0,
+    }
     defaults.update(overrides)
     return BatteryConfig(**defaults)
 

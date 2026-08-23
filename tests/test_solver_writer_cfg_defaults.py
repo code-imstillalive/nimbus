@@ -79,18 +79,18 @@ class TestBatteryConfigSoCClamp(unittest.TestCase):
     """
 
     def _base_kwargs(self):
-        return dict(
-            capacity_kwh=40.0,
-            min_soc_kwh=2.0,  # 5% of 40
-            max_soc_kwh=40.0,  # 100% of 40
-            max_charge_kw=21.0,
-            max_discharge_kw=24.0,
-            charge_efficiency=0.975,
-            discharge_efficiency=0.975,
-            charge_cost=0.01,
-            discharge_cost=0.01,
-            salvage_value=0.15,
-        )
+        return {
+            "capacity_kwh": 40.0,
+            "min_soc_kwh": 2.0,  # 5% of 40
+            "max_soc_kwh": 40.0,  # 100% of 40
+            "max_charge_kw": 21.0,
+            "max_discharge_kw": 24.0,
+            "charge_efficiency": 0.975,
+            "discharge_efficiency": 0.975,
+            "charge_cost": 0.01,
+            "discharge_cost": 0.01,
+            "salvage_value": 0.15,
+        }
 
     def test_initial_below_min_still_raises_without_clamp(self):
         # Baseline: the invariant IS the crash the writer used to
