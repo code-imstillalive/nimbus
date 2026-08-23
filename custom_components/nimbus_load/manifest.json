@@ -1,6 +1,7 @@
 {
   "domain": "nimbus_load",
   "name": "Nimbus",
+  "after_dependencies": ["energy"],
   "codeowners": ["@code-imstillalive"],
   "config_flow": true,
   "dependencies": ["recorder"],
