@@ -394,6 +394,25 @@ async def async_setup_entry(
     # ConfigSensor classes above. Moving it inside async_setup_entry --
     # which is only ever called by real HA -- keeps the test surface
     # unchanged and matches the pattern solver_runtime.py already uses).
+    #
+    # Real bug fixed here (issue #89, Mark Purcell, 2026-08-23): this is
+    # genuinely the FIRST place solver_writer.py can get imported in the
+    # whole process on a fresh start -- BEFORE solver_runtime.py's own
+    # _ensure_ready() ever runs (that's only reached later, from the
+    # periodic solve loop). Without the env vars set first, solver_
+    # writer.py's own module-level sys.path.insert() fell back to this
+    # HOUSEHOLD's own hardcoded NUC path -- wrong on every other install,
+    # crashing with ModuleNotFoundError: No module named 'ml'/'solver' on
+    # Mark's real HACS install, every single restart. set_default_env_
+    # vars() is a cheap, pure os.environ.setdefault()/hass.config.path()
+    # helper -- no disk I/O, no solver_writer import of its own -- safe
+    # to call directly here on the event loop, unlike the actual
+    # solver_writer import/solve cycle (which genuinely does need the
+    # worker-thread treatment _ensure_ready()'s own callers already give
+    # it, for unrelated reasons -- see that function's own docstring).
+    from . import solver_runtime
+
+    solver_runtime.set_default_env_vars(hass)
     from . import solver_writer
 
     solver_writer.register_entity_handler(
