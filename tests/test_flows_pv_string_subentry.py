@@ -24,8 +24,6 @@ install_ha_stubs()
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from custom_components.nimbus_load.const import (  # noqa: E402
     CONF_PV_STRING_ENTITY,
-    CONF_PV_STRING_LABEL,
-    CONF_PV_STRING_POWER_SOURCE,
     SUBENTRY_TYPE_LOAD,
     SUBENTRY_TYPE_POWER_SOURCE,
 )
