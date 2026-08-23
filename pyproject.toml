@@ -215,7 +215,13 @@ ignore = [
     # (test-collector boilerplate) that's a deliberate pattern repeated
     # across 23 files, not 23 separate judgment calls.
     "DTZ001", # call-datetime-without-tzinfo (8) -- Stage 2
-    "S110",   # try-except-pass (3) -- Stage 2
+    # S110 (try-except-pass, 3 findings) done, 2026-08-23: the 3 real
+    # sites (all a notification/sentinel-write failure that must never
+    # block the real, more important operation) each now carry a
+    # combined `# noqa: BLE001, S110 -- <reason>` -- same 3 lines
+    # BLE001 already touched, one shared reason covers both rules'
+    # concerns (don't catch too broadly / don't silently discard with
+    # no logging).
     "C408",   # unnecessary-collection-call (12) -- Stage 2
     "EXE001",  # shebang-not-executable (1) -- Stage 3
     "FURB162", # fromisoformat-replace-z (1) -- Stage 3
