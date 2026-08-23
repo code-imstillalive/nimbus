@@ -1281,7 +1281,7 @@ def _notify_load_forecast_error_once(error: str) -> None:
         )
         with open(LOAD_FORECAST_ERROR_NOTIFIED_PATH, "w", encoding="utf-8") as f:
             f.write(error)
-    except Exception:
+    except Exception:  # noqa: BLE001 -- a failed notification/sentinel-file write must never break the solve
         pass
 
 
@@ -1346,7 +1346,7 @@ def resample_real_p2p_rate(grid_times: list[datetime]) -> list[float]:
     """
     try:
         raw = ha_get("sensor.localvolts_p2p_forecast")["attributes"]["forecast"]
-    except Exception:
+    except Exception:  # noqa: BLE001 -- a missing/malformed P2P forecast source degrades to a flat 0.0 array, never crashes the solve
         return [0.0 for _ in grid_times]
 
     pts = []
@@ -1574,7 +1574,7 @@ def fetch_price_history(entity_id: str, days: int = 5) -> list[tuple[datetime, f
             future = asyncio.run_coroutine_threadsafe(_fetch(), _NATIVE_HASS.loop)
             changes = future.result(timeout=30)
             states = changes.get(entity_id, [])
-        except Exception:
+        except Exception:  # noqa: BLE001 -- a recorder read failure degrades to no price-band enrichment, never crashes the solve
             return []
         out: list[tuple[datetime, float]] = []
         for s in states:
@@ -1654,7 +1654,7 @@ def resample_generic_price_forecast(
     """
     try:
         state = ha_get(entity_id)
-    except Exception:
+    except Exception:  # noqa: BLE001 -- see docstring: "never raises", caller falls back to the flat current-value repeat
         return None
     forecast = state.get("attributes", {}).get("forecast")
     if not forecast:

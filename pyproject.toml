@@ -168,7 +168,13 @@ extend-exclude = [
 # than "it's a real #72 Stage 2/3 item queued for its own PR."
 [tool.ruff.lint]
 ignore = [
-    "BLE001", # blind-except (28) -- Stage 2, first up per #72's own priority order
+    # BLE001 (blind-except, 28 findings) done, 2026-08-23: every real
+    # site in custom_components/nimbus_load/ and the two portable script
+    # copies (docs/real-world-integration/files/, nimbus_solver_app/) now
+    # carries its own individual `# noqa: BLE001 -- <reason>` -- see the
+    # per-file-ignores block below for the one remaining category
+    # (test-collector boilerplate) that's a deliberate pattern repeated
+    # across 23 files, not 23 separate judgment calls.
     "DTZ001", # call-datetime-without-tzinfo (8) -- Stage 2
     "S110",   # try-except-pass (3) -- Stage 2
     "C408",   # unnecessary-collection-call (12) -- Stage 2
@@ -181,3 +187,19 @@ ignore = [
     # (a newer rule than the issue's own audit date), same Stage 3
     # treatment: real finding, needs its own look, not blindly fixed.
 ]
+
+# BLE001 in tests/test_*.py (23 sites, 2026-08-23): every one of these
+# files ends with the identical `if __name__ == "__main__":` bare-function
+# collector -- run each test_* function, catch AssertionError separately
+# (a real test failure) from any other Exception (report as ERROR, not
+# FAIL, same distinction pytest itself makes internally). This IS the
+# test framework's own top-level safety net for this file, deliberately
+# built to catch anything so one broken test can't take the whole
+# collector down mid-run -- the same reasoning that justifies pytest's
+# and unittest's own internal blind excepts, which ruff doesn't flag
+# because they're stdlib. A per-file-ignore here reflects one deliberate,
+# repeated pattern, not 23 independent judgment calls -- see
+# tests/run_all.py's own single BLE001 site (a different, real per-site
+# case: an import-time probe) for the individually-reasoned alternative.
+[tool.ruff.lint.per-file-ignores]
+"tests/test_*.py" = ["BLE001"]

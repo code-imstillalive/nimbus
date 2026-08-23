@@ -397,7 +397,7 @@ async def _energy_dashboard_switchboard_suggestions(hass: Any) -> dict[str, str]
                     suggestions.setdefault(
                         CONF_SWITCHBOARD_BATTERY_CHARGE_DAILY_SENSOR, charge_candidate
                     )
-    except Exception:  # BLE001 ignored globally (see #72 Stage 2) -- see docstring: must never break the wizard
+    except Exception:  # noqa: BLE001 -- see docstring: an Energy Dashboard read failure must never break the wizard, only skip the suggestion
         return {}
     return suggestions
 
@@ -619,7 +619,7 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
                     "dismiss",
                     {"notification_id": "nimbus_setup_incomplete"},
                 )
-            except Exception:  # BLE001 ignored globally (see #72 Stage 2)
+            except Exception:  # noqa: BLE001 -- see comment above: dismissing a notification must never block a real save
                 pass
             return self.async_create_entry(title="", data=merged)
         return self.async_show_form(

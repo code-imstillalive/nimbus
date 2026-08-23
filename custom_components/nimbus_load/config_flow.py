@@ -95,7 +95,7 @@ class NimbusConfigFlow(ConfigFlow, domain=DOMAIN):
                     "notification_id": "nimbus_setup_incomplete",
                 },
             )
-        except Exception:  # BLE001 ignored globally (see #72 Stage 2) -- a notification failure must never block real hub setup
+        except Exception:  # noqa: BLE001 -- a notification failure must never block real hub setup
             pass
         return self.async_create_entry(title="Nimbus", data={})
 

@@ -470,7 +470,7 @@ def main() -> None:
     yesterday = (datetime.now(AEST) - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
     try:
         result = run_counterfactual(yesterday)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 -- broad top-level guard around a full day's run: logs the real exception (not swallowed) and returns cleanly so one bad/missing day can't crash the whole scheduled run
         print(f"[{ts()}] ERROR: counterfactual run failed for {yesterday.date()}: {e}", flush=True)
         return
 
