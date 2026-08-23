@@ -123,12 +123,18 @@
       "step": {
         "user": {
           "title": "Add a load",
-          "description": "Pick the power sensor this load should learn from. Temperature sensors and tuning settings are shared across every load -- set them once via the hub's own \"Configure\" instead.",
+          "description": "Pick the power sensor this load should learn from. Temperature sensors and tuning settings are shared across every load -- set them once via the hub's own \"Configure\" instead. The three fields below are optional and genuinely per-load, unlike everything on the hub's shared form -- leave them all blank for a load with no fixed daily schedule.",
           "data": {
-            "load_sensor": "Power sensor to learn from"
+            "load_sensor": "Power sensor to learn from",
+            "schedule_start_hour": "Fixed schedule start hour (optional, 24hr decimal)",
+            "schedule_end_hour": "Fixed schedule end hour (optional, 24hr decimal)",
+            "expected_load_kw": "Expected power while running (optional, kW)"
           },
           "data_description": {
-            "load_sensor": "A real, measured power sensor for one specific circuit/appliance (kW or W) -- e.g. a smart circuit breaker on your hot water system, pool pump, or EV charger. Nimbus trains a dedicated model against this sensor's own Recorder history and publishes a matching forecast sensor once training completes."
+            "load_sensor": "A real, measured power sensor for one specific circuit/appliance (kW or W) -- e.g. a smart circuit breaker on your hot water system, pool pump, or EV charger. Nimbus trains a dedicated model against this sensor's own Recorder history and publishes a matching forecast sensor once training completes.",
+            "schedule_start_hour": "For a load with a real fixed daily timer (e.g. a pool pump running 8am-3pm every day), the hour it typically starts -- lets the model learn the sharp on/off boundary directly instead of only approximating it through hour-of-day patterns. 24-hour decimal (e.g. 12.5 = 12:30pm), not a 12-hour clock -- avoids any AM/PM ambiguity. Leave blank for a load with no fixed schedule; it's a no-op, not an error.",
+            "schedule_end_hour": "The matching end hour for the schedule window above -- same 24-hour decimal format. Only meaningful together with the start hour.",
+            "expected_load_kw": "Optional, only meaningful alongside the schedule window above -- roughly how much power this load draws while actually running (e.g. 3.7 for a typical HWS element). Gives the model a sensible starting point for what 'on' looks like, refined further from real history as it retrains."
           }
         }
       }
