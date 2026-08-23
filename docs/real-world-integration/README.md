@@ -21,6 +21,40 @@ file below assumes it's running on that specific system, reading that
 system's own real entity IDs. That's deliberate: the point is to show
 the real, live wiring, not a sanitized toy example.
 
+## Trying this on your own install
+
+1. **Install Nimbus via HACS** (custom repository, this repo's URL),
+   configure your Battery/Grid/Solar/Load Power Signals through the
+   integration's own config-flow wizard — that's what makes each
+   `sensor.nimbus_*_forecast` entity (and its `lower`/`upper` bands)
+   exist in the first place. Nothing in this folder replaces that step.
+2. **Static assets** (`topology-card-v4.js`) go in your own `www/`
+   folder, registered once as a Lovelace resource
+   (Settings → Dashboards → ⋮ → Resources). No restart needed for
+   changes to this file after the first add — it's a plain static JS
+   file, HA just serves it.
+3. **The `lovelace_*.py` scripts** are meant to run once, from inside
+   your own `homeassistant` container, against your own dashboard's
+   `.storage/lovelace.*` file — e.g.
+   `docker cp lovelace_build_merged_forecast_chart.py
+   <container>:/tmp/ && docker exec <container> python3
+   /tmp/lovelace_build_merged_forecast_chart.py && docker restart
+   <container>`. Each one is self-locating (finds its own target view/
+   card by title) and safe to re-run. Read each script's own top-of-
+   file constants first — a couple (like `lovelace_build_topology_
+   dashboard.py`'s `topology_map.yaml`) need your own real entity IDs
+   filled in before running; most (like the merged forecast chart)
+   need nothing at all, they discover everything live.
+4. **What you should actually see once it's running**: the merged
+   forecast chart (below) is the fastest way to confirm the Forecaster
+   itself is healthy — a real point-estimate line per configured Power
+   Signal, with dashed confidence-band lines bracketing it. A flat
+   point-estimate line with no real variation, or missing bound lines
+   entirely, means something upstream (the sensor's own `forecast`
+   attribute) isn't populating correctly yet — check `sensor.nimbus_
+   solver_config`/your Power Signal entities directly before assuming
+   the chart itself is wrong.
+
 ## `files/nimbus_solver_forecast_writer.py` — the whole Solver setup
 
 This is the actual glue: a plain host cron script (runs every minute,
@@ -116,7 +150,7 @@ display layer over whatever `nimbus_solver_quality_writer.py` (below)
 computes — genuinely portable on its own, since it just reads whatever
 that sensor happens to contain.
 
-## `files/lovelace_build_merged_forecast_chart.py` — the combined Power Signal + Load chart
+## `files/lovelace_build_merged_forecast_chart.py` — the combined Power Signal + Load chart, INCLUDING confidence bands
 
 One apexcharts-card showing every Nimbus Power Signal (Battery/Grid/
 Solar/Whole House, header tiles) and every Nimbus Load (small legend
@@ -126,6 +160,16 @@ chart, history and forecast both. Colors are hash-derived from each
 entity_id by default (see this file's own `_hash_color_for()`) so a
 different household's own real load list gets sensible, distinct
 colors automatically, no manual palette needed.
+
+**This is where the Forecaster's confidence bands actually show up.**
+Every Power Signal's own `forecast[*].lower`/`.upper` attributes (the
+real GBRT-quantile or split-conformal bands `ml/model.py` computes,
+same repo) get plotted as dashed "(lower bound)"/"(upper bound)" lines
+right alongside its point-estimate line — not a separate card, not a
+separate feature to wire in. If you deploy this chart against your own
+configured Power Signals and see two dashed lines bracketing each solid
+one, that's confirmation the Forecaster's own uncertainty estimation is
+working end-to-end on your install, not just the point forecast.
 
 ## `files/nimbus_counterfactual_writer.py` — Stage 1: "would Nimbus alone have been ready tonight"
 

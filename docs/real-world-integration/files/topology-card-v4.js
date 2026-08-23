@@ -690,19 +690,81 @@ class TopologyCard extends HTMLElement {
       }
 
       const rowBottom = towers.length ? invBottom + batTapDrop + batH + 10 : invBottom + 10;
-      // Solar takes color priority when both are present (rare -- daytime
-      // dispatch), since PV is the more informative signal to highlight;
-      // otherwise this is purely battery-driven, matching what's actually
-      // happening right now (no sun, house running on battery).
+      // Real net AC-side flow for THIS inverter -- dcW (real PV throughput,
+      // already computed above) plus battW using its own already-confirmed
+      // sign convention (positive=discharging=adds to what's available,
+      // negative=charging=subtracts) -- NOT just "is something active"
+      // (the old pvActive||battActive check), because that conflated two
+      // opposite real directions into one always-"exporting" arrow. Direct
+      // household catch, 2026-08-23, with a real screenshot: an inverter
+      // charging its OWN battery harder than its own solar covers (dcW
+      // 2103W, battery charging -5049W -> netW -2946W) was being drawn
+      // exactly the same as a genuinely exporting inverter -- both showing
+      // an arrow pointing INTO the bus, when this one is actually a net
+      // IMPORTER. netW<0 means this inverter needs MORE power than its own
+      // solar is making (charging faster than solar alone can supply) --
+      // the shortfall has to come from somewhere else on the shared AC bus
+      // (in practice, almost always another inverter's own surplus, since
+      // that's the dominant real source -- see the cross-inverter link
+      // built right after this loop, which names that source directly
+      // rather than leaving a viewer to infer it from two separate arrows).
+      const netW = (Number.isNaN(dcW) ? 0 : dcW) + (Number.isNaN(battW) ? 0 : battW);
       invResults.push({
         x: invX + invBarW / 2, y: invMidY,
-        active: pvActive || battActive,
+        active: Math.abs(netW) > 5,
+        reversed: netW < -5,
+        netW,
         color: pvActive ? undefined : battActive ? COLORS.battery : undefined,
       });
       cursorY = rowBottom + rowGap;
     });
 
     const invZoneBottom = cursorY - rowGap;
+
+    // ---- Cross-inverter transfer link -- a real, direct household ask
+    // (2026-08-23: "inverter 1 has surplus... gives some to inverter 2 and
+    // sends rest ot bussbar"). Two separate inverters have NO direct wire
+    // between them -- the only real electrical path for one's surplus to
+    // reach another's battery is via the shared AC switchboard (convert to
+    // AC, onto the bus, back to DC on the other side) -- so this is
+    // deliberately NOT drawn as a fictional direct connection bypassing the
+    // bus. It exists alongside, not instead of, each inverter's own correct
+    // bus connector above (which still shows the REST of the exporting
+    // inverter's surplus, and the importing inverter's own remaining net
+    // draw) -- this link specifically names and quantifies the one real
+    // relationship a viewer would otherwise have to infer from two
+    // separately-directed arrows converging on a bus shared with 18 other
+    // loads. Scoped to the single largest exporter/importer pair -- this
+    // household has exactly 2 inverters, where that's the only pair that
+    // can exist; documented here rather than silently assuming 2 for any
+    // future install with more.
+    const exporters = invResults.filter((r) => r.netW > 5).sort((a, b) => b.netW - a.netW);
+    const importers = invResults.filter((r) => r.netW < -5).sort((a, b) => a.netW - b.netW);
+    if (exporters.length && importers.length) {
+      const src = exporters[0];
+      const dst = importers[0];
+      const transferW = Math.min(src.netW, -dst.netW);
+      const linkX = invX + invBarW / 2 + 34;
+      const midY = (src.y + dst.y) / 2;
+      const crossGroup = svgEl("g", {});
+      crossGroup.appendChild(svgEl("path", {
+        d: `M ${src.x} ${src.y} C ${linkX + 20} ${src.y}, ${linkX + 20} ${dst.y}, ${dst.x} ${dst.y}`,
+        fill: "none", stroke: COLORS.battery, "stroke-width": 2, "stroke-dasharray": "5,4", opacity: 0.85,
+      }));
+      const ang = Math.atan2(dst.y - src.y, 6);
+      const ah = 11;
+      const tipX = linkX + 20, tipY = midY;
+      crossGroup.appendChild(svgEl("polygon", {
+        points: `${tipX},${tipY} ${tipX - ah * Math.cos(ang - Math.PI / 6.5)},${tipY - ah * Math.sin(ang - Math.PI / 6.5)} ${tipX - ah * Math.cos(ang + Math.PI / 6.5)},${tipY - ah * Math.sin(ang + Math.PI / 6.5)}`,
+        fill: COLORS.battery, stroke: "#161619", "stroke-width": 1,
+      }));
+      const label = svgEl("text", {
+        x: linkX + 24, y: midY - 8, "text-anchor": "start", class: "node-value-sub", style: `fill:${COLORS.battery}`,
+      });
+      label.textContent = `${Math.round(transferW)} W via bus`;
+      crossGroup.appendChild(label);
+      nodes.push(crossGroup);
+    }
 
     // ---- Loads: single column, each with its OWN direct line straight
     // off the main switchboard bus -- the bus itself is the only "spine",
@@ -766,7 +828,14 @@ class TopologyCard extends HTMLElement {
     nodes.push(busGroup);
 
     invResults.forEach((r) => {
-      lines.push(this._line(r.x, r.y, busX - invBarW / 2, r.y, r.active, r.color));
+      // Direction now follows real net flow (r.reversed, see netW's own
+      // comment above) instead of always drawing inverter->bus regardless
+      // of whether this inverter is actually a net importer right now.
+      if (r.reversed) {
+        lines.push(this._line(busX - invBarW / 2, r.y, r.x, r.y, r.active, r.color));
+      } else {
+        lines.push(this._line(r.x, r.y, busX - invBarW / 2, r.y, r.active, r.color));
+      }
     });
 
     // Real, live list of which (if any) load forecasts failed during the
