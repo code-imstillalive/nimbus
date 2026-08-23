@@ -10,7 +10,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.73.0] — 2026-08-23
+
 ### Added
+- `sensor.nimbus_solver_battery_forecast` and `sensor.nimbus_household_load_total_forecast` are now real `SensorEntity` classes attached to the Nimbus hub device, instead of raw `states.async_set` writes. Existing `entity_id`s are preserved, so long-term stats and history continue uninterrupted. Both entities now carry `device_class=power`, `state_class=measurement`, `unit_of_measurement=kW`, and `_unrecorded_attributes = frozenset({"forecast"})` on the entity itself, so the Recorder no longer trips its 16 KB per-attribute limit on the tiered 96h `forecast` list (fixes [#55](https://github.com/code-imstillalive/nimbus/issues/55) point 1, [#59](https://github.com/code-imstillalive/nimbus/issues/59), [#61](https://github.com/code-imstillalive/nimbus/issues/61), [#62](https://github.com/code-imstillalive/nimbus/issues/62)).
+- `solver_writer.ha_post_state()` grew a dispatch-table seam (`register_entity_handler` / `unregister_entity_handler`) that routes native-mode writes for migrated `entity_id`s through the entity's own `update_from_solver()`; unregistered `entity_id`s still fall through to the original `states.async_set` path and the standalone REST branch is unchanged.
 - `pyproject.toml` with a `[dev]` extra: `pip install -e '.[dev]'` from a fresh clone now runs the full test suite ([#69](https://github.com/code-imstillalive/nimbus/pull/69), #36 Stage 1).
 - CI: `Unit Tests (pytest)` is now a **strict** gate on every PR, sourced from `pyproject.toml`'s `[dev]` extra ([#73](https://github.com/code-imstillalive/nimbus/pull/73), #36 Stage 2).
 - CI: `Version lockstep (integration <-> add-on)` job blocks merges when `custom_components/nimbus_load/manifest.json` and `nimbus_solver_app/config.yaml` versions drift ([#74](https://github.com/code-imstillalive/nimbus/pull/74), #36 Stage 4).
@@ -18,6 +22,7 @@ _Add new entries here as each PR lands. They roll into the next tagged release._
 - `.pre-commit-config.yaml`: local pre-commit hooks pinning ruff at 0.6.0 to match CI ([#70](https://github.com/code-imstillalive/nimbus/pull/70)).
 
 ### Changed
+- `nimbus_solver_app/config.yaml` version bumped `0.72.0` → `0.73.0` in lockstep with the integration.
 - `nimbus_solver_app/config.yaml` version bumped from `0.1.0` to `0.72.0` to match the integration; both move in lockstep from now on ([#74](https://github.com/code-imstillalive/nimbus/pull/74)).
 - Ran repo-wide `ruff format` (0.6.0) across `custom_components/` and `tests/`; ruff pinned to 0.6.0 in CI and pre-commit ([#70](https://github.com/code-imstillalive/nimbus/pull/70)).
 
