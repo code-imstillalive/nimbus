@@ -86,6 +86,14 @@ _LOGGER = logging.getLogger(__name__)
 # this file's own /opt/... NUC-specific defaults (wrong, and very likely
 # unwritable, inside a real HA container).
 _solver_writer = None
+# In-memory only (2026-08-23, Bronze test-before-setup): a real HA
+# restart is the honest re-check point for "is highspy importable now" --
+# a file-based sentinel (like the load-forecast-error one below) would
+# keep suppressing the notification across restarts even after e.g. a
+# genuine architecture/wheel fix, which is exactly backwards for a
+# dependency problem. Reset to False on every fresh import of this
+# module, i.e. every HA start/reload.
+_import_error_notified = False
 
 
 def _ensure_ready(hass: HomeAssistant):
@@ -155,7 +163,57 @@ async def async_run_solve(hass: HomeAssistant) -> bool:
         # in the real log, not one per cycle. Moving the whole call in
         # here means even that first-ever import (and its own blocking
         # disk I/O) correctly happens on the worker thread.
-        sw = _ensure_ready(hass)
+        global _import_error_notified
+        try:
+            sw = _ensure_ready(hass)
+        except (ImportError, ModuleNotFoundError) as e:
+            # Bronze test-before-setup/test-before-configure (2026-08-23):
+            # before this, an import failure here (most commonly no
+            # highspy wheel for this host's architecture -- see the top-
+            # level README's own 64-bit-host caveat) propagated straight
+            # out of _blocking(), up through async_run_solve() -- directly
+            # violating that function's own documented "never raises"
+            # contract, and __init__.py's own periodic-solve callback has
+            # zero try/except of its own, trusting that contract
+            # completely. The real, user-visible effect was a generic
+            # "Error in periodic task" from HA's own dispatcher every
+            # _SOLVER_INTERVAL, with the actual cause (a missing
+            # dependency) buried in a traceback nobody would think to
+            # read as "go check your architecture." Fixed the same way
+            # solver_writer.py's own _notify_load_forecast_error_once()
+            # already handles a different class of setup failure -- a
+            # real, clear persistent_notification, fired once (not every
+            # cycle; see _import_error_notified's own comment above for
+            # why in-memory, not a file sentinel, is the right choice
+            # here specifically).
+            _LOGGER.error(
+                "Nimbus Solver: failed to import required dependencies (%s) -- "
+                "the Solver cannot run until this is fixed. See the top-level "
+                "README's 64-bit-host (amd64/aarch64) requirement.",
+                e,
+            )
+            if not _import_error_notified:
+                _import_error_notified = True
+                hass.add_job(
+                    hass.services.async_call,
+                    "persistent_notification",
+                    "create",
+                    {
+                        "title": "Nimbus Solver: missing dependency",
+                        "message": (
+                            f"The Solver failed to start: {e}\n\n"
+                            "This usually means `highspy` has no compiled wheel "
+                            "for this host's CPU architecture -- confirmed "
+                            "available for amd64/aarch64 only. Check `uname -m` "
+                            "and see the top-level README's Solver section. "
+                            "The Nimbus Forecaster (load predictions) is "
+                            "completely unaffected and continues working "
+                            "normally regardless."
+                        ),
+                        "notification_id": "nimbus_solver_import_error",
+                    },
+                )
+            return False
         if not sw.acquire_lock():
             _LOGGER.debug(
                 "Nimbus Solver: previous cycle still in progress -- skipping this one"

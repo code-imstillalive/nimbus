@@ -9,6 +9,6 @@
   "integration_type": "service",
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/code-imstillalive/nimbus/issues",
-  "requirements": ["numpy>=1.24", "highspy>=1.15.1"],
+  "requirements": ["numpy>=1.24,<3", "highspy>=1.15.1,<2"],
   "version": "0.73.0"
 }
