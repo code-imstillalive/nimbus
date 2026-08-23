@@ -1,0 +1,87 @@
+# Pre-commit hooks for local dev.
+#
+# Purpose: catch the same drift CI already gates on before it ever reaches
+# GitHub. Concretely, the ruff-format regression on d654a18 (17 files
+# needing reformat) would have been flagged by these hooks on commit, so
+# main wouldn't have gone red on the very next push after PR #68's
+# strict-flip landed.
+#
+# Setup for a fresh clone (after `pip install -e '.[dev]'`):
+#
+#     pre-commit install
+#
+# ...then every `git commit` runs the hooks on staged files.
+#
+# Scope discipline (matches PR #69's approach):
+#
+#   IN:  the two ruff invocations CI runs strict (format + check), in
+#        report-only mode so hooks abort the commit rather than silently
+#        rewriting files. Matches CI's behaviour bit-for-bit and avoids
+#        surprising a fast-moving contributor with unexpected diffs on
+#        `git commit`. Plus a handful of trivial pre-commit-hooks stdlib
+#        checks (trailing whitespace, EOF, YAML/TOML/JSON parse,
+#        merge-conflict markers, large-file guard).
+#
+#   OUT: hassfest (needs Docker), mypy (advisory in CI -- flipping local
+#        strict before CI is strict would create noise), pytest (too
+#        slow for every commit), ruff's --fix mode (rewrites files).
+#
+# Ruff version-pin coherence:
+#   Both the ruff-pre-commit rev below AND the CI's `pip install` line
+#   pin the same ruff version (0.6.0 -- the version CI resolved at PR
+#   #68's merge time, when the strict-flip was verified green apart from
+#   the 2 F401 findings in tests/test_flows_pv_string_subentry.py that
+#   slipped in on a later commit). Bumping ruff is a deliberate act that
+#   changes what the linter enforces; `pre-commit autoupdate` and a
+#   matching one-liner in .github/workflows/ci.yml keep the two in sync
+#   in a single reviewable PR.
+#
+# Related: #36 (DevOps lifecycle, Stage 1). Ruff config itself lives in
+# pyproject.toml (added in #69), so hooks and CI read the same ruleset.
+
+default_language_version:
+  python: python3.12
+
+repos:
+  # ---------------------------------------------------------------------
+  # ruff: mirrors the two invocations wired into .github/workflows/ci.yml
+  # exactly.
+  #     CI runs: ruff format --check custom_components/ tests/
+  #              ruff check         custom_components/ tests/
+  # Local hooks do the same -- report on staged files, exit non-zero on
+  # findings, don't rewrite. Both read [tool.ruff] config from
+  # pyproject.toml, so local and CI stay bit-identical.
+  # ---------------------------------------------------------------------
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.0
+    hooks:
+      # `ruff-format` at v0.6.0 defaults to `ruff format` (writes). Add
+      # --check so it matches CI's `ruff format --check` -- report only,
+      # non-zero on findings, no rewrites.
+      - id: ruff-format
+        name: ruff format --check (custom_components/ tests/)
+        args: [--check]
+        files: ^(custom_components|tests)/
+      # At v0.6.0 the ruff-check hook is just `ruff`; entry is already
+      # `ruff check --force-exclude` with no --fix, so this matches CI
+      # exactly by default.
+      - id: ruff
+        name: ruff check (custom_components/ tests/)
+        files: ^(custom_components|tests)/
+
+  # ---------------------------------------------------------------------
+  # Stdlib pre-commit hooks: trivial, universally-safe checks.
+  # ---------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+        # Preserve markdown hard-break trailing spaces (two-space + newline).
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=500]
