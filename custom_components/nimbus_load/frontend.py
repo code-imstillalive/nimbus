@@ -36,8 +36,6 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 
-from homeassistant.components.frontend import add_extra_js_url
-from homeassistant.components.http import StaticPathConfig
 from homeassistant.core import HomeAssistant
 
 from .const import DOMAIN
@@ -70,6 +68,18 @@ async def async_register_frontend(hass: HomeAssistant, version: str) -> None:
     dedup; we call it unconditionally so a version-bump refreshes the
     cache-buster.
     """
+    # Deferred imports -- same reasoning as sensor.py's own deferred
+    # `from . import solver_writer` (see that file's own comment) and
+    # this module's own earlier StaticPathConfig fix (55e250c0): a
+    # module-level import here drags homeassistant.components.http /
+    # homeassistant.components.frontend into every test that imports
+    # anything from custom_components.nimbus_load (nearly all of them
+    # via __init__.py), and tests/_ha_stubs.py has no stub for either
+    # -- confirmed live before that fix, this broke the whole local
+    # suite at collection time.
+    from homeassistant.components.frontend import add_extra_js_url
+    from homeassistant.components.http import StaticPathConfig
+
     # 1) Serve the static file. Guarded by a hass.data flag so a reload
     # doesn't try to re-register the same path (HA raises on that).
     if not hass.data.get(f"{DOMAIN}_frontend_registered"):
