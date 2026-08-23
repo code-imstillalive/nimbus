@@ -632,8 +632,26 @@ class NimbusTopologyConfigSensor(SensorEntity):
                     {"subentry_id": subentry.subentry_id, **{k: subentry.data.get(k) for k in _PV_STRING_KEYS}}
                 )
             elif subentry.subentry_type == SUBENTRY_TYPE_BATTERY_TOWER:
+                # Unlike Power Source (power_source_name) and PV String
+                # (pv_string_label), Battery Tower has no free-text name
+                # field of its own in _BATTERY_TOWER_KEYS -- its only real
+                # identity is subentry.title, auto-derived at creation
+                # time from the SoC sensor's own friendly_name (see
+                # flows/battery_tower_subentry.py's _derive_title, e.g.
+                # "Battery Tower 2 SoC" -> "Battery Tower 2"). Found and
+                # fixed 2026-08-23 after a real live migration: without
+                # this, the frontend has nothing but subentry_id to label
+                # a tower with, and fell back to a synthetic per-inverter
+                # position index ("Tower 1"/"Tower 2") that silently
+                # discarded the real physical tower number (e.g. towers
+                # 2 & 4 both landing on the SAME inverter both displayed
+                # as "Tower 1"/"Tower 2", losing which was actually which).
                 battery_towers.append(
-                    {"subentry_id": subentry.subentry_id, **{k: subentry.data.get(k) for k in _BATTERY_TOWER_KEYS}}
+                    {
+                        "subentry_id": subentry.subentry_id,
+                        "title": subentry.title,
+                        **{k: subentry.data.get(k) for k in _BATTERY_TOWER_KEYS},
+                    }
                 )
         return {
             "power_sources": power_sources,

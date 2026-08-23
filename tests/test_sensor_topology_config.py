@@ -35,11 +35,12 @@ from custom_components.nimbus_load.const import (  # noqa: E402
 )
 
 
-def _fake_subentry(subentry_id: str, subentry_type: str, data: dict) -> MagicMock:
+def _fake_subentry(subentry_id: str, subentry_type: str, data: dict, title: str | None = None) -> MagicMock:
     s = MagicMock()
     s.subentry_id = subentry_id
     s.subentry_type = subentry_type
     s.data = data
+    s.title = title
     return s
 
 
@@ -92,6 +93,7 @@ def test_extra_state_attributes_groups_by_subentry_type():
             "bt1",
             SUBENTRY_TYPE_BATTERY_TOWER,
             {CONF_BATTERY_TOWER_SOC_SENSOR: "sensor.tower1_soc"},
+            title="Battery Tower 1",
         ),
         "load1": _fake_subentry("load1", SUBENTRY_TYPE_LOAD, {}),
     }
@@ -109,6 +111,10 @@ def test_extra_state_attributes_groups_by_subentry_type():
 
     assert len(attrs["battery_towers"]) == 1
     assert attrs["battery_towers"][0][CONF_BATTERY_TOWER_SOC_SENSOR] == "sensor.tower1_soc"
+    # 2026-08-23: battery towers have no name-like data field of their own
+    # (unlike Power Source/PV String) -- title is their only real identity,
+    # a real gap found live migrating this household's own 4 real towers.
+    assert attrs["battery_towers"][0]["title"] == "Battery Tower 1"
 
     # Load subentries must never leak into any of these three groups.
     assert all(t["subentry_id"] != "load1" for t in attrs["power_sources"])
@@ -128,6 +134,21 @@ def test_missing_optional_fields_resolve_to_none_not_a_crash():
     attrs = s.extra_state_attributes
     assert attrs["power_sources"][0][CONF_POWER_SOURCE_NAME] is None
     assert attrs["switchboard"][CONF_SWITCHBOARD_GRID_METER_SENSOR] is None
+
+
+def test_battery_tower_title_is_none_not_a_crash_when_unset():
+    # A subentry created via async_create_entry() with no explicit title
+    # kwarg (shouldn't happen in practice -- _derive_title always returns
+    # a real string or the generic fallback -- but the bridge sensor must
+    # not assume it's populated) resolves to None cleanly, same discipline
+    # as every other optional field in this class.
+    subentries = {
+        "bt1": _fake_subentry("bt1", SUBENTRY_TYPE_BATTERY_TOWER, {}, title=None),
+    }
+    entry = _fake_entry(subentries, {})
+    s = sensor.NimbusTopologyConfigSensor(entry, "1.0.0")
+    attrs = s.extra_state_attributes
+    assert attrs["battery_towers"][0]["title"] is None
 
 
 def test_entity_id_and_unique_id_are_fixed_one_per_hub():
