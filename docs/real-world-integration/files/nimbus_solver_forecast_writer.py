@@ -1186,8 +1186,12 @@ def read_load_forecast_sensor(
 
     Returns (load_kw, load_lower_kw, load_upper_kw, error) -- error is
     None on success. The three arrays are None together with error on
-    failure -- callers must check error, not just truthiness (an
-    all-zero real forecast is a valid, if unusual, success).
+    failure -- callers must check error, not just truthiness. A
+    STRUCTURALLY valid but near-all-zero series (real timestamps, real
+    parseable values, just <10% of points meaningfully nonzero) is
+    treated as a failure, not "a valid, if unusual, success" -- see
+    the real #118 incident this specific check exists for, right
+    before the final return below.
     """
     try:
         state = ha_get(entity_id)
@@ -1218,6 +1222,49 @@ def read_load_forecast_sensor(
         # width around the point estimate, same convention already used
         # elsewhere in this file for a genuinely bandless input.
         load_lower_kw, load_upper_kw = list(load_kw), list(load_kw)
+
+    # Real bug found live (nimbus repo issue #118, Mark Purcell, a real
+    # independent installer's own live health-check, 2026-08-24, direct
+    # follow-up to #111): a genuinely common configuration mistake --
+    # pointing solver_load_forecast_sensor at Nimbus's OWN household-
+    # total aggregator (sensor.nimbus_household_load_total_forecast)
+    # instead of a real per-signal forecast entity -- creates a
+    # circular reference. With no individual circuits configured, the
+    # aggregator's own upstream is empty, so it publishes a real,
+    # structurally-valid {time, value} shape (passing every check
+    # above) that's near-all-zero except the live "now" anchor point.
+    # This function's own docstring used to call that "a valid, if
+    # unusual, success" -- true in the abstract, but in practice a real
+    # household's consumption essentially never sits at true zero for
+    # the vast majority of a multi-day forecast (unlike solar, which
+    # legitimately does every night -- see the SEPARATE, deliberately
+    # different fallback for that in main()'s solar-fetching block).
+    # Left unguarded, this produced a confident-looking "optimal" solve
+    # with load_forecast_source_error still None (nothing flagged it) --
+    # the household was told the battery could safely export ~$46/day
+    # more than it actually could, because the solver believed nobody
+    # was consuming anything. Threshold and reasoning are Mark's own
+    # proposed fix direction from #118, applied here.
+    nonzero_points = sum(1 for v in load_kw if v > 0.01)
+    if len(load_kw) > 0 and (nonzero_points / len(load_kw)) < 0.1:
+        return (
+            None,
+            None,
+            None,
+            (
+                f"{entity_id}'s forecast has only {nonzero_points}/"
+                f"{len(load_kw)} non-trivial (>0.01 kW) points -- a real "
+                f"household load essentially never sits at true zero for "
+                f"90%+ of a multi-day forecast. This usually means "
+                f"solver_load_forecast_sensor is pointed at Nimbus's own "
+                f"household-total aggregator (sensor.nimbus_household_"
+                f"load_total_forecast) with no individual circuits "
+                f"configured -- a circular reference, since the "
+                f"aggregator has nothing to sum. Point this field at a "
+                f"real per-signal forecast entity instead (e.g. "
+                f"sensor.nimbus_<your_load_signal>_forecast)."
+            ),
+        )
 
     return load_kw, load_lower_kw, load_upper_kw, None
 
