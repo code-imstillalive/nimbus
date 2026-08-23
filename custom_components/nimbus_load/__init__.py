@@ -127,11 +127,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: NimbusConfigEntry) -> bo
     nothing further until the first one exists.
     """
     # Ship the switchboard-topology-card Lovelace resource -- served
-    # over HTTP and auto-registered against storage-mode dashboards, so
-    # a fresh HACS install gets the card without a `www/` file copy or
-    # a manual Settings -> Dashboards -> Resources step (issue #79).
-    # Non-fatal: a failure here (e.g. YAML-mode Lovelace, missing asset)
-    # still leaves the forecaster, sensors, and solver fully functional.
+    # over HTTP and registered as an extra JS module via
+    # frontend.add_extra_js_url(), so a fresh HACS install gets the card
+    # without a `www/` file copy or a manual Settings -> Dashboards ->
+    # Resources step (issue #79). Works identically for storage-mode
+    # and YAML-mode Lovelace. Non-fatal: a failure here (missing asset,
+    # unexpected exception) still leaves the forecaster, sensors, and
+    # solver fully functional -- the user can add the resource manually
+    # the same way as before.
     try:
         integration = await async_get_integration(hass, DOMAIN)
         await frontend.async_register_frontend(hass, integration.version)

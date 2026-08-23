@@ -30,12 +30,12 @@ the real, live wiring, not a sanitized toy example.
    exist in the first place. Nothing in this folder replaces that step.
 2. **The topology card ships with the integration itself** (issue #79).
    Nimbus serves `switchboard-topology-card.js` at
-   `/nimbus_load/switchboard-topology-card.js` and auto-registers it as
-   a Lovelace resource on every storage-mode dashboard the moment the
-   hub is set up — no `www/` file copy, no manual Settings → Dashboards
-   → Resources step. Drop a `type: custom:switchboard-topology-card`
-   card into any view and it resolves immediately. YAML-mode Lovelace
-   users add the resource themselves once, same URL. The standalone
+   `/nimbus_load/switchboard-topology-card.js` and registers it with HA
+   as an extra JS module the moment the hub is set up — no `www/` file
+   copy, no manual Settings → Dashboards → Resources step, works
+   identically for storage-mode and YAML-mode Lovelace. Drop a
+   `type: custom:switchboard-topology-card` card into any view and it
+   resolves immediately. The standalone
    `docs/real-world-integration/files/topology-card-v4.js` copy stays
    as a reference — the integration-bundled build is the same file.
 3. **The `lovelace_*.py` scripts** are meant to run once, from inside
@@ -96,10 +96,11 @@ Nimbus Load, with live proportional color-mixing showing what's
 actually supplying the bus right now.
 
 **How to install it:** you already did — the card is bundled with the
-Nimbus integration itself and auto-registered as a Lovelace resource on
-every storage-mode dashboard (see the top-level "Trying this on your
-own install" step 2). This section describes the card's own
-configuration model; nothing here requires a manual file copy.
+Nimbus integration itself and registered with HA as an extra JS module
+on hub setup, so every dashboard (storage-mode or YAML-mode) resolves
+it automatically (see the top-level "Trying this on your own install"
+step 2). This section describes the card's own configuration model;
+nothing here requires a manual file copy.
 
 **The card's own JS has zero hardcoded device-entity references —
 every `sensor.*` it displays comes from configuration, never a
