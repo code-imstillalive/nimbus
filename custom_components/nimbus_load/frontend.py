@@ -102,9 +102,7 @@ async def async_register_frontend(hass: HomeAssistant, version: str) -> None:
             ]
         )
         hass.data[f"{DOMAIN}_frontend_registered"] = True
-        _LOGGER.debug(
-            "Nimbus: serving %s from %s", FRONTEND_URL_PATH, card_path
-        )
+        _LOGGER.debug("Nimbus: serving %s from %s", FRONTEND_URL_PATH, card_path)
 
     # 2) Tell HA's frontend to load this URL as a JS module at startup.
     # Public, documented API (frontend.add_extra_js_url); a synchronous
