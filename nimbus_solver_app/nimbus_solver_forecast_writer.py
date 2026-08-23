@@ -1125,7 +1125,7 @@ def _notify_load_forecast_error_once(error: str) -> None:
         )
         with open(LOAD_FORECAST_ERROR_NOTIFIED_PATH, "w", encoding="utf-8") as f:
             f.write(error)
-    except Exception:  # noqa: BLE001 -- a failed notification/sentinel-file write must never break the solve
+    except Exception:  # noqa: BLE001, S110 -- a failed notification/sentinel-file write must never break the solve; nothing to log or react to beyond that
         pass
 
 

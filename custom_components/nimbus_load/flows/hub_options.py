@@ -619,7 +619,7 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
                     "dismiss",
                     {"notification_id": "nimbus_setup_incomplete"},
                 )
-            except Exception:  # noqa: BLE001 -- see comment above: dismissing a notification must never block a real save
+            except Exception:  # noqa: BLE001, S110 -- see comment above: dismissing a notification must never block a real save; nothing to log or react to beyond that
                 pass
             return self.async_create_entry(title="", data=merged)
         return self.async_show_form(
