@@ -28,11 +28,16 @@ the real, live wiring, not a sanitized toy example.
    integration's own config-flow wizard — that's what makes each
    `sensor.nimbus_*_forecast` entity (and its `lower`/`upper` bands)
    exist in the first place. Nothing in this folder replaces that step.
-2. **Static assets** (`topology-card-v4.js`) go in your own `www/`
-   folder, registered once as a Lovelace resource
-   (Settings → Dashboards → ⋮ → Resources). No restart needed for
-   changes to this file after the first add — it's a plain static JS
-   file, HA just serves it.
+2. **The topology card ships with the integration itself** (issue #79).
+   Nimbus serves `switchboard-topology-card.js` at
+   `/nimbus_load/switchboard-topology-card.js` and auto-registers it as
+   a Lovelace resource on every storage-mode dashboard the moment the
+   hub is set up — no `www/` file copy, no manual Settings → Dashboards
+   → Resources step. Drop a `type: custom:switchboard-topology-card`
+   card into any view and it resolves immediately. YAML-mode Lovelace
+   users add the resource themselves once, same URL. The standalone
+   `docs/real-world-integration/files/topology-card-v4.js` copy stays
+   as a reference — the integration-bundled build is the same file.
 3. **The `lovelace_*.py` scripts** are meant to run once, from inside
    your own `homeassistant` container, against your own dashboard's
    `.storage/lovelace.*` file — e.g.
@@ -89,6 +94,12 @@ card`, no framework) that renders a live SVG power-flow diagram —
 Switchboard bus, Inverters, PV strings, battery towers, Grid, and every
 Nimbus Load, with live proportional color-mixing showing what's
 actually supplying the bus right now.
+
+**How to install it:** you already did — the card is bundled with the
+Nimbus integration itself and auto-registered as a Lovelace resource on
+every storage-mode dashboard (see the top-level "Trying this on your
+own install" step 2). This section describes the card's own
+configuration model; nothing here requires a manual file copy.
 
 **The card's own JS has zero hardcoded device-entity references —
 every `sensor.*` it displays comes from configuration, never a
