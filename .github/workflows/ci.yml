@@ -107,7 +107,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: "3.13"
+          python-version: "3.14"
       - name: Install ruff
         # Pinned to match .pre-commit-config.yaml so local hooks and CI
         # enforce the same ruleset. Bumping this and the pre-commit rev
@@ -134,7 +134,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: "3.13"
+          python-version: "3.14"
       - name: Install mypy
         run: pip install mypy numpy
       - name: Run mypy (advisory)
@@ -145,8 +145,14 @@ jobs:
   # Wired via pyproject.toml's [dev] extra (#69) -- `pip install -e '.[dev]'`
   # is now the single source of truth for the test dependency set. No more
   # ad-hoc `|| true`-piped installs of pytest / numpy / highspy /
-  # pytest-homeassistant-custom-component. 257 tests pass green from a fresh
+  # pytest-homeassistant-custom-component. Tests pass green from a fresh
   # venv via this path.
+  #
+  # Python 3.14 because that is what Home Assistant runs. Core dropped
+  # 3.13 at 2026.3.0, and pytest-homeassistant-custom-component followed
+  # in the same step: 0.13.316 is the last release accepting 3.13 and it
+  # pins homeassistant==2026.2.3. Staying on 3.13 would test against a
+  # core six releases behind the one this integration is installed on.
   # ---------------------------------------------------------------------------
   test:
     name: Unit Tests (pytest)
@@ -157,28 +163,31 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v7
         with:
-          python-version: "3.13"
+          python-version: "3.14"
       - name: Install dev dependencies
         run: pip install -e '.[dev]'
       # Two separate pytest invocations, on purpose.
       #
-      # `pytest-homeassistant-custom-component` registers its plugin
-      # globally via entry_points the moment it is installed --
-      # session-scoped autouse fixtures like `enable_event_loop_debug`
-      # apply to EVERY test in the same pytest process, not just tests
-      # that request them. That collides with the 320+ stub-based
-      # tests under `tests/*.py` (they don't use HA, don't want
-      # HA fixtures materialised into their session), and the
-      # collision surfaces as a mass `PytestRemovedIn9Warning` /
-      # collection error across the whole stub suite -- see PR #86
-      # discussion.
+      # `pytest-homeassistant-custom-component` registers a pytest11
+      # plugin named `homeassistant` via entry_points the moment it is
+      # installed. Its autouse `enable_event_loop_debug` fixture then
+      # applies to EVERY test in the process and calls
+      # `asyncio.get_event_loop()` under HA's own event loop policy,
+      # which raises `RuntimeError: There is no current event loop in
+      # thread 'MainThread'`. The 320+ stub-based tests under
+      # `tests/*.py` do not set up a loop, so they all error at setup.
       #
-      # Directory-scoped `conftest.py` can't neutralise this because
-      # plugin registration is process-wide. Two invocations, one per
-      # test style, is what actually isolates them.
+      # `--ignore` does not help: it excludes test files from
+      # collection, not plugins from registration. A directory-scoped
+      # `conftest.py` cannot help either, because registration is
+      # process-wide and happens before conftest is read. Disabling the
+      # plugin by entry-point name is what actually isolates the stub
+      # suite, and a second invocation without the flag is what gives
+      # the hass_integration tests the real fixtures.
       - name: Run pytest (stub-based, fast)
         run: |
           pytest tests/ --ignore=tests/hass_integration/ \
+            -p no:homeassistant \
             --cov=custom_components/nimbus_load \
             --cov-report=term-missing \
             --cov-report=xml \

@@ -32,6 +32,7 @@ Real HA fixture, so no stubs to leak: `async_fire_time_changed` drives
 
 from __future__ import annotations
 
+import time
 from datetime import timedelta
 
 import pytest
@@ -43,7 +44,7 @@ from pytest_homeassistant_custom_component.common import (
     async_fire_time_changed,
 )
 
-from custom_components.nimbus_load import solver_writer
+from custom_components.nimbus_load import sensor, solver_writer
 from custom_components.nimbus_load.const import DOMAIN
 
 # The two well-known entity_ids these tests exercise. Kept as module
@@ -147,9 +148,9 @@ async def test_state_stays_stable_across_the_full_recheck_cadence(
         "This is the exact shape of the #83/#85 flap regression."
     )
     assert state.state == "4.225"
-    assert "forecast" in state.attributes, (
-        "Recheck stripped the `forecast` attribute -- clobber regression"
-    )
+    assert (
+        "forecast" in state.attributes
+    ), "Recheck stripped the `forecast` attribute -- clobber regression"
 
 
 async def test_state_stays_stable_across_many_solve_cycles(
@@ -217,9 +218,9 @@ async def test_both_push_sensors_stay_stable(
     ):
         state = hass.states.get(entity_id)
         assert state is not None
-        assert state.state != STATE_UNKNOWN, (
-            f"{entity_id} clobbered to unknown after one recheck tick"
-        )
+        assert (
+            state.state != STATE_UNKNOWN
+        ), f"{entity_id} clobbered to unknown after one recheck tick"
         assert state.state == expected
 
 
@@ -227,7 +228,9 @@ async def test_both_push_sensors_stay_stable(
 
 
 async def test_recheck_still_publishes_on_a_real_staleness_transition(
-    hass: HomeAssistant, nimbus_entry: MockConfigEntry
+    hass: HomeAssistant,
+    nimbus_entry: MockConfigEntry,
+    monkeypatch: pytest.MonkeyPatch,
 ):
     """The guardrail against over-correcting the flap: if the recheck
     is silenced too aggressively, a Solver that genuinely stops
@@ -244,13 +247,27 @@ async def test_recheck_still_publishes_on_a_real_staleness_transition(
     assert hass.states.get(_BATTERY_FORECAST_ENTITY_ID).state == "2.0"
 
     # Advance well past the staleness threshold (5 minutes + a bit).
-    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=310))
+    #
+    # Both clocks have to move. `available` is computed from
+    # `time.monotonic()` (sensor.py:847), which HA's time helpers cannot
+    # touch, so `async_fire_time_changed` alone fires the recheck timer
+    # but the recheck then still sees a fresh timestamp and keeps the
+    # entity available. Advancing the monotonic clock the sensor module
+    # reads is what actually makes the push look stale.
+    stale_seconds = 310
+    real_monotonic = time.monotonic
+
+    def _monotonic_after_staleness() -> float:
+        return real_monotonic() + stale_seconds
+
+    monkeypatch.setattr(sensor.time, "monotonic", _monotonic_after_staleness)
+    async_fire_time_changed(hass, dt_util.utcnow() + timedelta(seconds=stale_seconds))
     await hass.async_block_till_done()
 
     state = hass.states.get(_BATTERY_FORECAST_ENTITY_ID)
     assert state is not None
     assert state.state == "unavailable", (
-        f"Entity should be `unavailable` after {310}s of no push, "
+        f"Entity should be `unavailable` after {stale_seconds}s of no push, "
         f"got {state.state!r}. If this assertion fails after a flap "
         "fix, the fix went too far and disabled the real staleness "
         "transition -- the whole reason the recheck timer exists."

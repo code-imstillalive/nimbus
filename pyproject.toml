@@ -33,7 +33,11 @@ name = "nimbus-dev"
 # Deliberately kept low and *not* synced with the HA manifest -- see header.
 version = "0.0.0"
 description = "Dev-tooling shim for the Nimbus Home Assistant custom_component + Supervisor add-on. Not a distributable package."
-requires-python = ">=3.12"
+# 3.14 because Home Assistant core dropped 3.13 at 2026.3.0, and the
+# [dev] extra below pulls a test harness that will not install on
+# anything older. Declaring it here makes that a clean resolver message
+# instead of a confusing missing-distribution error.
+requires-python = ">=3.14"
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [{ name = "Raf", email = "code-imstillalive@users.noreply.github.com" }]
@@ -49,9 +53,9 @@ dependencies = [
 
 [project.optional-dependencies]
 # Everything a fresh clone needs to run `pytest -q` green.
-# Verified against the current tree: 249 tests pass with these deps
-# plus the base [project.dependencies] above. highspy is a hard import
-# in solver/stochastic.py -- can't be optional at collection time.
+# Verified against the current tree with the base [project.dependencies]
+# above: 320 stub tests plus the 9 real-HA tests pass. highspy is a hard
+# import in solver/stochastic.py -- can't be optional at collection time.
 dev = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
@@ -63,23 +67,21 @@ dev = [
     # `async_fire_time_changed` so time-dependent behaviour can be
     # exercised deterministically. Added 2026-08-23 to lock in the
     # flap regression coverage for the two Solver push sensors (see
-    # tests/test_flap_regression_state_stability.py and
-    # tests/test_flap_regression_reload_instance.py) -- the three-
-    # release chain (#82 crash, #83 flap, #85 flap-still) all lived
+    # tests/hass_integration/) -- the three-release
+    # chain (#82 crash, #83 flap, #85 flap-still) all lived
     # in the gap between our unit tests and real HA runtime behaviour.
     # The stub-based tests under _ha_stubs.py stay -- they exercise
     # everything that doesn't need a real state machine, and keep the
     # test-collection surface fast. This dep only comes into play for
     # the two files that specifically ASK for the real hass fixture.
-    "pytest-homeassistant-custom-component>=0.13",
-    # Explicit floor: Nimbus uses `ConfigSubentryFlow`
-    # (`custom_components/nimbus_load/flows/*_subentry.py`), which
-    # landed in HA core 2025.3. Without this floor, `pip install -e
-    # '.[dev]'` on some platforms/resolvers picks up an older HA
-    # (e.g. 2025.1.4 seen on Windows during PR #86 review), and the
-    # coordinator import fails at collection time with a confusing
-    # `ImportError` rather than a clean version-mismatch message.
-    "homeassistant>=2025.3",
+    #
+    # Pinned exactly, not floored. Each release of this package pins one
+    # exact `homeassistant` version, so the package version IS the core
+    # version under test. `>=0.13` would silently drift the core version
+    # on every rebuild and, worse, resolve to 0.13.316 (core 2026.2.3)
+    # on Python 3.13. 0.13.357 pins homeassistant==2026.8.3, which is
+    # the core series this integration is actually installed on.
+    "pytest-homeassistant-custom-component==0.13.357",
 ]
 
 [project.urls]
