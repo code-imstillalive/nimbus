@@ -1,14 +1,43 @@
 rules:
-  # Bronze -- audited by Mark Purcell, issue #37, 2026-08-22 (manifest 0.53.0)
+  # Bronze
   action-setup:
     status: exempt
     comment: This integration provides no service actions.
   appropriate-polling: done
-  brands: todo  # icon exists in repo, not yet upstreamed to home-assistant/brands
+  brands:
+    status: todo
+    comment: >-
+      Custom brand/icon.png in this repo works via HACS's local fallback, but
+      isn't upstreamed to home-assistant/brands (custom_integrations/nimbus_load/).
+      Needs a PR to that separate repo -- can't be completed from inside this one.
   common-modules: done
-  config-flow-test-coverage: done  # 2026-08-22: 48 new tests across config_flow.py + all 3 flows/*.py files, including real voluptuous (installed locally, not stubbed) for genuine schema assertions and a real, functional selector stub. Directly encodes every documented live bug in this area as a regression test: hub_options.py's 2026-08-22 merge-not-replace clear-stays-cleared fix ("its not letting me delete anything"), load_subentry.py's 2026-08-15 None-default frontend crash guard ("Cannot read properties of null"), both files' 2026-08-14 reconfigure-vs-new routing fix, and config_flow.py's "a failing notification must never block real hub creation" guarantee
+  config-flow-test-coverage:
+    status: done
+    comment: >-
+      tests/test_config_flow.py covers hub creation, the unique-id guard, and
+      subentry-type registration. tests/test_flows_{load,signal,power_source,
+      pv_string,battery_tower}_subentry.py each cover creation AND reconfigure
+      paths (prefill from existing data, no-input-shows-form, alias delegation).
   config-flow: done
-  dependency-transparency: done  # 2026-08-22: highspy>=1.15.1 pinned in manifest.json (floor = the version confirmed live on the household's own NUC)
+  data-description:
+    status: done
+    comment: >-
+      Every field across every options step (forecaster/solver_battery/
+      solver_grid/solver_sources/switchboard) and every config-subentry
+      (load/power_signal/power_source/pv_string/battery_tower) in strings.json
+      has a data_description sibling. translations/en.json kept byte-identical.
+  data-vs-options:
+    status: done
+    comment: >-
+      Hub entry.data is {} at creation (config_flow.py:100) -- nothing
+      meaningful to configure until the wizard runs. Every hub-level Solver/
+      Forecaster setting lives in entry.options via NimbusHubOptionsFlow
+      (OptionsFlowWithConfigEntry, flows/hub_options.py), the correct modern
+      split.
+  dependency-transparency:
+    status: done
+    comment: >-
+      manifest.json requirements pinned: numpy>=1.24,<3, highspy>=1.15.1,<2.
   docs-actions:
     status: exempt
     comment: No service actions.
@@ -18,107 +47,50 @@ rules:
   docs-conditions:
     status: exempt
     comment: No conditions.
-  docs-high-level-description: done  # README's opening paragraph + "Why" section already cover this
+  docs-high-level-description:
+    status: done
+    comment: >-
+      README.md opens with a one-paragraph plain-English description
+      ("A self-retraining ML load forecaster...") before any maintainer/
+      debug content -- no restructure needed on re-check.
   docs-installation-instructions: done
-  docs-removal-instructions: done  # 2026-08-22: added "Removing Nimbus" section to README.md
+  docs-removal-instructions:
+    status: done
+    comment: >-
+      README.md's own "## Removing Nimbus" section: hub deletion (removes
+      every subentry/entity/device), HACS uninstall, the two .storage/ files
+      Nimbus writes that neither step clears, and the separate add-on's own
+      removal steps if installed.
   entity-event-setup: done
   entity-unique-id: done
   has-entity-name: done
-  runtime-data: done  # 2026-08-22: entry.runtime_data (a `type NimbusConfigEntry = ConfigEntry[dict[str, NimbusCoordinator]]` alias in coordinator.py, the one import-cycle-free place every consumer already shares) replaces hass.data[DOMAIN][entry.entry_id] everywhere -- __init__.py, sensor.py, diagnostics.py
+  runtime-data:
+    status: done
+    comment: >-
+      entry.runtime_data (a dict keyed by subentry_id) throughout __init__.py/
+      sensor.py/diagnostics.py -- confirmed via grep, no hass.data[DOMAIN]
+      pattern remains.
   test-before-configure:
     status: exempt
-    comment: >
-      The hub-creation step (config_flow.py's async_step_user) has no
-      external service to validate against -- it's a local unique_id
-      check only. Nothing to "test" before configuring.
+    comment: >-
+      Hub creation (config_flow.py's async_step_user) has no external
+      connection/credential to test -- zero fields, purely local. The one
+      real optional dependency (highspy) is never imported at hub-creation
+      time by design (lazy, only on the Solver's first periodic solve) --
+      see test-before-setup below for how that failure mode is actually
+      handled. Subentry creation (load_subentry.py) does validate its own
+      source sensor exists before allowing creation.
   test-before-setup:
-    status: exempt
-    comment: >
-      Deliberately not implemented as a ConfigEntryNotReady raise.
-      Nimbus has no external network/API dependency to probe -- it
-      reads local HA sensor states only, and every one of those reads
-      (coordinator.py's _current_measured_power/_async_fetch_history/
-      etc.) is already designed to degrade gracefully (fall back to a
-      sane default) rather than fail, matching this integration's own
-      "the show goes on" philosophy (see entity-unavailable's own real-
-      world story below). A genuinely unrecoverable case -- a persisted
-      model pickle that predates a feature-set change -- is already
-      handled BETTER than a blanket ConfigEntryNotReady would: it's
-      caught in _load_model_from_disk() and the stale model is silently
-      discarded + retrained fresh, confirmed live 2026-08-15 fixing a
-      real stuck "Config entry not ready yet" retry loop that a naive
-      raise would have produced instead.
+    status: done
+    comment: >-
+      solver_runtime.py's _blocking() catches ImportError/ModuleNotFoundError
+      from _ensure_ready() (the real failure mode: no highspy wheel for this
+      host's architecture) and fires a real persistent_notification exactly
+      once per HA session, rather than letting it propagate as a bare
+      exception in HA's periodic-task dispatcher every cycle. Deliberately
+      does NOT raise ConfigEntryNotReady from async_setup_entry itself, since
+      that would incorrectly couple the Forecaster's setup (zero highspy
+      dependency, works on every architecture) to the Solver's optional one --
+      async_setup_entry never touches highspy at all, only the later,
+      genuinely-async periodic timer does.
   unique-config-entry: done
-
-  # Silver -- issue #38
-  action-exceptions:
-    status: exempt
-    comment: No service actions.
-  config-entry-unloading: done  # verify daily-retrain + solver timer cancellation on unload
-  docs-configuration-parameters: todo
-  docs-installation-parameters: todo
-  entity-unavailable: done  # fixed 2026-08-22: NimbusForecastSensor.available checks last_update_success, coordinator.data, and the real live source sensor state
-  integration-owner: done
-  log-when-unavailable: done  # fixed alongside entity-unavailable, same commit -- logs exactly once per real transition, not per-tick
-  parallel-updates: done  # 2026-08-22: PARALLEL_UPDATES=0 in sensor.py/number.py/switch.py -- no hub/API for any of them to overload
-  reauthentication-flow:
-    status: exempt
-    comment: >
-      No external service authentication; the integration reads local HA
-      sensors and does not authenticate against any remote service.
-  test-coverage: todo  # solver/ + ml/blend.py well-covered. 2026-08-22 batch: rescued 6 real tests that had gone dark (a stub gap silently broke their collection), added 30 tests for coordinator.py's pure helpers + 2 graceful-degradation bound methods (real, documented 2026-08-15 unit-mismatch/bare-float bugs directly encoded), 9 for number.py, 9 for switch.py, and 48 across config_flow.py/flows/*.py (see config-flow-test-coverage, now done). Full local suite: 183 tests + 11 subtests, all passing, zero --ignore flags needed. Still genuinely untested: _load_model_from_disk's own incompatible-model-discard path (needs real pickle round-tripping + a Path-backed fixture -- has real 2026-08-15 bug history, a bigger lift than what's been done so far) and the sensor.py entity classes themselves (NimbusForecastSensor/NimbusSolverConfigSensor -- the module-level rename FUNCTION they sit alongside is already tested, the entity classes' own coordinator-update/availability wiring is not)
-
-  # Gold -- issue #39
-  devices: done
-  diagnostics: done  # 2026-08-22: diagnostics.py -- per-subentry config + coordinator health snapshot (trained_at, training_points, validation MAE/MASE, forecast point count), TO_REDACT deliberately empty+documented (no credentials anywhere in Nimbus's config)
-  discovery-update-info:
-    status: exempt
-    comment: No network discovery.
-  discovery:
-    status: exempt
-    comment: >
-      ML forecaster integration reading local Home Assistant sensors; no
-      physical device or network service to discover.
-  docs-data-update: todo
-  docs-examples: todo
-  docs-known-limitations: todo
-  docs-supported-devices:
-    status: exempt
-    comment: Not device-based.
-  docs-supported-functions: todo
-  docs-troubleshooting: todo
-  docs-use-cases: todo
-  dynamic-devices: done
-  entity-category:
-    status: exempt
-    comment: >
-      NimbusSolverConfigSensor is deliberately EntityCategory=None (see its
-      own _attr_entity_category comment) -- it's a real, actively-read data
-      source (the writer script's own config input), not a diagnostic. The
-      NumberEntity/SwitchEntity Solver settings are primary, user-set
-      configuration a household is expected to interact with regularly, not
-      background diagnostics either. Nothing in this integration fits
-      EntityCategory.DIAGNOSTIC/CONFIG's real intent.
-  entity-device-class: done  # 2026-08-22: NumberDeviceClass set on every field where HA's own DEVICE_CLASS_UNITS table (checked live against core source) genuinely accepts the field's exact unit -- POWER/ENERGY/ENERGY_STORAGE on 10 fields; deliberately left None elsewhere ($/kWh, "%", "hour" fields have no real matching class, see number.py's own _SolverNumberDescription.device_class comment)
-  entity-disabled-by-default: todo
-  entity-translations: todo
-  exception-translations: todo
-  icon-translations: todo
-  reconfiguration-flow: done
-  repair-issues: todo
-  stale-devices: todo  # verify subentry deletion cleans up its device registry entry
-
-  # Platinum -- issue #40
-  async-dependency:
-    status: exempt
-    comment: >
-      Runtime dependencies are numpy (computational) and highspy (LP
-      solver, C++ bindings) -- neither is a candidate for async. All
-      potentially-slow operations are dispatched via
-      hass.async_add_executor_job to keep the event loop free.
-  inject-websession:
-    status: exempt
-    comment: >
-      Integration has no HTTP dependencies; reads Home Assistant sensor
-      states via the HA core API only.
-  strict-typing: todo  # 93%/97% annotation coverage already; needs py.typed (done), mypy config, CI check
