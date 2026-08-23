@@ -30,7 +30,7 @@ Plus real validation tests for the 3 new BatteryConfig checks.
 """
 
 import unittest
-from datetime import datetime
+from datetime import UTC, datetime
 
 import _solver_path  # noqa: F401
 import numpy as np
@@ -74,7 +74,7 @@ def _scenario(period_indices):
     load, so behavior is pure battery arbitrage.
     """
     n = FINAL_IDX + 1
-    start = datetime(2026, 8, 20, 0, 0)
+    start = datetime(2026, 8, 20, 0, 0, tzinfo=UTC)
     hours = np.array([1.0] * n)
     periods = PeriodGrid(hours=hours, start=start)
     grid = GridConfig(

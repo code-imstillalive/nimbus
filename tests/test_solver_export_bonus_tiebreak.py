@@ -25,7 +25,7 @@ together, not just "does it not crash":
 """
 
 import unittest
-from datetime import datetime
+from datetime import UTC, datetime
 
 import _solver_path  # noqa: F401
 import numpy as np
@@ -58,7 +58,9 @@ def _scenario():
     bonus-on and bonus-off stretches).
     """
     n = 7
-    periods = PeriodGrid(hours=np.full(n, 1.0), start=datetime(2026, 8, 20, 17, 0, 0))
+    periods = PeriodGrid(
+        hours=np.full(n, 1.0), start=datetime(2026, 8, 20, 17, 0, 0, tzinfo=UTC)
+    )
     # Real, live-observed incremental premium values (bonus_price minus
     # export_price from a real sensor.nimbus_solver_battery_forecast
     # pull): ON window 0.410-0.090=0.320, OFF window 0.407-0.093=0.314.

@@ -30,7 +30,7 @@ This test proves three things together, not just "does it not crash":
 
 import dataclasses
 import unittest
-from datetime import datetime
+from datetime import UTC, datetime
 
 import _solver_path  # noqa: F401
 import numpy as np
@@ -55,7 +55,7 @@ def _scenario(fixed_kw: float | None):
     coast through on a full battery.
     """
     n = 26
-    start = datetime(2026, 8, 20, 7, 0)  # 07:00 local
+    start = datetime(2026, 8, 20, 7, 0, tzinfo=UTC)  # 07:00 local
     hours = np.array([1.0] * n)
     periods = PeriodGrid(hours=hours, start=start)
 

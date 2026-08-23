@@ -11,7 +11,7 @@ tests.
 from __future__ import annotations
 
 import sys
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -31,7 +31,7 @@ from solver.rolling import (
     run_rolling_refinement,
 )
 
-_START = datetime(2026, 1, 1, 0, 0, 0)
+_START = datetime(2026, 1, 1, 0, 0, 0, tzinfo=UTC)
 
 
 def _flat_grid(n: int, start: datetime, hours: float = 1.0) -> PeriodGrid:
