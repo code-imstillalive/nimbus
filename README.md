@@ -292,18 +292,28 @@ GitHub Issues):
 
 - Clear the reference-household "Nimbus → HAEO Replacement Readiness Checklist"
   and graduate the Solver out of shadow mode.
-- Multi-tower battery modelling in `elements.py` — one aggregate battery today,
-  per-tower on the roadmap.
 - Sheddable loads: LP scaffolding exists; the config surface + reference
   automations are next.
 - v1.0.0 removes the deprecated `nimbus_solver_app` add-on.
 
+`BatteryConfig` is deliberately a single aggregate, not a per-tower/per-inverter
+list — internal battery-to-inverter routing and load-sharing is the real
+hardware's own BMS/inverter firmware's job, not something an external dispatch
+optimizer should model or second-guess. The Solver only ever needs the whole
+system's aggregate envelope: total usable capacity, real grid-facing max
+charge/discharge power, and a blended round-trip efficiency.
+
 ## Contributing
 
-- `pip install -e '.[dev]' && pytest` from a fresh clone runs the full 249-test
+- `pip install -e '.[dev]' && pytest` from a fresh clone runs the full 313-test
   suite green.
-- Every PR must pass `ruff format --check`, `ruff check`, `pytest`, and the
-  `Version lockstep (integration <-> add-on)` job — all strict gates on `main`.
+- Every PR must pass `ruff format --check`, `ruff check`, `pytest`, `hassfest`,
+  and the `Version lockstep (integration <-> add-on)` job — all strict gates
+  on `main`. `Type Check (mypy)` runs advisory (tracked toward Gold/Platinum,
+  see issue #40).
+- See [`docs/TESTERS.md`](docs/TESTERS.md) for who's running Nimbus on real
+  hardware today, and what to capture in a bug report so it carries its own
+  version anchor.
 - Real household validation on the reference site is a load-bearing part of the
   merge criteria — see `CLAUDE.md` and `docs/real-world-integration/` for the
   full context.
