@@ -17,7 +17,7 @@ tested here, separately.
 """
 
 import unittest
-from datetime import datetime
+from datetime import UTC, datetime
 
 import _solver_path  # noqa: F401
 import numpy as np
@@ -131,7 +131,7 @@ class TestScoringDetectsRealMatchShortfall(unittest.TestCase):
         # Real bug caught here first run: hourly_regret_breakdown() reads
         # .hour off each timestamp directly (it bins BY hour-of-day) --
         # a None placeholder crashes, real datetimes are required.
-        timestamps = [datetime(2026, 8, 17, h) for h in range(n)]
+        timestamps = [datetime(2026, 8, 17, h, tzinfo=UTC) for h in range(n)]
 
         # Real actual dispatch: matches what a well-behaved automation
         # would do to chase the full assumed 15kWh bonus (14kW steady

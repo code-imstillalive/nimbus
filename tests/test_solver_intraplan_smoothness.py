@@ -35,7 +35,7 @@ crash":
 """
 
 import unittest
-from datetime import datetime
+from datetime import UTC, datetime
 
 import _solver_path  # noqa: F401
 import numpy as np
@@ -62,7 +62,7 @@ def _flat_price_scenario():
     """
     n = 12
     periods = PeriodGrid(
-        hours=np.full(n, 5.0 / 60.0), start=datetime(2026, 8, 20, 13, 15)
+        hours=np.full(n, 5.0 / 60.0), start=datetime(2026, 8, 20, 13, 15, tzinfo=UTC)
     )
     grid = GridConfig(
         import_price=np.full(n, 0.0202),
@@ -105,7 +105,7 @@ def _price_step_scenario():
     """
     n = 12
     periods = PeriodGrid(
-        hours=np.full(n, 5.0 / 60.0), start=datetime(2026, 8, 20, 13, 15)
+        hours=np.full(n, 5.0 / 60.0), start=datetime(2026, 8, 20, 13, 15, tzinfo=UTC)
     )
     import_price = np.concatenate([np.full(6, 0.02), np.full(6, 0.50)])
     export_price = np.concatenate([np.full(6, -0.005), np.full(6, 0.45)])

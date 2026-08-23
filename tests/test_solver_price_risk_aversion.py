@@ -19,6 +19,7 @@ config-surface level.
 """
 
 import unittest
+from datetime import UTC
 
 import _solver_path  # noqa: F401
 import numpy as np
@@ -37,7 +38,7 @@ def _scenario(import_price_upper=None, export_price_lower=None):
     hours = np.array([1.0] * n)
     from datetime import datetime
 
-    periods = PeriodGrid(hours=hours, start=datetime(2026, 8, 21, 12, 0))
+    periods = PeriodGrid(hours=hours, start=datetime(2026, 8, 21, 12, 0, tzinfo=UTC))
 
     # A genuinely cheap-looking point forecast throughout -- if the LP
     # trusts it at face value, it has no reason to charge early (plenty
