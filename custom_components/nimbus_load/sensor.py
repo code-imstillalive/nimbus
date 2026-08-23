@@ -316,7 +316,10 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
     _attr_suggested_display_precision = 3
 
     def __init__(
-        self, coordinator: NimbusCoordinator, subentry: ConfigSubentry, sw_version: str | None = None
+        self,
+        coordinator: NimbusCoordinator,
+        subentry: ConfigSubentry,
+        sw_version: str | None = None,
     ) -> None:
         super().__init__(coordinator)
         # Deliberately NOT changed to a generic suffix for existing load
@@ -325,7 +328,11 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
         # orphans the old one (losing its history/registry entry). Signal
         # subentries are new as of this same change, so they get their
         # own distinct, accurate suffix from day one instead.
-        suffix = "_signal_forecast" if subentry.subentry_type == SUBENTRY_TYPE_SIGNAL else "_load_forecast"
+        suffix = (
+            "_signal_forecast"
+            if subentry.subentry_type == SUBENTRY_TYPE_SIGNAL
+            else "_load_forecast"
+        )
         self._attr_unique_id = f"{subentry.subentry_id}{suffix}"
         # Exposed as a live attribute (2026-08-15) so anything downstream
         # (e.g. a dashboard chart script) can tell a load forecast apart
@@ -358,7 +365,9 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
         # to be renamed by hand. Setting entity_id directly is the one
         # mechanism the entity platform never overrides -- if it's already
         # set when the entity is added, generation is skipped entirely.
-        self.entity_id = f"sensor.{object_id_from_source(subentry.data[CONF_LOAD_SENSOR])}"
+        self.entity_id = (
+            f"sensor.{object_id_from_source(subentry.data[CONF_LOAD_SENSOR])}"
+        )
         model = (
             "Power Signal Forecaster"
             if subentry.subentry_type == SUBENTRY_TYPE_SIGNAL
@@ -410,7 +419,8 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
                 _LOGGER.info(
                     "Nimbus: %s is now unavailable (source sensor %s unavailable, or "
                     "the last coordinator update failed)",
-                    self.entity_id, self._source_sensor,
+                    self.entity_id,
+                    self._source_sensor,
                 )
         self._was_available = now_available
         super()._handle_coordinator_update()
@@ -499,7 +509,7 @@ class NimbusSolverConfigSensor(SensorEntity):
 
     @property
     def native_value(self) -> str:
-        """"configured" only once every REQUIRED Solver field has a real
+        """ "configured" only once every REQUIRED Solver field has a real
         value -- lets an external caller check this ONE field before
         attempting to build a plan, instead of discovering a missing
         field halfway through a solve with a confusing KeyError."""

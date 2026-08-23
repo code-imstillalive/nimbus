@@ -144,7 +144,9 @@ def compute_quality_report(
     )
     j_ach = j_ach_residual.total_cost - real_p2p_dollars_earned
 
-    oracle_plan = build_plan(periods=periods, grid=grid_oracle, battery=battery, solar=solar, loads=[load])
+    oracle_plan = build_plan(
+        periods=periods, grid=grid_oracle, battery=battery, solar=solar, loads=[load]
+    )
     if not oracle_plan.is_optimal:
         msg = f"Oracle solve failed (status={oracle_plan.status}) -- should not happen with real, already-realized data unless genuinely infeasible"
         raise RuntimeError(msg)
@@ -183,11 +185,13 @@ def compute_quality_report(
     epr_result = compute_epr(j_ref=j_ref, j_ach=j_ach, j_star=j_star)
 
     tracking_result = compute_tracking_fidelity(
-        hours=hours, commanded_kw=commanded_discharge_kw - commanded_charge_kw,
+        hours=hours,
+        commanded_kw=commanded_discharge_kw - commanded_charge_kw,
         actual_kw=actual_discharge_kw - actual_charge_kw,
     )
     tracking_cost = tracking_error_cost(
-        hours=hours, commanded_kw=commanded_discharge_kw - commanded_charge_kw,
+        hours=hours,
+        commanded_kw=commanded_discharge_kw - commanded_charge_kw,
         actual_kw=actual_discharge_kw - actual_charge_kw,
         export_price=grid_residual.export_price,
     )

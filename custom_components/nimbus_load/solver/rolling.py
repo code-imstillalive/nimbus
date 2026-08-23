@@ -83,7 +83,14 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
-from .elements import BatteryConfig, GridConfig, LoadConfig, PeriodGrid, SheddableLoadConfig, SolarConfig
+from .elements import (
+    BatteryConfig,
+    GridConfig,
+    LoadConfig,
+    PeriodGrid,
+    SheddableLoadConfig,
+    SolarConfig,
+)
 from .network import DEFAULT_PROXIMAL_WEIGHT_KW, Plan, build_plan
 
 
@@ -190,7 +197,9 @@ class RollingRefinementConfig:
             raise ValueError(msg)
 
 
-def run_rolling_refinement(config: RollingRefinementConfig, input_provider: InputProvider) -> RollingRefinementResult:
+def run_rolling_refinement(
+    config: RollingRefinementConfig, input_provider: InputProvider
+) -> RollingRefinementResult:
     """Run the receding-horizon loop. Pure function -- no I/O, no HA
     dependency, safe to call from anywhere including a plain local test
     script (same guarantee as build_plan() itself).
@@ -217,7 +226,9 @@ def run_rolling_refinement(config: RollingRefinementConfig, input_provider: Inpu
         # between ticks is legitimate, not a caller bug).
         battery = inputs.battery
         if last_dispatch is not None:
-            running_soc = min(max(last_dispatch[4], battery.min_soc_kwh), battery.max_soc_kwh)
+            running_soc = min(
+                max(last_dispatch[4], battery.min_soc_kwh), battery.max_soc_kwh
+            )
             battery = dataclasses.replace(battery, initial_soc_kwh=running_soc)
 
         plan = build_plan(
@@ -249,7 +260,11 @@ def run_rolling_refinement(config: RollingRefinementConfig, input_provider: Inpu
             # -- honestly report zero/starting-SoC rather than invent one
             # (a real solve-failure RETRY strategy is a caller-level
             # concern, not built here -- see module docstring).
-            dispatched = last_dispatch if last_dispatch is not None else (0.0, 0.0, 0.0, 0.0, battery.initial_soc_kwh)
+            dispatched = (
+                last_dispatch
+                if last_dispatch is not None
+                else (0.0, 0.0, 0.0, 0.0, battery.initial_soc_kwh)
+            )
             # previous_plan intentionally NOT updated to this failed
             # plan -- see module docstring.
 

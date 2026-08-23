@@ -173,9 +173,13 @@ def evaluate_realized_cost(
     """
     n = len(hours)
     charge_cost_arr = np.broadcast_to(np.asarray(charge_cost, dtype=np.float64), (n,))
-    discharge_cost_arr = np.broadcast_to(np.asarray(discharge_cost, dtype=np.float64), (n,))
+    discharge_cost_arr = np.broadcast_to(
+        np.asarray(discharge_cost, dtype=np.float64), (n,)
+    )
     solar_used = solar_real_kw
-    net_needed = load_real_kw + charge_committed_kw - discharge_committed_kw - solar_used
+    net_needed = (
+        load_real_kw + charge_committed_kw - discharge_committed_kw - solar_used
+    )
     grid_import = np.maximum(0.0, net_needed)
     grid_export = np.maximum(0.0, -net_needed)
     solar_curtailed = np.zeros_like(solar_real_kw)
@@ -218,11 +222,17 @@ def oracle_dispatch(
     by construction -- using the same evaluator for every controller,
     oracle included, is what makes the comparison honest).
     """
-    plan = build_plan(periods=periods, grid=grid, battery=battery, solar=solar, loads=[load])
+    plan = build_plan(
+        periods=periods, grid=grid, battery=battery, solar=solar, loads=[load]
+    )
     if not plan.is_optimal:
         msg = f"Oracle solve failed (status={plan.status}) -- this should not happen with real, already-realized data unless the scenario is genuinely infeasible"
         raise RuntimeError(msg)
-    return plan.battery_charge_kw, plan.battery_discharge_kw, float(plan.battery_soc_kwh[-1])
+    return (
+        plan.battery_charge_kw,
+        plan.battery_discharge_kw,
+        float(plan.battery_soc_kwh[-1]),
+    )
 
 
 def hourly_regret_breakdown(
@@ -268,7 +278,9 @@ def hourly_regret_breakdown(
     matches Mark's own chart, which shows no bar at all for a genuinely
     flat hour rather than a zero-height one.
     """
-    if not (len(timestamps) == len(actual_cost_per_period) == len(oracle_cost_per_period)):
+    if not (
+        len(timestamps) == len(actual_cost_per_period) == len(oracle_cost_per_period)
+    ):
         msg = "timestamps, actual_cost_per_period, and oracle_cost_per_period must be the same length"
         raise ValueError(msg)
     buckets: dict[int, float] = {}

@@ -16,11 +16,19 @@ Mark's own audit question is asking about.
 Run: `python -m unittest discover -s tests` from the repo root, or
 `python tests/test_solver_objective_completeness.py` directly.
 """
+
 import unittest
 
 import _solver_path  # noqa: F401  (sets sys.path so the import below works)
 import numpy as np
-from solver.elements import BatteryConfig, GridConfig, LoadConfig, PeriodGrid, SheddableLoadConfig, SolarConfig
+from solver.elements import (
+    BatteryConfig,
+    GridConfig,
+    LoadConfig,
+    PeriodGrid,
+    SheddableLoadConfig,
+    SolarConfig,
+)
 from solver.network import build_plan
 
 
@@ -30,9 +38,18 @@ def _flat_grid(n: int, hours: float = 1.0) -> PeriodGrid:
 
 def _base_battery(**overrides) -> BatteryConfig:
     defaults = dict(
-        capacity_kwh=20.0, initial_soc_kwh=10.0, min_soc_kwh=2.0, max_soc_kwh=20.0,
-        max_charge_kw=10.0, max_discharge_kw=10.0, charge_efficiency=0.99, discharge_efficiency=0.99,
-        charge_cost=0.01, discharge_cost=0.01, salvage_value=0.0, headroom_value=0.0,
+        capacity_kwh=20.0,
+        initial_soc_kwh=10.0,
+        min_soc_kwh=2.0,
+        max_soc_kwh=20.0,
+        max_charge_kw=10.0,
+        max_discharge_kw=10.0,
+        charge_efficiency=0.99,
+        discharge_efficiency=0.99,
+        charge_cost=0.01,
+        discharge_cost=0.01,
+        salvage_value=0.0,
+        headroom_value=0.0,
     )
     defaults.update(overrides)
     return BatteryConfig(**defaults)
@@ -58,26 +75,35 @@ class TestSalvageValue(unittest.TestCase):
         # exactly break-even on its own -- salvage_value is the ONLY
         # real tiebreaker between "hold the energy" and "discharge it".
         grid = GridConfig(
-            import_price=np.full(n, 0.50), export_price=np.full(n, 0.01),
-            import_limit_kw=20.0, export_limit_kw=20.0,
+            import_price=np.full(n, 0.50),
+            export_price=np.full(n, 0.01),
+            import_limit_kw=20.0,
+            export_limit_kw=20.0,
         )
         solar = SolarConfig(forecast_kw=np.zeros(n))
         loads = [LoadConfig(name="load", forecast_kw=np.zeros(n))]
 
         plan_no_salvage = build_plan(
-            periods=periods, grid=grid, battery=_base_battery(salvage_value=0.0),
-            solar=solar, loads=loads,
+            periods=periods,
+            grid=grid,
+            battery=_base_battery(salvage_value=0.0),
+            solar=solar,
+            loads=loads,
         )
         plan_with_salvage = build_plan(
-            periods=periods, grid=grid, battery=_base_battery(salvage_value=0.50),
-            solar=solar, loads=loads,
+            periods=periods,
+            grid=grid,
+            battery=_base_battery(salvage_value=0.50),
+            solar=solar,
+            loads=loads,
         )
         self.assertEqual(plan_no_salvage.status, "optimal")
         self.assertEqual(plan_with_salvage.status, "optimal")
         final_soc_no_salvage = float(plan_no_salvage.battery_soc_kwh[-1])
         final_soc_with_salvage = float(plan_with_salvage.battery_soc_kwh[-1])
         self.assertGreater(
-            final_soc_with_salvage, final_soc_no_salvage,
+            final_soc_with_salvage,
+            final_soc_no_salvage,
             "salvage_value should pull the LP toward ending with MORE real energy stored "
             "in an economically-marginal scenario -- if it doesn't, salvage_value is dead weight",
         )
@@ -101,28 +127,35 @@ class TestHeadroomValue(unittest.TestCase):
         # unattractive relative to battery costs) -- isolates the
         # salvage_value/headroom_value terminal-value tradeoff cleanly.
         grid = GridConfig(
-            import_price=np.full(n, 0.50), export_price=np.full(n, 0.01),
-            import_limit_kw=20.0, export_limit_kw=20.0,
+            import_price=np.full(n, 0.50),
+            export_price=np.full(n, 0.01),
+            import_limit_kw=20.0,
+            export_limit_kw=20.0,
         )
         solar = SolarConfig(forecast_kw=np.zeros(n))
         loads = [LoadConfig(name="load", forecast_kw=np.zeros(n))]
 
         plan_salvage_wins = build_plan(
-            periods=periods, grid=grid,
+            periods=periods,
+            grid=grid,
             battery=_base_battery(salvage_value=0.10, headroom_value=0.05),
-            solar=solar, loads=loads,
+            solar=solar,
+            loads=loads,
         )
         plan_headroom_wins = build_plan(
-            periods=periods, grid=grid,
+            periods=periods,
+            grid=grid,
             battery=_base_battery(salvage_value=0.10, headroom_value=0.15),
-            solar=solar, loads=loads,
+            solar=solar,
+            loads=loads,
         )
         self.assertEqual(plan_salvage_wins.status, "optimal")
         self.assertEqual(plan_headroom_wins.status, "optimal")
         soc_salvage_wins = float(plan_salvage_wins.battery_soc_kwh[-1])
         soc_headroom_wins = float(plan_headroom_wins.battery_soc_kwh[-1])
         self.assertGreater(
-            soc_salvage_wins, soc_headroom_wins,
+            soc_salvage_wins,
+            soc_headroom_wins,
             "when salvage_value > headroom_value the LP should end with MORE stored energy; "
             "when headroom_value > salvage_value it should end with LESS -- if the two "
             "settings produce the same final SoC, headroom_value is dead weight",
@@ -138,8 +171,17 @@ class TestHeadroomValue(unittest.TestCase):
         # itself) -- so headroom_value alone, with nothing opposing it,
         # is real pure profit per kWh freed, and the LP should discharge
         # all the way down to min_soc to collect it.
-        self.assertAlmostEqual(soc_salvage_wins, 10.0, delta=0.5, msg="salvage-dominant case should stay near its real starting SoC, not climb toward max via costly grid import")
-        self.assertLess(soc_headroom_wins, 0.2 * 20.0, "headroom-dominant case should discharge down near min_soc (cost-neutral energy flow, pure headroom profit)")
+        self.assertAlmostEqual(
+            soc_salvage_wins,
+            10.0,
+            delta=0.5,
+            msg="salvage-dominant case should stay near its real starting SoC, not climb toward max via costly grid import",
+        )
+        self.assertLess(
+            soc_headroom_wins,
+            0.2 * 20.0,
+            "headroom-dominant case should discharge down near min_soc (cost-neutral energy flow, pure headroom profit)",
+        )
 
 
 class TestExportBonus(unittest.TestCase):
@@ -150,7 +192,9 @@ class TestExportBonus(unittest.TestCase):
     window (base export price alone is unattractive); with it ON, it
     should genuinely capture real bonus volume."""
 
-    def test_export_bonus_creates_real_discharge_incentive_that_did_not_exist_without_it(self):
+    def test_export_bonus_creates_real_discharge_incentive_that_did_not_exist_without_it(
+        self,
+    ):
         n = 4
         periods = _flat_grid(n)
         # Real, deliberately UNATTRACTIVE base rate: 0.005 < discharge_cost
@@ -160,33 +204,68 @@ class TestExportBonus(unittest.TestCase):
         # "no bonus" baseline can only be explained by the bonus itself
         # missing from that scenario, not a marginal base-rate quirk.
         base_export = np.full(n, 0.005)
-        bonus_price = np.array([0.0, 0.40, 0.40, 0.0])  # real premium only in periods 1-2
+        bonus_price = np.array(
+            [0.0, 0.40, 0.40, 0.0]
+        )  # real premium only in periods 1-2
 
         grid_no_bonus = GridConfig(
-            import_price=np.full(n, 0.50), export_price=base_export,
-            import_limit_kw=20.0, export_limit_kw=20.0,
+            import_price=np.full(n, 0.50),
+            export_price=base_export,
+            import_limit_kw=20.0,
+            export_limit_kw=20.0,
         )
         grid_with_bonus = GridConfig(
-            import_price=np.full(n, 0.50), export_price=base_export,
-            import_limit_kw=20.0, export_limit_kw=20.0,
-            export_bonus_price=bonus_price, export_bonus_volume_kwh=10.0,
+            import_price=np.full(n, 0.50),
+            export_price=base_export,
+            import_limit_kw=20.0,
+            export_limit_kw=20.0,
+            export_bonus_price=bonus_price,
+            export_bonus_volume_kwh=10.0,
         )
         solar = SolarConfig(forecast_kw=np.zeros(n))
         loads = [LoadConfig(name="load", forecast_kw=np.zeros(n))]
         battery = _base_battery(initial_soc_kwh=15.0, salvage_value=0.0)
 
-        plan_no_bonus = build_plan(periods=periods, grid=grid_no_bonus, battery=battery, solar=solar, loads=loads)
-        plan_with_bonus = build_plan(periods=periods, grid=grid_with_bonus, battery=battery, solar=solar, loads=loads)
+        plan_no_bonus = build_plan(
+            periods=periods,
+            grid=grid_no_bonus,
+            battery=battery,
+            solar=solar,
+            loads=loads,
+        )
+        plan_with_bonus = build_plan(
+            periods=periods,
+            grid=grid_with_bonus,
+            battery=battery,
+            solar=solar,
+            loads=loads,
+        )
 
         self.assertEqual(plan_no_bonus.status, "optimal")
         self.assertEqual(plan_with_bonus.status, "optimal")
         total_export_no_bonus = float(np.sum(plan_no_bonus.grid_export_kw))
         total_export_with_bonus = float(np.sum(plan_with_bonus.grid_export_kw))
-        self.assertLess(total_export_no_bonus, 0.01, "with no bonus and an unattractive base price, the LP should not export at all")
-        self.assertGreater(total_export_with_bonus, 5.0, "with a real bonus available, the LP should genuinely discharge to capture it")
+        self.assertLess(
+            total_export_no_bonus,
+            0.01,
+            "with no bonus and an unattractive base price, the LP should not export at all",
+        )
+        self.assertGreater(
+            total_export_with_bonus,
+            5.0,
+            "with a real bonus available, the LP should genuinely discharge to capture it",
+        )
         total_bonus_claimed = float(np.sum(plan_with_bonus.export_bonus_kw))
-        self.assertGreater(total_bonus_claimed, 5.0, "the LP should actually claim real bonus volume, not just export without capturing it")
-        self.assertLessEqual(total_bonus_claimed, 10.0 + 1e-6, "claimed bonus volume must respect the real cap")
+        self.assertGreater(
+            total_bonus_claimed,
+            5.0,
+            "the LP should actually claim real bonus volume, not just export without capturing it",
+        )
+        self.assertLessEqual(
+            total_bonus_claimed,
+            10.0 + 1e-6,
+            "claimed bonus volume must respect the real cap",
+        )
 
 
 class TestShedCost(unittest.TestCase):
@@ -200,25 +279,58 @@ class TestShedCost(unittest.TestCase):
         n = 2
         periods = _flat_grid(n)
         grid = GridConfig(
-            import_price=np.full(n, 0.30), export_price=np.full(n, 0.05),
-            import_limit_kw=1.0, export_limit_kw=5.0,  # deliberately tight import limit
+            import_price=np.full(n, 0.30),
+            export_price=np.full(n, 0.05),
+            import_limit_kw=1.0,
+            export_limit_kw=5.0,  # deliberately tight import limit
         )
         solar = SolarConfig(forecast_kw=np.zeros(n))
         battery = _base_battery(initial_soc_kwh=2.0, max_discharge_kw=2.0)
         # A real 3kW sheddable load against only a 1kW import limit + a
         # small battery -- genuinely forces a real shed/no-shed choice.
-        sheddable_cheap = [SheddableLoadConfig(name="sheddable", forecast_kw=np.full(n, 3.0), shed_cost=0.01, min_fraction=0.0)]
-        sheddable_expensive = [SheddableLoadConfig(name="sheddable", forecast_kw=np.full(n, 3.0), shed_cost=50.0, min_fraction=0.0)]
+        sheddable_cheap = [
+            SheddableLoadConfig(
+                name="sheddable",
+                forecast_kw=np.full(n, 3.0),
+                shed_cost=0.01,
+                min_fraction=0.0,
+            )
+        ]
+        sheddable_expensive = [
+            SheddableLoadConfig(
+                name="sheddable",
+                forecast_kw=np.full(n, 3.0),
+                shed_cost=50.0,
+                min_fraction=0.0,
+            )
+        ]
 
-        plan_cheap_shed = build_plan(periods=periods, grid=grid, battery=battery, solar=solar, loads=[], sheddable_loads=sheddable_cheap)
-        plan_expensive_shed = build_plan(periods=periods, grid=grid, battery=battery, solar=solar, loads=[], sheddable_loads=sheddable_expensive)
+        plan_cheap_shed = build_plan(
+            periods=periods,
+            grid=grid,
+            battery=battery,
+            solar=solar,
+            loads=[],
+            sheddable_loads=sheddable_cheap,
+        )
+        plan_expensive_shed = build_plan(
+            periods=periods,
+            grid=grid,
+            battery=battery,
+            solar=solar,
+            loads=[],
+            sheddable_loads=sheddable_expensive,
+        )
 
         self.assertEqual(plan_cheap_shed.status, "optimal")
         self.assertEqual(plan_expensive_shed.status, "optimal")
         total_shed_cheap = float(np.sum(plan_cheap_shed.sheddable_loads[0].shed_kw))
-        total_shed_expensive = float(np.sum(plan_expensive_shed.sheddable_loads[0].shed_kw))
+        total_shed_expensive = float(
+            np.sum(plan_expensive_shed.sheddable_loads[0].shed_kw)
+        )
         self.assertGreater(
-            total_shed_cheap, total_shed_expensive,
+            total_shed_cheap,
+            total_shed_expensive,
             "a cheap shed_cost should lead to strictly MORE real shedding than an expensive one under the same binding constraint",
         )
 

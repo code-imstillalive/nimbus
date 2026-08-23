@@ -8,6 +8,7 @@ Imports and exercises the REAL functions/methods (not a reimplementation)
 against real `voluptuous` and tests/_ha_stubs.py's stand-in homeassistant.*
 modules.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -126,7 +127,9 @@ def test_schedule_hour_selector_uses_quarter_hour_steps_no_am_pm():
 
 def test_derive_title_uses_friendly_name_when_present():
     flow = _make_flow()
-    flow.hass.states.get.return_value = MagicMock(attributes={"friendly_name": "Logger Load Power"})
+    flow.hass.states.get.return_value = MagicMock(
+        attributes={"friendly_name": "Logger Load Power"}
+    )
     assert flow._derive_title("sensor.logger_load_power") == "Logger Load Power"
 
 
@@ -178,7 +181,9 @@ def test_reconfigure_source_calls_get_reconfigure_subentry_not_treated_as_new():
 
 def test_reconfigure_with_no_input_shows_form_prefilled_from_existing_data():
     flow = _make_flow(source="reconfigure")
-    fake_subentry = MagicMock(data={CONF_LOAD_SENSOR: "sensor.existing", CONF_SCHEDULE_START_HOUR: 11.0})
+    fake_subentry = MagicMock(
+        data={CONF_LOAD_SENSOR: "sensor.existing", CONF_SCHEDULE_START_HOUR: 11.0}
+    )
     flow._get_reconfigure_subentry = MagicMock(return_value=fake_subentry)
     result = asyncio.run(flow.async_step_user(None))
     assert result["type"] == "form"
@@ -192,7 +197,9 @@ def test_step_reconfigure_alias_delegates_to_step_user():
     flow._get_reconfigure_subentry = MagicMock(return_value=fake_subentry)
     flow._get_entry = MagicMock(return_value=MagicMock())
     flow.hass.states.get.return_value = None
-    result = asyncio.run(flow.async_step_reconfigure({CONF_LOAD_SENSOR: "sensor.existing"}))
+    result = asyncio.run(
+        flow.async_step_reconfigure({CONF_LOAD_SENSOR: "sensor.existing"})
+    )
     assert result["type"] == "update_and_abort"
 
 

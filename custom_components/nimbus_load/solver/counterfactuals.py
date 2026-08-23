@@ -43,14 +43,18 @@ class CounterfactualDispatch:
     final_soc_kwh: float
 
 
-def no_control_dispatch(*, n_periods: int, initial_soc_kwh: float) -> CounterfactualDispatch:
+def no_control_dispatch(
+    *, n_periods: int, initial_soc_kwh: float
+) -> CounterfactualDispatch:
     """The battery physically disabled -- zero charge, zero discharge,
     every period. No forecast dependency at all (there is no decision
     being made), which is the whole point of this baseline: it is what
     "no battery, or a battery nobody ever dispatches" actually costs.
     """
     zeros = np.zeros(n_periods)
-    return CounterfactualDispatch(charge_kw=zeros, discharge_kw=zeros, final_soc_kwh=initial_soc_kwh)
+    return CounterfactualDispatch(
+        charge_kw=zeros, discharge_kw=zeros, final_soc_kwh=initial_soc_kwh
+    )
 
 
 def two_threshold_dispatch(
@@ -85,18 +89,24 @@ def two_threshold_dispatch(
     for t in range(n):
         if price_kwh[t] > threshold_high:
             headroom_kwh = max(0.0, soc - min_soc_kwh)
-            max_by_energy = headroom_kwh * discharge_efficiency / hours[t] if hours[t] > 0 else 0.0
+            max_by_energy = (
+                headroom_kwh * discharge_efficiency / hours[t] if hours[t] > 0 else 0.0
+            )
             d = min(max_discharge_kw, max_by_energy)
             discharge[t] = d
             soc -= d * hours[t] / discharge_efficiency
         elif price_kwh[t] < threshold_low:
             headroom_kwh = max(0.0, max_soc_kwh - soc)
-            max_by_energy = headroom_kwh / (charge_efficiency * hours[t]) if hours[t] > 0 else 0.0
+            max_by_energy = (
+                headroom_kwh / (charge_efficiency * hours[t]) if hours[t] > 0 else 0.0
+            )
             c = min(max_charge_kw, max_by_energy)
             charge[t] = c
             soc += c * charge_efficiency * hours[t]
         # else: idle, soc unchanged
-    return CounterfactualDispatch(charge_kw=charge, discharge_kw=discharge, final_soc_kwh=soc)
+    return CounterfactualDispatch(
+        charge_kw=charge, discharge_kw=discharge, final_soc_kwh=soc
+    )
 
 
 def tune_two_threshold(
@@ -128,11 +138,17 @@ def tune_two_threshold(
             if high <= low:
                 continue
             dispatch = two_threshold_dispatch(
-                price_kwh=price_kwh, hours=hours, initial_soc_kwh=initial_soc_kwh,
-                min_soc_kwh=min_soc_kwh, max_soc_kwh=max_soc_kwh,
-                max_charge_kw=max_charge_kw, max_discharge_kw=max_discharge_kw,
-                charge_efficiency=charge_efficiency, discharge_efficiency=discharge_efficiency,
-                threshold_low=low, threshold_high=high,
+                price_kwh=price_kwh,
+                hours=hours,
+                initial_soc_kwh=initial_soc_kwh,
+                min_soc_kwh=min_soc_kwh,
+                max_soc_kwh=max_soc_kwh,
+                max_charge_kw=max_charge_kw,
+                max_discharge_kw=max_discharge_kw,
+                charge_efficiency=charge_efficiency,
+                discharge_efficiency=discharge_efficiency,
+                threshold_low=low,
+                threshold_high=high,
             )
             cost = evaluate_fn(dispatch)
             if best is None or cost < best[3]:

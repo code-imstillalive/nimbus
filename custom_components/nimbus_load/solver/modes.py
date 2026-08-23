@@ -46,7 +46,9 @@ class ShadowModeReading:
 
     mode: ShadowMode
     ems_code: int  # 1 = Self-Consume, 4 = VPP (matches real Sungrow registers)
-    command: str  # "Stop" | "Charge" | "Discharge" (matches real Sungrow command language)
+    command: (
+        str  # "Stop" | "Charge" | "Discharge" (matches real Sungrow command language)
+    )
     setpoint_kw: float  # what would be written to the charge/discharge power register
 
 
@@ -68,10 +70,19 @@ def shadow_modes_for_plan(plan: Plan) -> list[ShadowModeReading]:
         discharge = float(plan.battery_discharge_kw[t])
         if discharge > _DISPATCH_THRESHOLD_KW:
             readings.append(
-                ShadowModeReading(mode="vpp_discharge", ems_code=4, command="Discharge", setpoint_kw=discharge)
+                ShadowModeReading(
+                    mode="vpp_discharge",
+                    ems_code=4,
+                    command="Discharge",
+                    setpoint_kw=discharge,
+                )
             )
         elif charge > _DISPATCH_THRESHOLD_KW:
-            readings.append(ShadowModeReading(mode="vpp_charge", ems_code=4, command="Charge", setpoint_kw=charge))
+            readings.append(
+                ShadowModeReading(
+                    mode="vpp_charge", ems_code=4, command="Charge", setpoint_kw=charge
+                )
+            )
         else:
             # Matches this project's own confirmed-correct default (see
             # CLAUDE.md's own "Battery Control Strategy" section): neither
@@ -79,11 +90,17 @@ def shadow_modes_for_plan(plan: Plan) -> list[ShadowModeReading]:
             # "hands off, let the inverter self-manage" -- Self-Consume,
             # never VPP Stop, which is more restrictive than intended for
             # a genuine zero-dispatch period.
-            readings.append(ShadowModeReading(mode="self_consume", ems_code=1, command="Stop", setpoint_kw=0.0))
+            readings.append(
+                ShadowModeReading(
+                    mode="self_consume", ems_code=1, command="Stop", setpoint_kw=0.0
+                )
+            )
     return readings
 
 
-def summarize_mode_transitions(readings: list[ShadowModeReading]) -> list[tuple[int, ShadowMode, ShadowMode]]:
+def summarize_mode_transitions(
+    readings: list[ShadowModeReading],
+) -> list[tuple[int, ShadowMode, ShadowMode]]:
     """Return (period_index, from_mode, to_mode) for every period where the
     shadow mode actually CHANGES from the previous period -- a compact way
     to see the plan's real dispatch shape (a handful of transitions across

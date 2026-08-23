@@ -279,10 +279,15 @@ class GridConfig:
         if (self.export_bonus_price is None) != (self.export_bonus_volume_kwh is None):
             msg = "export_bonus_price and export_bonus_volume_kwh must be given together, or not at all"
             raise ValueError(msg)
-        if self.export_bonus_volume_kwh is not None and self.export_bonus_volume_kwh < 0:
+        if (
+            self.export_bonus_volume_kwh is not None
+            and self.export_bonus_volume_kwh < 0
+        ):
             msg = "export_bonus_volume_kwh must be >= 0 when given"
             raise ValueError(msg)
-        if self.export_bonus_price is not None and len(self.export_bonus_price) != len(self.export_price):
+        if self.export_bonus_price is not None and len(self.export_bonus_price) != len(
+            self.export_price
+        ):
             msg = "export_bonus_price must have the same length as export_price"
             raise ValueError(msg)
         if self.fixed_export_kw is not None:
@@ -290,13 +295,19 @@ class GridConfig:
                 msg = "fixed_export_kw must have the same length as export_price"
                 raise ValueError(msg)
             finite = self.fixed_export_kw[~np.isnan(self.fixed_export_kw)]
-            if finite.size and (finite.min() < 0 or finite.max() > self.export_limit_kw):
+            if finite.size and (
+                finite.min() < 0 or finite.max() > self.export_limit_kw
+            ):
                 msg = "fixed_export_kw's non-NaN entries must be within [0, export_limit_kw]"
                 raise ValueError(msg)
-        if self.import_price_upper is not None and len(self.import_price_upper) != len(self.import_price):
+        if self.import_price_upper is not None and len(self.import_price_upper) != len(
+            self.import_price
+        ):
             msg = "import_price_upper must have the same length as import_price"
             raise ValueError(msg)
-        if self.export_price_lower is not None and len(self.export_price_lower) != len(self.export_price):
+        if self.export_price_lower is not None and len(self.export_price_lower) != len(
+            self.export_price
+        ):
             msg = "export_price_lower must have the same length as export_price"
             raise ValueError(msg)
         # REMOVED (2026-08-16): the price-spread config-time REJECT that
@@ -622,7 +633,9 @@ class BatteryConfig:
         # which let exactly 100% silently pass validation, directly
         # contradicting the architecture sketch's own explicit call:
         # "100% is rejected as a config value, not just discouraged").
-        if not (0.0 < self.charge_efficiency < 1.0) or not (0.0 < self.discharge_efficiency < 1.0):
+        if not (0.0 < self.charge_efficiency < 1.0) or not (
+            0.0 < self.discharge_efficiency < 1.0
+        ):
             msg = "Battery efficiencies must be in (0, 1] -- exactly 100% is rejected (see the architecture sketch's own §6: real efficiency is also a natural degeneracy guard, independent of the cost floor)"
             raise DegenerateConfigError(msg)
         # np.asarray + elementwise comparison handles BOTH a plain scalar
@@ -631,7 +644,11 @@ class BatteryConfig:
         # individually clear the floor, not just their average/sum.
         spread = np.asarray(self.charge_cost) + np.asarray(self.discharge_cost)
         if np.any(spread < MIN_CHARGE_DISCHARGE_COST_SPREAD):
-            bad = spread if spread.ndim == 0 else spread[spread < MIN_CHARGE_DISCHARGE_COST_SPREAD]
+            bad = (
+                spread
+                if spread.ndim == 0
+                else spread[spread < MIN_CHARGE_DISCHARGE_COST_SPREAD]
+            )
             msg = (
                 f"Battery charge_cost + discharge_cost ({bad}) is below the "
                 f"structural minimum ({MIN_CHARGE_DISCHARGE_COST_SPREAD}) -- this "
@@ -669,19 +686,33 @@ class BatteryConfig:
             if any(idx < 0 for idx in self.terminal_value_period_indices):
                 msg = f"terminal_value_period_indices must all be non-negative period indices (got {self.terminal_value_period_indices})"
                 raise ValueError(msg)
-            if len(set(self.terminal_value_period_indices)) != len(self.terminal_value_period_indices):
+            if len(set(self.terminal_value_period_indices)) != len(
+                self.terminal_value_period_indices
+            ):
                 msg = f"terminal_value_period_indices contains duplicates (got {self.terminal_value_period_indices}) -- the same period would be double-priced"
                 raise ValueError(msg)
         if self.charge_power_curve is not None:
-            _validate_power_curve("charge_power_curve", self.charge_power_curve, self.min_soc_kwh, self.max_soc_kwh)
+            _validate_power_curve(
+                "charge_power_curve",
+                self.charge_power_curve,
+                self.min_soc_kwh,
+                self.max_soc_kwh,
+            )
         if self.discharge_power_curve is not None:
-            _validate_power_curve("discharge_power_curve", self.discharge_power_curve, self.min_soc_kwh, self.max_soc_kwh)
+            _validate_power_curve(
+                "discharge_power_curve",
+                self.discharge_power_curve,
+                self.min_soc_kwh,
+                self.max_soc_kwh,
+            )
         if self.degradation_cost_per_kwh < 0:
             msg = f"degradation_cost_per_kwh must be >= 0 (got {self.degradation_cost_per_kwh}) -- a negative value would mean cycling the battery PAYS the household, which is not a real cost"
             raise ValueError(msg)
 
 
-def _validate_power_curve(name: str, curve: list[tuple[float, float]], min_soc_kwh: float, max_soc_kwh: float) -> None:
+def _validate_power_curve(
+    name: str, curve: list[tuple[float, float]], min_soc_kwh: float, max_soc_kwh: float
+) -> None:
     """Shared validation for BatteryConfig's own charge_power_curve/
     discharge_power_curve -- see that field's own docstring for the full
     "concave piecewise-linear upper bound, no binary variables needed"
@@ -707,7 +738,10 @@ def _validate_power_curve(name: str, curve: list[tuple[float, float]], min_soc_k
     if any(pw < 0 for pw in powers):
         msg = f"{name}: max_power_kw values cannot be negative (got {powers})"
         raise ValueError(msg)
-    slopes = [(powers[i + 1] - powers[i]) / (socs[i + 1] - socs[i]) for i in range(len(curve) - 1)]
+    slopes = [
+        (powers[i + 1] - powers[i]) / (socs[i + 1] - socs[i])
+        for i in range(len(curve) - 1)
+    ]
     if any(slopes[i] < slopes[i + 1] - 1e-9 for i in range(len(slopes) - 1)):
         msg = (
             f"{name}: implied slopes between consecutive points must be non-increasing "
@@ -720,7 +754,10 @@ def _validate_power_curve(name: str, curve: list[tuple[float, float]], min_soc_k
 
 
 def _validate_confidence_band(
-    label: str, forecast_kw: NDArray[np.float64], lower_kw: NDArray[np.float64] | None, upper_kw: NDArray[np.float64] | None
+    label: str,
+    forecast_kw: NDArray[np.float64],
+    lower_kw: NDArray[np.float64] | None,
+    upper_kw: NDArray[np.float64] | None,
 ) -> None:
     """Shared validation for the optional lower_kw/upper_kw confidence
     band any forecast-bearing element may carry (see CONFIDENCE-AWARE
@@ -769,7 +806,9 @@ class SolarConfig:
         if np.any(self.forecast_kw < 0):
             msg = "Solar forecast cannot be negative"
             raise ValueError(msg)
-        _validate_confidence_band("Solar", self.forecast_kw, self.lower_kw, self.upper_kw)
+        _validate_confidence_band(
+            "Solar", self.forecast_kw, self.lower_kw, self.upper_kw
+        )
 
 
 @dataclass(frozen=True)
@@ -790,7 +829,9 @@ class LoadConfig:
         if np.any(self.forecast_kw < 0):
             msg = f"Load '{self.name}' forecast cannot be negative"
             raise ValueError(msg)
-        _validate_confidence_band(f"Load '{self.name}'", self.forecast_kw, self.lower_kw, self.upper_kw)
+        _validate_confidence_band(
+            f"Load '{self.name}'", self.forecast_kw, self.lower_kw, self.upper_kw
+        )
 
 
 @dataclass(frozen=True)
@@ -834,7 +875,12 @@ class SheddableLoadConfig:
         if self.shed_cost <= 0.0:
             msg = f"Sheddable load '{self.name}' shed_cost must be > 0 -- a zero/negative shed cost would make the LP shed this load for no real reason"
             raise ValueError(msg)
-        _validate_confidence_band(f"Sheddable load '{self.name}'", self.forecast_kw, self.lower_kw, self.upper_kw)
+        _validate_confidence_band(
+            f"Sheddable load '{self.name}'",
+            self.forecast_kw,
+            self.lower_kw,
+            self.upper_kw,
+        )
 
 
 # A real, deliberately conservative default -- higher than any realistic

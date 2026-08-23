@@ -11,9 +11,14 @@ more than once) -- every test module here uses stdlib `unittest` only,
 runnable via `python -m unittest discover tests` or directly via
 `python tests/test_X.py` with zero extra dependencies.
 """
+
 import os
 import sys
 
-_SOLVER_PARENT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "custom_components", "nimbus_load")
+_SOLVER_PARENT = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "custom_components",
+    "nimbus_load",
+)
 if _SOLVER_PARENT not in sys.path:
     sys.path.insert(0, _SOLVER_PARENT)

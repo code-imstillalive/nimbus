@@ -63,7 +63,14 @@ from .const import (
     UPDATE_INTERVAL_MINUTES,
 )
 from .ml.features import FEATURE_NAMES
-from .ml.model import MAX_RESIDUALS_STORED, PredictionResult, TrainedModel, calibrated_band, predict, train_model
+from .ml.model import (
+    MAX_RESIDUALS_STORED,
+    PredictionResult,
+    TrainedModel,
+    calibrated_band,
+    predict,
+    train_model,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -127,7 +134,9 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # been from reality, which stays meaningful regardless of which
         # model produced them).
         self._residual_path = Path(
-            hass.config.path(".storage", f"nimbus_load_{subentry.subentry_id}_residuals.json")
+            hass.config.path(
+                ".storage", f"nimbus_load_{subentry.subentry_id}_residuals.json"
+            )
         )
         self._residuals: list[float] = []
         # In-memory only, not persisted -- (timestamp, predicted value)
@@ -297,7 +306,10 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         not-yet-trained) report the identical answer, rather than two
         copies of the same if/elif drifting apart over time.
         """
-        has_schedule = self._schedule_start_hour is not None and self._schedule_end_hour is not None
+        has_schedule = (
+            self._schedule_start_hour is not None
+            and self._schedule_end_hour is not None
+        )
         if has_schedule and self._expected_load_kw is not None:
             return "deterministic"
         if has_schedule:
@@ -312,7 +324,9 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     @property
     def _retrain_hour(self) -> int:
-        return self.entry.options.get(CONF_RETRAIN_HOUR_LOCAL, DEFAULT_RETRAIN_HOUR_LOCAL)
+        return self.entry.options.get(
+            CONF_RETRAIN_HOUR_LOCAL, DEFAULT_RETRAIN_HOUR_LOCAL
+        )
 
     @property
     def _train_days(self) -> int:
@@ -322,8 +336,12 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def async_setup(self) -> None:
         """Load a persisted model if present, then wire up the nightly retrain."""
-        self._trained = await self.hass.async_add_executor_job(self._load_model_from_disk)
-        self._residuals = await self.hass.async_add_executor_job(self._load_residuals_from_disk)
+        self._trained = await self.hass.async_add_executor_job(
+            self._load_model_from_disk
+        )
+        self._residuals = await self.hass.async_add_executor_job(
+            self._load_residuals_from_disk
+        )
 
         self._unsub_retrain = async_track_time_change(
             self.hass,
@@ -370,7 +388,9 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 else []
             )
             curtailment_events = (
-                await self._async_fetch_history(self._curtailment_sensor, start, end, binary=True)
+                await self._async_fetch_history(
+                    self._curtailment_sensor, start, end, binary=True
+                )
                 if self._curtailment_sensor
                 else []
             )
@@ -379,29 +399,46 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # own solar sensor does) while a sibling reports kW; never an
             # optimizer's own plan/forecast entity.
             battery_events = (
-                await self._async_fetch_history(self._battery_sensor, start, end, convert_power=True)
+                await self._async_fetch_history(
+                    self._battery_sensor, start, end, convert_power=True
+                )
                 if self._battery_sensor
                 else []
             )
             grid_events = (
-                await self._async_fetch_history(self._grid_sensor, start, end, convert_power=True)
+                await self._async_fetch_history(
+                    self._grid_sensor, start, end, convert_power=True
+                )
                 if self._grid_sensor
                 else []
             )
             solar_events = (
-                await self._async_fetch_history(self._solar_sensor, start, end, convert_power=True)
+                await self._async_fetch_history(
+                    self._solar_sensor, start, end, convert_power=True
+                )
                 if self._solar_sensor
                 else []
             )
 
             trained = await self.hass.async_add_executor_job(
-                _train_model_job, load_events, temp_events, humidity_events, curtailment_events,
-                start, end, self._schedule_start_hour, self._schedule_end_hour,
-                battery_events, grid_events, solar_events,
+                _train_model_job,
+                load_events,
+                temp_events,
+                humidity_events,
+                curtailment_events,
+                start,
+                end,
+                self._schedule_start_hour,
+                self._schedule_end_hour,
+                battery_events,
+                grid_events,
+                solar_events,
             )
             if trained is not None:
                 self._trained = trained
-                await self.hass.async_add_executor_job(self._save_model_to_disk, trained)
+                await self.hass.async_add_executor_job(
+                    self._save_model_to_disk, trained
+                )
                 await self.async_request_refresh()
         finally:
             self._retraining = False
@@ -409,8 +446,13 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # -- data access ----------------------------------------------------------
 
     async def _async_fetch_history(
-        self, entity_id: str, start: datetime, end: datetime, *,
-        convert_power: bool = False, binary: bool = False,
+        self,
+        entity_id: str,
+        start: datetime,
+        end: datetime,
+        *,
+        convert_power: bool = False,
+        binary: bool = False,
     ) -> list[tuple[datetime, float]]:
         """Fetch recorder history for one entity, in-process -- no REST call,
         no token, identical on HAOS/Supervised/Docker. Goes through the
@@ -447,7 +489,12 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             out: list[tuple[datetime, float]] = []
             for s in states:
                 if binary:
-                    out.append((dt_util.as_local(s.last_changed), 1.0 if s.state == "on" else 0.0))
+                    out.append(
+                        (
+                            dt_util.as_local(s.last_changed),
+                            1.0 if s.state == "on" else 0.0,
+                        )
+                    )
                     continue
                 try:
                     value = float(s.state)
@@ -457,12 +504,15 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     unit = s.attributes.get("unit_of_measurement")
                     if unit and unit != UnitOfPower.KILO_WATT:
                         try:
-                            value = PowerConverter.convert(value, unit, UnitOfPower.KILO_WATT)
+                            value = PowerConverter.convert(
+                                value, unit, UnitOfPower.KILO_WATT
+                            )
                         except Exception:
                             if not warned_missing_unit:
                                 _LOGGER.warning(
                                     "%s reported unconvertible unit '%s' -- treating as kW as-is",
-                                    entity_id, unit,
+                                    entity_id,
+                                    unit,
                                 )
                                 warned_missing_unit = True
                     # Real, live-confirmed bug (2026-08-17): a single bad
@@ -495,7 +545,10 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             "%s reported a physically implausible power reading (%.1f kW, "
                             "exceeds the %.0f kW sanity ceiling) at %s -- dropping this one "
                             "point rather than training on it",
-                            entity_id, value, MAX_SANE_POWER_KW, s.last_changed,
+                            entity_id,
+                            value,
+                            MAX_SANE_POWER_KW,
+                            s.last_changed,
                         )
                         continue
                 out.append((dt_util.as_local(s.last_changed), value))
@@ -553,7 +606,8 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             except Exception:
                 _LOGGER.warning(
                     "%s reported unconvertible unit '%s' -- treating as kW as-is",
-                    entity_id, unit,
+                    entity_id,
+                    unit,
                 )
         return value
 
@@ -608,7 +662,9 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             trained = pickle.loads(self._model_path.read_bytes())
         except Exception:
-            _LOGGER.warning("Could not load persisted model, will retrain.", exc_info=True)
+            _LOGGER.warning(
+                "Could not load persisted model, will retrain.", exc_info=True
+            )
             return None
         # A persisted model's feature count is frozen at whatever
         # FEATURE_NAMES looked like the day it was trained. Confirmed live
@@ -624,7 +680,9 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "Persisted model for %s has %d feature(s) but the current code "
                 "expects %d (trained under an older version) -- discarding and "
                 "retraining fresh instead of crashing.",
-                self.subentry.subentry_id, trained.x_mean.shape[0], len(FEATURE_NAMES),
+                self.subentry.subentry_id,
+                trained.x_mean.shape[0],
+                len(FEATURE_NAMES),
             )
             return None
         return trained
@@ -638,10 +696,15 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return []
         try:
             data = json.loads(self._residual_path.read_text(encoding="utf-8"))
-            if isinstance(data, list) and all(isinstance(v, (int, float)) for v in data):
+            if isinstance(data, list) and all(
+                isinstance(v, (int, float)) for v in data
+            ):
                 return [float(v) for v in data]
         except Exception:
-            _LOGGER.warning("Could not load persisted residual buffer, starting fresh.", exc_info=True)
+            _LOGGER.warning(
+                "Could not load persisted residual buffer, starting fresh.",
+                exc_info=True,
+            )
         return []
 
     def _save_residuals_to_disk(self) -> None:
@@ -653,16 +716,22 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_update_data(self) -> dict[str, Any]:
         if self._trained is None:
             return {
-                "state": None, "forecast": [], "mode": self._mode,
-                "trained_at": None, "training_points": 0,
-                "validation_mae": {}, "validation_mase": {},
+                "state": None,
+                "forecast": [],
+                "mode": self._mode,
+                "trained_at": None,
+                "training_points": 0,
+                "validation_mae": {},
+                "validation_mase": {},
             }
 
         now_utc = dt_util.utcnow()
         horizon_end = now_utc + timedelta(hours=self._horizon_hours)
 
         temp_forecast = await self._async_fetch_temperature_forecast()
-        fallback_temp = temp_forecast[0][1] if temp_forecast else DEFAULT_FALLBACK_TEMPERATURE_C
+        fallback_temp = (
+            temp_forecast[0][1] if temp_forecast else DEFAULT_FALLBACK_TEMPERATURE_C
+        )
         current_humidity = self._current_humidity()
         curtailment_forecast = await self._async_fetch_curtailment_forecast()
         current_battery_kw = self._current_measured_power(self._battery_sensor)
@@ -740,7 +809,9 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._seasonal_anchor,
         )
         preds = result.values
-        has_model_bounds = result.model_lower is not None and result.model_upper is not None
+        has_model_bounds = (
+            result.model_lower is not None and result.model_upper is not None
+        )
 
         # Real, observed physical range for this signal/load -- confirmed
         # live 2026-08-15 that calibrated_band()'s sqrt(1+lead_hours)
@@ -782,12 +853,14 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 upper = v + band
             lower = max(lower, bound_floor)
             upper = min(upper, bound_ceiling)
-            points.append({
-                "time": ts.isoformat(),
-                "value": round(v, 3),
-                "lower": round(lower, 3),
-                "upper": round(upper, 3),
-            })
+            points.append(
+                {
+                    "time": ts.isoformat(),
+                    "value": round(v, 3),
+                    "lower": round(lower, 3),
+                    "upper": round(upper, 3),
+                }
+            )
         current = preds[0] if preds else 0.0
 
         # Remember this cycle's near-term point so the NEXT cycle can
@@ -864,7 +937,9 @@ def _parse_time_to_hour(value: str | float | int | None) -> float | None:
         hour, minute = int(parts[0]), int(parts[1])
         return hour + minute / 60
     except (ValueError, IndexError, AttributeError):
-        _LOGGER.warning("Could not parse schedule time value %r -- treating as unset", value)
+        _LOGGER.warning(
+            "Could not parse schedule time value %r -- treating as unset", value
+        )
         return None
 
 

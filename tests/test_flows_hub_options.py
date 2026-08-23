@@ -9,6 +9,7 @@ installed locally specifically so schema assertions test real behavior,
 not a faked-up stand-in for a validation library) and tests/_ha_stubs.py's
 stand-in homeassistant.* modules for everything HA-specific.
 """
+
 from __future__ import annotations
 
 import sys
@@ -100,6 +101,7 @@ def test_forecaster_schema_battery_field_is_switch_domain_not_sensor():
     # Curtailment is deliberately domain="switch" -- a genuinely different
     # entity type than every other field on this form.
     from custom_components.nimbus_load.const import CONF_CURTAILMENT_SENSOR
+
     schema = _forecaster_schema({})
     marker = _find_marker(schema, CONF_CURTAILMENT_SENSOR)
     selector_instance = schema.schema[marker]
@@ -113,7 +115,9 @@ def test_forecaster_schema_battery_field_is_switch_domain_not_sensor():
 
 
 def test_solver_sources_schema_second_source_is_optional_with_suggested_value():
-    schema = _solver_sources_schema({CONF_SOLVER_SOLAR_FORECAST_SENSOR_2: "sensor.openmeteo"})
+    schema = _solver_sources_schema(
+        {CONF_SOLVER_SOLAR_FORECAST_SENSOR_2: "sensor.openmeteo"}
+    )
     marker = _find_marker(schema, CONF_SOLVER_SOLAR_FORECAST_SENSOR_2)
     assert type(marker).__name__ == "Optional"
     assert marker.default is vol.UNDEFINED
@@ -121,7 +125,9 @@ def test_solver_sources_schema_second_source_is_optional_with_suggested_value():
 
 
 def test_solver_sources_schema_primary_source_is_required():
-    schema = _solver_sources_schema({CONF_SOLVER_SOLAR_FORECAST_SENSOR: "sensor.solcast"})
+    schema = _solver_sources_schema(
+        {CONF_SOLVER_SOLAR_FORECAST_SENSOR: "sensor.solcast"}
+    )
     marker = _find_marker(schema, CONF_SOLVER_SOLAR_FORECAST_SENSOR)
     assert type(marker).__name__ == "Required"
     assert marker.default() == "sensor.solcast"
@@ -147,6 +153,7 @@ def test_solver_grid_schema_has_two_required_price_fields():
 def test_forecaster_step_no_input_shows_the_form():
     flow = _make_flow(options={CONF_TEMPERATURE_SENSOR: "sensor.old"})
     import asyncio
+
     result = asyncio.run(flow.async_step_forecaster(None))
     assert result["type"] == "form"
     assert result["step_id"] == "forecaster"
@@ -159,6 +166,7 @@ def test_forecaster_step_genuinely_cleared_field_stays_cleared():
     # forever. The fix takes user_input.get(key) explicitly for every
     # schema-defined key -- omitted resolves to None correctly.
     import asyncio
+
     flow = _make_flow(options={CONF_TEMPERATURE_SENSOR: "sensor.old_stale_value"})
     # user_input omits CONF_TEMPERATURE_SENSOR entirely -- exactly what a
     # real cleared-field submission looks like.
@@ -173,15 +181,21 @@ def test_forecaster_step_untouched_dashboard_value_is_preserved():
     # completely untouched -- the ORIGINAL risk the 2026-08-17 merge fix
     # protected against, still required to hold after the 2026-08-22 fix.
     import asyncio
+
     flow = _make_flow(options={"solver_battery_capacity_kwh": 122.2})
-    result = asyncio.run(flow.async_step_forecaster({CONF_TEMPERATURE_SENSOR: "sensor.new"}))
+    result = asyncio.run(
+        flow.async_step_forecaster({CONF_TEMPERATURE_SENSOR: "sensor.new"})
+    )
     assert result["data"]["solver_battery_capacity_kwh"] == 122.2
 
 
 def test_forecaster_step_real_submitted_value_is_used():
     import asyncio
+
     flow = _make_flow(options={CONF_TEMPERATURE_SENSOR: "sensor.old"})
-    result = asyncio.run(flow.async_step_forecaster({CONF_TEMPERATURE_SENSOR: "sensor.new"}))
+    result = asyncio.run(
+        flow.async_step_forecaster({CONF_TEMPERATURE_SENSOR: "sensor.new"})
+    )
     assert result["data"][CONF_TEMPERATURE_SENSOR] == "sensor.new"
 
 
@@ -190,6 +204,7 @@ def test_forecaster_step_real_submitted_value_is_used():
 
 def test_solver_battery_step_with_no_input_shows_its_own_form():
     import asyncio
+
     flow = _make_flow(options={})
     result = asyncio.run(flow.async_step_solver_battery(None))
     assert result["type"] == "form"
@@ -198,8 +213,11 @@ def test_solver_battery_step_with_no_input_shows_its_own_form():
 
 def test_solver_battery_step_submission_chains_straight_to_grid_form():
     import asyncio
+
     flow = _make_flow(options={})
-    result = asyncio.run(flow.async_step_solver_battery({CONF_SOLVER_BATTERY_SOC_SENSOR: "sensor.soc"}))
+    result = asyncio.run(
+        flow.async_step_solver_battery({CONF_SOLVER_BATTERY_SOC_SENSOR: "sensor.soc"})
+    )
     assert result["type"] == "form"
     assert result["step_id"] == "solver_grid"
     assert flow._solver_data == {CONF_SOLVER_BATTERY_SOC_SENSOR: "sensor.soc"}
@@ -207,11 +225,17 @@ def test_solver_battery_step_submission_chains_straight_to_grid_form():
 
 def test_solver_grid_step_submission_chains_straight_to_sources_form():
     import asyncio
+
     flow = _make_flow(options={})
-    flow._solver_data = {CONF_SOLVER_BATTERY_SOC_SENSOR: "sensor.soc"}  # from the previous step
+    flow._solver_data = {
+        CONF_SOLVER_BATTERY_SOC_SENSOR: "sensor.soc"
+    }  # from the previous step
     result = asyncio.run(
         flow.async_step_solver_grid(
-            {CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.imp", CONF_SOLVER_EXPORT_PRICE_SENSOR: "sensor.exp"}
+            {
+                CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.imp",
+                CONF_SOLVER_EXPORT_PRICE_SENSOR: "sensor.exp",
+            }
         )
     )
     assert result["step_id"] == "solver_sources"
@@ -233,11 +257,21 @@ def _full_solver_data() -> dict:
 
 def test_solver_sources_step_saves_and_preserves_untouched_keys():
     import asyncio
-    flow = _make_flow(options={"solver_battery_capacity_kwh": 122.2, CONF_TEMPERATURE_SENSOR: "sensor.outdoor"})
+
+    flow = _make_flow(
+        options={
+            "solver_battery_capacity_kwh": 122.2,
+            CONF_TEMPERATURE_SENSOR: "sensor.outdoor",
+        }
+    )
     flow._solver_data = _full_solver_data()
     result = asyncio.run(
-        flow.async_step_solver_sources({CONF_SOLVER_SOLAR_FORECAST_SENSOR: "sensor.solcast",
-                                         CONF_SOLVER_LOAD_FORECAST_SENSOR: "sensor.load_fc"})
+        flow.async_step_solver_sources(
+            {
+                CONF_SOLVER_SOLAR_FORECAST_SENSOR: "sensor.solcast",
+                CONF_SOLVER_LOAD_FORECAST_SENSOR: "sensor.load_fc",
+            }
+        )
     )
     assert result["type"] == "create_entry"
     # Real, untouched dashboard/other-form values survive.
@@ -253,26 +287,38 @@ def test_solver_sources_step_saves_and_preserves_untouched_keys():
 
 def test_solver_sources_step_attempts_to_dismiss_the_setup_notification():
     import asyncio
+
     flow = _make_flow(options={})
     flow._solver_data = _full_solver_data()
     asyncio.run(
         flow.async_step_solver_sources(
-            {CONF_SOLVER_SOLAR_FORECAST_SENSOR: "s", CONF_SOLVER_LOAD_FORECAST_SENSOR: "s"}
+            {
+                CONF_SOLVER_SOLAR_FORECAST_SENSOR: "s",
+                CONF_SOLVER_LOAD_FORECAST_SENSOR: "s",
+            }
         )
     )
     flow.hass.services.async_call.assert_called_once_with(
-        "persistent_notification", "dismiss", {"notification_id": "nimbus_setup_incomplete"}
+        "persistent_notification",
+        "dismiss",
+        {"notification_id": "nimbus_setup_incomplete"},
     )
 
 
 def test_solver_sources_step_save_never_blocked_by_a_failing_notification():
     import asyncio
+
     flow = _make_flow(options={})
     flow._solver_data = _full_solver_data()
-    flow.hass.services.async_call = MagicMock(side_effect=RuntimeError("hass not ready"))
+    flow.hass.services.async_call = MagicMock(
+        side_effect=RuntimeError("hass not ready")
+    )
     result = asyncio.run(
         flow.async_step_solver_sources(
-            {CONF_SOLVER_SOLAR_FORECAST_SENSOR: "s", CONF_SOLVER_LOAD_FORECAST_SENSOR: "s"}
+            {
+                CONF_SOLVER_SOLAR_FORECAST_SENSOR: "s",
+                CONF_SOLVER_LOAD_FORECAST_SENSOR: "s",
+            }
         )
     )
     assert result["type"] == "create_entry"  # the real save still succeeded
@@ -280,6 +326,7 @@ def test_solver_sources_step_save_never_blocked_by_a_failing_notification():
 
 def test_init_step_shows_the_forecaster_vs_solver_menu():
     import asyncio
+
     flow = _make_flow(options={})
     result = asyncio.run(flow.async_step_init(None))
     assert result["type"] == "menu"

@@ -23,12 +23,19 @@ together, not just "does it not crash":
   3. The fix changes total_cost only negligibly -- it must never be able
      to override a REAL price signal, only break a genuine tie.
 """
+
 import unittest
 from datetime import datetime
 
 import _solver_path  # noqa: F401
 import numpy as np
-from solver.elements import BatteryConfig, GridConfig, LoadConfig, PeriodGrid, SolarConfig
+from solver.elements import (
+    BatteryConfig,
+    GridConfig,
+    LoadConfig,
+    PeriodGrid,
+    SolarConfig,
+)
 from solver.network import build_plan
 
 
@@ -56,14 +63,25 @@ def _scenario():
     # export_price from a real sensor.nimbus_solver_battery_forecast
     # pull): ON window 0.410-0.090=0.320, OFF window 0.407-0.093=0.314.
     grid = GridConfig(
-        import_price=np.full(n, 0.15), export_price=np.full(n, 0.09),
-        import_limit_kw=20.0, export_limit_kw=20.0,
-        export_bonus_price=np.full(n, 0.320), export_bonus_volume_kwh=60.0,
+        import_price=np.full(n, 0.15),
+        export_price=np.full(n, 0.09),
+        import_limit_kw=20.0,
+        export_limit_kw=20.0,
+        export_bonus_price=np.full(n, 0.320),
+        export_bonus_volume_kwh=60.0,
     )
     battery = BatteryConfig(
-        capacity_kwh=200.0, initial_soc_kwh=200.0, min_soc_kwh=10.0, max_soc_kwh=200.0,
-        max_charge_kw=13.0, max_discharge_kw=13.0, charge_efficiency=0.95, discharge_efficiency=0.95,
-        charge_cost=0.01, discharge_cost=0.01, salvage_value=0.02,
+        capacity_kwh=200.0,
+        initial_soc_kwh=200.0,
+        min_soc_kwh=10.0,
+        max_soc_kwh=200.0,
+        max_charge_kw=13.0,
+        max_discharge_kw=13.0,
+        charge_efficiency=0.95,
+        discharge_efficiency=0.95,
+        charge_cost=0.01,
+        discharge_cost=0.01,
+        salvage_value=0.02,
     )
     solar = SolarConfig(forecast_kw=np.zeros(n))
     loads = [LoadConfig(name="house", forecast_kw=np.zeros(n))]
@@ -78,13 +96,16 @@ def _transitions(export_bonus_kw) -> int:
 class TestExportBonusTieBreak(unittest.TestCase):
     def test_flat_bonus_price_produces_a_clean_single_transition_not_a_flicker(self):
         periods, grid, battery, solar, loads = _scenario()
-        plan = build_plan(periods=periods, grid=grid, battery=battery, solar=solar, loads=loads)
+        plan = build_plan(
+            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+        )
         self.assertEqual(plan.status, "optimal")
 
         # The real, reported symptom must be gone: at most one OFF->ON
         # transition across the window, not scattered ON/OFF/ON/OFF.
         self.assertLessEqual(
-            _transitions(plan.export_bonus_kw), 1,
+            _transitions(plan.export_bonus_kw),
+            1,
             "export_bonus_kw must form a single clean block, not flicker",
         )
         # Direction: LATEST-preferred, not earliest (2026-08-20, same day,
@@ -93,8 +114,17 @@ class TestExportBonusTieBreak(unittest.TestCase):
         # "earliest-claiming stops selling before the real window close on
         # a night the cap genuinely binds" finding this reversed). The
         # final period must claim the bonus; the first must not.
-        self.assertGreater(float(plan.export_bonus_kw[-1]), 0.01, "the LAST period should claim the bonus")
-        self.assertAlmostEqual(float(plan.export_bonus_kw[0]), 0.0, places=2, msg="the FIRST period should not")
+        self.assertGreater(
+            float(plan.export_bonus_kw[-1]),
+            0.01,
+            "the LAST period should claim the bonus",
+        )
+        self.assertAlmostEqual(
+            float(plan.export_bonus_kw[0]),
+            0.0,
+            places=2,
+            msg="the FIRST period should not",
+        )
         # Real dispatch itself is untouched by this fix -- grid_export_kw
         # stays flat regardless of which periods claim the bonus label.
         for ge in plan.grid_export_kw:
@@ -112,7 +142,9 @@ class TestExportBonusTieBreak(unittest.TestCase):
         moving by something non-negligible.
         """
         periods, grid, battery, solar, loads = _scenario()
-        plan = build_plan(periods=periods, grid=grid, battery=battery, solar=solar, loads=loads)
+        plan = build_plan(
+            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+        )
         self.assertEqual(plan.status, "optimal")
         # The real, expected optimum for this exact scenario (base
         # revenue from 7h of 13kW export at spot, plus the bonus premium
@@ -120,7 +152,9 @@ class TestExportBonusTieBreak(unittest.TestCase):
         # -- computed independently of the tie-breaker's own tiny nudge,
         # confirming it doesn't materially move the answer.
         expected_cost_without_tiebreaker = -28.564211
-        self.assertAlmostEqual(plan.total_cost, expected_cost_without_tiebreaker, places=2)
+        self.assertAlmostEqual(
+            plan.total_cost, expected_cost_without_tiebreaker, places=2
+        )
 
 
 if __name__ == "__main__":

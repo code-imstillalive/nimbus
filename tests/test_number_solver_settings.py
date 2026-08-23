@@ -12,6 +12,7 @@ reasoning this test locks in), and every field's default value staying
 within its own min/max bounds (a config typo here would silently misbehave
 in real HA, not raise anything obvious).
 """
+
 from __future__ import annotations
 
 import sys
@@ -36,7 +37,9 @@ _NO_DEVICE_CLASS_UNITS = {"$/kWh", "%", "hour", None}
 
 def test_no_duplicate_keys():
     keys = [d.key for d in _DESCRIPTIONS]
-    assert len(keys) == len(set(keys)), f"duplicate _SolverNumberDescription.key found: {keys}"
+    assert len(keys) == len(set(keys)), (
+        f"duplicate _SolverNumberDescription.key found: {keys}"
+    )
 
 
 def test_every_default_is_within_its_own_bounds():
@@ -50,22 +53,35 @@ def test_kw_fields_are_device_class_power():
     kw_fields = [d for d in _DESCRIPTIONS if d.unit == "kW"]
     assert kw_fields, "expected at least one kW field to exist"
     for d in kw_fields:
-        assert d.device_class == NumberDeviceClass.POWER, f"{d.key}: expected POWER, got {d.device_class}"
+        assert d.device_class == NumberDeviceClass.POWER, (
+            f"{d.key}: expected POWER, got {d.device_class}"
+        )
 
 
 def test_battery_capacity_is_energy_storage():
-    (d,) = [d for d in _DESCRIPTIONS if d.key == "battery_capacity_kwh" or "capacity" in d.key]
+    (d,) = [
+        d
+        for d in _DESCRIPTIONS
+        if d.key == "battery_capacity_kwh" or "capacity" in d.key
+    ]
     assert d.device_class == NumberDeviceClass.ENERGY_STORAGE
 
 
 def test_p2p_bonus_volume_is_energy_not_energy_storage():
-    (d,) = [d for d in _DESCRIPTIONS if d.unit == "kWh" and d.key != "battery_capacity_kwh" and "capacity" not in d.key]
+    (d,) = [
+        d
+        for d in _DESCRIPTIONS
+        if d.unit == "kWh"
+        and d.key != "battery_capacity_kwh"
+        and "capacity" not in d.key
+    ]
     assert d.device_class == NumberDeviceClass.ENERGY
 
 
 def test_no_device_class_units_have_no_device_class():
     offenders = [
-        d.key for d in _DESCRIPTIONS
+        d.key
+        for d in _DESCRIPTIONS
         if d.unit in _NO_DEVICE_CLASS_UNITS and d.device_class is not None
     ]
     assert not offenders, (
@@ -78,7 +94,8 @@ def test_every_kwh_or_kw_field_has_a_device_class():
     # The inverse check -- every field that DOES have a valid unit should
     # actually be using it, not left None by oversight.
     offenders = [
-        d.key for d in _DESCRIPTIONS
+        d.key
+        for d in _DESCRIPTIONS
         if d.unit in ("kW", "kWh") and d.device_class is None
     ]
     assert not offenders, f"kW/kWh field(s) missing a device_class: {offenders}"

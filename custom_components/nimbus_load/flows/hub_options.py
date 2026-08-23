@@ -84,11 +84,14 @@ def _forecaster_schema(defaults: dict[str, Any]) -> vol.Schema:
     return vol.Schema(
         {
             vol.Optional(
-                CONF_TEMPERATURE_SENSOR, description={"suggested_value": defaults.get(CONF_TEMPERATURE_SENSOR)}
+                CONF_TEMPERATURE_SENSOR,
+                description={"suggested_value": defaults.get(CONF_TEMPERATURE_SENSOR)},
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
             vol.Optional(
                 CONF_TEMPERATURE_FORECAST_SENSOR,
-                description={"suggested_value": defaults.get(CONF_TEMPERATURE_FORECAST_SENSOR)},
+                description={
+                    "suggested_value": defaults.get(CONF_TEMPERATURE_FORECAST_SENSOR)
+                },
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
             # Optional -- humidity is a real, validated contributor to
             # forecast accuracy (2026-08-14 backtest), but not every
@@ -96,7 +99,8 @@ def _forecaster_schema(defaults: dict[str, Any]) -> vol.Schema:
             # defaults to a neutral 50% when this isn't configured, so
             # leaving it unset degrades gracefully rather than breaking.
             vol.Optional(
-                CONF_HUMIDITY_SENSOR, description={"suggested_value": defaults.get(CONF_HUMIDITY_SENSOR)}
+                CONF_HUMIDITY_SENSOR,
+                description={"suggested_value": defaults.get(CONF_HUMIDITY_SENSOR)},
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
             # Optional -- HAEO's own solar-curtailment status entity
             # (switch.solar_curtailment on the real system this was built
@@ -104,7 +108,8 @@ def _forecaster_schema(defaults: dict[str, Any]) -> vol.Schema:
             # this is a genuinely different entity type than every other
             # field on this form.
             vol.Optional(
-                CONF_CURTAILMENT_SENSOR, description={"suggested_value": defaults.get(CONF_CURTAILMENT_SENSOR)}
+                CONF_CURTAILMENT_SENSOR,
+                description={"suggested_value": defaults.get(CONF_CURTAILMENT_SENSOR)},
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="switch")),
             # Optional -- REAL MEASURED power sensors only (this
             # household's own Modbus/inverter readings), never an
@@ -113,29 +118,42 @@ def _forecaster_schema(defaults: dict[str, Any]) -> vol.Schema:
             # power sensors -- there's no assumed naming here, unlike
             # the entities this was originally (wrongly) built against.
             vol.Optional(
-                CONF_BATTERY_SENSOR, description={"suggested_value": defaults.get(CONF_BATTERY_SENSOR)}
+                CONF_BATTERY_SENSOR,
+                description={"suggested_value": defaults.get(CONF_BATTERY_SENSOR)},
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
             vol.Optional(
-                CONF_GRID_SENSOR, description={"suggested_value": defaults.get(CONF_GRID_SENSOR)}
+                CONF_GRID_SENSOR,
+                description={"suggested_value": defaults.get(CONF_GRID_SENSOR)},
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
             vol.Optional(
-                CONF_SOLAR_SENSOR, description={"suggested_value": defaults.get(CONF_SOLAR_SENSOR)}
+                CONF_SOLAR_SENSOR,
+                description={"suggested_value": defaults.get(CONF_SOLAR_SENSOR)},
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
             vol.Optional(
                 CONF_FORECAST_HORIZON_HOURS,
-                default=defaults.get(CONF_FORECAST_HORIZON_HOURS, DEFAULT_FORECAST_HORIZON_HOURS),
+                default=defaults.get(
+                    CONF_FORECAST_HORIZON_HOURS, DEFAULT_FORECAST_HORIZON_HOURS
+                ),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
-                    min=1, max=168, step=1, mode=selector.NumberSelectorMode.BOX,
+                    min=1,
+                    max=168,
+                    step=1,
+                    mode=selector.NumberSelectorMode.BOX,
                     unit_of_measurement="hours",
                 )
             ),
             vol.Optional(
                 CONF_RETRAIN_HOUR_LOCAL,
-                default=defaults.get(CONF_RETRAIN_HOUR_LOCAL, DEFAULT_RETRAIN_HOUR_LOCAL),
+                default=defaults.get(
+                    CONF_RETRAIN_HOUR_LOCAL, DEFAULT_RETRAIN_HOUR_LOCAL
+                ),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
-                    min=0, max=23, step=1, mode=selector.NumberSelectorMode.BOX,
+                    min=0,
+                    max=23,
+                    step=1,
+                    mode=selector.NumberSelectorMode.BOX,
                     unit_of_measurement="hour of day (0-23)",
                 )
             ),
@@ -144,7 +162,10 @@ def _forecaster_schema(defaults: dict[str, Any]) -> vol.Schema:
                 default=defaults.get(CONF_TRAIN_DAYS, DEFAULT_TRAIN_DAYS),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
-                    min=7, max=180, step=1, mode=selector.NumberSelectorMode.BOX,
+                    min=7,
+                    max=180,
+                    step=1,
+                    mode=selector.NumberSelectorMode.BOX,
                     unit_of_measurement="days",
                 )
             ),
@@ -162,14 +183,17 @@ def _entity_multi(domain: str = "sensor") -> selector.EntitySelector:
     Genuinely empty by default; picking zero entities is a complete no-op,
     not a degraded mode -- see CONF_SOLVER_LOAD_FORECAST_ENTITIES's own
     comment in const.py."""
-    return selector.EntitySelector(selector.EntitySelectorConfig(domain=domain, multiple=True))
+    return selector.EntitySelector(
+        selector.EntitySelectorConfig(domain=domain, multiple=True)
+    )
 
 
 def _solver_battery_schema(defaults: dict[str, Any]) -> vol.Schema:
     return vol.Schema(
         {
             vol.Required(
-                CONF_SOLVER_BATTERY_SOC_SENSOR, default=defaults.get(CONF_SOLVER_BATTERY_SOC_SENSOR),
+                CONF_SOLVER_BATTERY_SOC_SENSOR,
+                default=defaults.get(CONF_SOLVER_BATTERY_SOC_SENSOR),
             ): _entity(),
         }
     )
@@ -179,10 +203,12 @@ def _solver_grid_schema(defaults: dict[str, Any]) -> vol.Schema:
     return vol.Schema(
         {
             vol.Required(
-                CONF_SOLVER_IMPORT_PRICE_SENSOR, default=defaults.get(CONF_SOLVER_IMPORT_PRICE_SENSOR),
+                CONF_SOLVER_IMPORT_PRICE_SENSOR,
+                default=defaults.get(CONF_SOLVER_IMPORT_PRICE_SENSOR),
             ): _entity(),
             vol.Required(
-                CONF_SOLVER_EXPORT_PRICE_SENSOR, default=defaults.get(CONF_SOLVER_EXPORT_PRICE_SENSOR),
+                CONF_SOLVER_EXPORT_PRICE_SENSOR,
+                default=defaults.get(CONF_SOLVER_EXPORT_PRICE_SENSOR),
             ): _entity(),
         }
     )
@@ -192,7 +218,8 @@ def _solver_sources_schema(defaults: dict[str, Any]) -> vol.Schema:
     return vol.Schema(
         {
             vol.Required(
-                CONF_SOLVER_SOLAR_FORECAST_SENSOR, default=defaults.get(CONF_SOLVER_SOLAR_FORECAST_SENSOR),
+                CONF_SOLVER_SOLAR_FORECAST_SENSOR,
+                default=defaults.get(CONF_SOLVER_SOLAR_FORECAST_SENSOR),
             ): _entity(),
             # Optional second solar source (2026-08-22) -- see
             # CONF_SOLVER_SOLAR_FORECAST_SENSOR_2's own comment in
@@ -204,17 +231,22 @@ def _solver_sources_schema(defaults: dict[str, Any]) -> vol.Schema:
             # comment for the full "why default= traps a field" story).
             vol.Optional(
                 CONF_SOLVER_SOLAR_FORECAST_SENSOR_2,
-                description={"suggested_value": defaults.get(CONF_SOLVER_SOLAR_FORECAST_SENSOR_2)},
+                description={
+                    "suggested_value": defaults.get(CONF_SOLVER_SOLAR_FORECAST_SENSOR_2)
+                },
             ): _entity(),
             # Optional THIRD solar source (2026-08-22) -- see CONF_SOLVER_
             # SOLAR_FORECAST_SENSOR_3's own comment in const.py for why.
             # Same complete-no-op-when-blank guarantee.
             vol.Optional(
                 CONF_SOLVER_SOLAR_FORECAST_SENSOR_3,
-                description={"suggested_value": defaults.get(CONF_SOLVER_SOLAR_FORECAST_SENSOR_3)},
+                description={
+                    "suggested_value": defaults.get(CONF_SOLVER_SOLAR_FORECAST_SENSOR_3)
+                },
             ): _entity(),
             vol.Required(
-                CONF_SOLVER_LOAD_FORECAST_SENSOR, default=defaults.get(CONF_SOLVER_LOAD_FORECAST_SENSOR),
+                CONF_SOLVER_LOAD_FORECAST_SENSOR,
+                default=defaults.get(CONF_SOLVER_LOAD_FORECAST_SENSOR),
             ): _entity(),
             # Both new, optional, real-bug-fix fields (2026-08-23, issue
             # #56) -- blank/empty is a complete no-op on every install
@@ -223,11 +255,17 @@ def _solver_sources_schema(defaults: dict[str, Any]) -> vol.Schema:
             # genuinely be cleared once set.
             vol.Optional(
                 CONF_SOLVER_LOAD_FORECAST_ENTITIES,
-                description={"suggested_value": defaults.get(CONF_SOLVER_LOAD_FORECAST_ENTITIES)},
+                description={
+                    "suggested_value": defaults.get(CONF_SOLVER_LOAD_FORECAST_ENTITIES)
+                },
             ): _entity_multi(),
             vol.Optional(
                 CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR,
-                description={"suggested_value": defaults.get(CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR)},
+                description={
+                    "suggested_value": defaults.get(
+                        CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR
+                    )
+                },
             ): _entity(),
         }
     )
@@ -291,7 +329,9 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
             menu_options=["forecaster", "solver_battery"],
         )
 
-    async def async_step_forecaster(self, user_input: dict[str, Any] | None = None) -> Any:
+    async def async_step_forecaster(
+        self, user_input: dict[str, Any] | None = None
+    ) -> Any:
         if user_input is not None:
             # MERGE onto the existing options (2026-08-17, real, flagged
             # risk: "the Nimbus hub's shared Battery/Solar/Grid sensor
@@ -324,26 +364,35 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
             return self.async_create_entry(title="", data=merged)
 
         return self.async_show_form(
-            step_id="forecaster", data_schema=_forecaster_schema(dict(self.config_entry.options))
+            step_id="forecaster",
+            data_schema=_forecaster_schema(dict(self.config_entry.options)),
         )
 
-    async def async_step_solver_battery(self, user_input: dict[str, Any] | None = None) -> Any:
+    async def async_step_solver_battery(
+        self, user_input: dict[str, Any] | None = None
+    ) -> Any:
         if user_input is not None:
             self._solver_data.update(user_input)
             return await self.async_step_solver_grid()
         return self.async_show_form(
-            step_id="solver_battery", data_schema=_solver_battery_schema(dict(self.config_entry.options))
+            step_id="solver_battery",
+            data_schema=_solver_battery_schema(dict(self.config_entry.options)),
         )
 
-    async def async_step_solver_grid(self, user_input: dict[str, Any] | None = None) -> Any:
+    async def async_step_solver_grid(
+        self, user_input: dict[str, Any] | None = None
+    ) -> Any:
         if user_input is not None:
             self._solver_data.update(user_input)
             return await self.async_step_solver_sources()
         return self.async_show_form(
-            step_id="solver_grid", data_schema=_solver_grid_schema(dict(self.config_entry.options))
+            step_id="solver_grid",
+            data_schema=_solver_grid_schema(dict(self.config_entry.options)),
         )
 
-    async def async_step_solver_sources(self, user_input: dict[str, Any] | None = None) -> Any:
+    async def async_step_solver_sources(
+        self, user_input: dict[str, Any] | None = None
+    ) -> Any:
         if user_input is not None:
             self._solver_data.update(user_input)
             # Same explicit-key-list fix as async_step_forecaster (see its
@@ -367,11 +416,14 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
             # its creation -- never let this block a real save.
             try:
                 await self.hass.services.async_call(
-                    "persistent_notification", "dismiss", {"notification_id": "nimbus_setup_incomplete"},
+                    "persistent_notification",
+                    "dismiss",
+                    {"notification_id": "nimbus_setup_incomplete"},
                 )
             except Exception:  # noqa: BLE001
                 pass
             return self.async_create_entry(title="", data=merged)
         return self.async_show_form(
-            step_id="solver_sources", data_schema=_solver_sources_schema(dict(self.config_entry.options))
+            step_id="solver_sources",
+            data_schema=_solver_sources_schema(dict(self.config_entry.options)),
         )

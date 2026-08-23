@@ -13,6 +13,7 @@ __init__ chain (which needs a real event loop/hass to run against) --
 only the specific attributes each method under test actually reads are
 set on it, nothing else.
 """
+
 from __future__ import annotations
 
 import sys
@@ -116,7 +117,11 @@ def test_nearest_temp_interpolates_at_a_quarter_point():
 
 
 def test_nearest_temp_exact_match_on_a_point_returns_that_point():
-    forecast = [(_T0, 20.0), (_T0 + timedelta(hours=1), 22.0), (_T0 + timedelta(hours=2), 24.0)]
+    forecast = [
+        (_T0, 20.0),
+        (_T0 + timedelta(hours=1), 22.0),
+        (_T0 + timedelta(hours=2), 24.0),
+    ]
     assert _nearest_temp(forecast, _T0 + timedelta(hours=1), fallback=0.0) == 22.0
 
 

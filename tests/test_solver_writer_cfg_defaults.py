@@ -25,6 +25,7 @@ low side; (4) the clamped initial (equal to min or max) constructs a
 valid BatteryConfig -- the code path the writer now takes for a
 below-floor live reading.
 """
+
 import unittest
 
 import _solver_path  # noqa: F401
@@ -80,7 +81,7 @@ class TestBatteryConfigSoCClamp(unittest.TestCase):
     def _base_kwargs(self):
         return dict(
             capacity_kwh=40.0,
-            min_soc_kwh=2.0,   # 5% of 40
+            min_soc_kwh=2.0,  # 5% of 40
             max_soc_kwh=40.0,  # 100% of 40
             max_charge_kw=21.0,
             max_discharge_kw=24.0,

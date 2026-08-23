@@ -22,6 +22,7 @@ of silently reproducing this exact multi-hour live debugging session.
 Imports and exercises the REAL constants (not a reimplementation)
 against tests/_ha_stubs.py's stand-in homeassistant.* modules.
 """
+
 from __future__ import annotations
 
 import sys
@@ -42,7 +43,9 @@ from custom_components.nimbus_load.flows.hub_options import _SOLVER_WIZARD_SCHEM
 
 
 def test_every_wizard_saveable_key_is_exposed_by_the_bridge_sensor():
-    missing = [key for key in _SOLVER_WIZARD_SCHEMA_KEYS if key not in sensor._SOLVER_ALL_KEYS]
+    missing = [
+        key for key in _SOLVER_WIZARD_SCHEMA_KEYS if key not in sensor._SOLVER_ALL_KEYS
+    ]
     assert missing == [], (
         f"{missing} can be saved by the Solver wizard but are never exposed by "
         "NimbusSolverConfigSensor -- fetch_solver_config() (the writer script's "

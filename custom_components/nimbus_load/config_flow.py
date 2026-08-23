@@ -76,7 +76,7 @@ class NimbusConfigFlow(ConfigFlow, domain=DOMAIN):
                         "sitting at a placeholder minimum, not your real "
                         "battery/grid values).\n\n"
                         "If you restart Home Assistant before doing this, the "
-                        "placeholder values become \"sticky\" and won't "
+                        'placeholder values become "sticky" and won\'t '
                         "auto-update from the wizard afterward -- in that case, "
                         "edit the `number.nimbus_solver_*` entities directly "
                         "instead (Settings > Devices & services > Nimbus > "
