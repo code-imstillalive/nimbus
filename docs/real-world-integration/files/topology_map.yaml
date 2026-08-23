@@ -21,6 +21,26 @@
 # comes from whatever config reaches it (live wizard data, or a static
 # file like this).
 #
+# 2026-08-23 update: grid_meter, battery_power, import_price, and
+# export_price below are now ALSO auto-detected live, through two
+# separate, independent mechanisms -- neither needs this file OR the
+# wizard's Switchboard step once configured:
+#   - grid_meter/battery_power: from whichever Nimbus Power Signal
+#     subentry has an explicit signal_role of "grid"/"battery" (Nimbus
+#     hub -> the signal -> Reconfigure -> role dropdown).
+#   - import_price/export_price: from Nimbus's own Solver config
+#     (solver_import_price_sensor/solver_export_price_sensor, set once
+#     in the Solver wizard's Grid step) -- see
+#     _discoverPriceFromSolverConfig()'s own header comment in
+#     topology-card-v4.js for why (a household correction after
+#     entering the same price sensor twice, once per wizard, let the two
+#     drift out of sync with each other).
+# The remaining daily-kWh fields (house_load_energy_daily,
+# solar_energy_daily, battery_charge_daily, battery_discharge_daily,
+# import_energy_daily, export_energy_daily) have no Nimbus equivalent at
+# all -- Nimbus is a forecaster, not an energy-accounting layer -- so
+# they stay wizard/file-configured only.
+#
 # What this file IS actually useful for: a real, worked, end-to-end
 # example of the shape the wizard produces -- read it to understand the
 # fields, not to fill in your own entity IDs by hand. If you never run
@@ -51,56 +71,43 @@
 # appears on the topology card immediately — no editing this file, no
 # re-running the generator script, no restart.
 #
-# Real, confirmed data (not guessed) as of 2026-08-14:
+# Real, confirmed data (not guessed) as of 2026-08-14, on 116KAT's own
+# real hardware:
 #   - 2 inverters: inv1 (SH25T) has 5 string inputs but only String 3 (->MPPT2)
 #     and String 5 (->MPPT3) are physically active (Strings 1/2/4 read 0W);
 #     inv2 (SH15T) has 2 string inputs, only String 1 (->MPPT1) is active.
 #     Confirmed by matching each active string's live power reading against
 #     its corresponding MPPT's own power reading -- they match exactly.
 #   - 4 real, distinct battery towers, mapped to inverters as confirmed
-#     directly by the user (interleaved, not paired by adjacent number):
+#     directly by the household (interleaved, not paired by adjacent number):
 #     Tower 1 & 3 -> SH15T (inv2), Tower 2 & 4 -> SH25T (inv1).
 #   - Grid meter: sensor.logger_meter_total_active_power (the real, uncapped
-#     meter -- NOT sensor.grid_active_power, which is a HAEO plan/forecast
-#     sensor, not a measurement -- documented gotcha in this project).
-#   - Current buy/sell price and every daily kWh figure below: pulled
-#     directly from this system's own already-working sunsynk-power-flow-card
-#     and power-flow-card-plus YAML configs (supplied directly by the user,
-#     2026-08-14) -- these are real, live, currently-rendering entities on
-#     this exact system, not guessed. sensor.costsflexup/earningsflexup
-#     (LocalVolts real-time billing prices) were tried first and never
-#     confirmed to render; sensor.116kathouse_general_price/feed_in_price
-#     are the Amber price sensors HAEO itself still uses as its LP price
-#     source post-LV-cutover (Amber deliberately kept enabled for this,
-#     per CLAUDE.md) and are what the working sunsynk card actually uses.
+#     meter -- distinct from any HAEO plan/forecast sensor, which is not a
+#     measurement -- a real gotcha on Sungrow-based installs in general).
 #   - Battery power: sensor.logger_battery_power -- the real Modbus-measured
 #     value (positive = discharging into the house, negative = charging),
 #     used to compute the switchboard's live source-mix coloring.
-#   - 18 loads, each already forecast by Nimbus (separate project/repo,
-#     see docs/localvolts-p2p-integration or CLAUDE.md for context) --
-#     entity names below confirmed live against the real Nimbus load list.
+#   - 18 loads, each already forecast by Nimbus -- entity names below
+#     confirmed live against this household's own real Nimbus load list.
 
-# Weather entity: weather.pirateweather -- already this project's own
-# established live weather source (used for the temp-forecast series on
-# the LV-GRAPH chart, per CLAUDE.md). Real, confirmed live 2026-08-14:
-# state is a standard HA weather condition string (e.g. "clear-night"),
-# attributes.temperature is real. nimbus_version below is now only a
-# FALLBACK (2026-08-20, Nimbus v0.30.0+): topology-card-v4.js reads the
-# real, live version directly off any Nimbus device's own sw_version
-# (Nimbus's own sensor.py sets this from its manifest.json at startup,
-# single source of truth) and only falls back to this static string if
-# that live lookup can't find anything -- so this value going stale again
-# is no longer a real display bug, just an inert fallback that's never
-# actually shown once Nimbus itself is running v0.30.0+. Still kept
-# roughly current for the fallback path (older HA frontends, or before
-# Nimbus's own next restart picks up sw_version for the first time).
+# Weather entity: any real HA weather integration works -- 116KAT uses
+# weather.pirateweather. nimbus_version below is only a FALLBACK
+# (2026-08-20, Nimbus v0.30.0+): topology-card-v4.js reads the real, live
+# version directly off any Nimbus device's own sw_version (Nimbus's own
+# sensor.py sets this from its manifest.json at startup, single source
+# of truth) and only falls back to this static string if that live
+# lookup can't find anything.
 weather: weather.pirateweather
-nimbus_version: "0.30.0"
+nimbus_version: "0.73.0"
 
 switchboard:
+  # grid_meter/battery_power/import_price/export_price: fallback-only as
+  # of 2026-08-23 -- see the header comment above. Kept here so a fresh
+  # install (wizard/role/Solver-config not yet run) still shows
+  # something sane rather than blank.
   grid_meter: sensor.logger_meter_total_active_power
-  import_price: sensor.116kathouse_general_price
-  export_price: sensor.116kathouse_feed_in_price
+  import_price: sensor.localvolts_costs_flex_up
+  export_price: sensor.localvolts_earnings_flex_up
   battery_power: sensor.logger_battery_power
   import_energy_daily: sensor.inverter_import_energy_daily
   export_energy_daily: sensor.inverter_export_energy_daily

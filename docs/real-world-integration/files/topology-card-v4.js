@@ -3,6 +3,37 @@
  * (each with PV strings + battery towers), auto-discovered Loads, whole-
  * house readout.
  *
+ * v9, 2026-08-23 -- Import/export price now also auto-detected, from
+ * Nimbus's own Solver config (see _discoverPriceFromSolverConfig()'s
+ * own header comment) rather than the Switchboard wizard's separate
+ * price fields. Direct household correction after the Switchboard
+ * wizard's saved price fields were found pointing at stale, no-longer-
+ * used Amber sensors: "ur job was ot use what was input into nimbus" --
+ * the Solver's own Grid step already asks for and stores the correct
+ * price sensors (LocalVolts, not Amber, on this household's real
+ * system) for its own LP dispatch decisions; duplicating that entry in
+ * a second wizard was exactly what let the two drift out of sync. The
+ * Switchboard wizard's switchboard_import_price_sensor/
+ * switchboard_export_price_sensor fields stay as fallback-only, same
+ * treatment v8 already gave grid_meter/battery_power.
+ *
+ * v8, 2026-08-23 -- Grid and Battery switchboard power are now also
+ * auto-discovered, same zero-config-file mechanism as Loads (see
+ * _discoverPowerSignalsByRole()'s own header comment): any Nimbus Power
+ * Signal subentry with an explicit signal_role of "grid" or "battery"
+ * wins over both the Switchboard wizard's own saved fields and the
+ * static topology_map.yaml fallback. Direct Mark Purcell critique of
+ * the original wizard-only design ("topology card and forecast cards
+ * should only rely on nimbus sensors, not other entities from actual
+ * devices... you have hard coded all your cb sensors into the cards"),
+ * sharpened by the household into the concrete rule this now
+ * implements: "nimbus entities should be auto detected by topo card
+ * and only the daily summaries should be a part of a wizard." The
+ * Switchboard wizard's own switchboard_grid_meter_sensor/
+ * switchboard_battery_power_sensor fields are gone as of nimbus
+ * v0.72.0 -- kept readable here purely for backward compatibility with
+ * an install that saved them before this change.
+ *
  * v7, 2026-08-20 -- Loads are no longer a hand-maintained list in
  * topology_map.yaml. Every Nimbus "load" subentry (HWS, pool, an
  * individual circuit breaker -- anything added via the Nimbus hub's own
@@ -275,6 +306,162 @@ class TopologyCard extends HTMLElement {
     return loads;
   }
 
+  // Auto-discovers the Grid and Battery Power Signal's real live sensor
+  // (2026-08-23, nimbus v0.72.0's explicit signal_role attribute -- see
+  // that project's own const.py comment on CONF_SIGNAL_ROLE for why
+  // this can't be inferred from naming: this exact household's own
+  // real signals are "Logger Battery power" [contains "battery",
+  // would've matched a naive guess], "Combined Total DC Power" [the
+  // real Solar signal, no "solar" anywhere], "Logger Meter total
+  // active power" [the real Grid signal, no "grid" anywhere] -- naming
+  // alone genuinely cannot tell these apart). A household picks the
+  // role once when creating the Power Signal in Nimbus; this replaces
+  // the old switchboard_grid_meter_sensor/switchboard_battery_power_
+  // sensor wizard fields entirely -- same zero-config-file mechanism
+  // _discoverLoads() already uses. Returns {battery, grid}, either
+  // null if that role hasn't been assigned to any Power Signal yet
+  // (falls back to the static/wizard-saved value in _render()).
+  _discoverPowerSignalsByRole() {
+    const states = this._hass.states;
+    const result = { battery: null, grid: null };
+    for (const entityId in states) {
+      if (!entityId.startsWith("sensor.nimbus_") || !entityId.endsWith("_forecast")) continue;
+      const attrs = states[entityId].attributes || {};
+      if (attrs.subentry_type !== "power_signal") continue;
+      const role = attrs.signal_role;
+      if (role !== "battery" && role !== "grid") continue;
+      const live = liveEntityFromForecast(entityId);
+      if (live) result[role] = live;
+    }
+    return result;
+  }
+
+  // Auto-discovers import/export price from Nimbus's own Solver config
+  // (2026-08-23) -- Nimbus's Solver Grid step already collects exactly
+  // these two entity IDs (solver_import_price_sensor/
+  // solver_export_price_sensor, exposed via sensor.nimbus_solver_config,
+  // the same bridge-sensor pattern as sensor.nimbus_topology_config).
+  // Real, direct household correction: "ur job was ot use what was
+  // input into nimbus" -- entering the same price sensor twice, once in
+  // the Solver wizard and again in the Switchboard wizard, is exactly
+  // the kind of duplicated-entry drift that put stale Amber sensors on
+  // this card after LocalVolts had long since replaced them (see the
+  // Switchboard wizard's own switchboard_import_price_sensor/
+  // switchboard_export_price_sensor fields, kept as fallback-only, same
+  // treatment as _discoverPowerSignalsByRole() above). Returns
+  // {import, export}, either null if the Solver wizard's Grid step
+  // hasn't been filled in yet (falls back to the static/wizard-saved
+  // switchboard value in _render()).
+  _discoverPriceFromSolverConfig() {
+    const state = this._hass.states["sensor.nimbus_solver_config"];
+    const attrs = (state && state.attributes) || {};
+    return {
+      import: attrs.solver_import_price_sensor || null,
+      export: attrs.solver_export_price_sensor || null,
+    };
+  }
+
+  // Auto-discovers Power Source (inverter) / PV String / Battery Tower
+  // subentries + the switchboard's own hub-level fields from sensor.
+  // nimbus_topology_config (nimbus v0.68.0's NimbusTopologyConfigSensor
+  // bridge -- config_entries.subentries/.options aren't exposed via
+  // HA's plain REST API, same root reason _discoverLoads() has to read
+  // hass.states rather than config directly). Returns null when the
+  // sensor doesn't exist yet OR exists with zero configured Power
+  // Sources (today's real state for this household, and every fresh
+  // install, until the Solver settings wizard's own subentries are
+  // actually filled in -- task #171) -- the caller (_render()) treats
+  // null as "use the static topology_map.yaml config exactly as
+  // before this feature existed," so this is fully additive, zero
+  // behavior change until a household actually configures the wizard.
+  //
+  // Deliberately reshapes the live subentry data into EXACTLY the
+  // shape _render()/_batteryBox() already consume for the static
+  // config, rather than changing any render-side logic -- inverters
+  // swap wholesale (the moment any Power Source subentry exists, the
+  // static list is stale by definition, since a household wouldn't
+  // configure a new one), the PV string label uses the subentry's own
+  // free-text label (no MPPT-number assumption -- most installs won't
+  // know or want to expose their own MPPT wiring), battery towers get
+  // a synthetic "Tower N" position label (subentries have no natural
+  // name the way the old "battery_tower_2" prefix convention did) and
+  // carry their own DIRECT entity refs rather than a naming-convention
+  // prefix (see _batteryBox()'s own dual-shape handling below).
+  _discoverTopologyConfig() {
+    const state = this._hass.states["sensor.nimbus_topology_config"];
+    if (!state) return null;
+    const attrs = state.attributes || {};
+    const powerSources = attrs.power_sources || [];
+    if (!powerSources.length) return null;
+
+    const pvBySource = {};
+    (attrs.pv_strings || []).forEach((pv) => {
+      const key = pv.pv_string_power_source || "__unassigned__";
+      (pvBySource[key] = pvBySource[key] || []).push(pv);
+    });
+    const towersBySource = {};
+    (attrs.battery_towers || []).forEach((bt) => {
+      const key = bt.battery_tower_power_source || "__unassigned__";
+      (towersBySource[key] = towersBySource[key] || []).push(bt);
+    });
+
+    const inverters = powerSources.map((ps) => ({
+      id: ps.subentry_id,
+      name: ps.power_source_name || ps.subentry_id,
+      battery_power: ps.power_source_battery_sensor || null,
+      dc_power: ps.power_source_dc_sensor || null,
+      pv_strings: (pvBySource[ps.subentry_id] || []).map((pv) => ({
+        entity: pv.pv_string_entity,
+        label: pv.pv_string_label || pv.pv_string_entity,
+      })),
+      battery_towers: (towersBySource[ps.subentry_id] || []).map((bt, i) => ({
+        soc: bt.battery_tower_soc_sensor,
+        soh: bt.battery_tower_soh_sensor,
+        voltage: bt.battery_tower_voltage_sensor,
+        temperature: bt.battery_tower_temperature_sensor,
+        // bt.title is the subentry's own real identity (nimbus's
+        // NimbusTopologyConfigSensor, fixed 2026-08-23 -- auto-derived
+        // from the SoC sensor's own friendly_name at creation time, e.g.
+        // "Battery Tower 2"), which is the REAL physical tower number,
+        // not just this tower's position within its own inverter's
+        // group. Found live migrating this household's own 4 real
+        // towers: 2 & 4 both live on inverter 1, so the old synthetic
+        // `Tower ${i+1}` fallback showed BOTH as "Tower 1"/"Tower 2",
+        // silently discarding which was actually which. Only falls back
+        // to the synthetic position label for a subentry created before
+        // this fix (title genuinely absent) or the rare case a title
+        // somehow never got set.
+        label: bt.title || `Tower ${i + 1}`,
+      })),
+    }));
+
+    // switchboard is hub-level (entry.options), not per-subentry -- a
+    // household can genuinely have SOME fields migrated and others
+    // still blank (mid-migration, or simply never filled a given
+    // field in). Mapped 1:1 to the SAME keys topology_map.yaml's own
+    // static switchboard: block already uses, so _render() never
+    // needs to know which source a value came from.
+    const SB_MAP = {
+      grid_meter: "switchboard_grid_meter_sensor",
+      import_price: "switchboard_import_price_sensor",
+      export_price: "switchboard_export_price_sensor",
+      battery_power: "switchboard_battery_power_sensor",
+      import_energy_daily: "switchboard_import_energy_daily_sensor",
+      export_energy_daily: "switchboard_export_energy_daily_sensor",
+      house_load_energy_daily: "switchboard_house_load_energy_daily_sensor",
+      solar_energy_daily: "switchboard_solar_energy_daily_sensor",
+      battery_charge_daily: "switchboard_battery_charge_daily_sensor",
+      battery_discharge_daily: "switchboard_battery_discharge_daily_sensor",
+    };
+    const rawSwitchboard = attrs.switchboard || {};
+    const switchboard = {};
+    for (const cardKey in SB_MAP) {
+      switchboard[cardKey] = rawSwitchboard[SB_MAP[cardKey]] || null;
+    }
+
+    return { inverters, switchboard };
+  }
+
   set hass(hass) {
     this._hass = hass;
     this._render();
@@ -379,10 +566,24 @@ class TopologyCard extends HTMLElement {
   }
 
   _batteryBox(x, y, w, h, tower, active) {
-    const socState = this._entityState(`sensor.${tower}_soc`);
-    const sohState = this._entityState(`sensor.${tower}_soh`);
-    const vState = this._entityState(`sensor.${tower}_voltage`);
-    const tState = this._entityState(`sensor.${tower}_temperature`);
+    // Dual shape (2026-08-23): `tower` is either a legacy naming-
+    // convention prefix string ("battery_tower_2", topology_map.yaml's
+    // static config -- entity IDs derived by convention) or a live-
+    // discovered object with direct entity refs + its own label (a
+    // Battery Tower subentry, no naming-convention assumption at all --
+    // see _discoverTopologyConfig()). Normalized once here so
+    // everything below is unchanged either way.
+    const isLegacy = typeof tower === "string";
+    const socEntity = isLegacy ? `sensor.${tower}_soc` : tower.soc;
+    const sohEntity = isLegacy ? `sensor.${tower}_soh` : tower.soh;
+    const vEntity = isLegacy ? `sensor.${tower}_voltage` : tower.voltage;
+    const tEntity = isLegacy ? `sensor.${tower}_temperature` : tower.temperature;
+    const label = isLegacy ? tower.replace("battery_tower_", "Tower ") : tower.label;
+
+    const socState = this._entityState(socEntity);
+    const sohState = this._entityState(sohEntity);
+    const vState = this._entityState(vEntity);
+    const tState = this._entityState(tEntity);
     const soc = numOf(socState);
     const healthy = !!(socState && socState.state !== "unavailable" && socState.state !== "unknown");
     // Same fix as loads/PV strings: a healthy-but-currently-idle tower (its
@@ -390,7 +591,6 @@ class TopologyCard extends HTMLElement {
     // rendering in full battery-blue, indistinguishable from one genuinely
     // flowing -- `active` is passed down from the per-inverter real signal.
     const color = !healthy ? COLORS.unavailable : active ? COLORS.battery : COLORS.textDim;
-    const label = tower.replace("battery_tower_", "Tower ");
 
     const group = svgEl("g", {});
     group.appendChild(svgEl("rect", {
@@ -539,7 +739,59 @@ class TopologyCard extends HTMLElement {
 
   _render() {
     if (!this._svg || !this._hass) return;
-    const cfg = this._config;
+    // Live-discovered Power Source/PV String/Battery Tower subentries
+    // (2026-08-23, see _discoverTopologyConfig()'s own header comment)
+    // win over the static topology_map.yaml config -- inverters swap
+    // wholesale, switchboard merges field-by-field so a partial
+    // migration doesn't blank out fields the household hasn't touched
+    // yet. null (the real, current state for this household and every
+    // fresh install -- task #171 hasn't migrated anyone's real data
+    // yet) makes this byte-identical to `const cfg = this._config`,
+    // exactly as it was before this feature existed.
+    const liveTopology = this._discoverTopologyConfig();
+    let cfg = liveTopology
+      ? {
+          ...this._config,
+          inverters: liveTopology.inverters,
+          switchboard: {
+            ...this._config.switchboard,
+            ...Object.fromEntries(Object.entries(liveTopology.switchboard).filter(([, v]) => v != null)),
+          },
+        }
+      : this._config;
+    // Power Signal role auto-detection (2026-08-23) -- a completely
+    // independent Nimbus mechanism from the topology wizard above, so
+    // applied as its own separate override layer regardless of whether
+    // liveTopology exists. Wins over BOTH the wizard-saved switchboard
+    // fields AND the static topology_map.yaml fallback -- see
+    // _discoverPowerSignalsByRole()'s own header comment for why.
+    const roleSignals = this._discoverPowerSignalsByRole();
+    if (roleSignals.battery || roleSignals.grid) {
+      cfg = {
+        ...cfg,
+        switchboard: {
+          ...cfg.switchboard,
+          ...(roleSignals.battery ? { battery_power: roleSignals.battery } : {}),
+          ...(roleSignals.grid ? { grid_meter: roleSignals.grid } : {}),
+        },
+      };
+    }
+    // Import/export price auto-detection from Nimbus's own Solver
+    // config (2026-08-23) -- see _discoverPriceFromSolverConfig()'s own
+    // header comment. Same override precedence as roleSignals above:
+    // wins over both the wizard-saved switchboard fields and the static
+    // topology_map.yaml fallback.
+    const solverPrices = this._discoverPriceFromSolverConfig();
+    if (solverPrices.import || solverPrices.export) {
+      cfg = {
+        ...cfg,
+        switchboard: {
+          ...cfg.switchboard,
+          ...(solverPrices.import ? { import_price: solverPrices.import } : {}),
+          ...(solverPrices.export ? { export_price: solverPrices.export } : {}),
+        },
+      };
+    }
     const lines = [];
     const nodes = [];
 
@@ -651,8 +903,12 @@ class TopologyCard extends HTMLElement {
         // Same fix already applied to loads: a healthy-but-idle string (the
         // entire card, every night) was rendering in full solar-orange
         // regardless of actually producing anything.
+        // str.label (2026-08-23, live-discovered PV String subentries --
+        // a free-text label, no MPPT-number assumption) wins when
+        // present; falls back to the legacy static config's own
+        // MPPT-number-derived label otherwise.
         const node = this._box(px, tapY, pvW, pvH, {
-          iconKind: "sun", label: `MPPT${str.mppt}`, valueText: val.text,
+          iconKind: "sun", label: str.label || `MPPT${str.mppt}`, valueText: val.text,
           color: isActive ? COLORS.solar : COLORS.textDim, healthy: val.healthy, active: isActive,
         });
         nodes.push(node.group);

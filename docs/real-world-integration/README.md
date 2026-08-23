@@ -139,6 +139,24 @@ battery flow appended only when actually nonzero. `dc_power:` is
 optional — omit it and the header falls back to battery-flow-only,
 same as before.
 
+**2026-08-23 update: two more fields auto-detect live, on top of the
+wizard above — worth knowing so you don't chase a stale value in
+`topology_map.yaml`'s switchboard fallback.** Grid meter and battery
+power now come from whichever Nimbus Power Signal subentry has an
+explicit `signal_role` of `"grid"`/`"battery"` (set once per signal:
+Nimbus hub → the signal → Reconfigure → role dropdown). Import/export
+price now come from Nimbus's own Solver config
+(`solver_import_price_sensor`/`solver_export_price_sensor`, set once in
+the Solver wizard's Grid step) rather than a second, separately-entered
+Switchboard field — the household this card was built for hit exactly
+the failure mode this closes: the same price sensor entered twice, once
+per wizard, silently drifted stale in one of the two places. Both
+mechanisms are pure additions on top of the Topology wizard/fallback-
+file config above, same override precedence, same "no file edit
+needed" story. See `_discoverPowerSignalsByRole()`/
+`_discoverPriceFromSolverConfig()`'s own header comments in
+`topology-card-v4.js` for the full reasoning.
+
 ## `files/lovelace_add_nimbus_solver_view.py` — the Solver dashboard scaffold
 
 Builds the actual "Solver" view (`type: sections`) that the forecast
