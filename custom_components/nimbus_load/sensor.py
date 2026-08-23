@@ -613,6 +613,16 @@ class NimbusSolverConfigSensor(SensorEntity):
 
     def __init__(self, entry: NimbusConfigEntry, sw_version: str | None) -> None:
         self._entry = entry
+        # Issue #85 instrumentation (Mark Purcell, 2026-08-23): track the
+        # LAST computed native_value so a real transition (configured ->
+        # unconfigured or back) can be logged at WARNING, and a no-op
+        # re-read stays silent. Without this, ANY startup race where a
+        # required number.nimbus_solver_* is briefly unknown during
+        # RestoreEntity is invisible in logs -- it only appears as a
+        # confusing "not configured yet" WARNING from solver_runtime.py,
+        # with no direct signal that this sensor was the one that
+        # temporarily said unconfigured. See #85 for the full trace.
+        self._last_computed_state: str | None = None
         self._attr_unique_id = f"{entry.entry_id}_solver_config"
         # Fixed entity_id (same technique/reasoning as NimbusForecastSensor's
         # own entity_id assignment above) -- there's only ever one of these
@@ -648,19 +658,78 @@ class NimbusSolverConfigSensor(SensorEntity):
             return state.state == "on"
         return self._entry.options.get(key)
 
+    def _unresolved_required_keys(self) -> list[str]:
+        """The REQUIRED keys whose _resolve() currently returns None/"" --
+        i.e. the specific fields that force native_value == "unconfigured"
+        right now. Broken out from native_value so log messages and the
+        extra_state_attributes `unresolved_required_keys` attribute both
+        see the same, live-computed list, no drift. Real diagnostic
+        value on issue #85: when this sensor flips to unconfigured
+        during a startup race, this list tells you exactly which of the
+        10 required fields lost -- almost always one of the
+        _SOLVER_NUMBER_ENTITY_KEYS still restoring via RestoreEntity,
+        never entry.options-backed (those are durable across restart).
+        """
+        return [k for k in _SOLVER_REQUIRED_KEYS if self._resolve(k) in (None, "")]
+
     @property
     def native_value(self) -> str:
         """ "configured" only once every REQUIRED Solver field has a real
         value -- lets an external caller check this ONE field before
         attempting to build a plan, instead of discovering a missing
-        field halfway through a solve with a confusing KeyError."""
-        if all(self._resolve(k) not in (None, "") for k in _SOLVER_REQUIRED_KEYS):
-            return "configured"
-        return "unconfigured"
+        field halfway through a solve with a confusing KeyError.
+
+        Issue #85 instrumentation (2026-08-23): every REAL transition
+        (configured <-> unconfigured) is logged at WARNING with the
+        list of unresolved required keys, so a startup race
+        (RestoreEntity still restoring number.nimbus_solver_* entities
+        while this sensor is polled) is directly observable in the log,
+        instead of only surfacing as a confusing "not configured yet"
+        WARNING from solver_runtime.py with no attribution back to
+        which sensor state actually triggered it. No behavioural
+        change -- same string returned, same required-keys check, same
+        cadence.
+        """
+        unresolved = self._unresolved_required_keys()
+        new_state = "configured" if not unresolved else "unconfigured"
+
+        # Log ONLY on a real transition, not every read -- native_value
+        # is polled on every state-machine read (potentially many per
+        # second under load), and a stable "configured" or a stable
+        # "unconfigured" doesn't need per-read logging.
+        if self._last_computed_state != new_state:
+            if new_state == "unconfigured":
+                _LOGGER.warning(
+                    "nimbus_solver_config transitioned to unconfigured -- "
+                    "unresolved required key(s): %s "
+                    "(if this happened on HA startup, see nimbus issue #85 -- "
+                    "these are almost always number.nimbus_solver_* entities "
+                    "still restoring via RestoreEntity, and the sensor will "
+                    "self-recover within a few seconds)",
+                    unresolved,
+                )
+            else:
+                _LOGGER.info(
+                    "nimbus_solver_config transitioned to configured "
+                    "(all %d required keys now resolved)",
+                    len(_SOLVER_REQUIRED_KEYS),
+                )
+            self._last_computed_state = new_state
+
+        return new_state
 
     @property
     def extra_state_attributes(self) -> dict:
-        return {key: self._resolve(key) for key in _SOLVER_ALL_KEYS}
+        attrs = {key: self._resolve(key) for key in _SOLVER_ALL_KEYS}
+        # Issue #85 diagnostic (2026-08-23): also expose which required
+        # keys are unresolved RIGHT NOW, so a caller reading this sensor
+        # over REST can see exactly why native_value is "unconfigured"
+        # without needing HA logs. On the happy path this is [], and on
+        # the startup-race path it lists the specific fields still
+        # settling -- see this class's own docstring for the full flap
+        # story.
+        attrs["unresolved_required_keys"] = self._unresolved_required_keys()
+        return attrs
 
 
 class NimbusTopologyConfigSensor(SensorEntity):
