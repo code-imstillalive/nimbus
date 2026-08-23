@@ -27,13 +27,20 @@ This test proves three things together, not just "does it not crash":
      for the whole window, exactly the "smarter about everything else"
      claim the fix is supposed to preserve.
 """
+
 import dataclasses
 import unittest
-from datetime import datetime, timedelta
+from datetime import datetime
 
 import _solver_path  # noqa: F401
 import numpy as np
-from solver.elements import BatteryConfig, GridConfig, LoadConfig, PeriodGrid, SolarConfig
+from solver.elements import (
+    BatteryConfig,
+    GridConfig,
+    LoadConfig,
+    PeriodGrid,
+    SolarConfig,
+)
 from solver.network import build_plan
 
 
@@ -73,16 +80,24 @@ def _scenario(fixed_kw: float | None):
         fixed_export_kw[10:17] = fixed_kw  # the 7 window periods, 0-indexed 10..16
 
     grid = GridConfig(
-        import_price=import_price, export_price=export_price,
-        import_limit_kw=44.0, export_limit_kw=44.0,
+        import_price=import_price,
+        export_price=export_price,
+        import_limit_kw=44.0,
+        export_limit_kw=44.0,
         fixed_export_kw=fixed_export_kw,
     )
     battery = BatteryConfig(
-        capacity_kwh=122.2, initial_soc_kwh=122.2 * 0.20,
-        min_soc_kwh=122.2 * 0.05, max_soc_kwh=122.2 * 1.0,
-        max_charge_kw=40.0, max_discharge_kw=40.0,
-        charge_efficiency=0.975, discharge_efficiency=0.975,
-        charge_cost=0.005, discharge_cost=0.01, salvage_value=0.15,
+        capacity_kwh=122.2,
+        initial_soc_kwh=122.2 * 0.20,
+        min_soc_kwh=122.2 * 0.05,
+        max_soc_kwh=122.2 * 1.0,
+        max_charge_kw=40.0,
+        max_discharge_kw=40.0,
+        charge_efficiency=0.975,
+        discharge_efficiency=0.975,
+        charge_cost=0.005,
+        discharge_cost=0.01,
+        salvage_value=0.15,
     )
     solar = SolarConfig(forecast_kw=np.zeros(n))
     loads = [LoadConfig(name="house", forecast_kw=np.full(n, 1.5))]
@@ -92,13 +107,16 @@ def _scenario(fixed_kw: float | None):
 class TestFixedExportKw(unittest.TestCase):
     def test_without_fix_variable_price_makes_export_swing(self):
         periods, grid, battery, solar, loads = _scenario(fixed_kw=None)
-        plan = build_plan(periods=periods, grid=grid, battery=battery, solar=solar, loads=loads)
+        plan = build_plan(
+            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+        )
         self.assertEqual(plan.status, "optimal")
         window_export = plan.grid_export_kw[10:17]
         # Real swing, not just "some noise" -- confirms this scenario
         # genuinely reproduces the bug before asserting the fix beats it.
         self.assertGreater(
-            window_export.max() - window_export.min(), 5.0,
+            window_export.max() - window_export.min(),
+            5.0,
             f"expected a real swing without the fix, got a range of only "
             f"{window_export.max() - window_export.min():.2f}kW: {window_export}",
         )
@@ -106,19 +124,25 @@ class TestFixedExportKw(unittest.TestCase):
     def test_with_fix_export_is_exactly_constant_through_the_window(self):
         target_kw = 11.5
         periods, grid, battery, solar, loads = _scenario(fixed_kw=target_kw)
-        plan = build_plan(periods=periods, grid=grid, battery=battery, solar=solar, loads=loads)
+        plan = build_plan(
+            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+        )
         self.assertEqual(plan.status, "optimal")
         window_export = plan.grid_export_kw[10:17]
         for i, v in enumerate(window_export):
             self.assertAlmostEqual(
-                v, target_kw, places=4,
+                v,
+                target_kw,
+                places=4,
                 msg=f"period {10 + i}: expected exactly {target_kw}kW, got {v}",
             )
 
     def test_periods_outside_the_window_are_still_free(self):
         target_kw = 11.5
         periods, grid, battery, solar, loads = _scenario(fixed_kw=target_kw)
-        plan = build_plan(periods=periods, grid=grid, battery=battery, solar=solar, loads=loads)
+        plan = build_plan(
+            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+        )
         self.assertEqual(plan.status, "optimal")
         # Outside the fixed window, export should NOT be pinned to 11.5 --
         # it's whatever the LP freely decides (almost certainly near 0,
@@ -132,7 +156,9 @@ class TestFixedExportKw(unittest.TestCase):
     def test_lp_still_plans_real_pre_window_charging_to_sustain_it(self):
         target_kw = 11.5
         periods, grid, battery, solar, loads = _scenario(fixed_kw=target_kw)
-        plan = build_plan(periods=periods, grid=grid, battery=battery, solar=solar, loads=loads)
+        plan = build_plan(
+            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+        )
         self.assertEqual(plan.status, "optimal")
         # Genuine, real energy requirement for 7h @ 11.5kW export + 1.5kW
         # house load, funded from the battery (no solar in this
@@ -141,7 +167,8 @@ class TestFixedExportKw(unittest.TestCase):
         soc_at_window_start = plan.battery_soc_kwh[10]
         soc_at_start = battery.initial_soc_kwh
         self.assertGreater(
-            soc_at_window_start, soc_at_start,
+            soc_at_window_start,
+            soc_at_start,
             f"expected real pre-window charging (SoC should rise from the low "
             f"20% start), but SoC at window start ({soc_at_window_start:.1f}kWh) "
             f"was not higher than the initial SoC ({soc_at_start:.1f}kWh)",
@@ -157,15 +184,31 @@ class TestFixedExportKw(unittest.TestCase):
         GridConfig built without the field at all."""
         periods, grid_with_none, battery, solar, loads = _scenario(fixed_kw=None)
         grid_without_field = GridConfig(
-            import_price=grid_with_none.import_price, export_price=grid_with_none.export_price,
-            import_limit_kw=grid_with_none.import_limit_kw, export_limit_kw=grid_with_none.export_limit_kw,
+            import_price=grid_with_none.import_price,
+            export_price=grid_with_none.export_price,
+            import_limit_kw=grid_with_none.import_limit_kw,
+            export_limit_kw=grid_with_none.export_limit_kw,
         )
-        plan_a = build_plan(periods=periods, grid=grid_with_none, battery=battery, solar=solar, loads=loads)
-        plan_b = build_plan(periods=periods, grid=grid_without_field, battery=battery, solar=solar, loads=loads)
+        plan_a = build_plan(
+            periods=periods,
+            grid=grid_with_none,
+            battery=battery,
+            solar=solar,
+            loads=loads,
+        )
+        plan_b = build_plan(
+            periods=periods,
+            grid=grid_without_field,
+            battery=battery,
+            solar=solar,
+            loads=loads,
+        )
         np.testing.assert_allclose(plan_a.grid_export_kw, plan_b.grid_export_kw)
         self.assertAlmostEqual(plan_a.total_cost, plan_b.total_cost, places=6)
 
-    def test_battery_cannot_charge_during_the_fixed_window_even_under_strong_incentive(self):
+    def test_battery_cannot_charge_during_the_fixed_window_even_under_strong_incentive(
+        self,
+    ):
         """Real live incident, 2026-08-22: only grid_export[t] was pinned by
         fixed_export_kw -- nothing stopped the LP from ALSO importing grid
         power and charging the battery during the SAME committed-export
@@ -200,10 +243,14 @@ class TestFixedExportKw(unittest.TestCase):
         # as much energy as possible, as early/cheaply as possible.
         battery = dataclasses.replace(
             battery,
-            terminal_value_breakpoints=[(battery.max_soc_kwh - battery.min_soc_kwh, 2.0)],
+            terminal_value_breakpoints=[
+                (battery.max_soc_kwh - battery.min_soc_kwh, 2.0)
+            ],
         )
 
-        plan = build_plan(periods=periods, grid=grid, battery=battery, solar=solar, loads=loads)
+        plan = build_plan(
+            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+        )
         self.assertEqual(plan.status, "optimal")
 
         window_charge_kw = plan.battery_charge_kw[10:17]
