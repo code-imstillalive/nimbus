@@ -129,6 +129,24 @@ filterwarnings = [
     # narrow so real regressions still surface.
     "ignore::DeprecationWarning:homeassistant.*",
     "ignore::PendingDeprecationWarning:homeassistant.*",
+    # Real root cause of the #92 "0 live entity instances" / "Setup
+    # failed for dependencies: ['http']" CI failure (2026-08-23), found
+    # by reading the full job log, not guessed: HA core's own stock
+    # http component does `self.app["hass"] = self.hass` (a plain
+    # string key) at homeassistant/components/http/server.py:290 --
+    # unrelated to anything in this repo's own diff. Current aiohttp
+    # (3.14.3, whatever pip resolves against homeassistant==2026.8.3;
+    # neither package hard-pins the other) treats that as soft-
+    # deprecated and calls warnings.warn(NotAppKeyWarning). `"error"`
+    # above promotes it to a hard exception, which crashes http's own
+    # setup and cascades into nimbus_load failing (http is a declared
+    # manifest dependency, needed for frontend.py's static-path
+    # registration). This is HA core's own internal housekeeping
+    # warning, not a signal about anything we own -- same reasoning as
+    # the two ignores immediately above, just scoped to aiohttp instead
+    # of homeassistant.* since the warning is raised from inside
+    # aiohttp's own web_app.py, not HA's.
+    "ignore::aiohttp.web_exceptions.NotAppKeyWarning",
 ]
 
 # ---------------------------------------------------------------------------
