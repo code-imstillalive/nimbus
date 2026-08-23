@@ -150,6 +150,48 @@ display layer over whatever `nimbus_solver_quality_writer.py` (below)
 computes — genuinely portable on its own, since it just reads whatever
 that sensor happens to contain.
 
+## `files/lovelace_add_nimbus_shadow_mode_chart.py` — Nimbus vs your real controller vs measured reality
+
+One chart, history AND forecast, for three things at once: Nimbus's own
+plan, your real controller's own plan (this household compares against
+HAEO — see the file's own header for exactly which two entities are
+household-specific and what to swap them for), and the real measured
+battery power. This is the actual "is Nimbus's shadow-mode plan any
+good" answer over time — not a single current-forecast number, a real
+trend you can watch.
+
+**Read the file's own docstring before deploying** — two of the three
+series are genuinely household-specific (this household's own HAEO
+plan sensor and its own real battery-power sensor name). The one
+portable entity every install shares is `sensor.nimbus_solver_battery_
+forecast`; swap the other two for your own equivalents, or delete the
+"HAEO plan" series pair entirely for a clean 2-way Nimbus-vs-Real chart
+if you don't run a comparable second controller at all.
+
+## `files/lovelace_add_nimbus_solver_operations_card.py` — live solve status, plan economics, EPR snapshot, counterfactual readiness
+
+Two markdown cards, fully portable (every entity is a standard Nimbus-
+published sensor, present on any install with the same name):
+
+- **Operations**: current solve status/time/periods, tonight's plan
+  economics (total cost, P2P match fraction), the latest EPR quality
+  score, and (if you run it) the P2P nightly-volume threshold.
+- **Counterfactual (Stage 1)**: the real, live version of "would
+  Nimbus alone have been ready for tonight's delivery window" —
+  reads `sensor.nimbus_counterfactual_soc_5pm` (see `nimbus_
+  counterfactual_writer.py` above), including the real day-over-day
+  trend table, not just today's snapshot.
+
+## `files/lovelace_add_nimbus_risk_aversion_sliders.py` — the risk-hedging dials, live-adjustable from the dashboard
+
+Three `mushroom-number-card` sliders (`risk_aversion`, `import_price_
+risk_aversion`, `export_price_risk_aversion` — real `number.py`
+entities, 0.0–1.0, live-adjustable with zero restart) plus a legend
+card explaining what each one actually does. Needs two HACS frontend
+cards this repo doesn't provide (`mushroom`, `card-mod` — see the
+file's own header for exactly which ones) — both widely used,
+independently maintained.
+
 ## `files/lovelace_build_merged_forecast_chart.py` — the combined Power Signal + Load chart, INCLUDING confidence bands
 
 One apexcharts-card showing every Nimbus Power Signal (Battery/Grid/
