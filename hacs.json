@@ -1,5 +1,5 @@
 {
   "name": "Nimbus",
   "render_readme": true,
-  "zip_release": false
+  "homeassistant": "2025.1.0"
 }
