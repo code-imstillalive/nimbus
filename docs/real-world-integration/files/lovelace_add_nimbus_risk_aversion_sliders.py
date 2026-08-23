@@ -87,7 +87,7 @@ def main():
         except (OSError, json.JSONDecodeError):
             continue
         views = candidate["data"]["config"]["views"]
-        view, section, card = find_view_with_entity(views, ANCHOR_ENTITY)
+        view, section, _card = find_view_with_entity(views, ANCHOR_ENTITY)
         if view is not None:
             target_path = path
             data = candidate

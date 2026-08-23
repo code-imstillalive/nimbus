@@ -217,14 +217,40 @@ ignore = [
     "DTZ001", # call-datetime-without-tzinfo (8) -- Stage 2
     "S110",   # try-except-pass (3) -- Stage 2
     "C408",   # unnecessary-collection-call (12) -- Stage 2
-    "EXE001",  # shebang-not-executable (1) -- Stage 3
-    "FURB162", # fromisoformat-replace-z (1) -- Stage 3
-    "PLW1510", # subprocess-run-without-check (1) -- Stage 3
-    "RUF012",  # mutable-class-default (1) -- Stage 3
-    "SIM103",  # needless-bool (1) -- Stage 3
-    "RUF059",  # unused-unpacked-variable (2) -- not in #72's original scope
-    # (a newer rule than the issue's own audit date), same Stage 3
-    # treatment: real finding, needs its own look, not blindly fixed.
+    # Stage 3 (all 6 singleton rules) done, 2026-08-23, same pass:
+    #   EXE001 (shebang-not-executable) was already at 0 findings by the
+    #     time this was reached -- resolved elsewhere, nothing to fix.
+    #   FURB162 (fromisoformat-replace-z): every real site (11 total,
+    #     including 10 out-of-CI-scope ones in docs/real-world-
+    #     integration/files/ not counted in #72's original 1-finding
+    #     scope) was the identical `datetime.fromisoformat(s.replace(
+    #     "Z", "+00:00"))` -- verified locally that Python 3.11+'s
+    #     fromisoformat() natively parses a trailing "Z" and produces a
+    #     byte-identical result, so the .replace() call was genuinely
+    #     redundant everywhere it appeared, not just in the one CI-scope
+    #     site.
+    #   PLW1510 (subprocess-run-without-check): 4 real sites (all out of
+    #     CI scope, docs/real-world-integration/files/), each given a
+    #     genuine per-site call: 3 already relied on inspecting stdout
+    #     directly with no exception-based error handling, so check=
+    #     False makes that explicit; the 4th (nimbus_solver_quality_
+    #     writer.py) sits inside a try/except that already explicitly
+    #     names subprocess.SubprocessError -- that branch was dead code
+    #     without check=True, so True is what the existing except
+    #     clause's own intent actually needs.
+    #   RUF012 (mutable-class-default): the one real site (tests/
+    #     _ha_stubs.py's _TO_WATTS lookup table) annotated ClassVar,
+    #     matching ruff's own recommended pattern for a genuinely
+    #     intentional shared read-only class attribute.
+    #   SIM103 (needless-bool): the one real site (sensor.py's
+    #     `available` property) collapsed to a direct negated-condition
+    #     return, logically identical.
+    #   RUF059 (unused-unpacked-variable): all 5 real sites (docs/real-
+    #     world-integration/files/lovelace_add_nimbus_*.py) were the
+    #     identical `view, section, card = find_view_with_entity(...)`
+    #     with only `card` genuinely unused each time -- renamed to
+    #     `_card`, standard convention, `view`/`section` both confirmed
+    #     used afterward in every file before renaming.
 ]
 
 # BLE001 in tests/test_*.py (23 sites, 2026-08-23): every one of these

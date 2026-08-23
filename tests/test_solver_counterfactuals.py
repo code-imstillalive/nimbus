@@ -215,7 +215,7 @@ def test_tune_two_threshold_genuinely_minimizes_real_cost_not_just_first_candida
         revenue = float(np.sum(dispatch.discharge_kw * price * hours))
         return cost - revenue
 
-    best_low, best_high, best_dispatch, best_cost = tune_two_threshold(
+    _best_low, _best_high, best_dispatch, best_cost = tune_two_threshold(
         price_kwh=price,
         hours=hours,
         initial_soc_kwh=10.0,  # == min_soc_kwh: a discharge is impossible without charging first

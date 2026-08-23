@@ -184,7 +184,7 @@ def ha_get(entity_id: str) -> dict:
     r = subprocess.run(
         ["curl", "-s", "--max-time", "10", "-H", f"Authorization: Bearer {token}",
          f"{HA_BASE}/api/states/{entity_id}"],
-        capture_output=True, text=True, timeout=15,
+        capture_output=True, text=True, timeout=15, check=False,
     )
     return json.loads(r.stdout)
 
@@ -199,7 +199,7 @@ def ha_history(entity_ids: list[str], start: datetime, end: datetime) -> list[li
          "--data-urlencode", f"end_time={end.isoformat()}",
          "--data-urlencode", "minimal_response=true",
          "--data-urlencode", "significant_changes_only=false"],
-        capture_output=True, text=True, timeout=35,
+        capture_output=True, text=True, timeout=35, check=False,
     )
     return json.loads(r.stdout)
 
@@ -211,7 +211,7 @@ def push_sensor(entity_id: str, state, attributes: dict) -> None:
         ["curl", "-s", "--max-time", "10", "-X", "POST",
          "-H", f"Authorization: Bearer {token}", "-H", "Content-Type: application/json",
          "-d", body, f"{HA_BASE}/api/states/{entity_id}"],
-        capture_output=True, text=True, timeout=15,
+        capture_output=True, text=True, timeout=15, check=False,
     )
 
 
@@ -285,7 +285,7 @@ def parse_series(raw_points: list[dict]) -> list[tuple[datetime, float]]:
             v = float(p["state"])
         except (ValueError, KeyError, TypeError):
             continue
-        t = datetime.fromisoformat(p["last_changed"].replace("Z", "+00:00")).astimezone(AEST)
+        t = datetime.fromisoformat(p["last_changed"]).astimezone(AEST)
         parsed.append((t, v))
     return parsed
 
