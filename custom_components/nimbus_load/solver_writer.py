@@ -707,6 +707,19 @@ if not TOKEN:
 # whether a real hass instance has been injected.
 _NATIVE_HASS = None  # None = standalone/REST mode (default, unchanged behaviour).
 
+# PURE INTEGRATION dispatch seam (2026-08-23, issue #55) -- lets
+# sensor.py's real SensorEntity classes register themselves as the
+# native-mode handler for a specific entity_id, so ha_post_state() below
+# routes state updates for that entity_id through the entity's own
+# async_write_ha_state() path (proper unique_id, device_info, device_
+# class, unrecorded_attributes, etc.) instead of writing a raw dict
+# straight into the state machine via states.async_set(). Empty by
+# default -- an unregistered entity_id still falls through to the
+# original states.async_set() fallback (preserving behaviour for anyone
+# still on a version that hasn't migrated its SensorEntities yet), and
+# the REST path below is completely unaffected.
+_ENTITY_UPDATE_HANDLERS: dict[str, object] = {}
+
 
 def set_native_hass(hass) -> None:
     """Called once by the Nimbus integration itself, before running a
@@ -714,6 +727,32 @@ def set_native_hass(hass) -> None:
     comment immediately above for the full story."""
     global _NATIVE_HASS
     _NATIVE_HASS = hass
+
+
+def register_entity_handler(entity_id: str, handler) -> None:
+    """Called once per migrated entity from sensor.py's async_setup_entry.
+
+    `handler(state, attributes)` will be scheduled on the event loop
+    (via hass.add_job) whenever ha_post_state() below is asked to update
+    this entity_id in native mode. In practice the handler is the
+    entity's own update_from_solver() method, which stores the values
+    and calls async_write_ha_state() so HA sees a real entity update
+    with all the SensorEntity class metadata attached.
+
+    Registration is idempotent (a re-registration cleanly replaces the
+    previous handler) so a config-entry reload doesn't leave a stale
+    handler pointing at a torn-down entity -- see issue #55's own
+    conversation about the module-level import-caching gotcha with
+    _ensure_ready() in solver_runtime.py.
+    """
+    _ENTITY_UPDATE_HANDLERS[entity_id] = handler
+
+
+def unregister_entity_handler(entity_id: str) -> None:
+    """Symmetric partner to register_entity_handler(); safe to call for
+    an entity_id that was never registered. Called on config-entry
+    unload so a torn-down entity's handler doesn't linger."""
+    _ENTITY_UPDATE_HANDLERS.pop(entity_id, None)
 
 
 def _native_http_error(entity_id: str, code: int, msg: str) -> urllib.error.HTTPError:
@@ -819,6 +858,19 @@ def fetch_solver_config() -> dict:
 
 def ha_post_state(entity_id: str, state, attributes: dict) -> None:
     if _NATIVE_HASS is not None:
+        # Dispatch-table shortcut (2026-08-23, issue #55): if a real
+        # SensorEntity has registered itself as the handler for this
+        # entity_id, route through its own update_from_solver() so HA
+        # sees a proper entity update (unique_id, device_info, device_
+        # class, unrecorded_attributes) instead of a raw state-machine
+        # write. Unregistered entity_ids still fall through to
+        # states.async_set() below -- same behaviour as before this
+        # seam existed, so any entity that hasn't been migrated yet
+        # keeps working exactly as it always has.
+        handler = _ENTITY_UPDATE_HANDLERS.get(entity_id)
+        if handler is not None:
+            _NATIVE_HASS.add_job(functools.partial(handler, state, attributes))
+            return
         # states.async_set() mutates HA's own state machine and fires a
         # real event -- unlike the plain dict-read in ha_get() above,
         # this genuinely must happen ON the event loop, never directly

@@ -365,6 +365,43 @@ async def async_setup_entry(
     # way to see them at all.
     async_add_entities([NimbusTopologyConfigSensor(entry, sw_version)])
 
+    # Hub-level Solver-output entities (2026-08-23, issue #55) --
+    # migrated off solver_writer.ha_post_state()'s raw states.async_set()
+    # fallback onto real SensorEntity classes. The dispatch table over
+    # in solver_writer.py routes writes for these two entity_ids through
+    # each entity's own update_from_solver() instead, so they get proper
+    # unique_id / device_info / device_class / unrecorded_attributes
+    # treatment (fixes #59, #61, #62 as a side effect). Register the
+    # handlers AFTER async_add_entities so the entities are known to
+    # hass by the time the first solve tick fires. Handlers persist for
+    # the lifetime of this config-entry setup; a reload cleanly
+    # re-registers replacement instances (see register_entity_handler()'s
+    # own "idempotent" docstring in solver_writer.py).
+    battery_forecast = NimbusSolverBatteryForecastSensor(entry, sw_version)
+    household_load_forecast = NimbusHouseholdLoadTotalForecastSensor(entry, sw_version)
+    async_add_entities([battery_forecast, household_load_forecast])
+    # Deferred import (same reasoning as solver_runtime.py's own
+    # _ensure_ready(): solver_writer imports the pure-Python `solver`
+    # and `ml` packages via a bare `from solver import ...` at module
+    # top, which resolves against sys.path -- fine at real HA runtime
+    # where solver_runtime.py sets that up before ever touching this
+    # code path, but importing it at THIS module's top would drag that
+    # requirement into every unit test that only wants to exercise the
+    # NimbusForecastSensor / NimbusSolverConfigSensor / NimbusTopology-
+    # ConfigSensor classes above. Moving it inside async_setup_entry --
+    # which is only ever called by real HA -- keeps the test surface
+    # unchanged and matches the pattern solver_runtime.py already uses).
+    from . import solver_writer
+
+    solver_writer.register_entity_handler(
+        "sensor.nimbus_solver_battery_forecast",
+        battery_forecast.update_from_solver,
+    )
+    solver_writer.register_entity_handler(
+        "sensor.nimbus_household_load_total_forecast",
+        household_load_forecast.update_from_solver,
+    )
+
 
 class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
     """The published forecast for one load or power-signal subentry."""
@@ -697,3 +734,163 @@ class NimbusTopologyConfigSensor(SensorEntity):
             "battery_towers": battery_towers,
             "switchboard": {k: self._entry.options.get(k) for k in _SWITCHBOARD_KEYS},
         }
+
+
+class _NimbusSolverPushSensor(SensorEntity):
+    """Shared base for the hub-level Solver-output sensors migrated in
+    issue #55.
+
+    Both subclasses are pushed into HA on each solve via
+    solver_writer.ha_post_state() -> the dispatch table registered in
+    async_setup_entry() below, which routes through update_from_solver()
+    here instead of the raw states.async_set() fallback. This is the
+    "PURE INTEGRATION seam" that solver_writer.py's module docstring
+    already advertises -- see _ENTITY_UPDATE_HANDLERS over there for the
+    full story.
+
+    Held here (not folded into NimbusSolverConfigSensor) because Solver
+    Config resolves its own value/attributes live from entry.options and
+    a handful of number.*/switch.* helpers -- it is pull-based and does
+    not need a push channel at all. The two entities below are pure
+    solve outputs (the LP produces them fresh every cycle), so a push
+    handler is the honest fit for them.
+
+    _attr_device_class / _attr_state_class / _attr_native_unit_of_
+    measurement are set at class-attribute time (subclass overrides
+    below) so the Recorder's own "unit changed" repair (see issue #61)
+    stops firing -- the unit now comes from the SensorEntity contract,
+    not from a raw attribute the state machine happens to have been
+    handed.
+    """
+
+    _attr_has_entity_name = True
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = UnitOfPower.KILO_WATT
+    # Same finding as NimbusForecastSensor above: without this, HA's own
+    # history-graph tooltips (and any UI computing a rolling average
+    # across already-rounded points) show raw binary floating-point
+    # noise ("0.152000000000000020" instead of "0.152").
+    _attr_suggested_display_precision = 3
+    # Recorder's own 16 KB per-attribute limit (see issue #59) -- the
+    # 96h tiered-grid forecast list, at 15-minute resolution for the
+    # first 24h and hourly after that, regularly exceeds that cap. The
+    # forecast is a projection, not a historical fact worth keeping in
+    # the long-term stats database, so unrecording it silences the real
+    # bytes-truncated warning without losing anything a user actually
+    # needs later.
+    _unrecorded_attributes = frozenset({"forecast"})
+
+    def __init__(self, entry: NimbusConfigEntry, sw_version: str | None) -> None:
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_{self._UNIQUE_ID_SUFFIX}"
+        # Fixed entity_id (same technique/reasoning as NimbusSolverConfigSensor
+        # and NimbusForecastSensor above) -- external readers depend on
+        # the well-known name, and preserving the existing entity_id
+        # here is the whole reason this migration is safe (long-term
+        # stats and history keep flowing to the same entity_id).
+        self.entity_id = f"sensor.{self._UNIQUE_ID_SUFFIX}"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+            name="Nimbus",
+            manufacturer="Nimbus",
+            model="Hub",
+            sw_version=sw_version,
+        )
+        # None until the first solve completes -- HA is fine with None
+        # here (the entity shows as "unknown" until the first push, no
+        # different from the raw state machine's behaviour on a fresh
+        # HA restart before the first solve tick fires).
+        self._state: float | None = None
+        self._attrs: dict = {}
+
+    @property
+    def native_value(self) -> float | None:
+        return self._state
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return self._attrs
+
+    def update_from_solver(self, state, attributes: dict) -> None:
+        """Called on the event loop by solver_writer.ha_post_state()'s
+        dispatch table (via hass.add_job) after each solve. Stores the
+        fresh state and attributes and asks HA to publish them.
+
+        Silently drops the update if the entity has not been added to
+        hass yet -- the very-first solve after a config-entry setup can
+        in principle beat async_setup_entry to the punch by microseconds,
+        and there is no honest way to publish a state through an entity
+        HA doesn't know exists yet. The next solve tick (30 seconds
+        later) will find the entity properly added and publish normally.
+        The dispatch table is only ever queried while _NATIVE_HASS is
+        set, so hass is guaranteed available here.
+        """
+        self._state = state
+        self._attrs = attributes
+        if self.hass is not None:
+            self.async_write_ha_state()
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Symmetric partner to async_setup_entry's own
+        register_entity_handler() call for this entity -- HA calls this
+        automatically on both a plain unload AND on a config-entry
+        reload (which is really an unload-then-setup pair), so pulling
+        the handler out of the dispatch table here keeps the seam clean
+        without needing a second hook in __init__.py's async_unload_
+        entry(). Without this, a reload would leave the OLD entity's
+        bound method sitting in the dispatch table until the NEW entity's
+        async_setup_entry replaces it -- which register_entity_handler()
+        is deliberately idempotent about, so no visible bug, but this is
+        the honest cleanup regardless.
+
+        Same deferred-import reasoning as async_setup_entry above --
+        this method only runs under real HA, where solver_writer's own
+        `from solver import ...` sys.path setup has long since happened.
+        """
+        from . import solver_writer
+
+        solver_writer.unregister_entity_handler(self.entity_id)
+        await super().async_will_remove_from_hass()
+
+
+class NimbusSolverBatteryForecastSensor(_NimbusSolverPushSensor):
+    """The Solver's own proposed battery power for the current period,
+    plus the full 96h tiered-horizon plan (in `forecast` attribute) and
+    every LP diagnostic worth exposing (status, total_cost, binding
+    constraint, shadow prices, ...).
+
+    Before issue #55 this was written directly into HA's state machine
+    as a raw dict by solver_writer.ha_post_state("sensor.nimbus_solver_
+    battery_forecast", ...) -- no device, no unique_id, no device_class,
+    no unit_of_measurement outside the attrs blob. This class is what
+    finally makes it a first-class entity attached to the Nimbus hub
+    device (fixes #55 point 1, #59 forecast-attribute size, #61 unit-
+    change repair, #62 missing unique_id all in one).
+    """
+
+    _UNIQUE_ID_SUFFIX = "nimbus_solver_battery_forecast"
+    _attr_name = "Solver Battery Forecast"
+
+
+class NimbusHouseholdLoadTotalForecastSensor(_NimbusSolverPushSensor):
+    """The per-solve reconciliation of all 18 per-circuit load forecasts
+    into one whole-house total (native_value = summed_18_now_kw), plus
+    the full 96h horizon (in `forecast` attribute) with the same tiered
+    resolution as the battery-forecast sibling above.
+
+    Before issue #55 this was written directly into HA's state machine
+    as a raw dict by solver_writer.ha_post_state("sensor.nimbus_house
+    hold_load_total_forecast", ...) -- see the sibling class above for
+    the full "why migrate" story.
+
+    Extra attributes carried alongside `forecast` include source_entities
+    (the real list of 18 per-circuit forecast entities being summed) and
+    failed_load_entities (any that were unavailable this run and safely
+    defaulted to 0.0 kW, exposed so the topology card can cross-reference
+    against its own per-load health dots -- see solver_writer.py's own
+    comment above this write site for the full reasoning).
+    """
+
+    _UNIQUE_ID_SUFFIX = "nimbus_household_load_total_forecast"
+    _attr_name = "Household Load Total Forecast"
