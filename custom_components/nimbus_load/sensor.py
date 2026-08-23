@@ -888,6 +888,30 @@ class _NimbusSolverPushSensor(SensorEntity):
         The dispatch table is only ever queried while _NATIVE_HASS is
         set, so hass is guaranteed available here.
         """
+        # #85 diagnostic (2026-08-23, not yet root-caused): Mark's own
+        # empirical trace shows a real solve's rich write getting
+        # clobbered to state=None/4-attrs ~2s later, on a v0.73.2
+        # install where #83's fix is confirmed present and where the
+        # recheck's own _LOGGER.info/.warning calls (unconditional on
+        # every write path in that function -- see its own docstring)
+        # NEVER fire. That rules out _async_recheck_availability as the
+        # source under this code. If the clobber is a call to THIS
+        # method with a genuinely empty/None payload, this line proves
+        # it directly -- if it's something else entirely (a raw
+        # states.async_set() bypassing this method, a second, distinct
+        # entity instance never wired through this dispatch table at
+        # all), this line's silence during the clobber is itself the
+        # proof. DEBUG-level, additive only -- safe to ship without
+        # knowing the answer yet.
+        _LOGGER.debug(
+            "Nimbus #85 trace: update_from_solver id=%x entity_id=%s state=%r "
+            "attrs_keys=%s has_forecast=%s",
+            id(self),
+            self.entity_id,
+            state,
+            sorted(attributes.keys()) if attributes else attributes,
+            "forecast" in attributes if attributes else False,
+        )
         self._state = state
         self._attrs = attributes
         self._last_updated = time.monotonic()
@@ -920,6 +944,17 @@ class _NimbusSolverPushSensor(SensorEntity):
         already triggers a state re-write via _handle_coordinator_update.
         This class has no coordinator, so it needs its own equivalent.
         """
+        # #85 diagnostic (2026-08-23): if this fires more than once for
+        # the same entity_id with a DIFFERENT id=, that's direct,
+        # conclusive proof of a duplicate live instance (Mark's own
+        # leading hypothesis) -- a genuinely different HA-core lifecycle
+        # bug (an entity added twice, an old one never torn down)
+        # rather than anything in this method's own logic.
+        _LOGGER.debug(
+            "Nimbus #85 trace: async_added_to_hass id=%x entity_id=%s",
+            id(self),
+            self.entity_id,
+        )
         await super().async_added_to_hass()
         self.async_on_remove(
             async_track_time_interval(
@@ -961,6 +996,27 @@ class _NimbusSolverPushSensor(SensorEntity):
         routed every single tick to the executor thread pool too.
         """
         now_available = self.available
+        # #85 diagnostic (2026-08-23, Mark Purcell's own suggested trace
+        # point, placed at the very top so it fires on EVERY tick, not
+        # just a write): if two different id=s show up for the same
+        # entity_id across consecutive ticks, that's direct proof of a
+        # duplicate live instance. was_available/state/last_updated are
+        # this INSTANCE's own values at tick time -- compare against the
+        # id= to see whether a "stale" instance (state=None forever,
+        # available always True per this property's own None-check) is
+        # ticking alongside the real one.
+        _LOGGER.debug(
+            "Nimbus #85 trace: recheck tick id=%x entity_id=%s state=%r "
+            "last_updated_age_s=%r was_avail=%r now_avail=%r",
+            id(self),
+            self.entity_id,
+            self._state,
+            None
+            if self._last_updated is None
+            else round(time.monotonic() - self._last_updated, 1),
+            self._was_available,
+            now_available,
+        )
         if self._was_available is None:
             # First-ever tick after this instance was added -- record a
             # baseline, but there is nothing to "transition" from yet,
@@ -1002,6 +1058,16 @@ class _NimbusSolverPushSensor(SensorEntity):
         automatically via async_on_remove -- no explicit unsub needed
         here.
         """
+        # #85 diagnostic (2026-08-23): if a "stale instance" is ever
+        # created, this line NOT appearing for its own id= (while
+        # async_added_to_hass's matching id= trace DID appear) is the
+        # direct proof it was never properly torn down -- the whole
+        # premise behind Mark's own leading hypothesis for this bug.
+        _LOGGER.debug(
+            "Nimbus #85 trace: async_will_remove_from_hass id=%x entity_id=%s",
+            id(self),
+            self.entity_id,
+        )
         from . import solver_writer
 
         solver_writer.unregister_entity_handler(self.entity_id)

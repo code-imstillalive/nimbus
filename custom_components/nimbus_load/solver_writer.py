@@ -868,6 +868,25 @@ def ha_post_state(entity_id: str, state, attributes: dict) -> None:
         # seam existed, so any entity that hasn't been migrated yet
         # keeps working exactly as it always has.
         handler = _ENTITY_UPDATE_HANDLERS.get(entity_id)
+        # nimbus issue #85 diagnostic (2026-08-23, not yet root-caused):
+        # proves/disproves two real candidates in one line -- whether
+        # ha_post_state() is being called MORE THAN ONCE per entity per
+        # solve cycle at all (which this file's own two known call
+        # sites, one each for these entity_ids, shouldn't produce), and
+        # whether a call ever falls through to the raw states.async_set
+        # fallback for an entity_id that SHOULD have a registered
+        # handler (which would mean the handler was unregistered
+        # between two calls -- a real, different bug class from #83).
+        # print(), not logging -- this module has no _LOGGER (it's a
+        # bare-Python script by design, must run standalone/cron/addon
+        # with zero HA imports); matches this file's own existing
+        # print(f"[...]") trace convention elsewhere in main().
+        print(
+            f"[{datetime.now(UTC).isoformat()}] #85 trace: ha_post_state "
+            f"entity_id={entity_id} state={state!r} "
+            f"attrs_keys={sorted(attributes.keys()) if attributes else attributes} "
+            f"via_handler={handler is not None}"
+        )
         if handler is not None:
             _NATIVE_HASS.add_job(functools.partial(handler, state, attributes))
             return
