@@ -171,22 +171,37 @@ jobs:
         run: pip install -e '.[dev]'
       # Two separate pytest invocations, on purpose.
       #
-      # `pytest-homeassistant-custom-component` registers a pytest11
-      # plugin named `homeassistant` via entry_points the moment it is
-      # installed. Its autouse `enable_event_loop_debug` fixture then
-      # applies to EVERY test in the process and calls
-      # `asyncio.get_event_loop()` under HA's own event loop policy,
-      # which raises `RuntimeError: There is no current event loop in
-      # thread 'MainThread'`. The 320+ stub-based tests under
-      # `tests/*.py` do not set up a loop, so they all error at setup.
+      # Installing pytest-homeassistant-custom-component registers a
+      # pytest11 plugin named `homeassistant` via entry_points, which
+      # loads for every invocation in the process. That breaks the
+      # stub-based suite under tests/*.py in two independent ways.
       #
-      # `--ignore` does not help: it excludes test files from
+      # 1. Setup errors, all 320 of them. phcc's `enable_event_loop_debug`
+      #    fixture (plugins.py) is autouse and `async def`, but is
+      #    registered with a plain `@pytest.fixture` rather than
+      #    `@pytest_asyncio.fixture` the way its neighbour
+      #    `verify_cleanup` is. pytest-asyncio in strict mode will not
+      #    handle an async fixture with no marker, so it raises
+      #    PytestRemovedIn9Warning, and our `filterwarnings = ["error"]`
+      #    escalates that to an error at setup for every test.
+      #
+      # 2. Assertion failures, 61 of them, underneath the errors. The
+      #    plugin imports the real `homeassistant` package at load time,
+      #    before any conftest or test module runs. `install_ha_stubs()`
+      #    is first-call-wins by design, so it finds the real modules
+      #    already in sys.modules and installs nothing. Tests written
+      #    against the stubs' plain classes then see real HA: class-level
+      #    `_attr_*` reads back a cached-property object instead of a
+      #    value, and the config-flow handlers' `config_entry` and
+      #    `source` are read-only properties.
+      #
+      # `--ignore` does not fix either one: it excludes test files from
       # collection, not plugins from registration. A directory-scoped
-      # `conftest.py` cannot help either, because registration is
-      # process-wide and happens before conftest is read. Disabling the
-      # plugin by entry-point name is what actually isolates the stub
-      # suite, and a second invocation without the flag is what gives
-      # the hass_integration tests the real fixtures.
+      # conftest.py cannot either, because registration is process-wide
+      # and happens before conftest is read. Disabling the plugin by
+      # entry-point name is what actually isolates the stub suite, and a
+      # second invocation without the flag is what gives the
+      # hass_integration tests the real fixtures.
       - name: Run pytest (stub-based, fast)
         run: |
           pytest tests/ --ignore=tests/hass_integration/ \
