@@ -506,7 +506,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                             value = PowerConverter.convert(
                                 value, unit, UnitOfPower.KILO_WATT
                             )
-                        except Exception:
+                        except Exception:  # noqa: BLE001 -- an unrecognized unit string must degrade to "treat as kW", never crash the coordinator
                             if not warned_missing_unit:
                                 _LOGGER.warning(
                                     "%s reported unconvertible unit '%s' -- treating as kW as-is",
@@ -602,7 +602,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         if unit and unit != UnitOfPower.KILO_WATT:
             try:
                 value = PowerConverter.convert(value, unit, UnitOfPower.KILO_WATT)
-            except Exception:
+            except Exception:  # noqa: BLE001 -- same reasoning as the sibling catch above: degrade to kW-as-is, never crash
                 _LOGGER.warning(
                     "%s reported unconvertible unit '%s' -- treating as kW as-is",
                     entity_id,

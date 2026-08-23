@@ -61,7 +61,7 @@ def _is_testcase_style(path: str) -> bool:
         mod = __import__(modname)
         suite = unittest.TestLoader().loadTestsFromModule(mod)
         return suite.countTestCases() > 0
-    except Exception:
+    except Exception:  # noqa: BLE001 -- genuinely any import-time failure (syntax error, missing dep, bad module-level code) must route to category 1's real error reporting, not be misclassified
         # Import genuinely failed -- treat as category 1 so the real
         # TestRunner below reports the real error loudly, instead of
         # silently falling through to category 2's subprocess path
