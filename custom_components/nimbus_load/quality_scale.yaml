@@ -163,3 +163,147 @@ rules:
       real live data rather than pure unit tests). Silver's own bar is
       95% across all integration modules -- honestly far from met, left
       as a real, sized, future body of work rather than claimed done.
+
+  # Gold
+  devices: done
+  diagnostics:
+    status: done
+    comment: >-
+      diagnostics.py's async_get_config_entry_diagnostics() -- entry title/
+      options, every subentry's type/title/config/coordinator health
+      (training_points, validation_mae/mase, forecast point count/span), and
+      a real Solver health snapshot (status, solve_seconds, binding
+      constraint, load-forecast-source-error visibility). TO_REDACT is a
+      deliberate empty tuple, not omitted -- see the file's own docstring.
+      tests/test_diagnostics.py covers it directly.
+  discovery-update-info:
+    status: exempt
+    comment: No network discovery.
+  discovery:
+    status: exempt
+    comment: >-
+      ML forecaster integration reading local Home Assistant sensors; no
+      physical device or network service to discover.
+  docs-data-update: todo
+  docs-examples:
+    status: todo
+    comment: >-
+      docs/real-world-integration/files/ has Lovelace card examples and a
+      topology map, but no example automations.
+  docs-known-limitations: todo
+  docs-supported-devices:
+    status: exempt
+    comment: Not device-based.
+  docs-supported-functions: todo
+  docs-troubleshooting: todo
+  docs-use-cases: todo
+  dynamic-devices: done
+  entity-category:
+    status: done
+    comment: >-
+      All 38 number.nimbus_solver_* entities (number.py) and the one
+      switch.nimbus_auto_include_known_solar (switch.py) are
+      EntityCategory.CONFIG -- Solver tuning knobs, not primary readings.
+      The two hub-level bridge sensors (NimbusSolverConfigSensor,
+      NimbusTopologyConfigSensor) deliberately keep entity_category = None
+      -- both are real, actively-read data sources external scripts/cards
+      depend on (the Solver writer script's own config source; the
+      topology card's own live discovery source), not diagnostics, per
+      each class's own existing comment. tests/test_number_solver_settings.py
+      and tests/test_switch_solver_toggle.py both assert the CONFIG
+      category directly.
+  entity-device-class:
+    status: done
+    comment: >-
+      Every number.py field with a kW/kWh unit carries a matching
+      NumberDeviceClass (POWER / ENERGY / ENERGY_STORAGE, distinguished
+      correctly -- battery capacity is ENERGY_STORAGE, the P2P bonus
+      volume field is plain ENERGY) -- confirmed by 4 dedicated tests in
+      tests/test_number_solver_settings.py, including an inverse check
+      that no kW/kWh field was accidentally left without one. Fields with
+      no real matching HA device class (%, $/kWh, hour) correctly have
+      device_class = None, also asserted directly, not just assumed.
+      switch.py's one entity has no applicable SwitchDeviceClass (those
+      model a physical switch/outlet, not a config toggle) -- N/A.
+  entity-disabled-by-default:
+    status: todo
+    comment: >-
+      Real candidates named in the original checklist (Export/Import Price
+      Risk Aversion, and similar advanced tuning knobs) are not yet
+      _attr_entity_registry_enabled_default = False. Would reduce default
+      dashboard noise for most users; not yet built.
+  entity-translations:
+    status: todo
+    comment: >-
+      strings.json/translations/en.json cover config-flow strings only.
+      Entity names (e.g. "Battery Capacity" in number.py) are hardcoded
+      English, not routed through _attr_translation_key + an entity: block
+      in strings.json. Real, mechanical, not yet done.
+  exception-translations:
+    status: todo
+    comment: >-
+      No translation_key on any user-facing HomeAssistantError/
+      ServiceValidationError raised from config_flow.py's own validation.
+  icon-translations:
+    status: todo
+    comment: No icons.json; entities rely on device_class defaults.
+  reconfiguration-flow:
+    status: done
+    comment: >-
+      flows/load_subentry.py and every other subentry flow implement
+      async_step_reconfigure -- confirmed via grep, prefill-from-existing
+      and no-input-shows-form both covered by
+      tests/test_flows_*_subentry.py.
+  repair-issues:
+    status: todo
+    comment: >-
+      No ir.async_create_issue anywhere. Real candidates: source sensor
+      deleted after subentry created, model .pkl unreadable/incompatible,
+      insufficient training data at first setup -- all currently silent
+      log lines rather than an actionable Repair.
+  stale-devices:
+    status: done
+    comment: >-
+      Confirmed directly against homeassistant/config_entries.py (dev
+      branch, 2026-08-23): ConfigEntries.async_remove_subentry() already
+      calls dev_reg.async_clear_config_subentry() and
+      ent_reg.async_clear_config_subentry() automatically -- HA core
+      itself removes a subentry's device/entities on deletion, PROVIDED
+      they were registered with config_subentry_id in the first place.
+      sensor.py's async_setup_entry already does this correctly for the
+      one class of entity that owns a per-subentry device
+      (NimbusForecastSensor, config_subentry_id=subentry.subentry_id);
+      every hub-scoped entity deliberately does NOT carry one (would
+      wrongly delete hub-level entities on any subentry removal).
+      tests/test_stale_devices_cleanup.py locks in both directions via
+      direct AST inspection of sensor.py's own async_add_entities calls,
+      so a future refactor silently dropping the kwarg (which would
+      reopen this exact leak) fails a test instead of shipping quietly.
+
+  # Platinum
+  async-dependency:
+    status: exempt
+    comment: >-
+      Runtime deps (manifest.json): numpy and highspy -- both pure-CPU
+      libraries, no I/O, nothing to make async. Every genuinely blocking
+      operation (recorder history reads, model train/predict, LP solves,
+      pickle load/save) is dispatched via hass.async_add_executor_job
+      instead -- 16 real call sites, confirmed by grep, not just claimed.
+  inject-websession:
+    status: exempt
+    comment: >-
+      No HTTP client anywhere in the dependency tree (confirmed: no
+      aiohttp/httpx/requests in manifest.json's requirements). Reads HA
+      sensor states via the core API only. Would become applicable if a
+      future feature reaches out to an external forecast provider.
+  strict-typing:
+    status: todo
+    comment: >-
+      py.typed marker exists. A real, advisory-only mypy CI job exists
+      (ci.yml's typecheck step, `mypy ... || true`) -- deliberately not a
+      hard gate yet, given ~33 real findings across the tree were never
+      triaged. No [tool.mypy] strict config in pyproject.toml. Genuine
+      remaining work, sized at roughly a day per the original issue's own
+      estimate: triage the 33 findings, add a strict mypy config, flip the
+      CI job from advisory to blocking, and audit solver/ml/flows -- none
+      of which was in the original spot-check.
