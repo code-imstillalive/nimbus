@@ -1,6 +1,12 @@
 # https://developers.home-assistant.io/docs/apps/configuration
+#
+# Version is kept in lockstep with custom_components/nimbus_load/manifest.json.
+# Rationale: the integration and this add-on are shipped and used as a single
+# product. Independent versioning left add-on users unable to tell which
+# Nimbus release they had installed. The 'version-lockstep' CI job enforces
+# that these two version strings never drift.
 name: "Nimbus Solver"
-version: "0.1.0"
+version: "0.72.0"
 slug: nimbus_solver
 description: >-
   Runs the Nimbus LP battery/grid dispatch Solver against your live Home
