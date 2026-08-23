@@ -182,6 +182,24 @@ def install_ha_stubs() -> None:
 
     module("homeassistant")
     module("homeassistant.components")
+
+    # Real (not mocked) redaction, matching HA core's actual documented
+    # behaviour (real HA's async_redact_data is, despite the name, a
+    # plain synchronous function -- HA's own naming convention for a
+    # helper meant to be called from an async context, not because it's
+    # itself a coroutine). diagnostics.py's own tests need this to
+    # genuinely redact, not just confirm "was this called."
+    def _real_async_redact_data(data, to_redact):
+        if isinstance(data, dict):
+            return {
+                k: "**REDACTED**" if k in to_redact else _real_async_redact_data(v, to_redact)
+                for k, v in data.items()
+            }
+        if isinstance(data, list):
+            return [_real_async_redact_data(v, to_redact) for v in data]
+        return data
+
+    module("homeassistant.components.diagnostics", async_redact_data=_real_async_redact_data)
     module("homeassistant.components.recorder", get_instance=MagicMock())
     module("homeassistant.components.energy")
     # async_get_manager is a placeholder here -- real tests monkeypatch
