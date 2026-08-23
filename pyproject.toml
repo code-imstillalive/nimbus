@@ -35,9 +35,14 @@ version = "0.0.0"
 description = "Dev-tooling shim for the Nimbus Home Assistant custom_component + Supervisor add-on. Not a distributable package."
 # 3.14 because Home Assistant core dropped 3.13 at 2026.3.0, and the
 # [dev] extra below pulls a test harness that will not install on
-# anything older. Declaring it here makes that a clean resolver message
-# instead of a confusing missing-distribution error.
-requires-python = ">=3.14"
+# anything older. The .4 is also load-bearing: 3.14.0 through 3.14.3
+# shipped a unittest.mock that inspected signatures in
+# annotationlib.Format.VALUE mode, which cannot autospec recorder's
+# TYPE_CHECKING-annotated functions and breaks every test under
+# tests/hass_integration/. See that directory's conftest for detail.
+# Declaring the floor here makes a wrong interpreter a clean resolver
+# message instead of a confusing NameError from inside recorder.
+requires-python = ">=3.14.4"
 readme = "README.md"
 license = { file = "LICENSE" }
 authors = [{ name = "Raf", email = "code-imstillalive@users.noreply.github.com" }]

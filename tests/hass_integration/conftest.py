@@ -7,7 +7,7 @@ run as a separate pytest invocation from the stub-based tests -- see
 tests/hass_integration/README.md for why both together are needed for
 real isolation.
 
-The five things this conftest does:
+The four things this conftest does:
 
   1. Autouse `enable_custom_integrations` so every test here gets the
      custom_components/ path treatment without asking for the fixture
@@ -23,6 +23,17 @@ The five things this conftest does:
   4. Bind this test's `hass` into `solver_writer` and unbind it after,
      so the entity dispatch seam is live and nothing leaks between
      tests.
+
+Note on Python versions: 3.14.0 through 3.14.3 cannot run this suite.
+`recorder_mock` patches recorder functions with `autospec=True`, and on
+those releases `unittest.mock` inspected signatures in
+`annotationlib.Format.VALUE` mode, which eagerly evaluates annotations
+naming `TYPE_CHECKING`-only types and raises a bare `NameError` from
+inside recorder. CPython fixed it by passing `Format.FORWARDREF`
+(`Lib/unittest/mock.py`, `_get_signature_object`); 3.14.3 does not have
+that call and 3.14.4 does. Hence the `>=3.14.4` floor in
+`pyproject.toml` rather than a workaround in here.
+
   5. Set pytest-asyncio's `asyncio_mode = "auto"` so `async def
      test_...` functions are awaited automatically, matching pytest-
      homeassistant-custom-component's own convention.
@@ -35,76 +46,7 @@ be picked up by both), so scoping it here keeps the boundary clean.
 
 from __future__ import annotations
 
-import sys
-import types
-import unittest.mock
-
 import pytest
-
-
-class _ModuleShim(types.SimpleNamespace):
-    """Stand in for a module with a small number of attributes replaced.
-
-    Used instead of assigning to `inspect.signature` directly so the
-    override is confined to `unittest.mock` and does not change how the
-    rest of the process, including pytest itself, inspects signatures.
-    """
-
-    def __init__(self, module, **overrides):
-        super().__init__(**overrides)
-        self._module = module
-
-    def __getattr__(self, name):
-        return getattr(self._module, name)
-
-
-# ---------------------------------------------------------------------------
-# Python 3.14 / PEP 649 shim, needed before `recorder_mock` can run.
-#
-# Home Assistant's recorder code annotates functions with names imported
-# only under `TYPE_CHECKING`, so those names do not exist at runtime.
-# Under PEP 649 that is fine, because annotations are lazy, until
-# something inspects them in `Format.VALUE` mode, which evaluates
-# eagerly. `recorder_mock` patches several recorder functions with
-# `autospec=True`, and `create_autospec` routes through
-# `unittest.mock._get_signature_object` -> `inspect.signature`, whose
-# `annotation_format` still defaults to `Format.VALUE`. Every test in
-# this directory then errors at setup with a bare `NameError` naming a
-# type, for example `Recorder` from `recorder/migration.py:319` or
-# `Session` from `helpers/recorder.py:75`.
-#
-# Patching each name individually is whack-a-mole: the two above were
-# found one after the other, and there is no reason to think they are
-# the last. `mock` does not use the annotations for anything, it only
-# wants the parameter list, so asking for `Format.FORWARDREF` gives it
-# exactly what it needs and leaves unresolvable names as `ForwardRef`
-# placeholders instead of raising. This is the same fix Django applied
-# for the same pattern (https://code.djangoproject.com/ticket/36903).
-#
-# Scoped to `unittest.mock` on purpose, and only on 3.14+. Verified
-# against homeassistant 2026.8.3 on CPython 3.14.3. This is an upstream
-# defect rather than a Nimbus one: it hits any custom integration that
-# declares recorder as a manifest dependency and uses `recorder_mock` on
-# 3.14. Remove once pytest-homeassistant-custom-component or core fixes
-# it upstream.
-if sys.version_info >= (3, 14):
-    import annotationlib
-
-    _mock_signature = unittest.mock.inspect.signature
-
-    def _signature_allowing_forward_refs(obj, *args, **kwargs):
-        """Inspect a signature without evaluating its annotations."""
-        kwargs.setdefault("annotation_format", annotationlib.Format.FORWARDREF)
-        try:
-            return _mock_signature(obj, *args, **kwargs)
-        except TypeError:
-            # Builtins and C functions reject the keyword.
-            kwargs.pop("annotation_format", None)
-            return _mock_signature(obj, *args, **kwargs)
-
-    unittest.mock.inspect = _ModuleShim(  # type: ignore[assignment]
-        unittest.mock.inspect, signature=_signature_allowing_forward_refs
-    )
 
 
 def pytest_configure(config):
