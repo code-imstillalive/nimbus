@@ -2535,8 +2535,39 @@ def main() -> None:
             solar_uppers.append(np.array(up))
 
     if not solar_values:
-        msg = "No solar forecast source produced any real data this cycle -- cannot solve without at least one."
-        raise RuntimeError(msg)
+        # Real bug found live (nimbus repo issue #115, Mark Purcell, a
+        # real independent installer's own live health-check,
+        # 2026-08-24): this used to `raise RuntimeError`, refusing to
+        # solve AT ALL, ~470 times over an 8-hour overnight window on a
+        # real install -- every single one of his configured solar
+        # sources genuinely producing no data during the exact hours
+        # solar is expected to be zero anyway (sunset to sunrise). This
+        # is the WRONG failure mode for a condition that recurs every
+        # single night on every solar install: the solver going
+        # completely blind for hours (no re-optimisation against
+        # changing overnight prices, no recovery from an unrelated
+        # entity going unavailable until the next daylight cycle) is a
+        # much worse outcome than solving with a real, honest 0.0 kW
+        # solar placeholder -- exactly matching the flat-0.0-on-failure
+        # convention already established for load
+        # (read_load_forecast_sensor()'s own error path) and every
+        # other genuinely-optional input in this file. A loud WARNING
+        # (not a silent fallback) still fires so this is visible in the
+        # log, same as the load-forecast equivalent.
+        print(
+            "WARN: no solar forecast source produced any real data this "
+            "cycle (all configured sources unavailable, or none "
+            "configured) -- solving with a flat 0.0 kW solar placeholder "
+            "instead of refusing to solve. This is expected and harmless "
+            "overnight (0.0 kW solar overnight is the correct real value "
+            "regardless); if this fires during genuine daylight hours, "
+            "check that at least one solver_solar_forecast_sensor_*/"
+            "auto-include-known-solar source is configured and reachable.",
+            file=sys.stderr,
+        )
+        solar_values = [np.zeros(n_periods)]
+        solar_lowers = [np.zeros(n_periods)]
+        solar_uppers = [np.zeros(n_periods)]
 
     if len(solar_values) == 1:
         solar_kw = [float(v) for v in solar_values[0]]
