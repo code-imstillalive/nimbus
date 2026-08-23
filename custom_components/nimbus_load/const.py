@@ -103,6 +103,24 @@ CONF_BATTERY_TOWER_TEMPERATURE_SENSOR: Final = "battery_tower_temperature_sensor
 CONF_BATTERY_TOWER_POWER_SOURCE: Final = "battery_tower_power_source"
 
 CONF_LOAD_SENSOR: Final = "load_sensor"
+# Power Signal role (2026-08-23) -- explicit, not inferred from naming.
+# Real live check against this household's own Power Signals found
+# "Logger Battery power" (contains "battery", would've matched a naive
+# keyword guess) alongside "Combined Total DC Power" (the real Solar
+# signal -- no "solar" anywhere) and "Logger Meter total active power"
+# (the real Grid signal -- no "grid" anywhere) -- naming alone genuinely
+# cannot distinguish these, for this household or anyone else's. A
+# household picks the role ONCE when creating the Power Signal; the
+# topology card then auto-wires Grid/Battery power straight from
+# whichever Power Signal carries that role, same zero-config-file
+# mechanism loads already use, no Switchboard wizard field needed for
+# either. Optional, defaults to "other" -- every Power Signal that
+# isn't specifically Battery/Solar/Grid (most of them) needs no change.
+CONF_SIGNAL_ROLE: Final = "signal_role"
+SIGNAL_ROLE_OTHER: Final = "other"
+SIGNAL_ROLE_BATTERY: Final = "battery"
+SIGNAL_ROLE_SOLAR: Final = "solar"
+SIGNAL_ROLE_GRID: Final = "grid"
 CONF_TEMPERATURE_SENSOR: Final = "temperature_sensor"
 CONF_TEMPERATURE_FORECAST_SENSOR: Final = "temperature_forecast_sensor"
 CONF_HUMIDITY_SENSOR: Final = "humidity_sensor"
@@ -247,6 +265,7 @@ ATTR_VALIDATION_MASE: Final = "validation_mase"
 # reading this live attribute, rather than by hardcoding which specific
 # entity names belong to which category.
 ATTR_SUBENTRY_TYPE: Final = "subentry_type"
+ATTR_SIGNAL_ROLE: Final = "signal_role"
 
 # --- Solver configuration (2026-08-20) ---
 # Everything the Solver (custom_components/nimbus_load/solver/) needs to

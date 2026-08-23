@@ -34,11 +34,14 @@ from .const import (
     ATTR_FORECAST,
     ATTR_MODE,
     ATTR_MODEL_TRAINED_AT,
+    ATTR_SIGNAL_ROLE,
     ATTR_SUBENTRY_TYPE,
     ATTR_TRAINING_POINTS,
     ATTR_VALIDATION_MAE,
     ATTR_VALIDATION_MASE,
     CONF_LOAD_SENSOR,
+    CONF_SIGNAL_ROLE,
+    SIGNAL_ROLE_OTHER,
     CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
     CONF_SOLVER_BATTERY_CAPACITY_KWH,
     CONF_SOLVER_BATTERY_MAX_SOC_PERCENT,
@@ -402,6 +405,14 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
         # attribute at runtime, not by hardcoding entity names. Same
         # design principle already applied to ATTR_MODE.
         self._subentry_type = subentry.subentry_type
+        # Explicit role (2026-08-23, see const.py's CONF_SIGNAL_ROLE for
+        # the full "why not inferred from naming" reasoning) -- exposed
+        # as a live attribute the same way subentry_type already is, so
+        # the topology dashboard card can auto-discover "which power
+        # signal is Grid/Battery/Solar" directly from hass.states, zero
+        # config file needed. Meaningless-but-harmless on a load
+        # subentry (never has this field set, defaults to "other").
+        self._signal_role = subentry.data.get(CONF_SIGNAL_ROLE, SIGNAL_ROLE_OTHER)
         # Silver `entity-unavailable` (2026-08-22, real Mark Purcell audit
         # finding, confirmed correct against this module's own docstring
         # goal above -- "independently able to show unavailable if that
@@ -502,6 +513,7 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
             ATTR_VALIDATION_MAE: data.get("validation_mae", {}),
             ATTR_VALIDATION_MASE: data.get("validation_mase", {}),
             ATTR_SUBENTRY_TYPE: self._subentry_type,
+            ATTR_SIGNAL_ROLE: self._signal_role,
         }
 
 

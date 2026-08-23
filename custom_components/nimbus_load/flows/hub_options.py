@@ -57,10 +57,8 @@ from ..const import (
     CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR,
     CONF_SWITCHBOARD_BATTERY_CHARGE_DAILY_SENSOR,
     CONF_SWITCHBOARD_BATTERY_DISCHARGE_DAILY_SENSOR,
-    CONF_SWITCHBOARD_BATTERY_POWER_SENSOR,
     CONF_SWITCHBOARD_EXPORT_ENERGY_DAILY_SENSOR,
     CONF_SWITCHBOARD_EXPORT_PRICE_SENSOR,
-    CONF_SWITCHBOARD_GRID_METER_SENSOR,
     CONF_SWITCHBOARD_HOUSE_LOAD_ENERGY_DAILY_SENSOR,
     CONF_SWITCHBOARD_IMPORT_ENERGY_DAILY_SENSOR,
     CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR,
@@ -393,37 +391,23 @@ async def _energy_dashboard_switchboard_suggestions(hass: Any) -> dict[str, str]
     return suggestions
 
 
-def _switchboard_schema(defaults: dict[str, Any]) -> vol.Schema:
-    """Every field genuinely Optional -- the topology dashboard card's
-    own top-of-diagram sensors (2026-08-23, direct household ask: "i do
-    want my stuff ot work via wizard, and not ot be hard wired... topology
-    card must also follow suit"). description={"suggested_value": ...},
-    not default=, on every field -- same already-fixed reasoning as
-    async_step_forecaster's own top-of-function comment (a genuinely
-    cleared field must actually stay cleared, not silently reappear next
-    time this form opens)."""
-    schema_dict: dict[Any, Any] = {}
-    for key in (
-        CONF_SWITCHBOARD_GRID_METER_SENSOR,
-        CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR,
-        CONF_SWITCHBOARD_EXPORT_PRICE_SENSOR,
-        CONF_SWITCHBOARD_BATTERY_POWER_SENSOR,
-        CONF_SWITCHBOARD_IMPORT_ENERGY_DAILY_SENSOR,
-        CONF_SWITCHBOARD_EXPORT_ENERGY_DAILY_SENSOR,
-        CONF_SWITCHBOARD_HOUSE_LOAD_ENERGY_DAILY_SENSOR,
-        CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR,
-        CONF_SWITCHBOARD_BATTERY_CHARGE_DAILY_SENSOR,
-        CONF_SWITCHBOARD_BATTERY_DISCHARGE_DAILY_SENSOR,
-    ):
-        schema_dict[vol.Optional(key, description={"suggested_value": defaults.get(key)})] = _entity()
-    return vol.Schema(schema_dict)
-
-
+# 2026-08-23, direct Mark Purcell critique of the original single
+# 10-field form ("Complex too many entities... if it's optional don't
+# show it") plus the household's own sharper follow-up ("nimbus
+# entities should be auto detected by topo card and only the daily
+# summaries should be a part of a wizard"): grid_meter and
+# battery_power are GONE from this form entirely, not just moved to a
+# later step -- topology-card-v4.js now auto-discovers both directly
+# from whichever Power Signal subentry carries CONF_SIGNAL_ROLE
+# "grid"/"battery" (see const.py's own comment on CONF_SIGNAL_ROLE for
+# why role has to be explicit, not guessed from naming). What's left
+# here is genuinely everything Nimbus has no equivalent for: prices,
+# and the 6 daily-kWh accumulator totals -- a household that wants
+# none of it can submit this form completely blank and the diagram
+# still works off the auto-detected Grid/Battery/Loads alone.
 _SWITCHBOARD_SCHEMA_KEYS = (
-    CONF_SWITCHBOARD_GRID_METER_SENSOR,
     CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR,
     CONF_SWITCHBOARD_EXPORT_PRICE_SENSOR,
-    CONF_SWITCHBOARD_BATTERY_POWER_SENSOR,
     CONF_SWITCHBOARD_IMPORT_ENERGY_DAILY_SENSOR,
     CONF_SWITCHBOARD_EXPORT_ENERGY_DAILY_SENSOR,
     CONF_SWITCHBOARD_HOUSE_LOAD_ENERGY_DAILY_SENSOR,
@@ -431,6 +415,17 @@ _SWITCHBOARD_SCHEMA_KEYS = (
     CONF_SWITCHBOARD_BATTERY_CHARGE_DAILY_SENSOR,
     CONF_SWITCHBOARD_BATTERY_DISCHARGE_DAILY_SENSOR,
 )
+
+
+def _switchboard_schema(defaults: dict[str, Any]) -> vol.Schema:
+    """Everything the topology card can show beyond the auto-detected
+    Grid/Battery/Loads: prices and the 6 daily-kWh headline stats.
+    Every field genuinely optional -- submitting this form completely
+    blank is a valid, working configuration."""
+    schema_dict: dict[Any, Any] = {}
+    for key in _SWITCHBOARD_SCHEMA_KEYS:
+        schema_dict[vol.Optional(key, description={"suggested_value": defaults.get(key)})] = _entity()
+    return vol.Schema(schema_dict)
 
 
 # Explicit key lists for the "always take from this submission, never
@@ -533,11 +528,15 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
     async def async_step_switchboard(
         self, user_input: dict[str, Any] | None = None
     ) -> Any:
-        """Single-step form, same one-shot save shape as
-        async_step_forecaster above (not a multi-step chain like the
-        Solver wizard -- 10 genuinely independent fields, no reason to
-        split across screens). Same explicit-key merge discipline as
-        every other options-flow save in this file."""
+        """Everything the topology card can show beyond what's now
+        auto-detected (Grid/Battery power via Power Signal role, every
+        Load) -- prices and the 6 daily-kWh headline stats, the only
+        things left with no Nimbus equivalent. Every field genuinely
+        optional; submitting this blank is a completely valid
+        configuration (the diagram still works off auto-detection
+        alone). Same explicit-key merge discipline as every other
+        options-flow save in this file -- see async_step_forecaster's
+        own comment for why that matters."""
         if user_input is not None:
             merged = dict(self.config_entry.options)
             for key in _SWITCHBOARD_SCHEMA_KEYS:

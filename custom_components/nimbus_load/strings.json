@@ -17,7 +17,7 @@
         "menu_options": {
           "forecaster": "Forecaster settings (shared sensors + tuning for every load/signal)",
           "solver_battery": "Solver settings (your real battery/grid/solar setup, for dispatch planning)",
-          "switchboard": "Topology diagram settings (grid meter, prices, daily kWh -- for the dashboard card)"
+          "switchboard": "Topology diagram settings (grid meter to start -- prices/daily kWh optional, next screen)"
         }
       },
       "forecaster": {
@@ -63,12 +63,10 @@
       },
       "switchboard": {
         "title": "Topology diagram: Switchboard",
-        "description": "Every field is optional -- the topology dashboard card shows whichever rows you fill in and skips the rest. None of this affects Solver dispatch planning, it's purely for the diagram.",
+        "description": "Grid power, battery power, and every Load are auto-detected -- nothing to configure here for those. Every field below is optional and covers only what Nimbus has no equivalent for: current prices and the 6 daily-kWh headline stats. Leave anything blank and submit; the diagram works fine without it, add more anytime.",
         "data": {
-          "switchboard_grid_meter_sensor": "Grid meter power sensor (real, uncapped meter -- not a plan/forecast entity)",
           "switchboard_import_price_sensor": "Current buy (import) price sensor",
           "switchboard_export_price_sensor": "Current sell (export) price sensor",
-          "switchboard_battery_power_sensor": "Switchboard-level battery power sensor (signed: + = discharging, - = charging)",
           "switchboard_import_energy_daily_sensor": "Import energy today (kWh)",
           "switchboard_export_energy_daily_sensor": "Export energy today (kWh)",
           "switchboard_house_load_energy_daily_sensor": "House load energy today (kWh)",
@@ -109,7 +107,8 @@
           "title": "Add a power signal",
           "description": "Forecast a real power signal directly -- Battery, Solar, Grid, or anything else -- as its own genuine target, using the same forecasting engine as a load. Pick a real MEASURED sensor, never an optimizer's own plan/forecast entity.",
           "data": {
-            "load_sensor": "Power sensor to forecast"
+            "load_sensor": "Power sensor to forecast",
+            "signal_role": "Role (optional -- pick Battery/Solar/Grid so the topology dashboard card can auto-wire this signal; leave as Other for anything else)"
           }
         }
       }
@@ -171,6 +170,16 @@
             "battery_tower_power_source": "Power Source this tower belongs to (optional)"
           }
         }
+      }
+    }
+  },
+  "selector": {
+    "signal_role": {
+      "options": {
+        "other": "Other",
+        "battery": "Battery",
+        "solar": "Solar",
+        "grid": "Grid"
       }
     }
   }

@@ -22,7 +22,14 @@ from _ha_stubs import install_ha_stubs  # noqa: E402
 install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from custom_components.nimbus_load.const import CONF_LOAD_SENSOR  # noqa: E402
+from custom_components.nimbus_load.const import (  # noqa: E402
+    CONF_LOAD_SENSOR,
+    CONF_SIGNAL_ROLE,
+    SIGNAL_ROLE_BATTERY,
+    SIGNAL_ROLE_GRID,
+    SIGNAL_ROLE_OTHER,
+    SIGNAL_ROLE_SOLAR,
+)
 from custom_components.nimbus_load.flows.signal_subentry import (  # noqa: E402
     NimbusSignalSubentryFlowHandler,
 )
@@ -85,6 +92,53 @@ def test_reconfigure_with_no_input_prefills_form_from_existing_data():
     assert result["type"] == "form"
     marker = next(k for k in result["data_schema"].schema if k == CONF_LOAD_SENSOR)
     assert marker.default() == "sensor.existing_solar"
+
+
+def test_fresh_form_defaults_role_to_other():
+    # 2026-08-23: the role field can never be genuinely blank (unlike an
+    # EntitySelector, "other" is always a valid choice) -- confirms the
+    # schema's own default= actually resolves to "other" on a brand new
+    # signal, not left unset.
+    flow = _make_flow(source="user")
+    result = asyncio.run(flow.async_step_user(None))
+    marker = next(k for k in result["data_schema"].schema if k == CONF_SIGNAL_ROLE)
+    assert marker.default() == SIGNAL_ROLE_OTHER
+
+
+def test_role_is_preserved_through_a_real_submission():
+    flow = _make_flow(source="user")
+    flow.hass.states.get.return_value = None
+    result = asyncio.run(
+        flow.async_step_user(
+            {CONF_LOAD_SENSOR: "sensor.grid_meter", CONF_SIGNAL_ROLE: SIGNAL_ROLE_GRID}
+        )
+    )
+    assert result["type"] == "create_entry"
+    assert result["data"][CONF_SIGNAL_ROLE] == SIGNAL_ROLE_GRID
+
+
+def test_reconfigure_prefills_role_from_existing_data_not_reset_to_other():
+    flow = _make_flow(source="reconfigure")
+    fake_subentry = MagicMock(
+        data={CONF_LOAD_SENSOR: "sensor.battery_power", CONF_SIGNAL_ROLE: SIGNAL_ROLE_BATTERY}
+    )
+    flow._get_reconfigure_subentry = MagicMock(return_value=fake_subentry)
+    result = asyncio.run(flow.async_step_user(None))
+    marker = next(k for k in result["data_schema"].schema if k == CONF_SIGNAL_ROLE)
+    assert marker.default() == SIGNAL_ROLE_BATTERY
+
+
+def test_role_selector_offers_all_four_real_options():
+    flow = _make_flow(source="user")
+    result = asyncio.run(flow.async_step_user(None))
+    marker = next(k for k in result["data_schema"].schema if k == CONF_SIGNAL_ROLE)
+    selector_instance = result["data_schema"].schema[marker]
+    assert selector_instance.config["options"] == [
+        SIGNAL_ROLE_OTHER,
+        SIGNAL_ROLE_BATTERY,
+        SIGNAL_ROLE_SOLAR,
+        SIGNAL_ROLE_GRID,
+    ]
 
 
 def test_step_reconfigure_alias_delegates_to_step_user():

@@ -164,6 +164,16 @@ def _generic_stub_class(name: str) -> type:
     restore-state-loading internals are exactly the black box a test here
     shouldn't need to know about, only the entity's own logic that runs
     around it.
+
+    A permissive __init__ (2026-08-23, real crash found testing
+    NimbusForecastSensor directly): a real entity's own __init__ calling
+    `super().__init__(coordinator)` -- CoordinatorEntity's real
+    contract -- walks the MRO to whichever stub base actually defines
+    __init__, and with none of them overriding it, that resolved to
+    plain object.__init__, which raises TypeError on any extra
+    positional/keyword arg. A no-op *args/**kwargs sink is the correct
+    stand-in for the same reason async_added_to_hass above is a no-op,
+    not a reimplementation of the real base class's own bookkeeping.
     """
     return type(
         name,
@@ -171,8 +181,31 @@ def _generic_stub_class(name: str) -> type:
         {
             "__class_getitem__": classmethod(lambda cls, item: cls),
             "async_added_to_hass": _noop_async_added_to_hass,
+            "__init__": lambda self, *args, **kwargs: None,
         },
     )
+
+
+class _StubCoordinatorEntity:
+    """Dedicated (not the generic no-op factory above) -- real
+    CoordinatorEntity.__init__(self, coordinator) genuinely stores
+    self.coordinator, and several real entity classes' own properties
+    (e.g. NimbusForecastSensor.extra_state_attributes reading
+    self.coordinator.data) depend on that actually happening, not just
+    on construction not crashing. Found live 2026-08-23 constructing
+    NimbusForecastSensor directly for the first time in this test
+    suite's history -- every entity test before this one only ever
+    exercised bare SensorEntity/NumberEntity/SwitchEntity subclasses,
+    which never needed this."""
+
+    def __class_getitem__(cls, item):
+        return cls
+
+    def __init__(self, coordinator, *args, **kwargs) -> None:
+        self.coordinator = coordinator
+
+    async def async_added_to_hass(self) -> None:
+        pass
 
 
 def install_ha_stubs() -> None:
@@ -331,7 +364,7 @@ def install_ha_stubs() -> None:
     module(
         "homeassistant.helpers.update_coordinator",
         DataUpdateCoordinator=_generic_stub_class("DataUpdateCoordinator"),
-        CoordinatorEntity=_generic_stub_class("CoordinatorEntity"),
+        CoordinatorEntity=_StubCoordinatorEntity,
     )
     module("homeassistant.loader", async_get_integration=MagicMock())
     module("homeassistant.util", dt=MagicMock())

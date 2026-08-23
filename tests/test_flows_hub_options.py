@@ -36,9 +36,9 @@ from custom_components.nimbus_load.const import (  # noqa: E402
     CONF_SWITCHBOARD_BATTERY_CHARGE_DAILY_SENSOR,
     CONF_SWITCHBOARD_BATTERY_DISCHARGE_DAILY_SENSOR,
     CONF_SWITCHBOARD_EXPORT_ENERGY_DAILY_SENSOR,
-    CONF_SWITCHBOARD_GRID_METER_SENSOR,
     CONF_SWITCHBOARD_HOUSE_LOAD_ENERGY_DAILY_SENSOR,
     CONF_SWITCHBOARD_IMPORT_ENERGY_DAILY_SENSOR,
+    CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR,
     CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR,
     CONF_TEMPERATURE_SENSOR,
 )
@@ -339,7 +339,7 @@ def test_solver_sources_step_save_never_blocked_by_a_failing_notification():
 
 
 def test_switchboard_step_no_input_shows_the_form():
-    flow = _make_flow(options={CONF_SWITCHBOARD_GRID_METER_SENSOR: "sensor.old"})
+    flow = _make_flow(options={CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR: "sensor.old"})
     import asyncio
     result = asyncio.run(flow.async_step_switchboard(None))
     assert result["type"] == "form"
@@ -348,36 +348,39 @@ def test_switchboard_step_no_input_shows_the_form():
 
 def test_switchboard_step_genuinely_cleared_field_stays_cleared():
     import asyncio
-    flow = _make_flow(options={CONF_SWITCHBOARD_GRID_METER_SENSOR: "sensor.old_stale_value"})
+    flow = _make_flow(options={CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR: "sensor.old_stale_value"})
     result = asyncio.run(flow.async_step_switchboard({}))
     assert result["type"] == "create_entry"
-    assert result["data"][CONF_SWITCHBOARD_GRID_METER_SENSOR] is None
+    assert result["data"][CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR] is None
 
 
 def test_switchboard_step_untouched_dashboard_value_is_preserved():
     import asyncio
     flow = _make_flow(options={"solver_battery_capacity_kwh": 122.2})
     result = asyncio.run(
-        flow.async_step_switchboard({CONF_SWITCHBOARD_GRID_METER_SENSOR: "sensor.new"})
+        flow.async_step_switchboard({CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR: "sensor.new"})
     )
     assert result["data"]["solver_battery_capacity_kwh"] == 122.2
 
 
 def test_switchboard_step_real_submitted_value_is_used():
     import asyncio
-    flow = _make_flow(options={CONF_SWITCHBOARD_GRID_METER_SENSOR: "sensor.old"})
+    flow = _make_flow(options={CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR: "sensor.old"})
     result = asyncio.run(
-        flow.async_step_switchboard({CONF_SWITCHBOARD_GRID_METER_SENSOR: "sensor.new"})
+        flow.async_step_switchboard({CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR: "sensor.new"})
     )
-    assert result["data"][CONF_SWITCHBOARD_GRID_METER_SENSOR] == "sensor.new"
+    assert result["data"][CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR] == "sensor.new"
 
 
 def test_switchboard_schema_every_field_is_optional():
     # Every field must be Optional -- a fresh install with none of this
     # filled in must still get a real diagram (see const.py's own
-    # comment above the CONF_SWITCHBOARD_* fields).
+    # comment above the CONF_SWITCHBOARD_* fields). 8, not 10 (2026-08-
+    # 23): grid_meter/battery_power are gone from this form entirely,
+    # auto-detected via Power Signal role instead -- see hub_options.py's
+    # own comment on _SWITCHBOARD_SCHEMA_KEYS.
     schema = _switchboard_schema({})
-    assert len(schema.schema) == 10
+    assert len(schema.schema) == 8
     for key in schema.schema:
         assert type(key).__name__ == "Optional"
 

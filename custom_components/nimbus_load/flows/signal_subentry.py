@@ -31,7 +31,14 @@ from homeassistant.config_entries import (
 from homeassistant.helpers import selector
 import voluptuous as vol
 
-from ..const import CONF_LOAD_SENSOR
+from ..const import (
+    CONF_LOAD_SENSOR,
+    CONF_SIGNAL_ROLE,
+    SIGNAL_ROLE_BATTERY,
+    SIGNAL_ROLE_GRID,
+    SIGNAL_ROLE_OTHER,
+    SIGNAL_ROLE_SOLAR,
+)
 
 
 class NimbusSignalSubentryFlowHandler(ConfigSubentryFlow):
@@ -83,7 +90,29 @@ class NimbusSignalSubentryFlowHandler(ConfigSubentryFlow):
                     CONF_LOAD_SENSOR, default=current_data.get(CONF_LOAD_SENSOR)
                 ): selector.EntitySelector(
                     selector.EntitySelectorConfig(domain="sensor")
-                )
+                ),
+                # Explicit role (2026-08-23) -- see const.py's own comment
+                # on CONF_SIGNAL_ROLE for why this can't be inferred from
+                # naming. default=, not suggested_value -- a SelectSelector
+                # with a real, always-valid default value is safe (unlike
+                # an EntitySelector, which needs the "genuinely clearable"
+                # suggested_value pattern -- this field can never be
+                # cleared to nothing, "other" always is a valid choice).
+                vol.Optional(
+                    CONF_SIGNAL_ROLE,
+                    default=current_data.get(CONF_SIGNAL_ROLE, SIGNAL_ROLE_OTHER),
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=[
+                            SIGNAL_ROLE_OTHER,
+                            SIGNAL_ROLE_BATTERY,
+                            SIGNAL_ROLE_SOLAR,
+                            SIGNAL_ROLE_GRID,
+                        ],
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                        translation_key="signal_role",
+                    )
+                ),
             }
         )
         return self.async_show_form(step_id="user", data_schema=schema)
