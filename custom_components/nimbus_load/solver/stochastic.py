@@ -307,7 +307,7 @@ def build_stochastic_plan(
             [soc[t] for t in t_range],
         )
 
-    stage1_range = range(0, stochastic_start_period)
+    stage1_range = range(stochastic_start_period)
     stage1_names = None
     if stochastic_start_period > 0:
         stage1_names = _add_period_vars_and_constraints(

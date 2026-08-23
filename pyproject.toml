@@ -145,3 +145,34 @@ extend-exclude = [
     "build",
     "dist",
 ]
+
+# 2026-08-23 (#72 Stage 1): ruff bumped 0.6.0 -> 0.16.4. The default
+# ruleset itself expanded meaningfully across those 10 minor releases --
+# 149 new findings on this tree, none present at 0.6.0. Stage 1's own
+# job was the mechanical, zero-behaviour-change auto-fixes (108 of them,
+# already applied+committed); everything below needs a real per-site
+# judgment call (narrow an except, decide if a naive datetime is
+# intentional, etc.), so #72's own staged plan works through each rule
+# FAMILY as its own reviewable PR (Stage 2: BLE001/DTZ001/S110/C408;
+# Stage 3: the 6 singleton rules) rather than one unreviewable dump.
+#
+# Ignored here ONLY as a temporary staging device so CI stays green
+# between Stage 1 landing and each Stage 2/3 PR clearing its own rule --
+# every entry below is removed the moment its own PR lands, not kept
+# permanently. Do not add a new rule to this list for any reason other
+# than "it's a real #72 Stage 2/3 item queued for its own PR."
+[tool.ruff.lint]
+ignore = [
+    "BLE001", # blind-except (28) -- Stage 2, first up per #72's own priority order
+    "DTZ001", # call-datetime-without-tzinfo (8) -- Stage 2
+    "S110",   # try-except-pass (3) -- Stage 2
+    "C408",   # unnecessary-collection-call (12) -- Stage 2
+    "EXE001",  # shebang-not-executable (1) -- Stage 3
+    "FURB162", # fromisoformat-replace-z (1) -- Stage 3
+    "PLW1510", # subprocess-run-without-check (1) -- Stage 3
+    "RUF012",  # mutable-class-default (1) -- Stage 3
+    "SIM103",  # needless-bool (1) -- Stage 3
+    "RUF059",  # unused-unpacked-variable (2) -- not in #72's original scope
+    # (a newer rule than the issue's own audit date), same Stage 3
+    # treatment: real finding, needs its own look, not blindly fixed.
+]

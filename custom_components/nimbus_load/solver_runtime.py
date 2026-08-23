@@ -131,7 +131,9 @@ def _ensure_ready(hass: HomeAssistant):
         "NIMBUS_SOLVER_LOAD_ERROR_NOTIFIED_PATH",
         hass.config.path("nimbus_solver_load_forecast_error.txt"),
     )
-    from . import solver_writer as _sw  # noqa: PLC0415 -- deliberately deferred, see above
+    from . import (
+        solver_writer as _sw,
+    )
 
     _sw.set_native_hass(hass)
     _solver_writer = _sw
@@ -228,7 +230,7 @@ async def async_run_solve(hass: HomeAssistant) -> bool:
             # wizard's been run, not a real error.
             _LOGGER.warning("Nimbus Solver: %s", e)
             return False
-        except Exception:  # noqa: BLE001 -- a bad solve cycle must never crash the timer loop
+        except Exception:
             _LOGGER.exception("Nimbus Solver: solve cycle failed")
             return False
         finally:

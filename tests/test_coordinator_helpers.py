@@ -17,18 +17,18 @@ set on it, nothing else.
 from __future__ import annotations
 
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from unittest.mock import MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ha_stubs import install_ha_stubs  # noqa: E402
+from _ha_stubs import install_ha_stubs
 
 install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from custom_components.nimbus_load.const import CONF_HUMIDITY_SENSOR  # noqa: E402
-from custom_components.nimbus_load.coordinator import (  # noqa: E402
+from custom_components.nimbus_load.const import CONF_HUMIDITY_SENSOR
+from custom_components.nimbus_load.coordinator import (
     DEFAULT_FALLBACK_HUMIDITY_PCT,
     NimbusCoordinator,
     _nearest_temp,
@@ -36,7 +36,7 @@ from custom_components.nimbus_load.coordinator import (  # noqa: E402
     _step_lookup,
 )
 
-_T0 = datetime(2026, 8, 22, 12, 0, 0, tzinfo=timezone.utc)
+_T0 = datetime(2026, 8, 22, 12, 0, 0, tzinfo=UTC)
 
 
 def _make_bare_coordinator() -> NimbusCoordinator:

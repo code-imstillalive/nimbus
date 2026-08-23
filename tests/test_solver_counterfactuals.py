@@ -13,14 +13,12 @@ from pathlib import Path
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import _solver_path  # noqa: E402, F401  -- side-effect: puts solver/ + ml/ on sys.path
-
-from solver.counterfactuals import (  # noqa: E402
+import _solver_path  # noqa: F401  -- side-effect: puts solver/ + ml/ on sys.path
+from solver.counterfactuals import (
     no_control_dispatch,
     tune_two_threshold,
     two_threshold_dispatch,
 )
-
 
 # --- no_control_dispatch ----------------------------------------------------
 

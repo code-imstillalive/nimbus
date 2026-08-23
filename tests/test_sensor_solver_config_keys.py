@@ -29,17 +29,19 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from _ha_stubs import install_ha_stubs  # noqa: E402
+from _ha_stubs import install_ha_stubs
 
 install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from custom_components.nimbus_load import sensor  # noqa: E402
-from custom_components.nimbus_load.const import (  # noqa: E402
+from custom_components.nimbus_load import sensor
+from custom_components.nimbus_load.const import (
     CONF_SOLVER_LOAD_FORECAST_ENTITIES,
     CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR,
 )
-from custom_components.nimbus_load.flows.hub_options import _SOLVER_WIZARD_SCHEMA_KEYS  # noqa: E402
+from custom_components.nimbus_load.flows.hub_options import (
+    _SOLVER_WIZARD_SCHEMA_KEYS,
+)
 
 
 def test_every_wizard_saveable_key_is_exposed_by_the_bridge_sensor():

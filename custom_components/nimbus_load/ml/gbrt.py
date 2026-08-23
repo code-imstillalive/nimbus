@@ -46,8 +46,8 @@ import numpy as np
 class _TreeNode:
     feature: int | None = None
     threshold: float | None = None
-    left: "_TreeNode | None" = None
-    right: "_TreeNode | None" = None
+    left: _TreeNode | None = None
+    right: _TreeNode | None = None
     value: float | None = None
 
     def is_leaf(self) -> bool:
@@ -178,7 +178,7 @@ class GBRT:
         x_val: np.ndarray | None = None,
         y_val: np.ndarray | None = None,
         early_stopping_rounds: int | None = None,
-    ) -> "GBRT":
+    ) -> GBRT:
         """x_val/y_val/early_stopping_rounds are all-or-nothing: pass all
         three to enable stopping once validation error hasn't improved
         for `early_stopping_rounds` consecutive boosting rounds (the

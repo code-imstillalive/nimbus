@@ -23,15 +23,14 @@ import numpy as np
 import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-import _solver_path  # noqa: E402, F401  -- side-effect: puts solver/ + ml/ on sys.path
-
-from solver.elements import PeriodGrid  # noqa: E402
-from solver.modes import (  # noqa: E402
+import _solver_path  # noqa: F401  -- side-effect: puts solver/ + ml/ on sys.path
+from solver.elements import PeriodGrid
+from solver.modes import (
     ShadowModeReading,
     shadow_modes_for_plan,
     summarize_mode_transitions,
 )
-from solver.network import Plan  # noqa: E402
+from solver.network import Plan
 
 
 def _plan(

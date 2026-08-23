@@ -15,16 +15,15 @@ never directly on the event loop.
 
 from __future__ import annotations
 
-from bisect import bisect_right
-from datetime import datetime, timedelta
 import json
 import logging
 import pickle
+from bisect import bisect_right
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
 import numpy as np
-
 from homeassistant.components.recorder import get_instance
 from homeassistant.components.recorder.history import get_significant_states
 from homeassistant.config_entries import ConfigEntry, ConfigSubentry
@@ -912,7 +911,7 @@ def _train_model_job(
     )
 
 
-def _parse_time_to_hour(value: str | float | int | None) -> float | None:
+def _parse_time_to_hour(value: str | float | None) -> float | None:
     """Convert a stored schedule value into a decimal hour, e.g.
     "12:30:00" -> 12.5 -- the form ml/features.py's in_schedule
     comparison expects. Returns None for an unset field.

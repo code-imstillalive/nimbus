@@ -34,9 +34,9 @@ from __future__ import annotations
 
 from typing import Any
 
+import voluptuous as vol
 from homeassistant.config_entries import OptionsFlowWithConfigEntry
 from homeassistant.helpers import selector
-import voluptuous as vol
 
 from ..const import (
     CONF_BATTERY_SENSOR,
@@ -397,7 +397,7 @@ async def _energy_dashboard_switchboard_suggestions(hass: Any) -> dict[str, str]
                     suggestions.setdefault(
                         CONF_SWITCHBOARD_BATTERY_CHARGE_DAILY_SENSOR, charge_candidate
                     )
-    except Exception:  # noqa: BLE001 -- see docstring: must never break the wizard
+    except Exception:  # BLE001 ignored globally (see #72 Stage 2) -- see docstring: must never break the wizard
         return {}
     return suggestions
 
@@ -619,7 +619,7 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
                     "dismiss",
                     {"notification_id": "nimbus_setup_incomplete"},
                 )
-            except Exception:  # noqa: BLE001
+            except Exception:  # BLE001 ignored globally (see #72 Stage 2)
                 pass
             return self.async_create_entry(title="", data=merged)
         return self.async_show_form(

@@ -120,10 +120,10 @@ class NimbusSolverSwitch(SwitchEntity, RestoreEntity):
         if isinstance(seeded, bool):
             self._attr_is_on = seeded
 
-    async def async_turn_on(self, **kwargs) -> None:  # noqa: ARG002
+    async def async_turn_on(self, **kwargs) -> None:
         self._attr_is_on = True
         self.async_write_ha_state()
 
-    async def async_turn_off(self, **kwargs) -> None:  # noqa: ARG002
+    async def async_turn_off(self, **kwargs) -> None:
         self._attr_is_on = False
         self.async_write_ha_state()
