@@ -96,24 +96,46 @@ _solver_writer = None
 _import_error_notified = False
 
 
-def _ensure_ready(hass: HomeAssistant):
-    global _solver_writer
-    if _solver_writer is not None:
-        return _solver_writer
+def set_default_env_vars(hass: HomeAssistant) -> None:
+    """The env vars solver_writer.py's own module-level code needs
+    ALREADY set, correctly, before it is EVER imported anywhere in this
+    package -- pure os.environ.setdefault()/hass.config.path() calls,
+    no disk I/O, no solver_writer import, safe to call from the event
+    loop (see the two real call sites: sensor.py's async_setup_entry,
+    which genuinely does run on the event loop, and _ensure_ready()
+    below, which is deliberately called from a worker thread for
+    OTHER reasons -- see that function's own docstring).
+
+    Real bug found live (nimbus issue #89, Mark Purcell, 2026-08-23):
+    this used to be inlined ONLY inside _ensure_ready() below, which
+    is called ONLY from solver_runtime.async_run_solve()'s own worker
+    thread. sensor.py's async_setup_entry does its OWN, separate,
+    direct `from . import solver_writer` (to reach
+    register_entity_handler() -- see that file's own comment) --
+    which, on a fresh HA start, is genuinely the FIRST import of
+    solver_writer.py in the whole process, happening well before
+    async_run_solve() is ever scheduled. At that point none of these
+    four env vars had been set yet, so solver_writer.py's own
+    module-level `sys.path.insert(0, os.environ.get("NIMBUS_SOLVER_
+    PATH", <this household's own hardcoded NUC path>))` fell straight
+    through to that hardcoded default -- which doesn't exist on any
+    install except this one -- and the subsequent bare `from ml.blend
+    import ...` / `from solver import ...` crashed with
+    ModuleNotFoundError on literally every restart, on Mark's own
+    real HACS install. Since Python only executes a module's
+    top-level code on its FIRST import (later `from . import
+    solver_writer` calls, e.g. from _ensure_ready() below, just
+    return the already-cached module object), a crash here isn't a
+    "one bad cycle, try again next tick" failure -- it's permanent
+    for the life of the process, and the same is true for the OTHER
+    three defaults (LOCK_PATH/PLAN_STATE_PATH/LOAD_FORECAST_ERROR_
+    NOTIFIED_PATH all baked in wrong too, even on an install where the
+    import happens not to crash) unless this runs before that very
+    first import, from EVERY call site that can trigger it, not just
+    one.
+    """
     import os
 
-    # Real bug caught before it ever shipped (2026-08-22): solver_writer.py
-    # is BYTE-IDENTICAL to the sibling standalone script, which means its
-    # own `sys.path.insert(0, os.environ.get("NIMBUS_SOLVER_PATH", ...))`
-    # line is ALSO still in here -- defaulting to THIS HOUSEHOLD's own
-    # hardcoded NUC path (/opt/homeassistant/config/nimbus_repo/
-    # custom_components/nimbus_load). Left unset, that would make
-    # solver_writer.py try to import its own `solver`/`ml` sibling
-    # packages from a path that doesn't exist on anyone else's system --
-    # wrong even though those exact packages are sitting right next to it
-    # RIGHT NOW. Point it at THIS file's own real, actual directory
-    # (wherever HACS/HA really installed nimbus_load -- Docker, Supervised,
-    # HAOS, doesn't matter) before the very first import.
     os.environ.setdefault(
         "NIMBUS_SOLVER_PATH", os.path.dirname(os.path.abspath(__file__))
     )
@@ -131,6 +153,14 @@ def _ensure_ready(hass: HomeAssistant):
         "NIMBUS_SOLVER_LOAD_ERROR_NOTIFIED_PATH",
         hass.config.path("nimbus_solver_load_forecast_error.txt"),
     )
+
+
+def _ensure_ready(hass: HomeAssistant):
+    global _solver_writer
+    if _solver_writer is not None:
+        return _solver_writer
+
+    set_default_env_vars(hass)
     from . import (
         solver_writer as _sw,
     )
