@@ -1,0 +1,5 @@
+[run]
+source_pkgs =
+source =
+    custom_components/nimbus_load
+relative_files = True

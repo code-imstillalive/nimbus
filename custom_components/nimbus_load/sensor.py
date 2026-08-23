@@ -16,6 +16,8 @@ goes bad), not folded into one combined device.
 from __future__ import annotations
 
 import logging
+import time
+from datetime import timedelta
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -27,6 +29,7 @@ from homeassistant.const import UnitOfPower
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.loader import async_get_integration
 
@@ -803,6 +806,45 @@ class _NimbusSolverPushSensor(SensorEntity):
         # HA restart before the first solve tick fires).
         self._state: float | None = None
         self._attrs: dict = {}
+        # Silver `entity-unavailable` (2026-08-23): the sibling
+        # NimbusForecastSensor already went through this exact fix
+        # (2026-08-22) for a different data path -- these two push
+        # sensors were the one place it was never applied, and they're
+        # exactly the shape of bug that rule exists for: a plain
+        # SensorEntity with no coordinator at all, no `available`
+        # override, so a Solver that stops solving (highspy import
+        # failure, an unhandled exception, the periodic timer somehow
+        # getting cancelled) leaves this entity confidently reporting
+        # its LAST successful plan forever, with nothing on screen
+        # distinguishing that from a fresh, genuinely-current one.
+        # `_last_updated` (monotonic, not wall-clock -- only elapsed
+        # time matters here, and monotonic sidesteps any clock-skew/DST
+        # edge case) is stamped on every real push; `available` below
+        # compares against it.
+        self._last_updated: float | None = None
+        self._was_available: bool | None = None
+
+    # Sized off __init__.py's own _SOLVER_INTERVAL (1 minute, the native
+    # in-process runtime's real cadence -- this entity class is only
+    # ever reached via that path, see the class docstring's own "only
+    # while _NATIVE_HASS is set" note). 5x gives real headroom for one
+    # or two slow/transient cycles (a genuinely busy host, a brief
+    # coordinator hiccup) without false-flagging, while still catching
+    # a truly stopped Solver well within a user-relevant window.
+    _STALE_AFTER_SECONDS = 5 * 60
+
+    @property
+    def available(self) -> bool:
+        """True before the first solve (a plain, honest "unknown" state
+        -- distinct from "unavailable", which specifically means "this
+        entity's data source is broken", not "hasn't started yet").
+        False once a real staleness threshold has passed since the last
+        successful push -- see _STALE_AFTER_SECONDS above."""
+        if self._state is None:
+            return True
+        if self._last_updated is None:
+            return True
+        return (time.monotonic() - self._last_updated) < self._STALE_AFTER_SECONDS
 
     @property
     def native_value(self) -> float | None:
@@ -828,8 +870,63 @@ class _NimbusSolverPushSensor(SensorEntity):
         """
         self._state = state
         self._attrs = attributes
+        self._last_updated = time.monotonic()
         if self.hass is not None:
             self.async_write_ha_state()
+
+    async def async_added_to_hass(self) -> None:
+        """Real, easy-to-miss correctness point behind the staleness
+        check above: HA's state machine is a cache -- `available`'s
+        return value only ever reaches `hass.states` (and Recorder
+        history) when something calls `async_write_ha_state()`.
+        `update_from_solver()` is the only such call site, and it's only
+        ever invoked BY a successful solve. If the Solver genuinely stops
+        solving (the exact failure this whole fix targets), nothing
+        would ever call `async_write_ha_state()` again, `available`
+        would never get a chance to be re-evaluated, and the entity
+        would keep showing its last cached state forever regardless of
+        what the property itself would now return -- the original bug,
+        completely un-fixed by the property alone. This periodic,
+        self-driven re-check (same interval as _STALE_AFTER_SECONDS'
+        own margin, /5, so a genuine staleness transition is caught
+        within roughly one fifth of its own threshold, not up to a
+        whole extra threshold late) exists purely to force that
+        re-evaluation on a schedule independent of whether the Solver is
+        still alive at all.
+
+        NimbusForecastSensor's own sibling fix doesn't need this because
+        it's a CoordinatorEntity -- the coordinator keeps re-polling on
+        its own schedule REGARDLESS of success/failure, and each attempt
+        already triggers a state re-write via _handle_coordinator_update.
+        This class has no coordinator, so it needs its own equivalent.
+        """
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_track_time_interval(
+                self.hass,
+                self._async_recheck_availability,
+                timedelta(seconds=self._STALE_AFTER_SECONDS / 5),
+            )
+        )
+
+    def _async_recheck_availability(self, now) -> None:
+        """Same Silver fix's log-when-unavailable pairing as
+        NimbusForecastSensor -- logs exactly once on a genuine
+        transition in either direction, never per-tick."""
+        now_available = self.available
+        if self._was_available is not None and now_available != self._was_available:
+            if now_available:
+                _LOGGER.info("Nimbus: %s is available again", self.entity_id)
+            else:
+                _LOGGER.warning(
+                    "Nimbus: %s has not received a fresh Solver plan in over "
+                    "%d seconds -- marking unavailable rather than continue "
+                    "showing a stale plan",
+                    self.entity_id,
+                    self._STALE_AFTER_SECONDS,
+                )
+        self._was_available = now_available
+        self.async_write_ha_state()
 
     async def async_will_remove_from_hass(self) -> None:
         """Symmetric partner to async_setup_entry's own
@@ -847,6 +944,9 @@ class _NimbusSolverPushSensor(SensorEntity):
         Same deferred-import reasoning as async_setup_entry above --
         this method only runs under real HA, where solver_writer's own
         `from solver import ...` sys.path setup has long since happened.
+        The periodic re-check timer registered above is cancelled
+        automatically via async_on_remove -- no explicit unsub needed
+        here.
         """
         from . import solver_writer
 

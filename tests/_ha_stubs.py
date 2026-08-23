@@ -23,6 +23,22 @@ async def _noop_async_added_to_hass(self) -> None:
     pass
 
 
+def _stub_async_on_remove(self, func) -> None:
+    """Real Entity.async_on_remove(func) contract: store func, call it
+    (in reverse-registration order, in the real base class) when the
+    entity is removed. Test code that needs to VERIFY cancellation just
+    reads self._on_remove_callbacks directly and invokes whichever entry
+    it wants -- no stub-level auto-invocation is provided, since no
+    current test needs the stub to simulate a real removal lifecycle,
+    only to observe that a real entity correctly registered its own
+    cleanup. Added 2026-08-23 alongside _NimbusSolverPushSensor's own
+    self-driven periodic re-check timer (Silver entity-unavailable) --
+    the first real code in this tree to call async_on_remove at all."""
+    if not hasattr(self, "_on_remove_callbacks"):
+        self._on_remove_callbacks = []
+    self._on_remove_callbacks.append(func)
+
+
 class _StubSelectorConfig(dict):
     """Real HA *SelectorConfig classes are typed dataclasses that also
     serialize like a dict -- a plain dict subclass captures everything a
@@ -181,6 +197,7 @@ def _generic_stub_class(name: str) -> type:
         {
             "__class_getitem__": classmethod(lambda cls, item: cls),
             "async_added_to_hass": _noop_async_added_to_hass,
+            "async_on_remove": _stub_async_on_remove,
             "__init__": lambda self, *args, **kwargs: None,
         },
     )
