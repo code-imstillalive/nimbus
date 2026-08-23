@@ -58,7 +58,6 @@ from _ha_stubs import install_ha_stubs
 install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from custom_components.nimbus_load import sensor
 from custom_components.nimbus_load.const import (
     CONF_SOLVER_BATTERY_CAPACITY_KWH,
     CONF_SOLVER_BATTERY_SOC_SENSOR,
@@ -72,6 +71,7 @@ from custom_components.nimbus_load.const import (
     CONF_SOLVER_SOLAR_FORECAST_SENSOR,
 )
 
+from custom_components.nimbus_load import sensor
 
 # --- helpers ---------------------------------------------------------------
 
@@ -160,9 +160,7 @@ def test_flap_native_value_is_unconfigured_while_number_entities_still_restoring
     entry = _entry_with_options(_fully_configured_options())
     instance = _construct_bridge_sensor(entry)
 
-    unrestored_states = {
-        eid: _unknown_state() for eid in _five_number_entity_ids()
-    }
+    unrestored_states = {eid: _unknown_state() for eid in _five_number_entity_ids()}
     hass = MagicMock()
     hass.states.get = lambda eid: unrestored_states.get(eid)
     instance.hass = hass
@@ -203,9 +201,7 @@ def test_flap_and_recovery_within_the_same_instance_is_directly_reproducible():
     instance = _construct_bridge_sensor(entry)
 
     # Moment T: number entities not yet restored.
-    state_registry = {
-        eid: _unknown_state() for eid in _five_number_entity_ids()
-    }
+    state_registry = {eid: _unknown_state() for eid in _five_number_entity_ids()}
     hass = MagicMock()
     hass.states.get = lambda eid: state_registry.get(eid)
     instance.hass = hass
@@ -231,9 +227,7 @@ def test_unresolved_required_keys_lists_exactly_the_number_entities_still_restor
     entry = _entry_with_options(_fully_configured_options())
     instance = _construct_bridge_sensor(entry)
 
-    unrestored_states = {
-        eid: _unknown_state() for eid in _five_number_entity_ids()
-    }
+    unrestored_states = {eid: _unknown_state() for eid in _five_number_entity_ids()}
     hass = MagicMock()
     hass.states.get = lambda eid: unrestored_states.get(eid)
     instance.hass = hass

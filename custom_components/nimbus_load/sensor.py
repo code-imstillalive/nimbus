@@ -670,11 +670,7 @@ class NimbusSolverConfigSensor(SensorEntity):
         _SOLVER_NUMBER_ENTITY_KEYS still restoring via RestoreEntity,
         never entry.options-backed (those are durable across restart).
         """
-        return [
-            k
-            for k in _SOLVER_REQUIRED_KEYS
-            if self._resolve(k) in (None, "")
-        ]
+        return [k for k in _SOLVER_REQUIRED_KEYS if self._resolve(k) in (None, "")]
 
     @property
     def native_value(self) -> str:
