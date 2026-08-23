@@ -218,8 +218,20 @@ ignore = [
     "S110",   # try-except-pass (3) -- Stage 2
     "C408",   # unnecessary-collection-call (12) -- Stage 2
     # Stage 3 (all 6 singleton rules) done, 2026-08-23, same pass:
-    #   EXE001 (shebang-not-executable) was already at 0 findings by the
-    #     time this was reached -- resolved elsewhere, nothing to fix.
+    #   EXE001 (shebang-not-executable): a real, live CI failure caught
+    #     the exact opposite of what local verification on Windows had
+    #     shown -- ruff's EXE001 check reads the real OS-level
+    #     executable bit, which Windows/Git-Bash can't meaningfully
+    #     represent, so a whole-repo `ruff check --select EXE001 .`
+    #     run locally silently false-negatived on all 3 real shebang'd
+    #     files (solver_writer.py + its two portable copies, all
+    #     tracked as mode 100644/non-executable in git despite the
+    #     shebang) -- CI's own Linux checkout materializes the real
+    #     git-tracked mode, which is what actually caught this. Fixed
+    #     for real via `git update-index --chmod=+x` on all 3 (matching
+    #     each file's own genuine `if __name__ == "__main__":` block --
+    #     these really are meant to be runnable standalone, not just
+    #     importable), not just the one CI verified.
     #   FURB162 (fromisoformat-replace-z): every real site (11 total,
     #     including 10 out-of-CI-scope ones in docs/real-world-
     #     integration/files/ not counted in #72's original 1-finding
