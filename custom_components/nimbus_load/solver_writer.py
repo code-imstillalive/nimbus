@@ -965,7 +965,7 @@ def parse_iso(s) -> datetime:
         # the off chance it's naive, matching what a bare "...Z"-suffixed
         # string would have meant on the REST-mode path above.
         return s if s.tzinfo is not None else s.replace(tzinfo=UTC)
-    return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    return datetime.fromisoformat(s)
 
 
 def fetch_load_forecast_safe(entity_id: str) -> list[dict]:

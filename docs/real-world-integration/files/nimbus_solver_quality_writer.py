@@ -229,7 +229,11 @@ def fetch_real_p2p_rates_for_day(target_date, grid_times: list[datetime]) -> lis
         r = subprocess.run(
             ["curl", "-s", "-H", f"Authorization: {key}", "-H", f"partner: {partner}",
              "-H", "User-Agent: Home Assistant", url],
-            capture_output=True, text=True, timeout=30,
+            # check=True: the except clause right below already explicitly
+            # names subprocess.SubprocessError -- without check=True that
+            # branch was dead code, a failed curl would silently succeed
+            # with empty/garbage stdout instead of being caught here.
+            capture_output=True, text=True, timeout=30, check=True,
         )
         raw = json.loads(r.stdout)
     except (subprocess.SubprocessError, json.JSONDecodeError, OSError) as e:
@@ -257,7 +261,7 @@ def fetch_real_p2p_rates_for_day(target_date, grid_times: list[datetime]) -> lis
             # (a separate, correctly-field-named mechanism) had the real
             # 2026-08-20 data the whole time -- this function's own
             # independent fetch just never actually found it.
-            end_t = datetime.fromisoformat(p["intervalEnd"].replace("Z", "+00:00")).astimezone(BRISBANE_TZ)
+            end_t = datetime.fromisoformat(p["intervalEnd"]).astimezone(BRISBANE_TZ)
             start_t = end_t - timedelta(minutes=5)
             vol = float(p.get("volume") or 0.0)
             prop = float(p.get("proportionP2P") or 0.0)
@@ -313,7 +317,7 @@ def ha_post_state(entity_id: str, state, attributes: dict) -> None:
 
 
 def parse_iso(s: str) -> datetime:
-    return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    return datetime.fromisoformat(s)
 
 
 def num(entity_id: str) -> float:

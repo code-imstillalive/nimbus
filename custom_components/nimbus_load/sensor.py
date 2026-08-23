@@ -539,9 +539,9 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
         if self.coordinator.data is None:
             return False
         source_state = self.hass.states.get(self._source_sensor)
-        if source_state is None or source_state.state in ("unavailable", "unknown"):
-            return False
-        return True
+        return not (
+            source_state is None or source_state.state in ("unavailable", "unknown")
+        )
 
     def _handle_coordinator_update(self) -> None:
         """Same Silver fix's log-when-unavailable pairing -- logs exactly

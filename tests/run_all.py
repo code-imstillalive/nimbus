@@ -94,7 +94,9 @@ def main() -> int:
     bare_total, bare_ok = 0, 0
     bare_failed_files = []
     for f in bare_function_files:
-        proc = subprocess.run([sys.executable, f], capture_output=True, text=True)
+        proc = subprocess.run(
+            [sys.executable, f], capture_output=True, text=True, check=False
+        )
         last_line = (
             proc.stdout.strip().splitlines()[-1]
             if proc.stdout.strip()

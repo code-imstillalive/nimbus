@@ -111,7 +111,7 @@ def num(entity_id: str) -> float:
 
 
 def parse_iso(s: str) -> datetime:
-    return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    return datetime.fromisoformat(s)
 
 
 def network_energy_rate(hour: int) -> float:

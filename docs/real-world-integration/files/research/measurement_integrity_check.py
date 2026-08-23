@@ -89,7 +89,7 @@ def fetch_history_range(entity_id: str, start: datetime, end: datetime) -> list[
             v = float(p["state"])
         except (ValueError, KeyError):
             continue
-        t = datetime.fromisoformat(p["last_changed"].replace("Z", "+00:00")).astimezone(BRISBANE_TZ)
+        t = datetime.fromisoformat(p["last_changed"]).astimezone(BRISBANE_TZ)
         out.append((t, v))
     return sorted(out, key=lambda x: x[0])
 

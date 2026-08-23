@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import sys
 import types
+from typing import ClassVar
 from unittest.mock import MagicMock
 
 
@@ -165,7 +166,7 @@ class _StubPowerConverter:
     framework, which isn't what's under test here.
     """
 
-    _TO_WATTS = {"W": 1.0, "kW": 1000.0, "MW": 1_000_000.0}
+    _TO_WATTS: ClassVar[dict[str, float]] = {"W": 1.0, "kW": 1000.0, "MW": 1_000_000.0}
 
     @classmethod
     def convert(cls, value: float, from_unit: str, to_unit: str) -> float:
