@@ -10,7 +10,7 @@
 > been found and fixed in the days right around this repo going public. If you install
 > this, please open a GitHub issue rather than expect a polished, plug-and-play experience.
 
-**Current version: `0.73.0`** — see [`CHANGELOG.md`](CHANGELOG.md) for the release history.
+**Current version: `0.73.1`** — see [`CHANGELOG.md`](CHANGELOG.md) for the release history.
 
 Nimbus is a single Home Assistant HACS integration that ships two cooperating pieces:
 
@@ -83,6 +83,16 @@ know whether it's actually helping.
    a **PV String**, or a **Battery Tower**. Repeat as many as you need — the
    reference household has 18 circuit-breaker loads plus 2 inverters and 4 battery
    towers, no restart or repeat wizard needed.
+
+**A naming quirk worth knowing** ([#43](https://github.com/code-imstillalive/nimbus/issues/43)):
+every entity this integration creates carries the internal domain `nimbus_load` —
+e.g. `sensor.nimbus_load_solver_config`, `number.nimbus_load_solver_grid_max_export` —
+not `nimbus`, even though you search for and install "Nimbus." This is a historical
+accident from before the Solver existed (the integration used to be load-forecasting
+only) and changing it now would break every existing user's entity IDs, long-term
+statistics, and automations — not something to do lightly. Read `nimbus_load` and
+`Nimbus` as the same thing; the domain name doesn't reflect current scope, and
+there's no plan to silently migrate it.
 
 ## Running the Solver
 
