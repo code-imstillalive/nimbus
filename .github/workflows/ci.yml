@@ -54,6 +54,43 @@ jobs:
         uses: home-assistant/actions/hassfest@master
 
   # ---------------------------------------------------------------------------
+  # STRICT: Version lockstep between integration and add-on.
+  # custom_components/nimbus_load/manifest.json and
+  # nimbus_solver_app/config.yaml MUST carry the same version string. This
+  # is what lets an add-on user say "I'm on Nimbus vX.Y.Z" and mean the
+  # same thing as an integration user. Drift means either a missed bump
+  # in a release PR (Supervisor never offers the update) or a stray edit.
+  # Both are bugs; catch them in CI.
+  # ---------------------------------------------------------------------------
+
+  version-lockstep:
+    name: Version lockstep (integration <-> add-on)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v5
+      - name: Compare versions
+        run: |
+          python3 - <<'PY'
+          import json, re, sys, pathlib
+          root = pathlib.Path(".")
+          m_path = root / "custom_components/nimbus_load/manifest.json"
+          a_path = root / "nimbus_solver_app/config.yaml"
+          m_ver = json.loads(m_path.read_text())["version"]
+          m_yaml = a_path.read_text()
+          match = re.search(r'^version:\s*"([^"]+)"', m_yaml, re.MULTILINE)
+          if not match:
+              print(f"::error file={a_path}::could not find version: line")
+              sys.exit(2)
+          a_ver = match.group(1)
+          if m_ver != a_ver:
+              print(f"::error::version drift: manifest.json={m_ver} but config.yaml={a_ver}")
+              print(f"::error::both must match; see nimbus_solver_app/config.yaml header comment")
+              sys.exit(1)
+          print(f"OK: both at {m_ver}")
+          PY
+
+  # ---------------------------------------------------------------------------
   # STRICT: Lint (ruff format + ruff check).
   # Flipped from advisory in the same PR that ran `ruff format` repo-wide
   # and cleared the 1 F401 unused-import + 3 E402 noqa-placement findings
