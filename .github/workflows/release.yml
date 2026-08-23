@@ -1,0 +1,93 @@
+name: Release
+
+# Stage 4 of the DevOps cycle described in issue #36. Automates what's
+# been a manual `gh release create` on every tag push tonight (v0.73.0,
+# v0.73.1) -- a real, repeatable task worth automating rather than
+# re-typing release notes by hand every time.
+#
+# Triggers on any `vX.Y.Z`-shaped tag push, extracts that exact version's
+# own section from CHANGELOG.md (the real source of truth already
+# maintained by every release), and publishes it as the GitHub Release
+# body verbatim -- no separate release-notes file to keep in sync, no
+# risk of the tag's own notes silently drifting from what CHANGELOG.md
+# actually says.
+
+on:
+  push:
+    tags: ["v*.*.*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Extract this version's CHANGELOG.md section
+        id: notes
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          import sys
+
+          tag = os.environ["GITHUB_REF_NAME"]  # e.g. "v0.73.1"
+          version = tag.removeprefix("v")
+
+          text = open("CHANGELOG.md", encoding="utf-8").read()
+          # Headings look like "## [0.73.1] — 2026-08-23" -- match the
+          # version bracket exactly (re.escape guards against the
+          # version string containing any regex-special characters,
+          # unlikely for a real semver string but a cheap safety net),
+          # then capture everything up to the NEXT "## [" heading (or
+          # end of file for the very first, unreleased-at-write-time
+          # section).
+          pattern = re.compile(
+              r"^## \[" + re.escape(version) + r"\][^\n]*\n(.*?)(?=^## \[|\Z)",
+              re.MULTILINE | re.DOTALL,
+          )
+          match = pattern.search(text)
+          if not match:
+              print(
+                  f"::error::No '## [{version}]' section found in CHANGELOG.md "
+                  f"for tag {tag} -- add the entry before tagging.",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          body = match.group(1).strip()
+          if not body:
+              print(
+                  f"::error::CHANGELOG.md's '## [{version}]' section is empty.",
+                  file=sys.stderr,
+              )
+              sys.exit(1)
+
+          # GITHUB_OUTPUT can't hold a raw multi-line string directly --
+          # the documented delimiter-heredoc form is what actions/
+          # github-script and every other multi-line-output workflow
+          # in the wild uses.
+          delimiter = "NOTES_EOF_8f3a2c"
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as f:
+              f.write(f"body<<{delimiter}\n{body}\n{delimiter}\n")
+          print(f"Extracted {len(body)} chars for {tag}")
+          PY
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ github.ref_name }}
+          body: ${{ steps.notes.outputs.body }}
+          # Every add-on/integration version bump this repo has done so
+          # far has been a real, deliberate, human-reviewed tag -- never
+          # mark anything "latest" automatically without a human having
+          # already decided to tag it. draft:false / prerelease:false
+          # match every release already published tonight by hand.
+          draft: false
+          prerelease: false
