@@ -58,6 +58,14 @@ class _StubNumberSelector(_StubSelectorBase):
     pass
 
 
+class _StubTextSelector(_StubSelectorBase):
+    pass
+
+
+class _StubSelectSelector(_StubSelectorBase):
+    pass
+
+
 class _StubFlowBase:
     """Bare stand-in for HA's real ConfigSubentryFlow / OptionsFlowWith-
     ConfigEntry. Real flow-control methods (async_create_entry /
@@ -226,6 +234,15 @@ def install_ha_stubs() -> None:
         NumberSelector=_StubNumberSelector,
         NumberSelectorConfig=_StubSelectorConfig,
         NumberSelectorMode=types.SimpleNamespace(BOX="box", SLIDER="slider"),
+        # TextSelector (2026-08-23, Power Source's own "name" field and PV
+        # String's own "label" field) and SelectSelector (2026-08-23, the
+        # live-built "which Power Source" dropdown on PV String/Battery
+        # Tower) -- same real, minimal stub pattern as EntitySelector/
+        # NumberSelector above.
+        TextSelector=_StubTextSelector,
+        SelectSelector=_StubSelectSelector,
+        SelectSelectorConfig=_StubSelectorConfig,
+        SelectSelectorMode=types.SimpleNamespace(DROPDOWN="dropdown", LIST="list"),
     )
     # Real string values + a REAL converter, not opaque MagicMocks -- this
     # exact area (a solar sensor reporting W while battery/grid sensors

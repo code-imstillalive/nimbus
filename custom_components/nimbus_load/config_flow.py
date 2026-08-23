@@ -28,9 +28,19 @@ from homeassistant.config_entries import (
 )
 from homeassistant.core import callback
 
-from .const import DOMAIN, SUBENTRY_TYPE_LOAD, SUBENTRY_TYPE_SIGNAL
+from .const import (
+    DOMAIN,
+    SUBENTRY_TYPE_BATTERY_TOWER,
+    SUBENTRY_TYPE_LOAD,
+    SUBENTRY_TYPE_POWER_SOURCE,
+    SUBENTRY_TYPE_PV_STRING,
+    SUBENTRY_TYPE_SIGNAL,
+)
+from .flows.battery_tower_subentry import NimbusBatteryTowerSubentryFlowHandler
 from .flows.hub_options import NimbusHubOptionsFlow
 from .flows.load_subentry import NimbusLoadSubentryFlowHandler
+from .flows.power_source_subentry import NimbusPowerSourceSubentryFlowHandler
+from .flows.pv_string_subentry import NimbusPvStringSubentryFlowHandler
 from .flows.signal_subentry import NimbusSignalSubentryFlowHandler
 
 
@@ -94,14 +104,20 @@ class NimbusConfigFlow(ConfigFlow, domain=DOMAIN):
     def async_get_supported_subentry_types(
         cls, config_entry: ConfigEntry
     ) -> dict[str, type[ConfigSubentryFlow]]:
-        """Register both subentry types -- this is what puts a "+ Add"
-        menu (load, or power signal) on the Nimbus hub's device page in
-        the HA UI. Power signal (2026-08-15): forecasts Battery/Solar/
-        Grid/etc directly as its own target, not just as a load-model
-        input -- see flows/signal_subentry.py."""
+        """Register every subentry type -- this is what puts a "+ Add"
+        menu on the Nimbus hub's device page in the HA UI. Power signal
+        (2026-08-15): forecasts Battery/Solar/Grid/etc directly as its
+        own target, not just as a load-model input -- see flows/
+        signal_subentry.py. Power Source / PV String / Battery Tower
+        (2026-08-23): pure wiring/topology metadata for the topology
+        dashboard card, no forecasting at all -- see const.py's own
+        comment above SUBENTRY_TYPE_POWER_SOURCE."""
         return {
             SUBENTRY_TYPE_LOAD: NimbusLoadSubentryFlowHandler,
             SUBENTRY_TYPE_SIGNAL: NimbusSignalSubentryFlowHandler,
+            SUBENTRY_TYPE_POWER_SOURCE: NimbusPowerSourceSubentryFlowHandler,
+            SUBENTRY_TYPE_PV_STRING: NimbusPvStringSubentryFlowHandler,
+            SUBENTRY_TYPE_BATTERY_TOWER: NimbusBatteryTowerSubentryFlowHandler,
         }
 
     @staticmethod

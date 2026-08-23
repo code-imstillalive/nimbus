@@ -21,9 +21,18 @@ install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from custom_components.nimbus_load.config_flow import NimbusConfigFlow  # noqa: E402
-from custom_components.nimbus_load.const import SUBENTRY_TYPE_LOAD, SUBENTRY_TYPE_SIGNAL  # noqa: E402
+from custom_components.nimbus_load.const import (  # noqa: E402
+    SUBENTRY_TYPE_BATTERY_TOWER,
+    SUBENTRY_TYPE_LOAD,
+    SUBENTRY_TYPE_POWER_SOURCE,
+    SUBENTRY_TYPE_PV_STRING,
+    SUBENTRY_TYPE_SIGNAL,
+)
+from custom_components.nimbus_load.flows.battery_tower_subentry import NimbusBatteryTowerSubentryFlowHandler  # noqa: E402
 from custom_components.nimbus_load.flows.hub_options import NimbusHubOptionsFlow  # noqa: E402
 from custom_components.nimbus_load.flows.load_subentry import NimbusLoadSubentryFlowHandler  # noqa: E402
+from custom_components.nimbus_load.flows.power_source_subentry import NimbusPowerSourceSubentryFlowHandler  # noqa: E402
+from custom_components.nimbus_load.flows.pv_string_subentry import NimbusPvStringSubentryFlowHandler  # noqa: E402
 from custom_components.nimbus_load.flows.signal_subentry import NimbusSignalSubentryFlowHandler  # noqa: E402
 
 
@@ -73,11 +82,14 @@ def test_hub_creation_checks_unique_id_to_prevent_a_second_hub():
     flow._abort_if_unique_id_configured.assert_called_once()
 
 
-def test_supported_subentry_types_registers_both_load_and_signal():
+def test_supported_subentry_types_registers_every_type():
     result = NimbusConfigFlow.async_get_supported_subentry_types(MagicMock())
     assert result == {
         SUBENTRY_TYPE_LOAD: NimbusLoadSubentryFlowHandler,
         SUBENTRY_TYPE_SIGNAL: NimbusSignalSubentryFlowHandler,
+        SUBENTRY_TYPE_POWER_SOURCE: NimbusPowerSourceSubentryFlowHandler,
+        SUBENTRY_TYPE_PV_STRING: NimbusPvStringSubentryFlowHandler,
+        SUBENTRY_TYPE_BATTERY_TOWER: NimbusBatteryTowerSubentryFlowHandler,
     }
 
 

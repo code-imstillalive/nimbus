@@ -30,6 +30,78 @@ SUBENTRY_TYPE_LOAD: Final = "load"
 # this, a separate, earlier addition).
 SUBENTRY_TYPE_SIGNAL: Final = "power_signal"
 
+# Three more subentry types (2026-08-23) -- pure wiring/topology metadata
+# for the topology dashboard card, genuinely NOT a forecasting target
+# (no ML model, no coordinator, no _forecast sensor). Direct household
+# ask, following the same "no hardcoded inputs" principle already
+# applied to the Solver's own load-forecast-entities field: the
+# topology card's physical wiring (which PV strings/battery towers
+# belong to which power source, which switchboard sensors to use) used
+# to live in a hand-edited YAML file specific to one household's own
+# real Sungrow hardware -- genuinely unusable by anyone with different
+# hardware.
+#
+# Real, independent validation this needed a flatter model than a
+# naive "every PV string and every battery pack belongs to some
+# inverter" hierarchy: Mark Purcell's own real system (SigenStor
+# EC 30.0 battery/inverter unit + a wholly separate 3rd-party SolarEdge
+# PV system, confirmed via his own live topology card build) has PV
+# that is NOT wired through the same inverter as the battery at all --
+# it's an independent power source feeding the switchboard on its own.
+# "Power Source" (not "Inverter") is deliberately the more general term
+# -- a real unit can be battery-only, PV-only, or hybrid; PV String and
+# Battery Tower subentries both reference their OWN power source
+# OPTIONALLY, not as a required parent -- left blank, a PV string or
+# battery renders as its own independent branch on the diagram (Mark's
+# SolarEdge case) rather than being forced under a specific inverter
+# that doesn't actually own it (this household's Sungrow case still
+# works exactly the same, by setting the link).
+SUBENTRY_TYPE_POWER_SOURCE: Final = "power_source"
+SUBENTRY_TYPE_PV_STRING: Final = "pv_string"
+SUBENTRY_TYPE_BATTERY_TOWER: Final = "battery_tower"
+
+# Power Source fields -- one real hardware unit that connects to the
+# switchboard (an inverter, a hybrid battery/inverter unit, a battery-
+# only BMS, etc). Both sensors optional: a PV-only unit has no real
+# battery_power_sensor to give, and dc_power_sensor is a genuine bonus
+# (total PV throughput regardless of whether the battery is doing
+# anything -- see topology-card-v4.js's own real, direct household
+# catch: "the card's own inverter header was showing ONLY
+# battery_power, making a fully-charged, solar-producing inverter look
+# falsely idle").
+CONF_POWER_SOURCE_NAME: Final = "power_source_name"
+CONF_POWER_SOURCE_BATTERY_SENSOR: Final = "power_source_battery_sensor"
+CONF_POWER_SOURCE_DC_SENSOR: Final = "power_source_dc_sensor"
+
+# PV String fields -- one real physical string/array. entity is the
+# only required field (its own live power reading); power_source is
+# OPTIONAL (see the module-level comment above SUBENTRY_TYPE_POWER_
+# SOURCE for why) -- blank means "an independent PV source, not wired
+# through any of my configured Power Sources," not an error. label is
+# a free-text hint for the diagram (e.g. "MPPT2", "String A", "West
+# array") -- deliberately not a structured MPPT-number field, since
+# that's a Sungrow-specific concept, not universal.
+CONF_PV_STRING_ENTITY: Final = "pv_string_entity"
+CONF_PV_STRING_LABEL: Final = "pv_string_label"
+CONF_PV_STRING_POWER_SOURCE: Final = "pv_string_power_source"
+
+# Battery Tower fields -- one real physical battery pack/tower. Only
+# the 4 fields topology-card-v4.js's own _batteryBox() actually renders
+# (confirmed by reading that function directly, 2026-08-23, rather than
+# assuming every field this household's own old hardcoded prefix
+# convention implied -- current/status/lifetime-charge/lifetime-
+# discharge are real Sungrow register readings but were never actually
+# displayed on the diagram). soc_sensor is the one field genuinely
+# worth treating as the "most important, fill this in first" one, but
+# even it stays Optional -- a household mid-way through filling in the
+# wizard shouldn't hit a hard validation error. power_source is
+# OPTIONAL for the same reason as PV String above.
+CONF_BATTERY_TOWER_SOC_SENSOR: Final = "battery_tower_soc_sensor"
+CONF_BATTERY_TOWER_SOH_SENSOR: Final = "battery_tower_soh_sensor"
+CONF_BATTERY_TOWER_VOLTAGE_SENSOR: Final = "battery_tower_voltage_sensor"
+CONF_BATTERY_TOWER_TEMPERATURE_SENSOR: Final = "battery_tower_temperature_sensor"
+CONF_BATTERY_TOWER_POWER_SOURCE: Final = "battery_tower_power_source"
+
 CONF_LOAD_SENSOR: Final = "load_sensor"
 CONF_TEMPERATURE_SENSOR: Final = "temperature_sensor"
 CONF_TEMPERATURE_FORECAST_SENSOR: Final = "temperature_forecast_sensor"
@@ -450,3 +522,30 @@ DEFAULT_SOLVER_FLAT_FEE_RATE: Final = 0.0
 DEFAULT_SOLVER_RISK_AVERSION: Final = 0.25
 DEFAULT_SOLVER_IMPORT_PRICE_RISK_AVERSION: Final = 0.0
 DEFAULT_SOLVER_EXPORT_PRICE_RISK_AVERSION: Final = 0.0
+
+# Switchboard-level hub Configure step (2026-08-23) -- the topology
+# dashboard card's own top-of-diagram sensors (grid meter, current buy/
+# sell price, real switchboard-level battery power, daily kWh figures),
+# read live from cfg the same way the Solver settings wizard's own
+# fields are, instead of the household-specific topology_map.yaml this
+# used to be hardcoded in. Genuinely everything here is Optional -- a
+# fresh install with none of these filled in still gets a real diagram,
+# just missing whichever rows depend on the blank fields (matches the
+# already-established pattern: a blank field is a clean no-op, not a
+# degraded/broken state).
+CONF_SWITCHBOARD_GRID_METER_SENSOR: Final = "switchboard_grid_meter_sensor"
+CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR: Final = "switchboard_import_price_sensor"
+CONF_SWITCHBOARD_EXPORT_PRICE_SENSOR: Final = "switchboard_export_price_sensor"
+# Deliberately a SEPARATE field from solver_battery_soc_sensor (Solver
+# settings) -- that one is a %, this one is the real, live, signed
+# switchboard-level battery power sensor (kW) the topology card's own
+# source-mix coloring needs. Different unit, different purpose, a
+# household with only one of the two configured shouldn't lose either
+# feature.
+CONF_SWITCHBOARD_BATTERY_POWER_SENSOR: Final = "switchboard_battery_power_sensor"
+CONF_SWITCHBOARD_IMPORT_ENERGY_DAILY_SENSOR: Final = "switchboard_import_energy_daily_sensor"
+CONF_SWITCHBOARD_EXPORT_ENERGY_DAILY_SENSOR: Final = "switchboard_export_energy_daily_sensor"
+CONF_SWITCHBOARD_HOUSE_LOAD_ENERGY_DAILY_SENSOR: Final = "switchboard_house_load_energy_daily_sensor"
+CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR: Final = "switchboard_solar_energy_daily_sensor"
+CONF_SWITCHBOARD_BATTERY_CHARGE_DAILY_SENSOR: Final = "switchboard_battery_charge_daily_sensor"
+CONF_SWITCHBOARD_BATTERY_DISCHARGE_DAILY_SENSOR: Final = "switchboard_battery_discharge_daily_sensor"

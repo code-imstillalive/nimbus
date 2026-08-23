@@ -32,6 +32,7 @@ from custom_components.nimbus_load.const import (  # noqa: E402
     CONF_SOLVER_LOAD_FORECAST_SENSOR,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_2,
+    CONF_SWITCHBOARD_GRID_METER_SENSOR,
     CONF_TEMPERATURE_SENSOR,
 )
 from custom_components.nimbus_load.flows.hub_options import (  # noqa: E402
@@ -40,6 +41,7 @@ from custom_components.nimbus_load.flows.hub_options import (  # noqa: E402
     _solver_battery_schema,
     _solver_grid_schema,
     _solver_sources_schema,
+    _switchboard_schema,
 )
 
 
@@ -278,12 +280,61 @@ def test_solver_sources_step_save_never_blocked_by_a_failing_notification():
     assert result["type"] == "create_entry"  # the real save still succeeded
 
 
-def test_init_step_shows_the_forecaster_vs_solver_menu():
+# -- async_step_switchboard: same merge-not-replace, clear-stays-cleared
+# discipline as async_step_forecaster, applied to the new topology-
+# diagram fields (2026-08-23) --
+
+
+def test_switchboard_step_no_input_shows_the_form():
+    flow = _make_flow(options={CONF_SWITCHBOARD_GRID_METER_SENSOR: "sensor.old"})
+    import asyncio
+    result = asyncio.run(flow.async_step_switchboard(None))
+    assert result["type"] == "form"
+    assert result["step_id"] == "switchboard"
+
+
+def test_switchboard_step_genuinely_cleared_field_stays_cleared():
+    import asyncio
+    flow = _make_flow(options={CONF_SWITCHBOARD_GRID_METER_SENSOR: "sensor.old_stale_value"})
+    result = asyncio.run(flow.async_step_switchboard({}))
+    assert result["type"] == "create_entry"
+    assert result["data"][CONF_SWITCHBOARD_GRID_METER_SENSOR] is None
+
+
+def test_switchboard_step_untouched_dashboard_value_is_preserved():
+    import asyncio
+    flow = _make_flow(options={"solver_battery_capacity_kwh": 122.2})
+    result = asyncio.run(
+        flow.async_step_switchboard({CONF_SWITCHBOARD_GRID_METER_SENSOR: "sensor.new"})
+    )
+    assert result["data"]["solver_battery_capacity_kwh"] == 122.2
+
+
+def test_switchboard_step_real_submitted_value_is_used():
+    import asyncio
+    flow = _make_flow(options={CONF_SWITCHBOARD_GRID_METER_SENSOR: "sensor.old"})
+    result = asyncio.run(
+        flow.async_step_switchboard({CONF_SWITCHBOARD_GRID_METER_SENSOR: "sensor.new"})
+    )
+    assert result["data"][CONF_SWITCHBOARD_GRID_METER_SENSOR] == "sensor.new"
+
+
+def test_switchboard_schema_every_field_is_optional():
+    # Every field must be Optional -- a fresh install with none of this
+    # filled in must still get a real diagram (see const.py's own
+    # comment above the CONF_SWITCHBOARD_* fields).
+    schema = _switchboard_schema({})
+    assert len(schema.schema) == 10
+    for key in schema.schema:
+        assert type(key).__name__ == "Optional"
+
+
+def test_init_step_shows_the_forecaster_vs_solver_vs_switchboard_menu():
     import asyncio
     flow = _make_flow(options={})
     result = asyncio.run(flow.async_step_init(None))
     assert result["type"] == "menu"
-    assert result["menu_options"] == ["forecaster", "solver_battery"]
+    assert result["menu_options"] == ["forecaster", "solver_battery", "switchboard"]
 
 
 if __name__ == "__main__":

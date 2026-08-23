@@ -55,6 +55,16 @@ from ..const import (
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_2,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_3,
     CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR,
+    CONF_SWITCHBOARD_BATTERY_CHARGE_DAILY_SENSOR,
+    CONF_SWITCHBOARD_BATTERY_DISCHARGE_DAILY_SENSOR,
+    CONF_SWITCHBOARD_BATTERY_POWER_SENSOR,
+    CONF_SWITCHBOARD_EXPORT_ENERGY_DAILY_SENSOR,
+    CONF_SWITCHBOARD_EXPORT_PRICE_SENSOR,
+    CONF_SWITCHBOARD_GRID_METER_SENSOR,
+    CONF_SWITCHBOARD_HOUSE_LOAD_ENERGY_DAILY_SENSOR,
+    CONF_SWITCHBOARD_IMPORT_ENERGY_DAILY_SENSOR,
+    CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR,
+    CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR,
     CONF_TEMPERATURE_FORECAST_SENSOR,
     CONF_TEMPERATURE_SENSOR,
     CONF_TRAIN_DAYS,
@@ -233,6 +243,46 @@ def _solver_sources_schema(defaults: dict[str, Any]) -> vol.Schema:
     )
 
 
+def _switchboard_schema(defaults: dict[str, Any]) -> vol.Schema:
+    """Every field genuinely Optional -- the topology dashboard card's
+    own top-of-diagram sensors (2026-08-23, direct household ask: "i do
+    want my stuff ot work via wizard, and not ot be hard wired... topology
+    card must also follow suit"). description={"suggested_value": ...},
+    not default=, on every field -- same already-fixed reasoning as
+    async_step_forecaster's own top-of-function comment (a genuinely
+    cleared field must actually stay cleared, not silently reappear next
+    time this form opens)."""
+    schema_dict: dict[Any, Any] = {}
+    for key in (
+        CONF_SWITCHBOARD_GRID_METER_SENSOR,
+        CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR,
+        CONF_SWITCHBOARD_EXPORT_PRICE_SENSOR,
+        CONF_SWITCHBOARD_BATTERY_POWER_SENSOR,
+        CONF_SWITCHBOARD_IMPORT_ENERGY_DAILY_SENSOR,
+        CONF_SWITCHBOARD_EXPORT_ENERGY_DAILY_SENSOR,
+        CONF_SWITCHBOARD_HOUSE_LOAD_ENERGY_DAILY_SENSOR,
+        CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR,
+        CONF_SWITCHBOARD_BATTERY_CHARGE_DAILY_SENSOR,
+        CONF_SWITCHBOARD_BATTERY_DISCHARGE_DAILY_SENSOR,
+    ):
+        schema_dict[vol.Optional(key, description={"suggested_value": defaults.get(key)})] = _entity()
+    return vol.Schema(schema_dict)
+
+
+_SWITCHBOARD_SCHEMA_KEYS = (
+    CONF_SWITCHBOARD_GRID_METER_SENSOR,
+    CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR,
+    CONF_SWITCHBOARD_EXPORT_PRICE_SENSOR,
+    CONF_SWITCHBOARD_BATTERY_POWER_SENSOR,
+    CONF_SWITCHBOARD_IMPORT_ENERGY_DAILY_SENSOR,
+    CONF_SWITCHBOARD_EXPORT_ENERGY_DAILY_SENSOR,
+    CONF_SWITCHBOARD_HOUSE_LOAD_ENERGY_DAILY_SENSOR,
+    CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR,
+    CONF_SWITCHBOARD_BATTERY_CHARGE_DAILY_SENSOR,
+    CONF_SWITCHBOARD_BATTERY_DISCHARGE_DAILY_SENSOR,
+)
+
+
 # Explicit key lists for the "always take from this submission, never
 # silently fall back to whatever's already stored" merge fix (2026-08-22
 # -- see async_step_forecaster's own comment for the full story). Kept
@@ -288,7 +338,7 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> Any:
         return self.async_show_menu(
             step_id="init",
-            menu_options=["forecaster", "solver_battery"],
+            menu_options=["forecaster", "solver_battery", "switchboard"],
         )
 
     async def async_step_forecaster(self, user_input: dict[str, Any] | None = None) -> Any:
@@ -325,6 +375,22 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
 
         return self.async_show_form(
             step_id="forecaster", data_schema=_forecaster_schema(dict(self.config_entry.options))
+        )
+
+    async def async_step_switchboard(self, user_input: dict[str, Any] | None = None) -> Any:
+        """Single-step form, same one-shot save shape as
+        async_step_forecaster above (not a multi-step chain like the
+        Solver wizard -- 10 genuinely independent fields, no reason to
+        split across screens). Same explicit-key merge discipline as
+        every other options-flow save in this file."""
+        if user_input is not None:
+            merged = dict(self.config_entry.options)
+            for key in _SWITCHBOARD_SCHEMA_KEYS:
+                merged[key] = user_input.get(key)
+            return self.async_create_entry(title="", data=merged)
+
+        return self.async_show_form(
+            step_id="switchboard", data_schema=_switchboard_schema(dict(self.config_entry.options))
         )
 
     async def async_step_solver_battery(self, user_input: dict[str, Any] | None = None) -> Any:

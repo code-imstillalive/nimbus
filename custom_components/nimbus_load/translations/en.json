@@ -16,7 +16,8 @@
         "title": "Nimbus settings",
         "menu_options": {
           "forecaster": "Forecaster settings (shared sensors + tuning for every load/signal)",
-          "solver_battery": "Solver settings (your real battery/grid/solar setup, for dispatch planning)"
+          "solver_battery": "Solver settings (your real battery/grid/solar setup, for dispatch planning)",
+          "switchboard": "Topology diagram settings (grid meter, prices, daily kWh -- for the dashboard card)"
         }
       },
       "forecaster": {
@@ -59,6 +60,22 @@
           "solver_load_forecast_entities": "Optional: individual circuit forecast sensors to sum instead of the single sensor above (kW each, e.g. Nimbus Power Signals for specific circuits) -- leave blank to use the sensor above",
           "solver_whole_house_cross_check_sensor": "Optional: a real, live whole-house power sensor to sanity-check the very first forecast period against -- leave blank to skip"
         }
+      },
+      "switchboard": {
+        "title": "Topology diagram: Switchboard",
+        "description": "Every field is optional -- the topology dashboard card shows whichever rows you fill in and skips the rest. None of this affects Solver dispatch planning, it's purely for the diagram.",
+        "data": {
+          "switchboard_grid_meter_sensor": "Grid meter power sensor (real, uncapped meter -- not a plan/forecast entity)",
+          "switchboard_import_price_sensor": "Current buy (import) price sensor",
+          "switchboard_export_price_sensor": "Current sell (export) price sensor",
+          "switchboard_battery_power_sensor": "Switchboard-level battery power sensor (signed: + = discharging, - = charging)",
+          "switchboard_import_energy_daily_sensor": "Import energy today (kWh)",
+          "switchboard_export_energy_daily_sensor": "Export energy today (kWh)",
+          "switchboard_house_load_energy_daily_sensor": "House load energy today (kWh)",
+          "switchboard_solar_energy_daily_sensor": "Solar energy today (kWh)",
+          "switchboard_battery_charge_daily_sensor": "Battery charged today (kWh)",
+          "switchboard_battery_discharge_daily_sensor": "Battery discharged today (kWh)"
+        }
       }
     }
   },
@@ -93,6 +110,65 @@
           "description": "Forecast a real power signal directly -- Battery, Solar, Grid, or anything else -- as its own genuine target, using the same forecasting engine as a load. Pick a real MEASURED sensor, never an optimizer's own plan/forecast entity.",
           "data": {
             "load_sensor": "Power sensor to forecast"
+          }
+        }
+      }
+    },
+    "power_source": {
+      "flow_title": "Power Source",
+      "entry_type": "Power Source",
+      "initiate_flow": {
+        "user": "Power Source",
+        "reconfigure": "Power Source"
+      },
+      "step": {
+        "user": {
+          "title": "Add a power source (topology diagram)",
+          "description": "One real hardware unit that connects to your switchboard -- an inverter, a hybrid battery/inverter, or a battery-only unit. Pure wiring metadata for the topology dashboard card -- not a forecast target.",
+          "data": {
+            "power_source_name": "Name (shown on the diagram, e.g. \"Inverter 1\")",
+            "power_source_battery_sensor": "Battery power sensor (optional -- leave blank for a PV-only source)",
+            "power_source_dc_sensor": "Total DC power sensor (optional)"
+          }
+        }
+      }
+    },
+    "pv_string": {
+      "flow_title": "PV String",
+      "entry_type": "PV String",
+      "initiate_flow": {
+        "user": "PV String",
+        "reconfigure": "PV String"
+      },
+      "step": {
+        "user": {
+          "title": "Add a PV string (topology diagram)",
+          "description": "One real physical PV string or array. Pure wiring metadata for the topology dashboard card -- not a forecast target. Leave \"Power Source\" blank if this PV is wired independently (not through any inverter you've added here).",
+          "data": {
+            "pv_string_entity": "Power sensor for this string",
+            "pv_string_label": "Label on the diagram (optional, e.g. \"West array\")",
+            "pv_string_power_source": "Power Source this string is wired through (optional)"
+          }
+        }
+      }
+    },
+    "battery_tower": {
+      "flow_title": "Battery Tower",
+      "entry_type": "Battery Tower",
+      "initiate_flow": {
+        "user": "Battery Tower",
+        "reconfigure": "Battery Tower"
+      },
+      "step": {
+        "user": {
+          "title": "Add a battery tower (topology diagram)",
+          "description": "One real physical battery pack/tower. Pure wiring metadata for the topology dashboard card -- not a forecast target. Every field is optional; fill in whichever your hardware actually exposes.",
+          "data": {
+            "battery_tower_soc_sensor": "State of Charge sensor (%)",
+            "battery_tower_soh_sensor": "State of Health sensor (%, optional)",
+            "battery_tower_voltage_sensor": "Voltage sensor (optional)",
+            "battery_tower_temperature_sensor": "Temperature sensor (optional)",
+            "battery_tower_power_source": "Power Source this tower belongs to (optional)"
           }
         }
       }
