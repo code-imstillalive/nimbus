@@ -25,11 +25,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import voluptuous as vol
 
 from custom_components.nimbus_load.const import (
+    ATTR_SIGNAL_ROLE,
+    ATTR_SUBENTRY_TYPE,
     CONF_BATTERY_SENSOR,
     CONF_FORECAST_HORIZON_HOURS,
     CONF_SOLVER_BATTERY_SOC_SENSOR,
     CONF_SOLVER_EXPORT_PRICE_SENSOR,
     CONF_SOLVER_IMPORT_PRICE_SENSOR,
+    CONF_SOLVER_LOAD_FORECAST_ENTITIES,
     CONF_SOLVER_LOAD_FORECAST_SENSOR,
     CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR,
@@ -43,9 +46,16 @@ from custom_components.nimbus_load.const import (
     CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR,
     CONF_TEMPERATURE_FORECAST_SENSOR,
     CONF_TEMPERATURE_SENSOR,
+    SIGNAL_ROLE_BATTERY,
+    SIGNAL_ROLE_GRID,
+    SIGNAL_ROLE_OTHER,
+    SIGNAL_ROLE_SOLAR,
+    SUBENTRY_TYPE_LOAD,
+    SUBENTRY_TYPE_SIGNAL,
 )
 from custom_components.nimbus_load.flows.hub_options import (
     NimbusHubOptionsFlow,
+    _discover_nimbus_load_forecast_candidates,
     _energy_dashboard_switchboard_suggestions,
     _forecaster_schema,
     _solver_battery_schema,
@@ -190,6 +200,57 @@ def test_solver_grid_schema_has_two_required_price_fields():
     assert len(schema.schema) == 2
     for key in (CONF_SOLVER_IMPORT_PRICE_SENSOR, CONF_SOLVER_EXPORT_PRICE_SENSOR):
         assert type(_find_marker(schema, key)).__name__ == "Required"
+
+
+# -- "Group A" (2026-08-24): _solver_sources_schema's two load-forecast
+# fields get their own candidate lists, when given one --------------------
+
+
+def test_solver_sources_schema_with_no_candidates_is_fully_unrestricted():
+    # The exact original behaviour, byte-identical -- both new params
+    # default to None, and _entity()/_entity_multi() only add
+    # include_entities to the selector config when given a genuinely
+    # non-empty list. No caller anywhere (real or test) should ever see
+    # this field artificially narrowed unless discovery actually ran.
+    schema = _solver_sources_schema({})
+    for key in (CONF_SOLVER_LOAD_FORECAST_SENSOR, CONF_SOLVER_LOAD_FORECAST_ENTITIES):
+        marker = _find_marker(schema, key)
+        selector_instance = schema.schema[marker]
+        assert "include_entities" not in selector_instance.config
+
+
+def test_solver_sources_schema_single_candidates_restrict_only_that_field():
+    schema = _solver_sources_schema(
+        {},
+        single_load_forecast_candidates=["sensor.whole_house_signal"],
+        summable_load_forecast_candidates=["sensor.circuit_a", "sensor.circuit_b"],
+    )
+    single_marker = _find_marker(schema, CONF_SOLVER_LOAD_FORECAST_SENSOR)
+    assert schema.schema[single_marker].config["include_entities"] == [
+        "sensor.whole_house_signal"
+    ]
+    multi_marker = _find_marker(schema, CONF_SOLVER_LOAD_FORECAST_ENTITIES)
+    assert schema.schema[multi_marker].config["include_entities"] == [
+        "sensor.circuit_a",
+        "sensor.circuit_b",
+    ]
+    # Every OTHER field on this same schema step is untouched -- Group A
+    # only ever narrows the two load-forecast fields, never the solar
+    # sources or the whole-house cross-check sensor.
+    solar_marker = _find_marker(schema, CONF_SOLVER_SOLAR_FORECAST_SENSOR)
+    assert "include_entities" not in schema.schema[solar_marker].config
+
+
+def test_solver_sources_schema_empty_candidate_lists_are_treated_as_no_restriction():
+    # A real, live discovery failure (or a genuinely fresh install with
+    # zero load/signal subentries configured yet) returns [] -- must
+    # degrade to "show everything", never to "show nothing at all".
+    schema = _solver_sources_schema(
+        {}, single_load_forecast_candidates=[], summable_load_forecast_candidates=[]
+    )
+    for key in (CONF_SOLVER_LOAD_FORECAST_SENSOR, CONF_SOLVER_LOAD_FORECAST_ENTITIES):
+        marker = _find_marker(schema, key)
+        assert "include_entities" not in schema.schema[marker].config
 
 
 # -- async_step_forecaster: the real merge-not-replace, clear-stays-cleared logic --
@@ -661,6 +722,144 @@ def test_switchboard_step_fills_a_genuine_gap_with_a_suggestion():
     assert marker.description == {"suggested_value": "sensor.energy_dashboard_guess"}
     # Still fully optional, still overridable, still never a locked-in default.
     assert marker.default is vol.UNDEFINED
+
+
+# -- _discover_nimbus_load_forecast_candidates (2026-08-24, "Group A") ----
+
+
+def _nimbus_state(entity_id: str, subentry_type: str, signal_role: str | None = None):
+    st = MagicMock()
+    st.entity_id = entity_id
+    attrs = {ATTR_SUBENTRY_TYPE: subentry_type}
+    if signal_role is not None:
+        attrs[ATTR_SIGNAL_ROLE] = signal_role
+    st.attributes = attrs
+    return st
+
+
+def _hass_with_all_states(states: list):
+    hass = MagicMock()
+    hass.states.async_all = lambda domain: states
+    return hass
+
+
+def test_discover_no_nimbus_entities_at_all_returns_two_empty_lists():
+    hass = _hass_with_all_states([])
+    single, summable = _discover_nimbus_load_forecast_candidates(hass)
+    assert single == []
+    assert summable == []
+
+
+def test_discover_a_non_nimbus_sensor_is_ignored():
+    # A real sensor entity with no ATTR_SUBENTRY_TYPE at all (the vast
+    # majority of any live system's own entities) -- and, critically,
+    # sensor.nimbus_household_load_total_forecast itself (a real
+    # _NimbusSolverPushSensor, confirmed via direct source read to never
+    # carry ATTR_SUBENTRY_TYPE) must never appear in either list -- that
+    # is exactly the real, confirmed #118 circular-reference footgun
+    # this function exists to stop an installer from ever being offered.
+    plain = MagicMock()
+    plain.entity_id = "sensor.some_unrelated_thing"
+    plain.attributes = {}
+    aggregate = MagicMock()
+    aggregate.entity_id = "sensor.nimbus_household_load_total_forecast"
+    aggregate.attributes = {}
+    hass = _hass_with_all_states([plain, aggregate])
+    single, summable = _discover_nimbus_load_forecast_candidates(hass)
+    assert single == []
+    assert summable == []
+
+
+def test_discover_load_subentry_forecasts_go_in_both_lists():
+    circuit = _nimbus_state("sensor.nimbus_pool_pump_load_forecast", SUBENTRY_TYPE_LOAD)
+    hass = _hass_with_all_states([circuit])
+    single, summable = _discover_nimbus_load_forecast_candidates(hass)
+    assert single == ["sensor.nimbus_pool_pump_load_forecast"]
+    assert summable == ["sensor.nimbus_pool_pump_load_forecast"]
+
+
+def test_discover_other_role_power_signal_goes_in_single_only():
+    # A household's own "Whole House Load"/"CB Total Combined Power"-
+    # style Power Signal -- explicit role "other" (never battery/solar/
+    # grid), exactly the real, correct single-sensor answer.
+    whole_house = _nimbus_state(
+        "sensor.nimbus_whole_house_load_signal_forecast",
+        SUBENTRY_TYPE_SIGNAL,
+        signal_role=SIGNAL_ROLE_OTHER,
+    )
+    hass = _hass_with_all_states([whole_house])
+    single, summable = _discover_nimbus_load_forecast_candidates(hass)
+    assert single == ["sensor.nimbus_whole_house_load_signal_forecast"]
+    assert summable == []  # a power signal is never summable-per-circuit
+
+
+def test_discover_battery_solar_grid_signals_are_excluded_from_both_lists():
+    for role in (SIGNAL_ROLE_BATTERY, SIGNAL_ROLE_SOLAR, SIGNAL_ROLE_GRID):
+        signal = _nimbus_state(
+            f"sensor.nimbus_{role}_signal_forecast", SUBENTRY_TYPE_SIGNAL, role
+        )
+        hass = _hass_with_all_states([signal])
+        single, summable = _discover_nimbus_load_forecast_candidates(hass)
+        assert single == [], f"role={role} should never be a load-forecast candidate"
+        assert summable == []
+
+
+def test_discover_a_realistic_mixed_install():
+    states = [
+        _nimbus_state("sensor.nimbus_pool_pump_load_forecast", SUBENTRY_TYPE_LOAD),
+        _nimbus_state("sensor.nimbus_hws_l1_load_forecast", SUBENTRY_TYPE_LOAD),
+        _nimbus_state(
+            "sensor.nimbus_whole_house_signal_forecast",
+            SUBENTRY_TYPE_SIGNAL,
+            SIGNAL_ROLE_OTHER,
+        ),
+        _nimbus_state(
+            "sensor.nimbus_battery_signal_forecast",
+            SUBENTRY_TYPE_SIGNAL,
+            SIGNAL_ROLE_BATTERY,
+        ),
+        _nimbus_state("sensor.nimbus_solver_battery_forecast", None),  # no tag at all
+    ]
+    states[-1].attributes = {}  # real Solver-output shape: no ATTR_SUBENTRY_TYPE
+    hass = _hass_with_all_states(states)
+    single, summable = _discover_nimbus_load_forecast_candidates(hass)
+    assert set(single) == {
+        "sensor.nimbus_pool_pump_load_forecast",
+        "sensor.nimbus_hws_l1_load_forecast",
+        "sensor.nimbus_whole_house_signal_forecast",
+    }
+    assert set(summable) == {
+        "sensor.nimbus_pool_pump_load_forecast",
+        "sensor.nimbus_hws_l1_load_forecast",
+    }
+
+
+def test_discover_degrades_to_empty_lists_never_raises():
+    # Same graceful-degradation convention as every other real-live-data
+    # helper in this file -- a discovery failure must only ever mean "no
+    # restriction", never break the wizard step.
+    hass = MagicMock()
+    hass.states.async_all = MagicMock(side_effect=RuntimeError("hass not ready"))
+    single, summable = _discover_nimbus_load_forecast_candidates(hass)
+    assert single == []
+    assert summable == []
+
+
+def test_solver_sources_step_wires_real_discovery_into_the_rendered_form():
+    # End-to-end: the step function itself must call discovery and pass
+    # its result into the schema, not just the schema function in
+    # isolation (already covered above).
+    import asyncio
+
+    flow = _make_flow(options={})
+    circuit = _nimbus_state("sensor.nimbus_pool_pump_load_forecast", SUBENTRY_TYPE_LOAD)
+    flow.hass.states.async_all = lambda domain: [circuit]
+    result = asyncio.run(flow.async_step_solver_sources(None))
+    assert result["type"] == "form"
+    marker = _find_marker(result["data_schema"], CONF_SOLVER_LOAD_FORECAST_SENSOR)
+    assert result["data_schema"].schema[marker].config["include_entities"] == [
+        "sensor.nimbus_pool_pump_load_forecast"
+    ]
 
 
 def test_init_step_shows_the_forecaster_vs_solver_vs_switchboard_menu():
