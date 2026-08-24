@@ -1483,6 +1483,30 @@ def _validate_and_parse_load_forecast_attrs(
     raw_fc = attrs.get("forecast")
     time_key, value_key, has_bands = "time", "value", True
 
+    # Real bug found live (devhub, 2026-08-24, first-ever solve on a freshly
+    # configured install): `not raw_fc` is True for BOTH "missing/wrong-shape
+    # attribute" and "attribute present, correct type, genuinely empty list"
+    # -- a brand-new load subentry's ML forecaster hasn't trained yet and
+    # legitimately publishes `forecast: []` for its first several days. The
+    # old single combined branch below reported that as "has no usable
+    # 'forecast' attribute (list-valued attributes present: ['forecast'])"
+    # -- naming the very attribute it just rejected, which reads as a
+    # malformed-sensor error when the real, expected cause is "not trained
+    # yet." These are genuinely different operator actions (fix your sensor
+    # vs. just wait) and need genuinely different messages.
+    if isinstance(raw_fc, list) and not raw_fc:
+        return (
+            None,
+            False,
+            (
+                f"{entity_id}'s 'forecast' attribute is present but empty "
+                f"(0 points) -- this is expected for the first few days after "
+                f"a load subentry is created, before its ML forecaster has "
+                f"trained on enough real recorder history. Not a malformed "
+                f"sensor; check back once training history has accumulated."
+            ),
+        )
+
     if not isinstance(raw_fc, list) or not raw_fc:
         # Not the canonical shape -- try the one known common alternate
         # (EMHASS's own scheduled_forecast/date/<object_id> pattern).
