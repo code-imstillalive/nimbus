@@ -7,6 +7,24 @@ real Nimbus bugs this project has fixed were actually found and reported
 (e.g. the 2026-08-15 stale-persisted-model crash, the 2026-08-22 wizard-skip
 gap Mark Purcell hit on his own fresh install).
 
+2026-08-24, direct household + Mark Purcell instruction, after a full
+session of real investigation repeatedly blocked on "please paste
+sensor.X's attributes" round trips: "diagnostics must have everything in
+it incl pre-set values" / "get more data into the diagnostic file so we
+can actually understand the reason its making decisions rather than just
+speculation without any data to backup." This file used to deliberately
+EXCLUDE the Solver's own config values (capacity, max charge/discharge,
+costs, risk_aversion -- none of it lived in entry.options at all, only on
+live number.nimbus_solver_* entities, so it was invisible here) and every
+forecast array (explicitly reasoned as "already visible on the entity
+itself, and would bloat this dump"). Both exclusions are gone: this is a
+downloaded debug file, not a live HA entity attribute subject to the
+16384-byte recorder limit -- there's no real reason to hold data back
+from it. A live entity's own forecast also keeps moving (every solve
+cycle), so "already visible on the entity" was never actually true for a
+diagnostics dump investigated any time after it was generated -- this
+file is a genuine snapshot precisely because the entity isn't.
+
 TO_REDACT is deliberately empty, not omitted -- Nimbus has no external
 service credentials, API keys, or tokens anywhere in its config (confirmed
 throughout quality_scale.yaml's own reauthentication-flow/inject-websession
@@ -32,27 +50,49 @@ TO_REDACT: tuple[str, ...] = ()
 
 _SOLVER_ENTITY_ID = "sensor.nimbus_solver_battery_forecast"
 _HOUSEHOLD_LOAD_ENTITY_ID = "sensor.nimbus_household_load_total_forecast"
+_SOLVER_CONFIG_ENTITY_ID = "sensor.nimbus_solver_config"
+
+
+def _solver_config_diagnostics(hass: HomeAssistant) -> dict[str, Any]:
+    """The Solver's own FULL resolved config -- every field
+    _SOLVER_ALL_KEYS covers (sensor.py's own NimbusSolverConfigSensor),
+    battery capacity/min-max SoC/efficiency/costs/salvage/degradation
+    cost/P2P bonus blocks/network fee schedule/risk_aversion, ALL of it,
+    not a curated subset.
+
+    Reads the bridge sensor's own live attributes directly rather than
+    re-deriving anything -- that sensor's own _resolve() already handles
+    "read the live number.nimbus_solver_* entity if this key is
+    dashboard-adjustable, otherwise read entry.options" per field, which
+    is exactly the logic that would otherwise have to be duplicated
+    here. Genuinely unconfigured (Solver settings wizard never run) ->
+    an honest {"configured": False}, not a crash -- same convention as
+    _solver_diagnostics() below.
+    """
+    state = hass.states.get(_SOLVER_CONFIG_ENTITY_ID)
+    if state is None:
+        return {"configured": False}
+    return {"configured": True, "native_value": state.state, **dict(state.attributes)}
 
 
 def _solver_diagnostics(hass: HomeAssistant) -> dict[str, Any]:
-    """Health-at-a-glance for the Solver (both the standalone cron/HAOS-
-    add-on path and the native in-process runtime push the exact same
-    two entities, so this works identically either way) -- added
-    2026-08-23 in direct response to Mark Purcell asking for exactly
-    this to debug a real solver crash/flatline he hit on his own
-    install (nimbus issue #63). The Solver has no in-memory Python
-    object this file could reach into (solver_runtime.py's own
-    async_run_solve() returns a bare True/False and keeps nothing
-    else) -- its only durable, inspectable state IS these two live HA
-    entities, so reading them directly is the correct source of truth,
-    not a workaround.
+    """Health-at-a-glance for the Solver PLUS its full real plan (both
+    the standalone cron/HAOS-add-on path and the native in-process
+    runtime push the exact same two entities, so this works identically
+    either way) -- added 2026-08-23 in direct response to Mark Purcell
+    asking for exactly this to debug a real solver crash/flatline he
+    hit on his own install (nimbus issue #63). The Solver has no
+    in-memory Python object this file could reach into
+    (solver_runtime.py's own async_run_solve() returns a bare
+    True/False and keeps nothing else) -- its only durable, inspectable
+    state IS these two live HA entities, so reading them directly is
+    the correct source of truth, not a workaround.
 
-    Deliberately excludes each entity's own large `forecast` array
-    (already visible on the entity itself, and would bloat this dump)
-    -- pulls only the fields that answer "is the Solver healthy and
-    why/why not," same philosophy as the coordinator section below.
-    Neither entity existing yet (Solver settings never configured, or
-    the very first cycle hasn't run) resolves to `None`, not a crash.
+    Includes each entity's own full `forecast` array as of 2026-08-24
+    (previously excluded -- see this module's own top docstring for
+    why that reasoning didn't hold up). Neither entity existing yet
+    (Solver settings never configured, or the very first cycle hasn't
+    run) resolves to `None`, not a crash.
     """
     solver_state = hass.states.get(_SOLVER_ENTITY_ID)
     load_state = hass.states.get(_HOUSEHOLD_LOAD_ENTITY_ID)
@@ -84,6 +124,10 @@ def _solver_diagnostics(hass: HomeAssistant) -> dict[str, Any]:
         "load_whole_house_cross_check_now_kw": solver_attrs.get(
             "load_whole_house_cross_check_now_kw"
         ),
+        # Full real plan, not a slice or a summary -- see module
+        # docstring: this is a snapshot, the live entity keeps moving.
+        "forecast": solver_attrs.get("forecast", []),
+        "household_load_forecast": load_attrs.get("forecast", []),
     }
 
 
@@ -97,10 +141,11 @@ async def async_get_config_entry_diagnostics(
     for subentry_id, coordinator in coordinators.items():
         subentry = coordinator.subentry
         data = coordinator.data or {}
-        # Forecast point COUNT, not the raw array -- the array is already
-        # live on the entity itself (small, redundant to duplicate here),
-        # and this file exists to show HEALTH at a glance, not replicate
-        # the forecast attribute.
+        # Full real forecast array, not just point-count/first/last time
+        # (2026-08-24 -- see this module's own top docstring for why the
+        # earlier "already visible on the entity, would bloat this dump"
+        # exclusion didn't hold up). first/last time kept alongside the
+        # full array as a cheap, still-useful at-a-glance summary.
         forecast = data.get("forecast") or []
         subentries.append(
             {
@@ -118,6 +163,7 @@ async def async_get_config_entry_diagnostics(
                     "forecast_point_count": len(forecast),
                     "forecast_first_time": forecast[0]["time"] if forecast else None,
                     "forecast_last_time": forecast[-1]["time"] if forecast else None,
+                    "forecast": forecast,
                 },
             }
         )
@@ -129,4 +175,5 @@ async def async_get_config_entry_diagnostics(
         },
         "subentries": subentries,
         "solver": _solver_diagnostics(hass),
+        "solver_config": _solver_config_diagnostics(hass),
     }
