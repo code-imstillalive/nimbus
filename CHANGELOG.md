@@ -10,6 +10,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.78.0] — 2026-08-24
+
 ### Fixed
 - **`temperature_forecast_sensor` crashed the coordinator on `weather.*`
   entities emitting naive datetimes** (Mark Purcell, real repro, #137,
