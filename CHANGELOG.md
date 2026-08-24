@@ -10,6 +10,37 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+### Changed
+- **Solver settings wizard — "Group A" of the config-flow simplification**
+  (direct Mark Purcell critique: entity-pointer fields are hard to fill
+  in cold on a fresh install). The Sources step's two load-forecast
+  fields (`solver_load_forecast_sensor`, `solver_load_forecast_entities`)
+  now restrict their own entity pickers to Nimbus's real, live forecast
+  output instead of offering every `sensor.*` on the system. The single-
+  sensor field deliberately excludes
+  `sensor.nimbus_household_load_total_forecast` — pointing it there is
+  exactly the circular-reference bug [#118](https://github.com/code-imstillalive/nimbus/issues/118)
+  fixed defensively; this closes the same gap at the source by never
+  offering it as a choice. Purely a picker restriction — an already-saved
+  value, or an install where discovery finds nothing yet, is completely
+  unaffected (a picker with no candidates falls back to showing
+  everything, same as before this change).
+- **"Group B" of the same simplification**: the Forecaster step's
+  temperature/humidity fields and the Solver Battery step's SoC field
+  now get a pre-filled *suggestion* (never a picker restriction — these
+  are raw household hardware sensors, not Nimbus's own self-tagged
+  output, so a hard filter risked hiding a genuinely correct but
+  untagged sensor) whenever exactly one live entity of the matching
+  `device_class` exists system-wide. Deliberately narrower than a naive
+  "filter every raw sensor field by device_class" approach — the
+  battery/grid/solar power fields and both import/export price fields
+  are excluded on purpose, since even a single matching entity there is
+  genuinely ambiguous about *which* of two or three fields it belongs
+  to; guessing wrong would be confidently misleading, worse than no
+  suggestion at all. An already-saved value is never overwritten by a
+  suggestion, same discipline as every other suggestion mechanism in
+  this file.
+
 ## [0.75.0] — 2026-08-24
 
 Mark Purcell's own independent-install health-check found four real bugs

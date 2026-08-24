@@ -39,6 +39,8 @@ from homeassistant.config_entries import OptionsFlowWithConfigEntry
 from homeassistant.helpers import selector
 
 from ..const import (
+    ATTR_SIGNAL_ROLE,
+    ATTR_SUBENTRY_TYPE,
     CONF_BATTERY_SENSOR,
     CONF_CURTAILMENT_SENSOR,
     CONF_FORECAST_HORIZON_HOURS,
@@ -70,6 +72,11 @@ from ..const import (
     DEFAULT_FORECAST_HORIZON_HOURS,
     DEFAULT_RETRAIN_HOUR_LOCAL,
     DEFAULT_TRAIN_DAYS,
+    SIGNAL_ROLE_BATTERY,
+    SIGNAL_ROLE_GRID,
+    SIGNAL_ROLE_SOLAR,
+    SUBENTRY_TYPE_LOAD,
+    SUBENTRY_TYPE_SIGNAL,
 )
 
 
@@ -198,19 +205,40 @@ def _forecaster_schema(defaults: dict[str, Any]) -> vol.Schema:
     )
 
 
-def _entity(domain: str = "sensor") -> selector.EntitySelector:
-    return selector.EntitySelector(selector.EntitySelectorConfig(domain=domain))
+def _entity(
+    domain: str = "sensor", include_entities: list[str] | None = None
+) -> selector.EntitySelector:
+    """`include_entities`, when given a non-empty list, restricts the
+    picker's own dropdown to exactly those candidates (2026-08-24, real
+    HA behaviour, directly verified: a non-empty list genuinely narrows
+    what's offered; an empty list falls through to "no restriction" --
+    but every caller here still passes `None`, never `[]`, in that case,
+    so this file's own on-disk behaviour never has to depend on that
+    empty-list nuance holding forever). Deliberately NOT enforced at
+    validation time -- an already-saved value outside the current
+    candidate list is left completely alone (the picker just won't
+    offer it again as a NEW choice), same "restrict the suggestion,
+    never silently override a real saved value" discipline as every
+    other safeguard in this file."""
+    config: dict[str, Any] = {"domain": domain}
+    if include_entities:
+        config["include_entities"] = include_entities
+    return selector.EntitySelector(selector.EntitySelectorConfig(**config))
 
 
-def _entity_multi(domain: str = "sensor") -> selector.EntitySelector:
+def _entity_multi(
+    domain: str = "sensor", include_entities: list[str] | None = None
+) -> selector.EntitySelector:
     """Real, native HA multi-entity picker -- for the granular, optional
     per-circuit load-summation list (2026-08-23, issue #56's own fix).
     Genuinely empty by default; picking zero entities is a complete no-op,
     not a degraded mode -- see CONF_SOLVER_LOAD_FORECAST_ENTITIES's own
-    comment in const.py."""
-    return selector.EntitySelector(
-        selector.EntitySelectorConfig(domain=domain, multiple=True)
-    )
+    comment in const.py. `include_entities` -- see _entity()'s own
+    docstring above, same mechanism, same safety guarantee."""
+    config: dict[str, Any] = {"domain": domain, "multiple": True}
+    if include_entities:
+        config["include_entities"] = include_entities
+    return selector.EntitySelector(selector.EntitySelectorConfig(**config))
 
 
 def _solver_battery_schema(defaults: dict[str, Any]) -> vol.Schema:
@@ -255,7 +283,21 @@ def _solver_grid_schema(defaults: dict[str, Any]) -> vol.Schema:
     )
 
 
-def _solver_sources_schema(defaults: dict[str, Any]) -> vol.Schema:
+def _solver_sources_schema(
+    defaults: dict[str, Any],
+    single_load_forecast_candidates: list[str] | None = None,
+    summable_load_forecast_candidates: list[str] | None = None,
+) -> vol.Schema:
+    """The two `*_candidates` params (2026-08-24, "Group A" of the wizard-
+    simplification scoping) narrow the two load-forecast fields' own
+    pickers down to Nimbus's real, live forecast output -- see
+    _discover_nimbus_load_forecast_candidates()'s own docstring, this
+    module's one real source of what belongs in each list. Both default
+    to None (== "no restriction", the exact original behaviour) so any
+    OTHER caller of this function (there are none live today, but this
+    keeps the function itself honestly self-contained rather than
+    silently depending on its one real caller always doing discovery
+    first) still gets a fully working, if unrestricted, form."""
     return vol.Schema(
         {
             vol.Required(
@@ -285,21 +327,34 @@ def _solver_sources_schema(defaults: dict[str, Any]) -> vol.Schema:
                     "suggested_value": defaults.get(CONF_SOLVER_SOLAR_FORECAST_SENSOR_3)
                 },
             ): _entity(),
+            # Restricted (2026-08-24, Group A) to Nimbus's own real
+            # per-signal/per-load forecast entities -- deliberately
+            # EXCLUDES sensor.nimbus_household_load_total_forecast (the
+            # Solver's own OUTPUT), which is exactly the entity a fresh
+            # install with no load subentries configured would otherwise
+            # be tempted to point this AT, producing the real, confirmed
+            # circular-reference bug issue #118 fixed defensively (see
+            # this file's own #118 dated comment history, and
+            # _discover_nimbus_load_forecast_candidates()'s docstring
+            # below for the precise "why not the aggregate" reasoning).
             vol.Required(
                 CONF_SOLVER_LOAD_FORECAST_SENSOR,
                 default=defaults.get(CONF_SOLVER_LOAD_FORECAST_SENSOR),
-            ): _entity(),
+            ): _entity(include_entities=single_load_forecast_candidates),
             # Both new, optional, real-bug-fix fields (2026-08-23, issue
             # #56) -- blank/empty is a complete no-op on every install
             # that doesn't set them, same suggested_value (not default=)
             # pattern as the optional solar sources above so they can
-            # genuinely be cleared once set.
+            # genuinely be cleared once set. Restricted (2026-08-24,
+            # Group A) to genuine per-circuit Load-subentry forecasts --
+            # this field's own real job is summing individual circuits,
+            # so that's exactly what its own picker now offers.
             vol.Optional(
                 CONF_SOLVER_LOAD_FORECAST_ENTITIES,
                 description={
                     "suggested_value": defaults.get(CONF_SOLVER_LOAD_FORECAST_ENTITIES)
                 },
-            ): _entity_multi(),
+            ): _entity_multi(include_entities=summable_load_forecast_candidates),
             vol.Optional(
                 CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR,
                 description={
@@ -310,6 +365,142 @@ def _solver_sources_schema(defaults: dict[str, Any]) -> vol.Schema:
             ): _entity(),
         }
     )
+
+
+def _discover_nimbus_load_forecast_candidates(
+    hass: Any,
+) -> tuple[list[str], list[str]]:
+    """ "Group A" of the 2026-08-24 wizard-simplification scoping (direct
+    Mark Purcell critique, relayed: entity-pointer fields are confusing
+    to fill in cold, since a fresh install has no way to know which of
+    its own dozens of live entities are the RIGHT kind of candidate).
+    Mirrors the already-proven, already-live pattern topology-card-v4.js
+    uses client-side (_discoverLoads()/_discoverPowerSignalsByRole()) --
+    scan hass.states for Nimbus's own real, live forecast entities
+    (every one is tagged with ATTR_SUBENTRY_TYPE at publish time, see
+    sensor.py's NimbusForecastSensor), then use that same tag (plus, for
+    power signals, the explicit ATTR_SIGNAL_ROLE -- never guessed from
+    naming, same reasoning as CONF_SIGNAL_ROLE's own const.py comment)
+    to sort them into the two genuinely different things this wizard
+    step's two entity-pointer fields each actually want.
+
+    Returns (single_load_forecast_candidates, summable_load_forecast_
+    candidates) -- deliberately two separate lists, not one, because the
+    two real fields these feed have two different, non-overlapping real
+    answers:
+
+    - solver_load_forecast_sensor (single-select, "point at ONE whole-
+      house load forecast") wants a Power Signal subentry whose role is
+      genuinely "other" (i.e. explicitly NOT battery/solar/grid -- a
+      household's own "Whole House Load"/"CB Total Combined Power"-style
+      signal), or, less commonly, a single Load subentry directly.
+      Deliberately, precisely EXCLUDES sensor.nimbus_household_load_
+      total_forecast (the Solver's own per-solve OUTPUT, a
+      _NimbusSolverPushSensor, never tagged with ATTR_SUBENTRY_TYPE at
+      all -- confirmed via direct source read, 2026-08-24) -- pointing
+      this field at that entity is exactly the real, confirmed circular-
+      reference bug issue #118 fixed defensively (this function's own
+      job is to stop an installer from ever being OFFERED that footgun
+      in the first place, not just catch it after the fact).
+    - solver_load_forecast_entities (multi-select, "sum these individual
+      circuits") wants real, individual Load-subentry forecasts only --
+      exactly what this field's own summation logic (sum_load_
+      forecasts()) is built to consume.
+
+    Returns ([], []) on any failure (hass not fully ready, an
+    unexpected attribute shape) -- same graceful-degradation convention
+    as this module's sibling _energy_dashboard_switchboard_suggestions()
+    above: a discovery failure must only ever mean "show every entity,
+    unrestricted" (both _entity()/_entity_multi() treat an empty list as
+    "no restriction"), never break the wizard step itself.
+    """
+    single: list[str] = []
+    summable: list[str] = []
+    try:
+        for state in hass.states.async_all("sensor"):
+            subentry_type = state.attributes.get(ATTR_SUBENTRY_TYPE)
+            if subentry_type == SUBENTRY_TYPE_LOAD:
+                summable.append(state.entity_id)
+                single.append(state.entity_id)
+            elif subentry_type == SUBENTRY_TYPE_SIGNAL:
+                role = state.attributes.get(ATTR_SIGNAL_ROLE)
+                if role not in (
+                    SIGNAL_ROLE_BATTERY,
+                    SIGNAL_ROLE_SOLAR,
+                    SIGNAL_ROLE_GRID,
+                ):
+                    single.append(state.entity_id)
+    except Exception:  # noqa: BLE001 -- see docstring: a discovery failure must degrade to "no restriction", never break the wizard
+        return [], []
+    return single, summable
+
+
+def _type_safe_entity_suggestions(hass: Any) -> dict[str, str]:
+    """ "Group B" of the 2026-08-24 wizard-simplification scoping -- a
+    real, live device_class scan for the handful of RAW HARDWARE fields
+    (temperature/humidity/battery-SoC) where Nimbus has no self-
+    describing tag of its own to lean on (unlike Group A's Nimbus
+    forecast entities, which always carry ATTR_SUBENTRY_TYPE, a 100%
+    reliable signal Nimbus itself controls). Deliberately a SUGGESTION
+    (suggested_value, exactly `_energy_dashboard_switchboard_suggestions`'
+    own already-proven mechanism above), never a picker restriction --
+    a hard include_entities/device_class filter on these fields would
+    risk permanently hiding a household's own genuinely-correct sensor
+    if it happens to be an untagged template sensor (a real, common
+    real-world shape, and worse than the current no-restriction status
+    quo, not better).
+
+    Narrower scope than a naive "device_class-filter everything raw"
+    approach, and deliberately so -- reasoned through explicitly rather
+    than assumed:
+
+    - CONF_TEMPERATURE_SENSOR / CONF_HUMIDITY_SENSOR (device_class
+      temperature/humidity): only suggested when EXACTLY ONE live
+      sensor of that device_class exists system-wide. Multiple matches
+      (a household with several climate sensors) is a real, common
+      case -- guessing one arbitrarily would be actively misleading, so
+      it's left unsuggested instead, identical to today's behaviour.
+    - CONF_SOLVER_BATTERY_SOC_SENSOR (device_class battery): same
+      exactly-one rule. Real, honest limitation: device_class=battery
+      is also the standard HA convention for low-battery-level
+      diagnostics on completely unrelated devices (door sensors,
+      remotes, ...) -- on a household with several such devices this
+      will essentially always come back empty, which is fine (empty
+      means "no regression from today", never "a wrong guess").
+    - CONF_BATTERY_SENSOR / CONF_GRID_SENSOR / CONF_SOLAR_SENSOR
+      (Forecaster's own shared power sensors) and CONF_SOLVER_IMPORT_
+      PRICE_SENSOR / CONF_SOLVER_EXPORT_PRICE_SENSOR are deliberately
+      EXCLUDED from this function entirely, not merely rarer -- even
+      when device_class narrows candidates to exactly one, there is no
+      way to tell FROM device_class alone whether one lone power sensor
+      is battery vs grid vs solar, or whether one lone monetary sensor
+      is the import vs export price. Suggesting the same entity for two
+      different fields (or the wrong one of a pair) would be
+      confidently, silently wrong -- worse than staying silent.
+
+    Returns {} on any failure (same graceful-degradation convention as
+    every other real-live-data helper in this module).
+    """
+    try:
+        candidates: dict[str, list[str]] = {
+            "temperature": [],
+            "humidity": [],
+            "battery": [],
+        }
+        for state in hass.states.async_all("sensor"):
+            device_class = state.attributes.get("device_class")
+            if device_class in candidates:
+                candidates[device_class].append(state.entity_id)
+        suggestions: dict[str, str] = {}
+        if len(candidates["temperature"]) == 1:
+            suggestions[CONF_TEMPERATURE_SENSOR] = candidates["temperature"][0]
+        if len(candidates["humidity"]) == 1:
+            suggestions[CONF_HUMIDITY_SENSOR] = candidates["humidity"][0]
+        if len(candidates["battery"]) == 1:
+            suggestions[CONF_SOLVER_BATTERY_SOC_SENSOR] = candidates["battery"][0]
+    except Exception:  # noqa: BLE001 -- see docstring: a discovery failure must degrade to "no suggestion", never break the wizard
+        return {}
+    return suggestions
 
 
 async def _energy_dashboard_switchboard_suggestions(hass: Any) -> dict[str, str]:
@@ -616,9 +807,16 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
                 merged[key] = user_input.get(key)
             return self.async_create_entry(title="", data=merged)
 
+        # Type-safe suggestions (2026-08-24, "Group B") fill in ONLY the
+        # gaps -- an already-saved real value always wins, a fresh
+        # suggestion never overwrites it. Same {**suggestions, **saved}
+        # precedence as async_step_switchboard below.
+        existing = dict(self.config_entry.options)
+        suggestions = _type_safe_entity_suggestions(self.hass)
+        form_defaults = {**suggestions, **existing}
         return self.async_show_form(
             step_id="forecaster",
-            data_schema=_forecaster_schema(dict(self.config_entry.options)),
+            data_schema=_forecaster_schema(form_defaults),
         )
 
     async def async_step_switchboard(
@@ -656,9 +854,15 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
         if user_input is not None:
             self._solver_data.update(user_input)
             return await self.async_step_solver_grid()
+        # Same Group B suggestion mechanism as async_step_forecaster above
+        # -- fills the SoC field ONLY when unambiguous, never overwrites
+        # an already-saved real value.
+        existing = dict(self.config_entry.options)
+        suggestions = _type_safe_entity_suggestions(self.hass)
+        form_defaults = {**suggestions, **existing}
         return self.async_show_form(
             step_id="solver_battery",
-            data_schema=_solver_battery_schema(dict(self.config_entry.options)),
+            data_schema=_solver_battery_schema(form_defaults),
         )
 
     async def async_step_solver_grid(
@@ -705,7 +909,12 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
             except Exception:  # noqa: BLE001, S110 -- see comment above: dismissing a notification must never block a real save; nothing to log or react to beyond that
                 pass
             return self.async_create_entry(title="", data=merged)
+        single_candidates, summable_candidates = (
+            _discover_nimbus_load_forecast_candidates(self.hass)
+        )
         return self.async_show_form(
             step_id="solver_sources",
-            data_schema=_solver_sources_schema(dict(self.config_entry.options)),
+            data_schema=_solver_sources_schema(
+                dict(self.config_entry.options), single_candidates, summable_candidates
+            ),
         )
