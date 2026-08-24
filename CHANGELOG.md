@@ -10,6 +10,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.76.0] — 2026-08-24
+
+Both pieces of the Solver settings wizard-simplification scoping (direct
+Mark Purcell critique: "wizard complexity... how confusing the process is
+and entities are") — makes the entity-pointer fields easier to fill in
+cold, on a fresh install with dozens or hundreds of unrelated entities.
+
 ### Changed
 - **Solver settings wizard — "Group A" of the config-flow simplification**
   (direct Mark Purcell critique: entity-pointer fields are hard to fill
