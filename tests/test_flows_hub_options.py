@@ -31,6 +31,7 @@ from custom_components.nimbus_load.const import (
     CONF_SOLVER_EXPORT_PRICE_SENSOR,
     CONF_SOLVER_IMPORT_PRICE_SENSOR,
     CONF_SOLVER_LOAD_FORECAST_SENSOR,
+    CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_2,
     CONF_SWITCHBOARD_BATTERY_CHARGE_DAILY_SENSOR,
@@ -159,9 +160,29 @@ def test_solver_sources_schema_primary_source_is_required():
 
 def test_solver_battery_schema_has_one_required_soc_field():
     schema = _solver_battery_schema({})
-    assert len(schema.schema) == 1
+    # 2026-08-24, nimbus #125: gained a second, genuinely OPTIONAL field
+    # (solver_max_discharge_live_entity) -- the SoC sensor stays the only
+    # Required one.
+    assert len(schema.schema) == 2
     marker = _find_marker(schema, CONF_SOLVER_BATTERY_SOC_SENSOR)
     assert type(marker).__name__ == "Required"
+
+
+def test_solver_battery_schema_max_discharge_live_entity_is_optional_number_domain():
+    # #125 (Mark Purcell, real repro): a bare hardcoded entity_id used to
+    # silently override a portable install's configured
+    # solver_max_discharge_kw whenever an unrelated entity happened to
+    # exist at that exact name. Now a genuine, optional, per-household
+    # field -- Optional (not Required, unlike the SoC sensor above) so
+    # it's a complete no-op when left unset, matching every other
+    # optional entity-pointer field's own convention (see
+    # _forecaster_schema's own 2026-08-22/2026-08-24 comments for why
+    # this must be description={"suggested_value": ...}, not default=).
+    schema = _solver_battery_schema({})
+    marker = _find_marker(schema, CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY)
+    assert type(marker).__name__ == "Optional"
+    selector_instance = schema.schema[marker]
+    assert selector_instance.config["domain"] == "number"
 
 
 def test_solver_grid_schema_has_two_required_price_fields():

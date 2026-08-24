@@ -305,6 +305,24 @@ CONF_SOLVER_BATTERY_MAX_SOC_PERCENT: Final = "solver_battery_max_soc_percent"
 # deliberately one number each, not a per-device breakdown.
 CONF_SOLVER_MAX_CHARGE_KW: Final = "solver_max_charge_kw"
 CONF_SOLVER_MAX_DISCHARGE_KW: Final = "solver_max_discharge_kw"
+# Genuinely optional, no DEFAULT_ constant -- unset/None means "just use
+# solver_max_discharge_kw above, nothing more" (2026-08-24, nimbus #125,
+# Mark Purcell's own real repro: this repo's reference household has a
+# real, live Sungrow Logger charge/discharge setpoint entity whose own
+# `max` attribute reflects the actual hardware ceiling in real time, more
+# trustworthy than a static config value that can go stale -- but that
+# entity_id used to be HARDCODED directly into solver_writer.py
+# ("number.logger_charging_discharging_power_kw"), so on any OTHER
+# install where an entity happens to exist at that exact name (a real,
+# reproduced failure on Mark's own Sigen-based system -- 1.93kW, an
+# unrelated entity's own max attribute, silently substituted in place of
+# his real configured 24kW), the LP would clamp discharge to some
+# completely unrelated number with zero warning. Making the entity_id
+# itself a per-household config field, defaulting to unset, closes this
+# for everyone except the reference household, which needs to set it
+# once after this ships to keep the exact same protective behaviour it
+# already had.
+CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY: Final = "solver_max_discharge_live_entity"
 # ONE blended round-trip efficiency number (battery chemistry loss +
 # inverter AC-DC conversion loss combined) -- HAEO models these as two
 # separate numbers on two separate elements; Nimbus deliberately doesn't,

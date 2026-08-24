@@ -52,10 +52,12 @@
         "title": "Solver: Battery (1 of 3)",
         "description": "Which sensor reports your battery's live State of Charge. Every other battery setting (capacity, SoH, min/max SoC, max charge/discharge power, efficiency) now lives on its own dashboard-editable number entity instead of this wizard -- look for a new \"Nimbus\" device with a Battery Capacity, Max Charge Power, etc. after saving, and set your real values there.",
         "data": {
-          "solver_battery_soc_sensor": "Battery State of Charge sensor (%) -- the live sensor your system already reports, e.g. from your inverter's own integration"
+          "solver_battery_soc_sensor": "Battery State of Charge sensor (%) -- the live sensor your system already reports, e.g. from your inverter's own integration",
+          "solver_max_discharge_live_entity": "Live max-discharge setpoint entity (optional, advanced)"
         },
         "data_description": {
-          "solver_battery_soc_sensor": "The Solver reads this at the start of every solve to know your real current State of Charge -- must be a genuine measurement (0-100%), not a target/setpoint entity. Everything else about your battery (capacity, power limits, efficiency) is configured separately as live number.* entities so you can tune them without re-running this wizard."
+          "solver_battery_soc_sensor": "The Solver reads this at the start of every solve to know your real current State of Charge -- must be a genuine measurement (0-100%), not a target/setpoint entity. Everything else about your battery (capacity, power limits, efficiency) is configured separately as live number.* entities so you can tune them without re-running this wizard.",
+          "solver_max_discharge_live_entity": "Optional -- leave blank unless your own inverter/logger exposes a real, live number.* entity whose 'max' attribute tracks your hardware's actual current discharge ceiling (not every system has this). When set, the Solver prefers that live value over your plain Max Discharge Power number above, as an extra safety margin against a real hardware limit changing without you updating the number entity. Leaving this blank is the correct choice for almost every install."
         }
       },
       "solver_grid": {

@@ -536,6 +536,53 @@ def _cfg_int(cfg: dict, key: str, default: int) -> int:
     return int(val)
 
 
+def resolve_max_discharge_kw(cfg: dict) -> float:
+    """PREFER this household's own real, live hardware setpoint entity's
+    own `max` attribute if one is CONFIGURED (2026-08-16 real finding
+    for why this mechanism exists at all -- protects against the LP
+    planning beyond a real, live hardware ceiling even if the static
+    config value is ever stale or wrong). Falls back to the portable,
+    static solver_max_discharge_kw config value whenever this field is
+    left unset -- the correct default for almost every install.
+
+    2026-08-24, nimbus #125 (Mark Purcell's own real repro): this used
+    to be a bare HARDCODED entity_id
+    ("number.logger_charging_discharging_power_kw", this repo's own
+    reference household's real Sungrow Logger entity) -- on Mark's own
+    Sigen-based system, SOME unrelated entity apparently exists at that
+    exact name/slug, so entity_exists() returned True and its own,
+    completely unrelated `max` attribute (1.93) silently replaced his
+    real configured 24kW with zero warning, capping the LP's real
+    discharge capability for the entire 96h horizon. The charge side
+    (max_charge_kw, read directly from cfg with no such override) never
+    had this bug at all -- confirmed by Mark's own evidence (charge
+    correctly bounded at his configured 21.0kW). Now a genuine,
+    optional, per-household config field
+    (solver_max_discharge_live_entity) -- unset (the correct default
+    for a portable install) skips this mechanism entirely, matching
+    every other optional entity-pointer field in this file's own
+    fallback discipline.
+
+    Extracted as its own standalone, directly-testable function
+    (2026-08-24) rather than left inline inside main() -- same
+    precedent as _cfg_num/_cfg_int above -- specifically so this exact
+    bug class (a real entity read silently overriding a real configured
+    value) has real unit-test coverage, not just source-inspection.
+    """
+    live_entity = cfg.get("solver_max_discharge_live_entity")
+    if live_entity and entity_exists(live_entity):
+        try:
+            return float(ha_get(live_entity)["attributes"]["max"])
+        except (KeyError, TypeError, ValueError):
+            print(
+                f"WARN: solver_max_discharge_live_entity '{live_entity}' "
+                f"exists but has no usable numeric 'max' attribute -- "
+                f"falling back to solver_max_discharge_kw.",
+                file=sys.stderr,
+            )
+    return float(cfg["solver_max_discharge_kw"])
+
+
 def import_fee_rate(cfg: dict, hour: int) -> float:
     """Real, live, dashboard-configurable network TOU fee for a given
     hour -- REPLACES the old hardcoded network_energy_rate()
@@ -3031,19 +3078,9 @@ def main() -> None:
     # own real, live-measured SoC sensor now works, not just this one's.
     initial_pct = num(cfg["solver_battery_soc_sensor"])
     max_charge_kw = float(cfg["solver_max_charge_kw"])
-    # max_discharge_kw: PREFER this household's own real, live Modbus
-    # setpoint entity's own `max` attribute if it exists (2026-08-16 real
-    # finding, kept unchanged below for exactly this reason -- protects
-    # against the LP planning beyond a real, live hardware ceiling even
-    # if the static config value is ever stale or wrong). Falls back to
-    # the portable, static solver_max_discharge_kw config value for
-    # anyone without this exact entity (a different household's own
-    # inverter setpoint entity would have a different name entirely).
-    _max_discharge_entity = "number.logger_charging_discharging_power_kw"
-    if entity_exists(_max_discharge_entity):
-        max_discharge_kw = ha_get(_max_discharge_entity)["attributes"]["max"]
-    else:
-        max_discharge_kw = float(cfg["solver_max_discharge_kw"])
+    # See resolve_max_discharge_kw()'s own docstring (near _cfg_num/
+    # _cfg_int, top of file) for the full nimbus #125 story.
+    max_discharge_kw = resolve_max_discharge_kw(cfg)
     charge_cost = _cfg_num(
         cfg, "solver_charge_cost", 0.01
     )  # not scheduled -- real automations never touch this, manual control

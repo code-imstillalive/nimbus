@@ -77,6 +77,7 @@ from .const import (
     CONF_SOLVER_LOAD_FORECAST_SENSOR,
     CONF_SOLVER_MAX_CHARGE_KW,
     CONF_SOLVER_MAX_DISCHARGE_KW,
+    CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY,
     CONF_SOLVER_NETWORK_FEE_1_END_HOUR,
     CONF_SOLVER_NETWORK_FEE_1_RATE,
     CONF_SOLVER_NETWORK_FEE_1_START_HOUR,
@@ -200,6 +201,14 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     # the problem; this sensor silently omitting it from what it exposes
     # was.
     CONF_SOLVER_LOAD_FORECAST_ENTITIES,
+    # 2026-08-24, nimbus #125: same exact class of bug as the 2026-08-23
+    # note directly above this block (SOLAR_FORECAST_SENSOR_2/_3) --
+    # saved into entry.options by the wizard's own solver_battery step,
+    # but not exposed here means fetch_solver_config() (this bridge
+    # sensor's own only real consumer) can never see it either. Caught
+    # by this file's own real test_sensor_solver_config_keys.py, which
+    # exists specifically to catch this exact class of mistake.
+    CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY,
     CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR,
     CONF_SOLVER_INVERTER_SELF_CONSUMPTION_KW,
     CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
