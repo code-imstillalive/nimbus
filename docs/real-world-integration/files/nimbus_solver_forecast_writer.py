@@ -580,6 +580,110 @@ def resolve_max_discharge_kw(cfg: dict) -> float:
     return float(cfg["solver_max_discharge_kw"])
 
 
+_MIN_SOC_FLOOR_FRACTION = 0.0005  # 0.05% of capacity -- see docstring below.
+
+
+def resolve_min_soc_kwh(
+    min_pct: float, capacity_kwh: float, max_soc_kwh: float
+) -> float:
+    """Convert the configured Min SoC percent into kWh, with a strictly
+    positive floor.
+
+    elements.BatteryConfig.__post_init__ requires 0 < min_soc_kwh <=
+    max_soc_kwh <= capacity_kwh -- a deliberate LP-level degeneracy/
+    safety floor, not negotiable at that layer. But the dashboard's own
+    "Battery Min SoC" number entity allows dragging all the way down to
+    0% (number.py's own native_min_value=0, deliberately -- _cfg_num's
+    own docstring, and this file's test_solver_writer_cfg_defaults.py,
+    both already name "min_soc_percent set to 0% by an installer as a
+    temporary bypass" as a real, legitimate use case, not user error).
+
+    Left unguarded, that combination hard-crashes main() -- and
+    therefore the whole native solver_runtime.py loop -- every single
+    solve cycle. Confirmed live, 2026-08-24: 20 consecutive crashes over
+    24 minutes on a real independent install with Min SoC genuinely set
+    to 0%.
+
+    Same "absorb real reality rather than propagate a ValueError every
+    minute" philosophy as the initial_soc_kwh clamp in main() (2026-08-
+    23) -- a tiny relative floor (0.05% of capacity, negligible for any
+    real battery) keeps a 0% intent honoured as "effectively no
+    reserve" while staying strictly positive and therefore solvable.
+    min() against max_soc_kwh is a defensive guard against the
+    pathological case where Max SoC is ALSO at or near 0 -- not
+    observed in the wild, but keeps the invariant min <= max intact
+    regardless.
+
+    Extracted as its own standalone, directly-testable function -- same
+    precedent as resolve_max_discharge_kw() above -- rather than left
+    inline inside main(), which needs a live HA fetch and can't be unit-
+    tested standalone.
+    """
+    min_soc_kwh = capacity_kwh * min_pct / 100.0
+    if min_soc_kwh <= 0.0:
+        floor_kwh = min(capacity_kwh * _MIN_SOC_FLOOR_FRACTION, max_soc_kwh)
+        print(
+            f"WARN: configured Min SoC ({min_pct:.2f}%) resolves to "
+            f"{min_soc_kwh:.4f} kWh, at or below zero -- the solver "
+            f"requires a strictly positive floor to stay solvable. "
+            f"Clamped to {floor_kwh:.4f} kWh for this solve "
+            f"(effectively no reserve, not a literal 0%). If you "
+            f"genuinely want a small real reserve instead, raise Min "
+            f"SoC above 0% on the dashboard.",
+            file=sys.stderr,
+        )
+        return floor_kwh
+    return min_soc_kwh
+
+
+def safe_num(entity_id: str, fallback: float = 0.0) -> float:
+    """Read entity_id's current state as a float, degrading gracefully
+    (WARN + fallback) instead of crashing the whole solve cycle when the
+    entity's real state can't be parsed as a number.
+
+    Real, live crash this fixes (Mark Purcell, 2026-08-24, direct
+    follow-up to #58's own "it should catch errors and manage them"
+    complaint -- see resolve_min_soc_kwh() above for the other half of
+    that same conversation): a configured solver_export_price_sensor
+    entity's real state came back as '2026-08-24T13:00:00+10:00' (a
+    timestamp, not a price) -- the bare, unprotected
+    ``float(ha_get(entity_id)["state"])`` this replaces (previously a
+    small closure named ``num()``, local to main() and therefore
+    untestable in isolation -- extracted here for the same reason as
+    resolve_max_discharge_kw()/resolve_min_soc_kwh() above) had no
+    defence at all against that shape, and crashed every single solve
+    cycle it was reached on. Same class of external-read that "might
+    not be shaped as expected" already handled this way elsewhere in
+    this file (resolve_max_discharge_kw()'s own malformed-'max'-
+    attribute handling).
+
+    0.0 (the default fallback) matches this file's own established "no
+    better default exists" convention for a portable/generic install
+    with genuinely missing data (the P2P bonus fields, flat fee rate,
+    etc. all default the same way). Used for the three real, required
+    scalar-entity reads in main(): solver_import_price_sensor's and
+    solver_export_price_sensor's own scalar-fallback branch (only
+    reached when no forecast array exists at all), and
+    solver_battery_soc_sensor's live SoC read -- the latter is doubly
+    protected even on a 0.0 fallback: the existing initial_soc_kwh clamp
+    immediately below always has a strictly-positive floor to clamp
+    into now, thanks to resolve_min_soc_kwh() above.
+    """
+    try:
+        return float(ha_get(entity_id)["state"])
+    except (KeyError, TypeError, ValueError) as e:
+        print(
+            f"WARN: entity '{entity_id}' has a non-numeric state -- "
+            f"could not parse it as a price/SoC value ({e}). Falling "
+            f"back to {fallback} for this solve. Check that this "
+            f"entity is genuinely configured correctly (a real price/"
+            f"SoC sensor, not something else that happens to share the "
+            f"name).",
+            file=sys.stderr,
+        )
+        return fallback
+
+
 def compute_binding_constraint_label(
     plan: network.Plan,
     export_limit_kw: float,
@@ -2433,9 +2537,6 @@ def main() -> None:
     # for the full "installable by anyone" context this closes.
     cfg = fetch_solver_config()
 
-    def num(entity_id: str) -> float:
-        return float(ha_get(entity_id)["state"])
-
     now = (
         datetime.now(timezone.utc)
         .astimezone(BRISBANE_TZ)
@@ -3078,7 +3179,7 @@ def main() -> None:
         import_price = (
             _import_fc
             if _import_fc is not None
-            else [num(cfg["solver_import_price_sensor"])] * n_periods
+            else [safe_num(cfg["solver_import_price_sensor"])] * n_periods
         )
         # No real fee breakdown exists for a generic install -- the whole
         # configured value IS the raw price, no separate network/
@@ -3091,7 +3192,7 @@ def main() -> None:
         spot_export = (
             _export_fc
             if _export_fc is not None
-            else [num(cfg["solver_export_price_sensor"])] * n_periods
+            else [safe_num(cfg["solver_export_price_sensor"])] * n_periods
         )
         match_fraction = 0.0
         # Manual, static P2P bonus from the config-flow's own optional
@@ -3120,7 +3221,7 @@ def main() -> None:
     # The config-flow's own solver_battery_soc_sensor field replaces the
     # old hardcoded sensor.logger_battery_level_soc -- any household's
     # own real, live-measured SoC sensor now works, not just this one's.
-    initial_pct = num(cfg["solver_battery_soc_sensor"])
+    initial_pct = safe_num(cfg["solver_battery_soc_sensor"])
     max_charge_kw = float(cfg["solver_max_charge_kw"])
     # See resolve_max_discharge_kw()'s own docstring (near _cfg_num/
     # _cfg_int, top of file) for the full nimbus #125 story.
@@ -3183,8 +3284,8 @@ def main() -> None:
         export_price, grid_times, export_price_lower_band
     )
 
-    min_soc_kwh_val = capacity_kwh * min_pct / 100.0
     max_soc_kwh_val = capacity_kwh * max_pct / 100.0
+    min_soc_kwh_val = resolve_min_soc_kwh(min_pct, capacity_kwh, max_soc_kwh_val)
     initial_soc_kwh_raw = capacity_kwh * initial_pct / 100.0
 
     # Clamp initial_soc_kwh into [min_soc_kwh, max_soc_kwh] before the
