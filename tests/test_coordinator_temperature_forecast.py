@@ -17,6 +17,15 @@ service call), plus the new empty-result warning (logged once per
 coordinator instance, not once per tick) and the service call's own
 honest-fallback-over-crash handling for a real, not theoretical, failure
 (the entity doesn't support hourly forecasts at all).
+
+Also covers issue #137 (Mark Purcell, real repro, direct follow-up to
+#123, same day): the `weather.get_forecasts` code-path landed reachable
+but incomplete -- it never tz-normalised the returned datetimes, and
+some real weather integrations (his own `weather.noosa_heads_hourly`)
+emit genuinely naive ones. This is exactly the gap he predicted in his
+own report ("was the round-trip run against a real weather
+integration, or only synthetic tz-aware fixtures?") -- confirmed
+honestly: only synthetic tz-aware fixtures, until these tests.
 """
 
 from __future__ import annotations
@@ -24,7 +33,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import sys
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -36,7 +45,10 @@ install_ha_stubs()
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from custom_components.nimbus_load import coordinator
 from custom_components.nimbus_load.const import CONF_TEMPERATURE_FORECAST_SENSOR
-from custom_components.nimbus_load.coordinator import NimbusCoordinator
+from custom_components.nimbus_load.coordinator import (
+    NimbusCoordinator,
+    _normalize_forecast_timestamp,
+)
 
 # tests/_ha_stubs.py registers homeassistant.util.dt as a bare
 # MagicMock() (shared stand-in, since no other current test needs real
@@ -45,9 +57,19 @@ from custom_components.nimbus_load.coordinator import NimbusCoordinator
 # can't be `<` compared, which is exactly what out.sort(key=...) needs
 # to do. Wire a real ISO-8601 parser onto it for this file's own tests,
 # which are the first to actually exercise the datetime-parsing path.
+# datetime.fromisoformat() genuinely reproduces the real #137 bug shape
+# on a suffix-less string ("2026-08-24T15:00:00", no "+HH:MM"/"Z") --
+# real Python returns a NAIVE datetime for that input, byte-for-byte the
+# same shape Mark's own weather.noosa_heads_hourly integration emits.
 coordinator.dt_util.parse_datetime = datetime.fromisoformat
+# Real HA sets this from hass.config.time_zone at startup -- AEST
+# (UTC+10, no DST) matches both this repo's own reference household and
+# Mark's own real #137 report ("15:00" in his install's naive strings
+# means 15:00 AEST, confirmed against real live weather at the time).
+coordinator.dt_util.DEFAULT_TIME_ZONE = timezone(timedelta(hours=10))
 
 _T0 = datetime(2026, 8, 24, 9, 0, 0, tzinfo=UTC)
+_AEST = timezone(timedelta(hours=10))
 
 
 def _make_bare_coordinator() -> NimbusCoordinator:
@@ -150,6 +172,96 @@ def test_weather_domain_entity_not_in_response_returns_empty():
     coord.hass.services.async_call = AsyncMock(return_value={})
     result = asyncio.run(coord._async_fetch_temperature_forecast())
     assert result == []
+
+
+def test_weather_domain_naive_datetime_no_longer_crashes_and_is_treated_as_local():
+    # Mark's own exact #137 repro: weather.noosa_heads_hourly returns
+    # NAIVE datetime strings (no offset suffix) whose numbers are
+    # already local (AEST) wall-clock time -- confirmed by him against
+    # real live weather at the time ("sunny 22C matches now, not the
+    # middle of the AEST night that 15:00 UTC would be"). Before the
+    # fix this crashed the whole coordinator tick outright
+    # (TypeError: can't compare offset-naive and offset-aware
+    # datetimes) the moment out.sort() tried to compare a naive entry
+    # against an aware one, or any downstream bisect_right() call
+    # compared this against the always-aware `target`.
+    coord = _make_bare_coordinator()
+    coord.entry = MagicMock(
+        options={CONF_TEMPERATURE_FORECAST_SENSOR: "weather.noosa_heads_hourly"}
+    )
+    coord.hass = MagicMock()
+    coord.hass.services.async_call = AsyncMock(
+        return_value={
+            "weather.noosa_heads_hourly": {
+                "forecast": [
+                    # Real shape from his own raw service-call dump --
+                    # no "+HH:MM"/"Z" suffix at all.
+                    {"datetime": "2026-08-24T15:00:00", "temperature": 22.0},
+                    {"datetime": "2026-08-24T16:00:00", "temperature": 21.5},
+                ]
+            }
+        }
+    )
+    result = asyncio.run(coord._async_fetch_temperature_forecast())
+    # Must not have crashed to get here at all -- the real #137 bug.
+    ts0, temp0 = result[0]
+    assert temp0 == 22.0
+    # Genuinely tz-AWARE now (not still naive) -- required for the
+    # sort()/bisect_right() calls this feeds into to work at all.
+    assert ts0.tzinfo is not None
+    # The real, correct interpretation: "15:00" means 15:00 AEST, a pure
+    # relabel with ZERO numeric shift -- NOT 15:00 UTC-then-converted
+    # (which would land on 01:00 the NEXT day in AEST, the exact wrong
+    # answer Mark's own first-suggested fix, dt_util.as_local(), would
+    # have silently produced -- see _normalize_forecast_timestamp's own
+    # docstring for why that specific suggestion had a real bug in it).
+    assert ts0.hour == 15
+    assert ts0.astimezone(UTC).hour == 5  # 15:00 AEST == 05:00 UTC
+
+
+def test_normalize_forecast_timestamp_naive_gets_relabelled_not_converted():
+    # Direct, isolated proof of the actual fix -- a pure .replace(tzinfo=...),
+    # zero numeric shift, regardless of what other tests exercise around it.
+    # Deliberately naive (no tzinfo=) -- that's the exact real-world input
+    # shape this test exists to exercise, not an oversight.
+    naive = datetime(2026, 8, 24, 15, 0, 0)  # noqa: DTZ001
+    result = _normalize_forecast_timestamp(naive)
+    assert result.tzinfo is not None
+    assert result.hour == 15
+    assert result.minute == 0
+    assert result.day == 24
+
+
+def test_normalize_forecast_timestamp_already_aware_passes_through_unchanged():
+    aware = datetime(2026, 8, 24, 5, 0, 0, tzinfo=UTC)
+    result = _normalize_forecast_timestamp(aware)
+    assert result == aware
+    assert result.tzinfo is UTC
+
+
+def test_weather_domain_mixed_naive_and_aware_entries_sort_without_crashing():
+    # A real, plausible shape for an integration that's inconsistent
+    # about it (or a genuine boundary between two different upstream
+    # data sources) -- must not crash regardless of which entries are
+    # naive vs aware, or in what order they arrive.
+    coord = _make_bare_coordinator()
+    coord.entry = MagicMock(options={CONF_TEMPERATURE_FORECAST_SENSOR: "weather.mixed"})
+    coord.hass = MagicMock()
+    coord.hass.services.async_call = AsyncMock(
+        return_value={
+            "weather.mixed": {
+                "forecast": [
+                    {"datetime": "2026-08-24T18:00:00+00:00", "temperature": 19.0},
+                    {"datetime": "2026-08-24T15:00:00", "temperature": 22.0},
+                ]
+            }
+        }
+    )
+    result = asyncio.run(coord._async_fetch_temperature_forecast())
+    assert len(result) == 2
+    # Genuinely sorted by real chronological order (15:00 AEST ==
+    # 05:00 UTC, which IS before 18:00 UTC) -- not just "didn't crash".
+    assert [t for _, t in result] == [22.0, 19.0]
 
 
 def test_weather_domain_unsupported_forecast_type_degrades_not_crashes():
