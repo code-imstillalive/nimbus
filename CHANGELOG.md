@@ -10,6 +10,26 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.84.0] — 2026-08-25
+
+### Added
+- **`load_forecast_coverage_hours` on the Solver plan and the household
+  load rollup** (#112, "solver horizon 96.3h exceeds subentry forecast
+  horizon 48h"): `read_load_forecast_sensor()`/`sum_load_forecasts()` now
+  capture each source's real forecast coverage, in hours ahead of `now`,
+  on the raw forecast list -- before `resample_forecast()`'s flat-hold
+  padding makes a real point and a padded-flat point indistinguishable.
+  For the multi-circuit sum, coverage is the minimum across every circuit
+  that fetched successfully. Compare directly against `horizon_hours` to
+  see when part of a plan's own load input is padding, not a real
+  forecast.
+- **`publish_weather_forecast_mirrors()`** -- a real forward temperature
+  forecast for the devhub test dashboard, sourced from an installed
+  weather forecaster (Open-Meteo) via `weather.get_forecasts` (modern HA
+  weather entities no longer expose a plain `forecast` attribute).
+  Purely cosmetic/devhub-dashboard; never referenced by the actual LP
+  solve.
+
 ## [0.83.0] — 2026-08-25
 
 ### Added
