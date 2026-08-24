@@ -3334,9 +3334,7 @@ def main() -> None:
     # isn't configured.
     flat_fee_rate = _cfg_num(cfg, "solver_flat_fee_rate", 0.0)
     import_price = [
-        spot_import_raw[i]
-        + import_fee_rate(cfg, grid_times[i].hour)
-        + flat_fee_rate
+        spot_import_raw[i] + import_fee_rate(cfg, grid_times[i].hour) + flat_fee_rate
         for i in range(n_periods)
     ]
 
