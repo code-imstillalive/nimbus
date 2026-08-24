@@ -204,6 +204,176 @@ class TestTerminalValueCheckpoints(unittest.TestCase):
         self.assertAlmostEqual(auto_plan.total_cost, explicit_plan.total_cost, places=4)
 
 
+# 4 real days, hourly -- long enough to have multiple real midnight
+# boundaries, matching the real production shape (nimbus #144, Mark
+# Purcell's own real 96.9h/4-day horizon).
+_MULTI_DAY_N = 96
+_MULTI_DAY_MIDNIGHTS = [23, 47, 71, 95]  # end of day 1, 2, 3, 4 (0-indexed hourly)
+_MULTI_DAY_FINAL_IDX = 95
+_EARLY_REFERENCE_IDX = 12  # noon on day 1 -- before EVERY checkpoint below
+
+
+def _multi_day_scenario(period_indices):
+    """Deliberately profitable-to-sell every single period (export 0.20
+    vs a real marginal discharge cost of ~0.09: discharge_cost 0.01 +
+    degradation_cost_per_kwh 0.03, doubled for the round trip via
+    charge_cost 0.01 + degradation_cost_per_kwh 0.03 too) -- the ONLY
+    reason the LP would ever hold back is the terminal-value mechanism
+    itself, isolating its effect precisely, same technique as
+    _scenario() above just extended to a real multi-day length.
+    """
+    n = _MULTI_DAY_N
+    start = datetime(2026, 8, 24, 0, 0, tzinfo=UTC)
+    hours = np.array([1.0] * n)
+    periods = PeriodGrid(hours=hours, start=start)
+    grid = GridConfig(
+        import_price=np.full(n, 0.40),
+        export_price=np.full(n, 0.20),
+        import_limit_kw=44.0,
+        export_limit_kw=44.0,
+    )
+    min_soc_kwh, max_soc_kwh = 40.0 * 0.05, 40.0 * 1.0
+    battery = BatteryConfig(
+        capacity_kwh=40.0,
+        initial_soc_kwh=max_soc_kwh,
+        min_soc_kwh=min_soc_kwh,
+        max_soc_kwh=max_soc_kwh,
+        max_charge_kw=24.0,
+        max_discharge_kw=24.0,
+        charge_efficiency=0.975,
+        discharge_efficiency=0.975,
+        charge_cost=0.01,
+        discharge_cost=0.01,
+        degradation_cost_per_kwh=0.03,
+        salvage_value=0.05,
+        terminal_value_breakpoints=_terminal_curve(0.05, min_soc_kwh, max_soc_kwh),
+        terminal_value_period_indices=period_indices,
+    )
+    solar = SolarConfig(forecast_kw=np.zeros(n))
+    loads = [LoadConfig(name="house", forecast_kw=np.full(n, 4.0))]
+    return periods, grid, battery, solar, loads
+
+
+class TestTerminalValueDoesNotCompoundAcrossMultipleCheckpoints(unittest.TestCase):
+    """Real bug found live (Mark Purcell, nimbus #144, 2026-08-24): on a
+    real 4-day horizon (4 real midnight checkpoints + the true final
+    period = 5 total), the SAME physical stored energy was earning the
+    FULL terminal-value credit at EVERY checkpoint it survived through,
+    not once -- confirmed by a controlled scenario (this one, minus the
+    fix) where SoC at a point hours before ANY checkpoint jumped from
+    the real floor to full capacity the instant a SECOND checkpoint was
+    added later in the SAME horizon, and total_cost kept getting
+    monotonically "better" as more checkpoints were added -- the
+    tell-tale sign of double-counting.
+
+    These tests prove the fix directly: total_cost must NOT keep
+    improving once a second (or third, or fourth) intermediate
+    checkpoint is added -- it should plateau at whatever one real
+    intermediate checkpoint already earns, since that's genuinely the
+    correct amount of "carry into tomorrow" incentive a single unit of
+    energy should ever collect, not one full payout per checkpoint.
+    """
+
+    def test_total_cost_plateaus_once_a_second_intermediate_checkpoint_exists(self):
+        one_intermediate = sorted({_MULTI_DAY_MIDNIGHTS[-1], _MULTI_DAY_FINAL_IDX})
+        two_intermediate = sorted({*_MULTI_DAY_MIDNIGHTS[-2:], _MULTI_DAY_FINAL_IDX})
+        three_intermediate = sorted({*_MULTI_DAY_MIDNIGHTS[-3:], _MULTI_DAY_FINAL_IDX})
+        four_intermediate = sorted({*_MULTI_DAY_MIDNIGHTS, _MULTI_DAY_FINAL_IDX})
+
+        costs = {}
+        for label, idxs in (
+            ("1_intermediate", one_intermediate),
+            ("2_intermediate", two_intermediate),
+            ("3_intermediate", three_intermediate),
+            ("4_intermediate", four_intermediate),
+        ):
+            periods, grid, battery, solar, loads = _multi_day_scenario(idxs)
+            plan = build_plan(
+                periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+            )
+            self.assertEqual(plan.status, "optimal")
+            costs[label] = plan.total_cost
+
+        # 1 -> 2 intermediate checkpoints is real, EXPECTED, already-
+        # tested behaviour (matches TestTerminalValueCheckpoints above --
+        # a single intermediate checkpoint IS meant to change the plan).
+        # But 2 -> 3 -> 4 must NOT keep improving further -- that's
+        # exactly the compounding bug. Real dollar tolerance (not exact
+        # equality), since numerical solver noise is real at this scale.
+        self.assertAlmostEqual(
+            costs["2_intermediate"],
+            costs["3_intermediate"],
+            delta=0.01,
+            msg=f"total_cost kept improving from 2->3 intermediate checkpoints "
+            f"({costs['2_intermediate']:.4f} -> {costs['3_intermediate']:.4f}) -- "
+            f"the same stored energy is still being credited more than once",
+        )
+        self.assertAlmostEqual(
+            costs["3_intermediate"],
+            costs["4_intermediate"],
+            delta=0.01,
+            msg=f"total_cost kept improving from 3->4 intermediate checkpoints "
+            f"({costs['3_intermediate']:.4f} -> {costs['4_intermediate']:.4f}) -- "
+            f"the same stored energy is still being credited more than once",
+        )
+
+    def test_soc_at_an_early_common_reference_point_does_not_keep_rising(self):
+        # Same real numbers as the total_cost test above, but checking
+        # the actual DISPATCH decision (SoC at a point hours before any
+        # checkpoint), not just the reported objective value -- direct
+        # proof the LP's real behaviour, not only its accounting, stops
+        # compounding.
+        two_intermediate = sorted({*_MULTI_DAY_MIDNIGHTS[-2:], _MULTI_DAY_FINAL_IDX})
+        four_intermediate = sorted({*_MULTI_DAY_MIDNIGHTS, _MULTI_DAY_FINAL_IDX})
+
+        periods, grid, battery, solar, loads = _multi_day_scenario(two_intermediate)
+        plan_2 = build_plan(
+            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+        )
+        periods, grid, battery, solar, loads = _multi_day_scenario(four_intermediate)
+        plan_4 = build_plan(
+            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+        )
+
+        self.assertEqual(plan_2.status, "optimal")
+        self.assertEqual(plan_4.status, "optimal")
+        self.assertAlmostEqual(
+            plan_2.battery_soc_kwh[_EARLY_REFERENCE_IDX],
+            plan_4.battery_soc_kwh[_EARLY_REFERENCE_IDX],
+            delta=0.5,
+            msg="SoC at an early common reference point (before any checkpoint) "
+            "differs between 2 and 4 intermediate checkpoints -- the extra "
+            "downstream checkpoints are still influencing an unrelated, earlier "
+            "decision",
+        )
+
+    def test_single_intermediate_checkpoint_is_completely_unaffected_by_the_fix(self):
+        # Regression guard: the fix must be a genuine no-op for the exact
+        # shape TestTerminalValueCheckpoints above already validates (one
+        # intermediate checkpoint + the final period) -- n_intermediate=1
+        # means the scale factor is exactly 1.0, unchanged from before
+        # this fix existed. _MULTI_DAY_MIDNIGHTS[-2] (71, day 3's real
+        # midnight) is deliberately used here, not [-1] (95) -- [-1] IS
+        # _MULTI_DAY_FINAL_IDX on this grid, which would collapse to a
+        # single checkpoint (zero intermediate) instead of the intended
+        # "one real intermediate + the final period" shape.
+        intermediate_idx = _MULTI_DAY_MIDNIGHTS[-2]
+        idxs = sorted({intermediate_idx, _MULTI_DAY_FINAL_IDX})
+        self.assertEqual(len(idxs), 2, "test setup bug: expected 2 distinct indices")
+        periods, grid, battery, solar, loads = _multi_day_scenario(idxs)
+        plan = build_plan(
+            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+        )
+        self.assertEqual(plan.status, "optimal")
+        # With comfortably-profitable export price and a real single
+        # intermediate checkpoint, the LP should still hold SoC back
+        # meaningfully at that checkpoint -- proves the mechanism is
+        # still genuinely active, not accidentally neutered by the fix.
+        self.assertGreater(
+            plan.battery_soc_kwh[intermediate_idx], battery.min_soc_kwh + 5.0
+        )
+
+
 def _base_kwargs(**overrides):
     kwargs = {
         "capacity_kwh": 100.0,
