@@ -528,6 +528,55 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
             # wizard's own separate fields) are preserved untouched from
             # the existing options -- the real risk the original 2026-08-
             # 17 fix was protecting against, still fully intact.
+            #
+            # 2026-08-24 (nimbus #121, Mark Purcell's own independent
+            # install, real repro): a PARTIAL programmatic update -- an
+            # MCP tool calling this options-flow step directly with only
+            # 2 of the 6 real keys in user_input, intending to touch just
+            # those 2 -- got the other 4 silently wiped to None by this
+            # exact loop, since `user_input.get(key)` resolves to None
+            # for a key that's genuinely absent for an entirely different
+            # reason (the caller never meant to touch it) than the one
+            # this loop was built to handle (the real UI submitted the
+            # full form and the user genuinely cleared that field).
+            #
+            # This is a REAL, structural ambiguity, not something a
+            # smarter merge can quietly resolve -- confirmed directly
+            # (voluptuous test, 2026-08-24): for this file's own
+            # `vol.Optional(key, description={"suggested_value": ...})`
+            # pattern with NO default=, a key that's truly absent from
+            # user_input is ALSO absent from voluptuous's own validated
+            # result. Given the already-established, directly-verified
+            # 2026-08-22 finding above (a real EntitySelector field,
+            # cleared via the actual HA frontend, submits with its key
+            # OMITTED, not present-as-None or present-as-""), "key
+            # absent" on THIS form is the one and only signal a real UI
+            # submission has for "the user cleared this field" -- and a
+            # genuine partial patch has no other signal for "leave this
+            # one alone" either. Both real, legitimate callers rely on
+            # the identical absent-key signal to mean the OPPOSITE thing,
+            # and this step function has no way to see caller intent,
+            # only the raw dict -- so switching this loop to `if key in
+            # user_input: merged[key] = user_input[key]` (the fix that
+            # looks obviously correct for the partial-update case) would
+            # silently bring the *original* 2026-08-22 bug straight back
+            # for every real UI user who clears a field.
+            #
+            # The correct fix is NOT here -- it's in what the CALLER uses
+            # for a genuine partial patch. Home Assistant's own
+            # `hass.config_entries.async_update_entry(entry, options=
+            # {...})` REPLACES options with exactly the dict given (HA
+            # itself does zero merging -- confirmed via
+            # `inspect.signature`), so a real partial-patch caller should
+            # compute `{**entry.options, **your_partial_dict}` itself and
+            # pass that directly to `async_update_entry`, bypassing this
+            # options-flow step (and its inherent, load-bearing
+            # full-form-submission semantics) entirely. That path can
+            # never conflict with a real UI submission, since it's a
+            # completely separate code path with its own, unambiguous
+            # merge contract. Do NOT "fix" this loop by switching to `if
+            # key in user_input` -- it would trade one real, reported bug
+            # for a worse, silent regression of an already-shipped one.
             merged = dict(self.config_entry.options)
             for key in _FORECASTER_SCHEMA_KEYS:
                 merged[key] = user_input.get(key)
