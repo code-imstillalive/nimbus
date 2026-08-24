@@ -51,6 +51,7 @@ from ..const import (
     CONF_SOLVER_IMPORT_PRICE_SENSOR,
     CONF_SOLVER_LOAD_FORECAST_ENTITIES,
     CONF_SOLVER_LOAD_FORECAST_SENSOR,
+    CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_2,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_3,
@@ -219,6 +220,22 @@ def _solver_battery_schema(defaults: dict[str, Any]) -> vol.Schema:
                 CONF_SOLVER_BATTERY_SOC_SENSOR,
                 default=defaults.get(CONF_SOLVER_BATTERY_SOC_SENSOR),
             ): _entity(),
+            # Optional, unset by default (2026-08-24, nimbus #125) -- see
+            # const.py's own CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY comment
+            # for the full "hardcoded entity silently overrode a portable
+            # install's configured max discharge" story. `description={
+            # "suggested_value": ...}`, NOT `default=`, matching this
+            # form's own Optional-field convention (see
+            # async_step_forecaster's own 2026-08-22/2026-08-24 comments)
+            # -- a genuinely optional pointer field must stay clearable.
+            vol.Optional(
+                CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY,
+                description={
+                    "suggested_value": defaults.get(
+                        CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY
+                    )
+                },
+            ): _entity(domain="number"),
         }
     )
 
@@ -479,6 +496,7 @@ _FORECASTER_SCHEMA_KEYS = (
 )
 _SOLVER_WIZARD_SCHEMA_KEYS = (
     CONF_SOLVER_BATTERY_SOC_SENSOR,
+    CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY,
     CONF_SOLVER_IMPORT_PRICE_SENSOR,
     CONF_SOLVER_EXPORT_PRICE_SENSOR,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR,
