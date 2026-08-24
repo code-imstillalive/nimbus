@@ -3238,13 +3238,21 @@ def main() -> None:
         # cfg, same as every other Solver setting; a fresh install with
         # nothing configured correctly contributes 0 fees, same honest
         # no-op default as the fallback branch below already has.
-        flat_fee_rate = _cfg_num(cfg, "solver_flat_fee_rate", 0.0)
-        import_price = [
-            spot_import_raw[i]
-            + import_fee_rate(cfg, grid_times[i].hour)
-            + flat_fee_rate
-            for i in range(n_periods)
-        ]
+        #
+        # Real bug found live (devhub, 2026-08-24, nimbus repo issue
+        # #152): this fee application used to live ONLY inside this
+        # has_localvolts branch, even though network_fee_*/
+        # solver_flat_fee_rate are genuinely generic, portable
+        # config-flow fields with no LocalVolts dependency at all --
+        # any real installer without LocalVolts who filled them in via
+        # the dashboard (exactly as the wizard invites them to) had
+        # them silently ignored, zero fee ever applied, zero warning.
+        # Moved below the has_localvolts/else split entirely (see
+        # "generic + real" fee application, after this if/else) so it
+        # applies uniformly to whichever spot_import_raw either branch
+        # produced -- LocalVolts-specific behaviour (AEMO extrapolation,
+        # live P2P-window detection) stays exactly as before, only the
+        # genuinely-portable fee step moved.
 
         # Two-tier export pricing (2026-08-17, real fix -- see
         # p2p_recent_avg_volume_kwh()'s own docstring for the full finding).
@@ -3280,16 +3288,16 @@ def main() -> None:
         _import_fc = resample_generic_price_forecast(
             cfg["solver_import_price_sensor"], grid_times
         )
-        import_price = (
+        # Real fee breakdown DOES apply to a generic install too, same
+        # as LocalVolts -- see the "generic + real" fee application
+        # below, after this if/else (nimbus repo issue #152). This is
+        # just the raw spot/live price; fees get added uniformly for
+        # both branches after this block.
+        spot_import_raw = (
             _import_fc
             if _import_fc is not None
             else [safe_num(cfg["solver_import_price_sensor"])] * n_periods
         )
-        # No real fee breakdown exists for a generic install -- the whole
-        # configured value IS the raw price, no separate network/
-        # certificates add-on to split out (see import_price_raw's own
-        # comment where it's pushed, below).
-        spot_import_raw = list(import_price)
         _export_fc = resample_generic_price_forecast(
             cfg["solver_export_price_sensor"], grid_times
         )
@@ -3311,6 +3319,26 @@ def main() -> None:
         # this-household-specific enhancement in the fallback branch above.
         import_price_upper_band = {}
         export_price_lower_band = {}
+
+    # Generic + real: TOU network fees and the flat fee rate apply to
+    # EVERY install, LocalVolts or not (nimbus repo issue #152, fixed
+    # 2026-08-24) -- these are genuinely portable, no-NEM-specific-data-
+    # required config-flow fields (number.nimbus_solver_network_fee_*,
+    # number.nimbus_solver_flat_fee_rate), unlike the LocalVolts branch's
+    # own AEMO extrapolation / live P2P-window detection which genuinely
+    # do need Australian-NEM-specific data and stay LocalVolts-only.
+    # Uses whichever spot_import_raw either branch above produced.
+    # A fresh/generic install with every fee field left at its 0.0
+    # default still contributes exactly 0 -- same honest no-op as
+    # before, just no longer silently dropped just because LocalVolts
+    # isn't configured.
+    flat_fee_rate = _cfg_num(cfg, "solver_flat_fee_rate", 0.0)
+    import_price = [
+        spot_import_raw[i]
+        + import_fee_rate(cfg, grid_times[i].hour)
+        + flat_fee_rate
+        for i in range(n_periods)
+    ]
 
     # 2026-08-20: reads Nimbus's own real Solver settings config-flow
     # (see fetch_solver_config()'s own docstring for the full "close this
