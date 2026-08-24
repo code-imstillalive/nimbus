@@ -145,6 +145,17 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # min), not worth the complexity of persisting a timestamp
         # that's stale the moment HA restarts anyway.
         self._last_step_prediction: tuple[datetime, float] | None = None
+        # #123 (Mark Purcell, real repro): a configured
+        # temperature_forecast_sensor that yields 0 entries every tick is
+        # a silent accuracy tax, not a crash -- nothing else would ever
+        # surface it. Warn once per coordinator instance (i.e. once per
+        # HA restart / config reload), not once per tick (this
+        # coordinator ticks every UPDATE_INTERVAL_MINUTES), so a
+        # genuinely-broken config is loud in the log without being log
+        # spam for a household that's simply never configured this
+        # optional field at all (that case never reaches the warning --
+        # see _async_fetch_temperature_forecast's own early return).
+        self._temp_forecast_empty_warned = False
 
     # -- config accessors -- only the load sensor is per-subentry (the one
     # thing that's genuinely different for each load). Everything else
@@ -611,12 +622,33 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return value
 
     async def _async_fetch_temperature_forecast(self) -> list[tuple[datetime, float]]:
+        """Two real, independently-shaped sources feed this, per #123
+        (Mark Purcell, real repro, 2026-08-24): a plain `sensor.*`
+        template that already publishes its own `forecast` attribute
+        (the original, still-supported path -- e.g. a household's own
+        pre-built trigger-template sensor), or a `weather.*` entity
+        directly -- confirmed live (HA core source,
+        homeassistant/components/weather/__init__.py) that modern HA
+        (2024.x+) no longer exposes a `forecast` state attribute on
+        weather entities at all; the only way to reach one is the
+        `weather.get_forecasts` service call
+        (`supports_response=SupportsResponse.ONLY`). Both paths
+        converge on the exact same downstream parsing loop below --
+        confirmed via HA core's own `ATTR_FORECAST_TIME`/
+        `ATTR_FORECAST_TEMP` constants ('datetime'/'temperature') that
+        the service's own response entries use identical field names to
+        what the sensor-attribute path already expected, so nothing
+        past the "get me a raw list of {datetime, temperature} dicts"
+        step needed to change."""
         if self._temp_forecast_sensor is None:
             return []
-        state = self.hass.states.get(self._temp_forecast_sensor)
-        if state is None:
-            return []
-        forecast = state.attributes.get("forecast", [])
+        entity_id = self._temp_forecast_sensor
+        domain = entity_id.split(".", 1)[0]
+        if domain == "weather":
+            forecast = await self._async_fetch_weather_forecast_via_service(entity_id)
+        else:
+            state = self.hass.states.get(entity_id)
+            forecast = state.attributes.get("forecast", []) if state else []
         out: list[tuple[datetime, float]] = []
         for entry in forecast:
             try:
@@ -627,7 +659,79 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if ts is not None:
                 out.append((ts, temp))
         out.sort(key=lambda x: x[0])
+        if not out and not self._temp_forecast_empty_warned:
+            self._temp_forecast_empty_warned = True
+            _LOGGER.warning(
+                "temperature_forecast_sensor '%s' is configured but yielded 0 "
+                "forecast entries -- the temperature feature will train as "
+                "dead weight this cycle. If this is a weather.* entity, "
+                "confirm it actually supports hourly forecasts (some "
+                "integrations only support daily); if it's a sensor.* "
+                "template, confirm its 'forecast' attribute is a real, "
+                "non-empty list shaped like [{'datetime': ..., "
+                "'temperature': ...}, ...].",
+                entity_id,
+            )
         return out
+
+    async def _async_fetch_weather_forecast_via_service(
+        self, entity_id: str
+    ) -> list[dict[str, Any]]:
+        """Calls weather.get_forecasts (type='hourly') for one entity and
+        unwraps its response. Confirmed live (HA core source,
+        homeassistant/helpers/service.py's entity_service_call, line
+        ~1032) that a single-entity target's result is keyed by its own
+        entity_id in the aggregated response --
+        {entity_id: {"forecast": [...]}} -- not returned flat, matching
+        exactly what a real YAML `response_variable:` capture of this
+        same service call looks like.
+
+        Wrapped defensively (real, not theoretical, failure modes this
+        service call can hit that a plain attribute read never could):
+        the entity might not support hourly forecasts at all (some
+        integrations only implement daily -- HomeAssistantError),
+        might not exist / might not be a real weather entity
+        (ServiceNotFound / vol.Invalid on the target), or the service
+        call infrastructure itself might be transiently unavailable.
+        None of these should ever crash a coordinator tick -- same
+        honest-fallback-over-crash discipline as every other real
+        external-data fetch in this file -- they degrade to "no
+        temperature forecast this cycle" (caught by the empty-result
+        warning in the caller) rather than taking the whole retrain/
+        predict cycle down with them."""
+        try:
+            response = await self.hass.services.async_call(
+                "weather",
+                "get_forecasts",
+                {"type": "hourly"},
+                target={"entity_id": entity_id},
+                blocking=True,
+                return_response=True,
+            )
+        except Exception:
+            # A real external service call (unsupported forecast type,
+            # entity gone, transient HA-core issue) must never take down
+            # a coordinator tick -- degrades to "no forecast this cycle"
+            # instead, surfaced via the caller's own empty-result
+            # warning. No lint suppression comment needed here (unlike
+            # the two sibling blind-except sites elsewhere in this
+            # file) -- confirmed directly that ruff's blind-except rule
+            # doesn't flag a broad except when the log call includes
+            # exc_info=True, which this one already does.
+            _LOGGER.warning(
+                "weather.get_forecasts failed for '%s' -- treating as no "
+                "forecast data this cycle.",
+                entity_id,
+                exc_info=True,
+            )
+            return []
+        if not response:
+            return []
+        entity_result = response.get(entity_id, {})
+        forecast = entity_result.get("forecast", [])
+        if not isinstance(forecast, list):
+            return []
+        return forecast
 
     async def _async_fetch_curtailment_forecast(self) -> list[tuple[datetime, float]]:
         """HAEO's own curtailment switch carries a real forward `forecast`
