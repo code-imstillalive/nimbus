@@ -210,6 +210,7 @@ sys.path.insert(
 # solver/ package from wherever it's checked out.
 import numpy as np
 from ml.blend import blend_forecast_array, cross_source_spread
+from numpy.typing import NDArray
 from solver import elements, network
 
 if os.environ.get("SUPERVISOR_TOKEN") and not os.environ.get("HA_BASE"):
@@ -809,6 +810,76 @@ def compute_binding_constraint_label(
     if binding_now is None:
         binding_now = "Nothing currently binding"
     return binding_now, binding_now_value_per_kwh
+
+
+def compute_cost_breakdown(
+    net_costs: list[float],
+    total_cost: float | None,
+    degradation_cost_per_kwh: float,
+    total_throughput_kwh: float,
+    charge_cost: float,
+    total_charge_kwh: float,
+    discharge_cost_arr: NDArray[np.float64],
+    battery_discharge_kw: NDArray[np.float64],
+    period_hours: NDArray[np.float64],
+) -> dict[str, float]:
+    """Named cost-component breakdown for the solver diagnostics dump
+    (2026-08-25, nimbus issue #149 -- Mark Purcell's own executable
+    reconciliation tests, run against both the v0.80 and v0.81.0 dumps:
+    `total_cost` could not be reconstructed from anything else in the
+    dump, off by exactly degradation+charge_fee+discharge_fee minus the
+    #144 terminal-value credit).
+
+    Extracted as its own standalone, directly-testable function (2026-08-25)
+    -- same precedent as compute_binding_constraint_label() above.
+
+    `grid_net` sums the caller's own already-computed per-period net_cost
+    values (grid-only cash flow -- see that field's own comment at its
+    construction site) rather than re-deriving effective/risk-adjusted
+    prices a second time here -- guarantees this figure matches what the
+    LP actually saw on the grid side, not an approximation of it.
+
+    `degradation`/`charge_fee`/`discharge_fee` mirror network.py's own LP
+    cost coefficients exactly: degradation_cost_per_kwh is applied
+    additively to BOTH the charge and discharge legs (see build_plan's own
+    "(charge_cost_arr[t] + battery.degradation_cost_per_kwh)" comment), so
+    its total here is degradation_cost_per_kwh * total_throughput_kwh;
+    discharge_fee sums discharge_cost_arr[t] per period rather than
+    multiplying by a flat scalar, since a real household's own LocalVolts
+    schedule (battery_discharge_cost_rate) makes it hour-varying, not a
+    constant -- charge_cost IS a flat scalar in every branch that builds
+    it, so charge_fee is the cheaper flat multiplication.
+
+    `terminal_value_credit` is deliberately the RESIDUAL (total_cost minus
+    the four terms above), not a re-implementation of
+    terminal_value_breakpoints_for()'s own piecewise segment math in a
+    second place -- residual-by-construction means this always reconciles
+    exactly (Mark's own test #2: grid_net + degradation + charge_fee +
+    discharge_fee + terminal_value_credit == total_cost), and its value
+    already IS what an operator wants to see (the real terminal-value/
+    salvage credit's total economic effect, whatever combination of
+    checkpoints produced it), without a second implementation that could
+    silently drift from the LP's own real one over time.
+    """
+    grid_net_cost = sum(net_costs)
+    degradation_cost = degradation_cost_per_kwh * total_throughput_kwh
+    charge_fee_cost = charge_cost * total_charge_kwh
+    discharge_fee_cost = sum(
+        float(discharge_cost_arr[i])
+        * float(battery_discharge_kw[i])
+        * float(period_hours[i])
+        for i in range(len(battery_discharge_kw))
+    )
+    terminal_value_credit = (total_cost or 0.0) - (
+        grid_net_cost + degradation_cost + charge_fee_cost + discharge_fee_cost
+    )
+    return {
+        "grid_net": round(grid_net_cost, 4),
+        "degradation": round(degradation_cost, 4),
+        "charge_fee": round(charge_fee_cost, 4),
+        "discharge_fee": round(discharge_fee_cost, 4),
+        "terminal_value_credit": round(terminal_value_credit, 4),
+    }
 
 
 def import_fee_rate(cfg: dict, hour: int) -> float:
@@ -3745,6 +3816,20 @@ def main() -> None:
         for i in range(n_periods)
     ]
 
+    # Named cost-component breakdown (2026-08-25, nimbus issue #149) --
+    # see compute_cost_breakdown()'s own docstring for the full reasoning.
+    cost_breakdown = compute_cost_breakdown(
+        net_costs=[period["net_cost"] for period in forecast],
+        total_cost=plan.total_cost,
+        degradation_cost_per_kwh=_cfg_num(cfg, "solver_degradation_cost_per_kwh", 0.0),
+        total_throughput_kwh=total_throughput_kwh,
+        charge_cost=charge_cost,
+        total_charge_kwh=total_charge_kwh,
+        discharge_cost_arr=discharge_cost_arr,
+        battery_discharge_kw=plan.battery_discharge_kw,
+        period_hours=period_hours_arr,
+    )
+
     # Binding-constraint diagnostics (2026-08-18, Mark Purcell's audit
     # item #3; relabelled 2026-08-24, see compute_binding_constraint_
     # label()'s own docstring near resolve_max_discharge_kw for the
@@ -3774,6 +3859,7 @@ def main() -> None:
             "status": plan.status,
             "total_cost": plan.total_cost,
             "total_cost_with_fixed_costs": round(total_cost_with_fixed_costs, 4),
+            "cost_breakdown": cost_breakdown,
             "p2p_match_fraction": round(match_fraction, 4),
             "risk_aversion": risk_aversion,
             "import_price_risk_aversion": import_price_risk_aversion,
