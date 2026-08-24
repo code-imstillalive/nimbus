@@ -812,6 +812,35 @@ def compute_binding_constraint_label(
     return binding_now, binding_now_value_per_kwh
 
 
+def resolve_load_forecast_source_label(
+    load_forecast_entities: list[str], single_sensor_entity_id: str
+) -> str:
+    """Named, plain-English record of which of the two mutually-exclusive
+    load-forecast paths actually fed the LP this cycle, and with what
+    (nimbus issues #148/#116, 2026-08-25).
+
+    Mark Purcell found live that `solver_load_forecast_sensor` can be
+    configured, correct, and completely silently ignored the instant
+    `solver_load_forecast_entities` has even one entry -- exactly as this
+    project's own README already documents in prose ("wins outright over
+    the field above the instant it has even one entry, regardless of what's
+    configured there"), but never surfaced anywhere as an actual diagnostic
+    field an operator (or a bug report) could read.
+
+    Extracted as its own standalone, directly-testable function (2026-08-25)
+    -- same precedent as compute_binding_constraint_label()/
+    compute_cost_breakdown() above. Takes the exact same two config values
+    the real branch decision below is made from, so it can never drift from
+    what actually ran.
+    """
+    if load_forecast_entities:
+        return (
+            f"summed {len(load_forecast_entities)} circuit(s): "
+            f"{', '.join(load_forecast_entities)}"
+        )
+    return f"single sensor: {single_sensor_entity_id}"
+
+
 def compute_cost_breakdown(
     net_costs: list[float],
     total_cost: float | None,
@@ -3061,6 +3090,12 @@ def main() -> None:
     # entity pattern already used for solar above.
     load_forecast_entities = cfg.get("solver_load_forecast_entities") or []
     load_forecast_error = None
+    # Computed BEFORE the branch below runs so it always reflects which
+    # branch is ABOUT to execute, not an inference from its result -- see
+    # resolve_load_forecast_source_label()'s own docstring.
+    load_forecast_source_used = resolve_load_forecast_source_label(
+        load_forecast_entities, cfg["solver_load_forecast_sensor"]
+    )
     if load_forecast_entities:
         (
             load_kw,
@@ -3214,6 +3249,7 @@ def main() -> None:
                 for i in range(n_periods)
             ],
             "source_entities": load_forecast_entities,
+            "load_forecast_source_used": load_forecast_source_used,
             "failed_load_entities": failed_load_entities,
             # NEW (2026-08-24, issue #105): entity_id -> the exact real
             # reason each failed_load_entities member was excluded --
@@ -3886,6 +3922,12 @@ def main() -> None:
             # nimbus_household_load_total_forecast above -- the issue
             # named both.
             "load_forecast_source_error": load_forecast_error,
+            # NEW (2026-08-25, nimbus issues #148/#116) -- present here AND
+            # on sensor.nimbus_household_load_total_forecast above, same
+            # dual-publication convention as the two fields immediately
+            # above. See this field's own construction site (near
+            # solver_load_forecast_entities, above) for the full reasoning.
+            "load_forecast_source_used": load_forecast_source_used,
             "n_clamped_periods": n_clamped,
             "n_periods": n_periods,
             "horizon_hours": round(horizon_days * 24, 1),
