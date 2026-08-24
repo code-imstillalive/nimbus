@@ -10,6 +10,74 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.75.0] — 2026-08-24
+
+Mark Purcell's own independent-install health-check found four real bugs
+this release — three that could produce a confidently-wrong plan with no
+warning, one that silently overrode a configured value with an unrelated
+entity's own reading.
+
+### Added
+- **`solver_max_discharge_live_entity`** (Solver settings wizard, Battery
+  step, optional): lets a household point the Solver at a real, live
+  hardware setpoint entity whose own `max` attribute should override the
+  static `solver_max_discharge_kw` number — a genuine safety margin
+  against a real hardware ceiling changing without the number entity
+  being updated. Unset (the default) is a complete no-op.
+- **`number.nimbus_solver_inverter_self_consumption_kw`** (optional,
+  default `0.0`): a per-household inverter self-consumption bias, added
+  to the household load total. Replaces a hardcoded `0.215` constant that
+  used to apply to every install regardless of hardware.
+- `temperature_forecast_sensor` now accepts `weather.*` entities
+  directly, calling `weather.get_forecasts` (hourly) internally — modern
+  Home Assistant (2024.x+) removed the `forecast` state attribute from
+  weather entities entirely, so pointing straight at one used to silently
+  produce zero forecast data. `sensor.*` template-sensor configs are
+  unaffected. A WARNING now logs once per coordinator instance if a
+  configured `temperature_forecast_sensor` yields zero entries.
+
+### Fixed
+- **High-priority, real $ impact**: the Solver's own discharge-power
+  cap could be silently overridden by an unrelated entity that happened
+  to exist at a hardcoded name
+  (`number.logger_charging_discharging_power_kw`), clamping real
+  discharge capability to whatever that unrelated entity's own `max`
+  attribute reported — with zero warning ([#125](https://github.com/code-imstillalive/nimbus/issues/125)). Fixed by making the
+  entity_id a genuine, optional config field instead (see Added, above).
+- The Solver used to `raise RuntimeError` and refuse to solve at all
+  when every configured solar forecast source produced no data — a
+  condition that recurs every single night on every solar install (0.0
+  kW overnight is correct, not a failure). Now solves with a real,
+  honest 0.0 kW placeholder and a loud warning instead of going dark for
+  hours ([#115](https://github.com/code-imstillalive/nimbus/issues/115)).
+- A structurally-valid but near-all-zero load forecast (e.g. from a
+  circular reference — `solver_load_forecast_sensor` accidentally
+  pointed at Nimbus's own household-total aggregator) used to be
+  accepted as a genuine forecast, producing a confidently-wrong,
+  fully-costed dispatch plan with no error surfaced anywhere. Now
+  rejected with a specific, actionable error message ([#118](https://github.com/code-imstillalive/nimbus/issues/118)).
+- The multi-circuit load-summing path (`solver_load_forecast_entities`)
+  never had the shape/unit validation the single-sensor path already
+  had, letting a malformed source silently corrupt the household load
+  total. Both paths now share the same validation ([#105](https://github.com/code-imstillalive/nimbus/issues/105)).
+- `sensor.nimbus_household_load_total_forecast` could report a
+  `native_value` that silently disagreed with its own `forecast[0]`.
+
+### Changed
+- `flows/hub_options.py`'s options-flow merge logic is documented
+  in-line at the exact point of a real, structural tension: a genuine
+  partial config-patch and a real UI form submission need the same
+  "key absent" signal to mean opposite things, and no code-only fix
+  serves both. Callers needing a genuine partial patch should use
+  `hass.config_entries.async_update_entry(entry, options={**entry.options, **partial})`
+  directly rather than the options-flow step ([#121](https://github.com/code-imstillalive/nimbus/issues/121)).
+- Repo-wide `ruff` cleanup: every blind-except, naive-datetime, and
+  unnecessary-collection-call finding from the #72 backlog now has its
+  own individually-reasoned fix or suppression comment, replacing a
+  blanket rule-level ignore.
+- The "Understanding the configuration model" section is now a
+  permanent part of `README.md`.
+
 ## [0.74.0] — 2026-08-23
 
 ### Added
