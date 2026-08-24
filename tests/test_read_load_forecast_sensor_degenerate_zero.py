@@ -67,9 +67,11 @@ class TestMarksExactRealRepro(unittest.TestCase):
         points = {0: 6.076}
         state = _state_with_n_points(points, total=362)
         with patch.object(solver_writer, "ha_get", return_value=state):
-            load_kw, lower, upper, error = solver_writer.read_load_forecast_sensor(
-                "sensor.nimbus_household_load_total_forecast",
-                _grid_times(362),
+            load_kw, lower, upper, error, _coverage = (
+                solver_writer.read_load_forecast_sensor(
+                    "sensor.nimbus_household_load_total_forecast",
+                    _grid_times(362),
+                )
             )
         self.assertIsNone(load_kw)
         self.assertIsNone(lower)
@@ -89,8 +91,10 @@ class TestGenuineHealthySeriesIsUnaffected(unittest.TestCase):
         points = {i: 1.5 + 0.3 * (i % 5) for i in range(20)}
         state = _state_with_n_points(points)
         with patch.object(solver_writer, "ha_get", return_value=state):
-            load_kw, _lower, _upper, error = solver_writer.read_load_forecast_sensor(
-                "sensor.nimbus_a_real_load_forecast", _grid_times(20)
+            load_kw, _lower, _upper, error, _coverage = (
+                solver_writer.read_load_forecast_sensor(
+                    "sensor.nimbus_a_real_load_forecast", _grid_times(20)
+                )
             )
         self.assertIsNone(error)
         self.assertIsNotNone(load_kw)
@@ -104,8 +108,10 @@ class TestGenuineHealthySeriesIsUnaffected(unittest.TestCase):
         points = {i: 0.15 for i in range(20)}
         state = _state_with_n_points(points)
         with patch.object(solver_writer, "ha_get", return_value=state):
-            load_kw, _lower, _upper, error = solver_writer.read_load_forecast_sensor(
-                "sensor.nimbus_a_real_load_forecast", _grid_times(20)
+            load_kw, _lower, _upper, error, _coverage = (
+                solver_writer.read_load_forecast_sensor(
+                    "sensor.nimbus_a_real_load_forecast", _grid_times(20)
+                )
             )
         self.assertIsNone(error)
         self.assertIsNotNone(load_kw)
@@ -120,8 +126,10 @@ class TestBoundaryAtTenPercent(unittest.TestCase):
         points = {i: 2.0 for i in range(10)}
         state = _state_with_n_points(points, total=100)
         with patch.object(solver_writer, "ha_get", return_value=state):
-            _load_kw, _lower, _upper, error = solver_writer.read_load_forecast_sensor(
-                "sensor.nimbus_a_real_load_forecast", _grid_times(100)
+            _load_kw, _lower, _upper, error, _coverage = (
+                solver_writer.read_load_forecast_sensor(
+                    "sensor.nimbus_a_real_load_forecast", _grid_times(100)
+                )
             )
         self.assertIsNone(error)
 
@@ -130,8 +138,10 @@ class TestBoundaryAtTenPercent(unittest.TestCase):
         points = {i: 2.0 for i in range(9)}
         state = _state_with_n_points(points, total=100)
         with patch.object(solver_writer, "ha_get", return_value=state):
-            _load_kw, _lower, _upper, error = solver_writer.read_load_forecast_sensor(
-                "sensor.nimbus_a_real_load_forecast", _grid_times(100)
+            _load_kw, _lower, _upper, error, _coverage = (
+                solver_writer.read_load_forecast_sensor(
+                    "sensor.nimbus_a_real_load_forecast", _grid_times(100)
+                )
             )
         self.assertIsNotNone(error)
 
