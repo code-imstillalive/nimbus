@@ -10,6 +10,18 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.84.1] — 2026-08-25
+
+### Fixed
+- **Weather forecast mirror silently no-op'd in native mode** (real
+  regression, found live on devhub immediately after v0.84.0 deployed):
+  `ha_call_service_with_response()` returned `None` unconditionally in
+  native mode (`solver_runtime`, in-process -- devhub's actual real
+  deployment shape), so `publish_weather_forecast_mirrors()` never
+  published anything there. Fixed with the same
+  `asyncio.run_coroutine_threadsafe()` bridge `fetch_price_history()`'s
+  own native branch already uses.
+
 ## [0.84.0] — 2026-08-25
 
 ### Added
