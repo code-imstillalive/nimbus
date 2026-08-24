@@ -10,6 +10,25 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.80.0] — 2026-08-24
+
+### Added
+- **Diagnostics now include the Solver's full resolved config and full
+  plan/forecast arrays** (direct household + Mark Purcell instruction:
+  "diagnostics must have everything in it incl pre-set values" /
+  "get more data into the diagnostic file so we can actually understand
+  the reason its making decisions rather than just speculation without
+  any data to backup"). Battery capacity, min/max SoC, max
+  charge/discharge, costs, salvage value, both risk_aversion values,
+  P2P bonus blocks, network fee schedule -- every field
+  `sensor.nimbus_solver_config` resolves, verbatim. Plus the full real
+  Solver plan, household load total, and every subentry's own forecast
+  array -- previously excluded as "already visible on the entity,"
+  which didn't hold up: a downloaded diagnostics file has no
+  16384-byte recorder-attribute limit, and the live entity's own
+  forecast keeps moving, so a diagnostics dump is the only genuine
+  point-in-time snapshot available.
+
 ## [0.79.0] — 2026-08-24
 
 ### Fixed
