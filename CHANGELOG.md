@@ -10,6 +10,20 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.83.0] — 2026-08-25
+
+### Added
+- **`load_forecast_source_used` on the Solver plan and the household load
+  rollup** (Mark Purcell, real repro, #148, plus the same-shaped ask in
+  #116): `solver_load_forecast_sensor` can be configured, correct, and
+  completely silently overridden the instant
+  `solver_load_forecast_entities` has even one entry -- documented in
+  prose in this project's own README precedence table, but never
+  surfaced as a diagnostic field. `sensor.nimbus_household_load_total_
+  forecast` and `sensor.nimbus_solver_battery_forecast` now both carry
+  `load_forecast_source_used`, naming plainly either the single
+  configured sensor or exactly which circuits got summed instead.
+
 ## [0.82.0] — 2026-08-25
 
 ### Added
