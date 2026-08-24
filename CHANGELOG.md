@@ -10,6 +10,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.77.0] — 2026-08-24
+
 ### Fixed
 - **`binding_constraint_now` could report the wrong story** (Mark
   Purcell, real repro, #125/#133): a nonzero LP reduced cost fires
