@@ -20,7 +20,7 @@ import solver_writer
 
 class TestEmptyForecastGetsDistinctColdStartMessage(unittest.TestCase):
     def test_empty_list_is_not_conflated_with_missing_attribute(self):
-        fc, has_bands, error = solver_writer._validate_and_parse_load_forecast_attrs(
+        fc, _has_bands, error = solver_writer._validate_and_parse_load_forecast_attrs(
             "sensor.nimbus_mirror_hws_l1_forecast", {"forecast": []}
         )
         self.assertIsNone(fc)
@@ -30,7 +30,7 @@ class TestEmptyForecastGetsDistinctColdStartMessage(unittest.TestCase):
         self.assertNotIn("has no usable", error)
 
     def test_missing_attribute_still_gets_the_original_message(self):
-        fc, has_bands, error = solver_writer._validate_and_parse_load_forecast_attrs(
+        fc, _has_bands, error = solver_writer._validate_and_parse_load_forecast_attrs(
             "sensor.some_bad_sensor", {"other_attr": 1}
         )
         self.assertIsNone(fc)
@@ -38,7 +38,7 @@ class TestEmptyForecastGetsDistinctColdStartMessage(unittest.TestCase):
         self.assertIn("has no usable 'forecast' attribute", error)
 
     def test_wrong_type_forecast_still_gets_the_original_message(self):
-        fc, has_bands, error = solver_writer._validate_and_parse_load_forecast_attrs(
+        fc, _has_bands, error = solver_writer._validate_and_parse_load_forecast_attrs(
             "sensor.some_bad_sensor", {"forecast": "not-a-list"}
         )
         self.assertIsNone(fc)
@@ -46,7 +46,7 @@ class TestEmptyForecastGetsDistinctColdStartMessage(unittest.TestCase):
         self.assertIn("has no usable 'forecast' attribute", error)
 
     def test_valid_forecast_still_parses_correctly_unaffected_by_this_change(self):
-        fc, has_bands, error = solver_writer._validate_and_parse_load_forecast_attrs(
+        fc, _has_bands, error = solver_writer._validate_and_parse_load_forecast_attrs(
             "sensor.nimbus_mirror_hws_l1_forecast",
             {"forecast": [{"time": "2026-08-25T00:00:00+10:00", "value": 1.5}]},
         )
