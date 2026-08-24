@@ -59,7 +59,7 @@ class TestCanonicalShape(unittest.TestCase):
             },
         }
         with patch.object(solver_writer, "ha_get", return_value=state):
-            load_kw, lower, upper, error = solver_writer.read_load_forecast_sensor(
+            load_kw, lower, upper, error, _coverage = solver_writer.read_load_forecast_sensor(
                 "sensor.nimbus_pool_forecast", _grid_times()
             )
         self.assertIsNone(error)
@@ -81,7 +81,7 @@ class TestCanonicalShape(unittest.TestCase):
             },
         }
         with patch.object(solver_writer, "ha_get", return_value=state):
-            load_kw, lower, upper, error = solver_writer.read_load_forecast_sensor(
+            load_kw, lower, upper, error, _coverage = solver_writer.read_load_forecast_sensor(
                 "sensor.some_source", _grid_times()
             )
         self.assertIsNone(error)
@@ -116,7 +116,7 @@ class TestEmhassShape(unittest.TestCase):
 
     def test_emhass_shape_auto_detected_and_converted(self):
         with patch.object(solver_writer, "ha_get", return_value=self._emhass_state()):
-            load_kw, lower, upper, error = solver_writer.read_load_forecast_sensor(
+            load_kw, lower, upper, error, _coverage = solver_writer.read_load_forecast_sensor(
                 "sensor.p_load_forecast_custom_model", _grid_times_aest()
             )
         self.assertIsNone(error, f"expected success, got error: {error}")
@@ -139,7 +139,7 @@ class TestEmhassShape(unittest.TestCase):
 
     def test_emhass_shape_string_values_coerced_not_left_as_strings(self):
         with patch.object(solver_writer, "ha_get", return_value=self._emhass_state()):
-            load_kw, _, _, error = solver_writer.read_load_forecast_sensor(
+            load_kw, _, _, error, _coverage = solver_writer.read_load_forecast_sensor(
                 "sensor.p_load_forecast_custom_model", _grid_times_aest()
             )
         self.assertIsNone(error)
@@ -157,7 +157,7 @@ class TestGenuinelyUnrecognizedShape(unittest.TestCase):
             },
         }
         with patch.object(solver_writer, "ha_get", return_value=state):
-            load_kw, lower, upper, error = solver_writer.read_load_forecast_sensor(
+            load_kw, lower, upper, error, _coverage = solver_writer.read_load_forecast_sensor(
                 "sensor.mystery_source", _grid_times()
             )
         self.assertIsNone(load_kw)
@@ -169,7 +169,7 @@ class TestGenuinelyUnrecognizedShape(unittest.TestCase):
     def test_empty_forecast_list_returns_error(self):
         state = {"state": "0", "attributes": {"forecast": []}}
         with patch.object(solver_writer, "ha_get", return_value=state):
-            load_kw, _, _, error = solver_writer.read_load_forecast_sensor(
+            load_kw, _, _, error, _coverage = solver_writer.read_load_forecast_sensor(
                 "sensor.empty_source", _grid_times()
             )
         self.assertIsNone(load_kw)
@@ -187,7 +187,7 @@ class TestGenuinelyUnrecognizedShape(unittest.TestCase):
             },
         }
         with patch.object(solver_writer, "ha_get", return_value=state):
-            load_kw, _, _, error = solver_writer.read_load_forecast_sensor(
+            load_kw, _, _, error, _coverage = solver_writer.read_load_forecast_sensor(
                 "sensor.partial_source", _grid_times()
             )
         self.assertIsNone(error)

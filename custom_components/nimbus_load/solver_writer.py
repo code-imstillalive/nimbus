@@ -1334,6 +1334,118 @@ def ha_call_service(domain: str, service: str, data: dict) -> None:
         resp.read()
 
 
+def ha_call_service_with_response(domain: str, service: str, data: dict) -> dict | None:
+    """Same REST call as ha_call_service() above, but for a service that
+    returns response data (return_response) -- e.g. weather.get_forecasts,
+    whose whole forecast array is ONLY available via this response
+    payload on any modern (2023+) HA weather entity, never a plain state
+    attribute the way every other forecast source in this file publishes.
+    Used by publish_weather_forecast_mirrors() (2026-08-25, nimbus repo
+    dashboard follow-up) -- see that function's own docstring.
+
+    Returns the service's own service_response dict (keyed by the
+    entity_id(s) targeted), or None on any failure. Deliberately
+    swallows every failure rather than raising -- every caller here
+    already treats a missing/unavailable forecast source as a graceful
+    no-op (see every other optional external source in this file), not
+    a reason to break the actual solve.
+
+    Native mode isn't supported -- no live install has yet needed a
+    blocking, response-returning service call from native mode; returns
+    None immediately rather than guessing at a fire-and-forget
+    equivalent that would silently discard the response anyway.
+    """
+    if _NATIVE_HASS is not None:
+        return None
+    body = json.dumps(data).encode("utf-8")
+    req = urllib.request.Request(
+        f"{HA_BASE}/api/services/{domain}/{service}?return_response",
+        data=body,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {TOKEN}",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            payload = json.loads(resp.read())
+    except (
+        urllib.error.HTTPError,
+        urllib.error.URLError,
+        json.JSONDecodeError,
+    ):
+        return None
+    return payload.get("service_response")
+
+
+def publish_weather_forecast_mirrors() -> None:
+    """Real forward temperature forecast for the devhub dashboard's
+    Forecaster chart (2026-08-25 follow-up to that chart's own
+    extend_to fix) -- sourced from a REAL installed weather forecaster
+    (Open-Meteo, weather.home), not Nimbus's own ML. Temp/Humidity were
+    never configured as Nimbus subentries, and there's no case for
+    training a from-scratch ML model on ambient weather when a
+    purpose-built forecaster already exists -- this project's own
+    stated position on exactly this tradeoff (see CLAUDE.md's PRIME
+    DIRECTIVE section: "a real non-HAEO forecaster for that specific
+    signal, e.g. Solcast/Open-Meteo for solar") applies identically
+    here.
+
+    Modern (2023+) HA weather entities publish forecast data only via
+    the weather.get_forecasts service response (see
+    ha_call_service_with_response()'s own docstring) -- bridged here
+    into the same {time, value} shape ha_post_state() already uses for
+    every other _forecast sensor in this file, so the dashboard's
+    existing data_generator convention (entity.attributes.forecast)
+    needs no special-casing for this source. Pushed at the source's own
+    native hourly resolution -- no need to resample onto this file's
+    own solver grid_times, since nothing here feeds the LP.
+
+    Humidity: Open-Meteo's own hourly forecast has NO humidity field at
+    all (confirmed live, 2026-08-25 -- only temperature/condition/
+    precipitation). Deliberately not published here; a fabricated
+    humidity forecast would be strictly worse than none. If a source
+    with real forecasted humidity is added later (Pirate Weather's
+    hourly forecast does carry one), wire it in the same way.
+
+    Purely cosmetic/dashboard -- never referenced by the actual LP
+    solve. Graceful no-op if weather.home isn't installed on this
+    instance, or if the service call fails, same as every other
+    optional external source in this file.
+    """
+    if not entity_exists("weather.home"):
+        return
+    response = ha_call_service_with_response(
+        "weather", "get_forecasts", {"entity_id": "weather.home", "type": "hourly"}
+    )
+    if not response:
+        return
+    hourly = (response.get("weather.home") or {}).get("forecast")
+    if not isinstance(hourly, list) or not hourly:
+        return
+    points = [
+        {"time": p["datetime"], "value": round(float(p["temperature"]), 1)}
+        for p in hourly
+        if isinstance(p, dict)
+        and p.get("datetime") is not None
+        and p.get("temperature") is not None
+    ]
+    if not points:
+        return
+    ha_post_state(
+        "sensor.nimbus_mirror_temperature_forecast",
+        points[0]["value"],
+        {
+            "unit_of_measurement": "°C",
+            "friendly_name": "Nimbus Mirror Temperature Forecast",
+            "forecast": points,
+            "source": "weather.home (Open-Meteo)",
+            "generated_at": datetime.now(UTC).astimezone(BRISBANE_TZ).isoformat(),
+        },
+    )
+
+
 def parse_iso(s) -> datetime:
     # Real bug, confirmed live 2026-08-22 (first-ever native-mode run):
     # every call site here was written and only ever tested against
@@ -1429,7 +1541,10 @@ def sum_load_forecasts(
     entity_ids: list[str],
     grid_times: list[datetime],
     inverter_self_consumption_kw: float = 0.0,
-) -> tuple[list[float], list[float], list[float], list[str], dict[str, str]]:
+    now: datetime | None = None,
+) -> tuple[
+    list[float], list[float], list[float], list[str], dict[str, str], float | None
+]:
     """Real household demand, summed from a household's own individually-
     forecasted circuits -- see load_forecast_entities in main() (the
     comment right above the module-level "Real per-load demand" block
@@ -1473,12 +1588,25 @@ def sum_load_forecasts(
     just "unavailable", the real shape/unit-mismatch diagnostic
     fetch_load_forecast_safe() now surfaces). Genuinely additive --
     every existing caller destructuring the first 4 values still works.
+
+    NEW (2026-08-25, issue #112): a sixth return value,
+    `coverage_hours` -- the REAL forecast coverage of this sum, in
+    hours ahead of `now` (defaults to grid_times[0], which
+    build_tiered_grid() always sets to real "now" -- see that
+    function's own docstring). Computed as the MINIMUM per-entity
+    coverage across every entity that fetched successfully: the sum is
+    only as trustworthy as its shortest-covered circuit, since every
+    period beyond that circuit's real coverage is resample_forecast()'s
+    own flat-hold padding, not a real forecast for the whole household.
+    None if no entity fetched successfully (nothing real to report).
     """
     total_kw = [0.0] * len(grid_times)
     total_lower_kw = [0.0] * len(grid_times)
     total_upper_kw = [0.0] * len(grid_times)
     failed_entities: list[str] = []
     warnings: dict[str, str] = {}
+    coverage_hours_per_entity: list[float] = []
+    anchor = now if now is not None else (grid_times[0] if grid_times else None)
     for entity_id in entity_ids:
         fc, error = fetch_load_forecast_safe(entity_id)
         if fc is None:
@@ -1486,7 +1614,10 @@ def sum_load_forecasts(
             if error is not None:
                 warnings[entity_id] = error
             continue  # this load contributes 0.0 for every period
-            continue
+        if anchor is not None:
+            entity_coverage = compute_forecast_coverage_hours(fc, anchor)
+            if entity_coverage is not None:
+                coverage_hours_per_entity.append(entity_coverage)
         pt_kw = resample_forecast(fc, "value", grid_times)
         pt_lower = resample_forecast(fc, "lower", grid_times)
         pt_upper = resample_forecast(fc, "upper", grid_times)
@@ -1513,7 +1644,43 @@ def sum_load_forecasts(
     total_upper_kw = [
         max(total_upper_kw[i], total_kw[i]) for i in range(len(grid_times))
     ]
-    return total_kw, total_lower_kw, total_upper_kw, failed_entities, warnings
+    coverage_hours = (
+        min(coverage_hours_per_entity) if coverage_hours_per_entity else None
+    )
+    return (
+        total_kw,
+        total_lower_kw,
+        total_upper_kw,
+        failed_entities,
+        warnings,
+        coverage_hours,
+    )
+
+
+def compute_forecast_coverage_hours(
+    fc_dicts: list[dict], anchor: datetime
+) -> float | None:
+    """Real coverage of a RAW (pre-resample) forecast list, in hours
+    ahead of `anchor` -- nimbus repo issue #112 ("solver horizon 96.3h
+    exceeds subentry forecast horizon 48h").
+
+    resample_forecast()'s own nearest-at-or-before lookup has no upper
+    bound: once grid_times runs past a source's real last timestamp,
+    every remaining grid point silently reuses that same last real
+    value forever. That's a genuine, load-bearing behavior (a flat
+    hold beats a crash or a 0.0 cliff), but it also destroys the one
+    piece of information that would let anyone SEE the gap -- by the
+    time main() has resampled arrays in hand, "real point" and
+    "padded-flat point" look identical. This function is called on the
+    raw fc_dicts, before resampling, specifically to capture that real
+    coverage span while it still exists.
+
+    Returns None for an empty/unparseable list -- nothing to report.
+    """
+    times = [parse_iso(p["time"]) for p in fc_dicts if p.get("time") is not None]
+    if not times:
+        return None
+    return max(0.0, (max(times) - anchor).total_seconds() / 3600.0)
 
 
 def resample_forecast(
@@ -1682,8 +1849,14 @@ def _validate_and_parse_load_forecast_attrs(
 
 
 def read_load_forecast_sensor(
-    entity_id: str, grid_times: list[datetime]
-) -> tuple[list[float] | None, list[float] | None, list[float] | None, str | None]:
+    entity_id: str, grid_times: list[datetime], now: datetime | None = None
+) -> tuple[
+    list[float] | None,
+    list[float] | None,
+    list[float] | None,
+    str | None,
+    float | None,
+]:
     """Validated read of the single-sensor load-forecast fallback (the
     solver_load_forecast_sensor wizard field -- used when a household
     hasn't configured individual Nimbus Load subentries). Shape/unit
@@ -1692,26 +1865,39 @@ def read_load_forecast_sensor(
     this function's own job is just the fetch and the resample/clamp
     into a grid-aligned (value, lower, upper) triple.
 
-    Returns (load_kw, load_lower_kw, load_upper_kw, error) -- error is
-    None on success. The three arrays are None together with error on
-    failure -- callers must check error, not just truthiness. A
+    Returns (load_kw, load_lower_kw, load_upper_kw, error, coverage_hours)
+    -- error is None on success. The three arrays are None together with
+    error on failure -- callers must check error, not just truthiness. A
     STRUCTURALLY valid but near-all-zero series (real timestamps, real
     parseable values, just <10% of points meaningfully nonzero) is
     treated as a failure, not "a valid, if unusual, success" -- see
     the real #118 incident this specific check exists for, right
     before the final return below.
+
+    coverage_hours (NEW, 2026-08-25, issue #112): the source's own real
+    forecast coverage, in hours ahead of `now` (defaults to
+    grid_times[0], real "now" per build_tiered_grid()'s own docstring)
+    -- computed on the RAW fc_dicts, before resample_forecast() pads
+    flat past it. None on failure or an unparseable list.
     """
     try:
         state = ha_get(entity_id)
     except (urllib.error.HTTPError, urllib.error.URLError) as e:
-        return None, None, None, f"{entity_id} could not be read ({e})"
+        return None, None, None, f"{entity_id} could not be read ({e})", None
 
     attrs = state.get("attributes", {}) if isinstance(state, dict) else {}
     fc_dicts, has_bands, error = _validate_and_parse_load_forecast_attrs(
         entity_id, attrs
     )
     if error is not None:
-        return None, None, None, error
+        return None, None, None, error, None
+
+    anchor = now if now is not None else (grid_times[0] if grid_times else None)
+    coverage_hours = (
+        compute_forecast_coverage_hours(fc_dicts, anchor)
+        if anchor is not None
+        else None
+    )
 
     load_kw = [max(0.0, v) for v in resample_forecast(fc_dicts, "value", grid_times)]
     if has_bands:
@@ -1780,9 +1966,10 @@ def read_load_forecast_sensor(
                 f"real per-signal forecast entity instead (e.g. "
                 f"sensor.nimbus_<your_load_signal>_forecast)."
             ),
+            None,
         )
 
-    return load_kw, load_lower_kw, load_upper_kw, None
+    return load_kw, load_lower_kw, load_upper_kw, None, coverage_hours
 
 
 def _notify_load_forecast_error_once(error: str) -> None:
@@ -3103,10 +3290,12 @@ def main() -> None:
             load_upper_kw,
             failed_load_entities,
             load_forecast_warnings,
+            load_forecast_coverage_hours,
         ) = sum_load_forecasts(
             load_forecast_entities,
             grid_times,
             _cfg_num(cfg, "solver_inverter_self_consumption_kw", 0.0),
+            now,
         )
     else:
         # Validated read (2026-08-23, real fix for nimbus repo issue
@@ -3118,8 +3307,14 @@ def main() -> None:
         # of the plan are still real and worth publishing even with load
         # wrong) plus a loud stderr WARN and a one-time persistent
         # notification, both naming the exact real reason.
-        load_kw, load_lower_kw, load_upper_kw, load_forecast_error = (
-            read_load_forecast_sensor(cfg["solver_load_forecast_sensor"], grid_times)
+        (
+            load_kw,
+            load_lower_kw,
+            load_upper_kw,
+            load_forecast_error,
+            load_forecast_coverage_hours,
+        ) = read_load_forecast_sensor(
+            cfg["solver_load_forecast_sensor"], grid_times, now
         )
         if load_forecast_error is not None:
             print(f"WARN: {load_forecast_error}", file=sys.stderr)
@@ -3250,6 +3445,18 @@ def main() -> None:
             ],
             "source_entities": load_forecast_entities,
             "load_forecast_source_used": load_forecast_source_used,
+            # NEW (2026-08-25, issue #112: "solver horizon 96.3h exceeds
+            # subentry forecast horizon 48h") -- the REAL forecast
+            # coverage this run's load_kw is backed by, in hours ahead
+            # of `now`. None if it couldn't be determined. Compare
+            # against horizon_hours (sensor.nimbus_solver_battery_
+            # forecast, and the print() line below): whenever this is
+            # smaller, every period beyond it is resample_forecast()'s
+            # own flat-hold padding, not a real forecast -- see
+            # compute_forecast_coverage_hours()'s own docstring.
+            "load_forecast_coverage_hours": round(load_forecast_coverage_hours, 1)
+            if load_forecast_coverage_hours is not None
+            else None,
             "failed_load_entities": failed_load_entities,
             # NEW (2026-08-24, issue #105): entity_id -> the exact real
             # reason each failed_load_entities member was excluded --
@@ -3270,6 +3477,15 @@ def main() -> None:
             "generated_at": now.isoformat(),
         },
     )
+
+    # Purely cosmetic devhub dashboard sensor (2026-08-25) -- never
+    # referenced below, never feeds the LP. Wrapped exactly like
+    # _notify_load_forecast_error_once() above: a failed weather-mirror
+    # publish must never be allowed to break the actual solve.
+    try:
+        publish_weather_forecast_mirrors()
+    except Exception:  # noqa: BLE001, S110 -- cosmetic-only, see comment above
+        pass
 
     # Two paths, gated on whether THIS system actually has LocalVolts
     # configured (checked live, not assumed from config alone -- see
@@ -3928,6 +4144,15 @@ def main() -> None:
             # above. See this field's own construction site (near
             # solver_load_forecast_entities, above) for the full reasoning.
             "load_forecast_source_used": load_forecast_source_used,
+            # NEW (2026-08-25, issue #112) -- present here AND on sensor.
+            # nimbus_household_load_total_forecast above (see that
+            # field's own comment for the full reasoning). Directly
+            # comparable to horizon_hours below: a smaller coverage
+            # means part of this plan's own load input is
+            # resample_forecast()'s flat-hold padding, not real.
+            "load_forecast_coverage_hours": round(load_forecast_coverage_hours, 1)
+            if load_forecast_coverage_hours is not None
+            else None,
             "n_clamped_periods": n_clamped,
             "n_periods": n_periods,
             "horizon_hours": round(horizon_days * 24, 1),
@@ -3946,9 +4171,15 @@ def main() -> None:
         if whole_house_now_kw is not None
         else "unavailable"
     )
+    coverage_str = (
+        f"{load_forecast_coverage_hours:.1f}h"
+        if load_forecast_coverage_hours is not None
+        else "unknown"
+    )
     print(
         f"[{now.isoformat()}] pushed {ENTITY_ID}: status={plan.status} "
-        f"n_periods={n_periods} horizon={horizon_days * 24:.1f}h solve_time={solve_seconds:.2f}s "
+        f"n_periods={n_periods} horizon={horizon_days * 24:.1f}h "
+        f"load_forecast_coverage={coverage_str} solve_time={solve_seconds:.2f}s "
         f"total_cost={plan.total_cost:.2f} total_cost_with_fixed={total_cost_with_fixed_costs:.2f} "
         f"p2p_match_fraction={match_fraction:.3f} net_battery_now={net_battery[0]:.2f}kW "
         f"summed_18_loads_now={summed_18_now_kw:.2f}kW whole_house_cross_check={cross_check_str} "

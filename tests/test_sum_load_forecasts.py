@@ -63,7 +63,7 @@ class TestDefaultIsANoOp(unittest.TestCase):
     def test_zero_bias_leaves_the_sum_unchanged(self):
         state = _state_with_no_band([1.0, 2.0, 3.0, 4.0])
         with patch.object(solver_writer, "ha_get", return_value=state):
-            total_kw, lower_kw, upper_kw, failed, warnings = (
+            total_kw, lower_kw, upper_kw, failed, warnings, _coverage = (
                 solver_writer.sum_load_forecasts(["sensor.one_circuit"], _grid_times(4))
             )
         self.assertEqual(failed, [])
@@ -99,7 +99,7 @@ class TestConfiguredBiasReproducesFinding2Exactly(unittest.TestCase):
         # reference value -- see const.py's own comment for why).
         state = _state_with_no_band([1.0, 16.49, 18.91, 2.0])
         with patch.object(solver_writer, "ha_get", return_value=state):
-            total_kw, lower_kw, upper_kw, failed, warnings = (
+            total_kw, lower_kw, upper_kw, failed, warnings, _coverage = (
                 solver_writer.sum_load_forecasts(
                     ["sensor.one_circuit"], _grid_times(4), 0.215
                 )
@@ -128,7 +128,7 @@ class TestConfiguredBiasReproducesFinding2Exactly(unittest.TestCase):
             return state_a if entity_id == "sensor.a" else state_b
 
         with patch.object(solver_writer, "ha_get", side_effect=_fake_ha_get):
-            total_kw, _, _, failed, warnings = solver_writer.sum_load_forecasts(
+            total_kw, _, _, failed, warnings, _coverage = solver_writer.sum_load_forecasts(
                 ["sensor.a", "sensor.b"], _grid_times(2), 0.215
             )
         self.assertEqual(failed, [])
@@ -159,7 +159,7 @@ class TestMalformedCircuitGetsARealDiagnosticNotJustDropped(unittest.TestCase):
             return healthy if entity_id == "sensor.healthy" else malformed
 
         with patch.object(solver_writer, "ha_get", side_effect=_fake_ha_get):
-            total_kw, _, _, failed, warnings = solver_writer.sum_load_forecasts(
+            total_kw, _, _, failed, warnings, _coverage = solver_writer.sum_load_forecasts(
                 ["sensor.healthy", "sensor.malformed"], _grid_times(2)
             )
         # The healthy circuit's own real contribution must be unaffected
@@ -193,7 +193,7 @@ class TestMalformedCircuitGetsARealDiagnosticNotJustDropped(unittest.TestCase):
             },
         }
         with patch.object(solver_writer, "ha_get", return_value=state_in_watts):
-            total_kw, _, _, failed, warnings = solver_writer.sum_load_forecasts(
+            total_kw, _, _, failed, warnings, _coverage = solver_writer.sum_load_forecasts(
                 ["sensor.watts_source"], times
             )
         self.assertEqual(failed, [])
