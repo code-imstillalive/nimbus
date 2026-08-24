@@ -1350,13 +1350,34 @@ def ha_call_service_with_response(domain: str, service: str, data: dict) -> dict
     no-op (see every other optional external source in this file), not
     a reason to break the actual solve.
 
-    Native mode isn't supported -- no live install has yet needed a
-    blocking, response-returning service call from native mode; returns
-    None immediately rather than guessing at a fire-and-forget
-    equivalent that would silently discard the response anyway.
+    Native mode (2026-08-25, real bug found live on devhub -- this
+    function's own first version returned None unconditionally here,
+    silently no-op'ing publish_weather_forecast_mirrors() on any native
+    install without ever surfacing why): same
+    asyncio.run_coroutine_threadsafe() bridge fetch_price_history()'s
+    own native branch already uses to call async, event-loop-owned HA
+    APIs from this file's own sync executor-thread context -- a plain
+    hass.services.async_call(..., blocking=True, return_response=True)
+    is itself a coroutine, and there's no public sync-callable variant,
+    same reasoning as that function's own comment.
     """
     if _NATIVE_HASS is not None:
-        return None
+        try:
+            import asyncio
+
+            async def _call() -> dict:
+                return await _NATIVE_HASS.services.async_call(
+                    domain,
+                    service,
+                    data,
+                    blocking=True,
+                    return_response=True,
+                )
+
+            future = asyncio.run_coroutine_threadsafe(_call(), _NATIVE_HASS.loop)
+            return future.result(timeout=15)
+        except Exception:  # noqa: BLE001 -- see this function's own "deliberately swallows every failure" docstring line
+            return None
     body = json.dumps(data).encode("utf-8")
     req = urllib.request.Request(
         f"{HA_BASE}/api/services/{domain}/{service}?return_response",
