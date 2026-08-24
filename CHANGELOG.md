@@ -25,6 +25,21 @@ _Add new entries here as each PR lands. They roll into the next tagged release._
   value, or an install where discovery finds nothing yet, is completely
   unaffected (a picker with no candidates falls back to showing
   everything, same as before this change).
+- **"Group B" of the same simplification**: the Forecaster step's
+  temperature/humidity fields and the Solver Battery step's SoC field
+  now get a pre-filled *suggestion* (never a picker restriction — these
+  are raw household hardware sensors, not Nimbus's own self-tagged
+  output, so a hard filter risked hiding a genuinely correct but
+  untagged sensor) whenever exactly one live entity of the matching
+  `device_class` exists system-wide. Deliberately narrower than a naive
+  "filter every raw sensor field by device_class" approach — the
+  battery/grid/solar power fields and both import/export price fields
+  are excluded on purpose, since even a single matching entity there is
+  genuinely ambiguous about *which* of two or three fields it belongs
+  to; guessing wrong would be confidently misleading, worse than no
+  suggestion at all. An already-saved value is never overwritten by a
+  suggestion, same discipline as every other suggestion mechanism in
+  this file.
 
 ## [0.75.0] — 2026-08-24
 

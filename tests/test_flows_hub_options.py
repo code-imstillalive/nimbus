@@ -29,6 +29,7 @@ from custom_components.nimbus_load.const import (
     ATTR_SUBENTRY_TYPE,
     CONF_BATTERY_SENSOR,
     CONF_FORECAST_HORIZON_HOURS,
+    CONF_HUMIDITY_SENSOR,
     CONF_SOLVER_BATTERY_SOC_SENSOR,
     CONF_SOLVER_EXPORT_PRICE_SENSOR,
     CONF_SOLVER_IMPORT_PRICE_SENSOR,
@@ -62,6 +63,7 @@ from custom_components.nimbus_load.flows.hub_options import (
     _solver_grid_schema,
     _solver_sources_schema,
     _switchboard_schema,
+    _type_safe_entity_suggestions,
 )
 
 
@@ -860,6 +862,125 @@ def test_solver_sources_step_wires_real_discovery_into_the_rendered_form():
     assert result["data_schema"].schema[marker].config["include_entities"] == [
         "sensor.nimbus_pool_pump_load_forecast"
     ]
+
+
+# -- _type_safe_entity_suggestions (2026-08-24, "Group B") ----------------
+
+
+def _typed_state(entity_id: str, device_class: str):
+    st = MagicMock()
+    st.entity_id = entity_id
+    st.attributes = {"device_class": device_class}
+    return st
+
+
+def test_type_safe_suggestions_no_states_returns_empty():
+    hass = _hass_with_all_states([])
+    assert _type_safe_entity_suggestions(hass) == {}
+
+
+def test_type_safe_suggestions_exactly_one_of_each_class_is_suggested():
+    hass = _hass_with_all_states(
+        [
+            _typed_state("sensor.outdoor_temp", "temperature"),
+            _typed_state("sensor.outdoor_humidity", "humidity"),
+            _typed_state("sensor.inverter_battery_soc", "battery"),
+        ]
+    )
+    result = _type_safe_entity_suggestions(hass)
+    assert result == {
+        CONF_TEMPERATURE_SENSOR: "sensor.outdoor_temp",
+        CONF_HUMIDITY_SENSOR: "sensor.outdoor_humidity",
+        CONF_SOLVER_BATTERY_SOC_SENSOR: "sensor.inverter_battery_soc",
+    }
+
+
+def test_type_safe_suggestions_multiple_matches_are_never_guessed():
+    # Real, common case -- several climate sensors (or, for battery,
+    # several unrelated low-battery diagnostic sensors). Guessing one
+    # arbitrarily would be actively misleading -- must stay silent,
+    # identical to today's no-suggestion behaviour.
+    hass = _hass_with_all_states(
+        [
+            _typed_state("sensor.bedroom_temp", "temperature"),
+            _typed_state("sensor.outdoor_temp", "temperature"),
+        ]
+    )
+    assert _type_safe_entity_suggestions(hass) == {}
+
+
+def test_type_safe_suggestions_power_and_price_fields_are_never_suggested():
+    # Deliberately excluded from this function entirely (see its own
+    # docstring) -- even a single power/monetary sensor is genuinely
+    # ambiguous about WHICH of battery/grid/solar (or import/export) it
+    # is, unlike temperature/humidity/SoC which have exactly one real
+    # field each.
+    hass = _hass_with_all_states(
+        [
+            _typed_state("sensor.the_only_power_sensor", "power"),
+            _typed_state("sensor.the_only_monetary_sensor", "monetary"),
+        ]
+    )
+    assert _type_safe_entity_suggestions(hass) == {}
+
+
+def test_type_safe_suggestions_degrades_to_empty_never_raises():
+    hass = MagicMock()
+    hass.states.async_all = MagicMock(side_effect=RuntimeError("hass not ready"))
+    assert _type_safe_entity_suggestions(hass) == {}
+
+
+def test_forecaster_step_fills_temperature_and_humidity_from_suggestions():
+    import asyncio
+
+    flow = _make_flow(options={})  # nothing saved yet
+    flow.hass.states.async_all = lambda domain: [
+        _typed_state("sensor.outdoor_temp", "temperature"),
+        _typed_state("sensor.outdoor_humidity", "humidity"),
+    ]
+    result = asyncio.run(flow.async_step_forecaster(None))
+    temp_marker = _find_marker(result["data_schema"], CONF_TEMPERATURE_SENSOR)
+    assert temp_marker.description == {"suggested_value": "sensor.outdoor_temp"}
+    humidity_marker = _find_marker(result["data_schema"], CONF_HUMIDITY_SENSOR)
+    assert humidity_marker.description == {"suggested_value": "sensor.outdoor_humidity"}
+
+
+def test_forecaster_step_never_overwrites_an_already_saved_temperature_sensor():
+    import asyncio
+
+    flow = _make_flow(options={CONF_TEMPERATURE_SENSOR: "sensor.household_own_choice"})
+    flow.hass.states.async_all = lambda domain: [
+        _typed_state("sensor.a_different_temp_sensor", "temperature")
+    ]
+    result = asyncio.run(flow.async_step_forecaster(None))
+    marker = _find_marker(result["data_schema"], CONF_TEMPERATURE_SENSOR)
+    assert marker.description == {"suggested_value": "sensor.household_own_choice"}
+
+
+def test_solver_battery_step_fills_soc_sensor_from_suggestion():
+    import asyncio
+
+    flow = _make_flow(options={})
+    flow.hass.states.async_all = lambda domain: [
+        _typed_state("sensor.inverter_battery_soc", "battery")
+    ]
+    result = asyncio.run(flow.async_step_solver_battery(None))
+    marker = _find_marker(result["data_schema"], CONF_SOLVER_BATTERY_SOC_SENSOR)
+    assert marker.default() == "sensor.inverter_battery_soc"
+
+
+def test_solver_battery_step_never_overwrites_an_already_saved_soc_sensor():
+    import asyncio
+
+    flow = _make_flow(
+        options={CONF_SOLVER_BATTERY_SOC_SENSOR: "sensor.household_own_choice"}
+    )
+    flow.hass.states.async_all = lambda domain: [
+        _typed_state("sensor.a_different_battery_sensor", "battery")
+    ]
+    result = asyncio.run(flow.async_step_solver_battery(None))
+    marker = _find_marker(result["data_schema"], CONF_SOLVER_BATTERY_SOC_SENSOR)
+    assert marker.default() == "sensor.household_own_choice"
 
 
 def test_init_step_shows_the_forecaster_vs_solver_vs_switchboard_menu():

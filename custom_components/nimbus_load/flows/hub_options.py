@@ -435,6 +435,74 @@ def _discover_nimbus_load_forecast_candidates(
     return single, summable
 
 
+def _type_safe_entity_suggestions(hass: Any) -> dict[str, str]:
+    """ "Group B" of the 2026-08-24 wizard-simplification scoping -- a
+    real, live device_class scan for the handful of RAW HARDWARE fields
+    (temperature/humidity/battery-SoC) where Nimbus has no self-
+    describing tag of its own to lean on (unlike Group A's Nimbus
+    forecast entities, which always carry ATTR_SUBENTRY_TYPE, a 100%
+    reliable signal Nimbus itself controls). Deliberately a SUGGESTION
+    (suggested_value, exactly `_energy_dashboard_switchboard_suggestions`'
+    own already-proven mechanism above), never a picker restriction --
+    a hard include_entities/device_class filter on these fields would
+    risk permanently hiding a household's own genuinely-correct sensor
+    if it happens to be an untagged template sensor (a real, common
+    real-world shape, and worse than the current no-restriction status
+    quo, not better).
+
+    Narrower scope than a naive "device_class-filter everything raw"
+    approach, and deliberately so -- reasoned through explicitly rather
+    than assumed:
+
+    - CONF_TEMPERATURE_SENSOR / CONF_HUMIDITY_SENSOR (device_class
+      temperature/humidity): only suggested when EXACTLY ONE live
+      sensor of that device_class exists system-wide. Multiple matches
+      (a household with several climate sensors) is a real, common
+      case -- guessing one arbitrarily would be actively misleading, so
+      it's left unsuggested instead, identical to today's behaviour.
+    - CONF_SOLVER_BATTERY_SOC_SENSOR (device_class battery): same
+      exactly-one rule. Real, honest limitation: device_class=battery
+      is also the standard HA convention for low-battery-level
+      diagnostics on completely unrelated devices (door sensors,
+      remotes, ...) -- on a household with several such devices this
+      will essentially always come back empty, which is fine (empty
+      means "no regression from today", never "a wrong guess").
+    - CONF_BATTERY_SENSOR / CONF_GRID_SENSOR / CONF_SOLAR_SENSOR
+      (Forecaster's own shared power sensors) and CONF_SOLVER_IMPORT_
+      PRICE_SENSOR / CONF_SOLVER_EXPORT_PRICE_SENSOR are deliberately
+      EXCLUDED from this function entirely, not merely rarer -- even
+      when device_class narrows candidates to exactly one, there is no
+      way to tell FROM device_class alone whether one lone power sensor
+      is battery vs grid vs solar, or whether one lone monetary sensor
+      is the import vs export price. Suggesting the same entity for two
+      different fields (or the wrong one of a pair) would be
+      confidently, silently wrong -- worse than staying silent.
+
+    Returns {} on any failure (same graceful-degradation convention as
+    every other real-live-data helper in this module).
+    """
+    try:
+        candidates: dict[str, list[str]] = {
+            "temperature": [],
+            "humidity": [],
+            "battery": [],
+        }
+        for state in hass.states.async_all("sensor"):
+            device_class = state.attributes.get("device_class")
+            if device_class in candidates:
+                candidates[device_class].append(state.entity_id)
+        suggestions: dict[str, str] = {}
+        if len(candidates["temperature"]) == 1:
+            suggestions[CONF_TEMPERATURE_SENSOR] = candidates["temperature"][0]
+        if len(candidates["humidity"]) == 1:
+            suggestions[CONF_HUMIDITY_SENSOR] = candidates["humidity"][0]
+        if len(candidates["battery"]) == 1:
+            suggestions[CONF_SOLVER_BATTERY_SOC_SENSOR] = candidates["battery"][0]
+    except Exception:  # noqa: BLE001 -- see docstring: a discovery failure must degrade to "no suggestion", never break the wizard
+        return {}
+    return suggestions
+
+
 async def _energy_dashboard_switchboard_suggestions(hass: Any) -> dict[str, str]:
     """Real HA Energy Dashboard config (Settings -> Energy), read in-
     process, as a genuine starting-point SUGGESTION for 5 of the 6
@@ -739,9 +807,16 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
                 merged[key] = user_input.get(key)
             return self.async_create_entry(title="", data=merged)
 
+        # Type-safe suggestions (2026-08-24, "Group B") fill in ONLY the
+        # gaps -- an already-saved real value always wins, a fresh
+        # suggestion never overwrites it. Same {**suggestions, **saved}
+        # precedence as async_step_switchboard below.
+        existing = dict(self.config_entry.options)
+        suggestions = _type_safe_entity_suggestions(self.hass)
+        form_defaults = {**suggestions, **existing}
         return self.async_show_form(
             step_id="forecaster",
-            data_schema=_forecaster_schema(dict(self.config_entry.options)),
+            data_schema=_forecaster_schema(form_defaults),
         )
 
     async def async_step_switchboard(
@@ -779,9 +854,15 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
         if user_input is not None:
             self._solver_data.update(user_input)
             return await self.async_step_solver_grid()
+        # Same Group B suggestion mechanism as async_step_forecaster above
+        # -- fills the SoC field ONLY when unambiguous, never overwrites
+        # an already-saved real value.
+        existing = dict(self.config_entry.options)
+        suggestions = _type_safe_entity_suggestions(self.hass)
+        form_defaults = {**suggestions, **existing}
         return self.async_show_form(
             step_id="solver_battery",
-            data_schema=_solver_battery_schema(dict(self.config_entry.options)),
+            data_schema=_solver_battery_schema(form_defaults),
         )
 
     async def async_step_solver_grid(
