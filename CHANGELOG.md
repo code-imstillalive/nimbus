@@ -10,6 +10,26 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+### Fixed
+- **`binding_constraint_now` could report the wrong story** (Mark
+  Purcell, real repro, #125/#133): a nonzero LP reduced cost fires
+  whenever a variable is pinned at EITHER of its own bounds, not only
+  its upper/capacity bound — a genuine "not economical to discharge
+  right now" decision (pinned at 0) and a genuine "hit the real
+  ceiling" decision (pinned at the configured max) both produced a
+  nonzero reduced cost on the same variable, but this diagnostic
+  labelled both identically as e.g. "Battery max discharge power".
+  Confirmed on a real install: the battery was genuinely CHARGING at
+  period 0 (not discharging at all), while this field still reported
+  "Battery max discharge power" — actively misleading, and the direct
+  cause of a false "second override path" bug report (the real config,
+  #125's own fix, and the underlying LP bound were all confirmed
+  correct by direct source read). Now disambiguated by checking the
+  variable's own real solved value against its two bounds: the genuine
+  ceiling case keeps the exact original 4 label strings (no
+  compatibility break for that case), the "pinned at zero" case gets
+  its own new, distinct, honest label instead.
+
 ## [0.76.0] — 2026-08-24
 
 Both pieces of the Solver settings wizard-simplification scoping (direct

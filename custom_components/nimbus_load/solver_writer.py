@@ -583,6 +583,130 @@ def resolve_max_discharge_kw(cfg: dict) -> float:
     return float(cfg["solver_max_discharge_kw"])
 
 
+def compute_binding_constraint_label(
+    plan: network.Plan,
+    export_limit_kw: float,
+    import_limit_kw: float,
+    max_charge_kw: float,
+    max_discharge_kw: float,
+) -> tuple[str, float | None]:
+    """ "What's binding RIGHT NOW (period 0)" -- Mark Purcell's audit item
+    #3 (2026-08-18), deliberately a SMALL summary rather than the raw
+    plan.duals/reduced_costs dicts (those can hold thousands of entries
+    at real 365-period production scale, real risk of blowing past HA's
+    16384-byte recorder attribute limit -- a repeatedly-hit constraint
+    elsewhere in this project's own history).
+
+    Extracted as its own standalone, directly-testable function
+    (2026-08-24) -- same precedent as resolve_max_discharge_kw() above --
+    specifically because of the real bug this exact refactor was built
+    to fix and now has real unit-test coverage for, not just source-
+    inspection:
+
+    2026-08-24 fix (Mark Purcell, nimbus #125/#133, real repro): a
+    nonzero reduced cost on e.g. battery_discharge_0 used to be labelled
+    "Battery max discharge power" UNCONDITIONALLY -- but a real, nonzero
+    LP reduced cost fires whenever a variable is pinned at EITHER of its
+    own bounds, not only its upper/capacity bound (a core LP optimality
+    property: a non-basic variable's reduced cost is only ever nonzero
+    when it's sitting exactly at a bound -- lower OR upper). Mark's own
+    plan showed the battery CHARGING at period 0 (not discharging at
+    all) while this label still reported "Battery max discharge power"
+    -- the true story was battery_discharge_0 pinned at its LOWER bound
+    (0, a genuine "not economical to discharge right now" decision), not
+    the 24kW ceiling his own config actually set (confirmed separately,
+    by direct source read, that max_discharge_kw is applied UNSCALED as
+    the LP variable's own upper bound -- `ub=battery.max_discharge_kw`
+    at network.py's battery_discharge_{t} construction, no efficiency/
+    SoC derating on the bound itself -- ruling out both of Mark's own
+    suggested "second override path" hypotheses: a second hardcoded
+    entity slug, confirmed absent via a repo-wide grep for "logger_";
+    and SoC/efficiency scaling of the bound, confirmed absent by reading
+    network.py's own variable construction directly).
+
+    Genuinely ambiguous from the OLD label alone which of these two,
+    very different real stories was true. Now disambiguated by checking
+    the variable's own real SOLVED value (plan.battery_discharge_kw[0],
+    etc.) against its two real bounds: only the genuine "pinned at the
+    real ceiling" case keeps the original 4 label strings (byte-
+    identical, no compatibility break for anyone already reading this
+    field for THAT case); the "pinned at zero" case gets its own new,
+    distinct, honest label instead of silently reusing the ceiling
+    wording it was never actually describing.
+
+    Returns (label, shadow_price_per_kwh) -- shadow_price is None only
+    when nothing is currently binding (label == "Nothing currently
+    binding"), matching this function's one and only caller's own
+    existing external contract (the pushed sensor attribute shape).
+    """
+    _BINDING_FAMILIES = {
+        # key: (exact original ceiling label, short name for the "at
+        # zero" case, real solved-value array, real configured limit)
+        "grid_export_0": (
+            "Grid export limit",
+            "Grid export",
+            plan.grid_export_kw,
+            export_limit_kw,
+        ),
+        "grid_import_0": (
+            "Grid import limit",
+            "Grid import",
+            plan.grid_import_kw,
+            import_limit_kw,
+        ),
+        "battery_charge_0": (
+            "Battery max charge power",
+            "Battery charge",
+            plan.battery_charge_kw,
+            max_charge_kw,
+        ),
+        "battery_discharge_0": (
+            "Battery max discharge power",
+            "Battery discharge",
+            plan.battery_discharge_kw,
+            max_discharge_kw,
+        ),
+    }
+    binding_now = None
+    binding_now_value_per_kwh = None
+    for var_key, (
+        ceiling_label,
+        short_name,
+        values,
+        limit_kw,
+    ) in _BINDING_FAMILIES.items():
+        val = plan.reduced_costs.get(var_key, 0.0)
+        if abs(val) > 1e-6 and (
+            binding_now_value_per_kwh is None
+            or abs(val) > abs(binding_now_value_per_kwh)
+        ):
+            solved_value = float(values[0])
+            if limit_kw > 1e-9 and solved_value >= limit_kw - 1e-6:
+                # Genuinely at the real ceiling -- exact original wording,
+                # byte-identical, no compatibility break for anyone
+                # already reading this field for this specific case.
+                binding_now = ceiling_label
+            elif solved_value <= 1e-6:
+                # Pinned at zero -- a real "not worth it right now"
+                # economic decision, NOT a capacity constraint. Distinct
+                # from the ceiling case on purpose (see docstring above).
+                binding_now = f"{short_name} at zero (not economical right now)"
+            else:
+                # Shouldn't happen for a variable with a genuinely
+                # nonzero reduced cost (LP optimality: only ever nonzero
+                # exactly at a bound) -- represented honestly rather
+                # than assumed, matching this module's own "never paper
+                # over an unexpected state" convention.
+                binding_now = (
+                    f"{short_name} at {solved_value:.2f} kW "
+                    f"(unexpected -- neither its 0 nor {limit_kw:.2f} kW bound)"
+                )
+            binding_now_value_per_kwh = round(val, 4)
+    if binding_now is None:
+        binding_now = "Nothing currently binding"
+    return binding_now, binding_now_value_per_kwh
+
+
 def import_fee_rate(cfg: dict, hour: int) -> float:
     """Real, live, dashboard-configurable network TOU fee for a given
     hour -- REPLACES the old hardcoded network_energy_rate()
@@ -3471,32 +3595,12 @@ def main() -> None:
     ]
 
     # Binding-constraint diagnostics (2026-08-18, Mark Purcell's audit
-    # item #3), deliberately a SMALL summary rather than the raw
-    # plan.duals/reduced_costs dicts -- those can hold thousands of
-    # entries at real 365-period production scale, real risk of blowing
-    # past HA's 16384-byte recorder attribute limit (a repeatedly-hit
-    # constraint elsewhere in this project's own history). Only ever
-    # reports what's binding RIGHT NOW (period 0) and tonight's own P2P
-    # volume-cap shadow price -- the two answers this feature actually
-    # exists to give, not a full dump.
-    _BINDING_FAMILIES = {
-        "grid_export_0": "Grid export limit",
-        "grid_import_0": "Grid import limit",
-        "battery_charge_0": "Battery max charge power",
-        "battery_discharge_0": "Battery max discharge power",
-    }
-    binding_now = None
-    binding_now_value_per_kwh = None
-    for var_key, label in _BINDING_FAMILIES.items():
-        val = plan.reduced_costs.get(var_key, 0.0)
-        if abs(val) > 1e-6 and (
-            binding_now_value_per_kwh is None
-            or abs(val) > abs(binding_now_value_per_kwh)
-        ):
-            binding_now = label
-            binding_now_value_per_kwh = round(val, 4)
-    if binding_now is None:
-        binding_now = "Nothing currently binding"
+    # item #3; relabelled 2026-08-24, see compute_binding_constraint_
+    # label()'s own docstring near resolve_max_discharge_kw for the
+    # full "pinned at zero vs pinned at the real ceiling" story).
+    binding_now, binding_now_value_per_kwh = compute_binding_constraint_label(
+        plan, export_limit_kw, import_limit_kw, max_charge_kw, max_discharge_kw
+    )
     # Earliest export_bonus_cap_<date> entry (ISO date strings sort
     # correctly as plain strings) is always tonight's/the current cap --
     # None when the two-tier export bonus mechanism isn't active at all.
