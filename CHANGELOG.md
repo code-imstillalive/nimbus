@@ -10,6 +10,30 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.79.0] — 2026-08-24
+
+### Fixed
+- **Solver crashed every cycle with Min SoC configured to 0%** (Mark
+  Purcell, real repro, direct follow-up to #58 — 20 consecutive crashes
+  over 24 minutes): #58's own fix (Mark's PR #64) correctly stopped an
+  intentional 0.0 from being silently reverted to the 5.0% default, but
+  never addressed what happens once that genuine 0% actually reaches
+  `BatteryConfig`'s own strict `0 < min_soc_kwh` invariant — a real,
+  deliberate LP-level degeneracy/safety floor, not negotiable at that
+  layer. `resolve_min_soc_kwh()` closes the gap: floors to a
+  negligible-but-strictly-positive value (0.05% of capacity —
+  effectively "no reserve," not a literal 0%) and warns, instead of
+  crashing.
+- **Solver crashed on a non-numeric price sensor state**
+  (`ValueError: could not convert string to float:
+  '2026-08-24T13:00:00+10:00'`, same real install, same session): the
+  price-sensor scalar-fallback read had zero protection against a
+  configured entity's real state not being numeric. `safe_num()`
+  replaces the old, untestable inline closure with a standalone
+  function that warns and falls back to `0.0` instead of crashing the
+  whole solve — used for both price-sensor fallback reads and the live
+  battery SoC read.
+
 ## [0.78.0] — 2026-08-24
 
 ### Fixed
