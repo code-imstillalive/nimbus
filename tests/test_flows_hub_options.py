@@ -40,6 +40,7 @@ from custom_components.nimbus_load.const import (
     CONF_SWITCHBOARD_IMPORT_ENERGY_DAILY_SENSOR,
     CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR,
     CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR,
+    CONF_TEMPERATURE_FORECAST_SENSOR,
     CONF_TEMPERATURE_SENSOR,
 )
 from custom_components.nimbus_load.flows.hub_options import (
@@ -118,6 +119,20 @@ def test_forecaster_schema_battery_field_is_switch_domain_not_sensor():
     battery_marker = _find_marker(schema, CONF_BATTERY_SENSOR)
     battery_selector = schema.schema[battery_marker]
     assert battery_selector.config["domain"] == "sensor"
+
+
+def test_forecaster_schema_temperature_forecast_field_accepts_weather_domain():
+    # #123 (Mark Purcell, real repro, 2026-08-24): modern HA weather
+    # entities no longer expose a "forecast" state attribute at all --
+    # domain="sensor" alone locked out the natural, simplest choice
+    # (point straight at weather.home). Must now accept BOTH weather.*
+    # (fetched internally via weather.get_forecasts) and sensor.* (an
+    # already-working template sensor, fully backward compatible).
+    schema = _forecaster_schema({})
+    marker = _find_marker(schema, CONF_TEMPERATURE_FORECAST_SENSOR)
+    selector_instance = schema.schema[marker]
+    domain = selector_instance.config["domain"]
+    assert set(domain) == {"sensor", "weather"}
 
 
 # -- solver wizard schemas: required vs optional-with-suggested-value -------

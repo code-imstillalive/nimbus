@@ -95,12 +95,28 @@ def _forecaster_schema(defaults: dict[str, Any]) -> vol.Schema:
                 CONF_TEMPERATURE_SENSOR,
                 description={"suggested_value": defaults.get(CONF_TEMPERATURE_SENSOR)},
             ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            # domain=["sensor", "weather"] (2026-08-24, nimbus #123, Mark
+            # Purcell's own real repro): "sensor" alone rejected the
+            # natural choice for most installs -- modern HA weather
+            # entities no longer carry a "forecast" state attribute at
+            # all (removed 2024.x+), so pointing straight at one only
+            # works because coordinator.py's own
+            # _async_fetch_temperature_forecast() now detects a
+            # weather.* entity_id and calls weather.get_forecasts
+            # (hourly) internally instead of reading a nonexistent
+            # attribute. "sensor" stays accepted too, for anyone who's
+            # already built their own forecast-shaped template sensor
+            # (or whose weather integration genuinely still uses the
+            # old attribute pattern) -- fully backward compatible,
+            # zero change for an already-working sensor.* config.
             vol.Optional(
                 CONF_TEMPERATURE_FORECAST_SENSOR,
                 description={
                     "suggested_value": defaults.get(CONF_TEMPERATURE_FORECAST_SENSOR)
                 },
-            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain=["sensor", "weather"])
+            ),
             # Optional -- humidity is a real, validated contributor to
             # forecast accuracy (2026-08-14 backtest), but not every
             # household has a humidity sensor wired up; ml/model.py already
