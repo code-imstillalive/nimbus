@@ -10,6 +10,35 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.82.0] — 2026-08-25
+
+### Added
+- **Named cost-component breakdown on the Solver plan** (Mark Purcell,
+  real repro + executable reconciliation tests, #149): `total_cost`
+  could not be reconstructed from anything else in the diagnostics
+  dump -- off by exactly degradation + charge_fee + discharge_fee minus
+  the #144 terminal-value credit, with no field naming any of those
+  terms. `sensor.nimbus_solver_battery_forecast` now carries a
+  `cost_breakdown` attribute (`grid_net`, `degradation`, `charge_fee`,
+  `discharge_fee`, `terminal_value_credit`) that reconciles exactly to
+  `total_cost` by construction.
+
+### Fixed
+- **Network TOU fees and the flat fee rate were silently ignored for
+  any non-LocalVolts install** (#152): `import_fee_rate()` and the flat
+  fee rate were applied only inside the LocalVolts-specific branch of
+  the price-building block, even though both are generic, retailer-
+  agnostic config-flow fields. Any other install that filled them in
+  via the wizard had them silently ignored -- zero fee applied, zero
+  warning. Fixed by applying fees uniformly regardless of retailer path.
+- **Empty forecast attribute conflated with a missing/malformed one --
+  confusing error on cold-start installs** (#150): a brand-new load
+  subentry whose forecaster hasn't trained on enough history yet
+  produces a genuinely empty `forecast: []`, which was being reported
+  with the same "no usable forecast attribute" message as a truly
+  broken sensor. Fixed with a distinct, honest "empty, not yet
+  trained" message for the empty-list case.
+
 ## [0.81.0] — 2026-08-24
 
 ### Fixed
