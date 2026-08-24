@@ -59,8 +59,10 @@ class TestCanonicalShape(unittest.TestCase):
             },
         }
         with patch.object(solver_writer, "ha_get", return_value=state):
-            load_kw, lower, upper, error, _coverage = solver_writer.read_load_forecast_sensor(
-                "sensor.nimbus_pool_forecast", _grid_times()
+            load_kw, lower, upper, error, _coverage = (
+                solver_writer.read_load_forecast_sensor(
+                    "sensor.nimbus_pool_forecast", _grid_times()
+                )
             )
         self.assertIsNone(error)
         self.assertAlmostEqual(load_kw[0], 1.2)
@@ -81,8 +83,10 @@ class TestCanonicalShape(unittest.TestCase):
             },
         }
         with patch.object(solver_writer, "ha_get", return_value=state):
-            load_kw, lower, upper, error, _coverage = solver_writer.read_load_forecast_sensor(
-                "sensor.some_source", _grid_times()
+            load_kw, lower, upper, error, _coverage = (
+                solver_writer.read_load_forecast_sensor(
+                    "sensor.some_source", _grid_times()
+                )
             )
         self.assertIsNone(error)
         self.assertEqual(lower[0], 0.0)
@@ -116,8 +120,10 @@ class TestEmhassShape(unittest.TestCase):
 
     def test_emhass_shape_auto_detected_and_converted(self):
         with patch.object(solver_writer, "ha_get", return_value=self._emhass_state()):
-            load_kw, lower, upper, error, _coverage = solver_writer.read_load_forecast_sensor(
-                "sensor.p_load_forecast_custom_model", _grid_times_aest()
+            load_kw, lower, upper, error, _coverage = (
+                solver_writer.read_load_forecast_sensor(
+                    "sensor.p_load_forecast_custom_model", _grid_times_aest()
+                )
             )
         self.assertIsNone(error, f"expected success, got error: {error}")
         # 691.67 W -> 0.69167 kW, NOT a flat 0.215 kW -- the value this
@@ -157,8 +163,10 @@ class TestGenuinelyUnrecognizedShape(unittest.TestCase):
             },
         }
         with patch.object(solver_writer, "ha_get", return_value=state):
-            load_kw, lower, upper, error, _coverage = solver_writer.read_load_forecast_sensor(
-                "sensor.mystery_source", _grid_times()
+            load_kw, lower, upper, error, _coverage = (
+                solver_writer.read_load_forecast_sensor(
+                    "sensor.mystery_source", _grid_times()
+                )
             )
         self.assertIsNone(load_kw)
         self.assertIsNone(lower)
