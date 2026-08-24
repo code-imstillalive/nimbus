@@ -10,6 +10,30 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.81.0] — 2026-08-24
+
+### Fixed
+- **Terminal-value credit compounded across multiple day-boundary
+  checkpoints, making the LP treat holding charge as worth up to ~4x
+  its configured value** (Mark Purcell, real repro, #144): on a real
+  4-day horizon (4 real midnight checkpoints + the true final period),
+  the LP idled the battery at ~60% SoC for 5+ hours while grid-buying
+  at 15-22c/kWh, only discharging once import price crossed ~40c,
+  despite a configured marginal discharge cost of ~9c/kWh. Root cause:
+  the 2026-08-22 fix that lets the Solver respect multi-day P2P windows
+  applied the full terminal-value curve at EVERY real midnight in the
+  horizon, not just the true end -- the same physical stored energy was
+  earning a full terminal-value credit at every boundary it survived
+  through. Confirmed directly: `total_cost` kept getting artificially
+  "better" the more checkpoints existed, and SoC hours before any
+  boundary snapped from empty to full the moment a second checkpoint
+  was added. Fix: only the true final period gets the full, unscaled
+  curve; every intermediate day-boundary checkpoint gets it divided by
+  the number of intermediate checkpoints, so the cumulative incentive a
+  single unit of energy can ever collect stays bounded to roughly one
+  terminal-value-equivalent, not one per checkpoint. A genuine no-op
+  for the original single-intermediate-checkpoint shape.
+
 ## [0.80.0] — 2026-08-24
 
 ### Added
