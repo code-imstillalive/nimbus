@@ -10,6 +10,23 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+### Fixed
+- **`temperature_forecast_sensor` crashed the coordinator on `weather.*`
+  entities emitting naive datetimes** (Mark Purcell, real repro, #137,
+  direct follow-up to #123): some real weather integrations (his own
+  `weather.noosa_heads_hourly`) return forecast datetimes with no
+  timezone offset at all — the #123 fix widened the field to accept
+  `weather.*` entities but never normalised the datetimes it got back,
+  so a naive value compared against an always-aware one crashed every
+  coordinator tick outright (`TypeError: can't compare offset-naive and
+  offset-aware datetimes`). Naive timestamps are now treated as the
+  installation's own local time (a pure relabel, no numeric shift) —
+  confirmed against a real, subtle bug in the first suggested fix
+  (`dt_util.as_local()` on a naive value assumes UTC first, which would
+  have shifted the numbers by a full UTC offset instead of leaving them
+  alone). Same fix applied to the curtailment-forecast path, the other
+  real site parsing external datetimes.
+
 ## [0.77.0] — 2026-08-24
 
 ### Fixed

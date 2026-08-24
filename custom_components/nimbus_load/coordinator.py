@@ -657,7 +657,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             except (KeyError, TypeError, ValueError):
                 continue
             if ts is not None:
-                out.append((ts, temp))
+                out.append((_normalize_forecast_timestamp(ts), temp))
         out.sort(key=lambda x: x[0])
         if not out and not self._temp_forecast_empty_warned:
             self._temp_forecast_empty_warned = True
@@ -753,7 +753,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             except (KeyError, TypeError, ValueError):
                 continue
             if ts is not None:
-                out.append((ts, value))
+                out.append((_normalize_forecast_timestamp(ts), value))
         out.sort(key=lambda x: x[0])
         return out
 
@@ -1044,6 +1044,60 @@ def _parse_time_to_hour(value: str | float | None) -> float | None:
             "Could not parse schedule time value %r -- treating as unset", value
         )
         return None
+
+
+def _normalize_forecast_timestamp(ts: datetime) -> datetime:
+    """Real bug (Mark Purcell, #137, real repro, 2026-08-24, direct
+    follow-up to #123): `dt_util.parse_datetime()` on a genuinely naive
+    ISO-8601 string (no `+HH:MM`/`Z` suffix) returns a naive datetime --
+    confirmed live, `weather.noosa_heads_hourly` (a real, community
+    OpenWeatherMap-derived HA integration) emits exactly this shape from
+    `weather.get_forecasts`, in LOCAL wall-clock time (his own
+    confirmation: "15:00" genuinely means 15:00 AEST on his install, not
+    15:00 UTC -- matched against real live weather at the time). Every
+    `target` this gets compared against (via `bisect_right` in
+    `_nearest_temp`/`_step_lookup` below) is always tz-aware, and Python
+    refuses to compare a naive and an aware datetime at all -- a hard
+    `TypeError`, not a silently-wrong comparison, which is exactly what
+    crashed his coordinator every tick once this path was reachable.
+
+    Real, honest ambiguity, called out directly rather than assumed
+    away: HA's own weather-platform contract says forecast datetimes
+    SHOULD be UTC, but (per Mark's own finding) not every real
+    integration honours that, and a genuinely naive value carries no
+    signal either way about which convention its own author followed.
+    "Assume local" is the pragmatic default shipped here (matching
+    Mark's own reasoning: the alternative risks a real multi-hour
+    misalignment on exactly the installs most likely to hit this path
+    at all -- a community integration emitting naive datetimes in the
+    first place).
+
+    Deliberately NOT `dt_util.as_local(ts)` for the naive case, despite
+    that being Mark's own first suggested fix -- a real, subtle bug in
+    that suggestion, caught before shipping it: HA's real `as_local()`
+    (confirmed via its own source/docstring, "Convert a UTC datetime
+    object to local time zone") treats ANY naive input as already being
+    UTC, converting it FORWARD to local wall-clock time -- which for a
+    genuinely local-naive "15:00" input would shift it to "01:00 next
+    day" in AEST (+10h), the exact class of misalignment this fix
+    exists to prevent, just reproduced in a different form. The correct
+    operation for "these numbers are already the right local wall-clock
+    time, just missing the tag" is a pure relabel (`.replace(tzinfo=
+    ...)`, no numeric conversion at all), not a timezone CONVERSION
+    (`as_local()`/`as_utc()`, which do shift the numbers) -- confirmed
+    by tracing HA's own real implementation, not assumed.
+
+    `dt_util.DEFAULT_TIME_ZONE` is HA's own real, live-configured local
+    timezone (set from `hass.config.time_zone` at startup) -- genuinely
+    reflects THIS specific installation's own local time, not a
+    hardcoded assumption. Already-aware timestamps (the common,
+    correctly-behaving case -- confirmed via this repo's own existing
+    tests, and per HA's documented platform contract) pass through
+    completely unchanged.
+    """
+    if ts.tzinfo is None:
+        return ts.replace(tzinfo=dt_util.DEFAULT_TIME_ZONE)
+    return ts
 
 
 def _nearest_temp(
