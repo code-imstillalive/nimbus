@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 from homeassistant.components.sensor import (
     SensorDeviceClass,
@@ -33,6 +33,7 @@ from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.loader import async_get_integration
 
+from . import health
 from .const import (
     ATTR_FORECAST,
     ATTR_MODE,
@@ -387,6 +388,11 @@ async def async_setup_entry(
     # SOURCE) -- so without this bridge the topology card would have no
     # way to see them at all.
     async_add_entities([NimbusTopologyConfigSensor(entry, sw_version)])
+
+    # Always-on health report (2026-08-25) -- same "one per hub" pattern
+    # as the two bridge sensors above. See NimbusHealthReportSensor's
+    # own docstring.
+    async_add_entities([NimbusHealthReportSensor(entry, sw_version)])
 
     # Hub-level Solver-output entities (2026-08-23, issue #55) --
     # migrated off solver_writer.ha_post_state()'s raw states.async_set()
@@ -855,6 +861,92 @@ class NimbusTopologyConfigSensor(SensorEntity):
             "pv_strings": pv_strings,
             "battery_towers": battery_towers,
             "switchboard": {k: self._entry.options.get(k) for k in _SWITCHBOARD_KEYS},
+        }
+
+
+class NimbusHealthReportSensor(SensorEntity):
+    """Always-on "what's failing, what's flatlined, what's not running"
+    health report (2026-08-25, direct ask: "at all times log any errors
+    from nimbus - in full and extra detailed diagnostics file... i wanna
+    know what fails and what flatlines and what is not running").
+
+    One per hub, same "pure wiring/status metadata, no coordinator of
+    its own" pattern as NimbusTopologyConfigSensor above -- this reads
+    the health.py log buffer (always populated, independent of whether
+    this entity itself has ever been polled) plus every forecastable
+    subentry's own already-published coordinator data, so its own
+    attributes are current on every read with no separate update-
+    listener plumbing needed here either.
+
+    native_value is a plain ERROR-level count from the last WARNING+
+    entries this process has captured -- a real household can eyeball
+    "0" and move on, or see a nonzero count and know to look at
+    recent_errors before digging into any one subentry's own forecast
+    sensor.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Health Report"
+    _attr_entity_category = None  # a real, actively-read data source, not a diagnostic
+
+    def __init__(self, entry: NimbusConfigEntry, sw_version: str | None) -> None:
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_health_report"
+        self.entity_id = "sensor.nimbus_health_report"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+            name="Nimbus",
+            manufacturer="Nimbus",
+            model="Hub",
+            sw_version=sw_version,
+        )
+
+    @property
+    def native_value(self) -> int:
+        return health.count_recent_log_entries(min_level=logging.ERROR)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        coordinators = self._entry.runtime_data or {}
+        # "Not running" -- a subentry whose model has NEVER trained at
+        # all (cold-start still in progress, or genuinely stuck: e.g.
+        # the solar-sensor 1000x-unit bug found live on devhub, which
+        # keeps a signal at exactly 0 training points forever, not just
+        # slowly). Deliberately a plain boolean fact (trained_at is
+        # None), not a guessed time-based threshold -- this project has
+        # already been burned once by a hardcoded staleness threshold
+        # elsewhere; "has it EVER produced a real model" needs no
+        # threshold to be a genuine, unambiguous signal.
+        never_trained = []
+        subentry_status = []
+        for subentry in self._entry.subentries.values():
+            if subentry.subentry_type not in _FORECASTABLE_SUBENTRY_TYPES:
+                continue
+            coordinator = coordinators.get(subentry.subentry_id)
+            data = (coordinator.data if coordinator else None) or {}
+            status = {
+                "subentry_id": subentry.subentry_id,
+                "title": subentry.title,
+                "mode": data.get("mode", "unscheduled"),
+                "training_points": data.get("training_points", 0),
+                "model_trained_at": data.get("trained_at"),
+                "forecast_point_count": len(data.get("forecast", [])),
+            }
+            subentry_status.append(status)
+            if status["model_trained_at"] is None:
+                never_trained.append(
+                    {"subentry_id": subentry.subentry_id, "title": subentry.title}
+                )
+        return {
+            "recent_errors": health.get_recent_log_entries(
+                min_level=logging.ERROR, limit=20
+            ),
+            "recent_warnings": health.get_recent_log_entries(
+                min_level=logging.WARNING, limit=20
+            ),
+            "never_trained": never_trained,
+            "subentry_status": subentry_status,
+            "generated_at": datetime.now(UTC).isoformat(),
         }
 
 
