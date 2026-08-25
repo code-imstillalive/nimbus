@@ -10,6 +10,25 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.92.0] — 2026-08-25
+
+### Added
+- **Retrospective efficiency-sensitivity backtesting engine**: the first
+  check in a new offline backtesting engine that proves Nimbus's own
+  decisions against reality rather than a bigger LP or a fancier model.
+  Re-solves a real, already-elapsed day's real known load/solar/price
+  under alternative round-trip efficiency candidates (85/90/95/99%),
+  scores each with the existing regret evaluator, and reports the $
+  spread between best and worst -- "how sensitive is your economics to
+  efficiency, on a day that actually happened." New
+  `sensor.nimbus_efficiency_backtest`, plus a dashboard section on the
+  Solver view. Deliberately does not attempt to test `risk_aversion` or
+  forecast-source choice -- both are mathematically inert under a
+  perfect-foresight backtest (no forecast uncertainty band exists once
+  ground truth is known); see `solver/backtest.py`'s own module
+  docstring for the full reasoning. Strictly observational -- never
+  writes back to config automatically.
+
 ## [0.91.0] — 2026-08-25
 
 ### Added
