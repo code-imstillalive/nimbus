@@ -182,7 +182,15 @@ class TestPublishEfficiencyBacktestReportIdempotency(unittest.TestCase):
 
     def test_not_yet_scored_day_computes_and_publishes(self):
         cfg = _cfg()
-        not_found = urllib.error.HTTPError("url", 404, "Not Found", {}, None)
+        # A plain URLError, not a constructed HTTPError(fp=None) --
+        # HTTPError's own real __init__ wraps `fp` in a way that (on some
+        # Python versions, confirmed on 3.14 in CI) leaves an unclosed
+        # implicit temp file if fp is None, firing an unrelated
+        # ResourceWarning later during a completely different test.
+        # publish_efficiency_backtest_report()'s own except clause
+        # already catches URLError (HTTPError's own superclass) too, so
+        # this exercises the identical code path without that trap.
+        not_found = urllib.error.URLError("Not Found")
         with (
             patch.object(solver_writer, "ha_get", side_effect=not_found),
             patch.object(
