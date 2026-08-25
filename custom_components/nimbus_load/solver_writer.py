@@ -3756,6 +3756,167 @@ def publish_nimbus_only_soc_counterfactual(cfg: dict, now: datetime) -> None:
     )
 
 
+# Nimbus issue #128 (Mark Purcell, 2026-08-25): "switch.solar_curtailment
+# doesn't detect implicit inverter AC-clipping" (#114's own curtailment
+# switch only sees EXPLICIT curtailment control -- an inverter silently
+# capping AC output because real DC generation exceeds its own AC rating
+# is invisible to it). His own proposed fix, agreed to and built here
+# exactly as specced: "solar_delivery_ratio = rolling_avg(actual_solar_kw
+# / forecast_solar_kw) over the last N hours where forecast > 5 kW."
+#
+# Genuinely optional and fully generic: reuses the SAME
+# solver_solar_power_sensor wizard field already added for the EPR
+# quality report (#162) -- no new config surface needed. A household
+# with it unset gets a complete no-op, matching every other optional
+# diagnostic in this file.
+#
+# Env-var-overridable /opt-default persisted state, same convention as
+# PLAN_STATE_PATH/LOCK_PATH/LOAD_FORECAST_ERROR_NOTIFIED_PATH above --
+# solver_runtime.py's own set_default_env_vars() points this at HA's
+# real storage directory for the native in-process path.
+SOLAR_DELIVERY_RATIO_PATH = os.environ.get(
+    "NIMBUS_SOLVER_SOLAR_DELIVERY_RATIO_PATH",
+    "/opt/nimbus_solver_solar_delivery_ratio.json",
+)
+# Mark's own spec, verbatim -- avoids near-zero-solar noise (a forecast
+# of 0.3kW vs an actual of 0.1kW is a real 3x "miss" that means nothing
+# at dawn/dusk).
+SOLAR_DELIVERY_MIN_FORECAST_KW = 5.0
+# How far ahead each solve's own forecast[] value is queued for later
+# resolution against reality -- long enough that solar genuinely could
+# have moved (cloud cover, curtailment), short enough that the forecast
+# being tested is still today's, not a much-later horizon point.
+SOLAR_DELIVERY_LOOKAHEAD_MINUTES = 60
+SOLAR_DELIVERY_ROLLING_WINDOW_HOURS = 6.0
+# Mark's own suggested reading: "if this ratio persistently sits below
+# (e.g.) 0.80 during high-PV hours, that's implicit AC-side clipping."
+SOLAR_DELIVERY_UNDERPERFORMING_THRESHOLD = 0.80
+
+
+def _load_solar_delivery_state() -> dict:
+    try:
+        with open(SOLAR_DELIVERY_RATIO_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict) and "pending" in data and "ratios" in data:
+            return data
+    except (OSError, ValueError):
+        pass
+    return {"pending": [], "ratios": []}
+
+
+def _save_solar_delivery_state(state: dict) -> None:
+    try:
+        with open(SOLAR_DELIVERY_RATIO_PATH, "w", encoding="utf-8") as f:
+            json.dump(state, f)
+    except OSError:
+        pass
+
+
+def update_solar_delivery_ratio(
+    cfg: dict,
+    now: datetime,
+    grid_times: list[datetime],
+    solar_kw: list[float],
+) -> dict | None:
+    """Real forecast-vs-actual solar tracking (nimbus issue #128): each
+    call queues one NEW prediction (~SOLAR_DELIVERY_LOOKAHEAD_MINUTES
+    ahead, from THIS solve's own forecast -- the exact value the LP is
+    using right now, before any live-measurement override touches only
+    index 0), and resolves any previously-queued predictions whose
+    target time has now arrived by fetching the real measured reading at
+    that moment. Same "record a prediction now, grade it once reality
+    catches up" shape already proven in coordinator.py's own
+    `_last_step_prediction` residual tracking -- this is the Solver's
+    own equivalent, since solver_writer.py has no persistent Python
+    object across solves to hold that state in memory (a fresh process
+    on the standalone-script path; a stateless helper function on the
+    native path) -- hence the small on-disk JSON buffer, same pattern as
+    PLAN_STATE_PATH.
+
+    Returns None (a complete no-op) if solver_solar_power_sensor isn't
+    configured. Never raises -- every failure mode (missing history,
+    corrupt state file, disk write failure) degrades to "this cycle
+    contributes nothing new," never crashes the real solve.
+    """
+    solar_sensor = cfg.get("solver_solar_power_sensor")
+    if not solar_sensor:
+        return None
+
+    state = _load_solar_delivery_state()
+    pending = state.get("pending", [])
+    ratios = state.get("ratios", [])
+
+    still_pending = []
+    for entry in pending:
+        try:
+            target_time = datetime.fromisoformat(entry["target_time"])
+            forecast_kw = float(entry["forecast_kw"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if target_time > now:
+            still_pending.append(entry)
+            continue
+        if forecast_kw >= SOLAR_DELIVERY_MIN_FORECAST_KW:
+            hist = fetch_entity_history_range(
+                solar_sensor,
+                target_time - timedelta(minutes=10),
+                target_time + timedelta(minutes=10),
+            )
+            if hist:
+                actual_kw = resample_history_nearest(hist, [target_time])[0]
+                ratios.append(
+                    {"time": now.isoformat(), "ratio": actual_kw / forecast_kw}
+                )
+        # Resolved (or genuinely unresolvable -- no history, or the
+        # forecast was too small to be meaningful) either way -- never
+        # re-queued.
+
+    cutoff = now - timedelta(hours=SOLAR_DELIVERY_ROLLING_WINDOW_HOURS)
+    ratios = [
+        r
+        for r in ratios
+        if "time" in r
+        and _safe_fromisoformat(r["time"]) is not None
+        and _safe_fromisoformat(r["time"]) >= cutoff
+    ]
+
+    if grid_times:
+        target = now + timedelta(minutes=SOLAR_DELIVERY_LOOKAHEAD_MINUTES)
+        closest_idx = min(
+            range(len(grid_times)),
+            key=lambda i: abs((grid_times[i] - target).total_seconds()),
+        )
+        still_pending.append(
+            {
+                "target_time": grid_times[closest_idx].isoformat(),
+                "forecast_kw": float(solar_kw[closest_idx]),
+            }
+        )
+
+    _save_solar_delivery_state({"pending": still_pending, "ratios": ratios})
+
+    if not ratios:
+        return {
+            "solar_delivery_ratio": None,
+            "solar_delivery_sample_count": 0,
+            "solar_delivery_underperforming": False,
+        }
+    avg_ratio = sum(r["ratio"] for r in ratios) / len(ratios)
+    return {
+        "solar_delivery_ratio": round(avg_ratio, 3),
+        "solar_delivery_sample_count": len(ratios),
+        "solar_delivery_underperforming": avg_ratio
+        < SOLAR_DELIVERY_UNDERPERFORMING_THRESHOLD,
+    }
+
+
+def _safe_fromisoformat(value: str) -> datetime | None:
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
+
+
 def main() -> None:
     # Fail fast, with a real, actionable message, if the Solver hasn't
     # been configured yet -- see fetch_solver_config()'s own docstring
@@ -4343,6 +4504,13 @@ def main() -> None:
         publish_nimbus_only_soc_counterfactual(cfg, now)
     except Exception:  # noqa: BLE001, S110 -- see comment above
         pass
+
+    # Same "never break the real solve" wrapping -- see
+    # update_solar_delivery_ratio()'s own docstring (nimbus issue #128).
+    try:
+        solar_delivery = update_solar_delivery_ratio(cfg, now, grid_times, solar_kw)
+    except Exception:  # noqa: BLE001 -- see comment above
+        solar_delivery = None
 
     # Two paths, gated on whether THIS system actually has LocalVolts
     # configured (checked live, not assumed from config alone -- see
@@ -5027,6 +5195,19 @@ def main() -> None:
                 3,
             ),
             "p2p_recent_avg_volume_kwh": round(p2p_recent_volume_kwh, 2),
+            # Nimbus issue #128 (Mark Purcell): rolling actual-vs-forecast
+            # solar ratio, catches implicit inverter AC-side clipping
+            # #114's own curtailment switch can't see. None when
+            # solver_solar_power_sensor isn't configured, or when no
+            # prediction has resolved yet -- both honest no-ops, never
+            # a fabricated 1.0.
+            "solar_delivery_ratio": (solar_delivery or {}).get("solar_delivery_ratio"),
+            "solar_delivery_sample_count": (solar_delivery or {}).get(
+                "solar_delivery_sample_count", 0
+            ),
+            "solar_delivery_underperforming": (solar_delivery or {}).get(
+                "solar_delivery_underperforming", False
+            ),
             "load_summed_18_now_kw": round(summed_18_now_kw, 3),
             "load_whole_house_cross_check_now_kw": round(whole_house_now_kw, 3)
             if whole_house_now_kw is not None

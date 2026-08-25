@@ -153,6 +153,10 @@ def set_default_env_vars(hass: HomeAssistant) -> None:
         "NIMBUS_SOLVER_LOAD_ERROR_NOTIFIED_PATH",
         hass.config.path("nimbus_solver_load_forecast_error.txt"),
     )
+    os.environ.setdefault(
+        "NIMBUS_SOLVER_SOLAR_DELIVERY_RATIO_PATH",
+        hass.config.path("nimbus_solver_solar_delivery_ratio.json"),
+    )
 
 
 def _ensure_ready(hass: HomeAssistant):
