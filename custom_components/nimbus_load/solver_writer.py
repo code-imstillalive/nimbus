@@ -213,6 +213,7 @@ from ml.blend import blend_forecast_array, cross_source_spread
 from numpy.typing import NDArray
 from solver import elements, network
 from solver.quality_report import compute_quality_report
+from solver.regret import evaluate_realized_cost
 
 if os.environ.get("SUPERVISOR_TOKEN") and not os.environ.get("HA_BASE"):
     # Running inside a real HA Supervisor app/add-on container with
@@ -909,6 +910,91 @@ def compute_cost_breakdown(
         "charge_fee": round(charge_fee_cost, 4),
         "discharge_fee": round(discharge_fee_cost, 4),
         "terminal_value_credit": round(terminal_value_credit, 4),
+    }
+
+
+def compute_cost_band(
+    *,
+    period_hours: NDArray[np.float64],
+    load_lower_kw: NDArray[np.float64],
+    load_upper_kw: NDArray[np.float64],
+    solar_kw: NDArray[np.float64],
+    import_price: NDArray[np.float64],
+    export_price: NDArray[np.float64],
+    charge_committed_kw: NDArray[np.float64],
+    discharge_committed_kw: NDArray[np.float64],
+    charge_cost: float,
+    discharge_cost_arr: NDArray[np.float64],
+    final_soc_kwh: float,
+    salvage_value: float,
+    import_limit_kw: float,
+    export_limit_kw: float,
+) -> dict[str, float] | None:
+    """Cost-band diagnostic (2026-08-25, nimbus issue #147: "the load
+    forecast's own uncertainty band is up to 8x the total cost being
+    optimised, and the LP never sees it") -- re-costs the COMMITTED
+    dispatch (this solve's own real charge/discharge decisions, held
+    fixed) against the load forecast's own stated lower/upper
+    confidence bounds instead of its point value, via
+    evaluate_realized_cost() (regret.py) -- the same "hold dispatch
+    fixed, recompute the real balance" technique compute_quality_
+    report()'s own J_ach already uses, just swapping which load series
+    it's evaluated against. Needs no LP change -- the LP already ran;
+    this is read-only post-hoc analysis on its output.
+
+    Deliberately prices export at the plain base export_price only, no
+    P2P bonus term -- the SAME residual-only convention compute_
+    quality_report()'s own J_ref/J_ach split already uses (see that
+    module's docstring for why): evaluate_realized_cost() has no
+    concept of GridConfig's own two-tier bonus mechanic, and a bonus-
+    aware band would need real settled bonus $, not something
+    available for a still-open future plan. This makes the returned
+    band a real, honest LOWER BOUND on the true swing, not the full
+    picture -- callers should surface that caveat alongside the field,
+    not treat it as the complete answer.
+
+    Returns {"lower", "upper", "width"} (all $, "width" = upper -
+    lower), or None if the re-costing itself fails for any reason --
+    this is a read-only diagnostic and must never break the real solve
+    it's reporting on.
+    """
+    try:
+        lower_cost = evaluate_realized_cost(
+            hours=period_hours,
+            load_real_kw=np.asarray(load_lower_kw),
+            solar_real_kw=np.asarray(solar_kw),
+            import_price_real=np.asarray(import_price),
+            export_price_real=np.asarray(export_price),
+            charge_committed_kw=charge_committed_kw,
+            discharge_committed_kw=discharge_committed_kw,
+            charge_cost=charge_cost,
+            discharge_cost=discharge_cost_arr,
+            final_soc_kwh=final_soc_kwh,
+            salvage_value=salvage_value,
+            grid_import_limit_kw=import_limit_kw,
+            grid_export_limit_kw=export_limit_kw,
+        ).total_cost
+        upper_cost = evaluate_realized_cost(
+            hours=period_hours,
+            load_real_kw=np.asarray(load_upper_kw),
+            solar_real_kw=np.asarray(solar_kw),
+            import_price_real=np.asarray(import_price),
+            export_price_real=np.asarray(export_price),
+            charge_committed_kw=charge_committed_kw,
+            discharge_committed_kw=discharge_committed_kw,
+            charge_cost=charge_cost,
+            discharge_cost=discharge_cost_arr,
+            final_soc_kwh=final_soc_kwh,
+            salvage_value=salvage_value,
+            grid_import_limit_kw=import_limit_kw,
+            grid_export_limit_kw=export_limit_kw,
+        ).total_cost
+    except Exception:  # noqa: BLE001 -- cosmetic diagnostic, must never break the real solve
+        return None
+    return {
+        "lower": round(lower_cost, 4),
+        "upper": round(upper_cost, 4),
+        "width": round(upper_cost - lower_cost, 4),
     }
 
 
@@ -4522,6 +4608,25 @@ def main() -> None:
         period_hours=period_hours_arr,
     )
 
+    # Cost-band diagnostic (2026-08-25, nimbus issue #147) -- see
+    # compute_cost_band()'s own docstring for the full reasoning.
+    cost_band = compute_cost_band(
+        period_hours=period_hours_arr,
+        load_lower_kw=np.array(load_lower_kw),
+        load_upper_kw=np.array(load_upper_kw),
+        solar_kw=np.array(solar_kw),
+        import_price=np.array(import_price),
+        export_price=np.array(export_price),
+        charge_committed_kw=plan.battery_charge_kw,
+        discharge_committed_kw=plan.battery_discharge_kw,
+        charge_cost=charge_cost,
+        discharge_cost_arr=discharge_cost_arr,
+        final_soc_kwh=float(plan.battery_soc_kwh[-1]),
+        salvage_value=salvage_value,
+        import_limit_kw=import_limit_kw,
+        export_limit_kw=export_limit_kw,
+    )
+
     # Binding-constraint diagnostics (2026-08-18, Mark Purcell's audit
     # item #3; relabelled 2026-08-24, see compute_binding_constraint_
     # label()'s own docstring near resolve_max_discharge_kw for the
@@ -4552,6 +4657,7 @@ def main() -> None:
             "total_cost": plan.total_cost,
             "total_cost_with_fixed_costs": round(total_cost_with_fixed_costs, 4),
             "cost_breakdown": cost_breakdown,
+            "cost_band": cost_band,
             "p2p_match_fraction": round(match_fraction, 4),
             "risk_aversion": risk_aversion,
             "import_price_risk_aversion": import_price_risk_aversion,
