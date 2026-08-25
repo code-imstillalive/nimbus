@@ -33,12 +33,20 @@ practice), then applies light exponential-smoothing (dampening) across the
 output sequence so consecutive 15-minute steps don't jump unrealistically.
 
 Model validation, extended further (2026-08-15): the knn-vs-gbrt
-comparison above now also includes a seasonal-naive baseline ("what was
-this load doing at this exact same time last week") as a genuine third
-candidate, and reports MASE alongside raw MAE -- validation error scaled
-by the load's own week-over-week variability, letting accuracy be
-compared meaningfully across loads of very different magnitudes (a raw
-kW MAE can't). GBRT's own fit() also gained early stopping (ml/gbrt.py),
+comparison above now also computes a seasonal-naive baseline ("what was
+this load doing at this exact same time last week"), and reports MASE
+alongside raw MAE -- validation error scaled by the load's own
+week-over-week variability, letting accuracy be compared meaningfully
+across loads of very different magnitudes (a raw kW MAE can't). Until
+nimbus issue #110 (Mark Purcell, 2026-08-25), naive was reported
+alongside knn/gbrt but never actually competed for deployment -- a load
+whose real ML candidates were BOTH worse than naive still had one of
+them deployed anyway, silently. model_type selection now genuinely picks
+the lowest-MAE candidate among all three ("naive" only wins by being
+strictly better than both real candidates, never merely tying one); a
+deployed "naive" model's predict() path returns the seasonal average
+directly (see `is_naive_model` below) rather than running either ML
+model at all. GBRT's own fit() also gained early stopping (ml/gbrt.py),
 used everywhere a real held-out validation set exists, so boosting stops
 once it stops helping rather than always running the full fixed
 n_estimators. Whichever model type wins can also get genuine model-
@@ -207,7 +215,7 @@ class TrainedModel:
     scratch to get it back.
     """
 
-    model_type: str  # "gbrt" or "knn"
+    model_type: str  # "gbrt", "knn", or "naive"
     x_mean: np.ndarray
     x_std: np.ndarray
     x_train: np.ndarray  # standardized feature rows, shape (n, n_features)
@@ -380,12 +388,16 @@ def train_model(
 ) -> TrainedModel | None:
     """Build a fresh model from real (local-time) history events.
 
-    Trains AND validates both k-NN and GBRT on a chronological hold-out
-    split, picks whichever actually performed better on THAT held-out
-    data for THIS load, then refits the winner on the full dataset (the
-    hold-out split is for model SELECTION only -- the deployed model
-    trains on everything available, since more data is strictly better
-    once the choice of model type is settled).
+    Trains AND validates k-NN and GBRT, and computes a seasonal-naive
+    baseline, on a chronological hold-out split, picks whichever of the
+    three actually performed better on THAT held-out data for THIS load
+    (nimbus issue #110: naive genuinely competes for deployment, not
+    just for reporting), then refits the winner on the full dataset if
+    it's an ML model (naive needs no refit -- predict() computes it
+    directly from the seasonal_lookup table built earlier in this same
+    function). The hold-out split is for model SELECTION only -- an ML
+    winner trains on everything available, since more data is strictly
+    better once the choice of model type is settled.
 
     Returns None (logging why) rather than raising, so a bad training
     cycle never takes the integration down -- the coordinator just keeps
@@ -619,7 +631,23 @@ def train_model(
             naive_val_pred[j] = week_val if week_val is not None else lag_long_val[j]
         validation_mae["naive"] = _mae(y_val, naive_val_pred)
 
-        model_type = "gbrt" if validation_mae["gbrt"] < validation_mae["knn"] else "knn"
+        # Nimbus issue #110 (Mark Purcell, 2026-08-25): "why can't the
+        # overnight forecast be at least as good as the rolling 5-day
+        # average" -- until this fix, it structurally couldn't be: the
+        # naive seasonal baseline was computed and reported (above, and
+        # for MASE scaling below) but never actually competed for
+        # deployment, so a load whose real ML candidates were BOTH worse
+        # than naive (validation_mase >= 1.0 for both) still had one of
+        # them deployed anyway. Ties are broken in insertion order (knn,
+        # then gbrt, then naive) -- unchanged from the old knn/gbrt-only
+        # tie behaviour, and naive only wins by being strictly better
+        # than both real candidates, never merely tying one.
+        candidate_mae = {
+            "knn": validation_mae["knn"],
+            "gbrt": validation_mae["gbrt"],
+            "naive": validation_mae["naive"],
+        }
+        model_type = min(candidate_mae, key=candidate_mae.get)
         _LOGGER.info(
             "Model validation: knn_mae=%.4f gbrt_mae=%.4f naive_mae=%.4f -> using %s",
             validation_mae["knn"],
@@ -993,9 +1021,18 @@ def predict(
         lag_long_t = ts - LAG_LONG_STEPS * step
         lag_short_v = lag_at(lag_short_t)
         lag_long_v = lag_at(lag_long_t)
+        # A deployed "naive" model (nimbus issue #110) IS the seasonal
+        # average, for every step -- always treated as seasonal-anchored
+        # regardless of the caller's own seasonal_anchor flag, since
+        # there's no ML momentum-based output here for damping to
+        # legitimately smooth.
+        is_naive_model = trained.model_type == "naive"
         seasonal_anchored.append(
-            seasonal_anchor
-            and (real_data_cutoff is None or lag_long_t > real_data_cutoff)
+            is_naive_model
+            or (
+                seasonal_anchor
+                and (real_data_cutoff is None or lag_long_t > real_data_cutoff)
+            )
         )
 
         x_row = np.array(
@@ -1018,7 +1055,15 @@ def predict(
         )
         x_row_std = (x_row - trained.x_mean) / trained.x_std
 
-        if trained.model_type == "gbrt" and trained.gbrt is not None:
+        if is_naive_model:
+            # The deployed model IS the seasonal baseline -- use it
+            # directly rather than running the (unused) ML path at all.
+            # Falls back to the lag chain on a bucket with no seasonal
+            # history yet, same "honest best-available reference"
+            # philosophy as the validation-time naive baseline above.
+            seasonal_v = seasonal_at(ts)
+            pred = seasonal_v if seasonal_v is not None else lag_long_v
+        elif trained.model_type == "gbrt" and trained.gbrt is not None:
             pred = float(trained.gbrt.predict(x_row_std)[0])
         else:
             pred = float(
@@ -1036,8 +1081,10 @@ def predict(
         # only when a real entry exists for THIS exact timestamp (a
         # missing bucket, same as lag_at()'s own handling, means trust
         # the raw model prediction rather than silently skip blending
-        # with nothing).
-        if seasonal_anchored[-1]:
+        # with nothing). Skipped for a naive model -- pred is already
+        # seasonal_at(ts) itself there, so blending it with itself would
+        # be a pure no-op at best.
+        if seasonal_anchored[-1] and not is_naive_model:
             seasonal_v = seasonal_at(ts)
             if seasonal_v is not None:
                 pred = (
