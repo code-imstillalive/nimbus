@@ -10,6 +10,23 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.93.0] — 2026-08-26
+
+### Fixed
+- **Load forecaster's seasonal-naive baseline never actually competed for
+  deployment** (#110): Mark's own follow-up question -- "why can't the
+  overnight forecast be at least as good as the rolling 5-day average" --
+  exposed a real gap. The naive baseline (`validation_mae["naive"]`) was
+  computed and reported every training cycle, but `model_type` selection
+  only ever compared k-NN against GBRT, never against naive itself, so a
+  load whose real ML candidates were BOTH worse than naive on validation
+  still had one of them deployed anyway. `model_type` now genuinely picks
+  the lowest-MAE candidate among all three (naive only wins by being
+  strictly better than both real candidates, never merely tying one), and
+  `predict()` has a real dispatch path for a deployed "naive" model:
+  returns the seasonal (weekday, hour, 15-min-of-hour) average directly
+  instead of running k-NN/GBRT at all.
+
 ## [0.92.2] — 2026-08-25
 
 ### Fixed
