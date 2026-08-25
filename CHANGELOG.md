@@ -10,6 +10,22 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.87.0] — 2026-08-25
+
+### Added
+- **Nimbus-only counterfactual SoC replay** (`sensor.nimbus_counterfactual_soc`,
+  "nuc one nimbus solver view has counterfactual table.... i want u to build that
+  into devbox package"): generic, wizard-config-driven port of the reference
+  household's own NUC1 script. Replays an already-elapsed calendar day with a real
+  receding-horizon LP re-solve every 15 minutes, feeding each tick's own simulated
+  SoC into the next (never the real, possibly HAEO-influenced SoC), and compares
+  the result against what actually happened -- answering "would Nimbus's own
+  reasoning have kept the battery in a sane state, if it had been driving all
+  along." Every P2P-related input is the same optional wizard field the live
+  writer already reads; a household with no P2P scheme configured gets a complete
+  no-op (no checkpoint/viability verdict), never a crash or a leaked
+  household-specific default.
+
 ## [0.86.1] — 2026-08-25
 
 ### Fixed
