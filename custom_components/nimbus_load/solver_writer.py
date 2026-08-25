@@ -3297,8 +3297,19 @@ def compute_daily_quality_report(cfg: dict, now: datetime) -> dict | None:
         max_soc_kwh=capacity_kwh * max_pct / 100.0,
         max_charge_kw=_cfg_num(cfg, "solver_max_charge_kw", 5.0),
         max_discharge_kw=_cfg_num(cfg, "solver_max_discharge_kw", 5.0),
-        charge_efficiency=_cfg_num(cfg, "solver_efficiency_percent", 90.0) / 100.0,
-        discharge_efficiency=_cfg_num(cfg, "solver_efficiency_percent", 90.0) / 100.0,
+        # solver_efficiency_percent is a single ROUND-TRIP figure, split
+        # geometrically into per-direction charge/discharge efficiency
+        # via sqrt() -- see main()'s own real BatteryConfig construction
+        # for the canonical comment on why. Nimbus issue #168 (Mark
+        # Purcell, 2026-08-25): this used to apply the round-trip value
+        # directly to both directions instead of sqrt()-splitting it,
+        # a real efficiency-convention mismatch against the live plan's
+        # own oracle solve -- both branches must model the SAME battery
+        # physics for EPR/regret to mean what it claims to mean.
+        charge_efficiency=(_cfg_num(cfg, "solver_efficiency_percent", 90.0) / 100.0)
+        ** 0.5,
+        discharge_efficiency=(_cfg_num(cfg, "solver_efficiency_percent", 90.0) / 100.0)
+        ** 0.5,
         charge_cost=_cfg_num(cfg, "solver_charge_cost", 0.01),
         discharge_cost=np.full(n_periods, _cfg_num(cfg, "solver_discharge_cost", 0.01)),
         salvage_value=_cfg_num(cfg, "solver_salvage_value", 0.15),
@@ -3518,7 +3529,14 @@ def compute_nimbus_only_soc_counterfactual(cfg: dict, day: datetime) -> dict | N
     min_soc_kwh = resolve_min_soc_kwh(min_pct, capacity_kwh, max_soc_kwh)
     max_charge_kw = _cfg_num(cfg, "solver_max_charge_kw", 5.0)
     max_discharge_kw = resolve_max_discharge_kw(cfg)
-    efficiency = _cfg_num(cfg, "solver_efficiency_percent", 90.0) / 100.0
+    # solver_efficiency_percent is a single ROUND-TRIP figure, split
+    # geometrically via sqrt() into the per-direction value the LP (and
+    # this replay's own post-solve SoC bookkeeping) actually needs --
+    # same convention as main()'s own real BatteryConfig and issue #168's
+    # own fix in compute_daily_quality_report(). Using the round-trip
+    # value directly here would model a battery physically different
+    # from the one the real live plan solves against.
+    efficiency = (_cfg_num(cfg, "solver_efficiency_percent", 90.0) / 100.0) ** 0.5
     charge_cost = _cfg_num(cfg, "solver_charge_cost", 0.01)
     discharge_cost_flat = _cfg_num(cfg, "solver_discharge_cost", 0.01)
     salvage_value_flat = _cfg_num(cfg, "solver_salvage_value", 0.15)
@@ -4614,6 +4632,9 @@ def main() -> None:
             f"-- investigate rather than lower the floor.",
             file=sys.stderr,
         )
+    charge_discharge_efficiency = (
+        min(_cfg_num(cfg, "solver_efficiency_percent", 95.0) / 100.0, 0.999) ** 0.5
+    )
     battery = elements.BatteryConfig(
         capacity_kwh=capacity_kwh,
         initial_soc_kwh=initial_soc_kwh,
@@ -4634,14 +4655,14 @@ def main() -> None:
         # just quietly degrade to "solver treats this as effectively
         # lossless," so this floor is deliberately kept even though a
         # correctly-filled-in form should never actually need it.
-        charge_efficiency=min(
-            _cfg_num(cfg, "solver_efficiency_percent", 95.0) / 100.0, 0.999
-        )
-        ** 0.5,
-        discharge_efficiency=min(
-            _cfg_num(cfg, "solver_efficiency_percent", 95.0) / 100.0, 0.999
-        )
-        ** 0.5,
+        #
+        # Named here (not just inlined) so the SAME value can be surfaced
+        # on the pushed diagnostic entity below -- nimbus issue #168 (Mark
+        # Purcell, 2026-08-25): "a user reading solver_efficiency_percent
+        # = 95 would reasonably interpret it as one-way... and get the
+        # arithmetic wrong" without this documented on the entity itself.
+        charge_efficiency=charge_discharge_efficiency,
+        discharge_efficiency=charge_discharge_efficiency,
         charge_cost=charge_cost,
         discharge_cost=discharge_cost_arr,
         salvage_value=salvage_value,  # required field, but overridden by terminal_value_breakpoints below when set
@@ -4979,6 +5000,32 @@ def main() -> None:
             "total_discharge_kwh": round(total_discharge_kwh, 2),
             "total_throughput_kwh": round(total_throughput_kwh, 2),
             "equivalent_full_cycles": round(equivalent_full_cycles, 3),
+            # Nimbus issue #168 (Mark Purcell, 2026-08-25): "a user reading
+            # solver_efficiency_percent = 95 would reasonably interpret it
+            # as one-way... and get the arithmetic wrong." These four
+            # fields pin down the exact convention this entity's own
+            # forecast[].battery_kw and totals above already use, verified
+            # against real live data (residual < 0.5 kWh over 100+ kWh
+            # throughput on Mark's own atomic snapshot):
+            # battery_kw is AC-side (grid-side of the inverter), and
+            # solver_efficiency_percent is a ROUND-TRIP figure applied as
+            # sqrt(round_trip) to each direction independently -- see
+            # charge_discharge_efficiency's own comment above.
+            "battery_kw_side": "AC",
+            "efficiency_convention": "round_trip_symmetric_sqrt",
+            "charge_efficiency": round(charge_discharge_efficiency, 4),
+            "discharge_efficiency": round(charge_discharge_efficiency, 4),
+            # $ value of the AC-bus losses these efficiencies imply over
+            # this horizon's own total_charge_kwh/total_discharge_kwh --
+            # matches Mark's own Kirchhoff reconciliation formula
+            # (tc*(1-eff) + td*(1/eff-1)), the expected gap between
+            # AC-side source/sink sums once real inverter losses are
+            # accounted for.
+            "ac_bus_losses_kwh": round(
+                total_charge_kwh * (1 - charge_discharge_efficiency)
+                + total_discharge_kwh * (1 / charge_discharge_efficiency - 1),
+                3,
+            ),
             "p2p_recent_avg_volume_kwh": round(p2p_recent_volume_kwh, 2),
             "load_summed_18_now_kw": round(summed_18_now_kw, 3),
             "load_whole_house_cross_check_now_kw": round(whole_house_now_kw, 3)

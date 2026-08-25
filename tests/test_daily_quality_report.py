@@ -167,6 +167,37 @@ class TestComputeDailyQualityReportRealScore(unittest.TestCase):
         self.assertEqual(report["real_p2p_dollars"], 0.0)
         self.assertEqual(report["real_p2p_volume_kwh"], 0.0)
 
+    def test_efficiency_is_sqrt_split_not_applied_directly(self):
+        # Nimbus issue #168 (Mark Purcell, 2026-08-25): this used to pass
+        # the round-trip solver_efficiency_percent straight through to
+        # BOTH charge_efficiency and discharge_efficiency, modeling a
+        # battery physically different from the one main()'s own real
+        # live plan solves against (which sqrt()-splits it). Verifies
+        # the actual BatteryConfig this function builds uses the
+        # sqrt-split value, not the raw round-trip one.
+        cfg = _cfg(solver_efficiency_percent=90.0)
+        captured = {}
+        real_battery_config = solver_writer.elements.BatteryConfig
+
+        def spy(**kwargs):
+            captured.update(kwargs)
+            return real_battery_config(**kwargs)
+
+        with (
+            patch.object(
+                solver_writer,
+                "fetch_entity_history_range",
+                side_effect=self._fetch_side_effect,
+            ),
+            patch.object(solver_writer.elements, "BatteryConfig", side_effect=spy),
+        ):
+            solver_writer.compute_daily_quality_report(cfg, NOW)
+
+        self.assertAlmostEqual(captured["charge_efficiency"], 90.0**0.5 / 10, places=6)
+        self.assertAlmostEqual(
+            captured["discharge_efficiency"], 90.0**0.5 / 10, places=6
+        )
+
     def test_oracle_infeasible_solve_degrades_to_none_not_a_crash(self):
         cfg = _cfg()
         with (

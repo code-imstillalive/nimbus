@@ -149,6 +149,36 @@ class TestNoP2PConfigured(unittest.TestCase):
         self.assertGreaterEqual(result["nimbus_only_soc_close_pct"], 5.0)
         self.assertLessEqual(result["nimbus_only_soc_close_pct"], 100.0)
 
+    def test_efficiency_is_sqrt_split_not_applied_directly(self):
+        # Nimbus issue #168 (Mark Purcell, 2026-08-25) -- same convention
+        # fix as compute_daily_quality_report()'s own regression test:
+        # solver_efficiency_percent is a round-trip figure and must be
+        # sqrt()-split before use, matching main()'s own real live plan,
+        # not applied directly to both directions.
+        cfg = _cfg(solver_efficiency_percent=90.0)
+        captured = []
+        real_battery_config = solver_writer.elements.BatteryConfig
+
+        def spy(**kwargs):
+            captured.append(kwargs)
+            return real_battery_config(**kwargs)
+
+        with (
+            patch.object(
+                solver_writer,
+                "fetch_entity_history_range",
+                side_effect=self._fake_fetch,
+            ),
+            patch.object(solver_writer.elements, "BatteryConfig", side_effect=spy),
+        ):
+            solver_writer.compute_nimbus_only_soc_counterfactual(cfg, DAY)
+
+        self.assertTrue(captured)
+        expected = 90.0**0.5 / 10
+        for kwargs in captured:
+            self.assertAlmostEqual(kwargs["charge_efficiency"], expected, places=6)
+            self.assertAlmostEqual(kwargs["discharge_efficiency"], expected, places=6)
+
 
 class TestP2PConfigured(unittest.TestCase):
     """A household WITH a P2P block configured -- checkpoint/viability
