@@ -10,6 +10,20 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.86.1] — 2026-08-25
+
+### Fixed
+- **Diagnostics: `data.solver` was silently dropping newly-added attributes**
+  (nimbus issue #116, Mark Purcell): `_solver_diagnostics()` copied a curated,
+  hand-picked subset of `sensor.nimbus_solver_battery_forecast`'s attributes by
+  name into the downloaded diagnostics dump. That allowlist stopped tracking
+  `solver_writer.py`'s real output -- `cost_breakdown` (v0.82 #149) and
+  `load_forecast_source_used` (v0.83 #148) both landed correctly on the live
+  entity but showed as `null` in the dump, a false-negative that could make a
+  real fix look like it hadn't shipped. Fixed by spreading the entity's full
+  attribute dict instead of naming fields one at a time -- any current or
+  future solver attribute is now automatically visible with zero maintenance.
+
 ## [0.86.0] — 2026-08-25
 
 ### Added
