@@ -21,6 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from custom_components.nimbus_load import sensor
 from custom_components.nimbus_load.const import (
     ATTR_SIGNAL_ROLE,
+    ATTR_SOURCE_SENSOR,
     CONF_LOAD_SENSOR,
     CONF_SIGNAL_ROLE,
     SIGNAL_ROLE_BATTERY,
@@ -95,6 +96,26 @@ def test_a_power_signal_with_no_role_set_also_defaults_to_other():
     )
     s = _make_sensor(subentry)
     assert s.extra_state_attributes[ATTR_SIGNAL_ROLE] == SIGNAL_ROLE_OTHER
+
+
+def test_source_sensor_is_exposed_alongside_signal_role():
+    # Real gap found live (2026-08-25, direct household report: "the
+    # topology card... still not working... make it respond to wizard
+    # selected nimbus only entities"): signal_role alone tells a
+    # dashboard WHICH power signal is Grid/Battery/Solar, but not what
+    # real live entity_id to actually read -- exactly the missing half
+    # of the "auto-discover from hass.states, zero config file needed"
+    # mechanism this module's own docstring already promised.
+    subentry = _fake_subentry(
+        "ps4",
+        SUBENTRY_TYPE_SIGNAL,
+        {
+            CONF_LOAD_SENSOR: "sensor.mirror_battery_power",
+            CONF_SIGNAL_ROLE: SIGNAL_ROLE_BATTERY,
+        },
+    )
+    s = _make_sensor(subentry)
+    assert s.extra_state_attributes[ATTR_SOURCE_SENSOR] == "sensor.mirror_battery_power"
 
 
 if __name__ == "__main__":
