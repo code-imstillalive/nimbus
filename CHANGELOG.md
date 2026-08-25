@@ -10,6 +10,22 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.86.0] — 2026-08-25
+
+### Added
+- **`cost_band` diagnostic on the Solver plan** (nimbus issue #147, Mark Purcell):
+  re-costs the LP's own committed dispatch at the load forecast's stated lower/upper
+  confidence bounds (`compute_cost_band()`, `regret.evaluate_realized_cost()`), so an
+  operator can tell at a glance whether a plan is a confident call or a coin flip.
+  No LP change -- read-only post-hoc analysis on the already-solved plan. Deliberately
+  excludes P2P bonus revenue; documented as an honest lower bound on the true swing.
+- **Always-on health report** (`sensor.nimbus_health_report`): a plain `logging.Handler`
+  now captures every WARNING+/ERROR record from this integration into a bounded,
+  always-populated buffer -- no more relying on someone noticing a symptom and then
+  grepping `error_log` after the fact. Exposes `recent_errors`, `recent_warnings`,
+  `never_trained` (subentries whose model has genuinely never produced output), and
+  per-subentry `mode`/`training_points`/`model_trained_at`/`forecast_point_count`.
+
 ## [0.85.0] — 2026-08-25
 
 ### Added
