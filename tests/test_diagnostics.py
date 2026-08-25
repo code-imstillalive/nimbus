@@ -155,6 +155,49 @@ def test_solver_diagnostics_surfaces_the_real_issue_66_failure_shape():
     assert result["load_failed_entities"] == ["sensor.emhass_deferrable0"]
 
 
+def test_solver_diagnostics_spreads_every_attribute_not_a_curated_allowlist():
+    # Nimbus issue #116 (Mark Purcell, 2026-08-25): cost_breakdown (v0.82
+    # #149) and load_forecast_source_used (v0.83 #148) both reach the
+    # live entity correctly but stayed null on this diagnostic because
+    # the old hand-picked allowlist here was never extended to include
+    # them. Fixed by spreading the entity's full attribute dict instead
+    # of naming fields one at a time -- this proves ANY attribute
+    # (including ones that don't exist yet) survives into the diagnostic
+    # dump untouched, closing the whole class of bug rather than just
+    # these two fields.
+    hass = MagicMock()
+
+    def fake_get(entity_id):
+        if entity_id == diagnostics._SOLVER_ENTITY_ID:
+            return _fake_state(
+                "13.4",
+                {
+                    "status": "optimal",
+                    "cost_breakdown": {"grid_net": -15.4797, "degradation": 5.331},
+                    "load_forecast_source_used": "single sensor: sensor.x",
+                    "energy_shadow_price_now": 0.31,
+                    "total_charge_kwh": 12.5,
+                    "total_discharge_kwh": 9.2,
+                    "load_forecast_warnings": {},
+                    "load_forecast_coverage_hours": None,
+                    "some_brand_new_field_added_later": "still shows up",
+                },
+            )
+        return None
+
+    hass.states.get.side_effect = fake_get
+    result = diagnostics._solver_diagnostics(hass)
+
+    assert result["cost_breakdown"] == {"grid_net": -15.4797, "degradation": 5.331}
+    assert result["load_forecast_source_used"] == "single sensor: sensor.x"
+    assert result["energy_shadow_price_now"] == 0.31
+    assert result["total_charge_kwh"] == 12.5
+    assert result["total_discharge_kwh"] == 9.2
+    assert result["load_forecast_warnings"] == {}
+    assert result["load_forecast_coverage_hours"] is None
+    assert result["some_brand_new_field_added_later"] == "still shows up"
+
+
 def test_get_config_entry_diagnostics_groups_subentries_and_includes_solver():
     ps = _fake_subentry(
         "ps1", "power_source", {"power_source_name": "Inverter 1"}, title="Inverter 1"

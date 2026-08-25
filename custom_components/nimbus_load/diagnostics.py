@@ -93,6 +93,24 @@ def _solver_diagnostics(hass: HomeAssistant) -> dict[str, Any]:
     why that reasoning didn't hold up). Neither entity existing yet
     (Solver settings never configured, or the very first cycle hasn't
     run) resolves to `None`, not a crash.
+
+    2026-08-25 (nimbus issue #116, Mark Purcell): this used to hand-pick
+    a curated subset of solver_attrs by name. That allowlist genuinely
+    stopped tracking solver_writer.py's own output -- `cost_breakdown`
+    (v0.82 #149) and `load_forecast_source_used` (v0.83 #148) both landed
+    correctly on the real live entity but stayed `null` here because
+    nobody remembered to add their names to this list too, producing a
+    real false-negative: a diagnostic reader would see `null` on a field
+    the changelog says shipped and reasonably conclude the fix hadn't
+    landed. Fixed by spreading the entity's ENTIRE real attribute dict in
+    first, so any current or future attribute solver_writer.py publishes
+    is automatically visible here with zero maintenance -- this closes
+    the whole class of bug, not just these two fields. The two explicit
+    keys below stay as deliberate overrides layered on top of the spread
+    (not a replacement for it): they merge in the household-load
+    entity's own copy when the solver entity itself is missing or
+    doesn't have that attribute, which a blind spread of solver_attrs
+    alone can't express.
     """
     solver_state = hass.states.get(_SOLVER_ENTITY_ID)
     load_state = hass.states.get(_HOUSEHOLD_LOAD_ENTITY_ID)
@@ -105,25 +123,17 @@ def _solver_diagnostics(hass: HomeAssistant) -> dict[str, Any]:
         "configured": True,
         "entity_found": solver_state is not None,
         "state": solver_state.state if solver_state else None,
-        "status": solver_attrs.get("status"),
-        "generated_at": solver_attrs.get("generated_at"),
-        "solve_seconds": solver_attrs.get("solve_seconds"),
-        "n_periods": solver_attrs.get("n_periods"),
-        "n_clamped_periods": solver_attrs.get("n_clamped_periods"),
-        "horizon_hours": solver_attrs.get("horizon_hours"),
-        "total_cost": solver_attrs.get("total_cost"),
-        "binding_constraint_now": solver_attrs.get("binding_constraint_now"),
+        **dict(solver_attrs),
         # Real, direct answer to "is my load forecast actually feeding
         # the solver, or silently falling back to something wrong" --
-        # the exact question nimbus issue #66 was about.
+        # the exact question nimbus issue #66 was about. Explicit
+        # overrides (not covered by the spread above): fall back to the
+        # household-load entity's own copy when the solver entity is
+        # missing or doesn't carry this attribute.
         "load_forecast_source_error": load_attrs.get("load_forecast_source_error")
         or solver_attrs.get("load_forecast_source_error"),
         "load_failed_entities": load_attrs.get("failed_load_entities")
         or solver_attrs.get("failed_load_entities"),
-        "load_summed_18_now_kw": solver_attrs.get("load_summed_18_now_kw"),
-        "load_whole_house_cross_check_now_kw": solver_attrs.get(
-            "load_whole_house_cross_check_now_kw"
-        ),
         # Full real plan, not a slice or a summary -- see module
         # docstring: this is a snapshot, the live entity keeps moving.
         "forecast": solver_attrs.get("forecast", []),
