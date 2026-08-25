@@ -85,6 +85,7 @@ def solver_state_in_tmp_path(tmp_path, monkeypatch):
         ("LOCK_PATH", "nimbus_solver.lock"),
         ("PLAN_STATE_PATH", "nimbus_solver_last_plan.json"),
         ("LOAD_ERROR_NOTIFIED_PATH", "nimbus_solver_load_error.txt"),
+        ("SOLAR_DELIVERY_RATIO_PATH", "nimbus_solver_solar_delivery_ratio.json"),
     ):
         if hasattr(solver_writer, name):
             monkeypatch.setattr(solver_writer, name, str(tmp_path / filename))
