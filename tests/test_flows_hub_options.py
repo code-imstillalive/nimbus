@@ -32,7 +32,11 @@ from custom_components.nimbus_load.const import (
     CONF_HUMIDITY_SENSOR,
     CONF_SOLVER_BATTERY_SOC_SENSOR,
     CONF_SOLVER_EXPORT_PRICE_SENSOR,
+    CONF_SOLVER_EXPORT_PRICE_SENSOR_2,
+    CONF_SOLVER_EXPORT_PRICE_SENSOR_3,
     CONF_SOLVER_IMPORT_PRICE_SENSOR,
+    CONF_SOLVER_IMPORT_PRICE_SENSOR_2,
+    CONF_SOLVER_IMPORT_PRICE_SENSOR_3,
     CONF_SOLVER_LOAD_FORECAST_ENTITIES,
     CONF_SOLVER_LOAD_FORECAST_SENSOR,
     CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY,
@@ -198,10 +202,33 @@ def test_solver_battery_schema_max_discharge_live_entity_is_optional_number_doma
 
 
 def test_solver_grid_schema_has_two_required_price_fields():
+    # 2026-08-25: gained 4 genuinely OPTIONAL second/third price-source
+    # fields (nimbus: "u also are missing my blended price forecasts...
+    # in case we can feed it more than one... e.g. aemo... and amber") --
+    # the two PRIMARY fields stay the only Required ones.
     schema = _solver_grid_schema({})
-    assert len(schema.schema) == 2
+    assert len(schema.schema) == 6
     for key in (CONF_SOLVER_IMPORT_PRICE_SENSOR, CONF_SOLVER_EXPORT_PRICE_SENSOR):
         assert type(_find_marker(schema, key)).__name__ == "Required"
+
+
+def test_solver_grid_schema_second_third_price_sources_are_optional_with_suggested_value():
+    schema = _solver_grid_schema(
+        {
+            CONF_SOLVER_IMPORT_PRICE_SENSOR_2: "sensor.aemo_forecast",
+            CONF_SOLVER_EXPORT_PRICE_SENSOR_2: "sensor.amber_export_forecast",
+        }
+    )
+    for key, expected in (
+        (CONF_SOLVER_IMPORT_PRICE_SENSOR_2, "sensor.aemo_forecast"),
+        (CONF_SOLVER_IMPORT_PRICE_SENSOR_3, None),
+        (CONF_SOLVER_EXPORT_PRICE_SENSOR_2, "sensor.amber_export_forecast"),
+        (CONF_SOLVER_EXPORT_PRICE_SENSOR_3, None),
+    ):
+        marker = _find_marker(schema, key)
+        assert type(marker).__name__ == "Optional"
+        assert marker.default is vol.UNDEFINED
+        assert marker.description == {"suggested_value": expected}
 
 
 # -- "Group A" (2026-08-24): _solver_sources_schema's two load-forecast

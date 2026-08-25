@@ -51,7 +51,11 @@ from ..const import (
     CONF_SOLVER_BATTERY_POWER_SENSOR,
     CONF_SOLVER_BATTERY_SOC_SENSOR,
     CONF_SOLVER_EXPORT_PRICE_SENSOR,
+    CONF_SOLVER_EXPORT_PRICE_SENSOR_2,
+    CONF_SOLVER_EXPORT_PRICE_SENSOR_3,
     CONF_SOLVER_IMPORT_PRICE_SENSOR,
+    CONF_SOLVER_IMPORT_PRICE_SENSOR_2,
+    CONF_SOLVER_IMPORT_PRICE_SENSOR_3,
     CONF_SOLVER_LOAD_FORECAST_ENTITIES,
     CONF_SOLVER_LOAD_FORECAST_SENSOR,
     CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY,
@@ -279,9 +283,42 @@ def _solver_grid_schema(defaults: dict[str, Any]) -> vol.Schema:
                 CONF_SOLVER_IMPORT_PRICE_SENSOR,
                 default=defaults.get(CONF_SOLVER_IMPORT_PRICE_SENSOR),
             ): _entity(),
+            # Optional second/third import price sources (2026-08-25) --
+            # see CONF_SOLVER_IMPORT_PRICE_SENSOR_2/_3's own comment in
+            # const.py for why (e.g. a real AEMO wholesale forecast
+            # blended with a retailer's own forecast, such as Amber).
+            # description={"suggested_value": ...}, NOT default=, so a
+            # configured source can genuinely be cleared -- same
+            # convention as the optional solar sources below.
+            vol.Optional(
+                CONF_SOLVER_IMPORT_PRICE_SENSOR_2,
+                description={
+                    "suggested_value": defaults.get(CONF_SOLVER_IMPORT_PRICE_SENSOR_2)
+                },
+            ): _entity(),
+            vol.Optional(
+                CONF_SOLVER_IMPORT_PRICE_SENSOR_3,
+                description={
+                    "suggested_value": defaults.get(CONF_SOLVER_IMPORT_PRICE_SENSOR_3)
+                },
+            ): _entity(),
             vol.Required(
                 CONF_SOLVER_EXPORT_PRICE_SENSOR,
                 default=defaults.get(CONF_SOLVER_EXPORT_PRICE_SENSOR),
+            ): _entity(),
+            # Optional second/third export price sources -- same
+            # blend-don't-pick-one reasoning, mirrored for export.
+            vol.Optional(
+                CONF_SOLVER_EXPORT_PRICE_SENSOR_2,
+                description={
+                    "suggested_value": defaults.get(CONF_SOLVER_EXPORT_PRICE_SENSOR_2)
+                },
+            ): _entity(),
+            vol.Optional(
+                CONF_SOLVER_EXPORT_PRICE_SENSOR_3,
+                description={
+                    "suggested_value": defaults.get(CONF_SOLVER_EXPORT_PRICE_SENSOR_3)
+                },
             ): _entity(),
         }
     )
@@ -738,7 +775,11 @@ _SOLVER_WIZARD_SCHEMA_KEYS = (
     CONF_SOLVER_BATTERY_SOC_SENSOR,
     CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY,
     CONF_SOLVER_IMPORT_PRICE_SENSOR,
+    CONF_SOLVER_IMPORT_PRICE_SENSOR_2,
+    CONF_SOLVER_IMPORT_PRICE_SENSOR_3,
     CONF_SOLVER_EXPORT_PRICE_SENSOR,
+    CONF_SOLVER_EXPORT_PRICE_SENSOR_2,
+    CONF_SOLVER_EXPORT_PRICE_SENSOR_3,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_2,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_3,

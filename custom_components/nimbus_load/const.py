@@ -356,6 +356,21 @@ CONF_SOLVER_GRID_MAX_IMPORT_KW: Final = "solver_grid_max_import_kw"
 CONF_SOLVER_GRID_MAX_EXPORT_KW: Final = "solver_grid_max_export_kw"
 CONF_SOLVER_IMPORT_PRICE_SENSOR: Final = "solver_import_price_sensor"
 CONF_SOLVER_EXPORT_PRICE_SENSOR: Final = "solver_export_price_sensor"
+# Optional SECOND/THIRD price sources (2026-08-25, direct household ask:
+# "u also are missing my blended price forecasts... in case we can feed
+# it more than one... e.g. aemo... and amber"). Same blend-don't-pick-one
+# reasoning already proven for solar (see CONF_SOLVER_SOLAR_FORECAST_
+# SENSOR_2/_3 below and ml/blend.py's own module docstring) -- a
+# wholesale forecast (AEMO) and a retail forecast (Amber, LocalVolts,
+# etc) are independently-modeled, so their disagreement is itself a
+# real, earned uncertainty signal, not noise to average away. Optional
+# and blank by default -- a single-source install (the overwhelming
+# majority today) behaves byte-identically to before these fields
+# existed; configuring a second/third source is what turns blending on.
+CONF_SOLVER_IMPORT_PRICE_SENSOR_2: Final = "solver_import_price_sensor_2"
+CONF_SOLVER_IMPORT_PRICE_SENSOR_3: Final = "solver_import_price_sensor_3"
+CONF_SOLVER_EXPORT_PRICE_SENSOR_2: Final = "solver_export_price_sensor_2"
+CONF_SOLVER_EXPORT_PRICE_SENSOR_3: Final = "solver_export_price_sensor_3"
 # Entity references only -- panel size/tilt/azimuth/inverter model
 # numbers are deliberately NOT asked for here. That's a separate solar-
 # forecast integration's job (Solcast, Forecast.Solar, etc, which already

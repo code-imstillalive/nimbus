@@ -2517,6 +2517,22 @@ def resample_generic_price_forecast(
     parses -- never raises. A period at or before the earliest available
     forecast point uses that point's own value (best available), rather
     than leaving a real gap.
+
+    Also accepts `calibrated` as a fallback key when `value` is absent
+    (2026-08-25, direct household ask to blend in Mark Purcell's own
+    NEM PD7 sensor, sensor.nem_pd7day_qld1_nem_spot_price_forecast --
+    see fetch_aemo_forecast()'s own docstring for the full "why
+    calibrated, not raw_value" story: NEM PD7 runs a real isotonic-
+    regression spike-calibration algorithm against historical AEMO
+    forecast accuracy, exactly the kind of "commercial grade algorithm"
+    a plain hold-flat/linear-extrapolation fallback isn't). Before this,
+    pointing a new solver_import/export_price_sensor_2/_3 field directly
+    at NEM PD7 silently produced zero usable points -- every one of its
+    forecast entries carries `calibrated`/`raw_value`/`spike_credible`,
+    never a bare `value` key, so the strict-`value` parse below dropped
+    every single point without error. `value` is still tried FIRST and
+    preferred where present -- this only widens what counts as usable,
+    it never changes what an existing Amber-shaped sensor resolves to.
     """
     try:
         state = ha_get(entity_id)
@@ -2529,7 +2545,8 @@ def resample_generic_price_forecast(
     for f in forecast:
         try:
             t = parse_iso(f["time"])
-            v = float(f["value"])
+            raw = f["value"] if "value" in f else f["calibrated"]
+            v = float(raw)
         except (KeyError, TypeError, ValueError):
             continue
         points.append((t, v))
@@ -4668,6 +4685,45 @@ def main() -> None:
         import_price_upper_band = {}
         export_price_lower_band = {}
 
+    # Optional second/third price sources to BLEND (2026-08-25, direct
+    # household ask: "u also are missing my blended price forecasts...
+    # in case we can feed it more than one... e.g. aemo... and amber").
+    # Applies uniformly to whichever spot_import_raw/spot_export either
+    # branch above produced -- genuinely optional, and every secondary
+    # field defaults to unset, so a single-source install (the
+    # overwhelming majority today) sees these two variables completely
+    # unchanged. Mirrors the exact solar-source pattern earlier in this
+    # function: fetch each configured source via the same generic
+    # resampler already used above, blend_forecast_array() for the
+    # combined point estimate, cross_source_spread() as a real, earned
+    # disagreement-based uncertainty signal (not an arbitrary knob) fed
+    # into price_risk_aversion's own band below, exactly as solar's own
+    # spread widens its confidence band.
+    import_price_cross_spread: NDArray[np.float64] | None = None
+    export_price_cross_spread: NDArray[np.float64] | None = None
+
+    import_price_sources = [np.array(spot_import_raw, dtype=float)]
+    for key in ("solver_import_price_sensor_2", "solver_import_price_sensor_3"):
+        entity_id = cfg.get(key)
+        if entity_id:
+            fc = resample_generic_price_forecast(entity_id, grid_times)
+            if fc is not None:
+                import_price_sources.append(np.array(fc, dtype=float))
+    if len(import_price_sources) > 1:
+        spot_import_raw = list(blend_forecast_array(import_price_sources))
+        import_price_cross_spread = cross_source_spread(import_price_sources)
+
+    export_price_sources = [np.array(spot_export, dtype=float)]
+    for key in ("solver_export_price_sensor_2", "solver_export_price_sensor_3"):
+        entity_id = cfg.get(key)
+        if entity_id:
+            fc = resample_generic_price_forecast(entity_id, grid_times)
+            if fc is not None:
+                export_price_sources.append(np.array(fc, dtype=float))
+    if len(export_price_sources) > 1:
+        spot_export = list(blend_forecast_array(export_price_sources))
+        export_price_cross_spread = cross_source_spread(export_price_sources)
+
     # Generic + real: TOU network fees and the flat fee rate apply to
     # EVERY install, LocalVolts or not (nimbus repo issue #152, fixed
     # 2026-08-24) -- these are genuinely portable, no-NEM-specific-data-
@@ -4761,6 +4817,30 @@ def main() -> None:
     export_price_lower = apply_price_band(
         export_price, grid_times, export_price_lower_band
     )
+
+    # Widen the risk_aversion band with the real cross-source disagreement
+    # computed above, on top of (not instead of) any empirical percentile
+    # band a has_localvolts install already built. A generic install with
+    # no percentile band at all (import_price_upper/export_price_lower
+    # still None here) but a genuine second/third price source configured
+    # still gets a real, earned band from the disagreement alone --
+    # exactly the household most likely to want blending in the first
+    # place, and otherwise price_risk_aversion would stay a silent no-op
+    # for them even after configuring a second source.
+    if import_price_cross_spread is not None:
+        base_upper = (
+            import_price_upper if import_price_upper is not None else import_price
+        )
+        import_price_upper = [
+            base_upper[i] + import_price_cross_spread[i] / 2 for i in range(n_periods)
+        ]
+    if export_price_cross_spread is not None:
+        base_lower = (
+            export_price_lower if export_price_lower is not None else export_price
+        )
+        export_price_lower = [
+            base_lower[i] - export_price_cross_spread[i] / 2 for i in range(n_periods)
+        ]
 
     max_soc_kwh_val = capacity_kwh * max_pct / 100.0
     min_soc_kwh_val = resolve_min_soc_kwh(min_pct, capacity_kwh, max_soc_kwh_val)
