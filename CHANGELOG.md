@@ -10,6 +10,24 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.90.0] — 2026-08-25
+
+### Added
+- **Blended multi-source price forecasting**: optional
+  `solver_import_price_sensor_2`/`_3` and `solver_export_price_sensor_2`/`_3`
+  wizard fields, mirroring the existing solar multi-source blending pattern.
+  Feed more than one independently-modeled price forecast (e.g. a real AEMO
+  wholesale forecast alongside a retailer's own forecast such as Amber) and
+  the Solver blends them into one point estimate, using the real disagreement
+  between sources to widen the existing `price_risk_aversion` band as an
+  earned uncertainty signal. All new fields are optional and blank by
+  default -- a single-source install is byte-identical to before.
+- `resample_generic_price_forecast()` now also accepts a `calibrated` key as
+  a fallback when `value` is absent, so a blend source can be pointed
+  directly at a spike-calibrated forecast sensor (e.g. Mark Purcell's own
+  NEM PD7, `sensor.nem_pd7day_qld1_nem_spot_price_forecast`) without its
+  points being silently dropped.
+
 ## [0.89.1] — 2026-08-25
 
 ### Added
