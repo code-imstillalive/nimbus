@@ -826,6 +826,9 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "training_points": 0,
                 "validation_mae": {},
                 "validation_mase": {},
+                "mase_scale_points": 0,
+                "resample_minutes": 0,
+                "training_span_days": 0.0,
             }
 
         now_utc = dt_util.utcnow()
@@ -979,6 +982,14 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "training_points": self._trained.training_points,
             "validation_mae": self._trained.validation_mae,
             "validation_mase": self._trained.validation_mase,
+            # getattr-defensive (not direct attribute access) -- these
+            # three fields are new (nimbus issue #113); a .pkl persisted
+            # by a pre-fix version unpickles with them genuinely absent,
+            # same documented class of bug seasonal_lookup already hit
+            # (see model.py's own predict() for the full "why").
+            "mase_scale_points": getattr(self._trained, "mase_scale_points", 0),
+            "resample_minutes": getattr(self._trained, "resample_minutes", 0),
+            "training_span_days": getattr(self._trained, "training_span_days", 0.0),
         }
 
 
