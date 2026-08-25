@@ -43,6 +43,62 @@ from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
+class ResidualDriftStatus:
+    """Always-descriptive telemetry for the residual-drift check itself
+    (2026-08-25, real-install IV&V ask, nimbus issue #187, Mark Purcell:
+    "a positive 'I'm watching N signals, calibration windows W, current
+    worst residual = X' telemetry field would let operators confirm the
+    anomaly layer is live without waiting for something to break").
+
+    Unlike detect_residual_drift() (which returns None whenever nothing
+    is currently wrong), this is unconditional -- it reports the SAME
+    recent-vs-baseline comparison regardless of whether it crosses the
+    drift_multiplier threshold, so a caller can show "watching, ratio
+    1.3x, not yet flagged" instead of nothing at all.
+    """
+
+    watching: bool
+    """False only when there isn't yet enough history for the
+    comparison to be meaningful (see detect_residual_drift()'s own
+    min_history/recent_window guardrails) -- a real, honest "not
+    watching yet" during a signal's own cold-start, not a fake positive."""
+
+    sample_count: int
+    recent_mean_error: float | None = None
+    baseline_mean_error: float | None = None
+    ratio: float | None = None
+
+
+def residual_drift_status(
+    residuals: list[float],
+    *,
+    min_history: int = 20,
+    recent_window: int = 10,
+) -> ResidualDriftStatus:
+    """The unconditional counterpart to detect_residual_drift() -- same
+    recent-vs-baseline comparison, always returned, never gated on
+    drift_multiplier. Exists purely so an operator can confirm the check
+    is genuinely running (and see how close it currently is to firing)
+    without needing to wait for an actual anomaly."""
+    if len(residuals) < min_history or len(residuals) <= recent_window:
+        return ResidualDriftStatus(watching=False, sample_count=len(residuals))
+    recent = residuals[-recent_window:]
+    baseline = residuals[:-recent_window]
+    if not baseline:
+        return ResidualDriftStatus(watching=False, sample_count=len(residuals))
+    recent_mean = sum(recent) / len(recent)
+    baseline_mean = sum(baseline) / len(baseline)
+    ratio = recent_mean / baseline_mean if baseline_mean > 1e-9 else None
+    return ResidualDriftStatus(
+        watching=True,
+        sample_count=len(residuals),
+        recent_mean_error=recent_mean,
+        baseline_mean_error=baseline_mean,
+        ratio=ratio,
+    )
+
+
+@dataclass(frozen=True)
 class ResidualDriftAnomaly:
     """A signal's recent one-step-ahead forecast error is significantly
     worse than that SAME signal's own historical baseline -- the model

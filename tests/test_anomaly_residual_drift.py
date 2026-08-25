@@ -12,7 +12,12 @@ ml/blend.py's own tests -- no stub harness needed.
 """
 
 import _solver_path  # noqa: F401 -- adds custom_components/nimbus_load to sys.path
-from anomaly import ResidualDriftAnomaly, detect_residual_drift
+from anomaly import (
+    ResidualDriftAnomaly,
+    ResidualDriftStatus,
+    detect_residual_drift,
+    residual_drift_status,
+)
 
 
 def test_stable_residuals_never_flag():
@@ -92,3 +97,54 @@ def test_custom_thresholds_are_respected():
         residuals, min_history=10, recent_window=5, drift_multiplier=1.5
     )
     assert anomaly is not None
+
+
+# -- residual_drift_status(): unconditional operator-facing telemetry ------
+# (nimbus issue #187, Mark Purcell, real-install ask: "a positive 'I'm
+# watching N signals... current worst residual = X' telemetry field
+# would let operators confirm the anomaly layer is live without waiting
+# for something to break").
+
+
+def test_insufficient_history_reports_not_watching_yet():
+    status = residual_drift_status([1.0] * 5, min_history=20)
+    assert isinstance(status, ResidualDriftStatus)
+    assert status.watching is False
+    assert status.sample_count == 5
+    assert status.ratio is None
+
+
+def test_enough_history_reports_watching_with_a_real_ratio_even_when_stable():
+    # The key behavioural difference from detect_residual_drift(): this
+    # must report SOMETHING even when nothing is wrong (no drift_
+    # multiplier gate at all).
+    residuals = [1.0, 1.1, 0.9, 1.0, 1.2, 0.8, 1.0, 1.1, 0.9, 1.0] * 3
+    status = residual_drift_status(residuals, min_history=20, recent_window=10)
+    assert status.watching is True
+    assert status.sample_count == len(residuals)
+    assert status.ratio is not None
+    assert status.recent_mean_error is not None
+    assert status.baseline_mean_error is not None
+
+
+def test_reports_the_real_ratio_even_when_below_any_alerting_threshold():
+    baseline = [1.0] * 10
+    recent = [1.3] * 10  # real drift, but below the default 2.0x alert bar
+    status = residual_drift_status(baseline + recent, min_history=20, recent_window=10)
+    assert status.watching is True
+    assert round(status.ratio, 2) == 1.3
+    # Confirms this genuinely is "not yet flagged" territory, not a bug
+    # in the test itself.
+    assert (
+        detect_residual_drift(baseline + recent, min_history=20, recent_window=10)
+        is None
+    )
+
+
+def test_near_zero_baseline_reports_watching_but_no_meaningful_ratio():
+    baseline = [1e-10] * 10
+    recent = [0.01] * 10
+    status = residual_drift_status(baseline + recent, min_history=20, recent_window=10)
+    assert status.watching is True
+    assert status.ratio is None
+    assert status.recent_mean_error is not None

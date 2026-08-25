@@ -4688,6 +4688,26 @@ def main() -> None:
             ],
             "source_entities": load_forecast_entities,
             "load_forecast_source_used": load_forecast_source_used,
+            # 2026-08-25, nimbus issue #187 (Mark Purcell, real-install
+            # IV&V): v0.89.1's source_sensor/signal_role attributes only
+            # ever reached NimbusForecastSensor (subentry-backed load/
+            # power-signal sensors) -- this sensor is a genuinely
+            # different class (_NimbusSolverPushSensor, a pure REST-
+            # attribute mirror), so it never got either key at all, a
+            # real missed code path, not an intentional scope boundary.
+            # "other", matching every Load subentry's own signal_role
+            # (there is no distinct SIGNAL_ROLE_LOAD in this project --
+            # see const.py's own convention) -- this sensor's role is
+            # definitionally a load aggregate. source_sensor is the
+            # single real entity_id only when the single-sensor path is
+            # actually active; when the richer multi-circuit summing
+            # path is active there genuinely isn't one source to name,
+            # so it's honestly None here -- source_entities above is
+            # already the correct, richer answer for that case.
+            "signal_role": "other",
+            "source_sensor": cfg["solver_load_forecast_sensor"]
+            if not load_forecast_entities
+            else None,
             # NEW (2026-08-25, issue #112: "solver horizon 96.3h exceeds
             # subentry forecast horizon 48h") -- the REAL forecast
             # coverage this run's load_kw is backed by, in hours ahead
