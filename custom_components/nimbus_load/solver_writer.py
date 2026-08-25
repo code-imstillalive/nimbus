@@ -2560,6 +2560,51 @@ def resample_generic_price_forecast(
     return result
 
 
+def blend_price_with_secondary_sources(
+    primary: list[float],
+    cfg: dict,
+    secondary_keys: tuple[str, str],
+    grid_times: list[datetime],
+) -> tuple[list[float], NDArray[np.float64] | None]:
+    """Optional second/third price source blending (2026-08-25, direct
+    household ask: "u also are missing my blended price forecasts...
+    in case we can feed it more than one... e.g. aemo... and amber").
+
+    `primary` is whatever spot_import_raw/spot_export either the
+    has_localvolts or generic branch above already produced -- this
+    function never re-derives it, only optionally blends more sources
+    in on top. `secondary_keys` is a (key_2, key_3) pair of cfg keys
+    (e.g. ("solver_import_price_sensor_2", "solver_import_price_sensor_3"))
+    so the same function serves both import and export without
+    duplicating the fetch/blend loop.
+
+    Fetches each configured secondary source via
+    resample_generic_price_forecast() (the same generic resampler the
+    portable fallback branch already uses -- also accepts NEM PD7's own
+    `calibrated` field, see that function's own docstring), blends with
+    `primary` via blend_forecast_array() for the combined point
+    estimate, and returns cross_source_spread() as a real, earned
+    disagreement-based uncertainty signal (not an arbitrary knob) for
+    the caller to feed into price_risk_aversion's own band, exactly as
+    solar's own multi-source spread widens its confidence band.
+
+    Returns `(primary, None)` completely unchanged whenever no
+    secondary source is configured OR configured but currently
+    unavailable -- a single-source install (the overwhelming majority
+    today) is byte-identical to before this function existed.
+    """
+    sources = [np.array(primary, dtype=float)]
+    for key in secondary_keys:
+        entity_id = cfg.get(key)
+        if entity_id:
+            fc = resample_generic_price_forecast(entity_id, grid_times)
+            if fc is not None:
+                sources.append(np.array(fc, dtype=float))
+    if len(sources) == 1:
+        return primary, None
+    return list(blend_forecast_array(sources)), cross_source_spread(sources)
+
+
 def fetch_aemo_forecast() -> list[tuple[datetime, float]]:
     """Real, FORWARD-looking AEMO NEM QLD1 spot price forecast -- covers
     the FULL 96h horizon (confirmed live 2026-08-16: 367 real 30-min
@@ -4692,37 +4737,22 @@ def main() -> None:
     # branch above produced -- genuinely optional, and every secondary
     # field defaults to unset, so a single-source install (the
     # overwhelming majority today) sees these two variables completely
-    # unchanged. Mirrors the exact solar-source pattern earlier in this
-    # function: fetch each configured source via the same generic
-    # resampler already used above, blend_forecast_array() for the
-    # combined point estimate, cross_source_spread() as a real, earned
-    # disagreement-based uncertainty signal (not an arbitrary knob) fed
-    # into price_risk_aversion's own band below, exactly as solar's own
-    # spread widens its confidence band.
-    import_price_cross_spread: NDArray[np.float64] | None = None
-    export_price_cross_spread: NDArray[np.float64] | None = None
-
-    import_price_sources = [np.array(spot_import_raw, dtype=float)]
-    for key in ("solver_import_price_sensor_2", "solver_import_price_sensor_3"):
-        entity_id = cfg.get(key)
-        if entity_id:
-            fc = resample_generic_price_forecast(entity_id, grid_times)
-            if fc is not None:
-                import_price_sources.append(np.array(fc, dtype=float))
-    if len(import_price_sources) > 1:
-        spot_import_raw = list(blend_forecast_array(import_price_sources))
-        import_price_cross_spread = cross_source_spread(import_price_sources)
-
-    export_price_sources = [np.array(spot_export, dtype=float)]
-    for key in ("solver_export_price_sensor_2", "solver_export_price_sensor_3"):
-        entity_id = cfg.get(key)
-        if entity_id:
-            fc = resample_generic_price_forecast(entity_id, grid_times)
-            if fc is not None:
-                export_price_sources.append(np.array(fc, dtype=float))
-    if len(export_price_sources) > 1:
-        spot_export = list(blend_forecast_array(export_price_sources))
-        export_price_cross_spread = cross_source_spread(export_price_sources)
+    # unchanged. See blend_price_with_secondary_sources()'s own
+    # docstring for the full mechanism -- extracted into its own
+    # function specifically so it's directly unit-testable without
+    # needing to drive the whole of main().
+    spot_import_raw, import_price_cross_spread = blend_price_with_secondary_sources(
+        spot_import_raw,
+        cfg,
+        ("solver_import_price_sensor_2", "solver_import_price_sensor_3"),
+        grid_times,
+    )
+    spot_export, export_price_cross_spread = blend_price_with_secondary_sources(
+        spot_export,
+        cfg,
+        ("solver_export_price_sensor_2", "solver_export_price_sensor_3"),
+        grid_times,
+    )
 
     # Generic + real: TOU network fees and the flat fee rate apply to
     # EVERY install, LocalVolts or not (nimbus repo issue #152, fixed
