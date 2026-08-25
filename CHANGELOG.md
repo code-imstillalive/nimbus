@@ -10,6 +10,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.89.1] — 2026-08-25
+
+### Added
+- **`source_sensor` attribute on load/power-signal forecast sensors**: the
+  missing other half of `signal_role`'s own "auto-discover which power signal
+  is Grid/Battery/Solar directly from hass.states, zero config file needed"
+  mechanism -- a dashboard can now genuinely resolve the real live entity_id
+  behind a role without hardcoding a guess.
+
 ## [0.89.0] — 2026-08-25
 
 ### Added
