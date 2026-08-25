@@ -19,6 +19,7 @@ import json
 import logging
 import pickle
 from bisect import bisect_right
+from dataclasses import asdict
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -34,7 +35,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import PowerConverter
 
-from .anomaly import detect_residual_drift
+from .anomaly import ResidualDriftStatus, detect_residual_drift, residual_drift_status
 from .const import (
     CONF_BATTERY_SENSOR,
     CONF_CURTAILMENT_SENSOR,
@@ -146,6 +147,17 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # still logs again rather than being silenced forever by one
         # earlier warning.
         self._residual_drift_flagged = False
+        # Always-descriptive telemetry (2026-08-25, nimbus issue #187,
+        # Mark Purcell's real-install ask: "a positive 'I'm watching...'
+        # telemetry field"). Unlike the flag above (which only tracks
+        # whether a WARNING is currently active), this is read by
+        # NimbusHealthReportSensor every cycle regardless of whether
+        # anything has ever fired -- see _check_residual_drift()'s own
+        # comment for why "watching: False" during cold-start is itself
+        # a real, honest answer, not a placeholder.
+        self._residual_drift_status: ResidualDriftStatus = ResidualDriftStatus(
+            watching=False, sample_count=0
+        )
         # In-memory only, not persisted -- (timestamp, predicted value)
         # for the nearest-term point of the LAST published forecast, so
         # the NEXT update cycle can compare it against what actually
@@ -834,6 +846,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         touches self._trained or the published forecast.
         """
         try:
+            self._residual_drift_status = residual_drift_status(self._residuals)
             anomaly = detect_residual_drift(self._residuals)
         except Exception:
             _LOGGER.warning(
@@ -874,6 +887,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "mase_scale_points": 0,
                 "resample_minutes": 0,
                 "training_span_days": 0.0,
+                "residual_drift_status": asdict(self._residual_drift_status),
             }
 
         now_utc = dt_util.utcnow()
@@ -1036,6 +1050,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "mase_scale_points": getattr(self._trained, "mase_scale_points", 0),
             "resample_minutes": getattr(self._trained, "resample_minutes", 0),
             "training_span_days": getattr(self._trained, "training_span_days", 0.0),
+            "residual_drift_status": asdict(self._residual_drift_status),
         }
 
 

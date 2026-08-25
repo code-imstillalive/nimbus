@@ -52,9 +52,10 @@ def _extract_household_load_total_push(src: str) -> str:
     start = src.index(marker)
     # The call's own closing ")," for main()'s next statement is a
     # reliable enough end marker at this specific call site -- grab a
-    # generous window (the fix's own explanatory comment alone runs
-    # ~750 chars) and let the caller's own regex do the real work.
-    return src[start : start + 1600]
+    # generous window (as of nimbus issue #187's signal_role/
+    # source_sensor fields, the real call site runs to ~3000 chars) and
+    # let the caller's own regex do the real work.
+    return src[start : start + 4000]
 
 
 def test_state_uses_the_post_anchor_load_kw_not_the_pre_anchor_snapshot():
@@ -75,6 +76,27 @@ def test_state_uses_the_post_anchor_load_kw_not_the_pre_anchor_snapshot():
         "this is the exact #100 bug (state and forecast[0].value can "
         "silently disagree whenever a whole-house cross-check sensor "
         "is configured)"
+    )
+
+
+def test_signal_role_and_source_sensor_are_now_exposed():
+    """Regression guard for nimbus issue #187 (Mark Purcell, real-install
+    IV&V): v0.89.1's source_sensor/signal_role attributes only ever
+    reached NimbusForecastSensor -- this sensor (a genuinely different
+    class, _NimbusSolverPushSensor) never got either key, a real missed
+    code path. Confirms both are now present in the actual push call.
+    """
+    src = _SOLVER_WRITER_PY.read_text(encoding="utf-8")
+    block = _extract_household_load_total_push(src)
+    assert '"signal_role": "other"' in block, (
+        "sensor.nimbus_household_load_total_forecast is missing "
+        "signal_role -- nimbus issue #187 regression"
+    )
+    assert re.search(
+        r'"source_sensor":\s*cfg\["solver_load_forecast_sensor"\]', block
+    ), (
+        "sensor.nimbus_household_load_total_forecast is missing "
+        "source_sensor -- nimbus issue #187 regression"
     )
 
 

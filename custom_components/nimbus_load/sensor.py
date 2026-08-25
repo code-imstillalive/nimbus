@@ -955,6 +955,11 @@ class NimbusHealthReportSensor(SensorEntity):
                 "training_points": data.get("training_points", 0),
                 "model_trained_at": data.get("trained_at"),
                 "forecast_point_count": len(data.get("forecast", [])),
+                # 2026-08-25, nimbus issue #187 (Mark Purcell, real-
+                # install ask): a positive "am I watching, what's my
+                # current ratio" signal, not just a silent WARNING that
+                # only appears once something is already wrong.
+                "residual_drift_status": data.get("residual_drift_status"),
             }
             subentry_status.append(status)
             if status["model_trained_at"] is None:

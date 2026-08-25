@@ -131,6 +131,45 @@ def test_missing_coordinator_for_a_subentry_does_not_crash():
     assert len(attrs["never_trained"]) == 1
 
 
+def test_residual_drift_status_passes_through_from_coordinator_data():
+    # 2026-08-25, nimbus issue #187 (Mark Purcell, real-install ask): a
+    # positive "am I watching, current ratio" signal must be visible on
+    # the health report, not just a silent WARNING that only appears
+    # once something is already wrong.
+    watching_status = {
+        "watching": True,
+        "sample_count": 42,
+        "recent_mean_error": 1.3,
+        "baseline_mean_error": 1.0,
+        "ratio": 1.3,
+    }
+    subentries = {"load1": _fake_subentry("load1", SUBENTRY_TYPE_LOAD, "HWS L1")}
+    runtime_data = {
+        "load1": _fake_coordinator(
+            {
+                "trained_at": "t",
+                "training_points": 500,
+                "forecast": [],
+                "residual_drift_status": watching_status,
+            }
+        )
+    }
+    entry = _fake_entry(subentries, runtime_data)
+    s = sensor.NimbusHealthReportSensor(entry, "1.0.0")
+    attrs = s.extra_state_attributes
+    assert attrs["subentry_status"][0]["residual_drift_status"] == watching_status
+
+
+def test_residual_drift_status_is_none_when_coordinator_data_is_missing():
+    # Cold-start / never-updated coordinator -- must degrade to an
+    # honest None, not crash or fabricate a fake "watching" value.
+    subentries = {"load1": _fake_subentry("load1", SUBENTRY_TYPE_LOAD, "HWS L1")}
+    entry = _fake_entry(subentries, {"load1": _fake_coordinator(None)})
+    s = sensor.NimbusHealthReportSensor(entry, "1.0.0")
+    attrs = s.extra_state_attributes
+    assert attrs["subentry_status"][0]["residual_drift_status"] is None
+
+
 def test_recent_errors_and_warnings_are_exposed_separately():
     _reset_log_buffer()
     logger = logging.getLogger(f"{health._LOGGER_NAMESPACE}.coordinator")
