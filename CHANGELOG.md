@@ -10,6 +10,24 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.92.1] — 2026-08-25
+
+### Fixed
+- **`sensor.nimbus_household_load_total_forecast` missing `source_sensor`/
+  `signal_role`** (#187): v0.89.1's fix only reached `NimbusForecastSensor`
+  (subentry-backed sensors); this sensor is a genuinely different class
+  (`_NimbusSolverPushSensor`) that never got either attribute. Now exposes
+  `signal_role="other"` and `source_sensor` (the real entity_id on the
+  single-sensor path; honestly `None` on the multi-circuit summing path,
+  where the existing `source_entities` list is the richer answer).
+
+### Added
+- **Residual-drift watch telemetry** (#187): the v0.91.0 drift check was
+  silent-until-fired with no way to confirm it was actually running. Added
+  `anomaly.residual_drift_status()` -- always reports `watching`/
+  `sample_count`/`ratio` regardless of whether anything crosses the alert
+  threshold -- surfaced on the health report's per-subentry status.
+
 ## [0.92.0] — 2026-08-25
 
 ### Added
