@@ -10,6 +10,31 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.85.0] — 2026-08-25
+
+### Added
+- **Built-in EPR/regret/tracking quality score** (`sensor.nimbus_solver_quality_report`,
+  "it should be a part of the suite to monitor epr and trend and
+  regret... nimbus should have it built in"): a from-scratch,
+  retailer-agnostic generalization of the real-world reference script
+  (`docs/real-world-integration/files/nimbus_solver_quality_writer.py`),
+  which hardcodes one household's own LocalVolts/Sungrow/Modbus stack.
+  Scores yesterday's real dispatch against a perfect-foresight oracle
+  using only genuinely portable inputs: two new optional Solver
+  settings fields (`solver_solar_power_sensor`,
+  `solver_battery_power_sensor` -- real measured, not forecast) plus
+  the existing `solver_whole_house_cross_check_sensor` for load. An
+  optional `solver_p2p_settlement_history_sensor` field improves
+  accuracy for a household with a real P2P/VPP settlement program,
+  without requiring one. Blank on any required field is a clean no-op.
+- **`solver_weather_forecast_sensor`** -- a new optional Solver settings
+  field pointing at any `weather.*` or `sensor.*` forecast source (same
+  dual-shape support as the existing `temperature_forecast_sensor`),
+  driving a real forward temperature/humidity mirror for the dashboard
+  Forecaster chart. Humidity is only published when the configured
+  source's own forecast actually carries one (e.g. Pirate Weather;
+  Open-Meteo doesn't). Purely cosmetic -- never feeds the LP solve.
+
 ## [0.84.1] — 2026-08-25
 
 ### Fixed
