@@ -10,9 +10,9 @@
 > been found and fixed in the days around this repo going public. If you install
 > this, please open a GitHub issue rather than expect a polished, plug-and-play experience.
 
-**Current version: `0.73.1`.** See [`CHANGELOG.md`](CHANGELOG.md) for the release history.
+**Current version: `0.92.2`.** See [`CHANGELOG.md`](CHANGELOG.md) for the release history.
 
-Nimbus is a single Home Assistant HACS integration that ships two cooperating pieces:
+Nimbus is the first open-source load Forecaster and LP battery-dispatch Solver that ships as a single HACS integration and runs in Home Assistant's own process. Two cooperating pieces under one hub:
 
 1. **A self-retraining ML load Forecaster.** Watches your power sensors, learns your
    consumption pattern (time-of-day, day-of-week, season, weather, recent lags),
@@ -54,8 +54,10 @@ know whether it's helping.
 - **Honest performance measurement.** Regret, Economic Performance Ratio (EPR), and
   three counterfactual controllers (no-control, threshold-rule, oracle-with-perfect-
   foresight) are built into the solver package. You can measure the fraction of the
-  naive-to-oracle economic gap Nimbus closes, on your data, over any
-  window you choose.
+  naive-to-oracle economic gap Nimbus closes on your data, over any
+  window you choose. `quality_report.py` runs the same measurement on the
+  reference household continuously and publishes the current fraction as a
+  sensor attribute, so the claim is verifiable rather than asserted.
 - **A plain `{time, value}` forecast shape.** If you'd rather run your own
   optimiser (EMHASS, a custom Python script), Nimbus's Forecaster feeds it
   straight in as a load-forecast source.
@@ -83,6 +85,8 @@ know whether it's helping.
    a **PV String**, or a **Battery Tower**. Repeat as many as you need. The
    reference household has 18 circuit-breaker loads plus 2 inverters and 4 battery
    towers, no restart or repeat wizard needed.
+
+**Verify.** Open Developer Tools → States and confirm `sensor.nimbus_solver_config` reads `configured`, and that at least one `sensor.nimbus_<your_load>_forecast` has a non-null `forecast` attribute. If either is missing, see the two gotchas below (`nimbus_load` naming, and the aggregator trap).
 
 **A naming quirk worth knowing** ([#43](https://github.com/code-imstillalive/nimbus/issues/43)):
 every entity this integration creates carries the internal domain `nimbus_load`
@@ -248,7 +252,9 @@ Solver settings has **two** fields that both sound like "my household load":
 
 Found live (issue [#111](https://github.com/code-imstillalive/nimbus/issues/111)): if you've ever pointed the "individual circuits" field at a single third-party forecast sensor while experimenting, it silently keeps winning even after you change the single-sensor field to something else. There's no warning, no error. The Solver quietly keeps reading whichever field is non-empty. **If you only want one forecast source, leave "individual circuit sensors" completely blank.**
 
-The second trap is sharper: **never point "Household load forecast sensor" at `sensor.nimbus_household_load_total_forecast`** (or any other Nimbus aggregator sensor). That entity **is** the thing this field feeds *into*, not a valid source for it. With the "individual circuits" list empty, the aggregator has nothing to sum, so it publishes a structurally-valid series that's near-all-zero except a single live "now" reading, producing a confident-looking plan built on the belief nobody in the house consumes anything (reported impact, issue [#118](https://github.com/code-imstillalive/nimbus/issues/118): a $46/day misplan with every health-check field reporting green). This specific case is now caught automatically (a load forecast under 10% non-trivially-nonzero is rejected with a message naming this mistake), but picking the right entity in the first place (a `sensor.nimbus_<your_load_signal>_forecast`, from a Load or Power Signal subentry you created yourself) avoids hitting that guard at all.
+The second trap is sharper: **never point "Household load forecast sensor" at `sensor.nimbus_household_load_total_forecast`** (or any other Nimbus aggregator sensor). That entity **is** the thing this field feeds *into*, not a valid source for it. With the "individual circuits" list empty, the aggregator has nothing to sum. It publishes a structurally-valid series that's near-all-zero except a single live "now" reading. Result: a confident-looking plan built on the belief nobody in the house consumes anything. Reported impact (issue [#118](https://github.com/code-imstillalive/nimbus/issues/118)): a $46/day misplan, every health-check field green.
+
+This specific case is now caught automatically (a load forecast under 10% non-trivially-nonzero is rejected with a message naming this mistake), but picking the right entity in the first place (a `sensor.nimbus_<your_load_signal>_forecast`, from a Load or Power Signal subentry you created yourself) avoids hitting that guard at all.
 
 ## Running the Solver
 
@@ -452,12 +458,16 @@ default, range, and unit table for every `number.nimbus_solver_*` entity above.
 
 ## Status and roadmap
 
-Early. Built for and being validated against a reference house before wider use. Not
-yet recommending production use elsewhere. The next milestones (as tracked in
-GitHub Issues):
+Nimbus is in shadow mode against the reference household and stays there until
+every item on the reference-household readiness checklist (tracked in
+`docs/real-world-integration/` and `CLAUDE.md`) is green on live 30-day data.
+Current target: v1.0.0 shadow-mode graduation. No production-use recommendation
+for other households before then.
 
-- Clear the reference-household readiness checklist
-  and graduate the Solver out of shadow mode.
+The next milestones (as tracked in GitHub Issues):
+
+- Clear the reference-household readiness checklist and graduate the Solver out
+  of shadow mode.
 - Sheddable loads: LP scaffolding exists; the config surface and reference
   automations are next.
 - v1.0.0 removes the deprecated `nimbus_solver_app` add-on.
@@ -475,8 +485,18 @@ charge and discharge power, and a blended round-trip efficiency.
   suite green.
 - Every PR must pass `ruff format --check`, `ruff check`, `pytest`, `hassfest`,
   and the `Version lockstep (integration <-> add-on)` job. All strict gates
-  on `main`. `Type Check (mypy)` runs advisory (tracked toward Gold/Platinum,
-  see issue #40).
+  on `main`. `Type Check (mypy)` runs advisory.
+- **Quality Scale.** Bronze, Silver, Gold, and Platinum tier-gap work has
+  landed (issues [#37](https://github.com/code-imstillalive/nimbus/issues/37),
+  [#38](https://github.com/code-imstillalive/nimbus/issues/38),
+  [#39](https://github.com/code-imstillalive/nimbus/issues/39),
+  [#40](https://github.com/code-imstillalive/nimbus/issues/40)). The
+  `quality_scale` key in `manifest.json` will be set on the run into v1.0.0
+  once shadow-mode graduation criteria clear.
+- **Maintainer capacity.** Nimbus is currently maintained by a single author
+  against one reference household. Expect issue response within a few days,
+  not hours. A shadow-mode-only test report from a second household is worth
+  as much as a code fix.
 - See [`docs/TESTERS.md`](docs/TESTERS.md) for who's running Nimbus on
   hardware today, and what to capture in a bug report so it carries its own
   version anchor.
