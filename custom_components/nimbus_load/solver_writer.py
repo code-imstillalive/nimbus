@@ -3434,6 +3434,310 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
     )
 
 
+COUNTERFACTUAL_ENTITY_ID = "sensor.nimbus_counterfactual_soc"
+
+
+def compute_nimbus_only_soc_counterfactual(cfg: dict, day: datetime) -> dict | None:
+    """Generic, wizard-config-driven port of the reference household's own
+    NUC1 script (docs/real-world-integration/files/nimbus_counterfactual_
+    writer.py, "Stage 1 of the household's own staged path toward
+    eventually letting Nimbus drive real dispatch") -- direct ask
+    (2026-08-25): "nuc one nimbus solver view has counterfactual
+    table.... i want u to build that into devbox package."
+
+    Answers a different question than compute_daily_quality_report()'s
+    EPR/regret score: not "was the plan economically right," but "if
+    Nimbus's OWN reasoning had been driving the battery all day --
+    starting from the SAME real midnight SoC, but from that instant
+    onward using ONLY its own simulated trajectory as the next tick's
+    starting point, never the real (possibly HAEO- or other-automation-
+    influenced) SoC -- would the battery have stayed in a sane state?"
+    Mechanism: a real receding-horizon replay, re-solving the REST of
+    the real calendar day from scratch every 15 minutes (same
+    network.build_plan() the live writer uses), committing only each
+    tick's own first-period dispatch and feeding the resulting simulated
+    SoC into the next tick -- exactly rolling.py's own real production
+    pattern, just walked across an already-elapsed day's real recorder
+    history instead of a live forecast.
+
+    Explicit correction applied here, direct household instruction
+    (2026-08-25): "nimbus is written for localvolts and people without
+    localvolts... so p2p is a feature but also something people can
+    ignore.. needs to be wrapped that way." Unlike the reference script
+    (which hardcodes this ONE household's own P2P target/window/viability
+    threshold as module constants), every P2P-related input here is the
+    SAME optional, wizard-configured field the live writer already reads
+    (solver_p2p_block_*/solver_p2p_bonus_price/solver_p2p_bonus_volume_
+    kwh) -- a household with none of them set gets a complete no-op
+    (export left fully LP-optimized against real spot prices, no
+    checkpoint/viability verdict computed, exactly as if this concept
+    didn't exist), never a crash or a household-specific default leaking
+    through. Also, deliberately, ALWAYS uses the flat/generic economics
+    (solver_discharge_cost, solver_salvage_value) rather than the
+    LocalVolts-specific day/night schedule main() applies for a
+    has_localvolts install -- see that branch's own comment for why that
+    schedule has no portable equivalent yet.
+
+    Returns None if the required generic sensors aren't configured
+    (solar/whole-house-load/battery-SoC power sensors) or real recorder
+    history for the day is empty -- callers must treat None as "skip,
+    retry later," never an error.
+    """
+    solar_sensor = cfg.get("solver_solar_power_sensor")
+    load_sensor = cfg.get("solver_whole_house_cross_check_sensor")
+    soc_sensor = cfg.get("solver_battery_soc_sensor")
+    if not solar_sensor or not load_sensor or not soc_sensor:
+        return None
+
+    capacity_kwh = _cfg_num(cfg, "solver_battery_capacity_kwh", 0.0)
+    if capacity_kwh <= 0:
+        return None
+
+    day_start = datetime(day.year, day.month, day.day, tzinfo=BRISBANE_TZ)
+    day_end = day_start + timedelta(days=1)
+    step = timedelta(minutes=15)
+
+    solar_hist = fetch_entity_history_range(solar_sensor, day_start, day_end)
+    load_hist = fetch_entity_history_range(load_sensor, day_start, day_end)
+    soc_hist = fetch_entity_history_range(
+        soc_sensor, day_start - timedelta(hours=6), day_end
+    )
+    if not solar_hist or not load_hist or not soc_hist:
+        return None
+
+    import_price_hist = fetch_entity_history_range(
+        cfg["solver_import_price_sensor"], day_start, day_end
+    )
+    export_price_hist = fetch_entity_history_range(
+        cfg["solver_export_price_sensor"], day_start, day_end
+    )
+
+    min_pct = _cfg_num(cfg, "solver_battery_min_soc_percent", 5.0)
+    max_pct = _cfg_num(cfg, "solver_battery_max_soc_percent", 100.0)
+    max_soc_kwh = capacity_kwh * max_pct / 100.0
+    min_soc_kwh = resolve_min_soc_kwh(min_pct, capacity_kwh, max_soc_kwh)
+    max_charge_kw = _cfg_num(cfg, "solver_max_charge_kw", 5.0)
+    max_discharge_kw = resolve_max_discharge_kw(cfg)
+    efficiency = _cfg_num(cfg, "solver_efficiency_percent", 90.0) / 100.0
+    charge_cost = _cfg_num(cfg, "solver_charge_cost", 0.01)
+    discharge_cost_flat = _cfg_num(cfg, "solver_discharge_cost", 0.01)
+    salvage_value_flat = _cfg_num(cfg, "solver_salvage_value", 0.15)
+    import_limit_kw = _cfg_num(cfg, "solver_grid_max_import_kw", 20.0)
+    export_limit_kw = _cfg_num(cfg, "solver_grid_max_export_kw", 20.0)
+    flat_fee_rate = _cfg_num(cfg, "solver_flat_fee_rate", 0.0)
+
+    # Fully optional -- see this function's own docstring. A household
+    # with no P2P/community-trading scheme configured gets
+    # p2p_bonus_volume_cap=0.0 (bonus price is then a genuine no-op) and
+    # checkpoint_hour=-1 (no window-open moment to check), while export
+    # still gets fully LP-optimized against real spot prices exactly as
+    # the live writer's own generic fallback path already does.
+    p2p_bonus_price_flat = _cfg_num(cfg, "solver_p2p_bonus_price", 0.0)
+    p2p_bonus_volume_cap = _cfg_num(cfg, "solver_p2p_bonus_volume_kwh", 0.0)
+    p2p_block_1_rate = _cfg_num(cfg, "solver_p2p_block_1_rate_kw", 0.0)
+    checkpoint_hour = (
+        _cfg_int(cfg, "solver_p2p_block_1_start_hour", -1)
+        if p2p_block_1_rate > 0
+        else -1
+    )
+    viable_threshold_pct = (
+        min(100.0, (p2p_bonus_volume_cap / capacity_kwh * 100.0) * 1.1)
+        if p2p_bonus_volume_cap > 0
+        else None
+    )
+
+    initial_pct = resample_history_nearest(soc_hist, [day_start], default=50.0)[0]
+    real_soc_close_pct = resample_history_nearest(
+        soc_hist, [day_end - timedelta(seconds=1)], default=initial_pct
+    )[0]
+    real_soc_checkpoint_pct = (
+        resample_history_nearest(
+            soc_hist, [day_start.replace(hour=checkpoint_hour)], default=initial_pct
+        )[0]
+        if checkpoint_hour >= 0
+        else None
+    )
+
+    sim_soc_kwh = min(max(capacity_kwh * initial_pct / 100.0, min_soc_kwh), max_soc_kwh)
+    bonus_used_kwh_today = 0.0
+    sim_soc_checkpoint_pct: float | None = None
+
+    t = day_start
+    while t < day_end:
+        grid_times = []
+        tt = t
+        while tt < day_end:
+            grid_times.append(tt)
+            tt += step
+        n = len(grid_times)
+        hours_arr = np.full(n, step.total_seconds() / 3600.0)
+
+        solar_kw = np.array(
+            [max(0.0, v) for v in resample_history_nearest(solar_hist, grid_times)]
+        )
+        load_kw = np.array(
+            [max(0.1, v) for v in resample_history_nearest(load_hist, grid_times)]
+        )
+        import_price = np.array(
+            [
+                v + import_fee_rate(cfg, gt.hour) + flat_fee_rate
+                for v, gt in zip(
+                    resample_history_nearest(
+                        import_price_hist, grid_times, default=0.20
+                    ),
+                    grid_times,
+                )
+            ]
+        )
+        export_price = np.array(
+            resample_history_nearest(export_price_hist, grid_times, default=0.05)
+        )
+
+        fixed_export_kw = fetch_p2p_fixed_export_kw(cfg, grid_times)
+        remaining_bonus_kwh = max(0.0, p2p_bonus_volume_cap - bonus_used_kwh_today)
+
+        # Same universal concave terminal-value mechanism main() always
+        # applies (Solver PR #35, portable) -- zeroed once a tick starts
+        # inside the configured P2P window, same reasoning as the
+        # reference script's own fix (a real automation blindly
+        # following a fixed export rate has zero regard for what happens
+        # after it closes; a nonzero terminal reward there just biases
+        # the LP to import/charge purely to bank it). A no-op for any
+        # household with no P2P window configured -- t.hour is never
+        # "inside" a window that doesn't exist.
+        in_p2p_window = checkpoint_hour >= 0 and t.hour >= checkpoint_hour
+        salvage_value = 0.0 if in_p2p_window else salvage_value_flat
+
+        periods = elements.PeriodGrid(hours=hours_arr, start=t)
+        grid = elements.GridConfig(
+            import_price=import_price,
+            export_price=export_price,
+            import_limit_kw=import_limit_kw,
+            export_limit_kw=export_limit_kw,
+            export_bonus_price=np.full(n, p2p_bonus_price_flat),
+            export_bonus_volume_kwh=remaining_bonus_kwh,
+            fixed_export_kw=np.array(fixed_export_kw)
+            if fixed_export_kw is not None
+            else None,
+        )
+        battery = elements.BatteryConfig(
+            capacity_kwh=capacity_kwh,
+            initial_soc_kwh=min(max(sim_soc_kwh, min_soc_kwh), max_soc_kwh),
+            min_soc_kwh=min_soc_kwh,
+            max_soc_kwh=max_soc_kwh,
+            max_charge_kw=max_charge_kw,
+            max_discharge_kw=max_discharge_kw,
+            charge_efficiency=efficiency,
+            discharge_efficiency=efficiency,
+            charge_cost=charge_cost,
+            discharge_cost=np.full(n, discharge_cost_flat),
+            salvage_value=salvage_value,
+            terminal_value_breakpoints=terminal_value_breakpoints_for(
+                salvage_value, min_soc_kwh, max_soc_kwh
+            )
+            if salvage_value > 0
+            else None,
+        )
+        solar = elements.SolarConfig(forecast_kw=solar_kw)
+        loads = [elements.LoadConfig(name="whole_house", forecast_kw=load_kw)]
+
+        try:
+            plan = network.build_plan(
+                periods=periods,
+                grid=grid,
+                battery=battery,
+                solar=solar,
+                loads=loads,
+                smoothness_weight=network.DEFAULT_SMOOTHNESS_WEIGHT_KW,
+            )
+        except Exception:  # noqa: BLE001 -- one bad/infeasible tick must not sink the whole day's replay; hold SoC unchanged and keep going, same convention as the reference script
+            plan = None
+
+        if plan is not None and plan.status == "optimal":
+            net0 = float(plan.battery_discharge_kw[0] - plan.battery_charge_kw[0])
+            if net0 >= 0:
+                sim_soc_kwh -= net0 * (step.total_seconds() / 3600.0) / efficiency
+            else:
+                sim_soc_kwh += (-net0) * efficiency * (step.total_seconds() / 3600.0)
+            sim_soc_kwh = min(max(sim_soc_kwh, min_soc_kwh), max_soc_kwh)
+            if plan.export_bonus_kw is not None:
+                bonus_used_kwh_today += float(plan.export_bonus_kw[0]) * (
+                    step.total_seconds() / 3600.0
+                )
+
+        if (
+            checkpoint_hour >= 0
+            and t.hour == checkpoint_hour
+            and t.minute < step.total_seconds() / 60.0
+            and sim_soc_checkpoint_pct is None
+        ):
+            sim_soc_checkpoint_pct = sim_soc_kwh / capacity_kwh * 100.0
+        t += step
+
+    sim_soc_close_pct = sim_soc_kwh / capacity_kwh * 100.0
+    viable = (
+        sim_soc_checkpoint_pct is not None
+        and viable_threshold_pct is not None
+        and sim_soc_checkpoint_pct >= viable_threshold_pct
+    )
+
+    return {
+        "date": day_start.date().isoformat(),
+        "real_soc_anchor_pct": round(initial_pct, 1),
+        "nimbus_only_soc_checkpoint_pct": round(sim_soc_checkpoint_pct, 1)
+        if sim_soc_checkpoint_pct is not None
+        else None,
+        "real_soc_checkpoint_pct": round(real_soc_checkpoint_pct, 1)
+        if real_soc_checkpoint_pct is not None
+        else None,
+        "checkpoint_hour": checkpoint_hour if checkpoint_hour >= 0 else None,
+        "nimbus_only_soc_close_pct": round(sim_soc_close_pct, 1),
+        "real_soc_close_pct": round(real_soc_close_pct, 1),
+        "viable": viable,
+        "viable_threshold_pct": round(viable_threshold_pct, 1)
+        if viable_threshold_pct is not None
+        else None,
+        "p2p_configured": checkpoint_hour >= 0,
+    }
+
+
+def publish_nimbus_only_soc_counterfactual(cfg: dict, now: datetime) -> None:
+    """Publishes sensor.nimbus_counterfactual_soc -- the generic,
+    built-in equivalent of the reference household's own NUC1
+    "Nimbus-only Counterfactual SoC" card (see
+    compute_nimbus_only_soc_counterfactual()'s own docstring). Same
+    idempotency-check-first pattern as publish_daily_quality_report():
+    reads back this sensor's own currently-published latest_date before
+    ever attempting a real day-long rolling replay (96 LP solves), so a
+    solver cycle that runs every minute doesn't redo that work 1440
+    times for an already-scored day.
+    """
+    yesterday = (now - timedelta(days=1)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
+    yesterday_key = yesterday.date().isoformat()
+    try:
+        existing = ha_get(COUNTERFACTUAL_ENTITY_ID)
+        if existing.get("attributes", {}).get("latest_date") == yesterday_key:
+            return
+    except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError):
+        pass  # never seen before, or transiently unreachable -- fall through and try to compute
+    day_entry = compute_nimbus_only_soc_counterfactual(cfg, yesterday)
+    if day_entry is None:
+        return
+    ha_post_state(
+        COUNTERFACTUAL_ENTITY_ID,
+        day_entry["nimbus_only_soc_close_pct"],
+        {
+            "unit_of_measurement": "%",
+            "friendly_name": "Nimbus-only Counterfactual SoC",
+            "latest_date": yesterday_key,
+            "generated_at": now.isoformat(),
+            **day_entry,
+        },
+    )
+
+
 def main() -> None:
     # Fail fast, with a real, actionable message, if the Solver hasn't
     # been configured yet -- see fetch_solver_config()'s own docstring
@@ -4010,6 +4314,15 @@ def main() -> None:
     # file, since a failure here must never take down the real solve.
     try:
         publish_daily_quality_report(cfg, now)
+    except Exception:  # noqa: BLE001, S110 -- see comment above
+        pass
+
+    # Same "never break the real solve" wrapping as the two publishes
+    # above -- see publish_nimbus_only_soc_counterfactual()'s own
+    # docstring (2026-08-25, "i want u to build that into devbox
+    # package").
+    try:
+        publish_nimbus_only_soc_counterfactual(cfg, now)
     except Exception:  # noqa: BLE001, S110 -- see comment above
         pass
 
