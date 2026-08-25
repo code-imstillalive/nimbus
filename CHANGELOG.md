@@ -10,6 +10,18 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.89.0] — 2026-08-25
+
+### Added
+- **Solar delivery ratio diagnostic** (nimbus issue #128, Mark Purcell):
+  `solar_delivery_ratio` / `solar_delivery_sample_count` /
+  `solar_delivery_underperforming` on `sensor.nimbus_solver_battery_forecast` --
+  a rolling actual-vs-forecast solar comparison that catches implicit inverter
+  AC-side clipping `switch.solar_curtailment` (#114) can't see, since that
+  switch only reports EXPLICIT curtailment control. Fully generic and
+  optional: reuses the existing `solver_solar_power_sensor` wizard field, no
+  new config surface.
+
 ## [0.88.0] — 2026-08-25
 
 ### Added
