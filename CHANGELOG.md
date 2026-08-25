@@ -10,6 +10,23 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.87.1] — 2026-08-25
+
+### Fixed
+- **Efficiency-convention mismatch in the EPR quality report and Nimbus-only
+  counterfactual replay** (nimbus issue #168, Mark Purcell): both scorers applied
+  `solver_efficiency_percent` (a round-trip figure) directly to both charge and
+  discharge, instead of `sqrt()`-splitting it the way the live plan's own real
+  `main()` solve does -- meaning they evaluated a battery physically more lossy
+  than the one actually being scored. Fixed to match `main()`'s convention exactly.
+
+### Added
+- **Energy-balance diagnostic fields** on `sensor.nimbus_solver_battery_forecast`
+  (nimbus issue #168): `battery_kw_side` ("AC"), `efficiency_convention`
+  ("round_trip_symmetric_sqrt"), `charge_efficiency`/`discharge_efficiency` (the
+  actual derived floats), and `ac_bus_losses_kwh` -- so a diagnostic reader no
+  longer has to reverse-engineer the storage-identity convention by hand.
+
 ## [0.87.0] — 2026-08-25
 
 ### Added
