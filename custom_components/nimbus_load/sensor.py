@@ -36,11 +36,14 @@ from homeassistant.loader import async_get_integration
 from . import health
 from .const import (
     ATTR_FORECAST,
+    ATTR_MASE_SCALE_POINTS,
     ATTR_MODE,
     ATTR_MODEL_TRAINED_AT,
+    ATTR_RESAMPLE_MINUTES,
     ATTR_SIGNAL_ROLE,
     ATTR_SUBENTRY_TYPE,
     ATTR_TRAINING_POINTS,
+    ATTR_TRAINING_SPAN_DAYS,
     ATTR_VALIDATION_MAE,
     ATTR_VALIDATION_MASE,
     CONF_BATTERY_TOWER_POWER_SOURCE,
@@ -616,6 +619,9 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
             ATTR_TRAINING_POINTS: data.get("training_points", 0),
             ATTR_VALIDATION_MAE: data.get("validation_mae", {}),
             ATTR_VALIDATION_MASE: data.get("validation_mase", {}),
+            ATTR_MASE_SCALE_POINTS: data.get("mase_scale_points", 0),
+            ATTR_RESAMPLE_MINUTES: data.get("resample_minutes", 0),
+            ATTR_TRAINING_SPAN_DAYS: data.get("training_span_days", 0.0),
             ATTR_SUBENTRY_TYPE: self._subentry_type,
             ATTR_SIGNAL_ROLE: self._signal_role,
         }

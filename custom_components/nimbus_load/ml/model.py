@@ -222,6 +222,32 @@ class TrainedModel:
     # history to compute a trustworthy scale -- an absent key is an
     # honest "couldn't compute this," not a fabricated number.
     validation_mase: dict[str, float] = field(default_factory=dict)
+    # Nimbus issue #113 (Mark Purcell, 2026-08-25): "if MASE is meant to
+    # be computed, it isn't" -- validation_mase's own empty-dict-on-
+    # insufficient-data behaviour (above) is correct by design, but
+    # exposed no way to tell "genuinely can't compute this yet" apart
+    # from "broken." Computing MASE's own scale needs a full CALENDAR
+    # WEEK of lookback before even the FIRST training row, so any
+    # install without ~8+ real days of history gets an empty dict every
+    # time -- this field makes that visible instead of a bare {}: how
+    # many real week-over-week points were actually found (out of
+    # MIN_MASE_SCALE_POINTS needed), regardless of whether that count
+    # crossed the threshold.
+    mase_scale_points: int = 0
+    # Same issue's second finding: "the dump should say what resolution
+    # it trained at and what window it actually got, because '30 days'
+    # is currently aspirational." resample_minutes is the fixed grid
+    # spacing every training row is built on (RESAMPLE_MINUTES,
+    # constant across every load/install); training_span_days is the
+    # REAL elapsed calendar time between the first and last row that
+    # actually survived lag-availability filtering into x_train/y_train
+    # -- the true "how many days did this model actually train on"
+    # answer, independent of both the configured train_days (which is a
+    # request, not a guarantee) and training_points (a row count that
+    # silently means something different at a different resample
+    # resolution).
+    resample_minutes: int = 0
+    training_span_days: float = 0.0
     # Genuine model-derived quantile bounds -- None (not a GBRT with no
     # trees) when unavailable, so predict() and coordinator.py can tell
     # "no quantile model at all" apart from "a quantile model that
@@ -537,6 +563,7 @@ def train_model(
 
     validation_mae: dict[str, float] = {}
     validation_mase: dict[str, float] = {}
+    mase_scale_points = 0
     model_type = (
         "knn"  # safe default if validation set is too small to compare meaningfully
     )
@@ -615,6 +642,10 @@ def train_model(
             week_val = load_vals[week_ago_idx] if week_ago_idx >= 0 else None
             if week_val is not None:
                 mase_diffs.append(abs(y_true - week_val))
+        # Recorded regardless of whether the threshold below is met --
+        # see TrainedModel.mase_scale_points's own docstring (nimbus
+        # issue #113): an honest count, not just a pass/fail bit.
+        mase_scale_points = len(mase_diffs)
         if len(mase_diffs) >= MIN_MASE_SCALE_POINTS:
             mase_scale = float(np.mean(mase_diffs))
             if mase_scale > 1e-9:
@@ -696,6 +727,16 @@ def train_model(
         # GBRT_N_ESTIMATORS, same as before this feature existed.
         gbrt_final.fit(x_all_std, y_all)
 
+    # Real elapsed calendar span of the rows that actually survived
+    # lag-availability filtering (grid_indices), not the full requested
+    # [start, end) window -- see TrainedModel.training_span_days's own
+    # docstring (nimbus issue #113).
+    training_span_days = (
+        (grid[grid_indices[-1]] - grid[grid_indices[0]]).total_seconds() / 86400.0
+        if grid_indices
+        else 0.0
+    )
+
     _LOGGER.info("Trained %s model on %d points.", model_type, len(x_rows))
     return TrainedModel(
         model_type=model_type,
@@ -708,6 +749,9 @@ def train_model(
         training_points=len(x_rows),
         validation_mae=validation_mae,
         validation_mase=validation_mase,
+        mase_scale_points=mase_scale_points,
+        resample_minutes=resample_minutes,
+        training_span_days=round(training_span_days, 2),
         gbrt_lower=gbrt_lower_final,
         gbrt_upper=gbrt_upper_final,
         seasonal_lookup=seasonal_lookup,

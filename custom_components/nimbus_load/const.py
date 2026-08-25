@@ -260,6 +260,17 @@ ATTR_MODE: Final = "mode"
 # nothing to show yet" from a missing attribute key.
 ATTR_VALIDATION_MAE: Final = "validation_mae"
 ATTR_VALIDATION_MASE: Final = "validation_mase"
+# Nimbus issue #113 (Mark Purcell, 2026-08-25): makes ATTR_VALIDATION_
+# MASE's own empty-dict-when-insufficient-data behaviour diagnosable
+# instead of a bare {} -- how many real week-over-week points were
+# actually found (out of the fixed threshold needed), plus the actual
+# resample resolution and real elapsed calendar span the deployed model
+# trained on (distinct from the configured train_days request, which a
+# fresh-ish install's own real history may not yet be able to satisfy).
+# See ml/model.py's own TrainedModel docstring for the full reasoning.
+ATTR_MASE_SCALE_POINTS: Final = "mase_scale_points"
+ATTR_RESAMPLE_MINUTES: Final = "resample_minutes"
+ATTR_TRAINING_SPAN_DAYS: Final = "training_span_days"
 # "load" or "power_signal" -- lets anything downstream (e.g. a dashboard
 # chart script) tell the two subentry types apart generically, by
 # reading this live attribute, rather than by hardcoding which specific
