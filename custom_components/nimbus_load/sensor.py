@@ -41,6 +41,7 @@ from .const import (
     ATTR_MODEL_TRAINED_AT,
     ATTR_RESAMPLE_MINUTES,
     ATTR_SIGNAL_ROLE,
+    ATTR_SOURCE_SENSOR,
     ATTR_SUBENTRY_TYPE,
     ATTR_TRAINING_POINTS,
     ATTR_TRAINING_SPAN_DAYS,
@@ -624,6 +625,7 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
             ATTR_TRAINING_SPAN_DAYS: data.get("training_span_days", 0.0),
             ATTR_SUBENTRY_TYPE: self._subentry_type,
             ATTR_SIGNAL_ROLE: self._signal_role,
+            ATTR_SOURCE_SENSOR: self._source_sensor,
         }
 
 

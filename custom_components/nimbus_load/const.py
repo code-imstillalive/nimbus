@@ -277,6 +277,19 @@ ATTR_TRAINING_SPAN_DAYS: Final = "training_span_days"
 # entity names belong to which category.
 ATTR_SUBENTRY_TYPE: Final = "subentry_type"
 ATTR_SIGNAL_ROLE: Final = "signal_role"
+# Real gap found live (2026-08-25, direct household report: "the
+# topology card... still not working... make it respond to wizard
+# selected nimbus only entities"): ATTR_SIGNAL_ROLE's own docstring
+# above already states the intent -- "so the topology dashboard card
+# can auto-discover which power signal is Grid/Battery/Solar directly
+# from hass.states, zero config file needed" -- but a card CAN'T act on
+# that discovery without also knowing the REAL LIVE entity_id this
+# forecast is built from (self._source_sensor already existed
+# internally, just was never actually exposed). Without this, any
+# topology dashboard has no choice but to hardcode a guess at which
+# real sensor corresponds to which role, exactly the class of hardcoding
+# this project's own standing rule exists to prevent.
+ATTR_SOURCE_SENSOR: Final = "source_sensor"
 
 # --- Solver configuration (2026-08-20) ---
 # Everything the Solver (custom_components/nimbus_load/solver/) needs to
