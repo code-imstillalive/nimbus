@@ -10,6 +10,20 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.91.0] — 2026-08-25
+
+### Added
+- **Cross-signal anomaly layer, first check**: forecast residual drift detection.
+  Compares a signal's recent one-step-ahead forecast error against that same
+  signal's own historical baseline (self-calibrated, no fixed global
+  threshold) and logs a WARNING -- already surfaced via the existing health
+  report -- when it drifts significantly worse. Reuses the confidence-band
+  calibration data every forecaster already maintains; no new data
+  collection. Strictly observational: cannot affect a solve or the published
+  forecast. First step toward automatically catching the same shape of
+  problem (silent data-quality issues, model degradation, sensor drift) that
+  previously needed a human staring at a live chart to notice.
+
 ## [0.90.0] — 2026-08-25
 
 ### Added
