@@ -2517,6 +2517,22 @@ def resample_generic_price_forecast(
     parses -- never raises. A period at or before the earliest available
     forecast point uses that point's own value (best available), rather
     than leaving a real gap.
+
+    Also accepts `calibrated` as a fallback key when `value` is absent
+    (2026-08-25, direct household ask to blend in Mark Purcell's own
+    NEM PD7 sensor, sensor.nem_pd7day_qld1_nem_spot_price_forecast --
+    see fetch_aemo_forecast()'s own docstring for the full "why
+    calibrated, not raw_value" story: NEM PD7 runs a real isotonic-
+    regression spike-calibration algorithm against historical AEMO
+    forecast accuracy, exactly the kind of "commercial grade algorithm"
+    a plain hold-flat/linear-extrapolation fallback isn't). Before this,
+    pointing a new solver_import/export_price_sensor_2/_3 field directly
+    at NEM PD7 silently produced zero usable points -- every one of its
+    forecast entries carries `calibrated`/`raw_value`/`spike_credible`,
+    never a bare `value` key, so the strict-`value` parse below dropped
+    every single point without error. `value` is still tried FIRST and
+    preferred where present -- this only widens what counts as usable,
+    it never changes what an existing Amber-shaped sensor resolves to.
     """
     try:
         state = ha_get(entity_id)
@@ -2529,7 +2545,8 @@ def resample_generic_price_forecast(
     for f in forecast:
         try:
             t = parse_iso(f["time"])
-            v = float(f["value"])
+            raw = f["value"] if "value" in f else f["calibrated"]
+            v = float(raw)
         except (KeyError, TypeError, ValueError):
             continue
         points.append((t, v))
