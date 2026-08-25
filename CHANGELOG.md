@@ -10,6 +10,19 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.88.0] — 2026-08-25
+
+### Added
+- **Training-diagnostic visibility for the Forecaster** (nimbus issue #113, Mark
+  Purcell): `mase_scale_points` (how many real week-over-week points MASE's own
+  scale actually found, even below the threshold needed), `resample_minutes`
+  (the fixed grid spacing every training row is built on), and
+  `training_span_days` (the real elapsed calendar span the deployed model
+  actually trained on, distinct from the configured `train_days` request) --
+  exposed on every load/power-signal forecast sensor's attributes. Makes
+  `validation_mase`'s own honest "can't compute this yet" empty-dict behavior
+  diagnosable instead of looking broken.
+
 ## [0.87.1] — 2026-08-25
 
 ### Fixed
