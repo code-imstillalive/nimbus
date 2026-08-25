@@ -48,15 +48,19 @@ from ..const import (
     CONF_HUMIDITY_SENSOR,
     CONF_RETRAIN_HOUR_LOCAL,
     CONF_SOLAR_SENSOR,
+    CONF_SOLVER_BATTERY_POWER_SENSOR,
     CONF_SOLVER_BATTERY_SOC_SENSOR,
     CONF_SOLVER_EXPORT_PRICE_SENSOR,
     CONF_SOLVER_IMPORT_PRICE_SENSOR,
     CONF_SOLVER_LOAD_FORECAST_ENTITIES,
     CONF_SOLVER_LOAD_FORECAST_SENSOR,
     CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY,
+    CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_2,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_3,
+    CONF_SOLVER_SOLAR_POWER_SENSOR,
+    CONF_SOLVER_WEATHER_FORECAST_SENSOR,
     CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR,
     CONF_SWITCHBOARD_BATTERY_CHARGE_DAILY_SENSOR,
     CONF_SWITCHBOARD_BATTERY_DISCHARGE_DAILY_SENSOR,
@@ -363,6 +367,51 @@ def _solver_sources_schema(
                     )
                 },
             ): _entity(),
+            # Built-in EPR/regret/tracking quality scoring (2026-08-25) --
+            # see these two fields' own comments in const.py for the full
+            # "real measured, not forecast" reasoning. Blank on either is
+            # a clean no-op (compute_daily_quality_report() simply never
+            # runs), same convention as every other optional field here.
+            vol.Optional(
+                CONF_SOLVER_SOLAR_POWER_SENSOR,
+                description={
+                    "suggested_value": defaults.get(CONF_SOLVER_SOLAR_POWER_SENSOR)
+                },
+            ): _entity(),
+            vol.Optional(
+                CONF_SOLVER_BATTERY_POWER_SENSOR,
+                description={
+                    "suggested_value": defaults.get(CONF_SOLVER_BATTERY_POWER_SENSOR)
+                },
+            ): _entity(),
+            # Optional retailer-specific settlement hook -- see this
+            # field's own comment in const.py for the full "why this one
+            # genuinely can't be made retailer-agnostic by reading
+            # recorder history alone" reasoning.
+            vol.Optional(
+                CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR,
+                description={
+                    "suggested_value": defaults.get(
+                        CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR
+                    )
+                },
+            ): _entity(),
+            # Dashboard temp/humidity mirror -- see this field's own
+            # comment in const.py for why it's a separate field rather
+            # than reusing the Forecaster-level temperature_forecast_
+            # sensor. Same dual-domain picker as that field (built
+            # directly, not via _entity(), which is typed str-only) --
+            # modern weather.* entities are the natural choice for most
+            # installs, see CONF_TEMPERATURE_FORECAST_SENSOR's own
+            # comment in _forecaster_schema above.
+            vol.Optional(
+                CONF_SOLVER_WEATHER_FORECAST_SENSOR,
+                description={
+                    "suggested_value": defaults.get(CONF_SOLVER_WEATHER_FORECAST_SENSOR)
+                },
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain=["sensor", "weather"])
+            ),
         }
     )
 
@@ -696,6 +745,10 @@ _SOLVER_WIZARD_SCHEMA_KEYS = (
     CONF_SOLVER_LOAD_FORECAST_SENSOR,
     CONF_SOLVER_LOAD_FORECAST_ENTITIES,
     CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR,
+    CONF_SOLVER_SOLAR_POWER_SENSOR,
+    CONF_SOLVER_BATTERY_POWER_SENSOR,
+    CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR,
+    CONF_SOLVER_WEATHER_FORECAST_SENSOR,
 )
 
 
