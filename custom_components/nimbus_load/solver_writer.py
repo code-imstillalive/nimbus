@@ -212,6 +212,7 @@ import numpy as np
 from ml.blend import blend_forecast_array, cross_source_spread
 from numpy.typing import NDArray
 from solver import elements, network
+from solver.backtest import run_efficiency_sensitivity_sweep
 from solver.quality_report import compute_quality_report
 from solver.regret import evaluate_realized_cost
 
@@ -3507,6 +3508,186 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
     )
 
 
+BACKTEST_ENTITY_ID = "sensor.nimbus_efficiency_backtest"
+
+
+def compute_efficiency_backtest_report(cfg: dict, now: datetime) -> dict | None:
+    """The retrospective backtesting engine's first real check (2026-08-25,
+    direct household ask for a genuine "outstanding, unique" idea -- an
+    offline engine that proves Nimbus's own decisions against reality
+    rather than a bigger LP or a fancier model): "if your real round-trip
+    efficiency were actually different, would yesterday's real day have
+    scored meaningfully differently?"
+
+    See solver/backtest.py's own module docstring for the full, honest
+    "what this can and cannot test" reasoning -- efficiency is the FIRST
+    candidate because it directly changes the LP's own economic tradeoff
+    even under perfect knowledge of what actually happened; risk_aversion
+    is deliberately NOT here (it would silently produce identical scores
+    for every candidate -- see that module's own docstring for why).
+
+    Reconstructs the SAME real "yesterday" (solar/load/battery/price
+    history, BatteryConfig/GridConfig) compute_daily_quality_report()
+    already builds -- deliberately a separate, self-contained
+    reconstruction rather than a shared refactor, so this new, more
+    speculative feature can never risk regressing the already-shipped,
+    already-relied-on EPR/regret report by sharing code paths with it.
+
+    Returns None (skip this cycle, retry later) under the exact same
+    conditions compute_daily_quality_report() does: required sensors not
+    configured, or real history for yesterday not yet available.
+    """
+    solar_sensor = cfg.get("solver_solar_power_sensor")
+    battery_sensor = cfg.get("solver_battery_power_sensor")
+    load_sensor = cfg.get("solver_whole_house_cross_check_sensor")
+    if not solar_sensor or not battery_sensor or not load_sensor:
+        return None
+
+    yesterday = (now - timedelta(days=1)).date()
+    day_start = datetime(
+        yesterday.year, yesterday.month, yesterday.day, tzinfo=BRISBANE_TZ
+    )
+    day_end = day_start + timedelta(days=1)
+
+    period_hours = 0.25
+    n_periods = 96
+    grid_times = [
+        day_start + timedelta(hours=i * period_hours) for i in range(n_periods)
+    ]
+    period_hours_arr = np.full(n_periods, period_hours)
+
+    solar_hist = fetch_entity_history_range(solar_sensor, day_start, day_end)
+    load_hist = fetch_entity_history_range(load_sensor, day_start, day_end)
+    if not solar_hist or not load_hist:
+        return None
+
+    import_price_hist = fetch_entity_history_range(
+        cfg["solver_import_price_sensor"], day_start, day_end
+    )
+    export_price_hist = fetch_entity_history_range(
+        cfg["solver_export_price_sensor"], day_start, day_end
+    )
+
+    solar_kw = np.array(
+        [max(0.0, v) for v in resample_history_nearest(solar_hist, grid_times)]
+    )
+    load_kw = np.array(
+        [max(0.0, v) for v in resample_history_nearest(load_hist, grid_times)]
+    )
+    import_price = np.array(
+        [
+            v + import_fee_rate(cfg, grid_times[i].hour)
+            for i, v in enumerate(
+                resample_history_nearest(import_price_hist, grid_times, default=0.20)
+            )
+        ]
+    )
+    export_price = np.array(
+        resample_history_nearest(export_price_hist, grid_times, default=0.05)
+    )
+
+    capacity_kwh = _cfg_num(cfg, "solver_battery_capacity_kwh", 0.0)
+    min_pct = _cfg_num(cfg, "solver_battery_min_soc_percent", 5.0)
+    max_pct = _cfg_num(cfg, "solver_battery_max_soc_percent", 100.0)
+    # Initial/final SoC don't need real history here the way the EPR
+    # report's own tracking comparison does -- the oracle re-solve is
+    # free to choose its own trajectory from a reasonable starting point
+    # regardless, and this feature's whole question is "how did the
+    # SHAPE of the optimal plan change with efficiency," not a tracking
+    # comparison against one specific real starting SoC.
+    initial_soc_kwh = capacity_kwh * 0.5
+
+    base_battery = elements.BatteryConfig(
+        capacity_kwh=capacity_kwh,
+        initial_soc_kwh=initial_soc_kwh,
+        min_soc_kwh=capacity_kwh * min_pct / 100.0,
+        max_soc_kwh=capacity_kwh * max_pct / 100.0,
+        max_charge_kw=_cfg_num(cfg, "solver_max_charge_kw", 5.0),
+        max_discharge_kw=_cfg_num(cfg, "solver_max_discharge_kw", 5.0),
+        # Overwritten per-candidate by run_efficiency_sensitivity_sweep()
+        # -- these two values are never actually read, kept only because
+        # BatteryConfig requires something valid at construction time.
+        charge_efficiency=0.90,
+        discharge_efficiency=0.90,
+        charge_cost=_cfg_num(cfg, "solver_charge_cost", 0.01),
+        discharge_cost=np.full(n_periods, _cfg_num(cfg, "solver_discharge_cost", 0.01)),
+        salvage_value=_cfg_num(cfg, "solver_salvage_value", 0.15),
+    )
+    grid_cfg = elements.GridConfig(
+        import_price=import_price,
+        export_price=export_price,
+        import_limit_kw=_cfg_num(cfg, "solver_grid_max_import_kw", 20.0),
+        export_limit_kw=_cfg_num(cfg, "solver_grid_max_export_kw", 20.0),
+    )
+    solar_cfg = elements.SolarConfig(forecast_kw=solar_kw)
+    load_cfg = elements.LoadConfig(name="whole_house", forecast_kw=load_kw)
+    periods = elements.PeriodGrid(hours=period_hours_arr, start=grid_times[0])
+
+    results = run_efficiency_sensitivity_sweep(
+        periods=periods,
+        grid=grid_cfg,
+        base_battery=base_battery,
+        solar=solar_cfg,
+        load=load_cfg,
+    )
+    if not results:
+        # Every candidate was genuinely infeasible for this real day --
+        # a real, if unusual, outcome (see run_efficiency_sensitivity_
+        # sweep()'s own per-candidate defensive skip) -- report nothing
+        # rather than a misleadingly empty-but-successful entry.
+        return None
+
+    configured_pct = _cfg_num(cfg, "solver_efficiency_percent", 90.0)
+    best = min(results, key=lambda r: r.total_cost)
+    worst = max(results, key=lambda r: r.total_cost)
+    return {
+        "candidates": [
+            {"efficiency_percent": r.label, "total_cost": round(r.total_cost, 4)}
+            for r in results
+        ],
+        "configured_efficiency_percent": round(configured_pct, 1),
+        "best_candidate": best.label,
+        "best_candidate_cost": round(best.total_cost, 4),
+        "worst_candidate": worst.label,
+        "worst_candidate_cost": round(worst.total_cost, 4),
+        # How much cheaper the BEST tested efficiency would have scored
+        # vs the WORST, on this one real day -- a direct, human-readable
+        # "does efficiency actually matter here" answer. Always >= 0 by
+        # construction (best <= worst).
+        "spread_dollars": round(worst.total_cost - best.total_cost, 4),
+    }
+
+
+def publish_efficiency_backtest_report(cfg: dict, now: datetime) -> None:
+    """Publishes sensor.nimbus_efficiency_backtest. Same cheap
+    idempotency-first pattern as publish_daily_quality_report() -- see
+    that function's own docstring for why (a solver cycle running every
+    minute must not re-solve an already-scored day's whole sweep 1440
+    times).
+    """
+    yesterday_key = (now - timedelta(days=1)).date().isoformat()
+    try:
+        existing = ha_get(BACKTEST_ENTITY_ID)
+        if existing.get("attributes", {}).get("latest_date") == yesterday_key:
+            return
+    except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError):
+        pass
+    report = compute_efficiency_backtest_report(cfg, now)
+    if report is None:
+        return
+    ha_post_state(
+        BACKTEST_ENTITY_ID,
+        report["spread_dollars"],
+        {
+            "unit_of_measurement": "$",
+            "friendly_name": "Nimbus Efficiency Backtest",
+            "latest_date": yesterday_key,
+            "generated_at": now.isoformat(),
+            **report,
+        },
+    )
+
+
 COUNTERFACTUAL_ENTITY_ID = "sensor.nimbus_counterfactual_soc"
 
 
@@ -4564,6 +4745,14 @@ def main() -> None:
     # package").
     try:
         publish_nimbus_only_soc_counterfactual(cfg, now)
+    except Exception:  # noqa: BLE001, S110 -- see comment above
+        pass
+
+    # Same "never break the real solve" wrapping -- see
+    # publish_efficiency_backtest_report()'s own docstring (2026-08-25,
+    # the "outstanding, unique" backtesting-engine ask).
+    try:
+        publish_efficiency_backtest_report(cfg, now)
     except Exception:  # noqa: BLE001, S110 -- see comment above
         pass
 
