@@ -34,6 +34,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 from homeassistant.util.unit_conversion import PowerConverter
 
+from .anomaly import detect_residual_drift
 from .const import (
     CONF_BATTERY_SENSOR,
     CONF_CURTAILMENT_SENSOR,
@@ -138,6 +139,13 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
         )
         self._residuals: list[float] = []
+        # Alert-fatigue guardrail for the anomaly layer's residual-drift
+        # check (2026-08-25) -- log once when drift STARTS, not every
+        # single tick while it remains ongoing. Reset to False the
+        # moment the drift clears, so a genuinely new/repeat episode
+        # still logs again rather than being silenced forever by one
+        # earlier warning.
+        self._residual_drift_flagged = False
         # In-memory only, not persisted -- (timestamp, predicted value)
         # for the nearest-term point of the LAST published forecast, so
         # the NEXT update cycle can compare it against what actually
@@ -814,6 +822,43 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._residual_path.parent.mkdir(parents=True, exist_ok=True)
         self._residual_path.write_text(json.dumps(self._residuals), encoding="utf-8")
 
+    def _check_residual_drift(self) -> None:
+        """Anomaly layer (2026-08-25): analyzes the SAME rolling residual
+        buffer already maintained for confidence-band calibration --
+        no new data collection, just a second, cheap pass over data this
+        coordinator already computes every cycle. See anomaly.py's own
+        module docstring for the full "why this, grounded in real bug
+        history" reasoning. Strictly observational: logs a WARNING
+        (which the health report already surfaces via health.py's log
+        buffer, zero new plumbing needed) and never raises, never
+        touches self._trained or the published forecast.
+        """
+        try:
+            anomaly = detect_residual_drift(self._residuals)
+        except Exception:
+            _LOGGER.warning(
+                "%s: residual drift check itself failed -- skipping this cycle",
+                self.subentry.title,
+                exc_info=True,
+            )
+            return
+        if anomaly is None:
+            self._residual_drift_flagged = False
+            return
+        if not self._residual_drift_flagged:
+            _LOGGER.warning(
+                "%s: forecast residual drift detected -- recent one-step error "
+                "(%.3f) is %.1fx this signal's own recent baseline (%.3f). This "
+                "does not affect the published forecast, but may indicate model "
+                "degradation, sensor drift, or new data contamination (e.g. "
+                "curtailment) -- worth a look.",
+                self.subentry.title,
+                anomaly.recent_mean_error,
+                anomaly.ratio,
+                anomaly.baseline_mean_error,
+            )
+            self._residual_drift_flagged = True
+
     # -- coordinator tick (cheap: inference only) ------------------------------
 
     async def _async_update_data(self) -> dict[str, Any]:
@@ -872,6 +917,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     if len(self._residuals) > MAX_RESIDUALS_STORED:
                         del self._residuals[0]
                     await self.hass.async_add_executor_job(self._save_residuals_to_disk)
+                    self._check_residual_drift()
             self._last_step_prediction = None
 
         timestamps: list[datetime] = []
