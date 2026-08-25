@@ -10,6 +10,18 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.92.2] — 2026-08-25
+
+### Fixed
+- **`sensor.nimbus_solver_battery_forecast` missing `source_sensor`/
+  `signal_role`** (#189): the follow-up Mark's own reproducer found after
+  v0.92.1 -- this is "the flagship diagnostic sensor a Nimbus dashboard is
+  most likely to be built against," and it's a third, distinct push site
+  (the Solver's own LP-derived plan) that neither the v0.89.1 nor v0.92.1
+  fix reached. Now exposes `signal_role="battery"` and `source_sensor`
+  (`solver_battery_soc_sensor`, the real measured entity the whole plan is
+  built around).
+
 ## [0.92.1] — 2026-08-25
 
 ### Fixed
