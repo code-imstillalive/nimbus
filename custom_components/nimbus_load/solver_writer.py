@@ -212,6 +212,7 @@ import numpy as np
 from ml.blend import blend_forecast_array, cross_source_spread
 from numpy.typing import NDArray
 from solver import elements, network
+from solver.quality_report import compute_quality_report
 
 if os.environ.get("SUPERVISOR_TOKEN") and not os.environ.get("HA_BASE"):
     # Running inside a real HA Supervisor app/add-on container with
@@ -1400,71 +1401,102 @@ def ha_call_service_with_response(domain: str, service: str, data: dict) -> dict
     return payload.get("service_response")
 
 
-def publish_weather_forecast_mirrors() -> None:
-    """Real forward temperature forecast for the devhub dashboard's
-    Forecaster chart (2026-08-25 follow-up to that chart's own
-    extend_to fix) -- sourced from a REAL installed weather forecaster
-    (Open-Meteo, weather.home), not Nimbus's own ML. Temp/Humidity were
-    never configured as Nimbus subentries, and there's no case for
-    training a from-scratch ML model on ambient weather when a
-    purpose-built forecaster already exists -- this project's own
-    stated position on exactly this tradeoff (see CLAUDE.md's PRIME
-    DIRECTIVE section: "a real non-HAEO forecaster for that specific
-    signal, e.g. Solcast/Open-Meteo for solar") applies identically
-    here.
+def publish_weather_forecast_mirrors(cfg: dict) -> None:
+    """Real forward temperature/humidity forecast for the devhub
+    dashboard's Forecaster chart (2026-08-25 follow-up to that chart's
+    own extend_to fix) -- sourced from whatever real weather forecaster
+    the household points CONF_SOLVER_WEATHER_FORECAST_SENSOR
+    ("solver_weather_forecast_sensor") at (see that field's own comment
+    in const.py). Never hardcodes a specific integration's entity_id --
+    an earlier version of this function DID hardcode a weather.
+    pirateweather/weather.home preference order, caught and corrected
+    the same day this shipped (standing project rule: every entity
+    reference is a wizard field, never a literal in code).
 
-    Modern (2023+) HA weather entities publish forecast data only via
-    the weather.get_forecasts service response (see
-    ha_call_service_with_response()'s own docstring) -- bridged here
+    Same two accepted shapes as CONF_TEMPERATURE_FORECAST_SENSOR
+    (coordinator.py's own _async_fetch_temperature_forecast()): a
+    weather.* entity (Nimbus calls weather.get_forecasts for you --
+    modern HA weather entities publish forecast data ONLY via that
+    service response, see ha_call_service_with_response()'s own
+    docstring) or a sensor.* whose own 'forecast' attribute already
+    carries datetime/temperature[/humidity] entries directly. Bridged
     into the same {time, value} shape ha_post_state() already uses for
     every other _forecast sensor in this file, so the dashboard's
-    existing data_generator convention (entity.attributes.forecast)
-    needs no special-casing for this source. Pushed at the source's own
-    native hourly resolution -- no need to resample onto this file's
-    own solver grid_times, since nothing here feeds the LP.
+    existing data_generator convention needs no special-casing.
+    Pushed at the source's own native resolution -- no need to
+    resample onto this file's own solver grid_times, since nothing
+    here feeds the LP.
 
-    Humidity: Open-Meteo's own hourly forecast has NO humidity field at
-    all (confirmed live, 2026-08-25 -- only temperature/condition/
-    precipitation). Deliberately not published here; a fabricated
-    humidity forecast would be strictly worse than none. If a source
-    with real forecasted humidity is added later (Pirate Weather's
-    hourly forecast does carry one), wire it in the same way.
+    Humidity is only published when the source's own forecast entries
+    actually carry a 'humidity' field -- a fabricated humidity forecast
+    would be strictly worse than none. Whether that's true depends
+    entirely on which real forecaster the household has configured
+    (e.g. Pirate Weather's hourly forecast carries one, Open-Meteo's
+    doesn't) -- never assumed or guessed here.
 
     Purely cosmetic/dashboard -- never referenced by the actual LP
-    solve. Graceful no-op if weather.home isn't installed on this
-    instance, or if the service call fails, same as every other
-    optional external source in this file.
+    solve. Graceful no-op if CONF_SOLVER_WEATHER_FORECAST_SENSOR isn't
+    configured, or if the fetch fails, same as every other optional
+    external source in this file.
     """
-    if not entity_exists("weather.home"):
+    entity_id = cfg.get("solver_weather_forecast_sensor")
+    if not entity_id:
         return
-    response = ha_call_service_with_response(
-        "weather", "get_forecasts", {"entity_id": "weather.home", "type": "hourly"}
-    )
-    if not response:
-        return
-    hourly = (response.get("weather.home") or {}).get("forecast")
+    domain = entity_id.split(".", 1)[0]
+    if domain == "weather":
+        response = ha_call_service_with_response(
+            "weather", "get_forecasts", {"entity_id": entity_id, "type": "hourly"}
+        )
+        hourly = (response or {}).get(entity_id, {}).get("forecast")
+    else:
+        try:
+            state = ha_get(entity_id)
+        except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError):
+            return
+        hourly = (state.get("attributes", {}) if isinstance(state, dict) else {}).get(
+            "forecast"
+        )
     if not isinstance(hourly, list) or not hourly:
         return
-    points = [
+    temp_points = [
         {"time": p["datetime"], "value": round(float(p["temperature"]), 1)}
         for p in hourly
         if isinstance(p, dict)
         and p.get("datetime") is not None
         and p.get("temperature") is not None
     ]
-    if not points:
-        return
-    ha_post_state(
-        "sensor.nimbus_mirror_temperature_forecast",
-        points[0]["value"],
-        {
-            "unit_of_measurement": "°C",
-            "friendly_name": "Nimbus Mirror Temperature Forecast",
-            "forecast": points,
-            "source": "weather.home (Open-Meteo)",
-            "generated_at": datetime.now(UTC).astimezone(BRISBANE_TZ).isoformat(),
-        },
-    )
+    humidity_points = [
+        {"time": p["datetime"], "value": round(float(p["humidity"]), 1)}
+        for p in hourly
+        if isinstance(p, dict)
+        and p.get("datetime") is not None
+        and p.get("humidity") is not None
+    ]
+    generated_at = datetime.now(UTC).astimezone(BRISBANE_TZ).isoformat()
+    if temp_points:
+        ha_post_state(
+            "sensor.nimbus_mirror_temperature_forecast",
+            temp_points[0]["value"],
+            {
+                "unit_of_measurement": "°C",
+                "friendly_name": "Nimbus Mirror Temperature Forecast",
+                "forecast": temp_points,
+                "source": entity_id,
+                "generated_at": generated_at,
+            },
+        )
+    if humidity_points:
+        ha_post_state(
+            "sensor.nimbus_mirror_humidity_forecast",
+            humidity_points[0]["value"],
+            {
+                "unit_of_measurement": "%",
+                "friendly_name": "Nimbus Mirror Humidity Forecast",
+                "forecast": humidity_points,
+                "source": entity_id,
+                "generated_at": generated_at,
+            },
+        )
 
 
 def parse_iso(s) -> datetime:
@@ -2938,6 +2970,384 @@ def release_lock() -> None:
         pass  # already gone, or never created -- either way, nothing left to clean up
 
 
+QUALITY_ENTITY_ID = "sensor.nimbus_solver_quality_report"
+
+
+def fetch_entity_history_range(
+    entity_id: str, start: datetime, end: datetime
+) -> list[tuple[datetime, float]]:
+    """Real recorded numeric history for one entity over an EXPLICIT
+    [start, end) window -- generalizes fetch_price_history()'s own
+    "last N days up to right now" shape (this file's other history
+    fetch) into an explicit day-window fetch, needed by
+    compute_daily_quality_report() to score one specific, already-
+    elapsed calendar day rather than a rolling recent window. Same
+    REST/native dual-mode split, same "degrade to [] on any failure,
+    never crash" discipline as every other real-data fetch in this
+    file.
+    """
+    if _NATIVE_HASS is not None:
+        try:
+            import asyncio
+
+            from homeassistant.components.recorder import (
+                get_instance as _recorder_get_instance,
+            )
+            from homeassistant.components.recorder import history as _recorder_history
+
+            async def _fetch() -> dict:
+                return await _recorder_get_instance(
+                    _NATIVE_HASS
+                ).async_add_executor_job(
+                    _recorder_history.state_changes_during_period,
+                    _NATIVE_HASS,
+                    start,
+                    end,
+                    entity_id,
+                    True,  # no_attributes
+                )
+
+            future = asyncio.run_coroutine_threadsafe(_fetch(), _NATIVE_HASS.loop)
+            changes = future.result(timeout=30)
+            states = changes.get(entity_id, [])
+        except Exception:  # noqa: BLE001 -- a recorder read failure degrades to no history for this entity, never crashes the scoring cycle
+            return []
+        out: list[tuple[datetime, float]] = []
+        for s in states:
+            try:
+                v = float(s.state)
+            except (TypeError, ValueError):
+                continue
+            out.append((s.last_changed.astimezone(BRISBANE_TZ), v))
+        return sorted(out, key=lambda x: x[0])
+    url = (
+        f"{HA_BASE}/api/history/period/{start.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z"
+        f"?filter_entity_id={entity_id}"
+        f"&end_time={end.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z&minimal_response"
+    )
+    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {TOKEN}"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read())
+    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError):
+        return []
+    if not data or not data[0]:
+        return []
+    out = []
+    for p in data[0]:
+        state = p.get("state")
+        if state in (None, "unknown", "unavailable"):
+            continue
+        try:
+            v = float(state)
+        except (TypeError, ValueError):
+            continue
+        out.append((parse_iso(p["last_changed"]).astimezone(BRISBANE_TZ), v))
+    return sorted(out, key=lambda x: x[0])
+
+
+def resample_history_nearest(
+    pts: list[tuple[datetime, float]], grid_times: list[datetime], default: float = 0.0
+) -> list[float]:
+    """Nearest-at-or-before lookup against real recorded history points
+    -- same convention as resample_forecast() elsewhere in this file,
+    just against (datetime, value) tuples from fetch_entity_history_
+    range() instead of a forecast's own {time, value} dicts."""
+    out = []
+    for gt in grid_times:
+        val = pts[0][1] if pts else default
+        for t, v in pts:
+            if t <= gt:
+                val = v
+            else:
+                break
+        out.append(float(val))
+    return out
+
+
+def compute_daily_quality_report(cfg: dict, now: datetime) -> dict | None:
+    """Generic, retailer-agnostic built-in EPR/regret/tracking quality
+    score (2026-08-25, direct ask: "it should be a part of the suite to
+    monitor epr and trend and regret... nimbus should have it built
+    in") -- a from-scratch generalization of the real-world reference
+    script (docs/real-world-integration/files/nimbus_solver_quality_
+    writer.py), which hardcodes one household's own LocalVolts/Sungrow/
+    Modbus stack throughout. This version uses ONLY genuinely portable
+    inputs: real recorder history for solar/battery (the two new
+    CONF_SOLVER_SOLAR_POWER_SENSOR/CONF_SOLVER_BATTERY_POWER_SENSOR
+    fields -- see their own comments in const.py) and load (reusing the
+    EXISTING CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR field, which is
+    already a real measured sensor whenever it's configured), plus the
+    SAME flat price/battery-economics config values main() already
+    reads for the forward-looking plan.
+
+    Scores "yesterday" (the most recently fully-elapsed real calendar
+    day), same reasoning as the reference script: a real settlement
+    source (see below) only becomes trustworthy ground truth overnight,
+    and even without one, "today so far" would be scored against a day
+    that genuinely isn't over yet.
+
+    Two real, honest simplifications versus the reference script, both
+    disclosed here rather than silently assumed:
+    - No commanded-vs-actual TRACKING signal exists generically -- every
+      Nimbus writer is observation-only (nothing in this project ever
+      actually dispatches a battery), so there is no generic "what was
+      commanded" entity to compare against the real measured trajectory
+      the way 116KAT's own household-specific automation layer can be.
+      commanded is set equal to actual here, which makes
+      tracking_fidelity=1.0/tracking_cost=0.0 by construction -- an
+      honest reflection of "Nimbus itself never commands anything," not
+      a claim that real-world execution is always perfect.
+    - Without CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR configured,
+      export is priced at the plain configured export rate only (no
+      bonus/P2P revenue) for J_ach and J_star alike -- a real, honest
+      EPR for any install with no such program, a less precise one for
+      a household that has one but hasn't wired the field in.
+
+    Returns a dict shaped like the reference script's own day_entry
+    (epr, theoretical_maximum_yield, value_captured, uplift_available,
+    j_ref, j_ach, j_star, regret_dollars, tracking_fidelity,
+    tracking_cost, real_p2p_dollars, real_p2p_volume_kwh), or None if
+    genuinely not configured (either power sensor missing) or real
+    history for yesterday isn't available yet -- callers must treat
+    None as "skip this cycle, retry later," never an error.
+    """
+    solar_sensor = cfg.get("solver_solar_power_sensor")
+    battery_sensor = cfg.get("solver_battery_power_sensor")
+    load_sensor = cfg.get("solver_whole_house_cross_check_sensor")
+    if not solar_sensor or not battery_sensor or not load_sensor:
+        return None
+
+    yesterday = (now - timedelta(days=1)).date()
+    day_start = datetime(
+        yesterday.year, yesterday.month, yesterday.day, tzinfo=BRISBANE_TZ
+    )
+    day_end = day_start + timedelta(days=1)
+
+    period_hours = 0.25
+    n_periods = 96
+    grid_times = [
+        day_start + timedelta(hours=i * period_hours) for i in range(n_periods)
+    ]
+    period_hours_arr = np.full(n_periods, period_hours)
+
+    solar_hist = fetch_entity_history_range(solar_sensor, day_start, day_end)
+    load_hist = fetch_entity_history_range(load_sensor, day_start, day_end)
+    battery_hist = fetch_entity_history_range(battery_sensor, day_start, day_end)
+    if not solar_hist or not load_hist or not battery_hist:
+        return None
+
+    import_price_hist = fetch_entity_history_range(
+        cfg["solver_import_price_sensor"], day_start, day_end
+    )
+    export_price_hist = fetch_entity_history_range(
+        cfg["solver_export_price_sensor"], day_start, day_end
+    )
+    soc_sensor = cfg.get("solver_battery_soc_sensor")
+    soc_hist = (
+        fetch_entity_history_range(soc_sensor, day_start - timedelta(hours=6), day_end)
+        if soc_sensor
+        else []
+    )
+
+    solar_kw = np.array(
+        [max(0.0, v) for v in resample_history_nearest(solar_hist, grid_times)]
+    )
+    load_kw = np.array(
+        [max(0.0, v) for v in resample_history_nearest(load_hist, grid_times)]
+    )
+    actual_net_kw = np.array(resample_history_nearest(battery_hist, grid_times))
+    actual_charge_kw = np.array([max(0.0, -v) for v in actual_net_kw])
+    actual_discharge_kw = np.array([max(0.0, v) for v in actual_net_kw])
+    # No generic commanded-dispatch signal exists -- see this function's
+    # own docstring. Setting commanded = actual makes tracking_fidelity/
+    # tracking_cost trivially perfect by construction, an honest
+    # reflection of "nothing here ever actually dispatched," not a
+    # claim about real-world execution quality.
+    commanded_charge_kw = actual_charge_kw
+    commanded_discharge_kw = actual_discharge_kw
+
+    import_price = np.array(
+        [
+            v + import_fee_rate(cfg, grid_times[i].hour)
+            for i, v in enumerate(
+                resample_history_nearest(import_price_hist, grid_times, default=0.20)
+            )
+        ]
+    )
+    export_price = np.array(
+        resample_history_nearest(export_price_hist, grid_times, default=0.05)
+    )
+
+    capacity_kwh = _cfg_num(cfg, "solver_battery_capacity_kwh", 0.0)
+    min_pct = _cfg_num(cfg, "solver_battery_min_soc_percent", 5.0)
+    max_pct = _cfg_num(cfg, "solver_battery_max_soc_percent", 100.0)
+    initial_pct = (
+        resample_history_nearest(soc_hist, [day_start], default=50.0)[0]
+        if soc_hist
+        else 50.0
+    )
+    final_pct = (
+        resample_history_nearest(
+            soc_hist, [day_end - timedelta(seconds=1)], default=initial_pct
+        )[0]
+        if soc_hist
+        else initial_pct
+    )
+    initial_soc_kwh = capacity_kwh * initial_pct / 100.0
+    final_soc_kwh_actual = capacity_kwh * final_pct / 100.0
+
+    # Flat economics only -- deliberately NOT the household-specific
+    # day/night discharge-cost/salvage-value schedule main() applies
+    # for a LocalVolts-configured install (see that branch's own
+    # comment, "tuned specifically around this household's own P2P
+    # window, no portable equivalent yet"). This scorer always uses the
+    # same flat config-flow values every OTHER install's forward plan
+    # already falls back to.
+    battery_cfg = elements.BatteryConfig(
+        capacity_kwh=capacity_kwh,
+        initial_soc_kwh=initial_soc_kwh,
+        min_soc_kwh=capacity_kwh * min_pct / 100.0,
+        max_soc_kwh=capacity_kwh * max_pct / 100.0,
+        max_charge_kw=_cfg_num(cfg, "solver_max_charge_kw", 5.0),
+        max_discharge_kw=_cfg_num(cfg, "solver_max_discharge_kw", 5.0),
+        charge_efficiency=_cfg_num(cfg, "solver_efficiency_percent", 90.0) / 100.0,
+        discharge_efficiency=_cfg_num(cfg, "solver_efficiency_percent", 90.0) / 100.0,
+        charge_cost=_cfg_num(cfg, "solver_charge_cost", 0.01),
+        discharge_cost=np.full(n_periods, _cfg_num(cfg, "solver_discharge_cost", 0.01)),
+        salvage_value=_cfg_num(cfg, "solver_salvage_value", 0.15),
+    )
+    grid_residual = elements.GridConfig(
+        import_price=import_price,
+        export_price=export_price,
+        import_limit_kw=_cfg_num(cfg, "solver_grid_max_import_kw", 20.0),
+        export_limit_kw=_cfg_num(cfg, "solver_grid_max_export_kw", 20.0),
+    )
+
+    # Optional real settlement hook -- see CONF_SOLVER_P2P_SETTLEMENT_
+    # HISTORY_SENSOR's own comment in const.py. Retailer-agnostic in
+    # SHAPE: any entity whose 'history' attribute holds real
+    # {date: {export_cost, export_volume}} entries works.
+    real_p2p_dollars = 0.0
+    real_p2p_volume_kwh = 0.0
+    grid_oracle = grid_residual
+    settlement_sensor = cfg.get("solver_p2p_settlement_history_sensor")
+    if settlement_sensor:
+        try:
+            day_data = (ha_get(settlement_sensor)["attributes"]["history"]).get(
+                yesterday.isoformat()
+            )
+        except (
+            urllib.error.HTTPError,
+            urllib.error.URLError,
+            KeyError,
+            json.JSONDecodeError,
+        ):
+            day_data = None
+        if day_data:
+            real_p2p_dollars = float(day_data.get("export_cost", 0.0))
+            real_p2p_volume_kwh = float(day_data.get("export_volume", 0.0))
+            if real_p2p_volume_kwh > 0.01:
+                # A flat bonus rate matching this project's own existing
+                # bonus-mechanic convention (elements.GridConfig's own
+                # export_bonus_price/export_bonus_volume_kwh, network.py's
+                # two-tier bonus term) -- the real settled $/kWh this
+                # specific day, not a forward-looking forecast rate.
+                bonus_rate = real_p2p_dollars / real_p2p_volume_kwh
+                grid_oracle = elements.GridConfig(
+                    import_price=import_price,
+                    export_price=export_price,
+                    import_limit_kw=grid_residual.import_limit_kw,
+                    export_limit_kw=grid_residual.export_limit_kw,
+                    export_bonus_price=np.full(n_periods, bonus_rate),
+                    export_bonus_volume_kwh=real_p2p_volume_kwh,
+                )
+
+    solar_cfg = elements.SolarConfig(forecast_kw=solar_kw)
+    load_cfg = elements.LoadConfig(name="whole_house", forecast_kw=load_kw)
+    periods = elements.PeriodGrid(hours=period_hours_arr, start=grid_times[0])
+
+    try:
+        report = compute_quality_report(
+            periods=periods,
+            grid_residual=grid_residual,
+            grid_oracle=grid_oracle,
+            battery=battery_cfg,
+            solar=solar_cfg,
+            load=load_cfg,
+            timestamps=grid_times,
+            real_p2p_dollars_earned=real_p2p_dollars,
+            commanded_charge_kw=commanded_charge_kw,
+            commanded_discharge_kw=commanded_discharge_kw,
+            actual_charge_kw=actual_charge_kw,
+            actual_discharge_kw=actual_discharge_kw,
+            final_soc_kwh_actual=final_soc_kwh_actual,
+        )
+    except RuntimeError:
+        # Oracle solve genuinely infeasible for this day's real data --
+        # skip, same "retry next cycle" convention as every other
+        # genuine failure mode here, never a crash.
+        return None
+
+    regret_dollars = report.j_ach - report.j_star
+    return {
+        "epr": round(report.epr.epr, 4),
+        "theoretical_maximum_yield": round(report.epr.theoretical_maximum_yield, 4),
+        "value_captured": round(report.epr.value_captured, 4),
+        "uplift_available": round(report.epr.uplift_available, 4),
+        "j_ref": round(report.j_ref, 4),
+        "j_ach": round(report.j_ach, 4),
+        "j_star": round(report.j_star, 4),
+        "regret_dollars": round(regret_dollars, 4),
+        "tracking_fidelity": round(report.tracking.tracking_fidelity, 4),
+        "tracking_cost": round(report.tracking_cost, 4),
+        "real_p2p_dollars": round(real_p2p_dollars, 4),
+        "real_p2p_volume_kwh": round(real_p2p_volume_kwh, 3),
+    }
+
+
+def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
+    """Publishes sensor.nimbus_solver_quality_report -- the exact
+    entity_id the devhub dashboard's own "Nimbus Solver Quality" card
+    already reads (see nimbus-devhub's Forecaster view), so this needs
+    zero dashboard changes to start working the instant it's deployed
+    and configured.
+
+    Cheap idempotency check FIRST, matching the reference script's own
+    "already scored" fast path: reads back this sensor's own currently-
+    published latest_date attribute (the same warm-start-from-own-prior-
+    output technique main() already uses for previous_plan) before ever
+    attempting the real oracle LP-solve -- so a solver cycle that runs
+    every minute doesn't re-solve an already-scored day 1440 times.
+    Unlike the reference script, there is no local on-disk history file
+    to fall back to (native/devhub installs have no persistent local
+    storage) -- if this sensor is ever wiped (e.g. by a restart, since a
+    plain REST-pushed sensor has no persistent HA backing of its own),
+    the day's score is recomputed once, cheaply, rather than lost.
+    """
+    yesterday_key = (now - timedelta(days=1)).date().isoformat()
+    try:
+        existing = ha_get(QUALITY_ENTITY_ID)
+        if existing.get("attributes", {}).get("latest_date") == yesterday_key:
+            return
+    except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError):
+        pass  # never seen before, or transiently unreachable -- fall through and try to compute
+    day_entry = compute_daily_quality_report(cfg, now)
+    if day_entry is None:
+        return
+    ha_post_state(
+        QUALITY_ENTITY_ID,
+        day_entry["epr"],
+        {
+            "unit_of_measurement": None,
+            "friendly_name": "Nimbus Solver Quality Report (EPR)",
+            "latest_date": yesterday_key,
+            "generated_at": now.isoformat(),
+            **day_entry,
+        },
+    )
+
+
 def main() -> None:
     # Fail fast, with a real, actionable message, if the Solver hasn't
     # been configured yet -- see fetch_solver_config()'s own docstring
@@ -3504,8 +3914,17 @@ def main() -> None:
     # _notify_load_forecast_error_once() above: a failed weather-mirror
     # publish must never be allowed to break the actual solve.
     try:
-        publish_weather_forecast_mirrors()
+        publish_weather_forecast_mirrors(cfg)
     except Exception:  # noqa: BLE001, S110 -- cosmetic-only, see comment above
+        pass
+
+    # Built-in EPR/regret/tracking quality score (2026-08-25) -- own
+    # cheap idempotency check means this is safe to call every cycle;
+    # wrapped the same way as every other non-essential publish in this
+    # file, since a failure here must never take down the real solve.
+    try:
+        publish_daily_quality_report(cfg, now)
+    except Exception:  # noqa: BLE001, S110 -- see comment above
         pass
 
     # Two paths, gated on whether THIS system actually has LocalVolts

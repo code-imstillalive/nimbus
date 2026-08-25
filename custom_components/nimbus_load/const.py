@@ -416,6 +416,59 @@ CONF_SOLVER_LOAD_FORECAST_ENTITIES: Final = "solver_load_forecast_entities"
 CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR: Final = (
     "solver_whole_house_cross_check_sensor"
 )
+# Built-in EPR/regret/tracking quality scoring (2026-08-25, direct ask:
+# "it should be a part of the suite to monitor epr and trend and
+# regret... nimbus should have it built in" -- previously only available
+# via a real-world reference script, docs/real-world-integration/files/
+# nimbus_solver_quality_writer.py, hardcoded to one household's own
+# LocalVolts/Sungrow/Modbus stack). These two REAL MEASURED sensors are
+# what compute_daily_quality_report() (solver_writer.py) needs to score
+# yesterday's actual dispatch against a perfect-foresight oracle --
+# genuinely different from every *_FORECAST_SENSOR field above (those
+# feed the forward-looking plan; these feed a backward-looking score
+# against what already, provably happened). Both optional: blank is a
+# clean no-op (no quality score published, same "not yet configured"
+# state the dashboard card already handles), not a degraded mode --
+# matches CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR's own convention
+# exactly, including reusing THAT field for the real load side (no new
+# field needed there -- it's already a real measured sensor, not a
+# forecast, whenever it's configured).
+CONF_SOLVER_SOLAR_POWER_SENSOR: Final = "solver_solar_power_sensor"
+CONF_SOLVER_BATTERY_POWER_SENSOR: Final = "solver_battery_power_sensor"
+# Optional retailer-specific settlement hook -- the one piece of the
+# reference script that genuinely CAN'T be made retailer-agnostic by
+# reading recorder history alone (a real bonus/P2P settlement amount is
+# only ever known to the retailer's own API, days can't be re-solved to
+# discover it). Retailer-agnostic in SHAPE, not tied to LocalVolts by
+# name: any entity publishing `attributes.history: {"YYYY-MM-DD":
+# {"export_cost": <$>, "export_volume": <kWh>}}` works -- LocalVolts'
+# own sensor.lv_v2_p2p_confirmed_history already happens to publish
+# exactly this shape (a real adapter for a different retailer would
+# publish the same shape from its own settlement API). Blank (the
+# default): compute_daily_quality_report() prices export at the plain
+# configured export price only, no bonus term -- an honest, real EPR
+# for any install with no bonus/P2P program at all, just a less precise
+# one for a household that DOES have one but hasn't wired this field in.
+CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR: Final = (
+    "solver_p2p_settlement_history_sensor"
+)
+# Real forward temperature/humidity mirror for the dashboard's own
+# Forecaster chart (2026-08-25) -- points at a weather.* entity (Nimbus
+# calls weather.get_forecasts for you) or a sensor.* whose own 'forecast'
+# attribute already carries datetime/temperature[/humidity] entries,
+# same two accepted shapes as CONF_TEMPERATURE_FORECAST_SENSOR. A
+# SEPARATE field, not a reuse of that Forecaster-level one, deliberately:
+# fetch_solver_config() (this file's only real consumer) reads config
+# EXCLUSIVELY through sensor.nimbus_solver_config's own attributes, which
+# only ever expose Solver-specific fields -- keeping this Solver-scoped
+# avoids reaching across into the Forecaster's own settings surface. A
+# real household is free to point both fields at the same entity. Blank
+# (the default): no mirror published, a clean no-op -- never a hardcoded
+# entity_id guess (an earlier version of this field's own driver
+# function DID hardcode a weather.pirateweather/weather.home preference
+# order, caught and corrected the same day: "make sure whatever u do
+# nothing is hard wired it is all template wizard").
+CONF_SOLVER_WEATHER_FORECAST_SENSOR: Final = "solver_weather_forecast_sensor"
 # Real, PORTABILITY BUG found and fixed live (nimbus repo issue #100,
 # Mark Purcell -- an independent installer's own health-check, findings
 # 1 & 2): the multi-circuit summing path (sum_load_forecasts()) used to
