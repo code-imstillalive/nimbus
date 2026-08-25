@@ -62,14 +62,22 @@
       },
       "solver_grid": {
         "title": "Solver: Grid Prices (2 of 3)",
-        "description": "The live price sensors your electricity retailer or market integration already provides. Your real grid import/export power limits now live on their own dashboard-editable number entities instead of this wizard.",
+        "description": "The live price sensors your electricity retailer or market integration already provides. Optionally add a second/third source per direction to blend independently-modeled forecasts (e.g. AEMO + your retailer). Your real grid import/export power limits now live on their own dashboard-editable number entities instead of this wizard.",
         "data": {
           "solver_import_price_sensor": "Live import (buy) price sensor ($/kWh) -- from your own retailer/market integration",
-          "solver_export_price_sensor": "Live export (sell) price sensor ($/kWh) -- from your own retailer/market integration"
+          "solver_import_price_sensor_2": "Optional: second import price source to blend (e.g. an AEMO wholesale forecast)",
+          "solver_import_price_sensor_3": "Optional: third import price source to blend",
+          "solver_export_price_sensor": "Live export (sell) price sensor ($/kWh) -- from your own retailer/market integration",
+          "solver_export_price_sensor_2": "Optional: second export price source to blend",
+          "solver_export_price_sensor_3": "Optional: third export price source to blend"
         },
         "data_description": {
           "solver_import_price_sensor": "Whatever your electricity retailer's own HA integration (Amber, LocalVolts, a generic template sensor, etc.) exposes as the current $/kWh you're charged to import. If this sensor also has its own forecast attribute, the Solver uses it directly for planning; otherwise it holds the current value flat across the whole horizon. Also drives the Topology dashboard card's live price display, as a fallback if the Switchboard wizard's own price field isn't set.",
-          "solver_export_price_sensor": "The mirror of the above for what you're paid to export -- same forecast-attribute preference, same Topology dashboard fallback role."
+          "solver_import_price_sensor_2": "Optional -- a second, independently-modeled import price forecast (e.g. a real AEMO wholesale pre-dispatch forecast alongside your retailer's own forecast). Blended with the primary source above using the same weighted-combine approach already proven for multiple solar sources; the disagreement between sources becomes a real, earned uncertainty signal feeding your configured price risk-aversion setting. Leave blank to use only the primary source -- a complete no-op.",
+          "solver_import_price_sensor_3": "Optional -- a third import price source, same blending as the second.",
+          "solver_export_price_sensor": "The mirror of the above for what you're paid to export -- same forecast-attribute preference, same Topology dashboard fallback role.",
+          "solver_export_price_sensor_2": "The mirror of solver_import_price_sensor_2, for export price.",
+          "solver_export_price_sensor_3": "The mirror of solver_import_price_sensor_3, for export price."
         }
       },
       "solver_sources": {

@@ -73,11 +73,15 @@ from .const import (
     CONF_SOLVER_EFFICIENCY_PERCENT,
     CONF_SOLVER_EXPORT_PRICE_RISK_AVERSION,
     CONF_SOLVER_EXPORT_PRICE_SENSOR,
+    CONF_SOLVER_EXPORT_PRICE_SENSOR_2,
+    CONF_SOLVER_EXPORT_PRICE_SENSOR_3,
     CONF_SOLVER_FLAT_FEE_RATE,
     CONF_SOLVER_GRID_MAX_EXPORT_KW,
     CONF_SOLVER_GRID_MAX_IMPORT_KW,
     CONF_SOLVER_IMPORT_PRICE_RISK_AVERSION,
     CONF_SOLVER_IMPORT_PRICE_SENSOR,
+    CONF_SOLVER_IMPORT_PRICE_SENSOR_2,
+    CONF_SOLVER_IMPORT_PRICE_SENSOR_3,
     CONF_SOLVER_INVERTER_SELF_CONSUMPTION_KW,
     CONF_SOLVER_LOAD_FORECAST_ENTITIES,
     CONF_SOLVER_LOAD_FORECAST_SENSOR,
@@ -198,6 +202,18 @@ _SOLVER_REQUIRED_KEYS = (
 _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_2,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_3,
+    # Same exact bug class as the SOLAR_FORECAST_SENSOR_2/_3 note directly
+    # below this line (2026-08-25, direct household ask: "u also are
+    # missing my blended price forecasts... in case we can feed it more
+    # than one... e.g. aemo... and amber") -- added to
+    # _SOLVER_WIZARD_SCHEMA_KEYS and genuinely saved into entry.options,
+    # but this bridge sensor must ALSO expose them or
+    # fetch_solver_config() never sees them. Caught immediately by this
+    # file's own test_sensor_solver_config_keys.py before it ever shipped.
+    CONF_SOLVER_IMPORT_PRICE_SENSOR_2,
+    CONF_SOLVER_IMPORT_PRICE_SENSOR_3,
+    CONF_SOLVER_EXPORT_PRICE_SENSOR_2,
+    CONF_SOLVER_EXPORT_PRICE_SENSOR_3,
     # Real bug found live (2026-08-23): both added to _SOLVER_WIZARD_
     # SCHEMA_KEYS (flows/hub_options.py) and genuinely saved into
     # entry.options by the wizard, but never added HERE -- meaning this
