@@ -286,9 +286,7 @@ class TestPublishDailyQualityReport(unittest.TestCase):
             patch.object(
                 solver_writer,
                 "ha_get",
-                side_effect=solver_writer.urllib.error.HTTPError(
-                    "url", 404, "not found", None, None
-                ),
+                side_effect=solver_writer.urllib.error.URLError("not found"),
             ),
             patch.object(
                 solver_writer, "compute_daily_quality_report", return_value=day_entry
@@ -309,9 +307,7 @@ class TestPublishDailyQualityReport(unittest.TestCase):
             patch.object(
                 solver_writer,
                 "ha_get",
-                side_effect=solver_writer.urllib.error.HTTPError(
-                    "url", 404, "not found", None, None
-                ),
+                side_effect=solver_writer.urllib.error.URLError("not found"),
             ),
             patch.object(
                 solver_writer, "compute_daily_quality_report", return_value=None

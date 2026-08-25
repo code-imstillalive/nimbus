@@ -134,9 +134,7 @@ class TestSensorDomain(unittest.TestCase):
             patch.object(
                 solver_writer,
                 "ha_get",
-                side_effect=solver_writer.urllib.error.HTTPError(
-                    "url", 404, "not found", None, None
-                ),
+                side_effect=solver_writer.urllib.error.URLError("not found"),
             ),
             patch.object(solver_writer, "ha_post_state") as post,
         ):
