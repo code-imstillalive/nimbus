@@ -5473,6 +5473,23 @@ def main() -> None:
         {
             "unit_of_measurement": "kW",
             "friendly_name": "Nimbus Solver Battery Forecast",
+            # 2026-08-25, nimbus issue #189 (Mark Purcell, real-install
+            # reproducer -- the follow-up to #187): this is the
+            # "flagship diagnostic sensor" a Nimbus dashboard is most
+            # likely to be built against, and it's a genuinely different
+            # class again from both NimbusForecastSensor (fixed in
+            # v0.89.1) and _NimbusSolverPushSensor's OTHER instance
+            # (household load total, fixed in v0.92.1) -- this is the
+            # Solver's own LP-derived dispatch plan, not a mirror or a
+            # sum of upstream forecasts. "battery" (SIGNAL_ROLE_BATTERY's
+            # own string value) is definitionally this entity's role.
+            # source_sensor is the one real, measured entity this whole
+            # plan is actually built around -- the live SoC reading the
+            # LP solves forward from -- since there's no single upstream
+            # "battery forecast" sensor the way load has
+            # solver_load_forecast_sensor.
+            "signal_role": "battery",
+            "source_sensor": cfg["solver_battery_soc_sensor"],
             "forecast": forecast,
             "status": plan.status,
             "total_cost": plan.total_cost,
