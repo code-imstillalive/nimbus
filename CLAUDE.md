@@ -67,6 +67,47 @@ that chart already used — a dashboard-config fix, not a nimbus code change. Ne
 these affects the nimbus repo itself; noted here only so a future session doesn't
 rediscover the same devhub architecture from scratch.
 
+**Real, load-bearing discovery about this integration's options-flow behavior — found
+the hard way, cost real (recoverable, but real) config damage before being understood.**
+On `hub_options.py`'s options flow (and, by the same mechanism, the subentry flows): a
+`vol.Required` field's schema is built with `default=<current stored value>`, so omitting
+that key from a submission safely re-saves whatever was already there. A `vol.Optional`
+field has **no such default wired to the current value** — omitting it from ANY submission
+that touches that step, even one aimed at a completely different field on the same step,
+silently resets it to `None`. Confirmed by direct incident tonight: fixing
+`solver_solar_forecast_sensor` (required, submitted alone) silently blanked
+`solver_whole_house_cross_check_sensor`, `solver_solar_power_sensor`, and
+`solver_battery_power_sensor` (all optional, all on the same `solver_sources` step) —
+recovered by restating them explicitly in a follow-up call. **Any future programmatic
+options-flow submission to this integration (via `ha_set_integration`/`ha_config_set_helper`
+or equivalent) must restate every field on that step it wants to keep, not just the one
+being changed** — this is a real UX footgun worth fixing in `hub_options.py` itself
+(give every `vol.Optional` the same `default=current_value` treatment `vol.Required`
+already gets) before it bites a real end user editing their own wizard by hand.
+
+**Separately, a real and still-unexplained bug**: on the actual HA **core restart** used to
+deploy v0.94.2 tonight (not a plain config-entry reload — dozens of those happened tonight
+with no issue), 5 `number.nimbus_solver_*` entities (`battery_capacity_kwh`,
+`max_charge_kw`, `max_discharge_kw`, `grid_max_import_kw`, `grid_max_export_kw`) reset to
+their own schema placeholder minimum (`0.1`) instead of restoring their real, previously-set
+values. Recovered from real recorder history (confirmed stable and correctly-restored across
+many earlier reloads that same evening), not guessed, then re-set via `number.set_value`.
+Root cause not investigated — worth a real look at this platform's own state-restore path
+specifically on a full HA restart (as opposed to a config-entry-only reload) before this
+recurs on a real user's install and costs them real configured hardware limits silently.
+
+**Topology diagram — confirmed, this session, to already be genuinely wizard-live, not
+hardcoded, once real Power Source/PV String/Battery Tower subentries exist.** The real
+`switchboard-topology-card` (116KAT-HA-AI repo, `config/www/topology-card-v4.js`) has a
+`_discoverTopologyConfig()` method that reads `sensor.nimbus_topology_config`'s
+`power_sources`/`pv_strings`/`battery_towers` attributes directly and swaps them in over
+any static YAML config the instant at least one Power Source subentry exists — by design,
+confirmed by reading the card's own source, not assumed. Devhub had simply never had those
+subentries created, so it was silently running on its card's own static-YAML fallback path
+despite looking "wizard-driven." Fixed by creating the real subentries (2 Power Sources, 3
+PV Strings, 4 Battery Towers, matching the real NUC1 household's own physical layout) —
+the card now genuinely reflects add/remove of these subentries live, no card edit needed.
+
 **A genuinely portable field-semantics pitfall, found the same night on a devhub dashboard
 table but worth flagging here since ANY dashboard built against the Solver's forecast data
 could hit it.** The per-interval plan dict's `bonus_price` field (see `solver_writer.py`
