@@ -382,10 +382,43 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
         if self._trained is None:
-            # Nothing on disk yet -- train immediately so the sensor has real
-            # data soon after setup, instead of sitting empty for up to 24h
-            # waiting for the next scheduled retrain hour.
-            await self._async_retrain()
+            # Nothing on disk yet -- train immediately (in the background,
+            # NOT awaited here) so the sensor has real data soon after setup,
+            # instead of sitting empty for up to 24h waiting for the next
+            # scheduled retrain hour. Same "kick it off, don't block setup"
+            # pattern __init__.py already uses for the Solver's own first
+            # cycle (hass.async_create_task(solver_runtime.async_run_solve)).
+            #
+            # Real, live-reproduced bug this fixes (2026-08-26, devhub): this
+            # used to be `await self._async_retrain()`, awaited INLINE inside
+            # __init__.py's own per-subentry setup loop, before
+            # async_forward_entry_setups() (i.e. before ANY entity gets
+            # registered) ever runs. _async_retrain() does several sequential
+            # recorder history fetches plus a real ML training job -- on an
+            # install with several subentries simultaneously lacking a
+            # persisted model (e.g. right after a `.pkl` reset, or several
+            # subentries added at once), that blocking chain can genuinely
+            # take minutes, comfortably risking HA's own slow-setup timeout.
+            # Confirmed live: a real "Platform nimbus_load does not generate
+            # unique IDs" ERROR burst (every hub-level number/switch/sensor
+            # entity duplicate-registering) landed at 19:00-19:01 the same
+            # night devhub had several untrained subentries -- consistent
+            # with HA abandoning/retrying a setup that ran long, while the
+            # original attempt's still-executing training work (executor
+            # jobs don't get interrupted by task cancellation) finished and
+            # tried to register the same entities a second time. A plain
+            # isolated reload_config_entry AND a full restart both failed to
+            # reproduce it once every subentry already had a persisted model
+            # on disk -- consistent with training time, not reload/restart
+            # itself, being the real trigger. _async_update_data() already
+            # returns a well-defined, already-exercised "untrained" state
+            # dict (state=None, forecast=[], training_points=0) whenever
+            # self._trained is None, so nothing downstream needs the
+            # training to have finished by the time hub setup completes --
+            # this was blocking behaviour with no correctness reason behind
+            # it, only a "get real data displayed a bit sooner" one, which a
+            # background task still satisfies.
+            self.hass.async_create_task(self._async_retrain())
 
     def async_unload(self) -> None:
         if self._unsub_retrain is not None:
