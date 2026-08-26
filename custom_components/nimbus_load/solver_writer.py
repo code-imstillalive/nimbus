@@ -4676,6 +4676,8 @@ def main() -> None:
         round(load_kw[0], 3),
         {
             "unit_of_measurement": "kW",
+            "device_class": "power",
+            "state_class": "measurement",
             "friendly_name": "Nimbus Household Load Total (Summed)",
             "forecast": [
                 {
@@ -5472,6 +5474,8 @@ def main() -> None:
         round(float(net_battery[0]), 3),
         {
             "unit_of_measurement": "kW",
+            "device_class": "power",
+            "state_class": "measurement",
             "friendly_name": "Nimbus Solver Battery Forecast",
             # 2026-08-25, nimbus issue #189 (Mark Purcell, real-install
             # reproducer -- the follow-up to #187): this is the
