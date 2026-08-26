@@ -326,7 +326,10 @@ integration's Solver wizard; the native path takes over the same
   `grid_import_kw`, `grid_export_kw`, `import_price`, `export_price`, `load_kw`,
   `solar_kw`, `net_cost`), `status`, `total_cost`, `total_cost_with_fixed_costs`,
   `equivalent_full_cycles`, `total_throughput_kwh`, `n_clamped_periods`,
-  `binding_constraint_now`, and both shadow prices.
+  `binding_constraint_now`, and both shadow prices. `battery_kw` is AC-side
+  (grid-side of the inverter) and **positive means discharging, negative
+  means charging** — see `battery_kw_side`/`battery_kw_sign_convention` on
+  the entity's own attributes for the machine-readable form of this.
 - `sensor.nimbus_solver_config`. A live mirror of every Solver setting the wizard
   captured, for one-glance sanity checks in Developer Tools → States.
 - `sensor.nimbus_topology_config`. A bridge of every Power Source, PV String, and
