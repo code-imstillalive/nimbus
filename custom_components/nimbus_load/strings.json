@@ -50,9 +50,9 @@
       },
       "solver_battery": {
         "title": "Solver: Battery (1 of 3)",
-        "description": "Which sensor reports your battery's live State of Charge. Every other battery setting (capacity, SoH, min/max SoC, max charge/discharge power, efficiency) now lives on its own dashboard-editable number entity instead of this wizard -- look for a new \"Nimbus\" device with a Battery Capacity, Max Charge Power, etc. after saving, and set your real values there.",
+        "description": "Which sensor reports your battery's live State of Charge. Every other battery setting (capacity, SoH, min/max SoC, max charge/discharge power, efficiency) now lives on its own dashboard-editable number entity instead of this wizard -- look for a new \"Nimbus\" device with a Battery Capacity, Max Charge Power, etc. after saving, and set your real values there. 🔴 = required.",
         "data": {
-          "solver_battery_soc_sensor": "Battery State of Charge sensor (%) -- the live sensor your system already reports, e.g. from your inverter's own integration",
+          "solver_battery_soc_sensor": "🔴 Battery State of Charge sensor (%) -- the live sensor your system already reports, e.g. from your inverter's own integration",
           "solver_max_discharge_live_entity": "Live max-discharge setpoint entity (optional, advanced)"
         },
         "data_description": {
@@ -62,12 +62,12 @@
       },
       "solver_grid": {
         "title": "Solver: Grid Prices (2 of 3)",
-        "description": "The live price sensors your electricity retailer or market integration already provides. Optionally add a second/third source per direction to blend independently-modeled forecasts (e.g. AEMO + your retailer). Your real grid import/export power limits now live on their own dashboard-editable number entities instead of this wizard.",
+        "description": "The live price sensors your electricity retailer or market integration already provides. Optionally add a second/third source per direction to blend independently-modeled forecasts (e.g. AEMO + your retailer). Your real grid import/export power limits now live on their own dashboard-editable number entities instead of this wizard. 🔴 = required.",
         "data": {
-          "solver_import_price_sensor": "Live import (buy) price sensor ($/kWh) -- from your own retailer/market integration",
+          "solver_import_price_sensor": "🔴 Live import (buy) price sensor ($/kWh) -- from your own retailer/market integration",
           "solver_import_price_sensor_2": "Optional: second import price source to blend (e.g. an AEMO wholesale forecast)",
           "solver_import_price_sensor_3": "Optional: third import price source to blend",
-          "solver_export_price_sensor": "Live export (sell) price sensor ($/kWh) -- from your own retailer/market integration",
+          "solver_export_price_sensor": "🔴 Live export (sell) price sensor ($/kWh) -- from your own retailer/market integration",
           "solver_export_price_sensor_2": "Optional: second export price source to blend",
           "solver_export_price_sensor_3": "Optional: third export price source to blend"
         },
@@ -82,10 +82,10 @@
       },
       "solver_sources": {
         "title": "Solver: Solar & Load Forecasts (3 of 3)",
-        "description": "Where the Solver gets its forward-looking view of what solar you'll generate and what your house will consume -- point these at your own forecast sensors (Solcast, Open-Meteo, Nimbus's own Power Signals, or anything similar that already exists on your system).",
+        "description": "Where the Solver gets its forward-looking view of what solar you'll generate and what your house will consume -- point these at your own forecast sensors (Solcast, Open-Meteo, Nimbus's own Power Signals, or anything similar that already exists on your system). 🔴 = required.",
         "data": {
-          "solver_solar_forecast_sensor": "Solar generation forecast sensor (kW or kWh) -- your existing solar forecast integration",
-          "solver_load_forecast_sensor": "Household load forecast sensor (kW) -- e.g. a Nimbus Power Signal forecasting your own whole-house load",
+          "solver_solar_forecast_sensor": "🔴 Solar generation forecast sensor (kW or kWh) -- your existing solar forecast integration",
+          "solver_load_forecast_sensor": "🔴 Household load forecast sensor (kW) -- e.g. a Nimbus Power Signal forecasting your own whole-house load",
           "solver_load_forecast_entities": "Optional: individual circuit forecast sensors to sum instead of the single sensor above (kW each, e.g. Nimbus Power Signals for specific circuits) -- leave blank to use the sensor above",
           "solver_whole_house_cross_check_sensor": "Optional: a real, live whole-house power sensor to sanity-check the very first forecast period against -- leave blank to skip",
           "solver_solar_power_sensor": "Optional: real, currently-measured solar power sensor (not a forecast) -- enables the built-in daily EPR/regret quality score. Leave blank to skip scoring.",
@@ -140,9 +140,9 @@
       "step": {
         "user": {
           "title": "Add a load",
-          "description": "Pick the power sensor this load should learn from. Temperature sensors and tuning settings are shared across every load -- set them once via the hub's own \"Configure\" instead. The three fields below are optional and genuinely per-load, unlike everything on the hub's shared form -- leave them all blank for a load with no fixed daily schedule.",
+          "description": "Pick the power sensor this load should learn from. Temperature sensors and tuning settings are shared across every load -- set them once via the hub's own \"Configure\" instead. The three fields below are optional and genuinely per-load, unlike everything on the hub's shared form -- leave them all blank for a load with no fixed daily schedule. 🔴 = required.",
           "data": {
-            "load_sensor": "Power sensor to learn from",
+            "load_sensor": "🔴 Power sensor to learn from",
             "schedule_start_hour": "Fixed schedule start hour (optional, 24hr decimal)",
             "schedule_end_hour": "Fixed schedule end hour (optional, 24hr decimal)",
             "expected_load_kw": "Expected power while running (optional, kW)"
@@ -166,9 +166,9 @@
       "step": {
         "user": {
           "title": "Add a power signal",
-          "description": "Forecast a real power signal directly -- Battery, Solar, Grid, or anything else -- as its own genuine target, using the same forecasting engine as a load. Pick a real MEASURED sensor, never an optimizer's own plan/forecast entity.",
+          "description": "Forecast a real power signal directly -- Battery, Solar, Grid, or anything else -- as its own genuine target, using the same forecasting engine as a load. Pick a real MEASURED sensor, never an optimizer's own plan/forecast entity. 🔴 = required.",
           "data": {
-            "load_sensor": "Power sensor to forecast",
+            "load_sensor": "🔴 Power sensor to forecast",
             "signal_role": "Role (optional -- pick Battery/Solar/Grid so the topology dashboard card can auto-wire this signal; leave as Other for anything else)"
           },
           "data_description": {
@@ -188,9 +188,9 @@
       "step": {
         "user": {
           "title": "Add a power source (topology diagram)",
-          "description": "One real hardware unit that connects to your switchboard -- an inverter, a hybrid battery/inverter, or a battery-only unit. Pure wiring metadata for the topology dashboard card -- not a forecast target.",
+          "description": "One real hardware unit that connects to your switchboard -- an inverter, a hybrid battery/inverter, or a battery-only unit. Pure wiring metadata for the topology dashboard card -- not a forecast target. 🔴 = required.",
           "data": {
-            "power_source_name": "Name (shown on the diagram, e.g. \"Inverter 1\")",
+            "power_source_name": "🔴 Name (shown on the diagram, e.g. \"Inverter 1\")",
             "power_source_battery_sensor": "Battery power sensor (optional -- leave blank for a PV-only source)",
             "power_source_dc_sensor": "Total DC power sensor (optional)"
           },
@@ -212,9 +212,9 @@
       "step": {
         "user": {
           "title": "Add a PV string (topology diagram)",
-          "description": "One real physical PV string or array. Pure wiring metadata for the topology dashboard card -- not a forecast target. Leave \"Power Source\" blank if this PV is wired independently (not through any inverter you've added here).",
+          "description": "One real physical PV string or array. Pure wiring metadata for the topology dashboard card -- not a forecast target. Leave \"Power Source\" blank if this PV is wired independently (not through any inverter you've added here). 🔴 = required.",
           "data": {
-            "pv_string_entity": "Power sensor for this string",
+            "pv_string_entity": "🔴 Power sensor for this string",
             "pv_string_label": "Label on the diagram (optional, e.g. \"West array\")",
             "pv_string_power_source": "Power Source this string is wired through (optional)"
           },
