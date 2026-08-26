@@ -10,6 +10,41 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.94.1] — 2026-08-26
+
+### Fixed
+- **`solver_p2p_settlement_history_sensor` field showed "Translation error:
+  MALFORMED_ARGUMENT" instead of its real label/description**, found live
+  on a real devhub install. The field's own text contained a literal
+  example of the expected attribute shape (`{date: {export_cost,
+  export_volume}}`) — Home Assistant's frontend parses these strings as
+  ICU MessageFormat, where `{...}` is a placeholder token, so the nested
+  unescaped braces broke the parser. Fixed by wrapping the literal example
+  in single quotes, ICU's standard literal-text escape.
+
+### Documentation
+- **`battery_kw`'s sign convention was undocumented** (#197): Mark's own
+  day-ahead optimality report had to reverse-derive it from SoC data
+  before trusting downstream analysis. `sensor.nimbus_solver_battery_forecast`
+  now exposes a self-documenting `battery_kw_sign_convention` attribute
+  (`positive_discharge_negative_charge`), following the same pattern
+  already used for `battery_kw_side`/`efficiency_convention` (#168).
+
+## [0.94.0] — 2026-08-26
+
+### Added
+- **`nimbus_load.retrain` service** (#195): forces an out-of-schedule
+  retrain for one or more load/power-signal entities by `entity_id`,
+  instead of waiting for the daily retrain hour. Raises a clear
+  `ServiceValidationError` naming any entity_id it can't resolve to a
+  Nimbus coordinator, rather than silently retraining a partial set.
+
+### Fixed
+- **Deployed `model_type` wasn't surfaced in coordinator/diagnostics**
+  (#196), the companion gap to #195: no way to confirm which model
+  (k-NN/GBRT/naive) is actually live for a given load without cross-
+  referencing training logs. Now exposed directly.
+
 ## [0.93.0] — 2026-08-26
 
 ### Fixed
