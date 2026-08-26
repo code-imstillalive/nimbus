@@ -23,7 +23,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.loader import async_get_integration
 
-from . import frontend, health, solver_runtime
+from . import frontend, health, services, solver_runtime
 from .const import CONF_LOAD_SENSOR, DOMAIN, SUBENTRY_TYPE_LOAD, SUBENTRY_TYPE_SIGNAL
 from .coordinator import NimbusConfigEntry, NimbusCoordinator
 from .sensor import object_id_from_source
@@ -132,6 +132,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: NimbusConfigEntry) -> bo
     # reload this function can run through, see install_log_buffer_
     # handler()'s own guard).
     health.install_log_buffer_handler()
+
+    # nimbus_load.retrain (issue #195) -- idempotent, safe on every reload.
+    services.async_register_services(hass)
 
     # Ship the switchboard-topology-card Lovelace resource -- served
     # over HTTP and registered as an extra JS module via

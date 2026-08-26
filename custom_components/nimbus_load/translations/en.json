@@ -264,5 +264,17 @@
         "grid": "Grid"
       }
     }
+  },
+  "services": {
+    "retrain": {
+      "name": "Retrain",
+      "description": "Force an immediate retrain of one or more Nimbus load/power-signal coordinators, without waiting for the daily scheduled retrain.",
+      "fields": {
+        "entity_id": {
+          "name": "Entity",
+          "description": "One or more Nimbus forecast entities to retrain. Leave blank to retrain every configured Nimbus load and power signal."
+        }
+      }
+    }
   }
 }
