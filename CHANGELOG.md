@@ -10,6 +10,43 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.94.3] — 2026-08-27
+
+### Fixed
+- **Duplicate periodic-solve timer** (#213, closes #211): a live devhub
+  recurrence of issue #85's own flap pattern — `sensor.nimbus_solver_battery_forecast`
+  and `sensor.nimbus_household_load_total_forecast` each getting a genuine,
+  independent solve pushed roughly twice a minute, a few seconds apart — was
+  traced to `async_setup_entry()` occasionally running more than once for the
+  same config entry (same underlying mechanism #210 fixed for a slow retrain
+  call, tripped here by a different slow step) and registering a second,
+  independent `_periodic_solve` timer that never got cancelled. The timer's
+  own unsub callable is now tracked per entry_id, so a second setup call
+  cancels the first timer before registering its own — at most one lives at
+  a time regardless of how many times setup runs.
+- **Cold-start retrain blocking hub setup** (#210): `async_setup()` used to
+  `await` a subentry's first retrain inline whenever no persisted model
+  existed yet, before any entity in the hub had been registered. On an
+  install with several subentries cold-starting at once, that sequential
+  blocking chain could run long enough to trip Home Assistant's own
+  slow-setup abandon-and-retry behaviour, producing a real "Platform
+  nimbus_load does not generate unique IDs" ERROR burst. Retrain is now
+  scheduled via `hass.async_create_task()` (fire-and-forget), matching the
+  pattern the Solver's own first cycle already used.
+- **Topology card: cross-inverter transfer link overlapping battery tower
+  boxes** — the dashed link showing power moving between two inverters over
+  the shared AC bus routinely overlapped battery tower boxes and their text.
+  Now routes past the real measured battery-tower right edge as a straight
+  elbow instead of a tight bezier curve close to the inverter bar.
+
+### Added
+- **`_LOGGER`-based diagnostic trace in `ha_post_state()`'s native-mode
+  dispatch** (#212): the existing `#85 trace` was `print()`-only, invisible
+  to `ha_get_logs()`/Home Assistant's own `error_log`. Mirrored to a real
+  `logging.Logger` (plain stdlib, doesn't touch the standalone/cron/addon
+  deployment's "zero HA imports" contract), plus a new trace specifically at
+  the raw `states.async_set()` fallback path.
+
 ## [0.94.2] — 2026-08-26
 
 ### Added

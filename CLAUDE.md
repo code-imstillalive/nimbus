@@ -619,6 +619,19 @@ docker restart opt_homeassistant_1
 A Python custom_component change always needs a full restart — a config reload cannot
 reload changed Python modules, only YAML/config.
 
+**devhub (and any other HACS install) needs a cut release, not just a merged PR.**
+Confirmed live, 2026-08-27: merged 4 real fixes to `main` (#210/#212/#213/#214),
+then found `ha_get_hacs_info` on devhub still showed `installed_version` ==
+`available_version` == the last tagged release, `pending_update: false` — HACS
+tracks GitHub *releases* (`vX.Y.Z` tags, published by `.github/workflows/release.yml`
+on tag push), never raw commits on `main`. A merge alone is invisible to every HACS
+install, including devhub, until a release is actually cut. **After merging PR(s) to
+main, always follow up**: add a `## [X.Y.Z]` section to `CHANGELOG.md`, bump
+`manifest.json`'s and `nimbus_solver_app/config.yaml`'s `version` to match (same
+value — `version-lockstep` CI enforces it), commit as its own "Release vX.Y.Z" PR,
+merge it, then tag that commit `vX.Y.Z` and push the tag. Only then will HACS's
+update entity on any install see the new version and offer it.
+
 ## Git workflow
 
 Branch + PR for every real change, same as `116KAT-HA-AI`. No direct pushes to `main`.
