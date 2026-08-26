@@ -1,0 +1,7 @@
+retrain:
+  fields:
+    entity_id:
+      selector:
+        entity:
+          integration: nimbus_load
+          multiple: true

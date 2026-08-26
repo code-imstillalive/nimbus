@@ -392,10 +392,38 @@ def install_ha_stubs() -> None:
         # across every import of this module, which a fresh MagicMock()
         # per-attribute-access would not reliably give.
         EntityCategory=types.SimpleNamespace(CONFIG="config", DIAGNOSTIC="diagnostic"),
+        # Real string value, matching HA core's own homeassistant.const --
+        # services.py's SERVICE_RETRAIN_SCHEMA keys a vol.Optional(...) on
+        # this, and a test asserts call.data using the same literal key.
+        ATTR_ENTITY_ID="entity_id",
+    )
+    module(
+        "homeassistant.exceptions",
+        # Real HA raises this from a service handler to surface a clean,
+        # user-facing error in the frontend rather than a raw traceback --
+        # services.py's own unresolved-entity_id path raises it. A plain
+        # Exception subclass is enough for a test to assert "the right
+        # exception type, with the right message" via pytest.raises.
+        ServiceValidationError=type("ServiceValidationError", (Exception,), {}),
+    )
+    module(
+        "homeassistant.helpers.config_validation",
+        # Real cv.entity_ids validates/normalises a service-call field into
+        # a list of entity_id strings. SERVICE_RETRAIN_SCHEMA only needs
+        # this to be a real callable at vol.Schema({...}) construction
+        # time -- none of these tests call hass.services.async_register()
+        # for real (hass is a MagicMock), so the schema is never actually
+        # invoked to validate anything.
+        entity_ids=lambda value: value,
     )
     module(
         "homeassistant.core",
         HomeAssistant=_generic_stub_class("HomeAssistant"),
+        # services.py's own type hint on _async_handle_retrain(call: ServiceCall)
+        # -- never instantiated by real HA code in these tests (a test builds
+        # its own fake ServiceCall-shaped object with .data), just needs to
+        # exist as an importable name.
+        ServiceCall=_generic_stub_class("ServiceCall"),
         # Real, load-bearing behaviour, NOT just "marks a function and
         # returns it unchanged" (that was this comment's own claim before
         # issue #82, 2026-08-23 -- a real, live-breaking bug in this
