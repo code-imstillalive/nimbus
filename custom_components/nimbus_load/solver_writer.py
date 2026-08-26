@@ -5515,7 +5515,9 @@ def main() -> None:
             # same reserve decision. Both are the flat, currently-active
             # per-solve values, not a historical series.
             "salvage_value": salvage_value,
-            "degradation_cost_per_kwh": _cfg_num(cfg, "solver_degradation_cost_per_kwh", 0.0),
+            "degradation_cost_per_kwh": _cfg_num(
+                cfg, "solver_degradation_cost_per_kwh", 0.0
+            ),
             "total_charge_kwh": round(total_charge_kwh, 2),
             "total_discharge_kwh": round(total_discharge_kwh, 2),
             "total_throughput_kwh": round(total_throughput_kwh, 2),
