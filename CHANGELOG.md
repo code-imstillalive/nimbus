@@ -10,6 +10,37 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.94.4] — 2026-08-27
+
+### Fixed
+- **Coverage-aware price blending** (#216, Mark Purcell): a configured
+  `solver_import/export_price_sensor_2/_3` secondary source used to get
+  blended at a flat, unconditional equal weight across the WHOLE
+  forecast horizon, including periods where that source's own real
+  data doesn't reach yet — `resample_generic_price_forecast()` silently
+  holds a source's own first/last real point flat outside its real
+  coverage, and the old blend treated that placeholder exactly like a
+  genuine second opinion. Live-reported effect: a "day 2-7" secondary
+  source diluted a fully-real Amber Express primary 50/50 for its
+  entire captured window, compressing `export_price` to roughly half
+  its real range with a constant offset (Mark's own measured OLS fit:
+  slope 0.502, intercept 4.36 c/kWh). Each configured source now
+  contributes to a period only when that period falls within that
+  source's own real coverage span; a period only one source genuinely
+  covers passes that source through unchanged, and blending still
+  happens exactly as before wherever every source really covers.
+
+### Added
+- **`export_price_raw` forecast attribute**, mirroring the existing
+  `import_price_raw` — the export-side spot/live price before network
+  fees or P2P bonus are added (#216).
+- `import_price_raw`/`export_price_raw` now report the true pre-blend
+  source value (what the configured sensor itself said, before any
+  configured secondary source is folded in), rather than the post-blend
+  value — restores their intended use as a "before any transformation"
+  diagnostic on any install with a secondary price source configured
+  (#216).
+
 ## [0.94.3] — 2026-08-27
 
 ### Fixed
