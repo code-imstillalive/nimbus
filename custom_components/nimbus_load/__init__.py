@@ -15,6 +15,7 @@ expected-load fields don't apply to a Battery/Solar/Grid power signal).
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import timedelta
 
 from homeassistant.const import Platform
@@ -40,6 +41,47 @@ _SOLVER_INTERVAL = timedelta(minutes=1)
 _FORECASTABLE_SUBENTRY_TYPES = (SUBENTRY_TYPE_LOAD, SUBENTRY_TYPE_SIGNAL)
 
 _LOGGER = logging.getLogger(__name__)
+
+# Module-level, NOT hass.data[DOMAIN] -- this project deliberately moved off
+# that pattern to entry.runtime_data for Quality Scale Bronze (see
+# coordinator.py's own comment next to NimbusConfigEntry). Same idempotent-
+# registration technique solver_writer.py's own _ENTITY_UPDATE_HANDLERS
+# already uses for an identical class of problem: keyed by entry_id, holds
+# the unsub callable for _periodic_solve's own async_track_time_interval
+# registration below, so a second async_setup_entry() call for the SAME
+# entry_id can cancel the first one's timer before registering its own.
+#
+# Nimbus issue #211 (live devhub recurrence, 2026-08-27): sensor.nimbus_
+# solver_battery_forecast / sensor.nimbus_household_load_total_forecast
+# writing at ~2x/minute, a few seconds apart, every single minute --
+# CONFIRMED via a live `ha core logs -f` capture to be two genuine, back-
+# to-back solves (different computed values each time), not a single
+# solve double-writing (solver_writer.py has exactly one ha_post_state()
+# call site per entity). Two full solves a minute apart is exactly what
+# TWO independent, live async_track_time_interval registrations for the
+# SAME config entry would produce -- and solves finish in ~1-2s (per
+# issue #85's own captured diagnostic dump), well under _SOLVER_INTERVAL,
+# so the PID-lock overlap guard in solver_writer.py's acquire_lock()
+# never even sees them as concurrent; each one just runs to completion
+# and pushes its own real result a few seconds after the other.
+#
+# Same root mechanism #210 already fixed for retrain (this project's own
+# test_coordinator_setup_does_not_block_on_retrain.py docstring: HA
+# abandoning/retrying a slow async_setup_entry() while the original
+# attempt's own coroutine keeps running in the background on an executor
+# job, eventually finishing and re-registering everything a second time)
+# -- just a different slow step tripping the same abandon-and-retry path,
+# since #210 only backgrounded the retrain call specifically. The
+# abandoned attempt's own hass.config_entries.async_forward_entry_setups()
+# call is a silent no-op the second time (platforms already forwarded),
+# which is why this doesn't reproduce the loud "does not generate unique
+# IDs" error #210 fixed -- but nothing stopped it from reaching the
+# _periodic_solve registration below and creating a second, independent,
+# permanently-live timer. Explains why a prior `reload_config_entry`
+# didn't fix this live: if whatever makes setup slow is a standing
+# condition (not a one-off timing fluke), the reload's own fresh
+# async_setup_entry() call can retrigger the identical race immediately.
+_solver_timer_unsub: dict[str, Callable[[], None]] = {}
 
 
 async def _async_rename_stale_forecast_entities(
@@ -197,12 +239,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: NimbusConfigEntry) -> bo
     # tracker's own returned unsubscribe callable is the same, already-
     # proven pattern as the update listener two lines above -- correctly
     # cancels the timer on unload/reload, no leaked callback.
+    # Idempotent: cancel any timer already registered for this entry_id
+    # before creating a new one -- see _solver_timer_unsub's own comment
+    # above for why a second one can otherwise end up coexisting with the
+    # first. async_track_time_interval()'s own returned unsub is safe to
+    # call more than once (a plain listener-removal, no-ops if already
+    # removed), so the entry.async_on_unload() registration below still
+    # applies cleanly on top of this.
+    old_unsub = _solver_timer_unsub.pop(entry.entry_id, None)
+    if old_unsub is not None:
+        old_unsub()
+
     async def _periodic_solve(now) -> None:
         await solver_runtime.async_run_solve(hass)
 
-    entry.async_on_unload(
-        async_track_time_interval(hass, _periodic_solve, _SOLVER_INTERVAL)
+    unsub_periodic_solve = async_track_time_interval(
+        hass, _periodic_solve, _SOLVER_INTERVAL
     )
+    _solver_timer_unsub[entry.entry_id] = unsub_periodic_solve
+    entry.async_on_unload(unsub_periodic_solve)
     # One immediate cycle at setup too, in the background -- so a fresh
     # install (or a restart) doesn't sit with an empty forecast for up to
     # a full _SOLVER_INTERVAL before anything shows up.
@@ -227,4 +282,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: NimbusConfigEntry) -> b
     if unload_ok:
         for coordinator in entry.runtime_data.values():
             coordinator.async_unload()
+        # Symmetric with _solver_timer_unsub's own registration above --
+        # a genuinely removed (not just reloaded) entry shouldn't leave a
+        # stale, already-cancelled-by-entry.async_on_unload unsub sitting
+        # in this module-level dict forever.
+        _solver_timer_unsub.pop(entry.entry_id, None)
     return unload_ok
