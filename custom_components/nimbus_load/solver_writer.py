@@ -5504,6 +5504,18 @@ def main() -> None:
             "risk_aversion": risk_aversion,
             "import_price_risk_aversion": import_price_risk_aversion,
             "export_price_risk_aversion": export_price_risk_aversion,
+            # Nimbus issue #205 (Mark Purcell, 2026-08-26): asked for an
+            # entity exposing the terminal-value stack so overnight
+            # reserve size can be regressed against price data without
+            # pulling the full diagnostic each session. salvage_value is
+            # the configured $/kWh rate terminal_value_breakpoints_for()
+            # derives its curve from (see solver/elements.py's own
+            # BatteryConfig docstring); degradation_cost_per_kwh is the
+            # other half of the marginal-discharge economics driving the
+            # same reserve decision. Both are the flat, currently-active
+            # per-solve values, not a historical series.
+            "salvage_value": salvage_value,
+            "degradation_cost_per_kwh": _cfg_num(cfg, "solver_degradation_cost_per_kwh", 0.0),
             "total_charge_kwh": round(total_charge_kwh, 2),
             "total_discharge_kwh": round(total_discharge_kwh, 2),
             "total_throughput_kwh": round(total_throughput_kwh, 2),
