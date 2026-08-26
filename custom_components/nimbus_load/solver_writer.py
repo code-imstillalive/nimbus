@@ -5516,6 +5516,14 @@ def main() -> None:
             # sqrt(round_trip) to each direction independently -- see
             # charge_discharge_efficiency's own comment above.
             "battery_kw_side": "AC",
+            # Nimbus issue #197 (Mark Purcell, 2026-08-26): battery_kw's own
+            # sign wasn't documented anywhere, and its convention here is
+            # the opposite of what a reader would naturally assume --
+            # net_battery = discharge_kw - charge_kw above, so POSITIVE
+            # means discharging and NEGATIVE means charging. Mark had to
+            # reverse-derive this from his own SoC data before he could
+            # trust an external analysis built on this field.
+            "battery_kw_sign_convention": "positive_discharge_negative_charge",
             "efficiency_convention": "round_trip_symmetric_sqrt",
             "charge_efficiency": round(charge_discharge_efficiency, 4),
             "discharge_efficiency": round(charge_discharge_efficiency, 4),
