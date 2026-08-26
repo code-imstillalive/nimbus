@@ -88,6 +88,8 @@ know whether it's helping.
 
 **Verify.** Open Developer Tools → States and confirm `sensor.nimbus_solver_config` reads `configured`, and that at least one `sensor.nimbus_<your_load>_forecast` has a non-null `forecast` attribute. If either is missing, see the two gotchas below (`nimbus_load` naming, and the aggregator trap).
 
+**New to Nimbus and want the plain-English walkthrough instead of this section?** See [`docs/setup-guide.md`](docs/setup-guide.md) — same steps, explained without the jargon. [`docs/configuration-reference.md`](docs/configuration-reference.md) is the field-by-field lookup table for after you've set it up once.
+
 **A naming quirk worth knowing** ([#43](https://github.com/code-imstillalive/nimbus/issues/43)):
 every entity this integration creates carries the internal domain `nimbus_load`
 (e.g. `sensor.nimbus_load_solver_config`, `number.nimbus_load_solver_grid_max_export`),
