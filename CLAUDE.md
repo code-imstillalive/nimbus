@@ -4,7 +4,89 @@ Instructions for any Claude instance working on this repo. Read this before touc
 
 ---
 
-## ⚠️ CURRENT STATE (2026-08-17 morning) — read this first
+## ⚠️ CURRENT STATE (2026-08-26 evening) — read this first
+
+Supersedes the 2026-08-17 section below, which is kept as historical record only — its
+own Forecaster bug chain (#1-#7) is long since deployed and confirmed stable; don't
+re-diagnose it from that section's own present-tense wording.
+
+**Version: v0.94.2** (bumped from v0.94.1 this session). PRs #204, #206, #207 merged;
+#205 closed. Nothing currently open on the repo as of this writing.
+
+**#204 — required wizard fields now visually marked.** Every genuinely `vol.Required`
+field across the Solver Battery/Grid/Sources options-flow steps and the Load, Power
+Signal, Power Source, and PV String subentry steps gets a 🔴 prefix on its label, plus a
+"🔴 = required." legend on that step's own description — HA's generic `ha-form` gives
+every field the same plain look regardless of required/optional, so this was previously
+invisible until a validation error. Companion doc: `docs/setup-guide.md`, a plain-English
+start-to-finish setup walkthrough, cross-linked from the README's Install section
+alongside the existing field-by-field `docs/configuration-reference.md`.
+
+**#205/#206 — Mark Purcell's overnight-reserve question, answered from real code, not
+guessed.** Mark asked whether an 11.4kWh dawn SoC reserve (above the configured 5% floor)
+meant a hidden soft-floor bug. Verified directly in `solver/network.py:723`:
+`battery_soc_{t}`'s LP bound is `lb=battery.min_soc_kwh` at **every** period, uniformly —
+no separate floor exists anywhere. The real cause is `terminal_value_breakpoints`
+(the piecewise concave terminal-value curve) being evaluated at **every midnight boundary
+in the horizon, not just the true horizon end** — `solver_writer.py`'s
+`terminal_value_period_indices=sorted(set(midnight_boundary_period_indices(grid_times) +
+[len(grid_times) - 1]))`. That mechanism itself was built 2026-08-18 partly in response to
+Mark's own audit item #7, and is a soft economic nudge (not a hard constraint) — same
+caveat as its own 2026-08-22 origin story (shadow plan discharging 30-40min past a real
+P2P midnight cutoff). #206 closed the one real gap Mark's question surfaced: no entity
+exposed `salvage_value`/`degradation_cost_per_kwh` for regression against the price stack
+— both now live as attributes on `sensor.nimbus_solver_battery_forecast`, same pattern as
+the existing `risk_aversion`-style attributes.
+
+**A real, reproducible, NOT YET FIXED bug found live on devhub this session — needs a
+proper fix, not just documentation.** Every `homeassistant.reload_config_entry` (or any
+event that reloads the Nimbus config entry — editing wizard settings, HA restart, adding/
+removing a subentry) fires a burst of `Platform nimbus_load does not generate unique IDs`
+ERRORs for every static Solver `number.*`/`switch.*` entity and the three static
+`sensor.*` entities (`nimbus_solver_config`, `nimbus_topology_config`,
+`nimbus_solver_battery_forecast`... — NOT subentry-based forecast sensors, which are
+unaffected). No functional impact so far (first registration wins, entities keep working)
+but it's a genuine setup-code bug — reproduced 3 times live tonight
+(16:32:36, 17:19:07/17:19:23, 19:00:09 AEST), each time a config-entry reload happened.
+Root cause not yet investigated (likely: the platform's own `async_setup_entry` re-adding
+already-registered entities on every reload instead of being idempotent). Worth a proper
+fix + regression test before the next release — any real user who edits Solver settings
+via the wizard will hit this.
+
+**Devhub-side note, not a nimbus-code issue — for context only.** devhub (116KAT-HA-AI's
+Nimbus dev/test box, `192.168.1.151`) had accumulated a parallel, hand-rolled `rest:`
+platform "mirror" sensor layer (`sensor.mirror_*`, pulling NUC1's real values over its own
+REST API) plus matching Nimbus subentries, built before/alongside the real
+`remote_homeassistant` 1:1 mirror connection that devhub also has. Confirmed genuinely
+redundant (real, working non-mirror equivalents already existed for every one) and removed
+entirely tonight, at the household's explicit direction — see 116KAT-HA-AI's own CLAUDE.md
+for the full removal record. Also found and fixed, independently, a Watts/kW scaling bug
+on a devhub dashboard chart plotting `sensor.combined_total_dc_power` (real, native-Watts
+NUC1 solar sensor) without the same `x/1000` transform every sibling circuit series in
+that chart already used — a dashboard-config fix, not a nimbus code change. Neither of
+these affects the nimbus repo itself; noted here only so a future session doesn't
+rediscover the same devhub architecture from scratch.
+
+**A genuinely portable field-semantics pitfall, found the same night on a devhub dashboard
+table but worth flagging here since ANY dashboard built against the Solver's forecast data
+could hit it.** The per-interval plan dict's `bonus_price` field (see `solver_writer.py`
+line ~5393, `"bonus_price": round(export_bonus_price[i], 4)`) is, by design,
+`max(0.0, p2p_export[i] - spot_export[i])` — the real INCREMENTAL P2P premium over spot
+(see `elements.py`'s own `export_bonus_price` docstring: "the real INCREMENTAL premium (P2P
+rate minus spot)"). That's the economically correct quantity for LP pricing purposes, and
+nothing in the solver itself is wrong. But a household reading `bonus_price` alone and
+expecting it to equal "the real P2P rate" (the number a live gauge/tariff plan would show)
+will see a mismatch — devhub's own Solver Forecast table did exactly this
+(`P2P¢` column showing `bonus_price*100` alone, ~28-40c, while the real live gauge read
+~43c). **The real absolute P2P rate for display purposes is `export_price + bonus_price`**,
+not `bonus_price` alone. Not a code bug — `bonus_price` is correctly named and correctly
+computed for its actual (LP-internal) purpose — but worth calling out explicitly in any
+future docs/dashboard-example code so "P2P price" always means the real absolute rate to
+an end user, never the bare incremental component, unless clearly labeled otherwise.
+
+---
+
+## ⚠️ CURRENT STATE (2026-08-17 morning) — historical, superseded by the section above
 
 ### Thread 1 — Forecaster fixes, still pending deploy
 
