@@ -152,6 +152,7 @@ from __future__ import annotations
 import functools
 import io
 import json
+import logging
 import os
 import statistics
 import sys
@@ -1187,6 +1188,20 @@ if not TOKEN:
 # whether a real hass instance has been injected.
 _NATIVE_HASS = None  # None = standalone/REST mode (default, unchanged behaviour).
 
+# stdlib logging.Logger, NOT this file's own print() convention -- deliberately
+# so the #85 trace below (which used to be print()-only, and per issue #85's
+# own thread was "cannot be surfaced via HA log API (print -> stdout, not
+# _LOGGER); ignore") actually lands somewhere ha_get_logs()/HA's error_log can
+# see it in native mode. logging.getLogger() is plain stdlib, not an HA
+# import, so this doesn't compromise the standalone/cron/addon path's own
+# "zero HA imports" requirement -- in that mode nothing configures a handler
+# for this logger, so it's silent by default exactly as before. In native
+# mode this logger is a child of HA's own logging tree (module name matches
+# this file's dotted path), so `logger.set_level` /
+# `custom_components.nimbus_load.solver_writer: debug` in configuration.yaml
+# both work on it exactly like any other HA component logger.
+_LOGGER = logging.getLogger(__name__)
+
 # PURE INTEGRATION dispatch seam (2026-08-23, issue #55) -- lets
 # sensor.py's real SensorEntity classes register themselves as the
 # native-mode handler for a specific entity_id, so ha_post_state() below
@@ -1357,16 +1372,23 @@ def ha_post_state(entity_id: str, state, attributes: dict) -> None:
         # fallback for an entity_id that SHOULD have a registered
         # handler (which would mean the handler was unregistered
         # between two calls -- a real, different bug class from #83).
-        # print(), not logging -- this module has no _LOGGER (it's a
-        # bare-Python script by design, must run standalone/cron/addon
-        # with zero HA imports); matches this file's own existing
-        # print(f"[...]") trace convention elsewhere in main().
-        print(
-            f"[{datetime.now(UTC).isoformat()}] #85 trace: ha_post_state "
-            f"entity_id={entity_id} state={state!r} "
+        # print() kept for the standalone/cron/addon deployment (still
+        # zero HA imports there, and this trace is genuinely useful when
+        # tailing that process's own stdout). _LOGGER.debug() added
+        # alongside it (2026-08-27, live devhub recurrence of #85's own
+        # symptom on these same two entities, ~3x the expected write
+        # frequency per the recorder's own 16 KB-attrs WARNING counts) --
+        # purcell-lab's own suggested next capture on #85 was exactly
+        # this: "_LOGGER (not print) for ha_post_state, so it lands in
+        # error_log". Native-mode only (this whole branch already is),
+        # so the standalone/addon "zero HA imports" contract is untouched.
+        _trace_msg = (
+            f"#85 trace: ha_post_state entity_id={entity_id} state={state!r} "
             f"attrs_keys={sorted(attributes.keys()) if attributes else attributes} "
             f"via_handler={handler is not None}"
         )
+        print(f"[{datetime.now(UTC).isoformat()}] {_trace_msg}")
+        _LOGGER.debug(_trace_msg)
         if handler is not None:
             _NATIVE_HASS.add_job(functools.partial(handler, state, attributes))
             return
@@ -1376,6 +1398,20 @@ def ha_post_state(entity_id: str, state, attributes: dict) -> None:
         # from a worker thread. hass.add_job() is HA's own documented
         # thread-safe scheduling primitive for exactly this: safe to call
         # from any thread, correctly hops onto the event loop itself.
+        # Also #85 diagnostic: purcell-lab's own follow-up ask on that
+        # issue was "a single trace line at every entry to the
+        # states.async_set() fallback ... whether or not the dispatch
+        # table routes elsewhere" -- via_handler=False above already
+        # covers "did we reach the fallback", this WARNING-level line
+        # additionally covers "did the fallback actually get scheduled",
+        # visible without opting into DEBUG logging first.
+        _LOGGER.warning(
+            "Nimbus #85 trace: raw states.async_set fallback used for %s "
+            "(no registered SensorEntity handler) state=%r attrs_keys=%s",
+            entity_id,
+            state,
+            sorted(attributes.keys()) if attributes else attributes,
+        )
         _NATIVE_HASS.add_job(
             functools.partial(
                 _NATIVE_HASS.states.async_set, entity_id, state, attributes
