@@ -10,6 +10,29 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.94.2] — 2026-08-26
+
+### Added
+- **Required wizard fields are now marked with a 🔴 indicator** (#204):
+  every genuinely `vol.Required` field across the Solver Battery/Grid/
+  Sources options-flow steps and the Load, Power Signal, Power Source,
+  and PV String subentry steps gets a 🔴 prefix on its label, plus a
+  "🔴 = required." legend on that step's own description. Home Assistant's
+  generic `ha-form` renderer gives every field the same plain look
+  regardless of required/optional, so this was previously invisible
+  until you hit a validation error.
+- **`docs/setup-guide.md`**: a plain-English, start-to-finish setup
+  walkthrough (install → hub → Forecaster → Solver → adding Loads/Power
+  Signals/topology extras → verifying it worked), using the same
+  🔴-required convention and restating the existing README gotchas in
+  everyday language. Linked from the README's Install section alongside
+  the field-by-field `docs/configuration-reference.md`.
+- **`salvage_value`/`degradation_cost_per_kwh` diagnostic attributes**
+  (#206, closes #205): `sensor.nimbus_solver_battery_forecast` now
+  exposes both, alongside the existing `risk_aversion`-style attributes,
+  so overnight reserve size can be regressed against the price stack
+  without pulling the full diagnostic dump each session.
+
 ## [0.94.1] — 2026-08-26
 
 ### Fixed
