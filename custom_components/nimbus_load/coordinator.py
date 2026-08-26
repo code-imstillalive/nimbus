@@ -882,6 +882,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "mode": self._mode,
                 "trained_at": None,
                 "training_points": 0,
+                "model_type": None,
                 "validation_mae": {},
                 "validation_mase": {},
                 "mase_scale_points": 0,
@@ -1040,6 +1041,13 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "mode": self._mode,
             "trained_at": self._trained.trained_at.isoformat(),
             "training_points": self._trained.training_points,
+            # getattr-defensive, same reasoning as mase_scale_points/resample_minutes/
+            # training_span_days below (nimbus issue #196): model_type has existed on
+            # TrainedModel since before this field was ever surfaced here, so every
+            # currently-persisted .pkl already has it -- but a future TrainedModel field
+            # added the same way should follow this same defensive pattern from day one,
+            # not direct attribute access, until proven safe against every deployed .pkl.
+            "model_type": getattr(self._trained, "model_type", None),
             "validation_mae": self._trained.validation_mae,
             "validation_mase": self._trained.validation_mase,
             # getattr-defensive (not direct attribute access) -- these

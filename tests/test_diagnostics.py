@@ -232,6 +232,36 @@ def test_get_config_entry_diagnostics_groups_subentries_and_includes_solver():
     assert result["solver_config"] == {"configured": False}
 
 
+def test_get_config_entry_diagnostics_surfaces_model_type():
+    # Nimbus issue #196 (Mark Purcell): PR #193 fixed model selection across
+    # {knn, gbrt, naive}, but the diagnostic gave no way to see WHICH model
+    # actually deployed -- validation_mae shows the inputs to the decision,
+    # never the outcome. Confirms model_type survives into the per-subentry
+    # diagnostic dump, both when set and when absent (a pre-#196 coordinator
+    # tick, or an untrained coordinator).
+    ps = _fake_subentry("ps1", "power_source", {}, title="Battery")
+    coordinators = {
+        "ps1": _fake_coordinator(
+            ps, {"forecast": [], "trained_at": "x", "model_type": "naive"}
+        ),
+        "ps2": _fake_coordinator(
+            _fake_subentry("ps2", "power_source", {}, title="Grid"),
+            {"forecast": [], "trained_at": None},  # no model_type key at all
+        ),
+    }
+    entry = _fake_entry(coordinators, {})
+    hass = MagicMock()
+    hass.states.get.return_value = None
+
+    import asyncio
+
+    result = asyncio.run(diagnostics.async_get_config_entry_diagnostics(hass, entry))
+
+    by_id = {s["subentry_id"]: s for s in result["subentries"]}
+    assert by_id["ps1"]["coordinator"]["model_type"] == "naive"
+    assert by_id["ps2"]["coordinator"]["model_type"] is None
+
+
 def test_solver_config_diagnostics_none_when_entity_never_pushed():
     hass = MagicMock()
     hass.states.get.return_value = None
