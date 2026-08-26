@@ -2571,6 +2571,31 @@ def resample_generic_price_forecast(
     preferred where present -- this only widens what counts as usable,
     it never changes what an existing Amber-shaped sensor resolves to.
     """
+    r = resample_generic_price_forecast_with_coverage(entity_id, grid_times)
+    return r[0] if r is not None else None
+
+
+def resample_generic_price_forecast_with_coverage(
+    entity_id: str, grid_times: list[datetime]
+) -> tuple[list[float], list[bool]] | None:
+    """Same resampling as resample_generic_price_forecast() (see that
+    function's own docstring for the full "why a generic {time,value}
+    resampler" story), plus a per-period REAL-coverage mask alongside
+    the values.
+
+    `real_mask[i]` is True only when grid_times[i] falls within this
+    source's own [first real point, last real point] span -- False for
+    any period where the "hold the most recent point" step-lookup above
+    had nothing real to hold yet (before the source's first point) or
+    is repeating its last point flat because the source's own forecast
+    doesn't reach that far. Extracted as its own function (2026-08-27,
+    nimbus repo issue #216, Mark Purcell) specifically so
+    blend_price_with_secondary_sources() can tell a genuine second
+    opinion apart from a source silently repeating its own boundary
+    value -- see that function's own docstring for why the distinction
+    matters. resample_generic_price_forecast() itself just discards the
+    mask, unchanged for every other existing caller.
+    """
     try:
         state = ha_get(entity_id)
     except Exception:  # noqa: BLE001 -- see docstring: "never raises", caller falls back to the flat current-value repeat
@@ -2590,11 +2615,14 @@ def resample_generic_price_forecast(
     if not points:
         return None
     points.sort(key=lambda p: p[0])
+    first_t, last_t = points[0][0], points[-1][0]
     result: list[float] = []
+    real_mask: list[bool] = []
     for gt in grid_times:
         candidates = [v for t, v in points if t <= gt]
         result.append(candidates[-1] if candidates else points[0][1])
-    return result
+        real_mask.append(first_t <= gt <= last_t)
+    return result, real_mask
 
 
 def blend_price_with_secondary_sources(
@@ -2602,6 +2630,7 @@ def blend_price_with_secondary_sources(
     cfg: dict,
     secondary_keys: tuple[str, str],
     grid_times: list[datetime],
+    primary_real_mask: list[bool] | None = None,
 ) -> tuple[list[float], NDArray[np.float64] | None]:
     """Optional second/third price source blending (2026-08-25, direct
     household ask: "u also are missing my blended price forecasts...
@@ -2616,14 +2645,42 @@ def blend_price_with_secondary_sources(
     duplicating the fetch/blend loop.
 
     Fetches each configured secondary source via
-    resample_generic_price_forecast() (the same generic resampler the
-    portable fallback branch already uses -- also accepts NEM PD7's own
-    `calibrated` field, see that function's own docstring), blends with
-    `primary` via blend_forecast_array() for the combined point
-    estimate, and returns cross_source_spread() as a real, earned
+    resample_generic_price_forecast_with_coverage() (the same generic
+    resampler the portable fallback branch already uses -- also accepts
+    NEM PD7's own `calibrated` field, see that function's own
+    docstring), and returns cross_source_spread() as a real, earned
     disagreement-based uncertainty signal (not an arbitrary knob) for
     the caller to feed into price_risk_aversion's own band, exactly as
     solar's own multi-source spread widens its confidence band.
+
+    COVERAGE-AWARE (2026-08-27, nimbus repo issue #216, Mark Purcell:
+    "Solver export_price is a ~0.5x linear compression of the Amber
+    Express feed-in sensor"). Previously blended every configured
+    source at a flat, unconditional equal weight across the WHOLE grid,
+    including periods where a source's own real forecast doesn't reach
+    yet -- resample_generic_price_forecast() silently holds a source's
+    own first/last real point flat for any grid time outside its real
+    coverage, and the old blend treated that placeholder exactly like a
+    genuine second opinion, diluting a fully real primary value 50/50
+    with a source that was really just repeating its own boundary
+    number. Root-caused live: Mark's `_sensor_2` (a "day 2-7" AEMO
+    forecast with no real data for today at all) was blended 50/50
+    against a fully-real Amber Express primary for the ENTIRE captured
+    window, producing exactly the reported ~0.5x + constant-offset
+    compression -- confirmed by his own follow-up test clearing
+    `_sensor_2` and getting an exact 1:1 pass-through (R²=1.0000).
+
+    Now each configured source (primary included, via
+    `primary_real_mask` -- callers that don't have one default to
+    "always real", i.e. today's behaviour) contributes to a period ONLY
+    when that period is within that source's own real coverage span.
+    Periods where every configured source genuinely covers still blend
+    exactly as before; a period where only one source has real data
+    passes that source through unchanged (matches Mark's own
+    clear-`_sensor_2` finding); the rare period where NOTHING has real
+    coverage falls back to the old equal-weight blend across every
+    source (the honest "everyone's guessing" case) rather than an
+    arbitrary pick.
 
     Returns `(primary, None)` completely unchanged whenever no
     secondary source is configured OR configured but currently
@@ -2631,15 +2688,28 @@ def blend_price_with_secondary_sources(
     today) is byte-identical to before this function existed.
     """
     sources = [np.array(primary, dtype=float)]
+    real_masks: list[list[bool]] = [
+        list(primary_real_mask)
+        if primary_real_mask is not None
+        else [True] * len(primary)
+    ]
     for key in secondary_keys:
         entity_id = cfg.get(key)
         if entity_id:
-            fc = resample_generic_price_forecast(entity_id, grid_times)
-            if fc is not None:
+            r = resample_generic_price_forecast_with_coverage(entity_id, grid_times)
+            if r is not None:
+                fc, mask = r
                 sources.append(np.array(fc, dtype=float))
+                real_masks.append(mask)
     if len(sources) == 1:
         return primary, None
-    return list(blend_forecast_array(sources)), cross_source_spread(sources)
+    n = len(primary)
+    blended = np.empty(n, dtype=float)
+    for i in range(n):
+        real_idx = [j for j in range(len(sources)) if real_masks[j][i]]
+        idx = real_idx if real_idx else list(range(len(sources)))
+        blended[i] = float(np.mean([sources[j][i] for j in idx]))
+    return list(blended), cross_source_spread(sources)
 
 
 def fetch_aemo_forecast() -> list[tuple[datetime, float]]:
@@ -2804,7 +2874,7 @@ def resample_price_with_extrapolation(
     grid_times: list[datetime],
     aemo_pts: list[tuple[datetime, float]],
     offset_by_5min: dict[int, float],
-) -> list[float]:
+) -> tuple[list[float], list[bool]]:
     """Same nearest-at-or-before lookup as resample_forecast() for any
     grid_time within the real forecast's own coverage -- but for periods
     BEYOND the last real data point, uses real AEMO forward spot data
@@ -2814,6 +2884,15 @@ def resample_price_with_extrapolation(
     itself has no coverage for a given period (should not happen given
     AEMO's real 7.6-day coverage vs a 96h horizon, but defensive) --
     must never crash the writer.
+
+    Also returns a per-period real-coverage mask alongside the values
+    (2026-08-27, nimbus repo issue #216 -- same coverage-aware blending
+    story as resample_generic_price_forecast_with_coverage(), see that
+    function's own docstring). True only for a grid time within
+    [this source's first real point, its last real point] -- False both
+    before the first real point (the `pts[0][1]` placeholder below) and
+    at/after the last one, since AEMO-extrapolated periods are a
+    synthetic fill-in for THIS source, not a second genuine opinion.
     """
     pts = sorted(
         (
@@ -2824,7 +2903,8 @@ def resample_price_with_extrapolation(
         key=lambda x: x[0],
     )
     if not pts:
-        return [0.0 for _ in grid_times]
+        return [0.0 for _ in grid_times], [False for _ in grid_times]
+    first_real_time = pts[0][0]
     last_real_time = pts[-1][0]
     last_real_value = pts[-1][1]
 
@@ -2842,6 +2922,7 @@ def resample_price_with_extrapolation(
         return val
 
     out = []
+    real_mask = []
     for gt in grid_times:
         if gt <= last_real_time:
             val = pts[0][1]
@@ -2851,6 +2932,7 @@ def resample_price_with_extrapolation(
                 else:
                     break
             out.append(float(val))
+            real_mask.append(first_real_time <= gt)
             continue
         aemo_v = nearest_before(aemo_pts, gt)
         if aemo_v is not None:
@@ -2858,7 +2940,8 @@ def resample_price_with_extrapolation(
             out.append(float(aemo_v + offset_by_5min.get(bucket, 0.0)))
         else:
             out.append(float(last_real_value))
-    return out
+        real_mask.append(False)
+    return out, real_mask
 
 
 def build_tiered_grid(now: datetime) -> tuple[list[datetime], list[float]]:
@@ -4866,10 +4949,10 @@ def main() -> None:
         export_price_lower_band = compute_price_percentile_band(
             fetch_price_history("sensor.localvolts_earnings_flex_up", days=14), 10.0
         )
-        spot_import_raw = resample_price_with_extrapolation(
+        spot_import_raw, import_real_mask = resample_price_with_extrapolation(
             lv_price_fc, "costsflexup", grid_times, aemo_forecast, import_offset_by_5min
         )
-        spot_export = resample_price_with_extrapolation(
+        spot_export, export_real_mask = resample_price_with_extrapolation(
             lv_price_fc,
             "earningsflexup",
             grid_times,
@@ -4942,7 +5025,7 @@ def main() -> None:
         # household/Australian-NEM-specific and have no portable
         # equivalent yet (a real, honest, separately-tracked gap, not
         # pretended away).
-        _import_fc = resample_generic_price_forecast(
+        _import_fc = resample_generic_price_forecast_with_coverage(
             cfg["solver_import_price_sensor"], grid_times
         )
         # Real fee breakdown DOES apply to a generic install too, same
@@ -4950,19 +5033,19 @@ def main() -> None:
         # below, after this if/else (nimbus repo issue #152). This is
         # just the raw spot/live price; fees get added uniformly for
         # both branches after this block.
-        spot_import_raw = (
-            _import_fc
-            if _import_fc is not None
-            else [safe_num(cfg["solver_import_price_sensor"])] * n_periods
-        )
-        _export_fc = resample_generic_price_forecast(
+        if _import_fc is not None:
+            spot_import_raw, import_real_mask = _import_fc
+        else:
+            spot_import_raw = [safe_num(cfg["solver_import_price_sensor"])] * n_periods
+            import_real_mask = [True] * n_periods
+        _export_fc = resample_generic_price_forecast_with_coverage(
             cfg["solver_export_price_sensor"], grid_times
         )
-        spot_export = (
-            _export_fc
-            if _export_fc is not None
-            else [safe_num(cfg["solver_export_price_sensor"])] * n_periods
-        )
+        if _export_fc is not None:
+            spot_export, export_real_mask = _export_fc
+        else:
+            spot_export = [safe_num(cfg["solver_export_price_sensor"])] * n_periods
+            export_real_mask = [True] * n_periods
         match_fraction = 0.0
         # Manual, static P2P bonus from the config-flow's own optional
         # block (both default to 0.0 -- a full no-op -- if the household
@@ -4976,6 +5059,19 @@ def main() -> None:
         # this-household-specific enhancement in the fallback branch above.
         import_price_upper_band = {}
         export_price_lower_band = {}
+
+    # True pre-blend source pass-through (2026-08-27, nimbus repo issue
+    # #216, Mark Purcell's refined asks #1/#2: publish an
+    # export_price_raw alongside import_price_raw, and make `_raw`
+    # actually mean "what the configured source sensor itself said,
+    # before any transform" rather than the post-blend value). Captured
+    # here, BEFORE blend_price_with_secondary_sources() below can
+    # overwrite spot_import_raw/spot_export with a blended value -- on a
+    # single-source install (no secondary configured) these are
+    # byte-identical to the post-blend values, so nothing changes for
+    # the overwhelming majority of installs.
+    spot_import_source = list(spot_import_raw)
+    spot_export_source = list(spot_export)
 
     # Optional second/third price sources to BLEND (2026-08-25, direct
     # household ask: "u also are missing my blended price forecasts...
@@ -4993,12 +5089,14 @@ def main() -> None:
         cfg,
         ("solver_import_price_sensor_2", "solver_import_price_sensor_3"),
         grid_times,
+        primary_real_mask=import_real_mask,
     )
     spot_export, export_price_cross_spread = blend_price_with_secondary_sources(
         spot_export,
         cfg,
         ("solver_export_price_sensor_2", "solver_export_price_sensor_3"),
         grid_times,
+        primary_real_mask=export_real_mask,
     )
 
     # Generic + real: TOU network fees and the flat fee rate apply to
@@ -5424,8 +5522,27 @@ def main() -> None:
             # what LocalVolts' own app shows) and Fees¢ = import_price
             # minus this, instead of one opaque combined number nobody
             # outside this codebase could verify against anything real.
-            "import_price_raw": round(spot_import_raw[i], 4),
+            # True pre-blend source pass-through (2026-08-27, nimbus repo
+            # issue #216, Mark Purcell) -- what the configured
+            # solver_import_price_sensor itself said, before
+            # blend_price_with_secondary_sources() folds in any
+            # configured _sensor_2/_sensor_3. Previously this read
+            # spot_import_raw AFTER blending, so on any install with a
+            # secondary source configured, import_price_raw silently
+            # stopped being a real "before any transformation" probe --
+            # exactly Mark's own found-live gap ("on Config B... import_
+            # price and import_price_raw are byte-identical... isn't
+            # currently serving as a before-any-transformation
+            # diagnostic"). On a single-source install (no _sensor_2/_3
+            # configured) this is unchanged, byte-identical to before.
+            "import_price_raw": round(spot_import_source[i], 4),
             "export_price": round(export_price[i], 4),
+            # Same true pre-blend pass-through as import_price_raw above,
+            # for the export side -- new field (2026-08-27, nimbus repo
+            # issue #216, Mark Purcell's refined ask #1: "Publish
+            # export_price_raw (same shape as the existing
+            # import_price_raw attribute)").
+            "export_price_raw": round(spot_export_source[i], 4),
             "bonus_price": round(export_bonus_price[i], 4),
             "load_kw": round(load_kw[i], 3),
             "solar_kw": round(solar_kw[i], 3),
