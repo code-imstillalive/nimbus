@@ -42,8 +42,9 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from contextlib import ExitStack
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ha_stubs import install_ha_stubs
@@ -84,47 +85,89 @@ def _make_hass() -> MagicMock:
     return hass
 
 
-def _run_setup_entry_twice_for_same_entry() -> tuple[MagicMock, MagicMock, MagicMock]:
+def _run_setup_entry_twice_for_same_entry() -> tuple[MagicMock, MagicMock, int]:
     """Runs the real async_setup_entry() twice against the same entry_id,
     with every side effect this test isn't about mocked out. Returns
-    (first_unsub, second_unsub, async_track_time_interval_mock) so the
-    caller can assert on cancellation/storage behaviour."""
-    nimbus_init.health.install_log_buffer_handler = MagicMock()
-    nimbus_init.services.async_register_services = MagicMock()
-    nimbus_init.frontend.async_register_frontend = AsyncMock(return_value=None)
-    nimbus_init.async_get_integration = AsyncMock(return_value=MagicMock())
-    nimbus_init.solver_runtime.async_run_solve = AsyncMock(return_value=True)
+    (first_unsub, second_unsub, async_track_time_interval_call_count) so
+    the caller can assert on cancellation/storage behaviour.
 
+    Uses patch.object() (auto-restoring), NOT direct attribute assignment
+    on the shared nimbus_init/health/services/solver_runtime module
+    objects -- a plain `nimbus_init.health.install_log_buffer_handler =
+    MagicMock()` mutates the REAL, shared module for the rest of the
+    pytest session (all test files run in one process), which silently
+    broke test_sensor_health_report.py and test_services.py's own tests
+    of the real functions when first written this way (caught by CI).
+    """
     unsub_mocks = [MagicMock(name="unsub_1"), MagicMock(name="unsub_2")]
-    nimbus_init.async_track_time_interval = MagicMock(side_effect=unsub_mocks)
 
     entry = _make_entry("test_entry_id_211")
     hass = _make_hass()
 
-    asyncio.run(nimbus_init.async_setup_entry(hass, entry))
-    asyncio.run(nimbus_init.async_setup_entry(hass, entry))
+    with ExitStack() as stack:
+        stack.enter_context(
+            patch.object(nimbus_init.health, "install_log_buffer_handler")
+        )
+        stack.enter_context(
+            patch.object(nimbus_init.services, "async_register_services")
+        )
+        stack.enter_context(
+            patch.object(
+                nimbus_init.frontend,
+                "async_register_frontend",
+                new=AsyncMock(return_value=None),
+            )
+        )
+        stack.enter_context(
+            patch.object(
+                nimbus_init,
+                "async_get_integration",
+                new=AsyncMock(return_value=MagicMock()),
+            )
+        )
+        stack.enter_context(
+            patch.object(
+                nimbus_init.solver_runtime,
+                "async_run_solve",
+                new=AsyncMock(return_value=True),
+            )
+        )
+        tracker = stack.enter_context(
+            patch.object(
+                nimbus_init,
+                "async_track_time_interval",
+                new=MagicMock(side_effect=unsub_mocks),
+            )
+        )
 
-    return unsub_mocks[0], unsub_mocks[1], nimbus_init.async_track_time_interval
+        asyncio.run(nimbus_init.async_setup_entry(hass, entry))
+        asyncio.run(nimbus_init.async_setup_entry(hass, entry))
+
+        # Captured (not re-read from nimbus_init) BEFORE the ExitStack
+        # restores the original async_track_time_interval on exit --
+        # reading it after would see the unpatched real one instead.
+        call_count = tracker.call_count
+
+    return unsub_mocks[0], unsub_mocks[1], call_count
 
 
 def test_second_setup_for_same_entry_id_cancels_the_first_timer():
-    first_unsub, second_unsub, tracker = _run_setup_entry_twice_for_same_entry()
+    first_unsub, second_unsub, call_count = _run_setup_entry_twice_for_same_entry()
 
-    assert tracker.call_count == 2, (
+    assert call_count == 2, (
         "expected async_track_time_interval to be called once per "
         "async_setup_entry() invocation"
     )
-    first_unsub.assert_called_once(), (
-        "the FIRST call's own periodic-solve timer was never cancelled "
-        "when async_setup_entry() ran a second time for the same "
-        "entry_id -- this is the exact #211 bug: two live timers both "
-        "calling solver_runtime.async_run_solve() once a minute"
-    )
-    second_unsub.assert_not_called(), (
-        "the second (still-live, should-survive) timer's own unsub was "
-        "called -- it should still be the one live timer after two "
-        "setup calls for the same entry_id"
-    )
+    # .assert_called_once()/.assert_not_called() are plain mock method
+    # calls, not `assert` statements -- they raise their own
+    # AssertionError with a built-in message on failure, so there's no
+    # `, "message"` form to attach here the way a real `assert` allows.
+    first_unsub.assert_called_once()  # the FIRST timer must be cancelled
+    # when async_setup_entry() runs a second time for the same entry_id
+    # -- this is the exact #211 bug otherwise: two live timers both
+    # calling solver_runtime.async_run_solve() once a minute.
+    second_unsub.assert_not_called()  # the second (surviving) timer
+    # must still be live after two setup calls for the same entry_id.
 
 
 def test_module_level_dict_stores_only_the_latest_unsub():
