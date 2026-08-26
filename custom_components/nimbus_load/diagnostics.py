@@ -168,6 +168,7 @@ async def async_get_config_entry_diagnostics(
                     "mode": data.get("mode"),
                     "trained_at": data.get("trained_at"),
                     "training_points": data.get("training_points"),
+                    "model_type": data.get("model_type"),
                     "validation_mae": data.get("validation_mae"),
                     "validation_mase": data.get("validation_mase"),
                     "forecast_point_count": len(forecast),
