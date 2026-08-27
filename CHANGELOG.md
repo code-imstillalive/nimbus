@@ -10,6 +10,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.94.13] — 2026-08-27
+
+### Added
+- **`nimbus_load.solve_now` service** ([#232](https://github.com/code-imstillalive/nimbus/issues/232), [#254](https://github.com/code-imstillalive/nimbus/pull/254), thanks @purcell-lab). Mark's own suggestion: rather than the periodic timer guessing when a real settlement tick is likely to have landed (the #251 phase-alignment approach), an automation that genuinely watches the real price sensor's own state change can now call this service the instant a tick arrives — zero guessing, zero waiting. Reuses the exact same `solver_runtime.async_run_solve()` call the periodic timer itself makes, purely additive alongside it (doesn't replace the scheduled solve — a household still wants one on a period with no price change, e.g. a real SoC/load update).
+
 ## [0.94.12] — 2026-08-27
 
 ### Fixed
