@@ -5,3 +5,4 @@ retrain:
         entity:
           integration: nimbus_load
           multiple: true
+solve_now:

@@ -208,16 +208,24 @@ def test_handle_retrain_raises_for_partial_match_and_retrains_nothing():
     good._async_retrain.assert_not_called()
 
 
-def test_async_register_services_registers_once():
+def test_async_register_services_registers_both_load_and_signal():
+    """Both services (retrain, solve_now) get registered on a fresh
+    setup -- renamed from the original "_registers_once" name now that
+    there are two, but the underlying fresh-setup behavior is unchanged
+    for retrain specifically (still checked by service name below).
+    """
     hass = MagicMock()
     hass.services.has_service.return_value = False
 
     services.async_register_services(hass)
 
-    hass.services.async_register.assert_called_once()
-    args, _kwargs = hass.services.async_register.call_args
-    assert args[0] == services.DOMAIN
-    assert args[1] == services.SERVICE_RETRAIN
+    assert hass.services.async_register.call_count == 2
+    registered_names = {
+        call.args[1] for call in hass.services.async_register.call_args_list
+    }
+    assert registered_names == {services.SERVICE_RETRAIN, services.SERVICE_SOLVE_NOW}
+    for call in hass.services.async_register.call_args_list:
+        assert call.args[0] == services.DOMAIN
 
 
 def test_async_register_services_is_idempotent_on_reload():
@@ -227,6 +235,35 @@ def test_async_register_services_is_idempotent_on_reload():
     services.async_register_services(hass)
 
     hass.services.async_register.assert_not_called()
+
+
+def test_solve_now_calls_async_run_solve():
+    """The whole point of #232's own suggestion -- reuses the exact same
+    solve path the periodic timer calls, not a separate implementation.
+    """
+    hass = MagicMock()
+    call = _fake_call({})
+    fake_run_solve = AsyncMock(return_value=True)
+    services.solver_runtime.async_run_solve = fake_run_solve
+
+    asyncio.run(services._async_handle_solve_now(hass, call))
+
+    fake_run_solve.assert_called_once_with(hass)
+
+
+def test_solve_now_logs_a_warning_on_a_failed_solve_but_does_not_raise():
+    """async_run_solve()'s own contract is "never raises, returns False
+    on any handled failure" -- the service handler must respect that
+    same contract, not treat a False return as something to propagate
+    as an exception (which would surface as a confusing generic HA
+    service-call error instead of the real, already-descriptive status
+    already sitting on sensor.nimbus_solver_battery_forecast).
+    """
+    hass = MagicMock()
+    call = _fake_call({})
+    services.solver_runtime.async_run_solve = AsyncMock(return_value=False)
+
+    asyncio.run(services._async_handle_solve_now(hass, call))  # must not raise
 
 
 if __name__ == "__main__":
