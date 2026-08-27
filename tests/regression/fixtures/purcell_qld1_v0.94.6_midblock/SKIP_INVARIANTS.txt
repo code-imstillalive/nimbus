@@ -1,0 +1,7 @@
+# Opt out of SET-02 until v0.94.7 lands the row 1..N in-block identity fix.
+# See README.md in this directory for context and the reopened #220 discussion:
+#   https://github.com/code-imstillalive/nimbus/issues/220
+#
+# Remove this line (and probably re-capture the fixture from a fixed install)
+# once the follow-up fix ships.
+SET_02

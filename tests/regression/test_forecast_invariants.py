@@ -126,6 +126,16 @@ def _current_block_row(forecast):
     return forecast[0]
 
 
+def _skips_apply(fixture_skips: set[str], *tokens: str) -> bool:
+    """True if any of `tokens` is present in the fixture's opt-out set.
+
+    A fixture that lists a broad prefix (e.g. ``SET``) opts out of every
+    sub-invariant under that prefix (``SET_01``, ``SET_02``, …). A fixture
+    that lists a specific token (e.g. ``SET_02``) opts out of just that one.
+    """
+    return any(t in fixture_skips for t in tokens)
+
+
 def test_set_01_current_block_import_matches_source_state(
     forecast, amber_ex_general, fixture_skips
 ):
@@ -142,10 +152,10 @@ def test_set_01_current_block_import_matches_source_state(
     stale sample from the primary sensor's forecast[] array rather than
     its live state.
     """
-    if "SET" in fixture_skips:
+    if _skips_apply(fixture_skips, "SET", "SET_01"):
         import pytest
 
-        pytest.skip("fixture opts out of SET-* invariants (see SKIP_INVARIANTS.txt)")
+        pytest.skip("fixture opts out of SET-01 (see SKIP_INVARIANTS.txt)")
     row = _current_block_row(forecast)
     src_state = float(amber_ex_general["state"])
     ip = row["import_price"]
@@ -176,10 +186,10 @@ def test_set_01_current_block_export_matches_source_state(
     settled export could be diluted to positive by the secondary forecast,
     causing the LP to export into a curtailment window.
     """
-    if "SET" in fixture_skips:
+    if _skips_apply(fixture_skips, "SET", "SET_01"):
         import pytest
 
-        pytest.skip("fixture opts out of SET-* invariants (see SKIP_INVARIANTS.txt)")
+        pytest.skip("fixture opts out of SET-01 (see SKIP_INVARIANTS.txt)")
     row = _current_block_row(forecast)
     src_state = float(amber_ex_feed_in["state"])
     ep = row["export_price"]
@@ -192,6 +202,150 @@ def test_set_01_current_block_export_matches_source_state(
     assert abs(ep - epr) < 1e-6, (
         f"at t0={row['time']}: export_price={ep} != export_price_raw={epr} "
         "(current block must not be blended; #220)"
+    )
+
+
+# ─────────────────────────────────────────────────────────────
+# SET-02 — settled-block identity holds for *every* row in the
+# current NEM 5-minute block, not just forecast[0] (#220 reopen → #234)
+# ─────────────────────────────────────────────────────────────
+#
+# NEM settlement is a 5-minute block. Within that block the settled price is
+# a single scalar fact — every row Nimbus publishes whose timestamp falls in
+# [block_start, block_start + 5 min) must reflect that same scalar, unblended.
+#
+# The original #220 fix landed the identity guarantee on forecast[0] (the
+# leading "align-to-now" row). Live evidence from Mark Purcell's install on
+# 27-Aug-2026 showed that forecast[1..N] — the 60 s "tier-0 stretch" rows
+# `build_tiered_grid()` emits from now up to the next clean 5-minute mark —
+# retain the blended value. `import_price_raw` and `export_price_raw` DO carry
+# the correct identity value on those rows (proving the source data is
+# available in the writer's local scope), so the fix in PR #234 extends the
+# row-0-only override to all in-block rows.
+#
+# The v0.94.6 fixture (`purcell_qld1_v0.94.6/`) happens to be captured at
+# 15:05:00 — a NEM boundary — so forecast[0] is the only in-block row and
+# these tests will trivially pass with a single-row assertion. The
+# `purcell_qld1_v0.94.6_midblock/` fixture is captured mid-block on purpose
+# to exercise the multi-row case that PR #225's original SET-01 missed.
+
+
+def _nem_block_start(row_time_iso: str):
+    """Floor an ISO-8601 row timestamp to its NEM 5-minute block start.
+
+    Returns a timezone-aware datetime aligned to :00, :05, :10, …, :55.
+    """
+    t = datetime.fromisoformat(row_time_iso)
+    return t.replace(minute=(t.minute // 5) * 5, second=0, microsecond=0)
+
+
+def _rows_in_current_nem_block(forecast: list[dict]) -> list[dict]:
+    """All forecast rows whose timestamp is inside the NEM 5-minute block
+    that contains forecast[0]. Always contains at least forecast[0].
+
+    This does NOT include the first row of the next block. Boundary rows
+    (e.g. 17:35 when block starts at 17:30) belong to the *next* block.
+    """
+    assert forecast, "forecast[] is empty"
+    from datetime import timedelta
+
+    block_start = _nem_block_start(forecast[0]["time"])
+    block_end = block_start + timedelta(minutes=5)
+    rows: list[dict] = []
+    for r in forecast:
+        t = datetime.fromisoformat(r["time"])
+        if block_start <= t < block_end:
+            rows.append(r)
+        elif t >= block_end:
+            break
+    return rows
+
+
+def test_set_02_all_in_block_rows_import_matches_source_state(
+    forecast, amber_ex_general, fixture_skips
+):
+    """SET-02a: for EVERY forecast row inside the current NEM 5-minute block,
+    import_price == import_price_raw == amber_general.state (to 0.05 c/kWh).
+
+    Regression: #220 reopen (27-Aug-2026), fixed in PR #234. The row-0-only
+    fix from v0.94.5 left rows 1..N inside the current NEM block still blended.
+    Their `import_price_raw` fields already carried the correct identity value
+    (proving the source data was available in the writer's local scope), but
+    the effective `import_price` — the field the LP actually consumes for the
+    objective — was the pre-fix blended value.
+
+    Fixtures captured on a NEM boundary (e.g. purcell_qld1_v0.94.6/, at
+    15:05:00) trivially pass this test with a single in-block row. Fixtures
+    captured mid-block exercise the multi-row case.
+    """
+    if _skips_apply(fixture_skips, "SET", "SET_02"):
+        import pytest
+
+        pytest.skip("fixture opts out of SET-02 (see SKIP_INVARIANTS.txt)")
+    src_state = float(amber_ex_general["state"])
+    in_block = _rows_in_current_nem_block(forecast)
+    assert in_block, "no forecast rows in current NEM block (unexpected)"
+
+    failures = []
+    for r in in_block:
+        ip = r["import_price"]
+        ipr = r["import_price_raw"]
+        # Identity to source state (modulo rounding)
+        if abs(ip - src_state) >= 5e-4:
+            failures.append(
+                f"at t={r['time']}: import_price={ip} vs source_state={src_state} "
+                f"(diff={ip - src_state:+.6f})"
+            )
+        # Identity to _raw (blend must be bypassed for every in-block row)
+        if abs(ip - ipr) >= 1e-6:
+            failures.append(
+                f"at t={r['time']}: import_price={ip} != import_price_raw={ipr} "
+                "(in-block row is blended; #220 reopen)"
+            )
+    assert not failures, (
+        f"SET-02a: {len(failures)} in-block row(s) failed identity (of "
+        f"{len(in_block)} rows in block starting "
+        f"{_nem_block_start(forecast[0]['time'])}):\n  " + "\n  ".join(failures)
+    )
+
+
+def test_set_02_all_in_block_rows_export_matches_source_state(
+    forecast, amber_ex_feed_in, fixture_skips
+):
+    """SET-02b: for EVERY forecast row inside the current NEM 5-minute block,
+    export_price == export_price_raw == amber_feed_in.state (to 0.05 c/kWh).
+
+    Export-side companion to SET-02a. Getting this right matters most when
+    the settled block feed-in price is a spike (or negative). A blended
+    non-row-0 value dampens the price signal the LP sees for the remaining
+    seconds of the current NEM block, delaying dispatch response.
+    """
+    if _skips_apply(fixture_skips, "SET", "SET_02"):
+        import pytest
+
+        pytest.skip("fixture opts out of SET-02 (see SKIP_INVARIANTS.txt)")
+    src_state = float(amber_ex_feed_in["state"])
+    in_block = _rows_in_current_nem_block(forecast)
+    assert in_block, "no forecast rows in current NEM block (unexpected)"
+
+    failures = []
+    for r in in_block:
+        ep = r["export_price"]
+        epr = r["export_price_raw"]
+        if abs(ep - src_state) >= 5e-4:
+            failures.append(
+                f"at t={r['time']}: export_price={ep} vs source_state={src_state} "
+                f"(diff={ep - src_state:+.6f})"
+            )
+        if abs(ep - epr) >= 1e-6:
+            failures.append(
+                f"at t={r['time']}: export_price={ep} != export_price_raw={epr} "
+                "(in-block row is blended; #220 reopen)"
+            )
+    assert not failures, (
+        f"SET-02b: {len(failures)} in-block row(s) failed identity (of "
+        f"{len(in_block)} rows in block starting "
+        f"{_nem_block_start(forecast[0]['time'])}):\n  " + "\n  ".join(failures)
     )
 
 
