@@ -275,6 +275,10 @@
           "description": "One or more Nimbus forecast entities to retrain. Leave blank to retrain every configured Nimbus load and power signal."
         }
       }
+    },
+    "solve_now": {
+      "name": "Solve now",
+      "description": "Run one Solver optimisation cycle immediately, instead of waiting for the next scheduled tick. Reuses the exact same solve logic the periodic timer calls -- useful for an automation that watches a real price sensor and wants to react the instant a settled tick actually arrives, rather than guessing at a cron schedule."
     }
   }
 }

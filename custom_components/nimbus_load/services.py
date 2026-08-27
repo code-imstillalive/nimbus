@@ -32,12 +32,25 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
 
+from . import solver_runtime
 from .const import DOMAIN
 from .coordinator import NimbusCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
 SERVICE_RETRAIN = "retrain"
+
+# nimbus issue #232 (Mark Purcell): "Simplest, don't use cron, use a
+# service call to run optimisation." Direct response to the whole class
+# of cron-phase-alignment problems #244/#247/#251 were built to
+# mitigate -- rather than guessing when a real settlement tick is likely
+# to have landed and waiting a bounded amount, an automation that
+# genuinely watches the real price sensor's own state change can call
+# this the instant a tick actually arrives, with zero guessing at all.
+# Doesn't replace the periodic timer (a household still wants a solve
+# even on a period with no price change, e.g. a real SoC/load update) --
+# this is purely additive, an on-demand trigger alongside it.
+SERVICE_SOLVE_NOW = "solve_now"
 
 # unique_id is built as f"{subentry_id}{suffix}" -- see __init__.py's own
 # _async_rename_stale_forecast_entities(), which constructs it the other
@@ -125,18 +138,42 @@ async def _retrain_all(coordinators: list[NimbusCoordinator]) -> None:
         await asyncio.gather(*(c._async_retrain() for c in coordinators))
 
 
+async def _async_handle_solve_now(hass: HomeAssistant, call: ServiceCall) -> None:
+    """Runs exactly one solve cycle, right now, reusing the identical
+    `solver_runtime.async_run_solve()` call the periodic timer's own
+    `_periodic_solve()` callback makes in __init__.py -- not a separate
+    code path, so this can never drift from what the scheduled solve
+    actually does. `async_run_solve()` already has its own internal
+    concurrency guard (see its own docstring), so a service call landing
+    while a periodic solve is mid-flight is a safe no-op, not a race.
+    """
+    ok = await solver_runtime.async_run_solve(hass)
+    if not ok:
+        _LOGGER.warning(
+            "Nimbus: solve_now service call did not produce a successful "
+            "solve -- check sensor.nimbus_solver_battery_forecast's own "
+            "status attribute for the real reason"
+        )
+
+
 def async_register_services(hass: HomeAssistant) -> None:
     """Idempotent -- safe to call from every async_setup_entry run (hub
     add, edit, reload). HA's own service registry is domain-scoped, not
     entry-scoped, so a second registration for the same (domain, service)
     would otherwise raise on a hub reload.
     """
-    if hass.services.has_service(DOMAIN, SERVICE_RETRAIN):
-        return
+    if not hass.services.has_service(DOMAIN, SERVICE_RETRAIN):
 
-    async def _handle(call: ServiceCall) -> None:
-        await _async_handle_retrain(hass, call)
+        async def _handle_retrain(call: ServiceCall) -> None:
+            await _async_handle_retrain(hass, call)
 
-    hass.services.async_register(
-        DOMAIN, SERVICE_RETRAIN, _handle, schema=SERVICE_RETRAIN_SCHEMA
-    )
+        hass.services.async_register(
+            DOMAIN, SERVICE_RETRAIN, _handle_retrain, schema=SERVICE_RETRAIN_SCHEMA
+        )
+
+    if not hass.services.has_service(DOMAIN, SERVICE_SOLVE_NOW):
+
+        async def _handle_solve_now(call: ServiceCall) -> None:
+            await _async_handle_solve_now(hass, call)
+
+        hass.services.async_register(DOMAIN, SERVICE_SOLVE_NOW, _handle_solve_now)
