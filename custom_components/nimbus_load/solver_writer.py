@@ -5091,6 +5091,29 @@ def main() -> None:
     # scalar read in this file. Falls back to whatever the resampler
     # already produced (never crashes, never worse than before this
     # fix) if the state itself is unavailable/unparseable.
+    #
+    # PARTIAL-REGRESSION FIX (2026-08-27, issue #220 reopened, Mark
+    # Purcell): the first version of this fix only touched index 0.
+    # build_tiered_grid()'s own tier-0 stretch runs 1-minute periods from
+    # "now" up to the next clean 5-minute mark (0-4 extra periods,
+    # depending on where "now" falls) -- EVERY one of those tier-0 rows
+    # is still inside the SAME real NEM 5-minute settlement block as
+    # period 0, not a future one, so they need the identical settled-
+    # state override, not the forecast-array value. Confirmed live on
+    # Mark's install (2026-08-27 17:33 AEST): rows at :32 (period 0) held
+    # the correct identity, but :33/:34 (still inside the [17:30,17:35)
+    # block) had already fallen back to the blended forecast value.
+    # Computed directly from grid_times rather than threading a new
+    # "how many tier-0 rows" value out of build_tiered_grid() -- tier-0
+    # rows are 1-minute apart and never cross a 5-minute mark by
+    # construction, so counting how many leading grid_times share
+    # period 0's own 5-minute bucket is exactly equivalent and needs no
+    # change to that function's own signature.
+    _block_start = grid_times[0].replace(
+        minute=(grid_times[0].minute // 5) * 5, second=0, microsecond=0
+    )
+    _block_end = _block_start + timedelta(minutes=5)
+    n_settled_periods = sum(1 for t in grid_times if _block_start <= t < _block_end)
     settled_import_sensor = (
         "sensor.localvolts_costs_flex_up"
         if has_localvolts
@@ -5101,8 +5124,11 @@ def main() -> None:
         if has_localvolts
         else cfg["solver_export_price_sensor"]
     )
-    spot_import_raw[0] = safe_num(settled_import_sensor, fallback=spot_import_raw[0])
-    spot_export[0] = safe_num(settled_export_sensor, fallback=spot_export[0])
+    _settled_import_value = safe_num(settled_import_sensor, fallback=spot_import_raw[0])
+    _settled_export_value = safe_num(settled_export_sensor, fallback=spot_export[0])
+    for _i in range(n_settled_periods):
+        spot_import_raw[_i] = _settled_import_value
+        spot_export[_i] = _settled_export_value
 
     # True pre-blend source pass-through (2026-08-27, nimbus repo issue
     # #216, Mark Purcell's refined asks #1/#2: publish an
@@ -5144,12 +5170,16 @@ def main() -> None:
     )
     # Re-assert the settled current-block value (nimbus repo issue #220):
     # blend_price_with_secondary_sources() has no notion of "index 0 is
-    # now" and may have blended period 0 like any other if a secondary
-    # source happened to report real coverage there too -- the settled
-    # value set above is never a valid blend target, so re-apply it here
-    # as the final word regardless of what the blend step did.
-    spot_import_raw[0] = spot_import_source[0]
-    spot_export[0] = spot_export_source[0]
+    # now" (or, post-regression-fix, "indices 0..n_settled_periods-1 are
+    # all still now") and may have blended any of them like any other
+    # period if a secondary source happened to report real coverage
+    # there too -- the settled value set above is never a valid blend
+    # target, so re-apply it here as the final word regardless of what
+    # the blend step did, across every row inside the current NEM
+    # settlement block, not just index 0.
+    for _i in range(n_settled_periods):
+        spot_import_raw[_i] = spot_import_source[_i]
+        spot_export[_i] = spot_export_source[_i]
 
     # Generic + real: TOU network fees and the flat fee rate apply to
     # EVERY install, LocalVolts or not (nimbus repo issue #152, fixed
