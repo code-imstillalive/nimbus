@@ -432,6 +432,14 @@ CONF_SOLVER_SOLAR_FORECAST_SENSOR_3: Final = "solver_solar_forecast_sensor_3"
 # make the Open-Meteo half of it portable.
 CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR: Final = "solver_auto_include_known_solar"
 DEFAULT_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR: Final = False
+# Real-dispatch groundwork, phase 1 (2026-08-27) -- see solver_runtime.py's
+# own _log_dispatch_dry_run() docstring for the full story. Default False,
+# same as the toggle above: Nimbus never assumes a household wants a new
+# capability turned on just because an upgrade added the entity for it.
+# This switch only ever produces a log line -- there is no write path in
+# the codebase yet for it to enable even if someone flips it on.
+CONF_SOLVER_DISPATCH_DRY_RUN: Final = "solver_dispatch_dry_run"
+DEFAULT_SOLVER_DISPATCH_DRY_RUN: Final = False
 CONF_SOLVER_LOAD_FORECAST_SENSOR: Final = "solver_load_forecast_sensor"
 # Optional, more granular alternative to the single sensor above (2026-08-23,
 # real bug found live: solver_writer.py used to hardcode a Python list of

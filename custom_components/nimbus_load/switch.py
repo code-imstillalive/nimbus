@@ -37,7 +37,9 @@ from homeassistant.loader import async_get_integration
 
 from .const import (
     CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
+    CONF_SOLVER_DISPATCH_DRY_RUN,
     DEFAULT_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
+    DEFAULT_SOLVER_DISPATCH_DRY_RUN,
     DOMAIN,
 )
 
@@ -64,7 +66,14 @@ async def async_setup_entry(
                 "Auto-Include Known Solar Integrations",
                 DEFAULT_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
                 sw_version,
-            )
+            ),
+            NimbusSolverSwitch(
+                entry,
+                CONF_SOLVER_DISPATCH_DRY_RUN,
+                "Dispatch Dry Run",
+                DEFAULT_SOLVER_DISPATCH_DRY_RUN,
+                sw_version,
+            ),
         ]
     )
 
