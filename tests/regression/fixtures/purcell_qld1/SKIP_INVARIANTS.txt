@@ -1,0 +1,9 @@
+# Invariant families this fixture opts out of. One prefix per line.
+# See ../../conftest.py::fixture_skips.
+
+# This fixture was captured on Nimbus v0.94.4, which predates the #220 fix
+# (settled current-block prices bypass blending; released in v0.94.5).
+# Its forecast[0] therefore shows the blended value the fix eliminates —
+# valuable as a historical record but expected to fail SET-*.
+# See ./README.md and fixtures/purcell_qld1_v0.94.6/ for the post-fix pair.
+SET

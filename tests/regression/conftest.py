@@ -140,6 +140,25 @@ def _try_load(install_dir: Path, name: str) -> dict | None:
 
 
 @pytest.fixture
+def fixture_skips(install_dir: Path) -> set[str]:
+    """Set of invariant prefixes (e.g. ``SET``) that this fixture explicitly
+    opts out of, one prefix per non-blank line in ``SKIP_INVARIANTS.txt``.
+
+    Use this only when a fixture is deliberately kept as a historical record
+    of a pre-fix state (e.g. a golden captured before the #220 blend-bypass
+    landed). Prefer capturing a fresh fixture over adding skips.
+    """
+    p = install_dir / "SKIP_INVARIANTS.txt"
+    if not p.exists():
+        return set()
+    return {
+        line.strip().split("#", 1)[0].strip()
+        for line in p.read_text().splitlines()
+        if line.strip() and not line.strip().startswith("#")
+    }
+
+
+@pytest.fixture
 def amber_ex_feed_in(install_dir: Path) -> dict:
     """/api/states/sensor.amber_express_amber_feed_in_price — export-side source
     truth for the PRICE-01 regression. Skipped if absent (test only runs against

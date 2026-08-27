@@ -18,14 +18,15 @@ testers contribute their own captures.
 tests/regression/
 ├── README.md                            # this file
 ├── conftest.py                          # fixture loaders + parametrisation
-├── test_forecast_invariants.py          # RAW-*, PRICE-*, LP-* invariant suite
+├── test_forecast_invariants.py          # RAW-*, PRICE-*, SET-*, LP-* invariant suite
 └── fixtures/
     └── <install_name>/
         ├── README.md                    # provenance, install shape, capture wall-clock
+        ├── SKIP_INVARIANTS.txt          # optional; one prefix per line to opt out of
         ├── nimbus_diag.json             # /api/diagnostics/config_entry/<id>
         ├── nimbus_solver_battery_forecast.json   # optional; falls back to diag
-        ├── amber_ex_feed_in.json        # optional; gates PRICE-01
-        └── amber_ex_general.json        # optional; gates future PRICE-02
+        ├── amber_ex_feed_in.json        # optional; gates PRICE-01 and SET-01b
+        └── amber_ex_general.json        # optional; gates SET-01a
 ```
 
 Files are ordinary JSON captured directly from `curl` against the running HA
@@ -48,10 +49,21 @@ Prefixes match the domain areas in issue #217:
 |:-|:-|:-|
 | `RAW-*` | `_raw` diagnostic attribute conventions | #216 / #217 item 2 |
 | `PRICE-*` | Price pipeline source-sensor pass-through | #216 / #217 item 1 |
+| `SET-*` | Settled current-block price identity (no blend) | #220 |
 | `LP-*` | LP output invariants (SoC, power, signs, energy balance) | #125 / #147-149 / #217 item 1 |
 
 More prefixes will land as new invariants get extracted from prior IV&V
 reports (v0.82, v0.85, v0.88, v0.92).
+
+## Per-fixture opt-outs — `SKIP_INVARIANTS.txt`
+
+A fixture directory may include a `SKIP_INVARIANTS.txt` listing invariant
+**prefixes** (one per line; `#` for comments) it deliberately opts out of.
+Use this only for historical goldens whose behaviour predates the fix an
+invariant asserts — e.g. `fixtures/purcell_qld1/` was captured on v0.94.4,
+which predates the #220 blend-bypass shipped in v0.94.5, and therefore
+opts out of `SET`. Prefer capturing a fresh post-fix fixture over adding
+skips.
 
 ## Running the suite
 

@@ -14,10 +14,11 @@ To grow the suite: capture a new install into `fixtures/<name>/` (see
 conftest.py's docstring for file layout), and every existing invariant runs
 against it automatically via pytest parametrisation.
 
-Naming convention for invariants — three prefixes matching the areas called
+Naming convention for invariants — four prefixes matching the areas called
 out in #217:
   RAW-*   — `_raw` diagnostic attribute conventions
   PRICE-* — price pipeline source pass-through
+  SET-*   — settled-block price identity (#220)
   LP-*    — LP output invariants (SoC, power, signs, energy balance)
 """
 
@@ -86,6 +87,111 @@ def test_price_01_export_price_raw_matches_amber_express_source(
     assert aligned > 0, (
         "no forecast[] timestamps aligned with amber_ex_feed_in; capture window "
         "may not overlap the plan horizon"
+    )
+
+
+# ─────────────────────────────────────────────────────────────
+# SET-* — settled current-block prices are not blended (#220)
+# ─────────────────────────────────────────────────────────────
+#
+# Settled prices on the NEM (and, transitively, Amber and Local Volts) are
+# the closed value for the current 5-minute dispatch interval. They are a
+# fact, not a forecast — nothing Nimbus does downstream can change them,
+# and blending them with a secondary forecast produces an artefact that
+# doesn't correspond to any real market price. The invariant this section
+# codifies is: at the current settlement block (forecast[0], by LP
+# convention), the published price MUST equal the primary source sensor's
+# live `state`, and it MUST equal its own `_raw` companion (i.e. the blend
+# is bypassed for this row).
+#
+# Regression: v0.94.4 blended the current block against the forecast[] of
+# a secondary sensor and *also* published a stale sample as `_raw`. See
+# issue #220 for the numeric evidence. v0.94.5 (Raf, 2026-08-27) fixed
+# both — the writer now reads primary_sensor.state directly for the
+# current row and applies it after any downstream blending.
+#
+# Tolerance discussion: Nimbus rounds published forecast prices to 4 dp
+# ($/kWh), while `state` may carry more precision (e.g. state=0.0318708,
+# forecast=0.0319). The tolerance is set at 0.05 c/kWh (5e-4 $/kWh) — half
+# a rounding step — which comfortably distinguishes "identity, modulo
+# rounding" from "blended value" (which differed by 0.5–1.5 c/kWh in
+# the #220 evidence).
+
+
+def _current_block_row(forecast):
+    """The forecast row that represents the current settlement block. By LP
+    convention this is forecast[0]: the plan starts at "now" and each row
+    covers the next 5-minute interval forward."""
+    assert forecast, "forecast[] is empty"
+    return forecast[0]
+
+
+def test_set_01_current_block_import_matches_source_state(
+    forecast, amber_ex_general, fixture_skips
+):
+    """SET-01a: at the current settlement block, forecast[0].import_price and
+    forecast[0].import_price_raw both equal the primary import sensor's live
+    `state`, to within 0.05 c/kWh (one rounding-step tolerance).
+
+    This is the #220 identity for the import side: the settled block is
+    published unblended (import_price == import_price_raw) and its value
+    matches the source sensor's `state` (not a stale sample, not a blend).
+
+    Before v0.94.5 this failed with import_price ≈ blend of
+    (primary_state, secondary_forecast_at_t0), and import_price_raw was a
+    stale sample from the primary sensor's forecast[] array rather than
+    its live state.
+    """
+    if "SET" in fixture_skips:
+        import pytest
+
+        pytest.skip("fixture opts out of SET-* invariants (see SKIP_INVARIANTS.txt)")
+    row = _current_block_row(forecast)
+    src_state = float(amber_ex_general["state"])
+    ip = row["import_price"]
+    ipr = row["import_price_raw"]
+
+    # Identity 1: settled block equals the source's live state (modulo rounding)
+    assert abs(ip - src_state) < 5e-4, (
+        f"at t0={row['time']}: import_price={ip} vs source_state={src_state} "
+        f"(diff={ip - src_state:+.6f}); a blended value would differ by ≫ 5e-4"
+    )
+    # Identity 2: blend is bypassed for the current row → published == _raw
+    assert abs(ip - ipr) < 1e-6, (
+        f"at t0={row['time']}: import_price={ip} != import_price_raw={ipr} "
+        "(current block must not be blended; #220)"
+    )
+
+
+def test_set_01_current_block_export_matches_source_state(
+    forecast, amber_ex_feed_in, fixture_skips
+):
+    """SET-01b: at the current settlement block, forecast[0].export_price and
+    forecast[0].export_price_raw both equal the primary export sensor's live
+    `state`, to within 0.05 c/kWh (one rounding-step tolerance).
+
+    Same #220 identity as SET-01a but on the export side. Getting this right
+    matters most when Amber's feed-in price is *negative* (a genuine market
+    signal that the grid is oversupplied) — under the old blend a negative
+    settled export could be diluted to positive by the secondary forecast,
+    causing the LP to export into a curtailment window.
+    """
+    if "SET" in fixture_skips:
+        import pytest
+
+        pytest.skip("fixture opts out of SET-* invariants (see SKIP_INVARIANTS.txt)")
+    row = _current_block_row(forecast)
+    src_state = float(amber_ex_feed_in["state"])
+    ep = row["export_price"]
+    epr = row["export_price_raw"]
+
+    assert abs(ep - src_state) < 5e-4, (
+        f"at t0={row['time']}: export_price={ep} vs source_state={src_state} "
+        f"(diff={ep - src_state:+.6f}); a blended value would differ by ≫ 5e-4"
+    )
+    assert abs(ep - epr) < 1e-6, (
+        f"at t0={row['time']}: export_price={ep} != export_price_raw={epr} "
+        "(current block must not be blended; #220)"
     )
 
 
