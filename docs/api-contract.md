@@ -71,6 +71,7 @@ Top-level attributes:
 | `time` | ISO 8601 datetime | Period start. |
 | `hours` | float | Real period duration — NOT a fixed 0.25 assumption; the horizon is tiered (fine near-term, coarse further out). |
 | `battery_kw` | float | See `battery_kw_side`/`battery_kw_sign_convention` above. |
+| `battery_kw_after_efficiency` | float | Physical, post-efficiency energy rate at the battery terminals (issue #229) — `battery_kw` is the LP's own pre-efficiency decision variable, so `(soc_pct[0] - soc_pct[-1]) / 100 * capacity_kwh` only reconciles against `Σ(battery_kw_after_efficiency × hours)`, not against `battery_kw` directly. |
 | `soc_pct` | float, 0-100 | |
 | `grid_import_kw` / `grid_export_kw` | float, ≥0 | |
 | `solar_kw` / `load_kw` | float, ≥0 | |

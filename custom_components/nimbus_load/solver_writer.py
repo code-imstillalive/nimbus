@@ -5547,6 +5547,25 @@ def main() -> None:
         {
             "time": grid_times[i].isoformat(),
             "battery_kw": round(float(net_battery[i]), 3),
+            # Physical, post-efficiency energy rate at the battery terminals
+            # (2026-08-27, nimbus issue #229, Mark Purcell) -- battery_kw
+            # above is the LP's own pre-efficiency decision variable, which
+            # can't be reconciled against soc_pct without knowing the
+            # applied efficiency curve. Charge periods (battery_kw < 0)
+            # lose energy on the way into storage (× charge_efficiency);
+            # discharge periods (battery_kw > 0) lose energy on the way out
+            # (÷ discharge_efficiency) -- same charge_discharge_efficiency
+            # variable the charge_efficiency/discharge_efficiency top-level
+            # attributes below are already derived from. This is exactly
+            # the field tests/regression/test_forecast_invariants.py's
+            # LP-04 (energy-balance-closes) test was written against and
+            # previously skipped without.
+            "battery_kw_after_efficiency": round(
+                float(net_battery[i]) * charge_discharge_efficiency
+                if net_battery[i] < 0
+                else float(net_battery[i]) / charge_discharge_efficiency,
+                3,
+            ),
             "soc_pct": round(float(plan.battery_soc_kwh[i] / capacity_kwh * 100), 2),
             # import side uses corrected_grid_import (see the defensive
             # clamp above) -- keeps this consistent with battery_kw
