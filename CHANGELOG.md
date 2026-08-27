@@ -10,6 +10,12 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.94.8] — 2026-08-27
+
+### Added
+- `switch.nimbus_solver_dispatch_dry_run` — phase 1 of real-dispatch groundwork ([#227](https://github.com/code-imstillalive/nimbus/pull/227)). Defaulted off; when on, each solve cycle logs what the current period's plan would send, pure observation with no write path yet. Nimbus still has zero live battery/grid control -- this only makes what a future dispatch decision would be visible ahead of time.
+- `tests/regression/`: `SET-01a`/`SET-01b` settled-block price invariants + a `purcell_qld1_v0.94.6` fixture, plus a per-fixture `SKIP_INVARIANTS.txt` opt-out for historical goldens that predate a given invariant ([#225](https://github.com/code-imstillalive/nimbus/pull/225), thanks @purcell-lab).
+
 ## [0.94.7] — 2026-08-27
 
 ### Fixed
