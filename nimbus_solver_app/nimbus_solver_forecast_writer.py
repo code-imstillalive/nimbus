@@ -3497,6 +3497,20 @@ def main() -> None:
     )
 
     net_battery = plan.battery_discharge_kw - plan.battery_charge_kw
+    # DC-side (storage-side) signed power in the SAME sign convention as
+    # battery_kw: + = out of storage (discharge), - = into storage (charge).
+    # Integrating this against `hours` closes deterministically against
+    # Δ(soc_pct·capacity), so it unblocks the LP-04 energy-balance regression
+    # test in tests/regression/. See #229 / #217 item 1 / #168 item #4.
+    # Efficiency values are the same √-split figures BatteryConfig above
+    # computes -- read directly here to keep the two in lockstep.
+    _round_trip_eff = min(_cfg_num(cfg, "solver_efficiency_percent", 95.0) / 100.0, 0.999)
+    _charge_eff = _round_trip_eff ** 0.5
+    _discharge_eff = _round_trip_eff ** 0.5
+    battery_kw_after_efficiency = (
+        plan.battery_discharge_kw / _discharge_eff
+        - plan.battery_charge_kw * _charge_eff
+    )
     corrected_grid_import = plan.grid_import_kw
 
     # DEFENSIVE SAFETY NET (2026-08-22) -- this file's own real, found
@@ -3559,6 +3573,13 @@ def main() -> None:
         {
             "time": grid_times[i].isoformat(),
             "battery_kw": round(float(net_battery[i]), 3),
+            # DC-side (storage-side) view of battery_kw with the writer's
+            # round-trip-split efficiency applied per direction. Integrating
+            # this against `hours` closes against Δ(soc_pct·capacity) to
+            # within LP degeneracy (typically <1% of throughput) -- see #229.
+            "battery_kw_after_efficiency": round(
+                float(battery_kw_after_efficiency[i]), 3
+            ),
             "soc_pct": round(float(plan.battery_soc_kwh[i] / capacity_kwh * 100), 2),
             # import side uses corrected_grid_import (see the defensive
             # clamp above) -- keeps this consistent with battery_kw
