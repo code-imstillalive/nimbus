@@ -10,6 +10,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.94.11] — 2026-08-27
+
+### Added
+- `LPProblem.add_variable(binary=True)` + `LPProblem.is_mip` — real MIP support in `lp.py`, groundwork for #238's eventual complementarity constraint ([#249](https://github.com/code-imstillalive/nimbus/pull/249); the constraint itself is not written yet and `network.py` is untouched). Registers an integer column restricted to `[0, 1]` via HiGHS's own `changeColIntegrality` (no new dependency — HiGHS has always been the backend). Existing callers register zero binaries, so this is a proven no-op for every current caller, not just a claimed one. Recovers real work that had been orphaned on a stale branch with no PR and no test coverage — both fixed here, with `tests/test_solver_lp_binary_variables.py` (12 tests) added specifically to distinguish real recovered MIP duals from HiGHS's own all-zero placeholder, not just check the solve doesn't crash. #238 itself stays closed (COMPLETED) — this is groundwork for its explicitly-kept-open, non-blocking MILP follow-up, not a reopening.
+
 ## [0.94.10] — 2026-08-27
 
 ### Fixed
