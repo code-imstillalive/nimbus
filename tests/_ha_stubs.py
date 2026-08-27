@@ -466,6 +466,11 @@ def install_ha_stubs() -> None:
         # broke test_init_forecast_entity_rename.py's real, already-passing
         # test suite the moment that import landed.
         async_track_time_interval=MagicMock(),
+        # Added 2026-08-27 (issue #244, phase-locked solver cron) -- same
+        # exact gap as async_track_time_interval above: __init__.py now
+        # imports this at module level too, and every test importing
+        # custom_components.nimbus_load fails to collect without it.
+        async_track_utc_time_change=MagicMock(),
     )
     module(
         "homeassistant.helpers.update_coordinator",

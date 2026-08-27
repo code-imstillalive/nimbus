@@ -20,8 +20,11 @@ the LOUD "does not generate unique IDs" error #210 fixed -- but nothing
 stopped it from reaching the _periodic_solve registration and creating a
 second, independent, permanently-live timer.
 
-Fix: track the unsub callable for _periodic_solve's own
-async_track_time_interval registration in a module-level dict keyed by
+Fix: track the unsub callable for _periodic_solve's own periodic-timer
+registration (async_track_time_interval at the time this was fixed;
+async_track_utc_time_change since issue #244's phase-locked cron -- the
+idempotent single-timer-per-entry mechanism this test covers is unchanged
+by that swap) in a module-level dict keyed by
 entry_id (matching solver_writer.py's own _ENTITY_UPDATE_HANDLERS pattern
 for an identical class of problem -- NOT hass.data[DOMAIN], which this
 project deliberately moved off of for Quality Scale Bronze, see
@@ -88,7 +91,7 @@ def _make_hass() -> MagicMock:
 def _run_setup_entry_twice_for_same_entry() -> tuple[MagicMock, MagicMock, int]:
     """Runs the real async_setup_entry() twice against the same entry_id,
     with every side effect this test isn't about mocked out. Returns
-    (first_unsub, second_unsub, async_track_time_interval_call_count) so
+    (first_unsub, second_unsub, async_track_utc_time_change_call_count) so
     the caller can assert on cancellation/storage behaviour.
 
     Uses patch.object() (auto-restoring), NOT direct attribute assignment
@@ -135,7 +138,7 @@ def _run_setup_entry_twice_for_same_entry() -> tuple[MagicMock, MagicMock, int]:
         tracker = stack.enter_context(
             patch.object(
                 nimbus_init,
-                "async_track_time_interval",
+                "async_track_utc_time_change",
                 new=MagicMock(side_effect=unsub_mocks),
             )
         )
@@ -144,7 +147,7 @@ def _run_setup_entry_twice_for_same_entry() -> tuple[MagicMock, MagicMock, int]:
         asyncio.run(nimbus_init.async_setup_entry(hass, entry))
 
         # Captured (not re-read from nimbus_init) BEFORE the ExitStack
-        # restores the original async_track_time_interval on exit --
+        # restores the original async_track_utc_time_change on exit --
         # reading it after would see the unpatched real one instead.
         call_count = tracker.call_count
 
@@ -155,7 +158,7 @@ def test_second_setup_for_same_entry_id_cancels_the_first_timer():
     first_unsub, second_unsub, call_count = _run_setup_entry_twice_for_same_entry()
 
     assert call_count == 2, (
-        "expected async_track_time_interval to be called once per "
+        "expected async_track_utc_time_change to be called once per "
         "async_setup_entry() invocation"
     )
     # .assert_called_once()/.assert_not_called() are plain mock method

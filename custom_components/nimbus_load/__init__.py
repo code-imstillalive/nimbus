@@ -16,12 +16,11 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Callable
-from datetime import timedelta
 
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.event import async_track_utc_time_change
 from homeassistant.loader import async_get_integration
 
 from . import frontend, health, services, solver_runtime
@@ -31,12 +30,28 @@ from .sensor import object_id_from_source
 
 PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.NUMBER, Platform.SWITCH]
 
-# Same real cron cadence already proven live on this household's own NUC
-# (solver_writer.py's own module docstring -- "* * * * *", the fastest a
-# 1-tick-per-run schedule can safely go given real measured solve times).
-# solver_runtime.async_run_solve()'s own PID-file overlap guard makes
-# this safe even if a cycle occasionally runs long.
-_SOLVER_INTERVAL = timedelta(minutes=1)
+# Nimbus issue #244 (Mark Purcell, 2026-08-27): a plain 1-minute
+# `async_track_time_interval` has no phase relationship to the NEM 5-minute
+# settlement boundary (:00/:05/:10/...), so its phase drifts freely with
+# whatever second HA happened to start the integration on. Live-measured
+# evidence (24h of `sensor.amber_express_amber_feed_in_price.last_changed`,
+# 273 ticks): the settled AEMO tick lands in a tight [15s, 30s) window past
+# each boundary 89% of the time (median 20.4s). A cron with no relationship
+# to that window regularly solves just BEFORE the tick arrives, then waits
+# up to another full interval to pick it up -- issue #244's own measured
+# median expected loss was ~30s of stale-price dispatch per 5-minute block.
+#
+# Fix: phase-lock to the boundary instead of running on a free-running
+# interval -- solve at :00:30, :05:30, :10:30, ... (30s past every NEM
+# boundary, comfortably past the p90 tick-arrival window above). This is
+# issue #244's own "Option A": fewer solves overall (12/hour vs 60/hour)
+# AND a solve that's (almost) always looking at the current block's real
+# settled price rather than last block's stale one.
+#
+# solver_runtime.async_run_solve()'s own PID-file overlap guard makes this
+# safe even if a cycle occasionally runs long -- unchanged by this fix.
+_SOLVER_CRON_MINUTES = list(range(0, 60, 5))
+_SOLVER_CRON_SECOND = 30
 
 _FORECASTABLE_SUBENTRY_TYPES = (SUBENTRY_TYPE_LOAD, SUBENTRY_TYPE_SIGNAL)
 
@@ -47,7 +62,7 @@ _LOGGER = logging.getLogger(__name__)
 # coordinator.py's own comment next to NimbusConfigEntry). Same idempotent-
 # registration technique solver_writer.py's own _ENTITY_UPDATE_HANDLERS
 # already uses for an identical class of problem: keyed by entry_id, holds
-# the unsub callable for _periodic_solve's own async_track_time_interval
+# the unsub callable for _periodic_solve's own async_track_utc_time_change
 # registration below, so a second async_setup_entry() call for the SAME
 # entry_id can cancel the first one's timer before registering its own.
 #
@@ -60,7 +75,8 @@ _LOGGER = logging.getLogger(__name__)
 # call site per entity). Two full solves a minute apart is exactly what
 # TWO independent, live async_track_time_interval registrations for the
 # SAME config entry would produce -- and solves finish in ~1-2s (per
-# issue #85's own captured diagnostic dump), well under _SOLVER_INTERVAL,
+# issue #85's own captured diagnostic dump), well under the then-1-minute
+# interval (since superseded by issue #244's phase-locked cron above),
 # so the PID-lock overlap guard in solver_writer.py's acquire_lock()
 # never even sees them as concurrent; each one just runs to completion
 # and pushes its own real result a few seconds after the other.
@@ -242,10 +258,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: NimbusConfigEntry) -> bo
     # Idempotent: cancel any timer already registered for this entry_id
     # before creating a new one -- see _solver_timer_unsub's own comment
     # above for why a second one can otherwise end up coexisting with the
-    # first. async_track_time_interval()'s own returned unsub is safe to
-    # call more than once (a plain listener-removal, no-ops if already
-    # removed), so the entry.async_on_unload() registration below still
-    # applies cleanly on top of this.
+    # first. Both async_track_time_interval() and async_track_utc_time_
+    # change()'s own returned unsub are safe to call more than once (a
+    # plain listener-removal, no-ops if already removed), so the entry.
+    # async_on_unload() registration below still applies cleanly on top
+    # of this.
     old_unsub = _solver_timer_unsub.pop(entry.entry_id, None)
     if old_unsub is not None:
         old_unsub()
@@ -253,14 +270,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: NimbusConfigEntry) -> bo
     async def _periodic_solve(now) -> None:
         await solver_runtime.async_run_solve(hass)
 
-    unsub_periodic_solve = async_track_time_interval(
-        hass, _periodic_solve, _SOLVER_INTERVAL
+    # Phase-locked to the NEM 5-minute boundary + 30s (issue #244), not a
+    # free-running interval -- see _SOLVER_CRON_MINUTES/_SOLVER_CRON_SECOND's
+    # own comment above for why. AEST (this project's only real deployment
+    # timezone so far) is a whole-hour, no-DST offset from UTC, so matching
+    # on UTC minute/second here lands on the same wall-clock :00/:05/...
+    # boundary a local-time match would -- local=False (the default) is
+    # deliberately NOT switched to local=True, since that would need to
+    # re-derive on every DST transition in a timezone that has one.
+    unsub_periodic_solve = async_track_utc_time_change(
+        hass,
+        _periodic_solve,
+        minute=_SOLVER_CRON_MINUTES,
+        second=_SOLVER_CRON_SECOND,
     )
     _solver_timer_unsub[entry.entry_id] = unsub_periodic_solve
     entry.async_on_unload(unsub_periodic_solve)
     # One immediate cycle at setup too, in the background -- so a fresh
     # install (or a restart) doesn't sit with an empty forecast for up to
-    # a full _SOLVER_INTERVAL before anything shows up.
+    # a full 5-minute cron period before anything shows up.
     hass.async_create_task(solver_runtime.async_run_solve(hass))
 
     return True
