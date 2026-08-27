@@ -152,6 +152,42 @@ CONF_SOLAR_SENSOR: Final = "solar_sensor"
 CONF_FORECAST_HORIZON_HOURS: Final = "forecast_horizon_hours"
 CONF_RETRAIN_HOUR_LOCAL: Final = "retrain_hour_local"
 CONF_TRAIN_DAYS: Final = "train_days"
+# Where the retrain job pulls historical training data from.
+#
+# recorder -- the original, and still the safe default: reads the raw states table via
+#   get_significant_states(). Full sample resolution (every state change), but bounded
+#   by the recorder's own purge window -- an install with the HA default
+#   purge_keep_days=10 (or lower) genuinely cannot produce more than that much training
+#   history from this path, no matter what CONF_TRAIN_DAYS asks for. Confirmed live on
+#   Mark Purcell's own install 2026-08-28: a CONF_TRAIN_DAYS=30 request returned just
+#   5.9 days / 568 points because everything older had already been purged.
+#
+# lts -- long-term statistics only: reads the hour-bucketed statistics table via
+#   recorder.statistics.statistics_during_period(). Kept indefinitely by the recorder
+#   daemon (independently of purge_keep_days), so 30/90/365-day retrains are actually
+#   possible on an install where the recorder itself only retains a few days. Cost:
+#   hourly means, not full-resolution states -- fine for slowly-varying loads, blurs
+#   sharp intra-hour transitions (a pool pump switching on/off).
+#
+# hybrid -- BOTH: recent CONF_HYBRID_RECENT_DAYS at full recorder resolution PLUS the
+#   remainder of CONF_TRAIN_DAYS at hourly LTS, deduplicated at the boundary in favour
+#   of the recorder points. Captures both sharp recent behaviour AND long-run
+#   weekly/seasonal patterns. Best-quality option on a well-configured install,
+#   graceful-degrades to just-recorder on an install where LTS is empty and to
+#   just-LTS on an install where recorder has already purged everything.
+CONF_TRAINING_SOURCE: Final = "training_source"
+TRAINING_SOURCE_RECORDER: Final = "recorder"
+TRAINING_SOURCE_LTS: Final = "lts"
+TRAINING_SOURCE_HYBRID: Final = "hybrid"
+TRAINING_SOURCE_CHOICES: Final = (
+    TRAINING_SOURCE_RECORDER,
+    TRAINING_SOURCE_LTS,
+    TRAINING_SOURCE_HYBRID,
+)
+# In hybrid mode, how many trailing days come from recorder. The remainder
+# (CONF_TRAIN_DAYS - CONF_HYBRID_RECENT_DAYS) comes from LTS. 5 is comfortably below
+# HA's default 10-day purge_keep_days so almost every install produces both halves.
+CONF_HYBRID_RECENT_DAYS: Final = "hybrid_recent_days"
 
 # Per-load, NOT shared -- unlike temperature/humidity/curtailment (whole-
 # house signals every load's model can reasonably use), a fixed daily
@@ -185,6 +221,12 @@ CONF_EXPECTED_LOAD_KW: Final = "expected_load_kw"
 DEFAULT_FORECAST_HORIZON_HOURS: Final = 48
 DEFAULT_RETRAIN_HOUR_LOCAL: Final = 3
 DEFAULT_TRAIN_DAYS: Final = 30
+# Default stays recorder to preserve exact current behaviour on every existing install
+# -- opt-in to lts/hybrid via the Forecaster options form. Confirmed safe by construction:
+# a fresh install with no options set at all will resolve this default and take the
+# original recorder-only path unchanged.
+DEFAULT_TRAINING_SOURCE: Final = "recorder"
+DEFAULT_HYBRID_RECENT_DAYS: Final = 5
 DEFAULT_FALLBACK_TEMPERATURE_C: Final = 22.0
 # No humidity-forecast integration exists to source a horizon-length
 # humidity forecast from (unlike temperature, which has one) -- the
