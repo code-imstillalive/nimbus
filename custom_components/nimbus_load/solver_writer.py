@@ -5485,6 +5485,19 @@ def main() -> None:
     )
 
     net_battery = plan.battery_discharge_kw - plan.battery_charge_kw
+    # Pre-collapse per-direction arrays for battery_kw_after_efficiency
+    # below (2026-08-27, nimbus issue #229) -- kept separate from net_battery
+    # rather than reconstructed from its sign, because a period can have LP
+    # degeneracy noise on BOTH plan.battery_charge_kw[i] and
+    # plan.battery_discharge_kw[i] simultaneously; collapsing to net first
+    # and branching on its sign silently drops whichever direction's real
+    # efficiency loss the sign discarded. Applying each direction's own
+    # efficiency BEFORE summing (same approach Mark Purcell verified in
+    # PR #231 against the sibling nimbus_solver_app writer -- 0.013%
+    # residual vs 3.65% reconstructing from the post-collapse net value)
+    # is what actually closes tightly against Δ(soc_pct·capacity).
+    corrected_battery_charge_kw = plan.battery_charge_kw
+    corrected_battery_discharge_kw = plan.battery_discharge_kw
     corrected_grid_import = plan.grid_import_kw
 
     # DEFENSIVE SAFETY NET (2026-08-22) -- this file's own real, found
@@ -5523,11 +5536,26 @@ def main() -> None:
             net_battery = np.where(
                 _violation_mask, plan.battery_discharge_kw, net_battery
             )
+            corrected_battery_charge_kw = np.where(
+                _violation_mask, 0.0, plan.battery_charge_kw
+            )
             corrected_grid_import = np.where(
                 _violation_mask,
                 np.maximum(0.0, plan.grid_import_kw - plan.battery_charge_kw),
                 plan.grid_import_kw,
             )
+
+    # Physical, post-efficiency energy rate at the battery terminals
+    # (2026-08-27, nimbus issue #229, Mark Purcell) -- battery_kw above is
+    # the LP's own pre-efficiency decision variable, which can't be
+    # reconciled against soc_pct without knowing the applied efficiency
+    # curve. Built from the (possibly defensively-corrected, see above)
+    # per-direction arrays rather than net_battery's sign -- see that
+    # variable's own comment for why.
+    battery_kw_after_efficiency = (
+        corrected_battery_discharge_kw / charge_discharge_efficiency
+        - corrected_battery_charge_kw * charge_discharge_efficiency
+    )
 
     # Real per-period price/load/solar/net-cost fields added (2026-08-17,
     # direct ask: "still waiting for haeo like markdown table where I
@@ -5547,24 +5575,11 @@ def main() -> None:
         {
             "time": grid_times[i].isoformat(),
             "battery_kw": round(float(net_battery[i]), 3),
-            # Physical, post-efficiency energy rate at the battery terminals
-            # (2026-08-27, nimbus issue #229, Mark Purcell) -- battery_kw
-            # above is the LP's own pre-efficiency decision variable, which
-            # can't be reconciled against soc_pct without knowing the
-            # applied efficiency curve. Charge periods (battery_kw < 0)
-            # lose energy on the way into storage (× charge_efficiency);
-            # discharge periods (battery_kw > 0) lose energy on the way out
-            # (÷ discharge_efficiency) -- same charge_discharge_efficiency
-            # variable the charge_efficiency/discharge_efficiency top-level
-            # attributes below are already derived from. This is exactly
-            # the field tests/regression/test_forecast_invariants.py's
-            # LP-04 (energy-balance-closes) test was written against and
-            # previously skipped without.
+            # See battery_kw_after_efficiency's own definition above (nimbus
+            # issue #229) for why this is built from the per-direction
+            # arrays rather than net_battery[i] directly.
             "battery_kw_after_efficiency": round(
-                float(net_battery[i]) * charge_discharge_efficiency
-                if net_battery[i] < 0
-                else float(net_battery[i]) / charge_discharge_efficiency,
-                3,
+                float(battery_kw_after_efficiency[i]), 3
             ),
             "soc_pct": round(float(plan.battery_soc_kwh[i] / capacity_kwh * 100), 2),
             # import side uses corrected_grid_import (see the defensive
