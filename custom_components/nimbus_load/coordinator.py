@@ -75,6 +75,31 @@ from .ml.model import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# Idempotent cold-start-retrain task tracking, module-level (survives across
+# a re-entrant async_setup_entry() call the same way __init__.py's own
+# _solver_timer_unsub already does for the periodic-solve timer -- see that
+# dict's own comment for the full "HA abandons and retries a slow
+# async_setup_entry()" story, nimbus repo issue #211).
+#
+# PR #210 backgrounded this cold-start retrain via a bare
+# hass.async_create_task(self._async_retrain()) specifically to stop it
+# blocking hub setup -- but unlike the periodic-solve timer #213 later
+# fixed the SAME way, that task was never tracked or cancelled anywhere.
+# self._retraining (an instance attribute) only guards a SINGLE coordinator
+# object against being told to retrain twice concurrently -- it does
+# nothing for a genuinely SECOND, independent NimbusCoordinator object for
+# the SAME subentry_id, which is exactly what a re-entrant
+# async_setup_entry() call produces (a fresh `NimbusCoordinator(hass,
+# entry, subentry)` per subentry, every time that loop runs -- see
+# __init__.py's own async_setup_entry()). Two such coordinators would each
+# independently kick off their own untracked, uncancelled retrain against
+# the same subentry, each eventually calling _save_model_to_disk()/writing
+# their own forecast sensor -- a real, live-plausible contributor to the
+# "no longer has a state class" repair recurring on restarts/reloads, the
+# same underlying mechanism #210/#213 already fixed for two other call
+# sites in this exact class of bug.
+_retrain_tasks: dict[str, Any] = {}
+
 # Real, confirmed live 2026-08-17 -- see _async_fetch_history()'s own
 # comment at the point this is used for the full incident. A generous
 # physical sanity ceiling on any convert_power=True history point:
@@ -418,12 +443,27 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # this was blocking behaviour with no correctness reason behind
             # it, only a "get real data displayed a bit sooner" one, which a
             # background task still satisfies.
-            self.hass.async_create_task(self._async_retrain())
+            #
+            # Idempotent (2026-08-27, nimbus repo issue #211): cancel any
+            # retrain task already tracked for this subentry_id before
+            # scheduling a new one -- see _retrain_tasks' own module-level
+            # comment for why a second, independent coordinator object for
+            # the same subentry otherwise leaves an orphaned, untracked
+            # retrain running forever.
+            old_task = _retrain_tasks.pop(self.subentry.subentry_id, None)
+            if old_task is not None and not old_task.done():
+                old_task.cancel()
+            _retrain_tasks[self.subentry.subentry_id] = self.hass.async_create_task(
+                self._async_retrain()
+            )
 
     def async_unload(self) -> None:
         if self._unsub_retrain is not None:
             self._unsub_retrain()
             self._unsub_retrain = None
+        old_task = _retrain_tasks.pop(self.subentry.subentry_id, None)
+        if old_task is not None and not old_task.done():
+            old_task.cancel()
 
     async def _handle_retrain_trigger(self, _now: datetime) -> None:
         await self._async_retrain()

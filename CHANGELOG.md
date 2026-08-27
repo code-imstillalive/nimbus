@@ -10,6 +10,25 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.94.6] — 2026-08-27
+
+### Fixed
+- **Cold-start retrain task now idempotent, tracked, and cancelled on
+  unload** (#211): PR #210 backgrounded each subentry's cold-start retrain
+  via a bare `hass.async_create_task()`, fixing the blocking-setup bug it
+  targeted -- but never tracked or cancelled that task anywhere, unlike the
+  periodic solve timer PR #213 later fixed the same way. A second,
+  independent `NimbusCoordinator` object for the same subentry (the exact
+  shape HA's own "abandon and retry a slow `async_setup_entry()`" race
+  produces -- the same underlying mechanism #210 and #213 already fixed
+  for two other call sites) left an orphaned, untracked retrain running
+  forever, with no cancellation on unload/reload either. Very plausibly a
+  live contributor to the "no longer has a state class" repair recurring
+  on restarts. Now tracked in a module-level dict keyed by `subentry_id`
+  (mirroring `_solver_timer_unsub`'s own established pattern): a second
+  setup cancels the first coordinator's retrain task before starting its
+  own, and `async_unload()` cancels any still-running task on teardown.
+
 ## [0.94.5] — 2026-08-27
 
 ### Fixed
