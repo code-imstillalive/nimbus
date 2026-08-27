@@ -314,6 +314,16 @@ def install_ha_stubs() -> None:
     module(
         "homeassistant.components.recorder.history", get_significant_states=MagicMock()
     )
+    # Long-term statistics reader used by the coordinator's LTS/hybrid training
+    # paths. Real signature: (hass, start_time, end_time, statistic_ids, period,
+    # units, types) -> {statistic_id: [{start, end, mean, min, max, ...}, ...]}.
+    # Left as a plain MagicMock here; tests that exercise the LTS path monkeypatch
+    # its return value per scenario, same technique the get_significant_states stub
+    # already invites for the recorder-history path.
+    module(
+        "homeassistant.components.recorder.statistics",
+        statistics_during_period=MagicMock(),
+    )
     module(
         "homeassistant.components.sensor",
         SensorDeviceClass=MagicMock(),

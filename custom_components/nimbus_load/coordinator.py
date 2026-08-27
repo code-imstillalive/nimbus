@@ -27,6 +27,7 @@ from typing import Any
 import numpy as np
 from homeassistant.components.recorder import get_instance
 from homeassistant.components.recorder.history import get_significant_states
+from homeassistant.components.recorder.statistics import statistics_during_period
 from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.const import UnitOfPower
 from homeassistant.core import HomeAssistant
@@ -43,6 +44,7 @@ from .const import (
     CONF_FORECAST_HORIZON_HOURS,
     CONF_GRID_SENSOR,
     CONF_HUMIDITY_SENSOR,
+    CONF_HYBRID_RECENT_DAYS,
     CONF_LOAD_SENSOR,
     CONF_RETRAIN_HOUR_LOCAL,
     CONF_SCHEDULE_END_HOUR,
@@ -51,16 +53,22 @@ from .const import (
     CONF_TEMPERATURE_FORECAST_SENSOR,
     CONF_TEMPERATURE_SENSOR,
     CONF_TRAIN_DAYS,
+    CONF_TRAINING_SOURCE,
     DEFAULT_FALLBACK_HUMIDITY_PCT,
     DEFAULT_FALLBACK_TEMPERATURE_C,
     DEFAULT_FORECAST_HORIZON_HOURS,
+    DEFAULT_HYBRID_RECENT_DAYS,
     DEFAULT_RETRAIN_HOUR_LOCAL,
     DEFAULT_TRAIN_DAYS,
+    DEFAULT_TRAINING_SOURCE,
     DOMAIN,
     LAG_LONG_STEPS,
     MIN_TRAINING_POINTS,
     RESAMPLE_MINUTES,
     SUBENTRY_TYPE_SIGNAL,
+    TRAINING_SOURCE_HYBRID,
+    TRAINING_SOURCE_LTS,
+    TRAINING_SOURCE_RECORDER,
     UPDATE_INTERVAL_MINUTES,
 )
 from .ml.features import FEATURE_NAMES
@@ -387,6 +395,21 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def _train_days(self) -> int:
         return self.entry.options.get(CONF_TRAIN_DAYS, DEFAULT_TRAIN_DAYS)
 
+    @property
+    def _training_source(self) -> str:
+        # Deliberately a get-with-default (never assumed present) -- existing installs
+        # that upgrade into this build will not have this option key at all until they
+        # re-open the Forecaster options form, and the default must resolve to the
+        # exact prior recorder-only behaviour so a silent upgrade never changes an
+        # install's own training path.
+        return self.entry.options.get(CONF_TRAINING_SOURCE, DEFAULT_TRAINING_SOURCE)
+
+    @property
+    def _hybrid_recent_days(self) -> int:
+        return self.entry.options.get(
+            CONF_HYBRID_RECENT_DAYS, DEFAULT_HYBRID_RECENT_DAYS
+        )
+
     # -- lifecycle ----------------------------------------------------------
 
     async def async_setup(self) -> None:
@@ -477,7 +500,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             end = dt_util.utcnow()
             start = end - timedelta(days=self._train_days)
 
-            load_events = await self._async_fetch_history(
+            load_events = await self._async_fetch_training_history(
                 self._load_sensor, start, end, convert_power=True
             )
             temp_events = (
@@ -548,7 +571,72 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     # -- data access ----------------------------------------------------------
 
-    async def _async_fetch_history(
+    async def _async_fetch_training_history(
+        self,
+        entity_id: str,
+        start: datetime,
+        end: datetime,
+        *,
+        convert_power: bool = False,
+        binary: bool = False,
+    ) -> list[tuple[datetime, float]]:
+        """Fetch training-window history for one entity, honouring the configured
+        training_source (recorder / lts / hybrid).
+
+        binary=True forces recorder-only regardless of setting -- the LTS path returns
+        hourly means (0.0-1.0), which is meaningless for a switch state ("was the
+        curtailment sensor on 27% of this hour?" is not what the training grid asks
+        for). recorder still purges the same way for a binary sensor as for a numeric
+        one, so this is a real limitation, not a design choice -- documented rather
+        than silently degraded.
+
+        The recorder-only path is unchanged and is the safe default: existing
+        installs that upgrade into this build see identical behaviour until they
+        opt into lts or hybrid via the options form.
+        """
+        source = self._training_source
+        if binary or source == TRAINING_SOURCE_RECORDER:
+            return await self._async_fetch_recorder_history(
+                entity_id, start, end, convert_power=convert_power, binary=binary
+            )
+        if source == TRAINING_SOURCE_LTS:
+            return await self._async_fetch_lts_history(
+                entity_id, start, end, convert_power=convert_power
+            )
+        if source == TRAINING_SOURCE_HYBRID:
+            # Recent slice from recorder (full resolution), older slice from LTS
+            # (hourly aggregates), joined at recent_start with the recorder points
+            # winning any overlap in the interior of the recent window.
+            recent_days = self._hybrid_recent_days
+            recent_start = end - timedelta(days=recent_days)
+            # Guard against a config with recent_days >= train_days -- degrades
+            # gracefully to pure recorder rather than fetching an empty LTS range.
+            if recent_start <= start:
+                return await self._async_fetch_recorder_history(
+                    entity_id, start, end, convert_power=convert_power
+                )
+            recent = await self._async_fetch_recorder_history(
+                entity_id, recent_start, end, convert_power=convert_power
+            )
+            older = await self._async_fetch_lts_history(
+                entity_id, start, recent_start, convert_power=convert_power
+            )
+            # Older-then-recent, both already tz-aware local. resample_last_value()
+            # in ml/model.py assumes monotonic timestamps -- both lists individually
+            # are, and older's last timestamp is strictly < recent's first (the
+            # recent_start boundary is exclusive on the LTS side by construction:
+            # statistics_during_period's `end_time` is exclusive).
+            return older + recent
+        _LOGGER.warning(
+            "Unknown training_source %r for %s -- falling back to recorder",
+            source,
+            entity_id,
+        )
+        return await self._async_fetch_recorder_history(
+            entity_id, start, end, convert_power=convert_power, binary=binary
+        )
+
+    async def _async_fetch_recorder_history(
         self,
         entity_id: str,
         start: datetime,
@@ -655,6 +743,124 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         )
                         continue
                 out.append((dt_util.as_local(s.last_changed), value))
+            return out
+
+        return await get_instance(self.hass).async_add_executor_job(_fetch)
+
+    async def _async_fetch_lts_history(
+        self,
+        entity_id: str,
+        start: datetime,
+        end: datetime,
+        *,
+        convert_power: bool = False,
+    ) -> list[tuple[datetime, float]]:
+        """Fetch hourly long-term-statistics for one entity, in-process, via the
+        recorder's own executor -- same convention as _async_fetch_recorder_history.
+
+        LTS is populated by the recorder daemon for any sensor with
+        state_class=measurement (or total/total_increasing) and a unit -- which
+        includes every power sensor Nimbus already trains on -- and survives
+        recorder's own purge, so 30/90/365-day retrains are possible on an install
+        whose raw states table only retains a few days. Confirmed live 2026-08-28
+        on Mark Purcell's install: 30 days / 720 hourly rows for
+        sensor.sigen_plant_consumed_power against a recorder that had only retained
+        the last 5.9 days of raw states.
+
+        Returns one (timestamp, mean_kW) tuple per hour bucket, timestamped at the
+        bucket START in local time -- matching the tz-aware-local convention of the
+        recorder path so ml/model.py's resample_last_value() and the seasonal-lookup
+        bucketing can treat both origins identically.
+
+        convert_power converts the returned mean to kW via PowerConverter, reading
+        the entity's own configured unit_of_measurement (LTS doesn't store per-row
+        units -- statistics.statistics_meta records one unit per statistic_id,
+        recorded once when the statistic was first created). Falls back to
+        already-kW if the unit is missing or unconvertible, same as the recorder
+        path already does.
+
+        Returns [] on a genuine LTS-empty result (a fresh install where recorder has
+        never rolled up a statistic for this entity yet, or an entity that isn't
+        eligible for LTS at all) -- lets the caller treat it the same as the
+        recorder path's own "no history yet" case.
+        """
+        # Read the recorded unit ONCE, from the current state's own attributes --
+        # LTS stores metadata separately but that's a private API; the current
+        # state's unit is the same unit the LTS rows were recorded against for any
+        # sensor whose unit hasn't changed mid-history, which is the overwhelming
+        # common case. If the unit HAS changed (e.g. a sensor swapped from W to kW
+        # partway through), the same limitation applies to the recorder path today
+        # -- documented as a known edge case rather than silently mis-scaled here.
+        unit: str | None = None
+        if convert_power:
+            state = self.hass.states.get(entity_id)
+            if state is not None:
+                unit = state.attributes.get("unit_of_measurement")
+
+        warned_missing_unit = False
+
+        def _fetch() -> list[tuple[datetime, float]]:
+            nonlocal warned_missing_unit
+            # period="hour" is the LTS bucket kept indefinitely by recorder.
+            # types={"mean"} is what a load/power sensor's training grid actually
+            # consumes -- min/max/change/sum are useful for a diagnostic view but
+            # unused by ml/model.py's own resample.
+            raw = statistics_during_period(
+                self.hass,
+                start,
+                end,
+                {entity_id},
+                "hour",
+                None,  # units -- None = raw, we convert ourselves for parity with the recorder path
+                {"mean"},
+            )
+            rows = raw.get(entity_id, [])
+            out: list[tuple[datetime, float]] = []
+            for r in rows:
+                mean = r.get("mean")
+                if mean is None:
+                    continue
+                value = float(mean)
+                if convert_power and unit and unit != UnitOfPower.KILO_WATT:
+                    try:
+                        value = PowerConverter.convert(
+                            value, unit, UnitOfPower.KILO_WATT
+                        )
+                    except Exception:  # noqa: BLE001 -- match recorder path: degrade to "treat as kW", never crash
+                        if not warned_missing_unit:
+                            _LOGGER.warning(
+                                "%s LTS reports unconvertible unit '%s' -- treating as kW as-is",
+                                entity_id,
+                                unit,
+                            )
+                            warned_missing_unit = True
+                if abs(value) > MAX_SANE_POWER_KW:
+                    # Same sanity guard as the recorder path -- a poisoned raw
+                    # state can propagate into an LTS row's mean the same way it
+                    # can into a raw state read (an hourly mean of 21 million kW
+                    # is just as physically implausible as an individual sample
+                    # at 21 million kW). Drop the point rather than train on it.
+                    _LOGGER.warning(
+                        "%s LTS reports a physically implausible mean (%.1f kW, "
+                        "exceeds the %.0f kW sanity ceiling) at %s -- dropping this one "
+                        "row rather than training on it",
+                        entity_id,
+                        value,
+                        MAX_SANE_POWER_KW,
+                        r.get("start"),
+                    )
+                    continue
+                # LTS row "start" is a UTC datetime object (or ISO string in older
+                # HA cores); normalize both, then convert to local for parity with
+                # the recorder path's dt_util.as_local(s.last_changed).
+                ts_raw = r.get("start")
+                if isinstance(ts_raw, str):
+                    ts_utc = datetime.fromisoformat(ts_raw)
+                else:
+                    ts_utc = ts_raw
+                if ts_utc is None:
+                    continue
+                out.append((dt_util.as_local(ts_utc), value))
             return out
 
         return await get_instance(self.hass).async_add_executor_job(_fetch)
@@ -983,7 +1189,11 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # the very first forecast step even if the recorder's most recent
         # write is a few minutes stale.
         lag_lookback = timedelta(minutes=RESAMPLE_MINUTES * (LAG_LONG_STEPS + 4))
-        recent_load_values = await self._async_fetch_history(
+        # Lag features intentionally use the RAW recorder path, never LTS, regardless
+        # of the training_source -- lag_short is "what was the load doing 15 minutes
+        # ago" and an hourly LTS mean cannot answer that. The recent lag lookback
+        # window is ~1 hour, always well inside any sane recorder retention.
+        recent_load_values = await self._async_fetch_recorder_history(
             self._load_sensor, now_utc - lag_lookback, now_utc, convert_power=True
         )
 
