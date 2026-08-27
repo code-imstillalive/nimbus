@@ -132,19 +132,59 @@ class LPProblem:
     # at solve time) when a caller doesn't pass name=.
     _ub_row_names: list[str | None] = field(default_factory=list)
     _eq_row_names: list[str | None] = field(default_factory=list)
+    # Per-variable integrality flag (2026-08-27, nimbus issue #238).
+    # Always exactly len(_var_names) long; all-False means this problem is
+    # a pure LP and _solve_highs() takes its original single-solve path
+    # unchanged, byte-identical to before binaries existed.
+    _binary: list[bool] = field(default_factory=list)
+
+    @property
+    def is_mip(self) -> bool:
+        """True when any variable has been registered as binary. Callers use
+        this to reason about solve cost -- a MIP is branch-and-bound, not a
+        single simplex solve, so the timing characteristics differ.
+        """
+        return any(self._binary)
 
     def add_variable(
-        self, name: str, *, lb: float = 0.0, ub: float = float("inf"), cost: float = 0.0
+        self,
+        name: str,
+        *,
+        lb: float = 0.0,
+        ub: float = float("inf"),
+        cost: float = 0.0,
+        binary: bool = False,
     ) -> str:
         """Register a new variable. Returns `name` unchanged, so this can be
         chained inline where a variable is first used (`x = p.add_variable(...)`).
         Raises if `name` is already registered -- a silent overwrite here
         would be exactly the kind of bug this whole named-variable design
         exists to prevent.
+
+        `binary=True` (2026-08-27, nimbus issue #238) registers the variable
+        as an integer restricted to [0, 1], turning the whole problem into a
+        MIP. HiGHS is a real MIP solver (this module has always been a thin
+        highspy layer, see the module docstring), so this needs no separate
+        backend -- but it does change the solve from one simplex run to
+        branch-and-bound, and it removes meaningful duals from the MIP solve
+        itself. `_solve_highs()` handles the latter by fixing every binary to
+        its solved value and re-solving the resulting pure LP, so callers that
+        depend on duals/reduced costs (network.py's power-balance dual, the
+        single most economically meaningful number the model produces) keep
+        working unchanged. Passing an explicit lb/ub alongside binary=True is
+        rejected rather than silently ignored.
         """
         if name in self._var_index:
             msg = f"Variable {name!r} already registered"
             raise ValueError(msg)
+        if binary:
+            if lb != 0.0 or ub != float("inf"):
+                msg = (
+                    f"Variable {name!r}: binary=True fixes bounds to [0, 1]; "
+                    f"got lb={lb}, ub={ub}. Drop the explicit bounds."
+                )
+                raise ValueError(msg)
+            lb, ub = 0.0, 1.0
         if lb > ub:
             msg = f"Variable {name!r} has lb={lb} > ub={ub}"
             raise ValueError(msg)
@@ -152,6 +192,7 @@ class LPProblem:
         self._var_names.append(name)
         self._lb.append(lb)
         self._ub.append(ub)
+        self._binary.append(binary)
         if cost != 0.0:
             self._cost[name] = cost
         return name
@@ -265,6 +306,16 @@ def _solve_highs(problem: LPProblem) -> LPResult:
         highs_ub = highspy.kHighsInf if ub == float("inf") else ub
         var_array.append(h.addVariable(lb=highs_lb, ub=highs_ub))
 
+    # Integrality (2026-08-27, nimbus issue #238). Applied AFTER every
+    # column exists so the column indices here match insertion order
+    # exactly -- same ordering guarantee row_names below relies on.
+    # problem._binary is all-False for every pre-existing caller, so this
+    # loop is a no-op and the solve below stays the identical single
+    # simplex run it has always been.
+    binary_cols = [i for i in range(n) if problem._binary[i]]
+    for i in binary_cols:
+        h.changeColIntegrality(i, highspy.HighsVarType.kInteger)
+
     # Row names, built in the EXACT same order rows are added below (ub
     # rows first, then eq rows) -- this order is what h.getSolution().
     # row_dual is indexed by, so it must match precisely or a dual value
@@ -316,6 +367,35 @@ def _solve_highs(problem: LPProblem) -> LPResult:
 
     x = np.array([h.val(var_array[i]) for i in range(n)])
     objective = float(h.getObjectiveValue())
+
+    # Recover duals on a MIP (2026-08-27, nimbus issue #238). A MIP has no
+    # meaningful dual solution -- branch-and-bound doesn't produce one, and
+    # HiGHS returns zeros/garbage in row_dual rather than raising. Every
+    # dual consumer downstream (network.py's power_balance_t{t} dual, the
+    # reduced costs the quality report reads) would silently get wrong
+    # numbers rather than an error, which is exactly the failure class this
+    # module's named-variable design exists to avoid.
+    #
+    # Standard fix: once branch-and-bound has chosen the integer
+    # assignment, that assignment IS the answer -- pinning each binary to
+    # its solved value and relaxing integrality leaves a pure LP whose
+    # optimum is the same point, and whose duals are the real marginal
+    # prices of the constraints AT that assignment. Values are rounded
+    # before pinning because HiGHS returns integers within its own
+    # tolerance (0.9999999) rather than exactly.
+    if binary_cols:
+        for i in binary_cols:
+            fixed = float(round(x[i]))
+            h.changeColIntegrality(i, highspy.HighsVarType.kContinuous)
+            h.changeColBounds(i, fixed, fixed)
+        h.run()
+        if h.getModelStatus() == highspy.HighsModelStatus.kOptimal:
+            # Re-read from the pinned LP: x is unchanged by construction
+            # (every binary pinned, every continuous variable re-optimised
+            # against the same constraints), but the objective and the
+            # solution struct below now carry real LP duals.
+            x = np.array([h.val(var_array[i]) for i in range(n)])
+            objective = float(h.getObjectiveValue())
 
     # Dual values (row_dual) and reduced costs (col_dual), 2026-08-18 --
     # both come off the same HighsSolution struct, indexed by row/column
