@@ -10,6 +10,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.94.9] — 2026-08-27
+
+### Added
+- `battery_kw_after_efficiency` on every row of the solver plan ([#229](https://github.com/code-imstillalive/nimbus/issues/229), [#230](https://github.com/code-imstillalive/nimbus/pull/230), [#231](https://github.com/code-imstillalive/nimbus/pull/231), thanks @purcell-lab). `battery_kw` is the LP's own *pre*-efficiency decision variable, so it never reconciles against `soc_pct` directly — the SoC change over a window only closes against `Σ(battery_kw_after_efficiency × hours)`. Published by both the integration writer and the `nimbus_solver_app` writer, and now part of the documented plan-row contract in `docs/api-contract.md`. Built from the per-direction charge/discharge arrays rather than the collapsed net value, which is what makes it close tightly (0.013% residual vs 3.65% reconstructing from the post-collapse net). Unblocks the LP-04 energy-balance regression test.
+- `price_blend_algorithm` on `sensor.nimbus_solver_battery_forecast`'s `solver_config` ([#237](https://github.com/code-imstillalive/nimbus/issues/237), [#240](https://github.com/code-imstillalive/nimbus/pull/240)). Makes the multi-source price blend inspectable rather than implicit: it is an unweighted mean across every configured price source (primary + `_sensor_2`/`_sensor_3`) that has real forecast coverage at that period, with no preference for the primary/retail-authoritative source. **Read-only diagnostic — blend behaviour is unchanged in this release.** The behaviour-change asks it documents ([#238](https://github.com/code-imstillalive/nimbus/issues/238), [#239](https://github.com/code-imstillalive/nimbus/issues/239)) remain open.
+- `tests/regression/`: `SET-02` in-block price identity, asserted for every row in the current NEM settlement block rather than row 0 alone, plus a `purcell_qld1_v0.94.6_midblock` fixture capturing a real mid-block capture ([#220](https://github.com/code-imstillalive/nimbus/issues/220), [#235](https://github.com/code-imstillalive/nimbus/pull/235), thanks @purcell-lab).
+
+### Fixed
+- Settled current-block price override now covers **every** row inside the current NEM 5-minute settlement block, not just row 0 ([#220](https://github.com/code-imstillalive/nimbus/issues/220) partial regression, [#234](https://github.com/code-imstillalive/nimbus/pull/234)). `build_tiered_grid()`'s tier-0 stretch emits 1-minute periods from "now" up to the next clean 5-minute mark, and those extra rows are still inside the *same* real settlement block as period 0 — they were falling back to the blended forecast value instead of the settled one. Confirmed live on a real install (2026-08-27 17:33 AEST): the `:32` row held the correct settled identity while `:33`/`:34`, still inside the `[17:30, 17:35)` block, did not.
+- CI: dropped a stale `noqa: BLE001` directive in `solver_runtime.py` that the pinned ruff flagged as unused, restoring a green lint gate ([#233](https://github.com/code-imstillalive/nimbus/pull/233)). No runtime behaviour change.
+
 ## [0.94.8] — 2026-08-27
 
 ### Added
