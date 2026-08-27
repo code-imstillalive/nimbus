@@ -855,7 +855,17 @@ class TopologyCard extends HTMLElement {
           fill: pvActive ? COLORS.solar : COLORS.battery, opacity: 0.12,
         }));
       }
-      const invLabel = svgEl("text", { x: invX, y: invTop - 20, "text-anchor": "middle", class: "node-label", style: `fill:${COLORS.text}` });
+      // Name + sub-label sit to the RIGHT of the bar's own top, not
+      // centered above it -- real household catch, 2026-08-27, with a
+      // screenshot: centered-above placement sits directly on invX, the
+      // same X every vertical connector at this row (the battery-tap
+      // drop, and this inverter's own share of the cross-inverter link
+      // above it) is drawn through, so the label visually breaks
+      // whichever line happens to be active that render. Offsetting
+      // sideways clears invX unconditionally, for any tower/link
+      // combination, instead of depending on a vertical-gap number that
+      // only happens to be big enough for today's specific layout.
+      const invLabel = svgEl("text", { x: invX + invBarW / 2 + 10, y: invTop + 4, "text-anchor": "start", class: "node-label", style: `fill:${COLORS.text}` });
       invLabel.textContent = inv.name;
       invGroup.appendChild(invLabel);
 
@@ -883,7 +893,7 @@ class TopologyCard extends HTMLElement {
         if (dcHealthy) parts.push(dcVal.text);
         if (battActive && battVal.healthy) parts.push(`${discharging ? "▼" : "▲"} ${battVal.text}`);
         const subLabel = svgEl("text", {
-          x: invX, y: invTop - 8, "text-anchor": "middle", class: "node-value-sub",
+          x: invX + invBarW / 2 + 10, y: invTop + 18, "text-anchor": "start", class: "node-value-sub",
           style: `fill:${dcHealthy && dcW > 5 ? COLORS.solar : (battActive ? COLORS.battery : COLORS.textDim)}`,
         });
         subLabel.textContent = parts.length ? parts.join(" · ") : "—";

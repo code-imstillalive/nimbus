@@ -855,7 +855,17 @@ class TopologyCard extends HTMLElement {
           fill: pvActive ? COLORS.solar : COLORS.battery, opacity: 0.12,
         }));
       }
-      const invLabel = svgEl("text", { x: invX, y: invTop - 20, "text-anchor": "middle", class: "node-label", style: `fill:${COLORS.text}` });
+      // Name + sub-label sit to the RIGHT of the bar's own top, not
+      // centered above it -- real household catch, 2026-08-27, with a
+      // screenshot: centered-above placement sits directly on invX, the
+      // same X every vertical connector at this row (the battery-tap
+      // drop, and this inverter's own share of the cross-inverter link
+      // above it) is drawn through, so the label visually breaks
+      // whichever line happens to be active that render. Offsetting
+      // sideways clears invX unconditionally, for any tower/link
+      // combination, instead of depending on a vertical-gap number that
+      // only happens to be big enough for today's specific layout.
+      const invLabel = svgEl("text", { x: invX + invBarW / 2 + 10, y: invTop + 4, "text-anchor": "start", class: "node-label", style: `fill:${COLORS.text}` });
       invLabel.textContent = inv.name;
       invGroup.appendChild(invLabel);
 
@@ -883,7 +893,7 @@ class TopologyCard extends HTMLElement {
         if (dcHealthy) parts.push(dcVal.text);
         if (battActive && battVal.healthy) parts.push(`${discharging ? "▼" : "▲"} ${battVal.text}`);
         const subLabel = svgEl("text", {
-          x: invX, y: invTop - 8, "text-anchor": "middle", class: "node-value-sub",
+          x: invX + invBarW / 2 + 10, y: invTop + 18, "text-anchor": "start", class: "node-value-sub",
           style: `fill:${dcHealthy && dcW > 5 ? COLORS.solar : (battActive ? COLORS.battery : COLORS.textDim)}`,
         });
         subLabel.textContent = parts.length ? parts.join(" · ") : "—";
@@ -1000,22 +1010,39 @@ class TopologyCard extends HTMLElement {
       const src = exporters[0];
       const dst = importers[0];
       const transferW = Math.min(src.netW, -dst.netW);
-      const linkX = invX + invBarW / 2 + 34;
+      // Real household catch, 2026-08-27, with a real screenshot: the old
+      // smooth bezier's control points sat only 34-54px off the inverter
+      // bar -- well inside the battery-tower boxes' own footprint (towers
+      // extend out to maxBatteryRightEdge, computed above in the same
+      // per-inverter loop this link's own src/dst points come from), so
+      // the curve AND its "N W via bus" label routinely overlapped tower
+      // box borders and text. Fix: route past maxBatteryRightEdge (real
+      // clear space, not a guessed fixed offset) with a straight elbow
+      // (two straight segments meeting at one vertical run at linkX) --
+      // matches the household's own direct ask for a straight-line link,
+      // and a vertical line at a single clear X is simpler to keep
+      // label-free-of-boxes than a curve whose midpoint moves with
+      // src.y/dst.y every render.
+      const linkX = maxBatteryRightEdge + 40;
       const midY = (src.y + dst.y) / 2;
       const crossGroup = svgEl("g", {});
       crossGroup.appendChild(svgEl("path", {
-        d: `M ${src.x} ${src.y} C ${linkX + 20} ${src.y}, ${linkX + 20} ${dst.y}, ${dst.x} ${dst.y}`,
+        d: `M ${src.x} ${src.y} L ${linkX} ${src.y} L ${linkX} ${dst.y} L ${dst.x} ${dst.y}`,
         fill: "none", stroke: COLORS.battery, "stroke-width": 2, "stroke-dasharray": "5,4", opacity: 0.85,
       }));
-      const ang = Math.atan2(dst.y - src.y, 6);
+      // Arrowhead sits mid-way along the vertical run, pointing toward
+      // dst -- same fixed-X vertical line the path itself uses, so it
+      // can never drift into the src/dst inverter bars regardless of
+      // how far apart the two rows are.
+      const ang = dst.y > src.y ? Math.PI / 2 : -Math.PI / 2;
       const ah = 11;
-      const tipX = linkX + 20, tipY = midY;
+      const tipX = linkX, tipY = midY;
       crossGroup.appendChild(svgEl("polygon", {
         points: `${tipX},${tipY} ${tipX - ah * Math.cos(ang - Math.PI / 6.5)},${tipY - ah * Math.sin(ang - Math.PI / 6.5)} ${tipX - ah * Math.cos(ang + Math.PI / 6.5)},${tipY - ah * Math.sin(ang + Math.PI / 6.5)}`,
         fill: COLORS.battery, stroke: "#161619", "stroke-width": 1,
       }));
       const label = svgEl("text", {
-        x: linkX + 24, y: midY - 8, "text-anchor": "start", class: "node-value-sub", style: `fill:${COLORS.battery}`,
+        x: linkX + 14, y: midY - 8, "text-anchor": "start", class: "node-value-sub", style: `fill:${COLORS.battery}`,
       });
       label.textContent = `${Math.round(transferW)} W via bus`;
       crossGroup.appendChild(label);
@@ -1031,8 +1058,14 @@ class TopologyCard extends HTMLElement {
     // busX must clear the widest battery row too, not just a fixed margin
     // off the inverter bar -- this exact bug (bus rendering on top of the
     // second tower) already happened once this session from forgetting
-    // this, confirmed again live via the local render just now.
-    const busX = Math.max(invX + invBarW / 2 + 680, maxBatteryRightEdge + 50);
+    // this, confirmed again live via the local render just now. Margin
+    // bumped 50 -> 170 (2026-08-27) so the cross-inverter link's own
+    // vertical run (maxBatteryRightEdge + 40) and its "N W via bus"
+    // label (~100-110px wide, starting at linkX + 14) always have clear
+    // room before the bus bar -- the two were only 10px apart at the old
+    // margin whenever battery towers were the wider constraint, letting
+    // the label run straight into the bus/load column.
+    const busX = Math.max(invX + invBarW / 2 + 680, maxBatteryRightEdge + 170);
     const loadX0 = busX + 260;
     const loadsTop = rowTop;
     const loadsBottom = loadsTop + loads.length * (tileH + tileGap) - tileGap;
