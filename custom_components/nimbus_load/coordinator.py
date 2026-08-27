@@ -855,7 +855,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 # the recorder path's dt_util.as_local(s.last_changed).
                 ts_raw = r.get("start")
                 if isinstance(ts_raw, str):
-                    ts_utc = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
+                    ts_utc = datetime.fromisoformat(ts_raw)
                 else:
                     ts_utc = ts_raw
                 if ts_utc is None:

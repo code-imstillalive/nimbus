@@ -27,7 +27,8 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
+from itertools import pairwise
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -41,10 +42,10 @@ install_ha_stubs()
 # targeted-monkeypatch technique HA's own core tests use (dt_util is one of
 # the few utilities whose real behaviour is genuinely load-bearing at the
 # unit level, not just wallpaper).
-import homeassistant.util as _ha_util  # noqa: E402
+import homeassistant.util as _ha_util
 
 _ha_util.dt.as_local = lambda x: x  # datetimes stay tz-aware as-is
-_ha_util.dt.utcnow = lambda: datetime.now(timezone.utc)
+_ha_util.dt.utcnow = lambda: datetime.now(UTC)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from custom_components.nimbus_load import coordinator as coordinator_module
@@ -53,7 +54,6 @@ from custom_components.nimbus_load.const import (
     CONF_TRAINING_SOURCE,
     TRAINING_SOURCE_HYBRID,
     TRAINING_SOURCE_LTS,
-    TRAINING_SOURCE_RECORDER,
 )
 from custom_components.nimbus_load.coordinator import NimbusCoordinator
 
@@ -87,7 +87,14 @@ def _make_bare_coordinator(options: dict) -> NimbusCoordinator:
 
 
 def _run(coro):
-    return asyncio.new_event_loop().run_until_complete(coro)
+    # asyncio.run() creates a fresh event loop AND closes it on return --
+    # the earlier `asyncio.new_event_loop().run_until_complete(coro)` form
+    # leaked one event loop (plus its internal self-pipe socket) per call,
+    # 8 times across this file, which pytest's unraisable-exception hook
+    # only surfaces once garbage collection happens to run during some
+    # LATER, unrelated test -- see test_coordinator_retrain_task_idempotent.py
+    # for the same asyncio.run() idiom already established in this repo.
+    return asyncio.run(coro)
 
 
 class _FakeState:
@@ -132,7 +139,7 @@ def test_recorder_source_uses_only_recorder_history():
     touching LTS -- that's the whole point of the default resolving to
     'recorder' rather than silently changing behaviour on upgrade.
     """
-    now = datetime(2026, 8, 28, 0, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 8, 28, 0, 0, tzinfo=UTC)
     recorder_events = [(now - timedelta(hours=h), 2.5) for h in range(24)]
     _install_recorder_history(recorder_events)
     lts_sentinel = [{"start": now, "mean": 999.0}]  # must never be read
@@ -168,12 +175,11 @@ def test_lts_source_uses_only_statistics_during_period():
     train on 30/90/365 days of data on an install where recorder itself
     has already purged everything.
     """
-    now = datetime(2026, 8, 28, 0, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 8, 28, 0, 0, tzinfo=UTC)
     # 30 days of hourly LTS rows -- the shape statistics_during_period
     # actually returns (mean is None for missing hours, filtered out).
     lts_rows = [
-        {"start": now - timedelta(hours=h), "mean": 3.7}
-        for h in range(30 * 24)
+        {"start": now - timedelta(hours=h), "mean": 3.7} for h in range(30 * 24)
     ]
     _install_lts_rows(lts_rows)
     recorder_sentinel = [_FakeState("999.0", now)]
@@ -209,7 +215,7 @@ def test_lts_source_drops_none_means():
     Dropping these mirrors the recorder path's own float() TypeError
     handling and keeps training set uncontaminated.
     """
-    now = datetime(2026, 8, 28, 0, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 8, 28, 0, 0, tzinfo=UTC)
     _install_lts_rows(
         [
             {"start": now - timedelta(hours=3), "mean": 1.0},
@@ -235,7 +241,7 @@ def test_lts_source_drops_insane_means():
     read (nimbus issue #-log 2026-08-17, a real 21_474_836.5 kW state)
     can propagate into an LTS row's mean. Drop it, don't train on it.
     """
-    now = datetime(2026, 8, 28, 0, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 8, 28, 0, 0, tzinfo=UTC)
     _install_lts_rows(
         [
             {"start": now - timedelta(hours=2), "mean": 2.0},
@@ -271,7 +277,7 @@ def test_hybrid_source_concatenates_older_lts_and_recent_recorder():
     convention). ml/model.py's resample_last_value() relies on that
     monotonicity, so the concat MUST be older-then-recent.
     """
-    now = datetime(2026, 8, 28, 0, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 8, 28, 0, 0, tzinfo=UTC)
     # 25 days of LTS rows (older half), 5 days of recorder (recent half).
     # With CONF_HYBRID_RECENT_DAYS=5 and 30-day train_days.
     lts_rows = [
@@ -281,9 +287,7 @@ def test_hybrid_source_concatenates_older_lts_and_recent_recorder():
     lts_rows.sort(key=lambda r: r["start"])  # ascending
     _install_lts_rows(lts_rows)
 
-    recorder_events = [
-        (now - timedelta(hours=h), 2.0) for h in range(5 * 24)
-    ]
+    recorder_events = [(now - timedelta(hours=h), 2.0) for h in range(5 * 24)]
     recorder_events.sort()  # ascending
     _install_recorder_history(recorder_events)
 
@@ -318,7 +322,7 @@ def test_hybrid_source_concatenates_older_lts_and_recent_recorder():
     # Timestamps must be monotonic non-decreasing across the whole result --
     # this is the ml/model.py resample_last_value() contract.
     timestamps = [t for t, _ in result]
-    for a, b in zip(timestamps, timestamps[1:]):
+    for a, b in pairwise(timestamps):
         assert a <= b, f"non-monotonic at {a} -> {b}"
 
     # And the LTS half must strictly precede the recorder half at the boundary.
@@ -335,7 +339,7 @@ def test_hybrid_source_degrades_to_recorder_when_recent_days_exceeds_window():
     and fetching it wastes an executor round-trip. Degrade to pure
     recorder rather than call statistics_during_period at all.
     """
-    now = datetime(2026, 8, 28, 0, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 8, 28, 0, 0, tzinfo=UTC)
     recorder_events = [(now - timedelta(hours=h), 7.7) for h in range(24)]
     _install_recorder_history(recorder_events)
     lts_sentinel = [{"start": now, "mean": 999.0}]  # must never be read
@@ -377,7 +381,7 @@ def test_unknown_source_falls_back_to_recorder():
     down mid-training" convention as ml/model.py's own returns-None-not-
     raises pattern (see train_model()'s own docstring).
     """
-    now = datetime(2026, 8, 28, 0, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 8, 28, 0, 0, tzinfo=UTC)
     recorder_events = [(now - timedelta(hours=h), 4.4) for h in range(24)]
     _install_recorder_history(recorder_events)
 
@@ -408,7 +412,7 @@ def test_binary_sensor_always_uses_recorder_even_in_lts_mode():
     training_source option, otherwise an LTS/hybrid install would
     silently lose its curtailment feature entirely.
     """
-    now = datetime(2026, 8, 28, 0, 0, tzinfo=timezone.utc)
+    now = datetime(2026, 8, 28, 0, 0, tzinfo=UTC)
     # A real curtailment switch history: alternating on/off
     states = [
         _FakeState("on" if i % 2 == 0 else "off", now - timedelta(hours=i))
