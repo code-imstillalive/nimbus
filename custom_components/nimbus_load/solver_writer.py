@@ -2670,17 +2670,31 @@ def blend_price_with_secondary_sources(
     compression -- confirmed by his own follow-up test clearing
     `_sensor_2` and getting an exact 1:1 pass-through (R²=1.0000).
 
-    Now each configured source (primary included, via
-    `primary_real_mask` -- callers that don't have one default to
-    "always real", i.e. today's behaviour) contributes to a period ONLY
-    when that period is within that source's own real coverage span.
-    Periods where every configured source genuinely covers still blend
-    exactly as before; a period where only one source has real data
-    passes that source through unchanged (matches Mark's own
-    clear-`_sensor_2` finding); the rare period where NOTHING has real
-    coverage falls back to the old equal-weight blend across every
-    source (the honest "everyone's guessing" case) rather than an
-    arbitrary pick.
+    PRIMARY-PREFERRING (2026-08-27, nimbus repo issue #239, following
+    #236: "50/50 price-blend inflates export_price... producing
+    simultaneous 22kW grid import + 30kW grid export"). Previously, once
+    coverage-awareness landed for #216, a period where BOTH the primary
+    and a secondary had real coverage still averaged them 50/50 -- fine
+    when the two sources roughly agree, but a real Amber Express tick
+    and a real QLD1 PD7DAY forecast can legitimately disagree by tens of
+    cents on the same instant (they're not independent estimators of the
+    same thing, see #239's own market-structure argument), and averaging
+    them can fabricate a price no counterparty will ever settle at --
+    confirmed live inverting the import/export relationship and causing
+    an unphysical simultaneous-import-and-export LP plan.
+
+    Now the primary (via `primary_real_mask` -- callers without one
+    default to "always real", i.e. always wins) is used UNBLENDED
+    whenever it has real coverage at a period, full stop -- never
+    averaged with a secondary just because one happens to be live too.
+    A secondary only ever contributes where the PRIMARY lacks real
+    coverage (extending the horizon past Amber's own ~24h reach, its one
+    genuine job): a period where only a secondary has real data passes
+    that source through unchanged (still matches Mark's own
+    clear-`_sensor_2` finding from #216); the rare period where NOTHING
+    has real coverage anywhere still falls back to the old equal-weight
+    blend across every source's own held-flat value (the honest
+    "everyone's guessing" case) rather than an arbitrary pick.
 
     Returns `(primary, None)` completely unchanged whenever no
     secondary source is configured OR configured but currently
@@ -2718,8 +2732,45 @@ def blend_price_with_secondary_sources(
     n = len(primary)
     blended = np.empty(n, dtype=float)
     for i in range(n):
-        real_idx = [j for j in range(len(sources)) if real_masks[j][i]]
-        idx = real_idx if real_idx else list(range(len(sources)))
+        # PRIMARY-PREFERRING (2026-08-27, nimbus repo issue #239, Mark
+        # Purcell, following his own #236 report): whenever the primary
+        # source has real coverage at this period, use it UNBLENDED --
+        # never averaged against a secondary. Mark's own market-structure
+        # argument (see #236's reopen-adjacent comment) is why this isn't
+        # a preference call: on any real Australian NEM tariff, import
+        # and export both derive from the SAME underlying AEMO spot price
+        # for that (region, interval) -- they're not two independent
+        # estimators that can legitimately disagree while both are live.
+        # A genuine price-cap/spike event shows up as a real tick on the
+        # PRIMARY sensor itself (e.g. Amber's own feed-in price hitting
+        # $17.50/kWh) -- it doesn't need a secondary (a generic day-ahead
+        # AEMO forecast) averaged in to "catch" it, and doing so only
+        # ever dilutes/corrupts a real primary tick with a same-instant
+        # forecast that isn't what any counterparty will actually settle
+        # at. Confirmed exactly this way live: a real Amber value
+        # (-$0.0037) averaged 50/50 against a real QLD1 PD7DAY forecast
+        # (+$0.6701) inverted the import/export price relationship and
+        # the LP planned simultaneous 22kW import + 30kW export as a
+        # result.
+        #
+        # The secondary's own real, legitimate job -- extending the
+        # horizon past the primary's own real coverage (Amber's ~24h vs
+        # PD7DAY's 7 days) -- is completely unaffected: this only changes
+        # behaviour for periods where BOTH the primary and a secondary
+        # are real at the same instant (previously averaged, now primary
+        # wins outright). Periods where the primary lacks real coverage
+        # yet still fall through to blending whichever secondaries ARE
+        # real there (unchanged), and periods where NOTHING has real
+        # coverage anywhere still fall back to the old equal-weight mean
+        # across every source's own held-flat value (unchanged) -- this
+        # is the same "everyone's guessing" honest fallback the coverage-
+        # aware rewrite for #216 already established, just no longer
+        # reached when the primary alone would have been sufficient.
+        if real_masks[0][i]:
+            blended[i] = sources[0][i]
+            continue
+        secondary_real_idx = [j for j in range(1, len(sources)) if real_masks[j][i]]
+        idx = secondary_real_idx if secondary_real_idx else list(range(len(sources)))
         blended[i] = float(np.mean([sources[j][i] for j in idx]))
     return list(blended), cross_source_spread(sources)
 
@@ -5783,23 +5834,26 @@ def main() -> None:
             "battery_kw_sign_convention": "positive_discharge_negative_charge",
             "efficiency_convention": "round_trip_symmetric_sqrt",
             # Nimbus issue #237 (Mark Purcell, 2026-08-27): "confirm and
-            # expose the price-blend algorithm" -- blend_price_with_
-            # secondary_sources() (this file) is an UNWEIGHTED np.mean()
-            # across every configured price source (primary + _sensor_2/
-            # _sensor_3) that has real forecast coverage at that period,
-            # falling back to an equal-weight mean across ALL configured
-            # sources (real or not) only on a period none of them cover
-            # yet. No preference for the primary/retail-authoritative
-            # source over a generic secondary forecast -- confirmed live
-            # against Mark's #236 repro (a genuinely-real Amber Express
-            # value averaged 50/50 against a genuinely-real but far
-            # larger QLD1 PD7DAY wholesale forecast, inverting the
-            # import/export price relationship). Documented here as a
-            # read-only diagnostic per #237's own explicit ask
-            # ("doesn't need to change behaviour -- just make it
-            # inspectable") -- NOT a fix for #238/#239, which are real,
-            # separate behaviour-change asks needing their own decision.
-            "price_blend_algorithm": "unweighted_mean_of_sources_with_real_forecast_coverage",
+            # expose the price-blend algorithm". Originally an unweighted
+            # np.mean() across every source with real coverage at a
+            # period, primary included -- confirmed live against Mark's
+            # #236 repro (a genuinely-real Amber Express value averaged
+            # 50/50 against a genuinely-real but far larger QLD1 PD7DAY
+            # wholesale forecast, inverting the import/export price
+            # relationship and causing an unphysical simultaneous-
+            # import-and-export LP plan). Fixed same-day in #239
+            # (primary-preferring): the primary now wins UNBLENDED
+            # whenever it has real coverage, full stop -- a secondary
+            # only ever fills a period where the primary itself lacks
+            # real coverage yet (its one legitimate job, extending the
+            # horizon past Amber's own ~24h reach). See
+            # blend_price_with_secondary_sources()'s own docstring for
+            # the full market-structure argument (import/export both
+            # derive from the SAME underlying AEMO spot price for a
+            # given region+interval -- they're not independent
+            # estimators that can legitimately disagree while both are
+            # live).
+            "price_blend_algorithm": "primary_preferring_fallback_to_secondary_mean",
             "charge_efficiency": round(charge_discharge_efficiency, 4),
             "discharge_efficiency": round(charge_discharge_efficiency, 4),
             # $ value of the AC-bus losses these efficiencies imply over

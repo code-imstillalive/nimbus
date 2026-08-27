@@ -21,10 +21,20 @@ BEFORE `_raw` is snapshotted and AGAIN after blend_price_with_secondary_
 sources() runs, so period 0 is never a resample-array lookup and never
 diluted by a secondary source.
 
-This test proves the piece that actually needs proving: that
-blend_price_with_secondary_sources() (the real, directly-testable
-function) does NOT protect period 0 on its own -- confirming main()'s
-own re-assert-after-blend step is load-bearing, not redundant.
+UPDATE (2026-08-27, nimbus issue #239, primary-preferring blend): once
+#239 landed, blend_price_with_secondary_sources() itself no longer
+dilutes a period whose PRIMARY is marked real there -- which in the
+normal, real-world call path is true for period 0 ("now" is within any
+real source's own coverage in practice). This test's original premise
+("the blend function does NOT protect period 0 on its own") no longer
+holds in that common case; see test_primary_preferring_now_protects_
+period_zero_in_the_common_case below for the updated proof. It still
+holds -- and main()'s own re-assert-after-blend step is still a
+necessary backstop, not redundant -- for the narrower case where some
+resample path marks primary_real_mask[0] itself False (e.g. a stale
+forecast-array-derived mask disagreeing with a fresh live-state read);
+see test_a_secondary_source_still_dilutes_period_zero_when_primary_
+mask_is_false for that case.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -36,11 +46,17 @@ _NOW = datetime(2026, 8, 27, 1, 7, tzinfo=UTC)  # 2026-08-27T11:07:00+10:00
 
 
 class TestBlendDoesNotProtectSettledPeriodZero:
-    def test_a_secondary_source_still_dilutes_period_zero(self):
-        # Mark's real config has both _sensor_2 slots populated. Prove
-        # that, absent main()'s own re-assert step, a secondary source
-        # with real coverage at "now" DOES dilute the settled primary --
-        # this is the exact gap issue #220 reported.
+    def test_a_secondary_source_still_dilutes_period_zero_when_primary_mask_is_false(
+        self,
+    ):
+        # The narrower case #239's primary-preferring fix does NOT cover
+        # on its own: if whatever produced primary_real_mask marks index
+        # 0 itself as False (e.g. a resample path disagreeing with the
+        # live state main() already substituted in), a secondary source
+        # with real coverage at "now" still dilutes the settled primary
+        # -- this is why main()'s own re-assert-after-blend step (the
+        # #220 fix) remains a necessary backstop, not redundant, even
+        # after #239.
         grid_times = [_NOW + timedelta(minutes=5 * i) for i in range(3)]
         settled_primary = [0.0489, 0.10, 0.12]  # index 0 == the settled state
         secondary_forecast = {
@@ -58,12 +74,14 @@ class TestBlendDoesNotProtectSettledPeriodZero:
                 cfg,
                 ("solver_import_price_sensor_2", "solver_import_price_sensor_3"),
                 grid_times,
+                primary_real_mask=[False, True, True],
             )
 
-        # The bug: period 0 comes back diluted (equal-weight average of
-        # 0.0489 and 0.99), not the settled 0.0489.
+        # The bug: period 0 comes back as the secondary's own value
+        # alone (0.99) -- primary is excluded once marked not real
+        # (nimbus issue #239), but that's still NOT the settled 0.0489.
         assert result[0] != settled_primary[0]
-        assert round(result[0], 4) == round((0.0489 + 0.99) / 2, 4)
+        assert round(result[0], 4) == 0.99
 
         # The fix: main() re-asserts the settled value as the final word
         # after this call. Simulating that one-line re-assert recovers
@@ -75,6 +93,36 @@ class TestBlendDoesNotProtectSettledPeriodZero:
         # forecast blending still applies there, as intended.
         assert fixed[1] == result[1]
         assert fixed[2] == result[2]
+
+    def test_primary_preferring_now_protects_period_zero_in_the_common_case(self):
+        # The common real-world case (nimbus issue #239): main()'s own
+        # resample step marks "now" as real for the primary in practice
+        # (grid_times[0] is always within any real source's own coverage
+        # by construction -- see build_tiered_grid()). Since #239,
+        # blend_price_with_secondary_sources() ITSELF no longer dilutes
+        # period 0 here, even without main()'s explicit re-assert --
+        # unlike before #239 landed (see the other test in this class
+        # for the case where that's not yet true).
+        grid_times = [_NOW + timedelta(minutes=5 * i) for i in range(3)]
+        settled_primary = [0.0489, 0.10, 0.12]
+        secondary_forecast = {
+            "attributes": {
+                "forecast": [{"time": t.isoformat(), "value": 0.99} for t in grid_times]
+            }
+        }
+        cfg = {"solver_import_price_sensor_2": "sensor.secondary"}
+
+        from unittest.mock import patch
+
+        with patch.object(solver_writer, "ha_get", return_value=secondary_forecast):
+            result, _spread = solver_writer.blend_price_with_secondary_sources(
+                settled_primary,
+                cfg,
+                ("solver_import_price_sensor_2", "solver_import_price_sensor_3"),
+                grid_times,
+            )
+
+        assert result[0] == settled_primary[0]
 
     def test_settled_state_read_uses_safe_num_graceful_fallback(self):
         # The settled-block override is a plain safe_num() call (main()'s
