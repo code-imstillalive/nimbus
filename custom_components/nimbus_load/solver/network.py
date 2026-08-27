@@ -1106,7 +1106,29 @@ def build_plan(
             p.add_ub_constraint(
                 {discharge[t]: draw_coeff, soc[t - 1]: -1.0}, -battery.min_soc_kwh
             )
-        # (3) Two-tier export bonus (see elements.py's own GridConfig
+        # (3) Combined-direction cap (nimbus issue #245): the physical
+        # battery has one DC current direction at any instant -- it cannot
+        # charge and discharge simultaneously, so charge[t] and discharge[t]
+        # (independent LP variables with no link between them otherwise)
+        # left an unconstrained degeneracy budget wide open. A bad upstream
+        # price signal (nimbus issue #236) let the LP inflate both freely in
+        # the same period -- e.g. charge=17.98 + discharge=16.91 kW, netting
+        # to the real -1.06 kW charge the LP had actually decided on, with
+        # the rest pure wash-trade noise nothing pinned down. This single
+        # linear constraint kills that budget without a MILP reformulation:
+        # charge[t] + discharge[t] <= max(max_charge_kw, max_discharge_kw).
+        # On any normal row only one side is ever nonzero, so the cap sits
+        # above both individual ub's already in force and changes nothing;
+        # it only binds on a wash-trade row, forcing the LP back to its real
+        # net. (A true `charge[t]*discharge[t] == 0` complementarity needs a
+        # binary per period -- MILP, tracked separately as issue #238 -- but
+        # the objective already has no incentive for simultaneous nonzero
+        # once #242 landed, so this linear cap is sufficient in practice.)
+        p.add_ub_constraint(
+            {charge[t]: 1.0, discharge[t]: 1.0},
+            max(battery.max_charge_kw, battery.max_discharge_kw),
+        )
+        # (4) Two-tier export bonus (see elements.py's own GridConfig
         # docstring): export_bonus[t] can never exceed that SAME period's
         # real total export[t] -- can't claim bonus volume for export
         # that never actually happened -- export_bonus[t] - grid_export[t]
