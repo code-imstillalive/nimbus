@@ -214,7 +214,7 @@ def _log_dispatch_dry_run(hass: HomeAssistant) -> None:
             "live dispatch is not implemented yet.",
             battery_kw,
         )
-    except Exception:  # noqa: BLE001 -- observation-only, must never affect the real solve
+    except Exception:  # observation-only, must never affect the real solve
         _LOGGER.exception("Nimbus Dispatch (dry-run): logging failed, ignoring")
 
 
