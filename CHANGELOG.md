@@ -10,6 +10,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.94.12] — 2026-08-27
+
+### Fixed
+- **Standalone writer script now phase-aligns to the NEM settlement boundary too** ([#232](https://github.com/code-imstillalive/nimbus/issues/232), [#251](https://github.com/code-imstillalive/nimbus/pull/251)). #244/#247's earlier phase-alignment fix only touched the native in-process solver's own timer — the standalone `nimbus_solver_forecast_writer.py` cron script (deployed on a bare `* * * * *`) was untouched, and on any install running both writers against the same entity, its every-60s un-aligned writes dominate what a viewer sees, making the earlier fix invisible in practice. Confirmed live against real production recorder history — mean ~40.6s tail, worst case 54.0s, essentially the same magnitude as the original pre-#247 measurement. `seconds_to_settlement_capture()` adds a short, bounded wait to only the one tick per 5-minute cycle landing near a real boundary; the other four ticks each cycle stay a complete no-op, preserving the every-minute cadence itself.
+
 ## [0.94.11] — 2026-08-27
 
 ### Added
