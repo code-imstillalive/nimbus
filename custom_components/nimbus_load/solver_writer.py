@@ -5782,6 +5782,24 @@ def main() -> None:
             # trust an external analysis built on this field.
             "battery_kw_sign_convention": "positive_discharge_negative_charge",
             "efficiency_convention": "round_trip_symmetric_sqrt",
+            # Nimbus issue #237 (Mark Purcell, 2026-08-27): "confirm and
+            # expose the price-blend algorithm" -- blend_price_with_
+            # secondary_sources() (this file) is an UNWEIGHTED np.mean()
+            # across every configured price source (primary + _sensor_2/
+            # _sensor_3) that has real forecast coverage at that period,
+            # falling back to an equal-weight mean across ALL configured
+            # sources (real or not) only on a period none of them cover
+            # yet. No preference for the primary/retail-authoritative
+            # source over a generic secondary forecast -- confirmed live
+            # against Mark's #236 repro (a genuinely-real Amber Express
+            # value averaged 50/50 against a genuinely-real but far
+            # larger QLD1 PD7DAY wholesale forecast, inverting the
+            # import/export price relationship). Documented here as a
+            # read-only diagnostic per #237's own explicit ask
+            # ("doesn't need to change behaviour -- just make it
+            # inspectable") -- NOT a fix for #238/#239, which are real,
+            # separate behaviour-change asks needing their own decision.
+            "price_blend_algorithm": "unweighted_mean_of_sources_with_real_forecast_coverage",
             "charge_efficiency": round(charge_discharge_efficiency, 4),
             "discharge_efficiency": round(charge_discharge_efficiency, 4),
             # $ value of the AC-bus losses these efficiencies imply over
