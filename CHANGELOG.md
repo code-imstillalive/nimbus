@@ -10,6 +10,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.94.7] — 2026-08-27
+
+### Fixed
+- Topology card: inverter name + DC/battery sub-label were centered directly above the bar, on the same X every vertical connector at that row (battery-tap drop, cross-inverter link) draws through — depending on tower count and which lines were active, the label rendered on top of the line, visually breaking it. Moved both labels beside the bar instead, clearing that X unconditionally ([#224](https://github.com/code-imstillalive/nimbus/pull/224)). Also re-synced `docs/real-world-integration/files/topology-card-v4.js`, which had drifted from the bundled card (missing the prior cross-inverter-link straight-elbow fix and busX margin bump).
+
 ## [0.94.6] — 2026-08-27
 
 ### Fixed
