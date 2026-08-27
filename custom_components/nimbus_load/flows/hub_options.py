@@ -46,6 +46,7 @@ from ..const import (
     CONF_FORECAST_HORIZON_HOURS,
     CONF_GRID_SENSOR,
     CONF_HUMIDITY_SENSOR,
+    CONF_HYBRID_RECENT_DAYS,
     CONF_RETRAIN_HOUR_LOCAL,
     CONF_SOLAR_SENSOR,
     CONF_SOLVER_BATTERY_POWER_SENSOR,
@@ -77,14 +78,18 @@ from ..const import (
     CONF_TEMPERATURE_FORECAST_SENSOR,
     CONF_TEMPERATURE_SENSOR,
     CONF_TRAIN_DAYS,
+    CONF_TRAINING_SOURCE,
     DEFAULT_FORECAST_HORIZON_HOURS,
+    DEFAULT_HYBRID_RECENT_DAYS,
     DEFAULT_RETRAIN_HOUR_LOCAL,
     DEFAULT_TRAIN_DAYS,
+    DEFAULT_TRAINING_SOURCE,
     SIGNAL_ROLE_BATTERY,
     SIGNAL_ROLE_GRID,
     SIGNAL_ROLE_SOLAR,
     SUBENTRY_TYPE_LOAD,
     SUBENTRY_TYPE_SIGNAL,
+    TRAINING_SOURCE_CHOICES,
 )
 
 
@@ -204,6 +209,34 @@ def _forecaster_schema(defaults: dict[str, Any]) -> vol.Schema:
                 selector.NumberSelectorConfig(
                     min=7,
                     max=180,
+                    step=1,
+                    mode=selector.NumberSelectorMode.BOX,
+                    unit_of_measurement="days",
+                )
+            ),
+            vol.Optional(
+                CONF_TRAINING_SOURCE,
+                default=defaults.get(CONF_TRAINING_SOURCE, DEFAULT_TRAINING_SOURCE),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=list(TRAINING_SOURCE_CHOICES),
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                    translation_key=CONF_TRAINING_SOURCE,
+                )
+            ),
+            # Only meaningful when training_source=hybrid, but exposed unconditionally
+            # -- a dependent-field "only show when X" would need a two-step flow and
+            # isn't worth the complexity for one small numeric knob that's a no-op
+            # when hybrid isn't selected.
+            vol.Optional(
+                CONF_HYBRID_RECENT_DAYS,
+                default=defaults.get(
+                    CONF_HYBRID_RECENT_DAYS, DEFAULT_HYBRID_RECENT_DAYS
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1,
+                    max=30,
                     step=1,
                     mode=selector.NumberSelectorMode.BOX,
                     unit_of_measurement="days",
@@ -770,6 +803,8 @@ _FORECASTER_SCHEMA_KEYS = (
     CONF_FORECAST_HORIZON_HOURS,
     CONF_RETRAIN_HOUR_LOCAL,
     CONF_TRAIN_DAYS,
+    CONF_TRAINING_SOURCE,
+    CONF_HYBRID_RECENT_DAYS,
 )
 _SOLVER_WIZARD_SCHEMA_KEYS = (
     CONF_SOLVER_BATTERY_SOC_SENSOR,
