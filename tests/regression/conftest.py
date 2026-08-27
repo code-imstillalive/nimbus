@@ -40,7 +40,8 @@ def _list_installs() -> list[str]:
     if not FIXTURES.exists():
         return []
     return sorted(
-        p.name for p in FIXTURES.iterdir()
+        p.name
+        for p in FIXTURES.iterdir()
         if p.is_dir() and (p / "nimbus_diag.json").exists()
     )
 
@@ -86,9 +87,17 @@ def forecast(nsbf_state: dict) -> list[dict]:
     while stack:
         cur = stack.pop()
         if isinstance(cur, dict):
-            if "forecast" in cur and isinstance(cur["forecast"], list) and cur["forecast"]:
+            if (
+                "forecast" in cur
+                and isinstance(cur["forecast"], list)
+                and cur["forecast"]
+            ):
                 first = cur["forecast"][0]
-                if isinstance(first, dict) and "battery_kw" in first and "soc_pct" in first:
+                if (
+                    isinstance(first, dict)
+                    and "battery_kw" in first
+                    and "soc_pct" in first
+                ):
                     return cur["forecast"]
             stack.extend(cur.values())
         elif isinstance(cur, list):

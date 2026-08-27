@@ -67,6 +67,12 @@ def test_async_setup_schedules_retrain_in_the_background_when_untrained():
     # set directly on the instance, has to go through a real-shaped entry.
     coord.entry = MagicMock()
     coord.entry.options = {}
+    # subentry_id is the key async_setup() now tracks the retrain task
+    # under (nimbus repo issue #211's own idempotent-retrain fix) -- a
+    # unique string per test avoids cross-test pollution of the shared
+    # module-level _retrain_tasks dict.
+    coord.subentry = MagicMock()
+    coord.subentry.subentry_id = "test-subentry-schedules-retrain"
 
     async def _run() -> None:
         await coord.async_setup()

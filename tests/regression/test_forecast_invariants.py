@@ -25,7 +25,6 @@ from __future__ import annotations
 
 from datetime import datetime
 
-
 # ─────────────────────────────────────────────────────────────
 # RAW-* — `_raw` diagnostic attribute conventions (#217 item 2, #216)
 # ─────────────────────────────────────────────────────────────
