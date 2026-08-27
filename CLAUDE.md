@@ -4,11 +4,65 @@ Instructions for any Claude instance working on this repo. Read this before touc
 
 ---
 
-## ⚠️ CURRENT STATE (2026-08-26 evening) — read this first
+## ⚠️ CURRENT STATE (2026-08-27 night) — read this first
 
-Supersedes the 2026-08-17 section below, which is kept as historical record only — its
-own Forecaster bug chain (#1-#7) is long since deployed and confirmed stable; don't
-re-diagnose it from that section's own present-tense wording.
+Supersedes the 2026-08-26 evening section below, which is kept as historical record only.
+
+**Version: v0.94.12** (up from v0.94.2). PRs #246, #247, #249, #250, #251, #252 merged this
+session; releases v0.94.9 → v0.94.12 cut. Open issues as of writing: #114, #217, #236 (mostly
+resolved-in-comments/deferred-scope, not active work).
+
+**#245 (partial fix, #246) — LP degeneracy, simultaneous charge/discharge.** Added a linear
+`charge[t] + discharge[t] <= max(max_charge_kw, max_discharge_kw)` cap to `network.py`'s
+wash-trade-prevention section (Mark's own proposed fix). Tested honestly rather than trusting
+the issue's own claim: a same-period charge-then-export round trip stays genuinely profitable
+whenever `export_price` exceeds `import_price` by more than round-trip loss — the cap *bounds*
+that, doesn't eliminate it. Full elimination needs #238's MILP complementarity, not attempted
+here. `tests/test_solver_combined_direction_cap.py` documents both the hard guarantee and the
+honest residual gap.
+
+**#244 (fix, #247) — solver cron phase-aligned to the real NEM 5-minute settlement boundary.**
+The native in-process solver's own timer (`__init__.py`) was a free-running
+`async_track_time_interval(minutes=1)` with no phase relationship to when a real settled price
+tick actually lands. Mark's own 24h measurement (273 real tick arrivals) found the settled
+value lands in `[15s, 30s)` past each boundary 89% of the time — swapped to
+`async_track_utc_time_change(..., second=30)`, locked to `:00:30, :05:30, ...`. Also *fewer*
+solves overall (12/hour vs 60/hour), not more.
+
+**#238 groundwork (binary variables + dual recovery, #249) — recovered, not built fresh.** A
+real, previously-orphaned commit (pushed to a stale branch by a disconnected session, no PR
+ever opened, zero test coverage) was found, verified sound, cherry-picked onto current main,
+and given real test coverage (12 new tests, the first direct `LPProblem`-level tests in this
+suite) before merging — `LPProblem.add_variable(binary=True)` + `is_mip`, HiGHS MIP solve with
+duals recovered via pin-and-relax (branch-and-bound alone gives no meaningful duals). Groundwork
+only — the complementarity constraint itself is still not written, `network.py` is untouched.
+#238 itself stays closed (COMPLETED) — this is groundwork for its explicitly-kept-open,
+non-blocking MILP follow-up, not a reopening.
+
+**Standalone-writer phase-alignment (#251, v0.94.12) — a genuine, general fix, with an honest
+caveat about where it actually applies.** The same #244/#247 phase-alignment gap exists in the
+standalone `nimbus_solver_forecast_writer.py` cron script too (documented to deploy on a bare
+`* * * * *`, never touched by #247's fix, which only lives in the native runtime's own timer).
+`seconds_to_settlement_capture()` adds a short, bounded wait to only the one tick per 5-minute
+cycle landing near a real boundary — the other four ticks stay a complete no-op, preserving
+the every-minute cadence itself. Real, tested (8 new tests), and correct for any install that
+actually runs this standalone script (e.g. via the `nimbus_solver_app` HAOS add-on, which
+builds from this same file). **Caveat, found via live follow-up investigation, not assumed**:
+an install that only runs the native in-process runtime (no standalone cron at all) sees zero
+benefit from this specific fix — don't assume a live symptom is explained by this path without
+first confirming the standalone script is actually scheduled and running on that install.
+
+**A real collaboration pattern worth naming**: Mark Purcell (`purcell-lab`) is an active,
+highly-engaged tester filing well-evidenced issues with real timestamped data, not vague
+reports — treat his input accordingly (see the global `CLAUDE.md`'s own "Working preferences"
+entry on this). Also worth knowing: more than one Claude session can be actively working this
+repo at once (a household may run sessions from more than one device) — check `gh pr list`/
+`gh issue list` for genuinely current state before assuming a symptom is unexplained or
+unaddressed; don't re-diagnose something another session already fixed minutes ago.
+
+---
+
+## ⚠️ CURRENT STATE (2026-08-26 evening) — historical, superseded by the section above
 
 **Version: v0.94.2** (bumped from v0.94.1 this session). PRs #204, #206, #207 merged;
 #205 closed. Nothing currently open on the repo as of this writing.
