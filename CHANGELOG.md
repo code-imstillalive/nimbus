@@ -10,6 +10,12 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.94.10] — 2026-08-27
+
+### Fixed
+- **Battery charge/discharge simultaneously non-zero — partial fix, not a closure** ([#245](https://github.com/code-imstillalive/nimbus/issues/245), [#246](https://github.com/code-imstillalive/nimbus/pull/246), thanks @purcell-lab). Added a linear cap to `network.py`'s "SAME-PERIOD WASH-TRADE PREVENTION" section — `charge[t] + discharge[t] <= max(max_charge_kw, max_discharge_kw)` per period — which kills the unbounded degeneracy Mark's `purcell_qld1_v0.94.6_midblock/` fixture surfaced (`charge=17.98 kW` alongside `discharge=16.91 kW` in the same period). Tested directly rather than trusting the issue's own claim that no objective incentive exists for simultaneous charge+discharge: that claim doesn't hold in general — whenever a period's `export_price` genuinely exceeds `import_price` by more than round-trip loss (the same real P2P-window pattern #236 already documented), a same-period charge-then-export round trip is genuinely profitable, and the LP takes it up to the new cap. Worst case shrinks from "as large as both individual caps allow" to "at most `max(max_charge_kw, max_discharge_kw)` combined," at zero cost when that condition doesn't hold. `tests/test_solver_combined_direction_cap.py` (3 tests) documents both the hard guarantee and the honest residual gap. Full elimination (`charge[t] * discharge[t] == 0` complementarity) still needs #238's MILP treatment — not attempted here.
+- **Solver cron phase-aligned to the NEM :00/:05 settlement boundary** ([#244](https://github.com/code-imstillalive/nimbus/issues/244), [#247](https://github.com/code-imstillalive/nimbus/pull/247), thanks @purcell-lab). Swapped the free-running 1-minute `async_track_time_interval` for `async_track_utc_time_change` locked to `:00:30, :05:30, :10:30, ...` — 30s past every NEM 5-minute settlement boundary. Mark's own 24h measurement (273 AEMO tick arrivals) showed the settled tick lands in `[15s, 30s)` past each boundary 89% of the time; a phase-unlocked 1-minute cron regularly solved just before the tick and then waited up to another full interval to pick it up, costing ~30s of stale-price dispatch per block. Solving at `:XX:30` sits comfortably past the p90 arrival window — and is fewer solves overall (12/hour vs. 60/hour), not more.
+
 ## [0.94.9] — 2026-08-27
 
 ### Added
