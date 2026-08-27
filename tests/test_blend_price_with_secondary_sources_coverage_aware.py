@@ -80,10 +80,11 @@ class TestSecondarySourceWithNoNearTermCoverage:
         assert spread is not None
 
     def test_secondary_contributes_once_its_own_real_coverage_begins(self):
-        # Same setup, but now include a grid time that genuinely falls
-        # within secondary's own real coverage window -- that period
-        # SHOULD still blend (this is a real second opinion there, not
-        # a placeholder).
+        # No primary_real_mask passed here defaults to "always real"
+        # (nimbus issue #239: primary-preferring) -- so BOTH periods now
+        # pass the primary through unchanged, never diluted by the
+        # secondary, even at the grid time where the secondary genuinely
+        # has real data too.
         grid_times = [_START, _START + timedelta(hours=20)]
         primary = [0.72, 9.00]
         secondary_start = _START + timedelta(hours=20)
@@ -98,11 +99,7 @@ class TestSecondarySourceWithNoNearTermCoverage:
                 grid_times,
             )
 
-        # First period: before secondary's real coverage -> unchanged.
-        assert round(result[0], 6) == 0.72
-        # Second period: exactly at secondary's one real point -> real
-        # equal-weight blend, same as the pre-fix behaviour there.
-        assert round(result[1], 6) == round((9.00 + 4.30) / 2, 6)
+        assert result == primary
 
     def test_primary_real_mask_lets_secondary_win_once_primary_goes_flat(self):
         # Mirrors the has_localvolts branch: once the primary source
@@ -127,9 +124,11 @@ class TestSecondarySourceWithNoNearTermCoverage:
                 primary_real_mask=primary_real_mask,
             )
 
-        # Periods 0-1: both sources real -> blended as before.
-        assert round(result[0], 6) == round((0.72 + 5.0) / 2, 6)
-        assert round(result[1], 6) == round((1.50 + 6.0) / 2, 6)
+        # Periods 0-1: primary is real -> primary-preferring (nimbus
+        # issue #239) means it wins alone, no longer diluted by the
+        # secondary just because the secondary happens to be real too.
+        assert round(result[0], 6) == 0.72
+        assert round(result[1], 6) == 1.50
         # Period 2: primary is NOT real (its own placeholder) but
         # secondary IS -> secondary passes through alone, not diluted.
         assert round(result[2], 6) == 7.0
