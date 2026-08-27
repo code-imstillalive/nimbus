@@ -2531,7 +2531,86 @@ def release_lock() -> None:
         pass  # already gone, or never created -- either way, nothing left to clean up
 
 
+# Settlement-tick capture (2026-08-27, nimbus issue #232 follow-up).
+#
+# Real finding, confirmed live against this project's own production
+# NUC1: this script's `* * * * *` cron (every 60s, unchanged since it
+# was chosen -- see the "* * * * *" comment above main()) has NO phase
+# relationship to the real NEM 5-minute settlement boundary, exactly
+# the same problem #244/#247 already fixed for the native in-process
+# solver (custom_components/nimbus_load/__init__.py's
+# `async_track_utc_time_change(..., minute=_SOLVER_CRON_MINUTES,
+# second=_SOLVER_CRON_SECOND)`). On an install running BOTH this
+# standalone script AND the native runtime against the same entity
+# (sensor.nimbus_solver_battery_forecast) -- which this household's own
+# NUC1 does -- the standalone script's every-60s writes land far more
+# often than the native runtime's every-5-min writes, so this script's
+# own un-phase-aligned cadence dominates what a viewer actually sees,
+# making #247's fix invisible in practice even though it's correctly
+# shipped and running. Confirmed via real recorder history: consecutive
+# updates land ~60s apart at an essentially arbitrary second-offset
+# (~14-18s past each minute, i.e. solve+push duration after a `:00`
+# cron fire), never aligned to `:XX:30` past a real 5-min boundary.
+#
+# The fix does NOT trade away the every-minute cadence -- that cadence
+# was a direct, deliberate household ask (2026-08-17: "we want to be
+# better not behind" HAEO's own faster reaction time), and it's still
+# genuinely useful for the 4 non-boundary minutes each cycle (a fresh
+# SoC/load reading is worth having every minute, independent of price).
+# Instead, ONLY the one tick per cycle that lands close to a real NEM
+# boundary gets a short, bounded wait before fetching -- catching the
+# settled tick on THAT SAME run rather than reading a stale pre-tick
+# price and having to wait up to another full minute for the next tick
+# to pick it up. This is deliberately the same target second
+# (`_SOLVER_CRON_SECOND = 30` in __init__.py) Mark's own 24h measurement
+# in #244 found catches the real settled tick 89% of the time -- kept
+# in sync with that constant on purpose, not independently chosen.
+_SETTLEMENT_CAPTURE_TARGET_SECOND = 30
+# Only worth waiting for a run that's genuinely CLOSE to a boundary --
+# a run landing e.g. 50s past one is closer to the NEXT boundary than
+# this one, and making it wait ~4.5 minutes to "catch" a tick that's
+# already long gone would be actively worse than just fetching now.
+_SETTLEMENT_CAPTURE_WINDOW_SECONDS = 40
+
+
+def seconds_to_settlement_capture(now: datetime) -> float:
+    """How long (if any) this specific run should sleep before fetching
+    real price data. Returns 0.0 for the overwhelming majority of runs
+    (every tick that isn't right at a 5-minute NEM boundary) -- only a
+    run landing within `_SETTLEMENT_CAPTURE_WINDOW_SECONDS` of `:00,
+    :05, :10, ...` gets a real, bounded wait, capped at
+    `_SETTLEMENT_CAPTURE_TARGET_SECOND` seconds. Pure function of `now`
+    specifically so this is testable without any real sleep/network
+    dependency -- see tests/test_settlement_capture_timing.py.
+    """
+    seconds_since_boundary = (now.minute % 5) * 60 + now.second
+    if seconds_since_boundary >= _SETTLEMENT_CAPTURE_WINDOW_SECONDS:
+        return 0.0
+    return max(0.0, float(_SETTLEMENT_CAPTURE_TARGET_SECOND - seconds_since_boundary))
+
+
 def main() -> None:
+    # Settlement-tick capture -- see seconds_to_settlement_capture()'s
+    # own docstring above. A no-op sleep(0.0) on 4 of every 5 ticks;
+    # only the boundary tick itself waits, and only up to
+    # _SETTLEMENT_CAPTURE_TARGET_SECOND seconds. Deliberately placed
+    # BEFORE any real work (including fetch_solver_config() below) so
+    # the PID lock -- already held by this point, acquired in the
+    # __main__ block before main() is ever called -- correctly covers
+    # the wait too: a concurrent tick firing mid-wait sees the lock held
+    # and exits cleanly, exactly the same overlap-guard behavior this
+    # script already relies on elsewhere.
+    _wait_s = seconds_to_settlement_capture(
+        datetime.now(timezone.utc).astimezone(BRISBANE_TZ)
+    )
+    if _wait_s > 0:
+        print(
+            f"[{datetime.now(timezone.utc).astimezone(BRISBANE_TZ).isoformat()}] "
+            f"near a NEM settlement boundary -- waiting {_wait_s:.1f}s to catch the settled tick",
+            flush=True,
+        )
+        time.sleep(_wait_s)
+
     # Fail fast, with a real, actionable message, if the Solver hasn't
     # been configured yet -- see fetch_solver_config()'s own docstring
     # for the full "installable by anyone" context this closes.
