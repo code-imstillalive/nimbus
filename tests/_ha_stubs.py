@@ -383,6 +383,12 @@ def install_ha_stubs() -> None:
         SelectSelector=_StubSelectSelector,
         SelectSelectorConfig=_StubSelectorConfig,
         SelectSelectorMode=types.SimpleNamespace(DROPDOWN="dropdown", LIST="list"),
+        # Added 2026-08-28 (issue #256) -- same minimal stub pattern as the
+        # other selectors above. flows/hub_options.py's own solver-grid
+        # schema imports this at module level for the CONF_SOLVE_ON_PRICE_
+        # CHANGE toggle, so it must exist on the stub for every test that
+        # imports that module (whether or not it exercises the toggle).
+        BooleanSelector=_StubSelectorBase,
     )
     # Real string values + a REAL converter, not opaque MagicMocks -- this
     # exact area (a solar sensor reporting W while battery/grid sensors
@@ -481,6 +487,12 @@ def install_ha_stubs() -> None:
         # imports this at module level too, and every test importing
         # custom_components.nimbus_load fails to collect without it.
         async_track_utc_time_change=MagicMock(),
+        # Added 2026-08-28 (issue #256, native price-triggered solving) --
+        # same module-level import gap as async_track_utc_time_change
+        # above. __init__.py's own optional price-watcher block imports
+        # this at module scope, so it must exist on the stub even for
+        # tests that never actually enable the feature.
+        async_track_state_change_event=MagicMock(return_value=MagicMock()),
     )
     module(
         "homeassistant.helpers.update_coordinator",

@@ -189,6 +189,44 @@ TRAINING_SOURCE_CHOICES: Final = (
 # HA's default 10-day purge_keep_days so almost every install produces both halves.
 CONF_HYBRID_RECENT_DAYS: Final = "hybrid_recent_days"
 
+# Nimbus issue #256 (Mark Purcell, 2026-08-27) -- Amber's own live price
+# sensors are actively revised across the ~2 hours approaching each
+# settlement block. Direct measured evidence on the 07:00 AEST 28-Aug
+# block via HA's history API, sensor.amber_express_amber_feed_in_price:
+# 15 discrete state updates across a single 30-min block window, revising
+# by up to ~1c between adjacent ticks (0.0882 at solve time -> 0.0562 at
+# block start -> 0.0508 mid-block -> 0.0145 end -- ~7c total amplitude on
+# just this one block). Textbook "forecast block gets revised as
+# settlement approaches" -- exact same behaviour LocalVolts P2P forecasts
+# already documented for a different retailer.
+#
+# The periodic phase-locked cron (issue #244, __init__.py's own
+# _SOLVER_CRON_MINUTES/_SECOND) catches the FIRST settled price of each
+# 5-min block, ~30s past the boundary. It does NOT catch subsequent
+# revisions to that block landing at arbitrary seconds in between. Amber's
+# own coordinator polls on a 5-min cadence, so a revision can land 30s or
+# 4:30 into a block -- the periodic cron then always waits up to another
+# full 5 minutes before picking it up.
+#
+# nimbus_load.solve_now (issue #232/#254) shipped so a user's automation
+# could react to state_changed on their own price sensor -- purely
+# additive. This option pulls that same trigger *into* the integration
+# so a fresh install gets it without a per-instance automation, and so
+# the trigger is authoritatively tied to whatever price sensors the
+# wizard already knows about (rather than duplicated in a per-user YAML
+# block that can drift out of sync when the wizard reconfigures).
+#
+# Default OFF -- byte-identical behaviour on every existing install
+# until deliberately enabled. When on, listens to state_changed on
+# every configured solver_*_price_sensor{,_2,_3} and calls
+# solver_runtime.async_run_solve() -- the same call the periodic cron
+# already makes, so its own PID-lock overlap guard applies unchanged.
+# A debounce coalesces bursts of state changes within the debounce
+# window into one solve, so a retailer that updates several correlated
+# price sensors in the same second doesn't fan out into N solves.
+CONF_SOLVE_ON_PRICE_CHANGE: Final = "solve_on_price_change"
+CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S: Final = "solve_on_price_change_debounce_s"
+
 # Per-load, NOT shared -- unlike temperature/humidity/curtailment (whole-
 # house signals every load's model can reasonably use), a fixed daily
 # schedule window (e.g. a pool pump timer running 8am-3pm) is specific to
@@ -227,6 +265,15 @@ DEFAULT_TRAIN_DAYS: Final = 30
 # original recorder-only path unchanged.
 DEFAULT_TRAINING_SOURCE: Final = "recorder"
 DEFAULT_HYBRID_RECENT_DAYS: Final = 5
+# Default OFF preserves exact current behaviour on every existing install
+# -- see CONF_SOLVE_ON_PRICE_CHANGE's own comment above. A 5s debounce is
+# chosen deliberately: Amber's coordinator updates several correlated
+# sensors within tens of milliseconds of each other; 5s comfortably
+# coalesces that whole burst into one solve but is much shorter than the
+# ~5-min cadence between real Amber pulls, so a genuine second update
+# arriving 10s later still triggers its own solve.
+DEFAULT_SOLVE_ON_PRICE_CHANGE: Final = False
+DEFAULT_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S: Final = 5.0
 DEFAULT_FALLBACK_TEMPERATURE_C: Final = 22.0
 # No humidity-forecast integration exists to source a horizon-length
 # humidity forecast from (unlike temperature, which has one) -- the

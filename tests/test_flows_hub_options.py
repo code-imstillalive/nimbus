@@ -206,8 +206,13 @@ def test_solver_grid_schema_has_two_required_price_fields():
     # fields (nimbus: "u also are missing my blended price forecasts...
     # in case we can feed it more than one... e.g. aemo... and amber") --
     # the two PRIMARY fields stay the only Required ones.
+    # 2026-08-28 (issue #256): gained 2 more genuinely OPTIONAL native
+    # price-triggered-solving fields (solve_on_price_change +
+    # debounce_s) -- both default OFF so a schema with no defaults
+    # provided still produces exact byte-identical behaviour on the
+    # existing install path.
     schema = _solver_grid_schema({})
-    assert len(schema.schema) == 6
+    assert len(schema.schema) == 8
     for key in (CONF_SOLVER_IMPORT_PRICE_SENSOR, CONF_SOLVER_EXPORT_PRICE_SENSOR):
         assert type(_find_marker(schema, key)).__name__ == "Required"
 

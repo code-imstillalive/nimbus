@@ -18,13 +18,31 @@ import logging
 from collections.abc import Callable
 
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import entity_registry as er
-from homeassistant.helpers.event import async_track_utc_time_change
+from homeassistant.helpers.event import (
+    async_track_state_change_event,
+    async_track_utc_time_change,
+)
 from homeassistant.loader import async_get_integration
 
 from . import frontend, health, services, solver_runtime
-from .const import CONF_LOAD_SENSOR, DOMAIN, SUBENTRY_TYPE_LOAD, SUBENTRY_TYPE_SIGNAL
+from .const import (
+    CONF_LOAD_SENSOR,
+    CONF_SOLVE_ON_PRICE_CHANGE,
+    CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
+    CONF_SOLVER_EXPORT_PRICE_SENSOR,
+    CONF_SOLVER_EXPORT_PRICE_SENSOR_2,
+    CONF_SOLVER_EXPORT_PRICE_SENSOR_3,
+    CONF_SOLVER_IMPORT_PRICE_SENSOR,
+    CONF_SOLVER_IMPORT_PRICE_SENSOR_2,
+    CONF_SOLVER_IMPORT_PRICE_SENSOR_3,
+    DEFAULT_SOLVE_ON_PRICE_CHANGE,
+    DEFAULT_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
+    DOMAIN,
+    SUBENTRY_TYPE_LOAD,
+    SUBENTRY_TYPE_SIGNAL,
+)
 from .coordinator import NimbusConfigEntry, NimbusCoordinator
 from .sensor import object_id_from_source
 
@@ -98,6 +116,22 @@ _LOGGER = logging.getLogger(__name__)
 # condition (not a one-off timing fluke), the reload's own fresh
 # async_setup_entry() call can retrigger the identical race immediately.
 _solver_timer_unsub: dict[str, Callable[[], None]] = {}
+
+# Same idempotent-unsub pattern as _solver_timer_unsub above -- both to
+# handle a hub reload re-entering async_setup_entry with a listener
+# already registered for the same entry_id (see the CONF_SOLVE_ON_PRICE_
+# CHANGE registration block below and _solver_timer_unsub's own comment
+# above for the full "why entry.async_on_unload isn't enough on its own"
+# reasoning), and to make the on-load state cleanly inspectable from
+# tests. Value is None when the toggle is off for that entry.
+_price_watcher_unsub: dict[str, Callable[[], None] | None] = {}
+
+# Set of price-sensor entity IDs we're already listening on for each
+# entry_id -- so a hub reload that hasn't changed the configured price
+# sensors is a no-op re-register, rather than re-registering identical
+# listeners on every reload. See the CONF_SOLVE_ON_PRICE_CHANGE block
+# below.
+_price_watcher_entities: dict[str, tuple[str, ...]] = {}
 
 
 async def _async_rename_stale_forecast_entities(
@@ -286,12 +320,125 @@ async def async_setup_entry(hass: HomeAssistant, entry: NimbusConfigEntry) -> bo
     )
     _solver_timer_unsub[entry.entry_id] = unsub_periodic_solve
     entry.async_on_unload(unsub_periodic_solve)
+
+    # Optional native state-change trigger on the configured price
+    # sensors (issue #256) -- purely additive on top of the periodic
+    # cron above. Default OFF, byte-identical behaviour on every install
+    # that hasn't enabled it via the Solver: Grid Prices step. See CONF_
+    # SOLVE_ON_PRICE_CHANGE's own comment in const.py for the full
+    # measured-evidence "why the periodic cron alone misses intra-block
+    # revisions" reasoning.
+    _configure_price_watcher(hass, entry)
+
     # One immediate cycle at setup too, in the background -- so a fresh
     # install (or a restart) doesn't sit with an empty forecast for up to
     # a full 5-minute cron period before anything shows up.
     hass.async_create_task(solver_runtime.async_run_solve(hass))
 
     return True
+
+
+def _configured_price_sensors(entry: NimbusConfigEntry) -> tuple[str, ...]:
+    """The set of import/export price sensors the wizard currently has
+    configured for this hub (in canonical order for deterministic set-
+    change comparison). Optional _2/_3 secondary sources are included
+    when set; empty/None values are dropped so they don't turn into a
+    listener on a non-existent entity_id. Returned as a tuple so it can
+    key into _price_watcher_entities directly.
+    """
+    keys = (
+        CONF_SOLVER_IMPORT_PRICE_SENSOR,
+        CONF_SOLVER_IMPORT_PRICE_SENSOR_2,
+        CONF_SOLVER_IMPORT_PRICE_SENSOR_3,
+        CONF_SOLVER_EXPORT_PRICE_SENSOR,
+        CONF_SOLVER_EXPORT_PRICE_SENSOR_2,
+        CONF_SOLVER_EXPORT_PRICE_SENSOR_3,
+    )
+    return tuple(
+        entity_id
+        for entity_id in (entry.options.get(k) for k in keys)
+        if isinstance(entity_id, str) and entity_id
+    )
+
+
+def _configure_price_watcher(hass: HomeAssistant, entry: NimbusConfigEntry) -> None:
+    """(Re)register the state-change listener that triggers an on-demand
+    solve whenever any configured price sensor's state updates. Runs
+    from async_setup_entry, so a hub reload that changed the toggle or
+    the price-sensor set picks up the change immediately.
+
+    Idempotent -- always cancels any previously registered listener
+    first, so re-entering async_setup_entry a second time for the same
+    entry_id can't leak duplicate listeners. Cheap no-op fast path
+    when the toggle is off AND no listener was previously registered.
+    """
+    enabled = bool(
+        entry.options.get(CONF_SOLVE_ON_PRICE_CHANGE, DEFAULT_SOLVE_ON_PRICE_CHANGE)
+    )
+    price_entities = _configured_price_sensors(entry) if enabled else ()
+
+    prev_entities = _price_watcher_entities.get(entry.entry_id, ())
+    prev_unsub = _price_watcher_unsub.get(entry.entry_id)
+    # Fast path: nothing changed -- avoid a needless unsub/re-register cycle
+    # on hub reloads unrelated to this feature.
+    if prev_entities == price_entities and (prev_unsub is not None) == bool(
+        price_entities
+    ):
+        return
+
+    if prev_unsub is not None:
+        prev_unsub()
+        _price_watcher_unsub[entry.entry_id] = None
+        _price_watcher_entities[entry.entry_id] = ()
+
+    if not price_entities:
+        return
+
+    debounce_s = float(
+        entry.options.get(
+            CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
+            DEFAULT_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
+        )
+    )
+    # A small in-flight box so a burst of state_changed events within the
+    # debounce window coalesces into a single solve. asyncio.Handle is
+    # HA's own scheduler primitive -- created here by hass.loop.call_later
+    # rather than asyncio.get_event_loop() so a test harness that swaps
+    # the loop still lands on the harness's own loop.
+    pending: dict[str, object] = {"handle": None}
+
+    def _fire_solve() -> None:
+        pending["handle"] = None
+        hass.async_create_task(solver_runtime.async_run_solve(hass))
+
+    @callback
+    def _on_price_change(event) -> None:
+        # Cancel any pending fire and reschedule -- the same coalescing
+        # pattern HA's own async_debounce helper uses internally. Not
+        # imported here directly because the helper's exact module path
+        # has moved across HA releases and this is a two-line inline
+        # equivalent that stays stable across those moves.
+        handle = pending.get("handle")
+        if handle is not None:
+            handle.cancel()  # type: ignore[attr-defined]
+        pending["handle"] = hass.loop.call_later(debounce_s, _fire_solve)
+
+    unsub = async_track_state_change_event(hass, list(price_entities), _on_price_change)
+
+    def _combined_unsub() -> None:
+        """Cancel any pending debounced solve as well as the listener
+        itself, so a hub unload right after a state-change burst can't
+        leave a stray callback still fired for a torn-down hub.
+        """
+        handle = pending.get("handle")
+        if handle is not None:
+            handle.cancel()  # type: ignore[attr-defined]
+            pending["handle"] = None
+        unsub()
+
+    _price_watcher_unsub[entry.entry_id] = _combined_unsub
+    _price_watcher_entities[entry.entry_id] = price_entities
+    entry.async_on_unload(_combined_unsub)
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: NimbusConfigEntry) -> None:
@@ -315,4 +462,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: NimbusConfigEntry) -> b
         # stale, already-cancelled-by-entry.async_on_unload unsub sitting
         # in this module-level dict forever.
         _solver_timer_unsub.pop(entry.entry_id, None)
+        # Symmetric with the price-watcher registration in async_setup_
+        # entry above -- the entry.async_on_unload registration already
+        # cancelled the listener, we just don't want a stale key sitting
+        # in these module-level dicts forever after a genuine removal.
+        _price_watcher_unsub.pop(entry.entry_id, None)
+        _price_watcher_entities.pop(entry.entry_id, None)
     return unload_ok

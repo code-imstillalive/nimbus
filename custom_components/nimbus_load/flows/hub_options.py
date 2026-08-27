@@ -49,6 +49,8 @@ from ..const import (
     CONF_HYBRID_RECENT_DAYS,
     CONF_RETRAIN_HOUR_LOCAL,
     CONF_SOLAR_SENSOR,
+    CONF_SOLVE_ON_PRICE_CHANGE,
+    CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
     CONF_SOLVER_BATTERY_POWER_SENSOR,
     CONF_SOLVER_BATTERY_SOC_SENSOR,
     CONF_SOLVER_EXPORT_PRICE_SENSOR,
@@ -82,6 +84,8 @@ from ..const import (
     DEFAULT_FORECAST_HORIZON_HOURS,
     DEFAULT_HYBRID_RECENT_DAYS,
     DEFAULT_RETRAIN_HOUR_LOCAL,
+    DEFAULT_SOLVE_ON_PRICE_CHANGE,
+    DEFAULT_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
     DEFAULT_TRAIN_DAYS,
     DEFAULT_TRAINING_SOURCE,
     SIGNAL_ROLE_BATTERY,
@@ -353,6 +357,36 @@ def _solver_grid_schema(defaults: dict[str, Any]) -> vol.Schema:
                     "suggested_value": defaults.get(CONF_SOLVER_EXPORT_PRICE_SENSOR_3)
                 },
             ): _entity(),
+            # Native price-triggered solving (issue #256) -- see CONF_
+            # SOLVE_ON_PRICE_CHANGE's own comment in const.py for the
+            # full measured-evidence "why the periodic cron alone misses
+            # intra-block revisions" reasoning. Default OFF, byte-
+            # identical behaviour on every install that hasn't turned
+            # it on. The debounce is deliberately exposed as its own
+            # small field rather than hard-coded, so a retailer that
+            # updates its correlated price sensors faster or slower than
+            # Amber can tune it without an integration change.
+            vol.Optional(
+                CONF_SOLVE_ON_PRICE_CHANGE,
+                default=defaults.get(
+                    CONF_SOLVE_ON_PRICE_CHANGE, DEFAULT_SOLVE_ON_PRICE_CHANGE
+                ),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
+                default=defaults.get(
+                    CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
+                    DEFAULT_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0.5,
+                    max=60,
+                    step=0.5,
+                    mode=selector.NumberSelectorMode.BOX,
+                    unit_of_measurement="seconds",
+                )
+            ),
         }
     )
 

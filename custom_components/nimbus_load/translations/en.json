@@ -69,7 +69,9 @@
           "solver_import_price_sensor_3": "Optional: third import price source to blend",
           "solver_export_price_sensor": "🔴 Live export (sell) price sensor ($/kWh) -- from your own retailer/market integration",
           "solver_export_price_sensor_2": "Optional: second export price source to blend",
-          "solver_export_price_sensor_3": "Optional: third export price source to blend"
+          "solver_export_price_sensor_3": "Optional: third export price source to blend",
+          "solve_on_price_change": "Also solve immediately when a price sensor's state updates (issue #256)",
+          "solve_on_price_change_debounce_s": "Debounce window (seconds) for coalescing a burst of price updates into one solve"
         },
         "data_description": {
           "solver_import_price_sensor": "Whatever your electricity retailer's own HA integration (Amber, LocalVolts, a generic template sensor, etc.) exposes as the current $/kWh you're charged to import. If this sensor also has its own forecast attribute, the Solver uses it directly for planning; otherwise it holds the current value flat across the whole horizon. Also drives the Topology dashboard card's live price display, as a fallback if the Switchboard wizard's own price field isn't set.",
@@ -77,7 +79,9 @@
           "solver_import_price_sensor_3": "Optional -- a third import price source, same blending as the second.",
           "solver_export_price_sensor": "The mirror of the above for what you're paid to export -- same forecast-attribute preference, same Topology dashboard fallback role.",
           "solver_export_price_sensor_2": "The mirror of solver_import_price_sensor_2, for export price.",
-          "solver_export_price_sensor_3": "The mirror of solver_import_price_sensor_3, for export price."
+          "solver_export_price_sensor_3": "The mirror of solver_import_price_sensor_3, for export price.",
+          "solve_on_price_change": "Default off. When on, the Solver also runs whenever any configured price sensor's state changes -- purely additive on top of the phase-locked 5-minute cron. Directly closes the timing gap in issue #256: retailer price sensors (e.g. Amber) revise their block prices multiple times as settlement approaches, and the cron only picks the last of those revisions up on the next boundary + 30s, up to ~5 minutes stale. Equivalent to writing your own automation on state_changed calling nimbus_load.solve_now, but with the trigger authoritatively tied to whatever price sensors the wizard already knows about, so it stays correct across wizard reconfigures with no automation to keep in sync.",
+          "solve_on_price_change_debounce_s": "Only meaningful when the toggle above is on. A retailer usually updates several correlated price sensors within tens of milliseconds of each other (e.g. Amber updates import, export, and forecast sensors together) -- this window coalesces the whole burst into a single solve. 5s is a safe default: comfortably longer than a correlated burst, comfortably shorter than the ~5-minute cadence between real Amber pulls, so a genuine later revision still triggers its own solve."
         }
       },
       "solver_sources": {
