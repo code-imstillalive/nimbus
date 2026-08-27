@@ -2686,6 +2686,18 @@ def blend_price_with_secondary_sources(
     secondary source is configured OR configured but currently
     unavailable -- a single-source install (the overwhelming majority
     today) is byte-identical to before this function existed.
+
+    Note on period 0 (2026-08-27, nimbus repo issue #220, Mark Purcell:
+    "Settled prices must not be blended"): grid_times[0] is always "now"
+    by construction (build_tiered_grid()), and every configured price
+    source publishes a SETTLED, contractual value for that block, not
+    an estimate -- there is no valid blending weight for it other than
+    1.0 on the primary. This function still runs its normal coverage
+    logic on period 0 like any other (it's a general-purpose blend, not
+    aware of which index is "now"); the caller (main()) is responsible
+    for re-asserting the settled primary value at index 0 AFTER calling
+    this, which is simpler and keeps this function's own contract
+    (and its existing direct unit tests) unchanged.
     """
     sources = [np.array(primary, dtype=float)]
     real_masks: list[list[bool]] = [
@@ -5060,6 +5072,38 @@ def main() -> None:
         import_price_upper_band = {}
         export_price_lower_band = {}
 
+    # The current settlement block must never be a forecast/blend value
+    # (2026-08-27, nimbus repo issue #220, Mark Purcell): Amber,
+    # LocalVolts, and AEMO all publish the SETTLED price for the block
+    # containing right-now -- a contractual fact, not an estimate, and
+    # it cannot legitimately be diluted by any secondary source. Both
+    # resample_price_with_extrapolation() and
+    # resample_generic_price_forecast_with_coverage() above answer
+    # period 0 via a "nearest-at-or-before" lookup against the source's
+    # own FORECAST array, which is a genuinely different read than the
+    # same source's own live `state` -- confirmed live on Mark's install
+    # (2026-08-27 11:07 AEST): forecast-array lookup produced 4.07
+    # c/kWh for the current block while the source sensor's own settled
+    # `state` was 4.89 c/kWh. grid_times[0] is always "now" by
+    # construction (see build_tiered_grid()), so period 0 is always the
+    # current settlement block -- override it here with a direct state
+    # read, same pattern safe_num() already uses for every other live
+    # scalar read in this file. Falls back to whatever the resampler
+    # already produced (never crashes, never worse than before this
+    # fix) if the state itself is unavailable/unparseable.
+    settled_import_sensor = (
+        "sensor.localvolts_costs_flex_up"
+        if has_localvolts
+        else cfg["solver_import_price_sensor"]
+    )
+    settled_export_sensor = (
+        "sensor.localvolts_earnings_flex_up"
+        if has_localvolts
+        else cfg["solver_export_price_sensor"]
+    )
+    spot_import_raw[0] = safe_num(settled_import_sensor, fallback=spot_import_raw[0])
+    spot_export[0] = safe_num(settled_export_sensor, fallback=spot_export[0])
+
     # True pre-blend source pass-through (2026-08-27, nimbus repo issue
     # #216, Mark Purcell's refined asks #1/#2: publish an
     # export_price_raw alongside import_price_raw, and make `_raw`
@@ -5098,6 +5142,14 @@ def main() -> None:
         grid_times,
         primary_real_mask=export_real_mask,
     )
+    # Re-assert the settled current-block value (nimbus repo issue #220):
+    # blend_price_with_secondary_sources() has no notion of "index 0 is
+    # now" and may have blended period 0 like any other if a secondary
+    # source happened to report real coverage there too -- the settled
+    # value set above is never a valid blend target, so re-apply it here
+    # as the final word regardless of what the blend step did.
+    spot_import_raw[0] = spot_import_source[0]
+    spot_export[0] = spot_export_source[0]
 
     # Generic + real: TOU network fees and the flat fee rate apply to
     # EVERY install, LocalVolts or not (nimbus repo issue #152, fixed

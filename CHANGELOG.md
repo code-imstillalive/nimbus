@@ -10,6 +10,24 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.94.5] — 2026-08-27
+
+### Fixed
+- **Settled current-block price no longer blended or resampled** (#220,
+  Mark Purcell): the forecast period covering right-now is the SETTLED,
+  contractual price every configured source (Amber, LocalVolts, AEMO)
+  publishes for that block — not an estimate, and never a valid target
+  for `blend_price_with_secondary_sources()`'s blending. Live-reported
+  effect: Nimbus published `import_price_raw=4.07`/`import_price=5.03`
+  c/kWh for a block Amber had already settled at 4.89 c/kWh — a
+  forecast-array "nearest-at-or-before" lookup isn't the same read as
+  the source's own live `state`, and even a correct raw value would
+  still have been diluted by a configured secondary source. The current
+  period now reads the primary sensor's live `state` directly (same
+  `safe_num()` pattern used for every other live scalar read in this
+  file), applied before `_raw` is captured and re-applied again after
+  blending, so it can never be a stale array lookup or a blend target.
+
 ## [0.94.4] — 2026-08-27
 
 ### Fixed
