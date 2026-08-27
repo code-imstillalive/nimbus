@@ -245,13 +245,15 @@ def test_lp_04_battery_energy_balance_closes_when_after_efficiency_available(
     within 5% (recalls issue #149).
 
     NOTE: this test requires forecast[i].battery_kw_after_efficiency to be
-    published. Without it, `battery_kw` is the LP's pre-efficiency decision
-    variable and cannot reconcile against soc_pct without knowing the
-    efficiency curve — the test is skipped rather than run at a loose
-    tolerance that would hide real regressions.
+    published (shipped in the writer alongside this test change). Without it,
+    `battery_kw` is the LP's pre-efficiency decision variable and cannot
+    reconcile against soc_pct without knowing the efficiency curve — the
+    test is skipped rather than run at a loose tolerance that would hide
+    real regressions.
 
-    See #217 item 1 (LP-03 INFO in the first-cut IV&V) — Mark to file a small
-    standalone issue proposing the extra attribute.
+    Fixtures captured before the field shipped will continue to skip cleanly;
+    the next re-capture on an install running post-#229 code will start
+    exercising the invariant.
     """
     if "battery_kw_after_efficiency" not in forecast[0]:
         import pytest
