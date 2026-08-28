@@ -4342,6 +4342,54 @@ def _safe_fromisoformat(value: str) -> datetime | None:
         return None
 
 
+def _dispatch_source_breakdown(
+    battery_kw: float, solar_kw_i: float, load_kw_i: float
+) -> tuple[str, str, float, str, float]:
+    """Real per-period source/destination breakdown for the plan table
+    (2026-08-28, direct ask: "the plan table should also say where it
+    is coming from -- such as solar, grid, battery... not just
+    charging... it should say direction, and then from/to what
+    source"). The LP itself has no per-source flow variables to read
+    back (BatteryConfig is a single aggregate on a single copper-plate
+    bus -- see its own docstring), so this is an honest MERIT-ORDER
+    decomposition of the same flow balance the LP already solved, not a
+    dual/shadow-price attribution: solar serves load first, any surplus
+    charges the battery, anything still short comes from grid import;
+    symmetrically on a discharge period, the battery serves load before
+    any of it is attributed to export. Matches how a household actually
+    reasons about "why is it charging/discharging right now."
+
+    Returns (direction, source_a_label, source_a_pct, source_b_label,
+    source_b_pct). direction is "charge"/"discharge"/"idle".
+    """
+    _CHARGE_EPS = 1e-3
+    if battery_kw <= -_CHARGE_EPS:
+        charge_kw = -battery_kw
+        solar_surplus = max(0.0, solar_kw_i - load_kw_i)
+        from_solar = min(solar_surplus, charge_kw)
+        from_grid = charge_kw - from_solar
+        return (
+            "charge",
+            "Solar",
+            round(from_solar / charge_kw * 100, 1),
+            "Grid",
+            round(from_grid / charge_kw * 100, 1),
+        )
+    if battery_kw >= _CHARGE_EPS:
+        discharge_kw = battery_kw
+        remaining_load = max(0.0, load_kw_i - solar_kw_i)
+        to_load = min(discharge_kw, remaining_load)
+        to_grid = discharge_kw - to_load
+        return (
+            "discharge",
+            "Load",
+            round(to_load / discharge_kw * 100, 1),
+            "Grid",
+            round(to_grid / discharge_kw * 100, 1),
+        )
+    return ("idle", "Load", 0.0, "Grid", 0.0)
+
+
 def main() -> None:
     # Fail fast, with a real, actionable message, if the Solver hasn't
     # been configured yet -- see fetch_solver_config()'s own docstring
@@ -5638,6 +5686,14 @@ def main() -> None:
         - corrected_battery_charge_kw * charge_discharge_efficiency
     )
 
+    # Real per-period source/destination breakdown (2026-08-28) -- see
+    # _dispatch_source_breakdown()'s own module-level docstring for the
+    # full rationale.
+    dispatch_breakdown = [
+        _dispatch_source_breakdown(net_battery[i], solar_kw[i], load_kw[i])
+        for i in range(n_periods)
+    ]
+
     # Real per-period price/load/solar/net-cost fields added (2026-08-17,
     # direct ask: "still waiting for haeo like markdown table where I
     # can see forecasted costs fit load solar and soc% and period net")
@@ -5713,6 +5769,11 @@ def main() -> None:
             "bonus_price": round(export_bonus_price[i], 4),
             "load_kw": round(load_kw[i], 3),
             "solar_kw": round(solar_kw[i], 3),
+            "dispatch_direction": dispatch_breakdown[i][0],
+            "dispatch_source_a_label": dispatch_breakdown[i][1],
+            "dispatch_source_a_pct": dispatch_breakdown[i][2],
+            "dispatch_source_b_label": dispatch_breakdown[i][3],
+            "dispatch_source_b_pct": dispatch_breakdown[i][4],
             # Real per-period duration (2026-08-17, found while fixing a
             # real bug this same session: the daily-summary dashboard
             # card was hardcoding a flat 0.25h multiplier for every

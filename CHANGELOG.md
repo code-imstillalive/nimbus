@@ -10,6 +10,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.94.15] — 2026-08-28
+
+### Added
+- Per-period dispatch source/destination breakdown on the Solver plan (direct ask: "the plan table should also say where it is coming from -- such as solar, grid, battery... not just charging... it should say direction, and then from/to what source"). Each period in `sensor.nimbus_solver_battery_forecast`'s `forecast` list (and `sensor.nimbus_solver_dispatch_dry_run`'s own attributes) now carries `dispatch_direction` (`charge`/`discharge`/`idle`) plus a labeled two-way percentage breakdown (`dispatch_source_a_label`/`_pct`, `dispatch_source_b_label`/`_pct`) -- e.g. "100% Solar / 0% Grid" while charging, or "30% Load / 70% Grid" while discharging. A real merit-order decomposition of the same flow balance the LP already solved (solar serves load first, surplus charges the battery; battery serves load before any of it is attributed to export) -- not a dual/shadow-price attribution, since the LP itself has no per-source flow variables to read back. Applied identically to both portable copies of the writer (`docs/real-world-integration/files/`, `nimbus_solver_app/`) to keep all three byte-identical, per this project's own standing invariant.
+
 ## [0.94.14] — 2026-08-28
 
 ### Fixed
