@@ -428,7 +428,12 @@ async def async_setup_entry(
     # own "idempotent" docstring in solver_writer.py).
     battery_forecast = NimbusSolverBatteryForecastSensor(entry, sw_version)
     household_load_forecast = NimbusHouseholdLoadTotalForecastSensor(entry, sw_version)
-    async_add_entities([battery_forecast, household_load_forecast])
+    # Dry-run dispatch evidence trail (2026-08-28) -- same registration
+    # pattern as the two lines above, see NimbusDispatchDryRunSensor's
+    # own docstring for why this needs to be a real recorded entity, not
+    # a log line.
+    dispatch_dry_run = NimbusDispatchDryRunSensor(entry, sw_version)
+    async_add_entities([battery_forecast, household_load_forecast, dispatch_dry_run])
     # Deferred import (same reasoning as solver_runtime.py's own
     # _ensure_ready(): solver_writer imports the pure-Python `solver`
     # and `ml` packages via a bare `from solver import ...` at module
@@ -468,6 +473,10 @@ async def async_setup_entry(
     solver_writer.register_entity_handler(
         "sensor.nimbus_household_load_total_forecast",
         household_load_forecast.update_from_solver,
+    )
+    solver_writer.register_entity_handler(
+        "sensor.nimbus_solver_dispatch_dry_run",
+        dispatch_dry_run.update_from_solver,
     )
 
 
@@ -1354,3 +1363,43 @@ class NimbusHouseholdLoadTotalForecastSensor(_NimbusSolverPushSensor):
 
     _UNIQUE_ID_SUFFIX = "nimbus_household_load_total_forecast"
     _attr_name = "Household Load Total Forecast"
+
+
+class NimbusDispatchDryRunSensor(_NimbusSolverPushSensor):
+    """Real-dispatch groundwork, phase 1 (2026-08-27/28) -- durable
+    evidence trail for what solver_runtime.py's own dry-run observation
+    (see that module's _log_dispatch_dry_run docstring) actually WAS,
+    over time, via HA's own native recorder + long-term statistics.
+
+    Before this class existed, the dry-run observation was a single
+    _LOGGER.info() call and nothing else -- confirmed live on devhub
+    2026-08-28 that this produced ZERO durable evidence: the switch was
+    genuinely on, the Solver was genuinely solving on its normal
+    schedule, but nimbus_load's effective logger level (WARNING by
+    default on a fresh install) sits above INFO, so not one of those
+    log lines had ever actually been emitted. A "dry run" with no
+    reviewable history isn't testing anything -- this class is the
+    fix: same _NimbusSolverPushSensor base as the two #55-migrated
+    forecast sensors, so it gets a real unique_id, device link, and
+    POWER/KILO_WATT/MEASUREMENT device/state class -- which means HA's
+    own History graphs AND long-term statistics (kept indefinitely,
+    survives the recorder's purge window) both work on this natively,
+    with no bespoke rolling-JSON-buffer mechanism needed at all.
+
+    Only ever updated while switch.nimbus_solver_dispatch_dry_run is
+    on -- see _log_dispatch_dry_run's own guard in solver_runtime.py.
+    Flipping the switch off simply stops new points from landing;
+    already-recorded history is untouched either way, exactly like
+    disabling any other sensor's own polling would be. The extra
+    attributes (soc_pct, grid_import_kw, grid_export_kw, import_price,
+    export_price) give full context for "what was true at this exact
+    plan-decision" without needing to cross-reference the much larger
+    battery_forecast sensor's own `forecast` array by timestamp.
+
+    Still purely observational -- nothing about adding a recorded
+    history changes _log_dispatch_dry_run's own contract that there is
+    no hass.services.call() anywhere near this path.
+    """
+
+    _UNIQUE_ID_SUFFIX = "nimbus_solver_dispatch_dry_run"
+    _attr_name = "Solver Dispatch (Dry Run)"

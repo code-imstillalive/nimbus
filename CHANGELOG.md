@@ -10,6 +10,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.94.14] — 2026-08-28
+
+### Fixed
+- Real-dispatch dry-run observation (`switch.nimbus_solver_dispatch_dry_run`) previously produced zero durable evidence: it only logged via `_LOGGER.info()`, which sits below `nimbus_load`'s default logger level (`WARNING`) — confirmed live on a real install that the switch was genuinely on and the Solver was genuinely solving on schedule, but not one observation had ever actually been recorded anywhere. Added `sensor.nimbus_solver_dispatch_dry_run`, a real, properly-registered diagnostic entity (same base class as the #55-migrated forecast sensors) that records the current period's planned `battery_kw` plus context (`soc_pct`, `grid_import_kw`, `grid_export_kw`, `import_price`, `export_price`) on every solve while the switch is on — reviewable via HA's own History graphs and long-term statistics, independent of logger level. Still purely observational: no `hass.services.call()` anywhere near this path, no change to the real-dispatch-groundwork phase-1 scope.
+
 ## [0.94.13] — 2026-08-27
 
 ### Added
