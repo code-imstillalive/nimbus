@@ -10,6 +10,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.94.18] — 2026-08-28
+
+### Fixed
+- Real bug found live on devhub: `compute_daily_quality_report()`/`compute_efficiency_backtest_report()` (the EPR/regret quality report and the efficiency-sensitivity backtest) treated whatever `solver_solar_power_sensor`/`solver_battery_power_sensor`/`solver_whole_house_cross_check_sensor` pointed at as already being kW, with no check against the entity's own declared unit. A household pointing `solver_solar_power_sensor` at a native Watts sensor (confirmed live: `sensor.combined_total_dc_power` reports `unit_of_measurement: "W"`) silently fed solar values ~1000x too large into both reports, producing impossible economics (confirmed live: `theoretical_maximum_yield` around -$1280, `regret_dollars` around -$1289 for one real household-day — an EPR of -0.7%, which shouldn't even be able to go negative under the metric's own definition). New `_kw_scale_factor()` checks the source entity's real `unit_of_measurement` and scales by 0.001 for a confirmed "W" sensor, 1.0 otherwise (including no unit at all, or a lookup failure) — deliberately corrects only the one real, confirmed-live mismatch rather than guessing at every possible power unit HA could report. 6 new tests (`tests/test_kw_scale_factor.py`), including a direct regression test reproducing the live 9300W→9.3kW case.
+
 ## [0.94.17] — 2026-08-28
 
 ### Added
