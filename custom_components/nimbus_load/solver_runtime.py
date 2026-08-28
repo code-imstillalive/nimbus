@@ -249,6 +249,11 @@ def _log_dispatch_dry_run(hass: HomeAssistant, sw) -> None:
                 "export_price": current.get("export_price"),
                 "period_time": current.get("time"),
                 "dry_run_enabled": True,
+                "dispatch_direction": current.get("dispatch_direction"),
+                "dispatch_source_a_label": current.get("dispatch_source_a_label"),
+                "dispatch_source_a_pct": current.get("dispatch_source_a_pct"),
+                "dispatch_source_b_label": current.get("dispatch_source_b_label"),
+                "dispatch_source_b_pct": current.get("dispatch_source_b_pct"),
             },
         )
     except Exception:  # observation-only, must never affect the real solve
