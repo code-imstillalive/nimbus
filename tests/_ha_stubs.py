@@ -323,6 +323,12 @@ def install_ha_stubs() -> None:
     module(
         "homeassistant.components.recorder.statistics",
         statistics_during_period=MagicMock(),
+        # get_metadata: used by _remediate_forecast_lts_unit (nimbus issue
+        # #263) to read a statistic_id's currently-stored LTS unit before
+        # deciding whether to correct it. Left as a plain MagicMock here,
+        # same convention as statistics_during_period above -- tests that
+        # exercise this path monkeypatch its return value per scenario.
+        get_metadata=MagicMock(),
     )
     module(
         "homeassistant.components.sensor",

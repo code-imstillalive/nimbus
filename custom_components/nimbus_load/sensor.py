@@ -15,6 +15,7 @@ goes bad), not folded into one combined device.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from datetime import UTC, datetime, timedelta
@@ -362,6 +363,78 @@ def object_id_from_source(load_sensor_entity_id: str) -> str:
     return f"nimbus_{object_id}_forecast"
 
 
+async def _remediate_forecast_lts_unit(
+    hass: HomeAssistant, entity_id: str, expected_unit: str
+) -> None:
+    """Silently correct a nimbus forecast entity's long-term-statistics
+    metadata if it was seeded with an empty/missing unit (nimbus issue
+    #263, Mark Purcell) -- so the user never sees HA's "unit has changed"
+    repair dialog for an entity that has always reported a real unit.
+
+    2026-08-28, verified against real HA recorder internals (installed
+    homeassistant 2025.1.4) before writing this, not assumed from the
+    issue's own sketch: the originally-proposed fix
+    (`recorder.async_change_statistics_unit`) is NOT the right tool here
+    -- it internally calls `can_convert_units(old_unit, new_unit)` first,
+    and `can_convert_units("", "kW")` is confirmed `False` (empty string
+    has no known unit family to convert FROM), so calling it with the
+    exact `old_unit_of_measurement=""` this function is meant to fix
+    would raise `HomeAssistantError` immediately, not repair anything.
+
+    The real, correct mechanism (confirmed by reading
+    `homeassistant/components/recorder/websocket_api.py`'s own
+    `ws_update_statistics_metadata` handler -- the literal code behind
+    the Statistics page's "change unit" fix button in HA's own UI) is
+    `Recorder.async_update_statistics_metadata(new_unit_of_measurement=...)`.
+    This is a raw metadata relabel with no `can_convert_units` gate at
+    all -- the correct semantics for "this row's unit was never
+    correctly recorded in the first place," as opposed to
+    `async_change_statistics_unit`'s actual job (numerically RESCALING
+    already-stored statistic values from one real unit to another,
+    e.g. W history being reinterpreted as kW).
+
+    Deliberately never touches a row that already holds any OTHER real
+    unit -- only ever relabels a genuinely empty/`None` one. Wrapped in
+    a broad try/except: this is a one-time cosmetic cleanup, and must
+    never be capable of blocking or crashing real entity setup.
+    """
+    try:
+        from homeassistant.components.recorder import get_instance
+        from homeassistant.components.recorder.statistics import get_metadata
+
+        recorder = get_instance(hass)
+        metadata = await recorder.async_add_executor_job(
+            lambda: get_metadata(hass, statistic_ids={entity_id})
+        )
+        entry = metadata.get(entity_id)
+        if entry is None:
+            return  # no LTS row exists yet for this entity_id -- nothing to fix
+        _metadata_id, meta = entry
+        stored_unit = meta.get("unit_of_measurement")
+        if stored_unit not in (None, ""):
+            return  # already correct, or a genuinely different unit -- never touch that
+
+        done = asyncio.Event()
+        recorder.async_update_statistics_metadata(
+            entity_id,
+            new_unit_of_measurement=expected_unit,
+            on_done=lambda: hass.loop.call_soon_threadsafe(done.set),
+        )
+        async with asyncio.timeout(10):
+            await done.wait()
+        _LOGGER.info(
+            "Nimbus: corrected empty long-term-statistics unit for %s -> %s",
+            entity_id,
+            expected_unit,
+        )
+    except Exception:  # never let a cosmetic LTS fixup break real entity setup
+        _LOGGER.exception(
+            "Nimbus: LTS unit remediation failed for %s -- harmless, HA's own "
+            "'unit has changed' repair dialog may still appear once",
+            entity_id,
+        )
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: NimbusConfigEntry,
@@ -384,9 +457,20 @@ async def async_setup_entry(
         coordinator = coordinators.get(subentry.subentry_id)
         if coordinator is None:
             continue
+        forecast_entity = NimbusForecastSensor(coordinator, subentry, sw_version)
         async_add_entities(
-            [NimbusForecastSensor(coordinator, subentry, sw_version)],
+            [forecast_entity],
             config_subentry_id=subentry.subentry_id,
+        )
+        # nimbus issue #263 (Mark Purcell): fire-and-forget, non-blocking --
+        # a one-time LTS metadata cleanup must never delay real entity setup.
+        # See _remediate_forecast_lts_unit's own docstring for the verified
+        # mechanism and why the issue's own originally-sketched fix would
+        # have raised instead of repairing anything.
+        hass.async_create_task(
+            _remediate_forecast_lts_unit(
+                hass, forecast_entity.entity_id, UnitOfPower.KILO_WATT
+            )
         )
 
     # One per hub, NOT per subentry (added straight to the top-level
@@ -520,6 +604,23 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
         sw_version: str | None = None,
     ) -> None:
         super().__init__(coordinator)
+        # nimbus issue #263 (Mark Purcell) -- belt-and-braces instance-level
+        # assignment, NOT the actual fix for the reported "unit has changed"
+        # repair. Verified directly: Python already resolves the class-scope
+        # _attr_* declarations above via normal attribute lookup on every
+        # `self.native_unit_of_measurement` read, from the very first state
+        # write onward -- there is no timing window where these three
+        # class-level values fail to resolve correctly. The real fix for
+        # the reported symptom is _remediate_forecast_lts_unit (called from
+        # async_setup_entry below), which corrects an already-stale, empty
+        # long-term-statistics metadata row left over from before this
+        # unit was ever declared. This instance-level copy is kept only as
+        # cheap, harmless defensiveness against a future refactor (e.g. a
+        # subclass computing its own unit dynamically) that might rely on
+        # `self._attr_*` rather than the class attribute.
+        self._attr_device_class = SensorDeviceClass.POWER
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_native_unit_of_measurement = UnitOfPower.KILO_WATT
         # Deliberately NOT changed to a generic suffix for existing load
         # subentries -- an already-deployed entity's unique_id must never
         # change, or Home Assistant treats it as a brand new entity and

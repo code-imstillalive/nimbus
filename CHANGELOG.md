@@ -10,6 +10,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.94.16] — 2026-08-28
+
+### Fixed
+- Nimbus issue #263 (Mark Purcell): every subentry-created `sensor.nimbus_*_forecast` entity triggered Home Assistant's "unit has changed" long-term-statistics repair dialog on first restart after being seeded into recorder statistics, even though the entity has always declared a real `kW` unit — the underlying statistics-metadata row was seeded with an empty unit before the entity's own unit was ever recorded. Verified against real HA recorder internals (installed `homeassistant` 2025.1.4) before implementing: the issue's own originally-sketched fix (`recorder.async_change_statistics_unit(..., old_unit_of_measurement="")`) was confirmed, by direct testing, to raise `HomeAssistantError` immediately (it gates on `can_convert_units("", "kW")`, which is `False` — an empty string has no unit family to convert from), so it would have crashed on exactly the row it was meant to fix. The real, correct mechanism — found by reading `homeassistant/components/recorder/websocket_api.py`'s own `ws_update_statistics_metadata` handler, the literal code behind the Statistics page's "change unit" fix button in HA's own UI — is `Recorder.async_update_statistics_metadata(new_unit_of_measurement=...)`, a raw metadata relabel with no `can_convert_units` gate. New `_remediate_forecast_lts_unit()` in `sensor.py` uses this, fired as a non-blocking `hass.async_create_task(...)` from `async_setup_entry` so a one-time cosmetic cleanup can never delay real entity setup; it only ever relabels a genuinely empty/`None` stored unit, never touches a row already holding any other real unit, and is wrapped in a broad try/except so a recorder error can't propagate into entity setup. 6 new tests (`tests/test_forecast_sensor_lts_unit_remediation.py`).
+
 ## [0.94.15] — 2026-08-28
 
 ### Added
