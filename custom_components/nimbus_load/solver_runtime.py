@@ -174,13 +174,29 @@ def _ensure_ready(hass: HomeAssistant):
     return _solver_writer
 
 
-def _log_dispatch_dry_run(hass: HomeAssistant) -> None:
-    """Real-dispatch groundwork, phase 1 (2026-08-27): observe-only.
-    Nimbus has never written to an inverter -- this function doesn't
-    change that. It only logs what the CURRENT period's plan says the
-    battery should be doing, when `switch.nimbus_solver_dispatch_dry_run`
-    is on, so a household can watch several real cycles' worth of "what
-    would have been sent" before any actual command path exists at all.
+def _log_dispatch_dry_run(hass: HomeAssistant, sw) -> None:
+    """Real-dispatch groundwork, phase 1 (2026-08-27, hardened 2026-08-28):
+    observe-only. Nimbus has never written to an inverter -- this
+    function doesn't change that. When `switch.nimbus_solver_dispatch_
+    dry_run` is on, it records what the CURRENT period's plan says the
+    battery should be doing -- both a log line (unchanged from the
+    original 2026-08-27 version, still useful for live tailing when the
+    logger level is turned up) AND a real, durable sensor update via
+    `sensor.nimbus_solver_dispatch_dry_run` (see NimbusDispatchDryRun-
+    Sensor in sensor.py) -- so a household can watch several real
+    cycles' worth of "what would have been sent" via HA's own History
+    graphs / long-term statistics, not just whatever happens to still
+    be in the log buffer.
+
+    2026-08-28 finding, not theoretical: on a real live install
+    (devhub), the switch had genuinely been on and the Solver genuinely
+    solving on schedule, but nimbus_load's own effective logger level
+    (WARNING by default) sits above this function's original bare
+    _LOGGER.info() call -- meaning zero dry-run observations had ever
+    actually been recorded anywhere, despite the mechanism "working."
+    A dry run nobody can review afterward isn't evidence of anything.
+    The sensor push below doesn't depend on logger level at all.
+
     There is deliberately no hass.services.call() anywhere near this
     function -- phase 2 (a real write path, its own separate switch, and
     a hard safety-clamp independent of the LP's own constraints) is a
@@ -191,9 +207,16 @@ def _log_dispatch_dry_run(hass: HomeAssistant) -> None:
     solver_writer.ha_get()'s own native branch -- see this module's own
     top-of-file docstring for why a plain hass.states.get() from that
     thread is the accepted, already-established pattern here, not a new
-    risk this function introduces. Wrapped so a bug here can never turn
-    a successful solve into a failed one -- this is pure observation,
-    never worth costing the real plan a publish.
+    risk this function introduces. `sw` (the already-imported
+    solver_writer module) is passed in from that same caller rather
+    than re-imported here, so this function has no import concerns of
+    its own. sw.ha_post_state() is itself thread-safe in native mode
+    (routes through hass.add_job() internally -- see its own docstring),
+    so calling it from this worker thread is the same already-proven
+    pattern every other native-mode entity push in this codebase uses.
+    Wrapped so a bug here can never turn a successful solve into a
+    failed one -- this is pure observation, never worth costing the
+    real plan a publish.
     """
     try:
         dry_run = hass.states.get("switch.nimbus_solver_dispatch_dry_run")
@@ -205,7 +228,8 @@ def _log_dispatch_dry_run(hass: HomeAssistant) -> None:
         periods = forecast_state.attributes.get("forecast") or []
         if not periods:
             return
-        battery_kw = periods[0].get("battery_kw")
+        current = periods[0]
+        battery_kw = current.get("battery_kw")
         if battery_kw is None:
             return
         _LOGGER.info(
@@ -213,6 +237,19 @@ def _log_dispatch_dry_run(hass: HomeAssistant) -> None:
             "(positive=discharge, negative=charge) -- no command sent, "
             "live dispatch is not implemented yet.",
             battery_kw,
+        )
+        sw.ha_post_state(
+            "sensor.nimbus_solver_dispatch_dry_run",
+            round(float(battery_kw), 3),
+            {
+                "soc_pct": current.get("soc_pct"),
+                "grid_import_kw": current.get("grid_import_kw"),
+                "grid_export_kw": current.get("grid_export_kw"),
+                "import_price": current.get("import_price"),
+                "export_price": current.get("export_price"),
+                "period_time": current.get("time"),
+                "dry_run_enabled": True,
+            },
         )
     except Exception:  # observation-only, must never affect the real solve
         _LOGGER.exception("Nimbus Dispatch (dry-run): logging failed, ignoring")
@@ -301,7 +338,7 @@ async def async_run_solve(hass: HomeAssistant) -> bool:
             return False
         try:
             sw.main()
-            _log_dispatch_dry_run(hass)
+            _log_dispatch_dry_run(hass, sw)
             return True
         except RuntimeError as e:
             # fetch_solver_config()'s own "Solver settings not configured
