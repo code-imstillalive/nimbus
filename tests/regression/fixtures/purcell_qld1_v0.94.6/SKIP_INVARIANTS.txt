@@ -1,0 +1,27 @@
+# Invariant families this fixture opts out of. One prefix per line.
+# See ../../conftest.py::fixture_skips.
+
+# Opt out of FLOW-05/06 (nimbus issue #264's own _flow_decomposition()
+# reconciliation invariants, added 2026-08-28) -- this fixture's real
+# captured forecast[] contains a genuine, independent LP degeneracy
+# unrelated to #264 itself: several periods show SIMULTANEOUS grid
+# import AND export (e.g. forecast row 2026-08-28T13:00:00+10:00 --
+# grid_import_kw=13.133, grid_export_kw=30.0, load_kw=0.0, at
+# import_price=0.0408 vs export_price=0.3333 -- a textbook same-period
+# buy-low/sell-high arbitrage the LP appears to have found no constraint
+# against). 24/361 rows exceed the 0.5kW merit-order reconciliation
+# tolerance on the import side, 25/361 on the export side.
+#
+# Confirmed this is NOT a #264 regression: the same future period,
+# computed by an EARLIER solve on the same install (purcell_qld1/,
+# v0.94.4, captured ~30h before this fixture), shows a completely clean
+# single-direction result for the identical timestamp (battery_kw=-7.097
+# charging, grid_import_kw=0.0, grid_export_kw=5.489) -- the degeneracy
+# appeared between solves, not because of anything this fixture's own
+# code differs on. Likely the same underlying LP-degeneracy class as
+# #245's own charge+discharge wash trade, just manifesting on the grid
+# import/export legs instead of the battery legs -- #245's fix
+# (network.py's charge+discharge <= max(...) cap) does not constrain
+# import+export at all. Reported as a new, separate issue -- see #266.
+FLOW_05
+FLOW_06

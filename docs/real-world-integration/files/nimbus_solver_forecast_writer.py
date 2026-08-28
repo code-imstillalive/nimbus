@@ -2637,6 +2637,222 @@ def _dispatch_source_breakdown(
     return ("idle", "Load", 0.0, "Grid", 0.0)
 
 
+def _flow_decomposition(
+    solar_kw_i: float,
+    load_kw_i: float,
+    charge_kw_i: float,
+    discharge_kw_i: float,
+) -> dict[str, float]:
+    """Real per-period seven-flow merit-order decomposition (nimbus issue
+    #264, Mark Purcell) -- extends _dispatch_source_breakdown()'s 2-way
+    split (against the battery only) to all four real bus terminals
+    (Solar/Battery/Grid/Load), so every kW of the period's balance
+    belongs to exactly one of the seven physical flows: PV->Load,
+    PV->Battery, PV->Grid, Battery->Load, Battery->Grid, Grid->Load,
+    Grid->Battery.
+
+    Same merit-order convention as _dispatch_source_breakdown() (solar
+    serves load first, then battery charge, then export; battery
+    discharge serves load before being attributed to export; grid tops
+    up whatever's left) -- this is an honest decomposition of the same
+    flow balance the LP already solved, not a dual/shadow-price
+    attribution (the LP has no per-source flow variables to read back).
+
+    Deliberately takes charge_kw_i/discharge_kw_i as TWO SEPARATE
+    pre-netted arguments, not the issue's own originally-sketched single
+    net_battery_kw -- net_battery already collapses simultaneous
+    charge+discharge into one signed scalar BEFORE this function would
+    ever see it, which would silently defeat the one real diagnostic
+    value the issue's own References section claims for this
+    decomposition ("Battery->Grid inside a same-period wash trade will
+    show a nonzero magnitude, which is a useful diagnostic in itself" --
+    #245/#238). With the two pre-net arrays instead (already computed
+    separately in main() as corrected_battery_charge_kw /
+    corrected_battery_discharge_kw, for battery_kw_after_efficiency),
+    a genuine same-period wash-trade period keeps both nonzero here too,
+    so it actually shows up as a real, visible flow rather than being
+    silently netted away first.
+
+    Invariants (asserted in tests/test_flow_decomposition.py against
+    both synthetic cases and the real regression fixtures under
+    tests/regression/fixtures/):
+      pv_to_load + pv_to_battery + pv_to_grid == solar_kw_i
+      pv_to_load + battery_to_load + grid_to_load == load_kw_i
+      pv_to_battery + grid_to_battery == charge_kw_i
+      battery_to_load + battery_to_grid == discharge_kw_i
+    The first four hold by construction, always, regardless of input.
+    Two further invariants (grid_to_load + grid_to_battery ==
+    grid_import_kw, pv_to_grid + battery_to_grid == grid_export_kw) are
+    NOT algebraic identities of this function alone -- they depend on
+    the real LP's own grid_import_kw/grid_export_kw satisfying the same
+    merit-order assumption this function encodes, which is genuinely an
+    empirical property of the LP's solution (true whenever a period
+    doesn't have simultaneous import AND export), not something this
+    function can guarantee for arbitrary inputs -- verified against real
+    captured fixtures in the regression suite instead of asserted here.
+    """
+    pv_to_load = min(solar_kw_i, load_kw_i)
+    solar_after_load = solar_kw_i - pv_to_load
+    pv_to_battery = min(solar_after_load, charge_kw_i)
+    solar_after_battery = solar_after_load - pv_to_battery
+    pv_to_grid = solar_after_battery
+
+    load_after_solar = load_kw_i - pv_to_load
+    battery_to_load = min(discharge_kw_i, load_after_solar)
+    battery_to_grid = discharge_kw_i - battery_to_load
+
+    load_after_battery = load_after_solar - battery_to_load
+    grid_to_load = load_after_battery
+    grid_to_battery = charge_kw_i - pv_to_battery
+
+    return {
+        "pv_to_load": pv_to_load,
+        "pv_to_battery": pv_to_battery,
+        "pv_to_grid": pv_to_grid,
+        "battery_to_load": battery_to_load,
+        "battery_to_grid": battery_to_grid,
+        "grid_to_load": grid_to_load,
+        "grid_to_battery": grid_to_battery,
+    }
+
+
+def _compute_flow_economics(
+    flows: list[dict[str, float]],
+    import_price: np.ndarray,
+    export_price: np.ndarray,
+    period_hours: np.ndarray,
+    round_trip_efficiency: float,
+    initial_soc_kwh: float,
+) -> list[dict[str, float]]:
+    """Per-period shadow prices on each of the seven flows from
+    _flow_decomposition(), plus the PV / Battery / Combined / Interaction
+    savings model (nimbus issue #264, Mark Purcell).
+
+    Shadow price table (all $/kWh, from the issue):
+      PV -> Load      = import_price                    (retail avoided)
+      PV -> Battery   = import_price - rt_loss_cost      (deferred credit)
+      PV -> Grid      = export_price                     (settlement)
+      Battery -> Load = import_price - rt_loss_cost      (retail avoided, less loss already paid)
+      Battery -> Grid = export_price - rt_loss_cost - charge_price_at_source  (arbitrage margin)
+      Grid -> Load    = -import_price                    (pure cost)
+      Grid -> Battery = -import_price                     (cost, deferred against a later discharge)
+    where rt_loss_cost = import_price * (1 - round_trip_efficiency).
+
+    charge_price_at_source -- the $/kWh cost basis attributed to energy
+    LEAVING the battery on a discharge period -- is deliberately NOT a
+    same-period lookup. A battery's SoC persists across periods (it is
+    charged in one period and very often discharged many periods later);
+    same-period charge+discharge is itself the anomalous wash-trade
+    condition #245 targets, not the normal case the pricing table needs
+    to be right for. This tracks a real weighted-average cost of goods
+    (WACOG) basis for whatever energy currently sits in the battery,
+    updated every period: PV-sourced charge blends in at $0/kWh,
+    grid-sourced charge blends in at that period's own import_price, and
+    every period's discharge draws the existing average down without
+    changing it -- exactly like an inventory cost basis, which moves on
+    a purchase, never on a sale.
+
+    Tracks PRE-efficiency kWh throughout (the same convention
+    _flow_decomposition()'s own charge_kw/discharge_kw already use) --
+    round-trip loss is charged exactly once, via rt_loss_cost in the
+    price table above; folding efficiency into the cost basis too would
+    double-count the same loss twice.
+
+    initial_soc_kwh's own real cost basis is genuinely unknowable (it
+    was charged at some real historical price before this forecast
+    horizon began) -- seeded at this horizon's own opening import_price,
+    the same "replacement cost" convention already used elsewhere in
+    this file for salvage/terminal value.
+
+    Combined savings and the interaction term are built from this same
+    flow decomposition's own reconstructed load_kw / grid_import_kw /
+    grid_export_kw (invariants 2/5/6 on _flow_decomposition()'s own
+    docstring) rather than a second, independently-passed copy of the
+    real LP arrays -- so PV + Battery + Interaction == Combined holds
+    exactly, by construction, every period, rather than only
+    approximately whenever the two sources happen to agree.
+    """
+    n = len(flows)
+    results: list[dict[str, float]] = []
+
+    running_energy_kwh = max(float(initial_soc_kwh), 1e-9)
+    running_cost_basis = float(import_price[0]) if n else 0.0
+
+    for i in range(n):
+        f = flows[i]
+        hrs = float(period_hours[i])
+        ip = float(import_price[i])
+        ep = float(export_price[i])
+        loss = ip * (1.0 - round_trip_efficiency)
+
+        charge_kwh_pv = f["pv_to_battery"] * hrs
+        charge_kwh_grid = f["grid_to_battery"] * hrs
+        charge_kwh = charge_kwh_pv + charge_kwh_grid
+        discharge_kwh = (f["battery_to_load"] + f["battery_to_grid"]) * hrs
+
+        if charge_kwh > 1e-9:
+            charge_price_this_period = (
+                charge_kwh_pv * 0.0 + charge_kwh_grid * ip
+            ) / charge_kwh
+            new_energy = running_energy_kwh + charge_kwh
+            running_cost_basis = (
+                running_cost_basis * running_energy_kwh
+                + charge_price_this_period * charge_kwh
+            ) / new_energy
+            running_energy_kwh = new_energy
+
+        charge_price_at_source = running_cost_basis
+
+        if discharge_kwh > 1e-9:
+            running_energy_kwh = max(0.0, running_energy_kwh - discharge_kwh)
+
+        price_pv_to_load = ip
+        price_pv_to_battery = ip - loss
+        price_pv_to_grid = ep
+        price_battery_to_load = ip - loss
+        price_battery_to_grid = ep - loss - charge_price_at_source
+        price_grid_to_load = -ip
+        price_grid_to_battery = -ip
+
+        pv_savings = (
+            f["pv_to_load"] * price_pv_to_load
+            + f["pv_to_grid"] * price_pv_to_grid
+            + f["pv_to_battery"] * price_pv_to_battery
+        ) * hrs
+        battery_savings = (
+            f["battery_to_load"] * price_battery_to_load
+            + f["battery_to_grid"] * price_battery_to_grid
+            - f["grid_to_battery"] * loss
+        ) * hrs
+
+        load_kw_recon = f["pv_to_load"] + f["battery_to_load"] + f["grid_to_load"]
+        grid_import_recon = f["grid_to_load"] + f["grid_to_battery"]
+        grid_export_recon = f["pv_to_grid"] + f["battery_to_grid"]
+        combined_savings = (
+            load_kw_recon * ip - (grid_import_recon * ip - grid_export_recon * ep)
+        ) * hrs
+        interaction_savings = combined_savings - pv_savings - battery_savings
+
+        results.append(
+            {
+                "flow_price_pv_to_load": round(price_pv_to_load, 4),
+                "flow_price_pv_to_battery": round(price_pv_to_battery, 4),
+                "flow_price_pv_to_grid": round(price_pv_to_grid, 4),
+                "flow_price_battery_to_load": round(price_battery_to_load, 4),
+                "flow_price_battery_to_grid": round(price_battery_to_grid, 4),
+                "flow_price_grid_to_load": round(price_grid_to_load, 4),
+                "flow_price_grid_to_battery": round(price_grid_to_battery, 4),
+                "flow_battery_cost_basis": round(charge_price_at_source, 4),
+                "savings_pv": round(pv_savings, 4),
+                "savings_battery": round(battery_savings, 4),
+                "savings_combined": round(combined_savings, 4),
+                "savings_interaction": round(interaction_savings, 4),
+            }
+        )
+
+    return results
+
+
 def main() -> None:
     # Settlement-tick capture -- see seconds_to_settlement_capture()'s
     # own docstring above. A no-op sleep(0.0) on 4 of every 5 ticks;
@@ -3676,6 +3892,43 @@ def main() -> None:
         for i in range(n_periods)
     ]
 
+    # Real per-period seven-flow decomposition + shadow prices + PV/
+    # Battery/Combined savings model (2026-08-28, nimbus issue #264, Mark
+    # Purcell) -- see _flow_decomposition()'s and _compute_flow_economics()'s
+    # own module-level docstrings for the full rationale, including why
+    # this deliberately extends the issue's own sketch (separate pre-net
+    # charge/discharge arrays instead of a single net_battery_kw, and a
+    # real cross-period WACOG cost basis instead of a same-period lookup).
+    # Byte-identical, additive to the existing dispatch_source_a/b fields
+    # above -- nothing already published changes shape or value.
+    #
+    # Uses plan.battery_charge_kw/plan.battery_discharge_kw directly
+    # (this file's own pre-#229 convention -- no separate corrected_
+    # battery_charge_kw/corrected_battery_discharge_kw pair exists here,
+    # only net_battery and corrected_grid_import get the fixed-export
+    # violation clamp above) and inlines the same round-trip-efficiency
+    # expression already used for BatteryConfig below, rather than a
+    # named charge_discharge_efficiency variable this file doesn't have.
+    flow_decomp = [
+        _flow_decomposition(
+            solar_kw[i],
+            load_kw[i],
+            float(plan.battery_charge_kw[i]),
+            float(plan.battery_discharge_kw[i]),
+        )
+        for i in range(n_periods)
+    ]
+    flow_econ = _compute_flow_economics(
+        flow_decomp,
+        import_price,
+        export_price,
+        period_hours_arr,
+        round_trip_efficiency=min(
+            _cfg_num(cfg, "solver_efficiency_percent", 95.0) / 100.0, 0.999
+        ),
+        initial_soc_kwh=initial_soc_kwh,
+    )
+
     # Real per-period price/load/solar/net-cost fields added (2026-08-17,
     # direct ask: "still waiting for haeo like markdown table where I
     # can see forecasted costs fit load solar and soc% and period net")
@@ -3731,6 +3984,17 @@ def main() -> None:
             "dispatch_source_a_pct": dispatch_breakdown[i][2],
             "dispatch_source_b_label": dispatch_breakdown[i][3],
             "dispatch_source_b_pct": dispatch_breakdown[i][4],
+            # Seven-flow decomposition + shadow prices + savings (nimbus
+            # issue #264) -- see flow_decomp/flow_econ's own construction
+            # above for the full rationale.
+            "flow_pv_to_load_kw": round(flow_decomp[i]["pv_to_load"], 3),
+            "flow_pv_to_battery_kw": round(flow_decomp[i]["pv_to_battery"], 3),
+            "flow_pv_to_grid_kw": round(flow_decomp[i]["pv_to_grid"], 3),
+            "flow_battery_to_load_kw": round(flow_decomp[i]["battery_to_load"], 3),
+            "flow_battery_to_grid_kw": round(flow_decomp[i]["battery_to_grid"], 3),
+            "flow_grid_to_load_kw": round(flow_decomp[i]["grid_to_load"], 3),
+            "flow_grid_to_battery_kw": round(flow_decomp[i]["grid_to_battery"], 3),
+            **flow_econ[i],
             # Real per-period duration (2026-08-17, found while fixing a
             # real bug this same session: the daily-summary dashboard
             # card was hardcoding a flat 0.25h multiplier for every
