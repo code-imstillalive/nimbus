@@ -10,6 +10,14 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.94.17] — 2026-08-28
+
+### Added
+- Nimbus issue #264 (Mark Purcell), phases 1-2: seven-flow merit-order decomposition + shadow prices + a PV/Battery/Combined/Interaction savings model, published on every period of `sensor.nimbus_solver_battery_forecast`'s `forecast` list (and both portable copies of the writer). Extends v0.94.15's (#262) 2-way `dispatch_source_a/b` split (against the battery only) to all four real bus terminals: `flow_pv_to_load_kw`, `flow_pv_to_battery_kw`, `flow_pv_to_grid_kw`, `flow_battery_to_load_kw`, `flow_battery_to_grid_kw`, `flow_grid_to_load_kw`, `flow_grid_to_battery_kw`, plus a $/kWh shadow price per flow and `savings_pv`/`savings_battery`/`savings_combined`/`savings_interaction` ($ per period). Existing fields are untouched — purely additive.
+  - Deliberately extends the issue's own sketch in two places, verified before implementing rather than copied as-is: takes separate pre-net `charge_kw`/`discharge_kw` (not the issue's single `net_battery_kw`), so a genuine same-period charge+discharge wash trade (#245) stays visible as a real flow instead of being silently netted away before the decomposition ever sees it; and tracks a real cross-period weighted-average cost-of-goods (WACOG) basis for energy held in the battery (`flow_battery_cost_basis`) rather than a same-period lookup, since a battery's SoC persists across periods and same-period charge+discharge is the anomalous case, not the normal one the pricing table needs to be right for.
+  - New regression suite `tests/regression/test_flow_invariants.py` (FLOW-01..06) validates the decomposition's four by-construction invariants plus a real reconciliation-against-the-LP check over every captured fixture. That reconciliation check surfaced a genuine, independent LP degeneracy (simultaneous grid import+export in some periods) in two existing fixtures — documented and opted out via `SKIP_INVARIANTS.txt`, filed as a separate follow-up issue (#266) rather than fixed here, since it's unrelated to #264 itself.
+  - Phases 3-4 (three/four new hub-level `total_increasing` LTS sensors rolling this up to daily/weekly/monthly/yearly/lifetime savings) are deliberately deferred — the forecast array these flows live on is recomputed and overwritten every solve cycle, so a real persistent accumulator needs its own double-counting-safe design (distinct from simply reusing #77's SensorEntity pattern, which the issue's own phase 3 sketch assumed); left for a focused follow-up rather than rushed.
+
 ## [0.94.16] — 2026-08-28
 
 ### Fixed

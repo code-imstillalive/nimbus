@@ -5,3 +5,14 @@
 # Remove this line (and probably re-capture the fixture from a fixed install)
 # once the follow-up fix ships.
 SET_02
+
+# Opt out of FLOW-05/06 (nimbus issue #264's own _flow_decomposition()
+# reconciliation invariants, added 2026-08-28) -- same real, independent
+# LP degeneracy documented in ../purcell_qld1_v0.94.6/SKIP_INVARIANTS.txt
+# (this is the same install, captured ~2.5h later the same day):
+# several forecast periods show simultaneous grid import AND export.
+# 36/365 rows exceed the 0.5kW reconciliation tolerance on each side.
+# Not a #264 regression -- confirmed against an earlier, clean solve of
+# the same future periods on the same install (purcell_qld1/, v0.94.4).
+FLOW_05
+FLOW_06
