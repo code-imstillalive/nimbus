@@ -69,8 +69,43 @@ def test_async_setup_entry_passes_config_subentry_id_for_the_forecast_sensor():
     config_subentry_id=subentry.subentry_id as a keyword argument --
     parsed via ast, not a substring grep, so this can't be fooled by a
     comment or an unrelated string mentioning the same words.
+
+    Matches two equally-valid source shapes, since nimbus issue #263
+    (2026-08-28) changed which one this file actually uses --
+    `async_add_entities([NimbusForecastSensor(...)], ...)` directly, OR
+    `x = NimbusForecastSensor(...)` on its own line immediately followed
+    by `async_add_entities([x], ...)` (needed so #263's own LTS-unit
+    remediation can read the constructed entity's real .entity_id before
+    handing it to async_add_entities). Both shapes genuinely construct
+    and register the same entity the same way -- this test's real job is
+    confirming config_subentry_id is passed, not policing which of the
+    two equivalent call shapes is used to get there.
     """
     tree = ast.parse(_SENSOR_PY.read_text(encoding="utf-8"))
+
+    # Variable names assigned directly from a NimbusForecastSensor(...)
+    # constructor call, anywhere in the file -- supports the "construct
+    # first, reference by name" shape.
+    forecast_sensor_vars = set()
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Assign)
+            and isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Name)
+            and node.value.func.id == "NimbusForecastSensor"
+        ):
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    forecast_sensor_vars.add(target.id)
+
+    def _constructs_forecast_sensor(expr: ast.expr) -> bool:
+        if (
+            isinstance(expr, ast.Call)
+            and isinstance(expr.func, ast.Name)
+            and expr.func.id == "NimbusForecastSensor"
+        ):
+            return True
+        return isinstance(expr, ast.Name) and expr.id in forecast_sensor_vars
 
     found_call = None
     for node in ast.walk(tree):
@@ -79,25 +114,25 @@ def test_async_setup_entry_passes_config_subentry_id_for_the_forecast_sensor():
         func = node.func
         if not (isinstance(func, ast.Name) and func.id == "async_add_entities"):
             continue
-        # Only the call whose first positional arg constructs a
-        # NimbusForecastSensor -- there are 4 other async_add_entities
-        # calls in this file for hub-scoped entities.
+        # Only the call whose first positional arg constructs (or
+        # references a just-constructed) NimbusForecastSensor -- there
+        # are 4 other async_add_entities calls in this file for
+        # hub-scoped entities.
         if not node.args:
             continue
         first_arg = node.args[0]
-        if isinstance(first_arg, ast.List) and first_arg.elts:
-            call_expr = first_arg.elts[0]
-            if (
-                isinstance(call_expr, ast.Call)
-                and isinstance(call_expr.func, ast.Name)
-                and call_expr.func.id == "NimbusForecastSensor"
-            ):
-                found_call = node
-                break
+        if (
+            isinstance(first_arg, ast.List)
+            and first_arg.elts
+            and _constructs_forecast_sensor(first_arg.elts[0])
+        ):
+            found_call = node
+            break
 
     assert found_call is not None, (
         "Could not locate the async_add_entities([NimbusForecastSensor(...)], ...) "
-        "call in sensor.py -- has it been renamed or restructured?"
+        "(or construct-then-reference equivalent) call in sensor.py -- has it "
+        "been renamed or restructured?"
     )
     kw_names = {kw.arg for kw in found_call.keywords}
     assert "config_subentry_id" in kw_names, (
