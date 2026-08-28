@@ -3396,6 +3396,34 @@ def resample_history_nearest(
     return out
 
 
+def _kw_scale_factor(entity_id: str) -> float:
+    """Real bug found live on devhub 2026-08-28: compute_daily_quality_
+    report() and compute_efficiency_backtest_report() both take a
+    configured *_power_sensor entity_id and treat its raw historical
+    values as already being kW, with no check against what the entity
+    itself actually declares. A household pointing solver_solar_power_
+    sensor at a native Watts sensor (very common for raw inverter/logger
+    telemetry -- confirmed live: sensor.combined_total_dc_power's own
+    unit_of_measurement is "W") silently fed solar values ~1000x too
+    large into both reports, producing nonsense economics (confirmed
+    live: theoretical_maximum_yield/regret_dollars around -$1280/-$1289
+    for one real household-day, an impossible magnitude).
+
+    Returns the multiplier to bring a history value into kW: 0.001 for a
+    "W" sensor, 1.0 for "kW" or anything else (including no unit at all,
+    or a lookup failure) -- 1.0 is the correct default since "kW" was
+    always the original, undocumented assumption these two functions
+    made; this only corrects the one real, confirmed-live mismatch
+    (Watts), not a guess at every possible unit HA's power device class
+    could report.
+    """
+    try:
+        unit = ha_get(entity_id).get("attributes", {}).get("unit_of_measurement")
+    except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError):
+        return 1.0
+    return 0.001 if unit == "W" else 1.0
+
+
 def compute_daily_quality_report(cfg: dict, now: datetime) -> dict | None:
     """Generic, retailer-agnostic built-in EPR/regret/tracking quality
     score (2026-08-25, direct ask: "it should be a part of the suite to
@@ -3481,13 +3509,30 @@ def compute_daily_quality_report(cfg: dict, now: datetime) -> dict | None:
         else []
     )
 
+    # Real, confirmed-live bug (2026-08-28) -- see _kw_scale_factor()'s
+    # own docstring: these three configured sensors are never guaranteed
+    # to already report kW (solar in particular is commonly a native
+    # Watts sensor), and the rest of this function has always assumed
+    # they are without checking.
+    solar_scale = _kw_scale_factor(solar_sensor)
+    load_scale = _kw_scale_factor(load_sensor)
+    battery_scale = _kw_scale_factor(battery_sensor)
+
     solar_kw = np.array(
-        [max(0.0, v) for v in resample_history_nearest(solar_hist, grid_times)]
+        [
+            max(0.0, v * solar_scale)
+            for v in resample_history_nearest(solar_hist, grid_times)
+        ]
     )
     load_kw = np.array(
-        [max(0.0, v) for v in resample_history_nearest(load_hist, grid_times)]
+        [
+            max(0.0, v * load_scale)
+            for v in resample_history_nearest(load_hist, grid_times)
+        ]
     )
-    actual_net_kw = np.array(resample_history_nearest(battery_hist, grid_times))
+    actual_net_kw = np.array(
+        [v * battery_scale for v in resample_history_nearest(battery_hist, grid_times)]
+    )
     actual_charge_kw = np.array([max(0.0, -v) for v in actual_net_kw])
     actual_discharge_kw = np.array([max(0.0, v) for v in actual_net_kw])
     # No generic commanded-dispatch signal exists -- see this function's
@@ -3750,11 +3795,24 @@ def compute_efficiency_backtest_report(cfg: dict, now: datetime) -> dict | None:
         cfg["solver_export_price_sensor"], day_start, day_end
     )
 
+    # Same fix as compute_daily_quality_report() -- see _kw_scale_
+    # factor()'s own docstring for the real, confirmed-live bug this
+    # corrects (a configured *_power_sensor reporting native Watts,
+    # silently treated as kW).
+    solar_scale = _kw_scale_factor(solar_sensor)
+    load_scale = _kw_scale_factor(load_sensor)
+
     solar_kw = np.array(
-        [max(0.0, v) for v in resample_history_nearest(solar_hist, grid_times)]
+        [
+            max(0.0, v * solar_scale)
+            for v in resample_history_nearest(solar_hist, grid_times)
+        ]
     )
     load_kw = np.array(
-        [max(0.0, v) for v in resample_history_nearest(load_hist, grid_times)]
+        [
+            max(0.0, v * load_scale)
+            for v in resample_history_nearest(load_hist, grid_times)
+        ]
     )
     import_price = np.array(
         [
