@@ -3580,11 +3580,14 @@ def compute_daily_quality_report(cfg: dict, now: datetime) -> dict | None:
     # window, no portable equivalent yet"). This scorer always uses the
     # same flat config-flow values every OTHER install's forward plan
     # already falls back to.
+    min_soc_kwh = capacity_kwh * min_pct / 100.0
+    max_soc_kwh = capacity_kwh * max_pct / 100.0
+    salvage_value = _cfg_num(cfg, "solver_salvage_value", 0.15)
     battery_cfg = elements.BatteryConfig(
         capacity_kwh=capacity_kwh,
         initial_soc_kwh=initial_soc_kwh,
-        min_soc_kwh=capacity_kwh * min_pct / 100.0,
-        max_soc_kwh=capacity_kwh * max_pct / 100.0,
+        min_soc_kwh=min_soc_kwh,
+        max_soc_kwh=max_soc_kwh,
         max_charge_kw=_cfg_num(cfg, "solver_max_charge_kw", 5.0),
         max_discharge_kw=_cfg_num(cfg, "solver_max_discharge_kw", 5.0),
         # solver_efficiency_percent is a single ROUND-TRIP figure, split
@@ -3602,7 +3605,21 @@ def compute_daily_quality_report(cfg: dict, now: datetime) -> dict | None:
         ** 0.5,
         charge_cost=_cfg_num(cfg, "solver_charge_cost", 0.01),
         discharge_cost=np.full(n_periods, _cfg_num(cfg, "solver_discharge_cost", 0.01)),
-        salvage_value=_cfg_num(cfg, "solver_salvage_value", 0.15),
+        salvage_value=salvage_value,
+        # Same concave terminal-value curve the live forward-plan's own
+        # BatteryConfig already uses (see terminal_value_breakpoints_for()
+        # above) -- without this, evaluate_realized_cost() falls back to
+        # a flat salvage_value*final_soc_kwh credit for J_ref/J_ach/J_star
+        # alike, reproducing the exact "anomalous full-SoC ending
+        # over-rewarded vs the oracle" bug the 2026-08-29 fix (regret.py's
+        # terminal_value_breakpoints param) was meant to eliminate --
+        # this call site was never updated to pass it (issue: EPR>100%,
+        # negative regret_dollars, reported live 2026-08-30).
+        terminal_value_breakpoints=terminal_value_breakpoints_for(
+            salvage_value, min_soc_kwh, max_soc_kwh
+        )
+        if salvage_value > 0
+        else None,
     )
     grid_residual = elements.GridConfig(
         import_price=import_price,

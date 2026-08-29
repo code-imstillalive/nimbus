@@ -198,6 +198,52 @@ class TestComputeDailyQualityReportRealScore(unittest.TestCase):
             captured["discharge_efficiency"], 90.0**0.5 / 10, places=6
         )
 
+    def test_battery_config_wires_terminal_value_breakpoints(self):
+        """Real, live-reported bug (2026-08-30): this function's own
+        BatteryConfig never set terminal_value_breakpoints, so every
+        evaluate_realized_cost() call inside compute_quality_report()
+        (J_ref, J_ach, and the oracle's own residual evaluation) silently
+        fell back to a flat salvage_value*final_soc_kwh terminal credit --
+        the exact mechanism commit 5317068 ("Fix invalid EPR (>100%):
+        flat salvage_value over-rewarded an anomalous full-SoC ending vs
+        the oracle") already fixed for the LIVE FORWARD-PLAN's own
+        separate BatteryConfig, but never wired into this one. Reproduced
+        live on both NUC1 (v0.94.19, the version that commit shipped in)
+        and devhub (v0.94.23) -- confirming this was never a version-lag
+        issue, the call site itself was just never updated.
+
+        Locks in the fix: the constructed BatteryConfig must carry the
+        same concave terminal_value_breakpoints_for(salvage_value,
+        min_soc_kwh, max_soc_kwh) curve the live forward-plan uses,
+        rather than defaulting to None (flat-credit fallback).
+        """
+        cfg = _cfg(solver_salvage_value=0.12)
+        captured = {}
+        real_battery_config = solver_writer.elements.BatteryConfig
+
+        def spy(**kwargs):
+            captured.update(kwargs)
+            return real_battery_config(**kwargs)
+
+        with (
+            patch.object(
+                solver_writer,
+                "fetch_entity_history_range",
+                side_effect=self._fetch_side_effect,
+            ),
+            patch.object(solver_writer.elements, "BatteryConfig", side_effect=spy),
+        ):
+            solver_writer.compute_daily_quality_report(cfg, NOW)
+
+        capacity_kwh = cfg["solver_battery_capacity_kwh"]
+        min_soc_kwh = capacity_kwh * cfg["solver_battery_min_soc_percent"] / 100.0
+        max_soc_kwh = capacity_kwh * cfg["solver_battery_max_soc_percent"] / 100.0
+        expected = solver_writer.terminal_value_breakpoints_for(
+            cfg["solver_salvage_value"], min_soc_kwh, max_soc_kwh
+        )
+        self.assertEqual(captured.get("terminal_value_breakpoints"), expected)
+        self.assertIsNotNone(captured.get("terminal_value_breakpoints"))
+
     def test_oracle_infeasible_solve_degrades_to_none_not_a_crash(self):
         cfg = _cfg()
         with (
