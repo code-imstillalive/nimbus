@@ -490,7 +490,6 @@ def test_quality_report_update_from_solver_stores_epr_and_fans_out_to_children()
         "epr": 87.3,
         "theoretical_maximum_yield": 12.345,
         "value_captured": 10.789,
-        "uplift_available": 1.556,
         "j_ref": -8.400,
         "j_ach": -7.200,
         "j_star": -10.000,
@@ -505,7 +504,6 @@ def test_quality_report_update_from_solver_stores_epr_and_fans_out_to_children()
     assert by_suffix["epr"].native_value == 87.3
     assert by_suffix["theoretical_maximum_yield"].native_value == 12.345
     assert by_suffix["value_captured"].native_value == 10.789
-    assert by_suffix["uplift_available"].native_value == 1.556
     assert by_suffix["j_ref"].native_value == -8.400
     assert by_suffix["j_ach"].native_value == -7.200
     assert by_suffix["j_star"].native_value == -10.000

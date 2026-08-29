@@ -11,6 +11,16 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ### Added
 - Family B fan-out (v0.94.20 CHANGELOG deferred item, Mark Purcell): the 24 per-column fields of `sensor.nimbus_solver_battery_forecast`'s current-period `forecast[0]` row are now published as their own `sensor.nimbus_solver_current_*` scalar entities on the hub device, so a dashboard or automation can read "what does the plan say for right now?" as a first-class entity without templating into the array. Purely additive — the parent sensor keeps every field it already published; Family A's 36 top-level scalars are untouched. 12 primary entities (battery kW, SoC, dispatch direction, import/export/bonus kW and prices, load, solar, net cost) + 12 diagnostic entities (v0.94.15/17 flow decomposition + savings model + battery cost basis). Full horizon (361 rows × 40 fields) is deliberately NOT flattened — that would produce 14,000+ entities per install. 14 new tests (`tests/test_sensor_flattened.py`): spec coverage, no-collision-with-Family-A guard, real-row payload dispatch, safety on missing/empty/malformed forecast lists, string-state-class regression for `current_dispatch_direction` (guards against the class of state_class bug tracked in #283).
 
+## [0.94.25] — 2026-08-29
+
+### Fixed
+- `sensor_flattened.py` (issue #283, Mark Purcell): three real defects in the flattened-sensor fan-out, across all five tables.
+  1. **State-class/device-class mismatch.** 38 entities combined `device_class=MONETARY` or `ENERGY` with `state_class=MEASUREMENT` — HA core only allows `total` for MONETARY and `total`/`total_increasing` for ENERGY, so every one of these logged a repair-flow warning on every restart. Mark's report found 24; a full scan of this file found 14 more: 5 in the original Family A table (`total_cost`, `total_cost_with_fixed_costs`, `cost_band_lower`, `cost_band_upper`, `cost_band_width`), plus 9 `current_*` rows in the new `FLATTENED_ATTRS_CURRENT` table that PR #284 introduced concurrently with this fix (re-scanned and fixed in the same PR rather than left for a follow-up, since it's the identical defect in the same file). Fixed by dropping `device_class` on all of them rather than switching to `total_increasing`: these are per-solve, per-day, or per-current-period point-in-time values (a rolling-horizon sum recomputed fresh every solve, a per-solve LP objective value, or a live current-tick price/cost), not genuine monotonic meters, so `MEASUREMENT` is the semantically correct `state_class` — confirmed directly in `solver_writer.py`'s own computation of the kWh totals.
+  2. **Duplicate-valued sensor.** `uplift_available` (`FLATTENED_ATTRS_QUALITY`) was byte-identical to `regret_dollars` (`epr.py`: both `j_ach - j_star`). Removed; `regret_dollars` is the canonical entity.
+  3. **Wrong unit.** `tracking_fidelity` was published with `unit_of_measurement="%"` despite `tracking.py`'s own value being a genuine 0-1 fraction (`1.0 - gap_energy / commanded_activity`), never rescaled to 0-100. Fixed by dropping the unit rather than rescaling the value.
+
+  4 new tests (`tests/test_sensor_flattened_device_class_rules.py`) lock in all three fixes across every flattened-sensor table.
+
 ## [0.94.24] — 2026-08-29
 
 ### Added
