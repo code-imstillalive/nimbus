@@ -34,7 +34,7 @@ from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.loader import async_get_integration
 
-from . import health
+from . import health, sensor_flattened
 from .const import (
     ATTR_FORECAST,
     ATTR_MASE_SCALE_POINTS,
@@ -517,7 +517,22 @@ async def async_setup_entry(
     # own docstring for why this needs to be a real recorded entity, not
     # a log line.
     dispatch_dry_run = NimbusDispatchDryRunSensor(entry, sw_version)
-    async_add_entities([battery_forecast, household_load_forecast, dispatch_dry_run])
+    # Flattened per-attribute fan-out (2026-08-29) -- every top-level
+    # scalar attribute of sensor.nimbus_solver_battery_forecast becomes
+    # its own SensorEntity so it participates in HA history, LTS, and
+    # per-entity graphs on the same footing as the existing solver_
+    # config bridge sensor. See sensor_flattened.py for the declarative
+    # table (Family A: top-level scalars only) and the category rules.
+    # Purely additive: the parent sensor keeps every attribute it
+    # publishes today; the flattened children are updated by a
+    # synchronous fan-out inside the parent's own update_from_solver()
+    # override (see _flattened_entities slot on that class below).
+    flattened_entities = sensor_flattened.create_flattened_entities(entry, sw_version)
+    battery_forecast._flattened_entities = flattened_entities
+    async_add_entities(
+        [battery_forecast, household_load_forecast, dispatch_dry_run]
+        + flattened_entities
+    )
     # Deferred import (same reasoning as solver_runtime.py's own
     # _ensure_ready(): solver_writer imports the pure-Python `solver`
     # and `ml` packages via a bare `from solver import ...` at module
@@ -1441,6 +1456,28 @@ class NimbusSolverBatteryForecastSensor(_NimbusSolverPushSensor):
 
     _UNIQUE_ID_SUFFIX = "nimbus_solver_battery_forecast"
     _attr_name = "Solver Battery Forecast"
+
+    def __init__(self, entry: NimbusConfigEntry, sw_version: str | None) -> None:
+        super().__init__(entry, sw_version)
+        # Populated by async_setup_entry immediately after construction;
+        # empty list until then. update_from_solver() below guards on
+        # this so a very-first solve tick that races setup can't crash
+        # even if the fan-out hasn't been wired in yet.
+        self._flattened_entities: list = []
+
+    @callback
+    def update_from_solver(self, state, attributes: dict) -> None:
+        """Override to fan the same attribute dict out to every
+        flattened child entity registered under this parent (see
+        sensor_flattened.py). The parent's own publish happens FIRST
+        via super() so that HA sees the canonical sensor.nimbus_solver_
+        battery_forecast entity update before any fan-out -- any
+        exception during fan-out therefore can't corrupt the parent's
+        own state.
+        """
+        super().update_from_solver(state, attributes)
+        if self._flattened_entities:
+            sensor_flattened.dispatch_to_flattened(self._flattened_entities, attributes)
 
 
 class NimbusHouseholdLoadTotalForecastSensor(_NimbusSolverPushSensor):
