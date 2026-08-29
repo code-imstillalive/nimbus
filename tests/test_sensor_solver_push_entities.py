@@ -326,3 +326,297 @@ if __name__ == "__main__":
             print(f"ERROR {t.__name__}: {type(e).__name__}: {e}")
     print(f"\n{len(tests) - failed}/{len(tests)} passed")
     sys.exit(1 if failed else 0)
+
+
+# ===========================================================================
+# Family-A completion (2026-08-29, issue #55 follow-up):
+# NimbusSolverQualityReportSensor, NimbusEfficiencyBacktestSensor, and
+# NimbusCounterfactualSocSensor are the three remaining raw-REST-fallback
+# parent sensors migrated in this round of #55. Same property tests as the
+# two forecast sensors above, plus explicit coverage for:
+#
+# 11. Each new parent carries the correct native unit of measurement (%,
+#     with device_class matching the parent's own semantics -- BATTERY for
+#     counterfactual_soc, None for the two percentage-only sensors).
+# 12. Each new parent's DeviceInfo has a distinct sub-device identifier
+#     (DOMAIN, f"{entry_id}_quality" / _backtest / _counterfactual) AND
+#     `via_device` pointing at the hub identifier -- this is what makes the
+#     sub-device get rendered as a child of the Nimbus hub in the device
+#     registry, instead of a stray unrelated device.
+# 13. update_from_solver stores the correct native_value (the parent's own
+#     canonical scalar: epr / configured_efficiency_percent / real_soc_
+#     close_pct) and fans out to every registered flattened child via the
+#     matching dispatch_to_flattened_* helper in sensor_flattened.py.
+# 14. Each flattened child's own update_from_parent extracts the correct
+#     slice of the parent payload and reports it as native_value.
+# ===========================================================================
+
+
+from custom_components.nimbus_load import sensor_flattened
+
+
+# --- class-attribute properties -------------------------------------------
+
+
+def test_quality_report_has_required_sensor_entity_class_attributes():
+    cls = sensor.NimbusSolverQualityReportSensor
+    assert cls._attr_has_entity_name is True
+    assert cls._attr_name == "Solver Quality Report"
+    assert cls._attr_native_unit_of_measurement == "%"
+    assert cls._attr_suggested_display_precision == 1
+    # EPR is a percentage -- no matching HA device_class.
+    assert cls._attr_device_class is None
+    from homeassistant.components.sensor import SensorStateClass
+
+    assert cls._attr_state_class is SensorStateClass.MEASUREMENT
+    # This parent doesn't carry a `forecast` array (all attrs are scalar);
+    # explicit empty set beats inheriting the base's forecast-only default.
+    assert cls._unrecorded_attributes == frozenset()
+
+
+def test_efficiency_backtest_has_required_sensor_entity_class_attributes():
+    cls = sensor.NimbusEfficiencyBacktestSensor
+    assert cls._attr_has_entity_name is True
+    assert cls._attr_name == "Efficiency Backtest"
+    assert cls._attr_native_unit_of_measurement == "%"
+    assert cls._attr_suggested_display_precision == 1
+    assert cls._attr_device_class is None
+    from homeassistant.components.sensor import SensorStateClass
+    from homeassistant.const import EntityCategory
+
+    assert cls._attr_state_class is SensorStateClass.MEASUREMENT
+    # Retrospective validation, not a primary user-facing signal.
+    assert cls._attr_entity_category is EntityCategory.DIAGNOSTIC
+    assert cls._unrecorded_attributes == frozenset()
+
+
+def test_counterfactual_soc_has_required_sensor_entity_class_attributes():
+    cls = sensor.NimbusCounterfactualSocSensor
+    assert cls._attr_has_entity_name is True
+    assert cls._attr_name == "Counterfactual SoC"
+    assert cls._attr_native_unit_of_measurement == "%"
+    assert cls._attr_suggested_display_precision == 1
+    from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
+    from homeassistant.const import EntityCategory
+
+    # State-of-charge percentage IS a battery reading -- HA's BATTERY
+    # device_class handles the 0-100 percent contract exactly.
+    assert cls._attr_device_class is SensorDeviceClass.BATTERY
+    assert cls._attr_state_class is SensorStateClass.MEASUREMENT
+    assert cls._attr_entity_category is EntityCategory.DIAGNOSTIC
+    assert cls._unrecorded_attributes == frozenset()
+
+
+# --- __init__ preserves entity identity + sub-device DeviceInfo -----------
+
+
+def test_quality_report_preserves_well_known_entity_id_and_derives_unique_id():
+    instance, entry = _construct(sensor.NimbusSolverQualityReportSensor)
+    # External readers (Lovelace cards, downstream automations) depend on
+    # this well-known name -- the whole point of the migration is that
+    # the entity_id stays the same, only its class/DeviceInfo change.
+    assert instance.entity_id == "sensor.nimbus_solver_quality_report"
+    assert (
+        instance._attr_unique_id == f"{entry.entry_id}_nimbus_solver_quality_report"
+    )
+
+
+def test_efficiency_backtest_preserves_well_known_entity_id_and_derives_unique_id():
+    instance, entry = _construct(sensor.NimbusEfficiencyBacktestSensor)
+    assert instance.entity_id == "sensor.nimbus_efficiency_backtest"
+    assert instance._attr_unique_id == f"{entry.entry_id}_nimbus_efficiency_backtest"
+
+
+def test_counterfactual_soc_preserves_well_known_entity_id_and_derives_unique_id():
+    instance, entry = _construct(sensor.NimbusCounterfactualSocSensor)
+    assert instance.entity_id == "sensor.nimbus_counterfactual_soc"
+    assert instance._attr_unique_id == f"{entry.entry_id}_nimbus_counterfactual_soc"
+
+
+def test_new_parents_attach_to_sub_devices_with_via_device_pointing_at_hub():
+    """Each Family-A-completion parent lives on its OWN sub-device
+    (identifier suffix _quality / _backtest / _counterfactual), NOT on
+    the hub directly -- and each sub-device is linked back to the hub
+    via `via_device` so HA's device registry renders the parent/child
+    relationship natively (frontend shows "Part of Nimbus" on the
+    sub-device page and includes it in the hub's device tree).
+
+    Backward compatible with the two forecast sensors above (which stay
+    on the hub device via (DOMAIN, entry.entry_id) unchanged) -- the
+    hub identifier itself is never rewritten, only referenced from each
+    sub-device's via_device.
+    """
+    cases = [
+        (sensor.NimbusSolverQualityReportSensor, "_quality"),
+        (sensor.NimbusEfficiencyBacktestSensor, "_backtest"),
+        (sensor.NimbusCounterfactualSocSensor, "_counterfactual"),
+    ]
+    for cls, suffix in cases:
+        instance, entry = _construct(cls)
+        device_info = instance._attr_device_info
+        # Sub-device identifier is (DOMAIN, entry_id + suffix), NOT the
+        # bare hub identifier -- otherwise every sub-device would merge
+        # back into the hub and defeat the whole point of the layout.
+        expected_id = (DOMAIN, f"{entry.entry_id}{suffix}")
+        assert expected_id in device_info["identifiers"], (
+            f"{cls.__name__}: expected sub-device identifier {expected_id}, "
+            f"got {device_info['identifiers']}"
+        )
+        # And the hub identifier itself must NOT be in this sub-device's
+        # identifiers (that's what via_device is for -- if the hub
+        # identifier were here too, HA would merge them into one device).
+        assert (DOMAIN, entry.entry_id) not in device_info["identifiers"]
+        # via_device is the HA-native "child device linked to parent"
+        # mechanism -- must point at the hub identifier tuple exactly.
+        assert device_info["via_device"] == (DOMAIN, entry.entry_id)
+        assert device_info["manufacturer"] == "Nimbus"
+
+
+# --- update_from_solver + fan-out -----------------------------------------
+
+
+def test_quality_report_update_from_solver_stores_epr_and_fans_out_to_children():
+    """The parent's native_value must be the epr scalar (its canonical
+    state) and each flattened child must pick up its own slice from the
+    same attribute dict via dispatch_to_flattened_quality().
+    """
+    instance, entry = _construct(sensor.NimbusSolverQualityReportSensor)
+    instance.hass = None  # first-tick race: hass may not be wired yet
+    children = sensor_flattened.create_flattened_entities_quality(entry, "0.94.24")
+    instance._flattened_entities = children
+    # Canned payload matches the real publish_daily_quality_report shape
+    # (see solver_writer.py L3696) -- epr as state, the 10 scalar attrs
+    # as fan-out targets.
+    attrs = {
+        "epr": 87.3,
+        "theoretical_maximum_yield": 12.345,
+        "value_captured": 10.789,
+        "uplift_available": 1.556,
+        "j_ref": -8.400,
+        "j_ach": -7.200,
+        "j_star": -10.000,
+        "regret_dollars": 2.800,
+        "tracking_fidelity": 92.1,
+        "tracking_cost": 0.045,
+    }
+    instance.update_from_solver(87.3, attrs)
+    assert instance.native_value == 87.3
+    # Every child should have pulled its own slice from `attrs`.
+    by_suffix = {c._spec.entity_id_suffix: c for c in children}
+    assert by_suffix["epr"].native_value == 87.3
+    assert by_suffix["theoretical_maximum_yield"].native_value == 12.345
+    assert by_suffix["value_captured"].native_value == 10.789
+    assert by_suffix["uplift_available"].native_value == 1.556
+    assert by_suffix["j_ref"].native_value == -8.400
+    assert by_suffix["j_ach"].native_value == -7.200
+    assert by_suffix["j_star"].native_value == -10.000
+    assert by_suffix["regret_dollars"].native_value == 2.800
+    assert by_suffix["tracking_fidelity"].native_value == 92.1
+    assert by_suffix["tracking_cost"].native_value == 0.045
+
+
+def test_efficiency_backtest_update_from_solver_stores_state_and_fans_out():
+    instance, entry = _construct(sensor.NimbusEfficiencyBacktestSensor)
+    instance.hass = None
+    children = sensor_flattened.create_flattened_entities_backtest(entry, "0.94.24")
+    instance._flattened_entities = children
+    attrs = {
+        "configured_efficiency_percent": 92.0,
+        "best_candidate_cost": -6.410,
+        "worst_candidate_cost": -3.220,
+    }
+    instance.update_from_solver(92.0, attrs)
+    assert instance.native_value == 92.0
+    by_suffix = {c._spec.entity_id_suffix: c for c in children}
+    assert by_suffix["configured_efficiency_percent"].native_value == 92.0
+    assert by_suffix["best_candidate_cost"].native_value == -6.410
+    assert by_suffix["worst_candidate_cost"].native_value == -3.220
+
+
+def test_counterfactual_soc_update_from_solver_stores_state_and_fans_out():
+    instance, entry = _construct(sensor.NimbusCounterfactualSocSensor)
+    instance.hass = None
+    children = sensor_flattened.create_flattened_entities_counterfactual(
+        entry, "0.94.24"
+    )
+    instance._flattened_entities = children
+    attrs = {
+        "real_soc_anchor_pct": 45.0,
+        "nimbus_only_soc_close_pct": 78.5,
+        "real_soc_close_pct": 76.2,
+    }
+    instance.update_from_solver(76.2, attrs)
+    assert instance.native_value == 76.2
+    by_suffix = {c._spec.entity_id_suffix: c for c in children}
+    assert by_suffix["real_soc_anchor_pct"].native_value == 45.0
+    assert by_suffix["nimbus_only_soc_close_pct"].native_value == 78.5
+    assert by_suffix["real_soc_close_pct"].native_value == 76.2
+
+
+def test_update_from_solver_does_not_crash_when_flattened_entities_empty():
+    """A very-first solve tick after config-entry setup can in principle
+    beat async_setup_entry to the punch by microseconds -- the parent
+    class must gracefully skip fan-out when _flattened_entities is still
+    the default empty list from __init__.
+    """
+    for cls in (
+        sensor.NimbusSolverQualityReportSensor,
+        sensor.NimbusEfficiencyBacktestSensor,
+        sensor.NimbusCounterfactualSocSensor,
+    ):
+        instance, _ = _construct(cls)
+        instance.hass = None
+        assert instance._flattened_entities == []
+        # Must not raise.
+        instance.update_from_solver(1.0, {})
+        assert instance.native_value == 1.0
+
+
+# --- flattened children have correct sub-device DeviceInfo ---------------
+
+
+def test_flattened_children_attach_to_correct_sub_device_via_device_hub():
+    """The three factories (create_flattened_entities_quality/_backtest/
+    _counterfactual) must each attach their children to the matching
+    sub-device identifier, NOT to the hub -- and each child's via_device
+    must point at the hub so the frontend renders "Part of Nimbus" on
+    the sub-device page.
+    """
+    entry = _fake_entry()
+    cases = [
+        (
+            sensor_flattened.create_flattened_entities_quality,
+            "_quality",
+            "Nimbus Quality",
+            "nimbus_quality",
+        ),
+        (
+            sensor_flattened.create_flattened_entities_backtest,
+            "_backtest",
+            "Nimbus Backtest",
+            "nimbus_backtest",
+        ),
+        (
+            sensor_flattened.create_flattened_entities_counterfactual,
+            "_counterfactual",
+            "Nimbus Counterfactual",
+            "nimbus_counterfactual",
+        ),
+    ]
+    for factory, suffix, name, entity_id_prefix in cases:
+        children = factory(entry, "0.94.24")
+        assert children, f"{factory.__name__} produced no children"
+        expected_id = (DOMAIN, f"{entry.entry_id}{suffix}")
+        for child in children:
+            device_info = child._attr_device_info
+            assert expected_id in device_info["identifiers"]
+            assert (DOMAIN, entry.entry_id) not in device_info["identifiers"]
+            assert device_info["via_device"] == (DOMAIN, entry.entry_id)
+            assert device_info["name"] == name
+            # Entity IDs must be namespaced under the family prefix so bare
+            # source_keys (like "epr" or "real_soc_close_pct") never collide
+            # across parents.
+            assert child.entity_id.startswith(f"sensor.{entity_id_prefix}_")
+            assert child._attr_unique_id.startswith(
+                f"{entry.entry_id}_{entity_id_prefix}_"
+            )
