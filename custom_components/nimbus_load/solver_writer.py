@@ -3582,7 +3582,6 @@ def compute_daily_quality_report(cfg: dict, now: datetime) -> dict | None:
     # already falls back to.
     min_soc_kwh = capacity_kwh * min_pct / 100.0
     max_soc_kwh = capacity_kwh * max_pct / 100.0
-    salvage_value = _cfg_num(cfg, "solver_salvage_value", 0.15)
     battery_cfg = elements.BatteryConfig(
         capacity_kwh=capacity_kwh,
         initial_soc_kwh=initial_soc_kwh,
@@ -3605,21 +3604,21 @@ def compute_daily_quality_report(cfg: dict, now: datetime) -> dict | None:
         ** 0.5,
         charge_cost=_cfg_num(cfg, "solver_charge_cost", 0.01),
         discharge_cost=np.full(n_periods, _cfg_num(cfg, "solver_discharge_cost", 0.01)),
-        salvage_value=salvage_value,
-        # Same concave terminal-value curve the live forward-plan's own
-        # BatteryConfig already uses (see terminal_value_breakpoints_for()
-        # above) -- without this, evaluate_realized_cost() falls back to
-        # a flat salvage_value*final_soc_kwh credit for J_ref/J_ach/J_star
-        # alike, reproducing the exact "anomalous full-SoC ending
-        # over-rewarded vs the oracle" bug the 2026-08-29 fix (regret.py's
-        # terminal_value_breakpoints param) was meant to eliminate --
-        # this call site was never updated to pass it (issue: EPR>100%,
-        # negative regret_dollars, reported live 2026-08-30).
-        terminal_value_breakpoints=terminal_value_breakpoints_for(
-            salvage_value, min_soc_kwh, max_soc_kwh
-        )
-        if salvage_value > 0
-        else None,
+        # ZERO, not the configured forward-planning solver_salvage_value, and
+        # deliberately no terminal_value_breakpoints either (issue: EPR>100%,
+        # negative regret_dollars, reported live 2026-08-29/30). This scorer
+        # evaluates exactly ONE already-elapsed calendar day in isolation --
+        # crediting leftover end-of-day SoC (flat OR via a concave curve) is
+        # a guess about tomorrow's value this function has no honest basis
+        # for making. Verified against a real incident day: flat salvage
+        # gave 145.0% EPR/-$18.15 regret (invalid), a concave curve gave
+        # 127.7%/-$11.14 (still invalid -- ANY positive per-kWh credit for
+        # leftover energy still over-rewards a trajectory that accidentally
+        # under-delivered that day), salvage_value=0.0 gave 76.0%/+$8.94
+        # (both valid). Tomorrow's own quality report, run independently
+        # against tomorrow's real initial_soc_kwh, is what actually prices
+        # whatever gets carried forward -- not this one.
+        salvage_value=0.0,
     )
     grid_residual = elements.GridConfig(
         import_price=import_price,

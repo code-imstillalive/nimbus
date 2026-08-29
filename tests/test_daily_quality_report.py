@@ -198,24 +198,28 @@ class TestComputeDailyQualityReportRealScore(unittest.TestCase):
             captured["discharge_efficiency"], 90.0**0.5 / 10, places=6
         )
 
-    def test_battery_config_wires_terminal_value_breakpoints(self):
-        """Real, live-reported bug (2026-08-30): this function's own
-        BatteryConfig never set terminal_value_breakpoints, so every
-        evaluate_realized_cost() call inside compute_quality_report()
-        (J_ref, J_ach, and the oracle's own residual evaluation) silently
-        fell back to a flat salvage_value*final_soc_kwh terminal credit --
-        the exact mechanism commit 5317068 ("Fix invalid EPR (>100%):
-        flat salvage_value over-rewarded an anomalous full-SoC ending vs
-        the oracle") already fixed for the LIVE FORWARD-PLAN's own
-        separate BatteryConfig, but never wired into this one. Reproduced
-        live on both NUC1 (v0.94.19, the version that commit shipped in)
-        and devhub (v0.94.23) -- confirming this was never a version-lag
-        issue, the call site itself was just never updated.
+    def test_battery_config_uses_zero_salvage_value_not_the_configured_one(self):
+        """Real, live-reported bug (2026-08-29/30): this function's own
+        BatteryConfig used the configured solver_salvage_value (a flat
+        rate meant for the live, multi-day FORWARD plan) to credit
+        leftover end-of-day SoC when scoring an already-elapsed day.
+        On a day where the real dispatch accidentally ended near-full
+        (e.g. a disrupted P2P sell automation barely discharging that
+        night), that credit -- flat OR a concave curve, both tried --
+        over-rewarded the accidental full ending relative to what even
+        a fully unconstrained perfect-foresight oracle could match,
+        letting real-achieved beat the oracle: EPR>100%, negative
+        regret_dollars. Verified against a real incident day: flat
+        salvage gave 145.0%/-$18.15 (invalid), a concave curve gave
+        127.7%/-$11.14 (still invalid), salvage_value=0.0 gave
+        76.0%/+$8.94 (both valid).
 
-        Locks in the fix: the constructed BatteryConfig must carry the
-        same concave terminal_value_breakpoints_for(salvage_value,
-        min_soc_kwh, max_soc_kwh) curve the live forward-plan uses,
-        rather than defaulting to None (flat-credit fallback).
+        Locks in the real, structural fix: this scorer evaluates exactly
+        ONE already-elapsed calendar day in isolation, so it must never
+        credit leftover SoC via any positive per-kWh rate at all --
+        salvage_value must be exactly 0.0 and terminal_value_breakpoints
+        must be None, regardless of what solver_salvage_value is
+        configured to (that value is for the live forward plan only).
         """
         cfg = _cfg(solver_salvage_value=0.12)
         captured = {}
@@ -235,14 +239,8 @@ class TestComputeDailyQualityReportRealScore(unittest.TestCase):
         ):
             solver_writer.compute_daily_quality_report(cfg, NOW)
 
-        capacity_kwh = cfg["solver_battery_capacity_kwh"]
-        min_soc_kwh = capacity_kwh * cfg["solver_battery_min_soc_percent"] / 100.0
-        max_soc_kwh = capacity_kwh * cfg["solver_battery_max_soc_percent"] / 100.0
-        expected = solver_writer.terminal_value_breakpoints_for(
-            cfg["solver_salvage_value"], min_soc_kwh, max_soc_kwh
-        )
-        self.assertEqual(captured.get("terminal_value_breakpoints"), expected)
-        self.assertIsNotNone(captured.get("terminal_value_breakpoints"))
+        self.assertEqual(captured.get("salvage_value"), 0.0)
+        self.assertIsNone(captured.get("terminal_value_breakpoints"))
 
     def test_oracle_infeasible_solve_degrades_to_none_not_a_crash(self):
         cfg = _cfg()
