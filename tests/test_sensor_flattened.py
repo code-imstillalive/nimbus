@@ -626,9 +626,7 @@ def test_current_dispatch_updates_every_entity_from_real_row():
     row = _real_looking_forecast_row()
     parent_attrs = {"forecast": [row], "status": "optimal"}
     sensor_flattened.dispatch_to_flattened_current(entities, parent_attrs)
-    by_suffix = {
-        e.entity_id.removeprefix("sensor.nimbus_solver_"): e for e in entities
-    }
+    by_suffix = {e.entity_id.removeprefix("sensor.nimbus_solver_"): e for e in entities}
     for spec in sensor_flattened.FLATTENED_ATTRS_CURRENT:
         entity = by_suffix[spec.entity_id_suffix]
         assert entity._state == row[spec.source_key], spec.entity_id_suffix
@@ -752,9 +750,7 @@ def test_current_dispatch_direction_has_no_unit_or_state_class():
     otherwise. Regression against the same class of bug tracked in #283
     for the sub-device family."""
     entities, _ = _build_entities_current()
-    by_suffix = {
-        e.entity_id.removeprefix("sensor.nimbus_solver_"): e for e in entities
-    }
+    by_suffix = {e.entity_id.removeprefix("sensor.nimbus_solver_"): e for e in entities}
     dispatch_dir = by_suffix["current_dispatch_direction"]
     assert dispatch_dir._attr_state_class is None
     assert dispatch_dir._attr_native_unit_of_measurement is None
