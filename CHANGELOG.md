@@ -10,6 +10,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.94.24] — 2026-08-29
+
+### Added
+- `solver/reference_benchmark.py` (issue #273, item #3, Mark Purcell): a standardized, fully synthetic, deterministic reference-household scenario for comparing Nimbus's own forecast-regret decomposition across releases, without a real day's own weather/price-shock/incident noise dominating the comparison. Reuses the real, production `compute_forecast_regret()` directly — same code path `nimbus_solver_quality_writer.py` runs against real household data. Run via `python tests/run_reference_benchmark.py`. A number to watch and record alongside a Solver-affecting change, deliberately not a CI pass/fail gate (per issue #217's own conclusion that soak/gating decisions are the project owner's call). See `docs/reference-benchmark.md` for the full methodology, including the honest scope limit that this exercises the Solver only, not the ML Forecaster (which needs real recorder history to run at all). 7 new tests (`tests/test_reference_benchmark.py`) checking determinism and the same oracle-never-beaten/non-negative-regret invariants every other regret/EPR tool in this package already requires.
+
 ## [0.94.23] — 2026-08-29
 
 ### Fixed
