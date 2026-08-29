@@ -26,7 +26,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigSubentry
-from homeassistant.const import UnitOfPower
+from homeassistant.const import EntityCategory, UnitOfPower
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -592,6 +592,54 @@ async def async_setup_entry(
     solver_writer.register_entity_handler(
         "sensor.nimbus_solver_dispatch_dry_run",
         dispatch_dry_run.update_from_solver,
+    )
+
+    # Family-A completion (2026-08-29, issue #55 follow-up) -- the three
+    # remaining raw-REST-fallback parent sensors: quality_report (daily),
+    # efficiency_backtest (weekly), counterfactual_soc (daily). Same
+    # dispatch-table seam as the three sensors above; each parent gets
+    # its own sub-device (via_device -> hub) so the 16 new scalar
+    # children fan out under a dedicated device page instead of piling
+    # onto the hub. See NimbusSolverQualityReportSensor / Nimbus-
+    # EfficiencyBacktestSensor / NimbusCounterfactualSocSensor below
+    # and the FLATTENED_ATTRS_QUALITY / _BACKTEST / _COUNTERFACTUAL
+    # tables in sensor_flattened.py for the declarative fan-out.
+    quality_report = NimbusSolverQualityReportSensor(entry, sw_version)
+    efficiency_backtest = NimbusEfficiencyBacktestSensor(entry, sw_version)
+    counterfactual_soc = NimbusCounterfactualSocSensor(entry, sw_version)
+
+    flattened_quality = sensor_flattened.create_flattened_entities_quality(
+        entry, sw_version
+    )
+    flattened_backtest = sensor_flattened.create_flattened_entities_backtest(
+        entry, sw_version
+    )
+    flattened_counterfactual = (
+        sensor_flattened.create_flattened_entities_counterfactual(entry, sw_version)
+    )
+
+    quality_report._flattened_entities = flattened_quality
+    efficiency_backtest._flattened_entities = flattened_backtest
+    counterfactual_soc._flattened_entities = flattened_counterfactual
+
+    async_add_entities(
+        [quality_report, efficiency_backtest, counterfactual_soc]
+        + flattened_quality
+        + flattened_backtest
+        + flattened_counterfactual
+    )
+
+    solver_writer.register_entity_handler(
+        "sensor.nimbus_solver_quality_report",
+        quality_report.update_from_solver,
+    )
+    solver_writer.register_entity_handler(
+        "sensor.nimbus_efficiency_backtest",
+        efficiency_backtest.update_from_solver,
+    )
+    solver_writer.register_entity_handler(
+        "sensor.nimbus_counterfactual_soc",
+        counterfactual_soc.update_from_solver,
     )
 
 
@@ -1557,3 +1605,228 @@ class NimbusDispatchDryRunSensor(_NimbusSolverPushSensor):
 
     _UNIQUE_ID_SUFFIX = "nimbus_solver_dispatch_dry_run"
     _attr_name = "Solver Dispatch (Dry Run)"
+
+
+class NimbusSolverQualityReportSensor(_NimbusSolverPushSensor):
+    """Family-A completion, parent 1 (2026-08-29, issue #55 follow-up):
+    the daily EPR (Effective Performance Ratio) report -- primary
+    user-facing signal for "how well is Nimbus actually doing against
+    the theoretical oracle over the last full trading day".
+
+    Before this class existed, solver_writer.publish_daily_quality_report()
+    (~L3696 in that module) wrote sensor.nimbus_solver_quality_report as
+    a raw ha_post_state() -- states.async_set() with a fixed unit_of_
+    measurement of "%" pinned in the attrs dict. That works for a
+    Lovelace card that only ever reads the current value, but fails the
+    same three ways the pre-#55 forecast sensors failed: the Recorder's
+    own "unit changed" repair fires every restart if any downstream
+    template ever re-derives the sensor without carrying the unit
+    forward (issue #61's exact shape); no unique_id means a reinstall
+    creates a duplicate rather than re-attaching to the existing
+    registry row (#62); and the 10 scalar attributes it carries alongside
+    the state (theoretical_maximum_yield, value_captured, uplift_available,
+    j_ref/j_ach/j_star, regret_dollars, tracking_fidelity, tracking_cost,
+    plus the parent's own `epr` state) can't be graphed independently
+    without a template sensor built for each -- the same "each attribute
+    should be its own entity" argument that motivated Family-A in the
+    first place.
+
+    Native state is `epr` (%, 0-100, one decimal): the parent's
+    canonical scalar. Sub-device DeviceInfo ((DOMAIN, entry.entry_id +
+    "_quality") with via_device pointing at the hub) so this parent AND
+    its 10 flattened children (see FLATTENED_ATTRS_QUALITY in
+    sensor_flattened.py) group under a dedicated "Nimbus Quality"
+    device page instead of piling onto the hub -- the hub already has
+    40+ entities from Family-A alone, adding 11 more per parent would
+    push it past 70 and genuinely hurt the UX.
+
+    _flattened_entities is populated by async_setup_entry immediately
+    after construction; empty list until then. update_from_solver()
+    below guards on this so a very-first solve tick that races setup
+    can't crash even if the fan-out hasn't been wired in yet -- same
+    reasoning as NimbusSolverBatteryForecastSensor above.
+    """
+
+    _UNIQUE_ID_SUFFIX = "nimbus_solver_quality_report"
+    _attr_name = "Solver Quality Report"
+    # EPR is a percentage, not one of HA's device-classed measurement types
+    # (POWER/ENERGY/etc.), so device_class stays None -- same as the four
+    # existing "% ratio without a matching device_class" flattened children
+    # (e.g. Solver P2P Match Fraction).
+    _attr_device_class = None
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "%"
+    _attr_suggested_display_precision = 1
+    # The base class defaults _unrecorded_attributes to frozenset({"forecast"})
+    # because it was built around the two forecast parents -- this parent
+    # doesn't publish a `forecast` array (its attributes are all scalar), so
+    # the default is harmless but also honestly not what this class needs.
+    # Cleared to the empty set so a future attribute rename in
+    # publish_daily_quality_report() doesn't silently create a
+    # never-recorded scalar just because it happens to be called `forecast`.
+    _unrecorded_attributes = frozenset()
+
+    def __init__(self, entry: NimbusConfigEntry, sw_version: str | None) -> None:
+        super().__init__(entry, sw_version)
+        # Sub-device replacement -- see class docstring for why. The base
+        # class already set self._attr_device_info to the hub identifier;
+        # we override it here so this parent lives on its own device page.
+        # via_device is the HA-native mechanism for "child device linked to
+        # parent" -- the frontend renders "Part of Nimbus" on the sub-device
+        # page and includes it in the hub's device tree.
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"{entry.entry_id}_quality")},
+            name="Nimbus Quality",
+            manufacturer="Nimbus",
+            model="Sub-device",
+            sw_version=sw_version,
+            via_device=(DOMAIN, entry.entry_id),
+        )
+        # Populated by async_setup_entry immediately after construction;
+        # empty list until then. update_from_solver() below guards on
+        # this so a very-first solve tick that races setup can't crash
+        # even if the fan-out hasn't been wired in yet.
+        self._flattened_entities: list = []
+
+    @callback
+    def update_from_solver(self, state, attributes: dict) -> None:
+        """Override to fan the same attribute dict out to every flattened
+        Quality child registered under this parent (see
+        FLATTENED_ATTRS_QUALITY in sensor_flattened.py). The parent's own
+        publish happens FIRST via super() so HA sees the canonical
+        sensor.nimbus_solver_quality_report update before any fan-out --
+        any exception during fan-out therefore can't corrupt the parent's
+        own state (same pattern as NimbusSolverBatteryForecastSensor
+        above).
+        """
+        super().update_from_solver(state, attributes)
+        if self._flattened_entities:
+            sensor_flattened.dispatch_to_flattened_quality(
+                self._flattened_entities, attributes
+            )
+
+
+class NimbusEfficiencyBacktestSensor(_NimbusSolverPushSensor):
+    """Family-A completion, parent 2 (2026-08-29, issue #55 follow-up):
+    the weekly efficiency backtest -- diagnostic signal for "given last
+    week's real prices and loads, what round-trip efficiency configuration
+    would have minimised cost, and how far off is the currently configured
+    value from that best candidate".
+
+    Before this class existed, solver_writer.publish_efficiency_backtest_
+    report() (~L3901 in that module) wrote sensor.nimbus_efficiency_
+    backtest as a raw ha_post_state() -- same three shortcomings as the
+    quality report above (see that class's docstring for the full "why
+    migrate" story; #55, #59, #61, #62 all apply).
+
+    Native state is `configured_efficiency_percent` (%, one decimal):
+    the currently configured round-trip efficiency this backtest is
+    scoring against. Sub-device "Nimbus Backtest" (via_device -> hub) so
+    this parent AND its two flattened children (best_candidate_cost /
+    worst_candidate_cost, both AUD) group under a dedicated device page.
+
+    _attr_entity_category = DIAGNOSTIC because this is a retrospective
+    validation of a config value, not a primary user-facing signal --
+    a user should see it under the sub-device's Diagnostic section, not
+    on the main sensor list. Same categorisation rule as every other
+    DIAGNOSTIC flattened child (LP status, solve_seconds, shadow prices,
+    etc.).
+    """
+
+    _UNIQUE_ID_SUFFIX = "nimbus_efficiency_backtest"
+    _attr_name = "Efficiency Backtest"
+    # Configured efficiency is a percentage -- no matching HA device_class.
+    _attr_device_class = None
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "%"
+    _attr_suggested_display_precision = 1
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    # Same "no forecast array on this parent" reasoning as
+    # NimbusSolverQualityReportSensor above.
+    _unrecorded_attributes = frozenset()
+
+    def __init__(self, entry: NimbusConfigEntry, sw_version: str | None) -> None:
+        super().__init__(entry, sw_version)
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"{entry.entry_id}_backtest")},
+            name="Nimbus Backtest",
+            manufacturer="Nimbus",
+            model="Sub-device",
+            sw_version=sw_version,
+            via_device=(DOMAIN, entry.entry_id),
+        )
+        self._flattened_entities: list = []
+
+    @callback
+    def update_from_solver(self, state, attributes: dict) -> None:
+        """Override to fan out to every flattened Backtest child. See
+        NimbusSolverQualityReportSensor.update_from_solver() above for
+        the full reasoning."""
+        super().update_from_solver(state, attributes)
+        if self._flattened_entities:
+            sensor_flattened.dispatch_to_flattened_backtest(
+                self._flattened_entities, attributes
+            )
+
+
+class NimbusCounterfactualSocSensor(_NimbusSolverPushSensor):
+    """Family-A completion, parent 3 (2026-08-29, issue #55 follow-up):
+    the daily "Nimbus-only" state-of-charge counterfactual -- diagnostic
+    signal for "what would the battery SoC have looked like at end of
+    day if Nimbus alone were driving it, ignoring any external override
+    or manual dispatch".
+
+    Before this class existed, solver_writer.publish_nimbus_only_soc_
+    counterfactual() (~L4205 in that module) wrote sensor.nimbus_
+    counterfactual_soc as a raw ha_post_state() -- see NimbusSolver-
+    QualityReportSensor above for the full "why migrate" story (#55,
+    #59, #61, #62).
+
+    Native state is `real_soc_close_pct` (%, 0-100, one decimal): the
+    real battery's end-of-day SoC, the primary datum this counterfactual
+    is scored against. device_class = BATTERY so HA's own battery-tile
+    card and any device-class-specific formatter picks it up natively --
+    a real state-of-charge percentage IS a battery reading, and HA's
+    BATTERY device_class handles the 0-100 percent contract exactly.
+
+    Sub-device "Nimbus Counterfactual" (via_device -> hub) so this
+    parent AND its three flattened children (real_soc_anchor_pct /
+    nimbus_only_soc_close_pct / real_soc_close_pct, all BATTERY-classed
+    percentages) group under a dedicated device page.
+
+    _attr_entity_category = DIAGNOSTIC for the same reason as the
+    backtest parent above -- a retrospective counterfactual is analysis
+    context, not a live user-facing signal.
+    """
+
+    _UNIQUE_ID_SUFFIX = "nimbus_counterfactual_soc"
+    _attr_name = "Counterfactual SoC"
+    _attr_device_class = SensorDeviceClass.BATTERY
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "%"
+    _attr_suggested_display_precision = 1
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _unrecorded_attributes = frozenset()
+
+    def __init__(self, entry: NimbusConfigEntry, sw_version: str | None) -> None:
+        super().__init__(entry, sw_version)
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"{entry.entry_id}_counterfactual")},
+            name="Nimbus Counterfactual",
+            manufacturer="Nimbus",
+            model="Sub-device",
+            sw_version=sw_version,
+            via_device=(DOMAIN, entry.entry_id),
+        )
+        self._flattened_entities: list = []
+
+    @callback
+    def update_from_solver(self, state, attributes: dict) -> None:
+        """Override to fan out to every flattened Counterfactual child.
+        See NimbusSolverQualityReportSensor.update_from_solver() above
+        for the full reasoning."""
+        super().update_from_solver(state, attributes)
+        if self._flattened_entities:
+            sensor_flattened.dispatch_to_flattened_counterfactual(
+                self._flattened_entities, attributes
+            )
