@@ -1,5 +1,29 @@
 """Hub-level options for Nimbus -- settings shared across every load.
 
+⚠️ Programmatic callers (scripts, MCP tools, anything driving this flow
+over the API rather than a human filling in the UI form): every field
+below uses `vol.Optional(key, description={"suggested_value": ...})`,
+never `default=`. That means a key genuinely ABSENT from your submitted
+`user_input` is ALSO absent from the validated result -- and this step
+has no way to tell "the user cleared this field" apart from "this
+caller only meant to patch a different field and left this one alone."
+A real UI submission always carries every field (the frontend pre-fills
+each one from `suggested_value`), so this is invisible there. A
+programmatic PARTIAL patch is not safe here: submitting only the 2-3
+keys you want to change will silently null every other field on that
+step (issue #113/#114, confirmed live -- reproduced via the options-flow
+API leaving `temperature_sensor`/`battery_sensor`/`grid_sensor`/
+`solar_sensor` wiped after a submission that only meant to touch
+`curtailment_sensor`). This is deliberate, documented behavior, not a
+bug to work around here -- see #121's own resolution. The fix belongs
+in the CALLER: read `entry.options` first, merge your partial dict on
+top of it yourself (`{**entry.options, **your_partial_dict}`), and call
+`hass.config_entries.async_update_entry(entry, options=merged)`
+directly, bypassing this flow entirely. That path can't collide with a
+real UI submission, since it's a fully separate code path with an
+unambiguous merge contract. Never call this flow's own step handlers
+with anything less than the complete set of fields you want preserved.
+
 Set once via the hub's own "Configure" (not "+ Add", which is for loads),
 applies to all of them: the same house has one outdoor temperature sensor
 and one weather forecast, and there's rarely a reason to retrain 18 loads
