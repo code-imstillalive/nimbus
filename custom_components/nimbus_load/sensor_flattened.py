@@ -719,3 +719,387 @@ def dispatch_to_flattened(
     """
     for entity in entities:
         entity.update_from_parent(attributes)
+
+
+# ===========================================================================
+# Family-A completion (2026-08-29, issue #55 follow-up): the three remaining
+# raw-REST-fallback parent sensors -- sensor.nimbus_solver_quality_report,
+# sensor.nimbus_efficiency_backtest, sensor.nimbus_counterfactual_soc --
+# were still on solver_writer.ha_post_state()'s raw states.async_set()
+# path when the first pass of #55 shipped (that pass only migrated the two
+# forecast sensors and the dry-run one, all three of which the LP recomputes
+# every solve tick; the three below run on a slower cadence -- the quality
+# and counterfactual daily, the backtest weekly -- and were left behind
+# specifically because the migration budget for that PR was already at its
+# reviewable limit).
+#
+# Same purely-additive fan-out shape as FLATTENED_ATTRS above, one tuple per
+# parent so the three concerns stay independently readable. Sub-device
+# DeviceInfo (identifiers=(DOMAIN, f"{entry.entry_id}_quality") etc.) is set
+# by the _FlattenedAttributeSensorSubDevice base further below -- unlike the
+# Family-A children above (which attach directly to the hub device), these
+# children attach to the same sub-device as their parent so a user landing
+# on e.g. the "Nimbus Quality" device page sees the parent + its 10 scalars
+# in one place instead of scattered across a 40+ entity hub page.
+#
+# Deliberately excluded from FLATTENED_ATTRS_QUALITY below (called out in the
+# PR body so they can be added later without another round of design):
+# real_p2p_dollars, real_p2p_volume_kwh, latest_date, generated_at. No
+# downstream user need identified yet for these four; keeping them as parent
+# attributes only for now.
+# ---------------------------------------------------------------------------
+
+
+FLATTENED_ATTRS_QUALITY: tuple[FlattenedAttrSpec, ...] = (
+    # --- Primary: Effective Performance Ratio (mirrors the parent's own state) ---
+    FlattenedAttrSpec(
+        source_key="epr",
+        name="Quality EPR",
+        entity_id_suffix="epr",
+        entity_category=None,
+        device_class=None,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_PERCENT,
+        suggested_display_precision=1,
+    ),
+    # --- Yield / value captured / uplift available (diagnostic, monetary) ------
+    FlattenedAttrSpec(
+        source_key="theoretical_maximum_yield",
+        name="Quality Theoretical Maximum Yield",
+        entity_id_suffix="theoretical_maximum_yield",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_AUD,
+        suggested_display_precision=3,
+    ),
+    FlattenedAttrSpec(
+        source_key="value_captured",
+        name="Quality Value Captured",
+        entity_id_suffix="value_captured",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_AUD,
+        suggested_display_precision=3,
+    ),
+    FlattenedAttrSpec(
+        source_key="uplift_available",
+        name="Quality Uplift Available",
+        entity_id_suffix="uplift_available",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_AUD,
+        suggested_display_precision=3,
+    ),
+    # --- J_ref / J_ach / J_star -- the EPR building blocks (diagnostic) --------
+    FlattenedAttrSpec(
+        source_key="j_ref",
+        name="Quality J_ref (reference cost)",
+        entity_id_suffix="j_ref",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_AUD,
+        suggested_display_precision=3,
+    ),
+    FlattenedAttrSpec(
+        source_key="j_ach",
+        name="Quality J_ach (achieved cost)",
+        entity_id_suffix="j_ach",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_AUD,
+        suggested_display_precision=3,
+    ),
+    FlattenedAttrSpec(
+        source_key="j_star",
+        name="Quality J_star (oracle cost)",
+        entity_id_suffix="j_star",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_AUD,
+        suggested_display_precision=3,
+    ),
+    FlattenedAttrSpec(
+        source_key="regret_dollars",
+        name="Quality Regret",
+        entity_id_suffix="regret_dollars",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_AUD,
+        suggested_display_precision=3,
+    ),
+    # --- Tracking (diagnostic) --------------------------------------------------
+    FlattenedAttrSpec(
+        source_key="tracking_fidelity",
+        name="Quality Tracking Fidelity",
+        entity_id_suffix="tracking_fidelity",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=None,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_PERCENT,
+        suggested_display_precision=1,
+    ),
+    FlattenedAttrSpec(
+        source_key="tracking_cost",
+        name="Quality Tracking Cost",
+        entity_id_suffix="tracking_cost",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_AUD,
+        suggested_display_precision=3,
+    ),
+)
+
+
+FLATTENED_ATTRS_BACKTEST: tuple[FlattenedAttrSpec, ...] = (
+    # --- Primary: configured efficiency vs the swept candidates ---------------
+    FlattenedAttrSpec(
+        source_key="configured_efficiency_percent",
+        name="Backtest Configured Efficiency",
+        entity_id_suffix="configured_efficiency_percent",
+        entity_category=None,
+        device_class=None,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_PERCENT,
+        suggested_display_precision=1,
+    ),
+    # --- Best/worst candidate costs (diagnostic, monetary) --------------------
+    FlattenedAttrSpec(
+        source_key="best_candidate_cost",
+        name="Backtest Best Candidate Cost",
+        entity_id_suffix="best_candidate_cost",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_AUD,
+        suggested_display_precision=3,
+    ),
+    FlattenedAttrSpec(
+        source_key="worst_candidate_cost",
+        name="Backtest Worst Candidate Cost",
+        entity_id_suffix="worst_candidate_cost",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_AUD,
+        suggested_display_precision=3,
+    ),
+)
+
+
+FLATTENED_ATTRS_COUNTERFACTUAL: tuple[FlattenedAttrSpec, ...] = (
+    # All three are SoC-close percentages -- BATTERY device_class so HA's own
+    # device-class-specific formatters (e.g. the battery-tile card) work
+    # natively. All diagnostic because the parent's own state is the primary
+    # user-facing scalar; these are the anchor/close pair that produced it.
+    FlattenedAttrSpec(
+        source_key="real_soc_anchor_pct",
+        name="Counterfactual Real SoC Anchor",
+        entity_id_suffix="real_soc_anchor_pct",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.BATTERY,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_PERCENT,
+        suggested_display_precision=1,
+    ),
+    FlattenedAttrSpec(
+        source_key="nimbus_only_soc_close_pct",
+        name="Counterfactual Nimbus-only SoC Close",
+        entity_id_suffix="nimbus_only_soc_close_pct",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.BATTERY,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_PERCENT,
+        suggested_display_precision=1,
+    ),
+    FlattenedAttrSpec(
+        source_key="real_soc_close_pct",
+        name="Counterfactual Real SoC Close",
+        entity_id_suffix="real_soc_close_pct",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.BATTERY,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_PERCENT,
+        suggested_display_precision=1,
+    ),
+)
+
+
+# ---------------------------------------------------------------------------
+# Sub-device variant of the flattened base
+# ---------------------------------------------------------------------------
+
+
+class _FlattenedAttributeSensorSubDevice(_FlattenedAttributeSensor):
+    """Same fan-out contract as _FlattenedAttributeSensor above, with one
+    difference: DeviceInfo is set to a sub-device linked to the Nimbus hub
+    via `via_device` instead of using the hub's own identifier directly.
+
+    Purpose (Family-A completion, 2026-08-29): the three parent sensors this
+    round of #55 migrates (quality_report, efficiency_backtest, counter-
+    factual_soc) each produce 3-10 scalar children of their own -- adding
+    those 16 straight to the hub device would push it past 50+ entities and
+    make it genuinely harder for a user to find anything on that page. HA's
+    own `via_device` mechanism handles the "child device linked to a parent"
+    case natively (the frontend puts a "part of Nimbus" line on each sub-
+    device page and includes them in the hub's own device tree), so this is
+    the honest fit -- one sub-device per parent, its parent + N scalars
+    grouped together, hub kept clean.
+
+    Deliberately a subclass rather than adding keyword args to the base
+    class's __init__: the existing 36 Family-A children stay on the hub
+    device unchanged (backward compatible, zero risk of a stray identifier
+    change orphaning an entity registry row), and the diff here is fully
+    localised to the three new tables above.
+
+    entity_id namespace: passes an `entity_id_prefix` too so each family gets
+    its own sensor.nimbus_quality_*, sensor.nimbus_backtest_*, sensor.nimbus_
+    counterfactual_* prefix -- avoids sensor.nimbus_solver_* collisions with
+    the Family-A children on the hub. unique_id gets the same prefix baked
+    in for the same reason (a bare "epr" or "real_soc_close_pct" could in
+    principle appear on more than one parent later; the prefix keeps them
+    globally unique from day one).
+    """
+
+    def __init__(
+        self,
+        entry,
+        sw_version: str | None,
+        spec: FlattenedAttrSpec,
+        device_identifier: tuple[str, str],
+        device_name: str,
+        entity_id_prefix: str,
+    ) -> None:
+        # Drive the base __init__ first so all the class-attribute plumbing
+        # (unique_id format, entity_category, device_class, state_class,
+        # unit, precision, staleness state) is set exactly the same way as
+        # for a hub-device flattened child. Then override the two fields
+        # that make this a sub-device: entity_id namespace and DeviceInfo.
+        super().__init__(entry, sw_version, spec)
+        # Re-derive unique_id and entity_id with the family-specific prefix
+        # so a bare source_key like "epr" doesn't collide across parents
+        # (the whole reason these are grouped under sub-devices anyway).
+        self._attr_unique_id = (
+            f"{entry.entry_id}_{entity_id_prefix}_{spec.entity_id_suffix}"
+        )
+        self.entity_id = f"sensor.{entity_id_prefix}_{spec.entity_id_suffix}"
+        # DeviceInfo replacement: sub-device identifier + via_device pinning
+        # it as a child of the Nimbus hub. HA's device registry uses
+        # `via_device` to render the parent/child relationship natively.
+        self._attr_device_info = DeviceInfo(
+            identifiers={device_identifier},
+            name=device_name,
+            manufacturer="Nimbus",
+            model="Sub-device",
+            sw_version=sw_version,
+            via_device=(DOMAIN, entry.entry_id),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Factories + fan-out (one pair per Family-A-completion parent)
+# ---------------------------------------------------------------------------
+
+
+def create_flattened_entities_quality(
+    entry, sw_version: str | None
+) -> list[_FlattenedAttributeSensorSubDevice]:
+    """One SensorEntity per FLATTENED_ATTRS_QUALITY row, all attached to
+    the "Nimbus Quality" sub-device (via_device -> hub). Same "one per
+    hub" call site in sensor.py's async_setup_entry as the existing
+    create_flattened_entities() above.
+    """
+    device_identifier = (DOMAIN, f"{entry.entry_id}_quality")
+    return [
+        _FlattenedAttributeSensorSubDevice(
+            entry,
+            sw_version,
+            spec,
+            device_identifier=device_identifier,
+            device_name="Nimbus Quality",
+            entity_id_prefix="nimbus_quality",
+        )
+        for spec in FLATTENED_ATTRS_QUALITY
+    ]
+
+
+def create_flattened_entities_backtest(
+    entry, sw_version: str | None
+) -> list[_FlattenedAttributeSensorSubDevice]:
+    """One SensorEntity per FLATTENED_ATTRS_BACKTEST row, all attached to
+    the "Nimbus Backtest" sub-device (via_device -> hub).
+    """
+    device_identifier = (DOMAIN, f"{entry.entry_id}_backtest")
+    return [
+        _FlattenedAttributeSensorSubDevice(
+            entry,
+            sw_version,
+            spec,
+            device_identifier=device_identifier,
+            device_name="Nimbus Backtest",
+            entity_id_prefix="nimbus_backtest",
+        )
+        for spec in FLATTENED_ATTRS_BACKTEST
+    ]
+
+
+def create_flattened_entities_counterfactual(
+    entry, sw_version: str | None
+) -> list[_FlattenedAttributeSensorSubDevice]:
+    """One SensorEntity per FLATTENED_ATTRS_COUNTERFACTUAL row, all
+    attached to the "Nimbus Counterfactual" sub-device (via_device ->
+    hub).
+    """
+    device_identifier = (DOMAIN, f"{entry.entry_id}_counterfactual")
+    return [
+        _FlattenedAttributeSensorSubDevice(
+            entry,
+            sw_version,
+            spec,
+            device_identifier=device_identifier,
+            device_name="Nimbus Counterfactual",
+            entity_id_prefix="nimbus_counterfactual",
+        )
+        for spec in FLATTENED_ATTRS_COUNTERFACTUAL
+    ]
+
+
+def dispatch_to_flattened_quality(
+    entities: list[_FlattenedAttributeSensorSubDevice], attributes: dict
+) -> None:
+    """Fan out the Quality parent's attribute dict to every child.
+
+    Called by NimbusSolverQualityReportSensor.update_from_solver() AFTER
+    it publishes its own state -- same event-loop cycle, same push, no
+    queueing or locking (all update_from_parent calls are @callback and
+    run synchronously). Missing keys are handled silently by each child's
+    own _extract().
+    """
+    for entity in entities:
+        entity.update_from_parent(attributes)
+
+
+def dispatch_to_flattened_backtest(
+    entities: list[_FlattenedAttributeSensorSubDevice], attributes: dict
+) -> None:
+    """Fan out the Backtest parent's attribute dict to every child. See
+    dispatch_to_flattened_quality() above for the full contract."""
+    for entity in entities:
+        entity.update_from_parent(attributes)
+
+
+def dispatch_to_flattened_counterfactual(
+    entities: list[_FlattenedAttributeSensorSubDevice], attributes: dict
+) -> None:
+    """Fan out the Counterfactual parent's attribute dict to every
+    child. See dispatch_to_flattened_quality() above for the full
+    contract."""
+    for entity in entities:
+        entity.update_from_parent(attributes)
