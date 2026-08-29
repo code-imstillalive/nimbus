@@ -61,6 +61,59 @@ forecasting / optimisation / control, per Mark's own closing point on
 his original 9-item review) is not built yet -- this file is the
 reporting shape it should land in once it exists, not the decomposition
 itself.
+
+## Scope note (2026-08-29): what "performance" means here
+
+EPR is a WHOLE-HOUSEHOLD economic-dispatch ratio, not a battery-only
+one. J_star (oracle) and J_ach (real) are both scored on network.py's
+full LP, which co-optimises every economic degree of freedom the
+household actually has:
+
+- battery charge / discharge -- the obvious one,
+- solar_curtailed_kw -- a real LP decision variable, chosen freely by
+  the oracle (e.g. curtailing to avoid negative export prices, or
+  holding energy back to import instead when an import bonus beats
+  exporting),
+- shed_kw per sheddable load -- deferrable/reducible loads within
+  their min_fraction bounds, each priced with a real shed_cost in the
+  objective.
+
+J_ref is the "battery physically disabled" baseline (see
+counterfactuals.py's no_control_dispatch()), so the ratio's numerator
+J_ref - J_ach captures the dollar uplift from ANY of those levers,
+not just battery arbitrage; the denominator J_ref - J_star is the
+total uplift genuinely available across the same lever set.
+
+This is deliberately wider scope than a BESS-industry "capture rate",
+and the distinction matters for external framing:
+
+- Battery capture rate (NEMPulse's own NEM benchmark, Modo Energy's
+  ERCOT TBx-based one) scores actual battery revenue against a
+  perfect-foresight OR simple top-minus-bottom-spread benchmark that
+  models the battery as a standalone asset -- there is no solar to
+  curtail and no load to shed in the denominator. The RATIO SHAPE is
+  identical to EPR (actual dollars over theoretical dollars), which
+  is why a BESS-audience reader will recognise EPR immediately, but
+  the SCOPE is narrower.
+- Wind/solar "capture rate" (a.k.a. value factor, Marktwertfaktor)
+  is a completely different animal -- volume-weighted-price divided
+  by time-weighted-baseload-price, no benchmark trajectory at all,
+  and a cannibalisation-vs-market-average measure rather than an
+  optimisation-performance one. NOT interchangeable with EPR under
+  any framing.
+- Solar's Performance Ratio (actual kWh yield / theoretical kWh yield
+  under measured irradiance) is the SHAPE inspiration for EPR -- see
+  the top of this docstring -- but denominated in dollars against a
+  perfect-foresight economic optimum, not kWh against irradiance.
+
+So: when writing for a battery-market audience, call it EPR and, if
+the capture-rate analogy is worth drawing, be explicit that the scope
+is wider (battery + solar curtailment + load shed co-optimised, not
+just battery arbitrage). When writing for a wind/solar audience, call
+it EPR and reach for solar PR as the analogy, not "capture rate" (the
+value-factor collision above will actively mislead them). In mixed or
+unknown audiences, EPR alone -- with a one-line reminder of the (J_ref
+- J_ach) / (J_ref - J_star) formula -- is the safe framing.
 """
 
 from __future__ import annotations
