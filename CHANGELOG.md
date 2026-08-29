@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.27] — 2026-08-30
+
+### Fixed
+- `solver_writer.py`'s `compute_daily_quality_report()` (same function v0.94.26 touched): v0.94.26's own fix (wiring in the concave `terminal_value_breakpoints` curve) turned out to be insufficient — a real incident day still scored EPR>100%/negative regret under it (127.7% / -$11.14, vs the invalid 145.0% / -$18.15 the flat-credit bug produced). Root cause: this scorer evaluates exactly ONE already-elapsed calendar day in isolation, so crediting leftover end-of-day SoC via ANY positive per-kWh rate — flat OR a concave curve — still over-rewards a trajectory that accidentally under-delivered that day (ended full because it failed to export, not because holding was the better choice). Fixed for real by using `salvage_value=0.0` (no terminal-value credit at all) instead of the configured forward-planning `solver_salvage_value`. Verified against the same real incident day: 76.0% EPR / +$8.94 regret, both valid. The live forward-plan's own separate `BatteryConfig` (in `main()`) is untouched — it genuinely needs terminal value, since a finite-horizon LP has no reason to hold real charge past the last period it can see; planning forward under uncertainty and honestly scoring what already, certainly happened are different problems.
+
 ## [0.94.26] — 2026-08-30
 
 ### Fixed

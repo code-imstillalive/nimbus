@@ -141,8 +141,9 @@ CERTIFICATES_RATE = 0.008246
 # already uses.
 BATTERY_DISCHARGE_COST_NIGHT = 0.01
 BATTERY_DISCHARGE_COST_DAY = 0.09
-BATTERY_SALVAGE_VALUE_NIGHT = 0.3
-BATTERY_SALVAGE_VALUE_OTHER = 0.15
+# BATTERY_SALVAGE_VALUE_NIGHT/OTHER removed (2026-08-30) -- this scorer's own
+# battery_cfg now always uses salvage_value=0.0, see that construction's own
+# comment for the real, verified reason.
 
 # Real, confirmed live bug fix (2026-08-18): sensor.logger_charging_
 # discharging_command's own raw state is the numeric Modbus command CODE
@@ -334,6 +335,46 @@ def network_energy_rate(hour: int) -> float:
 
 def battery_discharge_cost_rate(hour: int) -> float:
     return BATTERY_DISCHARGE_COST_NIGHT if (hour >= 17 or hour < 7) else BATTERY_DISCHARGE_COST_DAY
+
+
+# Real, live-reported bug (2026-08-29/30, issue tracked in 116KAT-HA-AI's own
+# CLAUDE.md "invalid EPR (>100%, negative regret)" incident): this file's own
+# battery_cfg used to credit leftover end-of-day SoC via a flat
+# salvage_value*final_soc_kwh terminal-value term. On a day where the real
+# dispatch accidentally ended near-full (e.g. a disrupted P2P sell automation
+# barely discharging that night), that flat credit massively over-rewarded
+# the accidental full ending relative to what even a fully unconstrained
+# perfect-foresight oracle could match -- the oracle, scored the same way,
+# correctly prefers SELLING energy during the day over holding it for a flat
+# rate exceeding real achievable prices, so it can never "beat" a trajectory
+# that got lucky on this technicality. This let real-achieved beat the oracle
+# at spot-only economics -- structurally impossible, and exactly what
+# produced EPR>100%/negative regret.
+#
+# A concave piecewise-linear terminal-value curve (same shape
+# solver_writer.py's own live forward-planning path uses) was tried and
+# measurably helped, but did NOT fully close the gap: ANY positive per-kWh
+# credit for leftover battery energy, curved or flat, still rewards an
+# accidental under-delivery, since the real trajectory ends full precisely
+# BECAUSE it failed to deliver its committed export that night, while the
+# oracle (correctly forced to honour the same real commitment) necessarily
+# ends with less energy left over.
+#
+# The real, structural fix: this script evaluates exactly ONE already-elapsed
+# calendar day in isolation. Crediting energy still in the battery at
+# day-close is a guess about tomorrow's value this script has no honest basis
+# for making -- tomorrow's own quality report, run independently against
+# tomorrow's real initial_soc_kwh, is what actually prices whatever gets
+# carried forward. Fixed by setting salvage_value=0.0 (no terminal value
+# credit at all) rather than trying a better-shaped credit -- restores the
+# one invariant EPR<=100%/regret>=0 structurally depend on: the oracle,
+# optimizing the identical objective over the identical feasible region, can
+# never be beaten by any other trajectory scored the same way.
+#
+# Verified against a real incident day, three approaches in order: flat
+# salvage_value (145.0% EPR, -$18.15 regret -- both invalid) -> concave curve
+# (127.7% EPR, -$11.14 regret -- still invalid) -> salvage_value=0.0 (76.0%
+# EPR, +$8.94 regret -- both valid).
 
 
 def fetch_history_range(entity_id: str, start: datetime, end: datetime) -> list[tuple[datetime, str]]:
@@ -663,7 +704,10 @@ def main() -> None:
     max_discharge_kw = ha_get("number.logger_charging_discharging_power_kw")["attributes"]["max"]  # not HAEO -- plain Modbus-backed template number, no owning integration
     charge_cost = num("input_number.nimbus_solver_battery_charge_cost")
     discharge_cost_arr = np.array([battery_discharge_cost_rate(t.hour) for t in grid_times])
-    salvage_value = BATTERY_SALVAGE_VALUE_NIGHT if grid_times[-1].hour >= 17 else BATTERY_SALVAGE_VALUE_OTHER
+    # Zero, not BATTERY_SALVAGE_VALUE_NIGHT/OTHER -- see the real, verified
+    # "invalid EPR (>100%, negative regret)" fix documented above this
+    # function's own battery_cfg construction.
+    salvage_value = 0.0
     import_limit_kw = num("input_number.nimbus_solver_grid_import_limit_kw")
     export_limit_kw = num("input_number.nimbus_solver_grid_export_limit_kw")
 
