@@ -8,7 +8,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
-_Add new entries here as each PR lands. They roll into the next tagged release._
+### Added
+- Family B fan-out (v0.94.20 CHANGELOG deferred item, Mark Purcell): the 24 per-column fields of `sensor.nimbus_solver_battery_forecast`'s current-period `forecast[0]` row are now published as their own `sensor.nimbus_solver_current_*` scalar entities on the hub device, so a dashboard or automation can read "what does the plan say for right now?" as a first-class entity without templating into the array. Purely additive — the parent sensor keeps every field it already published; Family A's 36 top-level scalars are untouched. 12 primary entities (battery kW, SoC, dispatch direction, import/export/bonus kW and prices, load, solar, net cost) + 12 diagnostic entities (v0.94.15/17 flow decomposition + savings model + battery cost basis). Full horizon (361 rows × 40 fields) is deliberately NOT flattened — that would produce 14,000+ entities per install. 14 new tests (`tests/test_sensor_flattened.py`): spec coverage, no-collision-with-Family-A guard, real-row payload dispatch, safety on missing/empty/malformed forecast lists, string-state-class regression for `current_dispatch_direction` (guards against the class of state_class bug tracked in #283).
 
 ## [0.94.24] — 2026-08-29
 
