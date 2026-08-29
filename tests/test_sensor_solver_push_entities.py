@@ -481,6 +481,8 @@ def test_quality_report_update_from_solver_stores_epr_and_fans_out_to_children()
     instance.hass = None  # first-tick race: hass may not be wired yet
     children = sensor_flattened.create_flattened_entities_quality(entry, "0.94.24")
     instance._flattened_entities = children
+    for child in children:
+        child.hass = None
     # Canned payload matches the real publish_daily_quality_report shape
     # (see solver_writer.py L3696) -- epr as state, the 10 scalar attrs
     # as fan-out targets.
@@ -517,6 +519,8 @@ def test_efficiency_backtest_update_from_solver_stores_state_and_fans_out():
     instance.hass = None
     children = sensor_flattened.create_flattened_entities_backtest(entry, "0.94.24")
     instance._flattened_entities = children
+    for child in children:
+        child.hass = None
     attrs = {
         "configured_efficiency_percent": 92.0,
         "best_candidate_cost": -6.410,
@@ -537,6 +541,8 @@ def test_counterfactual_soc_update_from_solver_stores_state_and_fans_out():
         entry, "0.94.24"
     )
     instance._flattened_entities = children
+    for child in children:
+        child.hass = None
     attrs = {
         "real_soc_anchor_pct": 45.0,
         "nimbus_only_soc_close_pct": 78.5,
