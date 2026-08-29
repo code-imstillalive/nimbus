@@ -10,6 +10,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.94.22] — 2026-08-29
+
+### Fixed
+- `network.py` — real, empirically-confirmed LP degeneracy (issue #266, Mark Purcell): `grid_import_kw` and `grid_export_kw` could be simultaneously nonzero in the same period (a real capture showed `grid_import=13.133`/`grid_export=30.0` at one timestamp — physically impossible, a single real grid connection can only carry current one direction at a time). New combined-direction cap (`grid_import[t] + grid_export[t] <= max(import_limit_kw, export_limit_kw)`, same technique as issue #245's own battery-side cap) bounds the degeneracy. **Partial fix, not full closure** — replaying the two real buggy fixtures shows a real, measured reduction (25→9 and 36→36 violating rows, all now capped instead of unbounded), not zero; full elimination needs #238's MILP complementarity.
+
 ## [0.94.21] — 2026-08-29
 
 ### Added
