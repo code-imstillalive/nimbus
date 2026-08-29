@@ -55,6 +55,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.loader import async_get_integration
 
 from .const import (
+    CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
     CONF_SOLVER_BATTERY_CAPACITY_KWH,
     CONF_SOLVER_BATTERY_MAX_SOC_PERCENT,
     CONF_SOLVER_BATTERY_MIN_SOC_PERCENT,
@@ -94,6 +95,7 @@ from .const import (
     CONF_SOLVER_P2P_BONUS_VOLUME_KWH,
     CONF_SOLVER_RISK_AVERSION,
     CONF_SOLVER_SALVAGE_VALUE,
+    DEFAULT_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
     DEFAULT_SOLVER_CHARGE_COST,
     DEFAULT_SOLVER_DEGRADATION_COST_PER_KWH,
     DEFAULT_SOLVER_DISCHARGE_COST,
@@ -569,6 +571,22 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0.05,
         None,
     ),
+    # Issue #232 follow-up: paired with switch.nimbus_solve_on_price_
+    # change. Moved out of the wizard's solver_grid step for the same
+    # "tune this from the dashboard, not from Settings" reason as every
+    # entry above. Unit deliberately "s" (matching HA's UnitOfTime.SECONDS)
+    # with no device_class -- see _SolverNumberDescription's own comment
+    # for why NumberDeviceClass.DURATION is not a fit for this field's
+    # unit string convention across the rest of this integration.
+    _SolverNumberDescription(
+        CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
+        "Solve on Price Change Debounce",
+        DEFAULT_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
+        0.1,
+        60,
+        0.1,
+        "s",
+    ),
 )
 
 
@@ -655,3 +673,12 @@ class NimbusSolverNumber(RestoreNumber, NumberEntity):
     async def async_set_native_value(self, value: float) -> None:
         self._attr_native_value = value
         self.async_write_ha_state()
+        # Same live-reconfigure hook NimbusSolverSwitch has for its own
+        # CONF_SOLVE_ON_PRICE_CHANGE toggle -- editing the paired debounce
+        # window from the dashboard must re-arm the listener with the new
+        # window immediately, no hub reload. No-op for every other number
+        # key so this stays a plain live edit with zero side-effects.
+        if self._desc.key == CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S:
+            from . import _configure_price_watcher
+
+            _configure_price_watcher(self.hass, self._entry)

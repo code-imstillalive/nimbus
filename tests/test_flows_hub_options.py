@@ -206,13 +206,14 @@ def test_solver_grid_schema_has_two_required_price_fields():
     # fields (nimbus: "u also are missing my blended price forecasts...
     # in case we can feed it more than one... e.g. aemo... and amber") --
     # the two PRIMARY fields stay the only Required ones.
-    # 2026-08-28 (issue #256): gained 2 more genuinely OPTIONAL native
+    # 2026-08-28 (issue #256): briefly gained 2 more OPTIONAL native
     # price-triggered-solving fields (solve_on_price_change +
-    # debounce_s) -- both default OFF so a schema with no defaults
-    # provided still produces exact byte-identical behaviour on the
-    # existing install path.
+    # debounce_s), then 2026-08-29 (issue #232 follow-up) moved BOTH
+    # out to their own live entities -- switch.nimbus_solve_on_price_
+    # change + number.nimbus_solve_on_price_change_debounce_s -- so
+    # this step is back to the 4 optional second/third-source fields.
     schema = _solver_grid_schema({})
-    assert len(schema.schema) == 8
+    assert len(schema.schema) == 6
     for key in (CONF_SOLVER_IMPORT_PRICE_SENSOR, CONF_SOLVER_EXPORT_PRICE_SENSOR):
         assert type(_find_marker(schema, key)).__name__ == "Required"
 

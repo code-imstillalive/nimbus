@@ -372,9 +372,21 @@ def _configure_price_watcher(hass: HomeAssistant, entry: NimbusConfigEntry) -> N
     entry_id can't leak duplicate listeners. Cheap no-op fast path
     when the toggle is off AND no listener was previously registered.
     """
-    enabled = bool(
-        entry.options.get(CONF_SOLVE_ON_PRICE_CHANGE, DEFAULT_SOLVE_ON_PRICE_CHANGE)
-    )
+    # Issue #232 follow-up: read the live switch first, so a dashboard
+    # toggle takes effect immediately with no hub reload. Fall through
+    # to entry.options only if the entity hasn't been created yet (the
+    # first async_setup_entry pass before switch.py's platform finishes
+    # setting up, or a not-yet-migrated install still on the wizard-only
+    # code path from before this change) -- switch.py's own async_added_
+    # to_hass seeds the entity from entry.options in the same shape,
+    # so this fallback is exact.
+    switch_state = hass.states.get(f"switch.nimbus_{CONF_SOLVE_ON_PRICE_CHANGE}")
+    if switch_state is not None and switch_state.state in ("on", "off"):
+        enabled = switch_state.state == "on"
+    else:
+        enabled = bool(
+            entry.options.get(CONF_SOLVE_ON_PRICE_CHANGE, DEFAULT_SOLVE_ON_PRICE_CHANGE)
+        )
     price_entities = _configured_price_sensors(entry) if enabled else ()
 
     prev_entities = _price_watcher_entities.get(entry.entry_id, ())
@@ -394,12 +406,28 @@ def _configure_price_watcher(hass: HomeAssistant, entry: NimbusConfigEntry) -> N
     if not price_entities:
         return
 
-    debounce_s = float(
-        entry.options.get(
-            CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
-            DEFAULT_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
-        )
+    # Same live-entity-first / options-fallback pattern as the enabled
+    # toggle above -- see that block's own comment for the reasoning.
+    debounce_state = hass.states.get(
+        f"number.nimbus_{CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S}"
     )
+    debounce_s = DEFAULT_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S
+    if debounce_state is not None and debounce_state.state not in (
+        None,
+        "unknown",
+        "unavailable",
+    ):
+        try:
+            debounce_s = float(debounce_state.state)
+        except (TypeError, ValueError):
+            pass
+    else:
+        debounce_s = float(
+            entry.options.get(
+                CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
+                DEFAULT_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
+            )
+        )
     # A small in-flight box so a burst of state_changed events within the
     # debounce window coalesces into a single solve. asyncio.Handle is
     # HA's own scheduler primitive -- created here by hass.loop.call_later

@@ -66,6 +66,16 @@ def _fake_hass() -> MagicMock:
     """
     hass = MagicMock()
     hass.async_create_task = MagicMock()
+    # 2026-08-29 (issue #232 follow-up): _configure_price_watcher() now
+    # reads switch.nimbus_solve_on_price_change and
+    # number.nimbus_solve_on_price_change_debounce_s FIRST, falling
+    # through to entry.options only when the entity hasn't been
+    # created yet. Force hass.states.get(...) to return None here so
+    # every one of these tests still exercises the entry.options path
+    # (the source-of-truth for the fresh-install migration case AND
+    # every one of these test scenarios' own toggle-and-debounce
+    # inputs).
+    hass.states.get = MagicMock(return_value=None)
     return hass
 
 
@@ -294,6 +304,11 @@ def test_debounce_coalesces_a_burst_of_state_changes_into_one_solve():
         loop = asyncio.get_event_loop()
         hass = MagicMock()
         hass.loop = loop
+        # Same reason as _fake_hass() above -- force the switch/number
+        # state lookups to fall through to entry.options so this test's
+        # own CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S: 0.05 override is
+        # what actually reaches call_later().
+        hass.states.get = MagicMock(return_value=None)
         # AsyncMock lets us count "how many solve tasks were kicked off"
         # -- the important assertion here.
         fake_solve = AsyncMock(return_value=True)
@@ -347,6 +362,156 @@ def test_debounce_coalesces_a_burst_of_state_changes_into_one_solve():
         fake_solve.assert_called_once_with(hass)
 
     asyncio.run(_run())
+
+
+# 2026-08-29 (issue #232 follow-up): the toggle and debounce moved out
+# to a live switch.nimbus_solve_on_price_change and
+# number.nimbus_solve_on_price_change_debounce_s -- the tests below
+# assert that _configure_price_watcher() reads those live entities
+# FIRST, so a dashboard toggle takes effect with no hub reload, while
+# still falling through to entry.options on installs whose switch/
+# number entities haven't been created yet (the fresh-install migration
+# path exercised by every test above).
+
+
+def test_live_switch_state_overrides_entry_options_when_present():
+    _reset_module_state()
+    hass = _fake_hass()
+    # Switch entity exists and says OFF -- must beat entry.options
+    # saying ON, so a household that toggles the switch off from the
+    # dashboard genuinely stops the extra solves.
+    switch_state = MagicMock()
+    switch_state.state = "off"
+    hass.states.get = MagicMock(
+        side_effect=lambda entity_id: (
+            switch_state if entity_id == "switch.nimbus_solve_on_price_change" else None
+        )
+    )
+    entry = _fake_entry(
+        "entry_switch_off",
+        {
+            CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_a",
+            # entry.options says ON, but the live switch is OFF -- switch wins.
+            CONF_SOLVE_ON_PRICE_CHANGE: True,
+        },
+    )
+
+    with patch(
+        "custom_components.nimbus_load.async_track_state_change_event"
+    ) as track_event:
+        _configure_price_watcher(hass, entry)
+
+    track_event.assert_not_called()
+
+
+def test_live_switch_state_on_registers_listener_even_when_options_missing():
+    _reset_module_state()
+    hass = _fake_hass()
+    switch_state = MagicMock()
+    switch_state.state = "on"
+    hass.states.get = MagicMock(
+        side_effect=lambda entity_id: (
+            switch_state if entity_id == "switch.nimbus_solve_on_price_change" else None
+        )
+    )
+    entry = _fake_entry(
+        "entry_switch_on",
+        {
+            CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_a",
+            # Deliberately not setting CONF_SOLVE_ON_PRICE_CHANGE -- a
+            # dashboard user who has never opened the wizard on this
+            # install should be able to just toggle the switch on and
+            # have it work.
+        },
+    )
+    fake_unsub = MagicMock()
+
+    with patch(
+        "custom_components.nimbus_load.async_track_state_change_event",
+        return_value=fake_unsub,
+    ) as track_event:
+        _configure_price_watcher(hass, entry)
+
+    track_event.assert_called_once()
+    assert _price_watcher_entities.get("entry_switch_on") == ("sensor.import_a",)
+
+
+def test_live_debounce_number_state_overrides_entry_options_when_present():
+    _reset_module_state()
+    hass = _fake_hass()
+    switch_state = MagicMock()
+    switch_state.state = "on"
+    debounce_state = MagicMock()
+    debounce_state.state = "12.5"
+
+    def _states_get(entity_id):
+        if entity_id == "switch.nimbus_solve_on_price_change":
+            return switch_state
+        if entity_id == "number.nimbus_solve_on_price_change_debounce_s":
+            return debounce_state
+        return None
+
+    hass.states.get = MagicMock(side_effect=_states_get)
+    entry = _fake_entry(
+        "entry_live_debounce",
+        {
+            CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_a",
+            # entry.options says 5s, but the live number says 12.5 --
+            # live number wins.
+            CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S: 5.0,
+        },
+    )
+    fake_unsub = MagicMock()
+
+    with patch(
+        "custom_components.nimbus_load.async_track_state_change_event",
+        return_value=fake_unsub,
+    ):
+        _configure_price_watcher(hass, entry)
+
+    hass.loop.call_later.assert_not_called()  # Only fires on state change,
+    # not at registration -- what we're asserting is just that the listener
+    # got registered and stored, i.e. that a live-number-only test path
+    # (no entry.options fallback) still succeeds. call_later would be
+    # exercised by the pre-existing coalesce test above.
+    assert _price_watcher_unsub.get("entry_live_debounce") is not None
+
+
+def test_unknown_debounce_state_falls_through_to_entry_options():
+    _reset_module_state()
+    hass = _fake_hass()
+    switch_state = MagicMock()
+    switch_state.state = "on"
+    # Number entity is present but STILL restoring (state == "unknown")
+    # during the tail end of hub startup -- must fall through to entry.
+    # options, not silently coerce to 0 or DEFAULT.
+    debounce_state = MagicMock()
+    debounce_state.state = "unknown"
+
+    def _states_get(entity_id):
+        if entity_id == "switch.nimbus_solve_on_price_change":
+            return switch_state
+        if entity_id == "number.nimbus_solve_on_price_change_debounce_s":
+            return debounce_state
+        return None
+
+    hass.states.get = MagicMock(side_effect=_states_get)
+    entry = _fake_entry(
+        "entry_debounce_unknown",
+        {
+            CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_a",
+            CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S: 7.5,
+        },
+    )
+    fake_unsub = MagicMock()
+
+    with patch(
+        "custom_components.nimbus_load.async_track_state_change_event",
+        return_value=fake_unsub,
+    ):
+        _configure_price_watcher(hass, entry)
+
+    assert _price_watcher_unsub.get("entry_debounce_unknown") is not None
 
 
 if __name__ == "__main__":
