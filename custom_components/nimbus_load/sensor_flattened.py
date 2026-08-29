@@ -171,7 +171,13 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         name="Solver Total Cost",
         entity_id_suffix="total_cost",
         entity_category=None,
-        device_class=SensorDeviceClass.MONETARY,
+        # HA core requires state_class='total' for MONETARY, 'total'/
+        # 'total_increasing' for ENERGY -- none allow MEASUREMENT. These are
+        # per-solve or per-day POINT-IN-TIME values (recomputed fresh each
+        # cycle, can legitimately go up or down), never a cumulative meter --
+        # MEASUREMENT is the semantically correct state_class here, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD,
         suggested_display_precision=3,
@@ -181,7 +187,13 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         name="Solver Total Cost (with fixed costs)",
         entity_id_suffix="total_cost_with_fixed_costs",
         entity_category=None,
-        device_class=SensorDeviceClass.MONETARY,
+        # HA core requires state_class='total' for MONETARY, 'total'/
+        # 'total_increasing' for ENERGY -- none allow MEASUREMENT. These are
+        # per-solve or per-day POINT-IN-TIME values (recomputed fresh each
+        # cycle, can legitimately go up or down), never a cumulative meter --
+        # MEASUREMENT is the semantically correct state_class here, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD,
         suggested_display_precision=3,
@@ -194,7 +206,13 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         name="Solver Cost Band Lower",
         entity_id_suffix="cost_band_lower",
         entity_category=EntityCategory.DIAGNOSTIC,
-        device_class=SensorDeviceClass.MONETARY,
+        # HA core requires state_class='total' for MONETARY, 'total'/
+        # 'total_increasing' for ENERGY -- none allow MEASUREMENT. These are
+        # per-solve or per-day POINT-IN-TIME values (recomputed fresh each
+        # cycle, can legitimately go up or down), never a cumulative meter --
+        # MEASUREMENT is the semantically correct state_class here, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD,
         suggested_display_precision=3,
@@ -204,7 +222,13 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         name="Solver Cost Band Upper",
         entity_id_suffix="cost_band_upper",
         entity_category=EntityCategory.DIAGNOSTIC,
-        device_class=SensorDeviceClass.MONETARY,
+        # HA core requires state_class='total' for MONETARY, 'total'/
+        # 'total_increasing' for ENERGY -- none allow MEASUREMENT. These are
+        # per-solve or per-day POINT-IN-TIME values (recomputed fresh each
+        # cycle, can legitimately go up or down), never a cumulative meter --
+        # MEASUREMENT is the semantically correct state_class here, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD,
         suggested_display_precision=3,
@@ -214,7 +238,13 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         name="Solver Cost Band Width",
         entity_id_suffix="cost_band_width",
         entity_category=EntityCategory.DIAGNOSTIC,
-        device_class=SensorDeviceClass.MONETARY,
+        # HA core requires state_class='total' for MONETARY, 'total'/
+        # 'total_increasing' for ENERGY -- none allow MEASUREMENT. These are
+        # per-solve or per-day POINT-IN-TIME values (recomputed fresh each
+        # cycle, can legitimately go up or down), never a cumulative meter --
+        # MEASUREMENT is the semantically correct state_class here, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD,
         suggested_display_precision=3,
@@ -224,7 +254,13 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         name="Solver Cost Breakdown Grid Net",
         entity_id_suffix="cost_breakdown_grid_net",
         entity_category=EntityCategory.DIAGNOSTIC,
-        device_class=SensorDeviceClass.MONETARY,
+        # HA core requires state_class='total' for MONETARY, 'total'/
+        # 'total_increasing' for ENERGY -- none allow MEASUREMENT. These are
+        # per-solve or per-day POINT-IN-TIME values (recomputed fresh each
+        # cycle, can legitimately go up or down), never a cumulative meter --
+        # MEASUREMENT is the semantically correct state_class here, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD,
         suggested_display_precision=3,
@@ -234,7 +270,13 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         name="Solver Cost Breakdown Degradation",
         entity_id_suffix="cost_breakdown_degradation",
         entity_category=EntityCategory.DIAGNOSTIC,
-        device_class=SensorDeviceClass.MONETARY,
+        # HA core requires state_class='total' for MONETARY, 'total'/
+        # 'total_increasing' for ENERGY -- none allow MEASUREMENT. These are
+        # per-solve or per-day POINT-IN-TIME values (recomputed fresh each
+        # cycle, can legitimately go up or down), never a cumulative meter --
+        # MEASUREMENT is the semantically correct state_class here, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD,
         suggested_display_precision=3,
@@ -244,7 +286,13 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         name="Solver Cost Breakdown Charge Fee",
         entity_id_suffix="cost_breakdown_charge_fee",
         entity_category=EntityCategory.DIAGNOSTIC,
-        device_class=SensorDeviceClass.MONETARY,
+        # HA core requires state_class='total' for MONETARY, 'total'/
+        # 'total_increasing' for ENERGY -- none allow MEASUREMENT. These are
+        # per-solve or per-day POINT-IN-TIME values (recomputed fresh each
+        # cycle, can legitimately go up or down), never a cumulative meter --
+        # MEASUREMENT is the semantically correct state_class here, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD,
         suggested_display_precision=3,
@@ -254,7 +302,13 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         name="Solver Cost Breakdown Discharge Fee",
         entity_id_suffix="cost_breakdown_discharge_fee",
         entity_category=EntityCategory.DIAGNOSTIC,
-        device_class=SensorDeviceClass.MONETARY,
+        # HA core requires state_class='total' for MONETARY, 'total'/
+        # 'total_increasing' for ENERGY -- none allow MEASUREMENT. These are
+        # per-solve or per-day POINT-IN-TIME values (recomputed fresh each
+        # cycle, can legitimately go up or down), never a cumulative meter --
+        # MEASUREMENT is the semantically correct state_class here, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD,
         suggested_display_precision=3,
@@ -264,7 +318,13 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         name="Solver Cost Breakdown Terminal Value Credit",
         entity_id_suffix="cost_breakdown_terminal_value_credit",
         entity_category=EntityCategory.DIAGNOSTIC,
-        device_class=SensorDeviceClass.MONETARY,
+        # HA core requires state_class='total' for MONETARY, 'total'/
+        # 'total_increasing' for ENERGY -- none allow MEASUREMENT. These are
+        # per-solve or per-day POINT-IN-TIME values (recomputed fresh each
+        # cycle, can legitimately go up or down), never a cumulative meter --
+        # MEASUREMENT is the semantically correct state_class here, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD,
         suggested_display_precision=3,
@@ -275,7 +335,13 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         name="Solver Total Charge Energy",
         entity_id_suffix="total_charge_kwh",
         entity_category=None,
-        device_class=SensorDeviceClass.ENERGY,
+        # HA core requires state_class='total' for MONETARY, 'total'/
+        # 'total_increasing' for ENERGY -- none allow MEASUREMENT. These are
+        # per-solve or per-day POINT-IN-TIME values (recomputed fresh each
+        # cycle, can legitimately go up or down), never a cumulative meter --
+        # MEASUREMENT is the semantically correct state_class here, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         # MEASUREMENT rather than TOTAL_INCREASING -- this is a
         # per-plan total (recomputed every solve, overwritten), not a
         # cumulative meter. TOTAL_INCREASING would break the recorder's
@@ -289,7 +355,13 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         name="Solver Total Discharge Energy",
         entity_id_suffix="total_discharge_kwh",
         entity_category=None,
-        device_class=SensorDeviceClass.ENERGY,
+        # HA core requires state_class='total' for MONETARY, 'total'/
+        # 'total_increasing' for ENERGY -- none allow MEASUREMENT. These are
+        # per-solve or per-day POINT-IN-TIME values (recomputed fresh each
+        # cycle, can legitimately go up or down), never a cumulative meter --
+        # MEASUREMENT is the semantically correct state_class here, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_KWH,
         suggested_display_precision=3,
@@ -299,7 +371,13 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         name="Solver Total Throughput Energy",
         entity_id_suffix="total_throughput_kwh",
         entity_category=None,
-        device_class=SensorDeviceClass.ENERGY,
+        # HA core requires state_class='total' for MONETARY, 'total'/
+        # 'total_increasing' for ENERGY -- none allow MEASUREMENT. These are
+        # per-solve or per-day POINT-IN-TIME values (recomputed fresh each
+        # cycle, can legitimately go up or down), never a cumulative meter --
+        # MEASUREMENT is the semantically correct state_class here, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_KWH,
         suggested_display_precision=3,
@@ -309,7 +387,13 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         name="Solver AC Bus Losses",
         entity_id_suffix="ac_bus_losses_kwh",
         entity_category=None,
-        device_class=SensorDeviceClass.ENERGY,
+        # HA core requires state_class='total' for MONETARY, 'total'/
+        # 'total_increasing' for ENERGY -- none allow MEASUREMENT. These are
+        # per-solve or per-day POINT-IN-TIME values (recomputed fresh each
+        # cycle, can legitimately go up or down), never a cumulative meter --
+        # MEASUREMENT is the semantically correct state_class here, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_KWH,
         suggested_display_precision=3,
@@ -362,7 +446,13 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         name="Solver P2P Recent Average Volume",
         entity_id_suffix="p2p_recent_avg_volume_kwh",
         entity_category=None,
-        device_class=SensorDeviceClass.ENERGY,
+        # HA core requires state_class='total' for MONETARY, 'total'/
+        # 'total_increasing' for ENERGY -- none allow MEASUREMENT. These are
+        # per-solve or per-day POINT-IN-TIME values (recomputed fresh each
+        # cycle, can legitimately go up or down), never a cumulative meter --
+        # MEASUREMENT is the semantically correct state_class here, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_KWH,
         suggested_display_precision=3,
@@ -449,7 +539,13 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         name="Solver Binding Constraint Shadow Price",
         entity_id_suffix="binding_constraint_shadow_price",
         entity_category=EntityCategory.DIAGNOSTIC,
-        device_class=SensorDeviceClass.MONETARY,
+        # HA core requires state_class='total' for MONETARY, 'total'/
+        # 'total_increasing' for ENERGY -- none allow MEASUREMENT. These are
+        # per-solve or per-day POINT-IN-TIME values (recomputed fresh each
+        # cycle, can legitimately go up or down), never a cumulative meter --
+        # MEASUREMENT is the semantically correct state_class here, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD_PER_KWH,
         suggested_display_precision=4,
@@ -459,7 +555,13 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         name="Solver Energy Shadow Price (Now)",
         entity_id_suffix="energy_shadow_price_now",
         entity_category=EntityCategory.DIAGNOSTIC,
-        device_class=SensorDeviceClass.MONETARY,
+        # HA core requires state_class='total' for MONETARY, 'total'/
+        # 'total_increasing' for ENERGY -- none allow MEASUREMENT. These are
+        # per-solve or per-day POINT-IN-TIME values (recomputed fresh each
+        # cycle, can legitimately go up or down), never a cumulative meter --
+        # MEASUREMENT is the semantically correct state_class here, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD_PER_KWH,
         suggested_display_precision=4,
@@ -469,7 +571,13 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         name="Solver P2P Volume Cap Shadow Price",
         entity_id_suffix="p2p_volume_cap_shadow_price",
         entity_category=EntityCategory.DIAGNOSTIC,
-        device_class=SensorDeviceClass.MONETARY,
+        # HA core requires state_class='total' for MONETARY, 'total'/
+        # 'total_increasing' for ENERGY -- none allow MEASUREMENT. These are
+        # per-solve or per-day POINT-IN-TIME values (recomputed fresh each
+        # cycle, can legitimately go up or down), never a cumulative meter --
+        # MEASUREMENT is the semantically correct state_class here, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD_PER_KWH,
         suggested_display_precision=4,
@@ -500,7 +608,13 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         name="Solver Degradation Cost",
         entity_id_suffix="degradation_cost_per_kwh",
         entity_category=EntityCategory.DIAGNOSTIC,
-        device_class=SensorDeviceClass.MONETARY,
+        # HA core requires state_class='total' for MONETARY, 'total'/
+        # 'total_increasing' for ENERGY -- none allow MEASUREMENT. These are
+        # per-solve or per-day POINT-IN-TIME values (recomputed fresh each
+        # cycle, can legitimately go up or down), never a cumulative meter --
+        # MEASUREMENT is the semantically correct state_class here, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD_PER_KWH,
         suggested_display_precision=4,
@@ -520,7 +634,13 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         name="Solver Salvage Value",
         entity_id_suffix="salvage_value",
         entity_category=EntityCategory.DIAGNOSTIC,
-        device_class=SensorDeviceClass.MONETARY,
+        # HA core requires state_class='total' for MONETARY, 'total'/
+        # 'total_increasing' for ENERGY -- none allow MEASUREMENT. These are
+        # per-solve or per-day POINT-IN-TIME values (recomputed fresh each
+        # cycle, can legitimately go up or down), never a cumulative meter --
+        # MEASUREMENT is the semantically correct state_class here, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD_PER_KWH,
         suggested_display_precision=4,
@@ -768,7 +888,13 @@ FLATTENED_ATTRS_QUALITY: tuple[FlattenedAttrSpec, ...] = (
         name="Quality Theoretical Maximum Yield",
         entity_id_suffix="theoretical_maximum_yield",
         entity_category=EntityCategory.DIAGNOSTIC,
-        device_class=SensorDeviceClass.MONETARY,
+        # HA core requires state_class='total' for MONETARY, 'total'/
+        # 'total_increasing' for ENERGY -- none allow MEASUREMENT. These are
+        # per-solve or per-day POINT-IN-TIME values (recomputed fresh each
+        # cycle, can legitimately go up or down), never a cumulative meter --
+        # MEASUREMENT is the semantically correct state_class here, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD,
         suggested_display_precision=3,
@@ -778,28 +904,33 @@ FLATTENED_ATTRS_QUALITY: tuple[FlattenedAttrSpec, ...] = (
         name="Quality Value Captured",
         entity_id_suffix="value_captured",
         entity_category=EntityCategory.DIAGNOSTIC,
-        device_class=SensorDeviceClass.MONETARY,
+        # HA core requires state_class='total' for MONETARY, 'total'/
+        # 'total_increasing' for ENERGY -- none allow MEASUREMENT. These are
+        # per-solve or per-day POINT-IN-TIME values (recomputed fresh each
+        # cycle, can legitimately go up or down), never a cumulative meter --
+        # MEASUREMENT is the semantically correct state_class here, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD,
         suggested_display_precision=3,
     ),
-    FlattenedAttrSpec(
-        source_key="uplift_available",
-        name="Quality Uplift Available",
-        entity_id_suffix="uplift_available",
-        entity_category=EntityCategory.DIAGNOSTIC,
-        device_class=SensorDeviceClass.MONETARY,
-        state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD,
-        suggested_display_precision=3,
-    ),
+    # uplift_available (epr.py) was removed here (issue #283, defect 2): it was
+    # byte-identical to regret_dollars (both j_ach - j_star), a real duplicate-
+    # valued sensor pair. regret_dollars is the canonical entity going forward.
     # --- J_ref / J_ach / J_star -- the EPR building blocks (diagnostic) --------
     FlattenedAttrSpec(
         source_key="j_ref",
         name="Quality J_ref (reference cost)",
         entity_id_suffix="j_ref",
         entity_category=EntityCategory.DIAGNOSTIC,
-        device_class=SensorDeviceClass.MONETARY,
+        # HA core requires state_class='total' for MONETARY, 'total'/
+        # 'total_increasing' for ENERGY -- none allow MEASUREMENT. These are
+        # per-solve or per-day POINT-IN-TIME values (recomputed fresh each
+        # cycle, can legitimately go up or down), never a cumulative meter --
+        # MEASUREMENT is the semantically correct state_class here, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD,
         suggested_display_precision=3,
@@ -809,7 +940,13 @@ FLATTENED_ATTRS_QUALITY: tuple[FlattenedAttrSpec, ...] = (
         name="Quality J_ach (achieved cost)",
         entity_id_suffix="j_ach",
         entity_category=EntityCategory.DIAGNOSTIC,
-        device_class=SensorDeviceClass.MONETARY,
+        # HA core requires state_class='total' for MONETARY, 'total'/
+        # 'total_increasing' for ENERGY -- none allow MEASUREMENT. These are
+        # per-solve or per-day POINT-IN-TIME values (recomputed fresh each
+        # cycle, can legitimately go up or down), never a cumulative meter --
+        # MEASUREMENT is the semantically correct state_class here, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD,
         suggested_display_precision=3,
@@ -819,7 +956,13 @@ FLATTENED_ATTRS_QUALITY: tuple[FlattenedAttrSpec, ...] = (
         name="Quality J_star (oracle cost)",
         entity_id_suffix="j_star",
         entity_category=EntityCategory.DIAGNOSTIC,
-        device_class=SensorDeviceClass.MONETARY,
+        # HA core requires state_class='total' for MONETARY, 'total'/
+        # 'total_increasing' for ENERGY -- none allow MEASUREMENT. These are
+        # per-solve or per-day POINT-IN-TIME values (recomputed fresh each
+        # cycle, can legitimately go up or down), never a cumulative meter --
+        # MEASUREMENT is the semantically correct state_class here, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD,
         suggested_display_precision=3,
@@ -829,7 +972,13 @@ FLATTENED_ATTRS_QUALITY: tuple[FlattenedAttrSpec, ...] = (
         name="Quality Regret",
         entity_id_suffix="regret_dollars",
         entity_category=EntityCategory.DIAGNOSTIC,
-        device_class=SensorDeviceClass.MONETARY,
+        # HA core requires state_class='total' for MONETARY, 'total'/
+        # 'total_increasing' for ENERGY -- none allow MEASUREMENT. These are
+        # per-solve or per-day POINT-IN-TIME values (recomputed fresh each
+        # cycle, can legitimately go up or down), never a cumulative meter --
+        # MEASUREMENT is the semantically correct state_class here, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD,
         suggested_display_precision=3,
@@ -840,17 +989,26 @@ FLATTENED_ATTRS_QUALITY: tuple[FlattenedAttrSpec, ...] = (
         name="Quality Tracking Fidelity",
         entity_id_suffix="tracking_fidelity",
         entity_category=EntityCategory.DIAGNOSTIC,
+        # tracking.py's tracking_fidelity = 1.0 - gap_energy/commanded_activity
+        # is a genuine 0-1 fraction, not a percentage (issue #283, defect 3) --
+        # unit_of_measurement dropped rather than rescaling the value.
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_PERCENT,
-        suggested_display_precision=1,
+        unit_of_measurement=None,
+        suggested_display_precision=3,
     ),
     FlattenedAttrSpec(
         source_key="tracking_cost",
         name="Quality Tracking Cost",
         entity_id_suffix="tracking_cost",
         entity_category=EntityCategory.DIAGNOSTIC,
-        device_class=SensorDeviceClass.MONETARY,
+        # HA core requires state_class='total' for MONETARY, 'total'/
+        # 'total_increasing' for ENERGY -- none allow MEASUREMENT. These are
+        # per-solve or per-day POINT-IN-TIME values (recomputed fresh each
+        # cycle, can legitimately go up or down), never a cumulative meter --
+        # MEASUREMENT is the semantically correct state_class here, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD,
         suggested_display_precision=3,
@@ -876,7 +1034,13 @@ FLATTENED_ATTRS_BACKTEST: tuple[FlattenedAttrSpec, ...] = (
         name="Backtest Best Candidate Cost",
         entity_id_suffix="best_candidate_cost",
         entity_category=EntityCategory.DIAGNOSTIC,
-        device_class=SensorDeviceClass.MONETARY,
+        # HA core requires state_class='total' for MONETARY, 'total'/
+        # 'total_increasing' for ENERGY -- none allow MEASUREMENT. These are
+        # per-solve or per-day POINT-IN-TIME values (recomputed fresh each
+        # cycle, can legitimately go up or down), never a cumulative meter --
+        # MEASUREMENT is the semantically correct state_class here, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD,
         suggested_display_precision=3,
@@ -886,7 +1050,13 @@ FLATTENED_ATTRS_BACKTEST: tuple[FlattenedAttrSpec, ...] = (
         name="Backtest Worst Candidate Cost",
         entity_id_suffix="worst_candidate_cost",
         entity_category=EntityCategory.DIAGNOSTIC,
-        device_class=SensorDeviceClass.MONETARY,
+        # HA core requires state_class='total' for MONETARY, 'total'/
+        # 'total_increasing' for ENERGY -- none allow MEASUREMENT. These are
+        # per-solve or per-day POINT-IN-TIME values (recomputed fresh each
+        # cycle, can legitimately go up or down), never a cumulative meter --
+        # MEASUREMENT is the semantically correct state_class here, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD,
         suggested_display_precision=3,
@@ -1207,7 +1377,12 @@ FLATTENED_ATTRS_CURRENT: tuple[FlattenedAttrSpec, ...] = (
         name="Solver Current Import Price",
         entity_id_suffix="current_import_price",
         entity_category=None,
-        device_class=SensorDeviceClass.MONETARY,
+        # HA core requires state_class='total' for MONETARY -- MEASUREMENT
+        # is invalid. This is a per-current-period point-in-time value
+        # (re-read from the live forecast row every dispatch tick, not a
+        # cumulative meter) -- MEASUREMENT is semantically correct, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD_PER_KWH,
         suggested_display_precision=4,
@@ -1217,7 +1392,12 @@ FLATTENED_ATTRS_CURRENT: tuple[FlattenedAttrSpec, ...] = (
         name="Solver Current Export Price",
         entity_id_suffix="current_export_price",
         entity_category=None,
-        device_class=SensorDeviceClass.MONETARY,
+        # HA core requires state_class='total' for MONETARY -- MEASUREMENT
+        # is invalid. This is a per-current-period point-in-time value
+        # (re-read from the live forecast row every dispatch tick, not a
+        # cumulative meter) -- MEASUREMENT is semantically correct, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD_PER_KWH,
         suggested_display_precision=4,
@@ -1227,7 +1407,12 @@ FLATTENED_ATTRS_CURRENT: tuple[FlattenedAttrSpec, ...] = (
         name="Solver Current Bonus Price",
         entity_id_suffix="current_bonus_price",
         entity_category=None,
-        device_class=SensorDeviceClass.MONETARY,
+        # HA core requires state_class='total' for MONETARY -- MEASUREMENT
+        # is invalid. This is a per-current-period point-in-time value
+        # (re-read from the live forecast row every dispatch tick, not a
+        # cumulative meter) -- MEASUREMENT is semantically correct, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD_PER_KWH,
         suggested_display_precision=4,
@@ -1259,7 +1444,12 @@ FLATTENED_ATTRS_CURRENT: tuple[FlattenedAttrSpec, ...] = (
         name="Solver Current Net Cost",
         entity_id_suffix="current_net_cost",
         entity_category=None,
-        device_class=SensorDeviceClass.MONETARY,
+        # HA core requires state_class='total' for MONETARY -- MEASUREMENT
+        # is invalid. This is a per-current-period point-in-time value
+        # (re-read from the live forecast row every dispatch tick, not a
+        # cumulative meter) -- MEASUREMENT is semantically correct, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD,
         suggested_display_precision=4,
@@ -1340,7 +1530,12 @@ FLATTENED_ATTRS_CURRENT: tuple[FlattenedAttrSpec, ...] = (
         name="Solver Current Battery Cost Basis",
         entity_id_suffix="current_flow_battery_cost_basis",
         entity_category=EntityCategory.DIAGNOSTIC,
-        device_class=SensorDeviceClass.MONETARY,
+        # HA core requires state_class='total' for MONETARY -- MEASUREMENT
+        # is invalid. This is a per-current-period point-in-time value
+        # (re-read from the live forecast row every dispatch tick, not a
+        # cumulative meter) -- MEASUREMENT is semantically correct, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD_PER_KWH,
         suggested_display_precision=4,
@@ -1351,7 +1546,12 @@ FLATTENED_ATTRS_CURRENT: tuple[FlattenedAttrSpec, ...] = (
         name="Solver Current Savings PV",
         entity_id_suffix="current_savings_pv",
         entity_category=EntityCategory.DIAGNOSTIC,
-        device_class=SensorDeviceClass.MONETARY,
+        # HA core requires state_class='total' for MONETARY -- MEASUREMENT
+        # is invalid. This is a per-current-period point-in-time value
+        # (re-read from the live forecast row every dispatch tick, not a
+        # cumulative meter) -- MEASUREMENT is semantically correct, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD,
         suggested_display_precision=4,
@@ -1361,7 +1561,12 @@ FLATTENED_ATTRS_CURRENT: tuple[FlattenedAttrSpec, ...] = (
         name="Solver Current Savings Battery",
         entity_id_suffix="current_savings_battery",
         entity_category=EntityCategory.DIAGNOSTIC,
-        device_class=SensorDeviceClass.MONETARY,
+        # HA core requires state_class='total' for MONETARY -- MEASUREMENT
+        # is invalid. This is a per-current-period point-in-time value
+        # (re-read from the live forecast row every dispatch tick, not a
+        # cumulative meter) -- MEASUREMENT is semantically correct, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD,
         suggested_display_precision=4,
@@ -1371,7 +1576,12 @@ FLATTENED_ATTRS_CURRENT: tuple[FlattenedAttrSpec, ...] = (
         name="Solver Current Savings Combined",
         entity_id_suffix="current_savings_combined",
         entity_category=EntityCategory.DIAGNOSTIC,
-        device_class=SensorDeviceClass.MONETARY,
+        # HA core requires state_class='total' for MONETARY -- MEASUREMENT
+        # is invalid. This is a per-current-period point-in-time value
+        # (re-read from the live forecast row every dispatch tick, not a
+        # cumulative meter) -- MEASUREMENT is semantically correct, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD,
         suggested_display_precision=4,
@@ -1381,7 +1591,12 @@ FLATTENED_ATTRS_CURRENT: tuple[FlattenedAttrSpec, ...] = (
         name="Solver Current Savings Interaction",
         entity_id_suffix="current_savings_interaction",
         entity_category=EntityCategory.DIAGNOSTIC,
-        device_class=SensorDeviceClass.MONETARY,
+        # HA core requires state_class='total' for MONETARY -- MEASUREMENT
+        # is invalid. This is a per-current-period point-in-time value
+        # (re-read from the live forecast row every dispatch tick, not a
+        # cumulative meter) -- MEASUREMENT is semantically correct, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD,
         suggested_display_precision=4,
