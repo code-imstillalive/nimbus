@@ -198,8 +198,11 @@ def compute_forecast_regret(
     """
     oracle_charge_kw, oracle_discharge_kw, oracle_final_soc_kwh = (
         _oracle_dispatch_via_real(
-            periods=periods, grid=grid, battery=battery,
-            solar_real_kw=solar_real_kw, load_real_kw=load_real_kw,
+            periods=periods,
+            grid=grid,
+            battery=battery,
+            solar_real_kw=solar_real_kw,
+            load_real_kw=load_real_kw,
         )
     )
     j_star = evaluate_realized_cost(
@@ -219,14 +222,22 @@ def compute_forecast_regret(
     ).total_cost
 
     j_forecast = _evaluate_scenario(
-        periods=periods, grid=grid, battery=battery,
-        solar_plan_kw=solar_forecast_kw, load_plan_kw=load_forecast_kw,
-        solar_real_kw=solar_real_kw, load_real_kw=load_real_kw,
+        periods=periods,
+        grid=grid,
+        battery=battery,
+        solar_plan_kw=solar_forecast_kw,
+        load_plan_kw=load_forecast_kw,
+        solar_real_kw=solar_real_kw,
+        load_real_kw=load_real_kw,
     )
     j_persistence = _evaluate_scenario(
-        periods=periods, grid=grid, battery=battery,
-        solar_plan_kw=solar_persistence_kw, load_plan_kw=load_persistence_kw,
-        solar_real_kw=solar_real_kw, load_real_kw=load_real_kw,
+        periods=periods,
+        grid=grid,
+        battery=battery,
+        solar_plan_kw=solar_persistence_kw,
+        load_plan_kw=load_persistence_kw,
+        solar_real_kw=solar_real_kw,
+        load_real_kw=load_real_kw,
     )
 
     return ForecastRegretResult(

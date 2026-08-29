@@ -70,11 +70,11 @@ class TestComputeForecastRegret(unittest.TestCase):
         # and a load curve with real morning/evening peaks -- not flat
         # synthetic data, so a wrong forecast actually costs something.
         hour = np.arange(N)
-        self.solar_real = np.clip(
-            8.0 * np.sin((hour - 6.0) / 12.0 * np.pi), 0.0, None
-        )
-        self.load_real = 1.5 + 1.0 * np.sin(hour / 24.0 * 2 * np.pi) + (
-            2.0 * ((hour >= 17) & (hour <= 21))
+        self.solar_real = np.clip(8.0 * np.sin((hour - 6.0) / 12.0 * np.pi), 0.0, None)
+        self.load_real = (
+            1.5
+            + 1.0 * np.sin(hour / 24.0 * 2 * np.pi)
+            + (2.0 * ((hour >= 17) & (hour <= 21)))
         )
         self.import_price = np.full(N, 0.30)
         self.export_price = np.full(N, 0.10)
