@@ -50,9 +50,8 @@ from _ha_stubs import install_ha_stubs
 install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from custom_components.nimbus_load.const import DOMAIN
-
 from custom_components.nimbus_load import sensor, solver_writer
+from custom_components.nimbus_load.const import DOMAIN
 
 # --- helpers ---------------------------------------------------------------
 
