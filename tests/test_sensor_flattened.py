@@ -449,3 +449,313 @@ if __name__ == "__main__":
             print(f"ERROR {t.__name__}: {type(e).__name__}: {e}")
     print(f"\n{len(tests) - failed}/{len(tests)} passed")
     sys.exit(1 if failed else 0)
+
+
+# ===========================================================================
+# Family B (v0.94.20 CHANGELOG deferred item): per-row forecast fields on
+# sensor.nimbus_solver_battery_forecast, restricted to the current-period row
+# (forecast[0]). Mirrors the Family-A test suite above.
+# ===========================================================================
+
+
+# --- helpers ---------------------------------------------------------------
+
+
+def _build_entities_current():
+    entry = _fake_entry("test-entry-flat-current")
+    entities = sensor_flattened.create_flattened_entities_current(
+        entry, sw_version="0.94.25"
+    )
+    for e in entities:
+        e.hass = None
+    return entities, entry
+
+
+def _real_looking_forecast_row() -> dict:
+    """Mirrors forecast[0] on a healthy v0.94.24 solve -- captured
+    directly from a running production install. See
+    _real_looking_parent_payload() above for the same rationale (catches
+    spec/payload drift in either direction)."""
+    return {
+        "time": "2026-08-29T20:30:00+10:00",
+        "battery_kw": 2.047,
+        "battery_kw_after_efficiency": 2.1,
+        "soc_pct": 75.36,
+        "grid_import_kw": 0.0,
+        "grid_export_kw": 0.0,
+        "export_bonus_kw": 0.0,
+        "import_price": 0.3155,
+        "import_price_raw": 0.3155,
+        "export_price": 0.0658,
+        "export_price_raw": 0.0658,
+        "bonus_price": 0.0,
+        "load_kw": 2.047,
+        "solar_kw": 0.0,
+        "dispatch_direction": "discharge",
+        "dispatch_source_a_label": "Load",
+        "dispatch_source_a_pct": 100.0,
+        "dispatch_source_b_label": "Grid",
+        "dispatch_source_b_pct": 0.0,
+        "flow_pv_to_load_kw": 0.0,
+        "flow_pv_to_battery_kw": 0.0,
+        "flow_pv_to_grid_kw": 0.0,
+        "flow_battery_to_load_kw": 2.047,
+        "flow_battery_to_grid_kw": 0.0,
+        "flow_grid_to_load_kw": 0.0,
+        "flow_grid_to_battery_kw": 0.0,
+        "flow_price_pv_to_load": 0.3155,
+        "flow_price_pv_to_battery": 0.2997,
+        "flow_price_pv_to_grid": 0.0658,
+        "flow_price_battery_to_load": 0.2997,
+        "flow_price_battery_to_grid": -0.2655,
+        "flow_price_grid_to_load": -0.3155,
+        "flow_price_grid_to_battery": -0.3155,
+        "flow_battery_cost_basis": 0.3155,
+        "savings_pv": 0.0,
+        "savings_battery": 0.0511,
+        "savings_combined": 0.0538,
+        "savings_interaction": 0.0027,
+        "hours": 0.0833,
+        "net_cost": 0.0,
+    }
+
+
+# --- spec table coverage ---------------------------------------------------
+
+
+def test_current_every_spec_row_produces_one_entity():
+    entities, _ = _build_entities_current()
+    assert len(entities) == len(sensor_flattened.FLATTENED_ATTRS_CURRENT)
+
+
+def test_current_entity_ids_are_unique():
+    entities, _ = _build_entities_current()
+    entity_ids = [e.entity_id for e in entities]
+    assert len(set(entity_ids)) == len(entity_ids), (
+        "duplicate entity_id in FLATTENED_ATTRS_CURRENT -- suffix collision"
+    )
+
+
+def test_current_unique_ids_are_unique():
+    entities, _ = _build_entities_current()
+    unique_ids = [e._attr_unique_id for e in entities]
+    assert len(set(unique_ids)) == len(unique_ids), (
+        "duplicate _attr_unique_id in FLATTENED_ATTRS_CURRENT -- suffix collision"
+    )
+
+
+def test_current_every_entity_id_uses_the_nimbus_solver_current_prefix():
+    entities, _ = _build_entities_current()
+    for e in entities:
+        assert e.entity_id.startswith("sensor.nimbus_solver_current_"), e.entity_id
+
+
+def test_current_every_unique_id_is_scoped_to_the_config_entry():
+    entities, entry = _build_entities_current()
+    for e in entities:
+        assert e._attr_unique_id.startswith(
+            f"{entry.entry_id}_nimbus_solver_current_"
+        ), e._attr_unique_id
+
+
+def test_current_no_id_collision_with_family_a():
+    """Family B uses `current_` as an entity_id_suffix prefix so a
+    Family-A row named e.g. `battery_kw` on the parent could not clash
+    with Family B's `current_battery_kw` on the same forecast row. This
+    is the guarantee the design relies on -- codify it as a test so a
+    future rename can't silently reintroduce the collision."""
+    entry = _fake_entry("test-entry-flat-collision")
+    a = sensor_flattened.create_flattened_entities(entry, sw_version="0.94.25")
+    b = sensor_flattened.create_flattened_entities_current(entry, sw_version="0.94.25")
+    a_ids = {e.entity_id for e in a}
+    b_ids = {e.entity_id for e in b}
+    assert not (a_ids & b_ids), (
+        f"Family-A vs Family-B entity_id collision: {a_ids & b_ids}"
+    )
+    a_uids = {e._attr_unique_id for e in a}
+    b_uids = {e._attr_unique_id for e in b}
+    assert not (a_uids & b_uids), (
+        f"Family-A vs Family-B unique_id collision: {a_uids & b_uids}"
+    )
+
+
+# --- device-info attachment ------------------------------------------------
+
+
+def test_current_every_entity_attaches_to_the_hub_device():
+    """Family B attaches to the hub device (not a sub-device) -- these
+    are additive current-value scalars on the same parent sensor as the
+    Family-A children, and belong on the same device page for anyone
+    building a live-dispatch card."""
+    entities, entry = _build_entities_current()
+    for e in entities:
+        di = e._attr_device_info
+        assert (DOMAIN, entry.entry_id) in di["identifiers"]
+        assert di["name"] == "Nimbus"
+        assert di["manufacturer"] == "Nimbus"
+        assert di["model"] == "Hub"
+        assert di["sw_version"] == "0.94.25"
+
+
+# --- spec-to-entity attribute mapping --------------------------------------
+
+
+def test_current_class_attributes_match_spec_for_every_row():
+    entities, _ = _build_entities_current()
+    spec_by_suffix = {
+        s.entity_id_suffix: s for s in sensor_flattened.FLATTENED_ATTRS_CURRENT
+    }
+    for e in entities:
+        suffix = e.entity_id.removeprefix("sensor.nimbus_solver_")
+        spec = spec_by_suffix[suffix]
+        assert e._attr_name == spec.name
+        assert e._attr_entity_category is spec.entity_category
+        assert e._attr_device_class is spec.device_class
+        assert e._attr_state_class is spec.state_class
+        assert e._attr_native_unit_of_measurement == spec.unit_of_measurement
+
+
+# --- fan-out extraction (via dispatch_to_flattened_current) ----------------
+
+
+def test_current_dispatch_updates_every_entity_from_real_row():
+    """The dispatcher slices forecast[0] out of the parent's attributes
+    and hands that single row's dict to each child. Every child should
+    end up with its own key's value."""
+    entities, _ = _build_entities_current()
+    row = _real_looking_forecast_row()
+    parent_attrs = {"forecast": [row], "status": "optimal"}
+    sensor_flattened.dispatch_to_flattened_current(entities, parent_attrs)
+    by_suffix = {
+        e.entity_id.removeprefix("sensor.nimbus_solver_"): e for e in entities
+    }
+    for spec in sensor_flattened.FLATTENED_ATTRS_CURRENT:
+        entity = by_suffix[spec.entity_id_suffix]
+        assert entity._state == row[spec.source_key], spec.entity_id_suffix
+
+
+def test_current_dispatch_covers_every_entity_no_stragglers():
+    """Every spec row's source_key must exist in the real production
+    row -- catches a typo or a source_key referencing a field the LP
+    doesn't publish."""
+    row = _real_looking_forecast_row()
+    for spec in sensor_flattened.FLATTENED_ATTRS_CURRENT:
+        assert spec.source_key in row, (
+            f"FLATTENED_ATTRS_CURRENT references {spec.source_key!r} which is "
+            "not present in the real forecast[0] row -- typo or a field the "
+            "LP doesn't publish."
+        )
+
+
+def test_current_dispatch_is_safe_on_missing_forecast():
+    """A partial solve or a failure that returns no forecast list at all
+    (e.g. status='infeasible') must not raise; the children just keep
+    whatever value they had. Staleness eventually flips them to
+    `unavailable`."""
+    entities, _ = _build_entities_current()
+    # Prime once
+    sensor_flattened.dispatch_to_flattened_current(
+        entities, {"forecast": [_real_looking_forecast_row()]}
+    )
+    priming_state = entities[0]._state
+    # Now dispatch with no forecast at all
+    sensor_flattened.dispatch_to_flattened_current(entities, {"status": "infeasible"})
+    # State unchanged
+    assert entities[0]._state == priming_state
+
+
+def test_current_dispatch_is_safe_on_empty_forecast():
+    """Same contract as missing key: an empty list is a valid parent
+    payload shape when the LP failed to produce any plan rows."""
+    entities, _ = _build_entities_current()
+    sensor_flattened.dispatch_to_flattened_current(
+        entities, {"forecast": [_real_looking_forecast_row()]}
+    )
+    priming_state = entities[0]._state
+    sensor_flattened.dispatch_to_flattened_current(
+        entities, {"forecast": [], "status": "infeasible"}
+    )
+    assert entities[0]._state == priming_state
+
+
+def test_current_dispatch_is_safe_on_non_list_forecast():
+    """Belt and braces -- if the parent ever publishes `forecast` as a
+    dict or a string the dispatcher must not crash the whole solve fan-
+    out. Same contract as _extract() on the base class: silently drop
+    the update, leave prior values in place."""
+    entities, _ = _build_entities_current()
+    sensor_flattened.dispatch_to_flattened_current(
+        entities, {"forecast": [_real_looking_forecast_row()]}
+    )
+    priming_state = entities[0]._state
+    sensor_flattened.dispatch_to_flattened_current(entities, {"forecast": "not a list"})
+    assert entities[0]._state == priming_state
+    sensor_flattened.dispatch_to_flattened_current(entities, {"forecast": {"bad": 1}})
+    assert entities[0]._state == priming_state
+
+
+def test_current_dispatch_is_safe_when_row_is_not_a_dict():
+    """Another belt-and-braces: if forecast[0] itself is somehow not a
+    dict (a stray scalar or None slipping past a partial solve), still
+    no crash."""
+    entities, _ = _build_entities_current()
+    sensor_flattened.dispatch_to_flattened_current(
+        entities, {"forecast": [_real_looking_forecast_row()]}
+    )
+    priming_state = entities[0]._state
+    sensor_flattened.dispatch_to_flattened_current(entities, {"forecast": [None]})
+    assert entities[0]._state == priming_state
+    sensor_flattened.dispatch_to_flattened_current(entities, {"forecast": [42]})
+    assert entities[0]._state == priming_state
+
+
+# --- category classification (primary vs diagnostic) ----------------------
+
+
+def test_current_primary_signals_are_primary_sensors():
+    """The 12 primary-category rows should have entity_category=None so
+    they appear on the main device page. LP-internal DIAGNOSTIC rows
+    (flow decomposition, savings model, cost basis) should be tagged
+    DIAGNOSTIC. Same rule as the Family-A category test above."""
+    from homeassistant.const import EntityCategory
+
+    entities, _ = _build_entities_current()
+    primary_suffixes = {
+        "current_battery_kw",
+        "current_soc_pct",
+        "current_dispatch_direction",
+        "current_grid_import_kw",
+        "current_grid_export_kw",
+        "current_export_bonus_kw",
+        "current_import_price",
+        "current_export_price",
+        "current_bonus_price",
+        "current_load_kw",
+        "current_solar_kw",
+        "current_net_cost",
+    }
+    for e in entities:
+        suffix = e.entity_id.removeprefix("sensor.nimbus_solver_")
+        if suffix in primary_suffixes:
+            assert e._attr_entity_category is None, (
+                f"{suffix} should be primary (entity_category=None)"
+            )
+        else:
+            assert e._attr_entity_category is EntityCategory.DIAGNOSTIC, (
+                f"{suffix} should be diagnostic (LP-internal decomposition)"
+            )
+
+
+def test_current_dispatch_direction_has_no_unit_or_state_class():
+    """A string-valued state ('charge' / 'discharge' / 'idle') must not
+    declare a state_class or unit -- HA rejects the entity registration
+    otherwise. Regression against the same class of bug tracked in #283
+    for the sub-device family."""
+    entities, _ = _build_entities_current()
+    by_suffix = {
+        e.entity_id.removeprefix("sensor.nimbus_solver_"): e for e in entities
+    }
+    dispatch_dir = by_suffix["current_dispatch_direction"]
+    assert dispatch_dir._attr_state_class is None
+    assert dispatch_dir._attr_native_unit_of_measurement is None
+    assert dispatch_dir._attr_device_class is None
