@@ -50,8 +50,9 @@ from _ha_stubs import install_ha_stubs
 install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from custom_components.nimbus_load import sensor, solver_writer
 from custom_components.nimbus_load.const import DOMAIN
+
+from custom_components.nimbus_load import sensor, solver_writer
 
 # --- helpers ---------------------------------------------------------------
 
@@ -354,7 +355,6 @@ if __name__ == "__main__":
 
 from custom_components.nimbus_load import sensor_flattened
 
-
 # --- class-attribute properties -------------------------------------------
 
 
@@ -416,9 +416,7 @@ def test_quality_report_preserves_well_known_entity_id_and_derives_unique_id():
     # this well-known name -- the whole point of the migration is that
     # the entity_id stays the same, only its class/DeviceInfo change.
     assert instance.entity_id == "sensor.nimbus_solver_quality_report"
-    assert (
-        instance._attr_unique_id == f"{entry.entry_id}_nimbus_solver_quality_report"
-    )
+    assert instance._attr_unique_id == f"{entry.entry_id}_nimbus_solver_quality_report"
 
 
 def test_efficiency_backtest_preserves_well_known_entity_id_and_derives_unique_id():
