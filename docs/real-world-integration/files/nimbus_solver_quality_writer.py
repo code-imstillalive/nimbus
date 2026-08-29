@@ -465,6 +465,69 @@ def value_at_or_before(pts: list[tuple[datetime, str]], t: datetime, default: fl
     return val
 
 
+def robust_value_near(
+    pts: list[tuple[datetime, str]], t: datetime, window_seconds: float = 300.0, default: float | None = None
+) -> float:
+    """Time-weighted "what was really true" lookup, for a value that must
+    hold steady across a window (e.g. a real committed P2P target) but
+    whose own recorder history can carry a real, brief, self-correcting
+    transient landing exactly on the lookup instant.
+
+    Found live 2026-08-29 (household reference deployment): a plain
+    point-in-time lookup at exactly the P2P window's own start picked up
+    a genuine few-second glitch in the target `input_number` -- see this
+    project's own CLAUDE.md (116KAT-HA-AI repo) for the full incident.
+    That forced the oracle's fixed export to the glitch value for the
+    ENTIRE window, capping its forced-export volume at a small fraction
+    of what was really delivered and invalidating that day's EPR/regret.
+
+    Instead of trusting the single value in force at `t`, this walks
+    every value change across [t, t + window_seconds) and returns
+    whichever value held for the GREATEST total duration in that
+    window -- a few-second blip can only ever contribute its own few
+    seconds to the total, so it can't win against a genuinely-settled
+    value, unless the signal itself is truly unstable (a real, different
+    problem this function correctly can't paper over).
+
+    Falls back to the plain at-or-before value if there's no history
+    inside the window at all (e.g. very sparse recorder data), and to
+    `default` if there's no history before `t` either -- same fallback
+    contract as `value_at_or_before`.
+    """
+    baseline = default
+    idx_after = 0
+    for i, (pt_t, pt_v) in enumerate(pts):
+        if pt_t <= t:
+            try:
+                baseline = float(pt_v)
+            except ValueError:
+                pass
+            idx_after = i + 1
+        else:
+            break
+
+    window_end = t + timedelta(seconds=window_seconds)
+    totals: dict[float, float] = {}
+    cur_val = baseline
+    cur_start = t
+    for pt_t, pt_v in pts[idx_after:]:
+        if pt_t >= window_end:
+            break
+        try:
+            v = float(pt_v)
+        except ValueError:
+            continue
+        if cur_val is not None:
+            totals[cur_val] = totals.get(cur_val, 0.0) + (pt_t - cur_start).total_seconds()
+        cur_val, cur_start = v, pt_t
+    if cur_val is not None:
+        totals[cur_val] = totals.get(cur_val, 0.0) + (window_end - cur_start).total_seconds()
+
+    if not totals:
+        return baseline if baseline is not None else default
+    return max(totals, key=totals.get)
+
+
 def load_quality_history() -> dict:
     try:
         with open(QUALITY_HISTORY_PATH, "r", encoding="utf-8") as f:
@@ -614,7 +677,12 @@ def main() -> None:
     # assumption" discipline as every other input in this script.
     p2p_target_hist = fetch_history_range("input_number.p2p_grid_export_target_kw", day_start, day_end)
     p2p_window_start = day_start.replace(hour=17, minute=0, second=0, microsecond=0)
-    real_p2p_target_kw = value_at_or_before(p2p_target_hist, p2p_window_start, default=11.5)
+    # robust_value_near, not value_at_or_before: a plain point-in-time
+    # lookup at exactly the window's own start is fragile against a
+    # real, brief, self-correcting transient in this input_number
+    # landing on that exact instant -- see robust_value_near()'s own
+    # docstring for the full incident this was found from.
+    real_p2p_target_kw = robust_value_near(p2p_target_hist, p2p_window_start, window_seconds=300.0, default=11.5)
     # Second real structural mismatch, same class as the P2P-window fix
     # above -- found chasing the remaining $11.23 regret after the first
     # fix (tracking_cost was confirmed tiny, $0.04, ruling out execution
