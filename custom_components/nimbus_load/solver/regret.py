@@ -110,6 +110,37 @@ class RealizedCost:
     """
 
 
+def _terminal_value_credit(
+    final_soc_kwh: float,
+    min_soc_kwh: float,
+    breakpoints: list[tuple[float, float]],
+) -> float:
+    """Evaluate the SAME piecewise-linear concave terminal-value curve
+    network.py's own LP applies (see network.py's own terminal-value
+    comment block for the "why concave, why non-increasing rates"
+    reasoning) -- but as a plain, non-LP arithmetic evaluation of one
+    already-known final_soc_kwh value, for scoring a REAL, already-
+    realized trajectory (this module has no LP of its own to build a
+    segment variable into).
+
+    Fills segments in order (lowest index first) up to final_soc_kwh -
+    min_soc_kwh. Since network.py's own LP always prefers filling the
+    highest-rate segment first when maximizing revenue under an equality
+    fill constraint (guaranteed by BatteryConfig's own non-increasing-
+    rate validation), this reproduces exactly the credit the LP itself
+    would assign for the SAME final_soc_kwh, not an approximation of it.
+    """
+    remaining = max(0.0, final_soc_kwh - min_soc_kwh)
+    credit = 0.0
+    for width, rate in breakpoints:
+        segment = min(width, remaining)
+        credit += segment * rate
+        remaining -= segment
+        if remaining <= 0.0:
+            break
+    return credit
+
+
 def evaluate_realized_cost(
     *,
     hours: NDArray[np.float64],
@@ -125,6 +156,8 @@ def evaluate_realized_cost(
     salvage_value: float,
     grid_import_limit_kw: float,
     grid_export_limit_kw: float,
+    terminal_value_breakpoints: list[tuple[float, float]] | None = None,
+    battery_min_soc_kwh: float | None = None,
 ) -> RealizedCost:
     """J evaluated against REALIZED ground truth for a given (committed
     battery) dispatch trajectory. grid_import/export and solar_used are
@@ -147,6 +180,28 @@ def evaluate_realized_cost(
     reported via the returned arrays exceeding the nominal limit, not
     silently clipped -- an honest reflection of what a bad enough
     forecast error would actually do to a real household meter.
+
+    terminal_value_breakpoints/battery_min_soc_kwh (2026-08-29, real fix
+    for a genuinely invalid EPR found live -- a night where an incident
+    left the real dispatch's own final_soc_kwh anomalously near-full):
+    the flat `salvage_value * final_soc_kwh` credit below massively
+    over-rewards an anomalously-full ending relative to what a perfect-
+    foresight oracle -- correctly selling some of that energy for real
+    money during the day instead of just holding it -- can ever match,
+    since the oracle is scored the SAME way and has no reason to chase a
+    flat-rate credit that exceeds real achievable spot/P2P prices. This
+    let a real achieved trajectory beat even a fully unconstrained
+    oracle at spot-only economics, which should be structurally
+    impossible and is exactly what produced EPR > 100%. Mirrors
+    network.py's own already-shipped concave terminal_value_breakpoints
+    mechanism (2026-08-18) -- when given (non-None), this SAME curve
+    (not a separate flat rate) prices final_soc_kwh here too, so the
+    real-achieved and oracle evaluations are judged on an identical,
+    already-diminishing-near-full curve instead of one side's own
+    incidental full-battery ending being priced at a flat rate the LP
+    itself would never actually pay. Both None (the default) is a
+    complete no-op, byte-identical to every scenario/test predating this
+    pair -- the flat `salvage_value * final_soc_kwh` term is unchanged.
 
     solar_used is ALWAYS the full solar_real_kw, never capped
     (2026-08-16, real bug found and fixed via the first real
@@ -190,7 +245,19 @@ def evaluate_realized_cost(
         + charge_cost_arr * charge_committed_kw * hours
         + discharge_cost_arr * discharge_committed_kw * hours
     )
-    cost = float(np.sum(cost_per_period) - salvage_value * final_soc_kwh)
+    if terminal_value_breakpoints is not None:
+        if battery_min_soc_kwh is None:
+            msg = (
+                "terminal_value_breakpoints was given but battery_min_soc_kwh is "
+                "None -- the concave curve needs the real floor to evaluate against"
+            )
+            raise ValueError(msg)
+        terminal_credit = _terminal_value_credit(
+            final_soc_kwh, battery_min_soc_kwh, terminal_value_breakpoints
+        )
+    else:
+        terminal_credit = salvage_value * final_soc_kwh
+    cost = float(np.sum(cost_per_period) - terminal_credit)
     return RealizedCost(
         total_cost=cost,
         cost_per_period=cost_per_period,
