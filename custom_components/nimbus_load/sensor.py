@@ -545,9 +545,20 @@ async def async_setup_entry(
     # override (see _flattened_entities slot on that class below).
     flattened_entities = sensor_flattened.create_flattened_entities(entry, sw_version)
     battery_forecast._flattened_entities = flattened_entities
+    # Family B (2026-08-29, v0.94.20 CHANGELOG deferred item): the same
+    # fan-out pattern applied to the current-period row of the parent's
+    # `forecast` list. Attaches to the hub device alongside Family A --
+    # both families share the parent sensor's update lifecycle and
+    # neither needs a separate push registration. See FLATTENED_ATTRS_
+    # CURRENT in sensor_flattened.py for the declarative table.
+    flattened_current_entities = sensor_flattened.create_flattened_entities_current(
+        entry, sw_version
+    )
+    battery_forecast._flattened_current_entities = flattened_current_entities
     async_add_entities(
         [battery_forecast, household_load_forecast, dispatch_dry_run]
         + flattened_entities
+        + flattened_current_entities
     )
     # Deferred import (same reasoning as solver_runtime.py's own
     # _ensure_ready(): solver_writer imports the pure-Python `solver`
@@ -1528,6 +1539,11 @@ class NimbusSolverBatteryForecastSensor(_NimbusSolverPushSensor):
         # this so a very-first solve tick that races setup can't crash
         # even if the fan-out hasn't been wired in yet.
         self._flattened_entities: list = []
+        # Family B (v0.94.20 CHANGELOG deferred item): per-column
+        # fan-out of forecast[0]. Same lifecycle contract as
+        # _flattened_entities above; empty list until async_setup_entry
+        # wires it, guarded on non-empty before dispatching.
+        self._flattened_current_entities: list = []
 
     @callback
     def update_from_solver(self, state, attributes: dict) -> None:
@@ -1542,6 +1558,17 @@ class NimbusSolverBatteryForecastSensor(_NimbusSolverPushSensor):
         super().update_from_solver(state, attributes)
         if self._flattened_entities:
             sensor_flattened.dispatch_to_flattened(self._flattened_entities, attributes)
+        if self._flattened_current_entities:
+            # Family B: slice forecast[0] out of the same attributes and
+            # fan out its ~24 columns to first-class scalars. Order after
+            # Family A is deliberate -- if the parent ever grows a
+            # top-level scalar that shadows a forecast[0] column, Family
+            # A wins (its dispatch runs first) and this call is a no-op
+            # for that shadowed name. Currently no such name collision
+            # exists; the test suite proves it.
+            sensor_flattened.dispatch_to_flattened_current(
+                self._flattened_current_entities, attributes
+            )
 
 
 class NimbusHouseholdLoadTotalForecastSensor(_NimbusSolverPushSensor):

@@ -1103,3 +1103,330 @@ def dispatch_to_flattened_counterfactual(
     contract."""
     for entity in entities:
         entity.update_from_parent(attributes)
+
+
+# ===========================================================================
+# Family B (2026-08-29, issue #55 follow-up, v0.94.20 CHANGELOG deferred item):
+# per-row forecast fields on sensor.nimbus_solver_battery_forecast's `forecast`
+# list, restricted to the CURRENT-period row (forecast[0]).
+#
+# Fanning out the full horizon (361 rows x ~40 fields at 5-min resolution) is
+# clearly the wrong shape -- 14,000+ entities per install. The right shape is
+# one scalar per column of forecast[0], updated every solve, so a dashboard or
+# automation can read "what does the plan say for right now?" as a first-class
+# entity without templating into the array.
+#
+# Same purely-additive fan-out contract as Family A: one FlattenedAttrSpec per
+# column, one _FlattenedAttributeSensor per spec, one dispatch call at the end
+# of NimbusSolverBatteryForecastSensor.update_from_solver() that slices
+# forecast[0] out of the parent's attributes and hands it to
+# dispatch_to_flattened_current().
+#
+# Deliberately excluded from FLATTENED_ATTRS_CURRENT below (readers who want
+# these still find them on the parent's `forecast[0]` attribute; adding scalar
+# sensors is a follow-up when downstream demand is clear):
+#   - time              (reflected by each child's own last_updated stamp)
+#   - hours             (period-duration config echo, always 0.0833)
+#   - battery_kw_after_efficiency (derived echo of battery_kw)
+#   - import_price_raw / export_price_raw (redundant with the risk-adjusted
+#     import_price/export_price; parent keeps the raw copies)
+#   - dispatch_source_a_label / _pct / _b_label / _b_pct (structural pair-of-
+#     pairs; better read together as attributes than flattened into 4 separate
+#     sensors)
+#   - flow_price_* (7 dual/shadow price columns; already available on the
+#     parent for anyone building an economic-analysis dashboard)
+# ---------------------------------------------------------------------------
+
+
+FLATTENED_ATTRS_CURRENT: tuple[FlattenedAttrSpec, ...] = (
+    # --- Battery + SoC (primary) --------------------------------------------
+    FlattenedAttrSpec(
+        source_key="battery_kw",
+        name="Solver Current Battery Power",
+        entity_id_suffix="current_battery_kw",
+        entity_category=None,
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=UnitOfPower.KILO_WATT,
+        suggested_display_precision=3,
+    ),
+    FlattenedAttrSpec(
+        source_key="soc_pct",
+        name="Solver Current SoC",
+        entity_id_suffix="current_soc_pct",
+        entity_category=None,
+        device_class=SensorDeviceClass.BATTERY,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_PERCENT,
+        suggested_display_precision=1,
+    ),
+    FlattenedAttrSpec(
+        source_key="dispatch_direction",
+        name="Solver Current Dispatch Direction",
+        entity_id_suffix="current_dispatch_direction",
+        entity_category=None,
+        device_class=None,
+        state_class=None,  # string state (charge/discharge/idle)
+        unit_of_measurement=None,
+        suggested_display_precision=None,
+    ),
+    # --- Grid flows (primary) -----------------------------------------------
+    FlattenedAttrSpec(
+        source_key="grid_import_kw",
+        name="Solver Current Grid Import",
+        entity_id_suffix="current_grid_import_kw",
+        entity_category=None,
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=UnitOfPower.KILO_WATT,
+        suggested_display_precision=3,
+    ),
+    FlattenedAttrSpec(
+        source_key="grid_export_kw",
+        name="Solver Current Grid Export",
+        entity_id_suffix="current_grid_export_kw",
+        entity_category=None,
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=UnitOfPower.KILO_WATT,
+        suggested_display_precision=3,
+    ),
+    FlattenedAttrSpec(
+        source_key="export_bonus_kw",
+        name="Solver Current Export Bonus Flow",
+        entity_id_suffix="current_export_bonus_kw",
+        entity_category=None,
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=UnitOfPower.KILO_WATT,
+        suggested_display_precision=3,
+    ),
+    # --- Prices (primary) ---------------------------------------------------
+    FlattenedAttrSpec(
+        source_key="import_price",
+        name="Solver Current Import Price",
+        entity_id_suffix="current_import_price",
+        entity_category=None,
+        device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_AUD_PER_KWH,
+        suggested_display_precision=4,
+    ),
+    FlattenedAttrSpec(
+        source_key="export_price",
+        name="Solver Current Export Price",
+        entity_id_suffix="current_export_price",
+        entity_category=None,
+        device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_AUD_PER_KWH,
+        suggested_display_precision=4,
+    ),
+    FlattenedAttrSpec(
+        source_key="bonus_price",
+        name="Solver Current Bonus Price",
+        entity_id_suffix="current_bonus_price",
+        entity_category=None,
+        device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_AUD_PER_KWH,
+        suggested_display_precision=4,
+    ),
+    # --- House context (primary) --------------------------------------------
+    FlattenedAttrSpec(
+        source_key="load_kw",
+        name="Solver Current Load",
+        entity_id_suffix="current_load_kw",
+        entity_category=None,
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=UnitOfPower.KILO_WATT,
+        suggested_display_precision=3,
+    ),
+    FlattenedAttrSpec(
+        source_key="solar_kw",
+        name="Solver Current Solar",
+        entity_id_suffix="current_solar_kw",
+        entity_category=None,
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=UnitOfPower.KILO_WATT,
+        suggested_display_precision=3,
+    ),
+    # --- Net cost (primary) -------------------------------------------------
+    FlattenedAttrSpec(
+        source_key="net_cost",
+        name="Solver Current Net Cost",
+        entity_id_suffix="current_net_cost",
+        entity_category=None,
+        device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_AUD,
+        suggested_display_precision=4,
+    ),
+    # --- Flow decomposition (diagnostic) -- from v0.94.15/17 (issue #264) ---
+    FlattenedAttrSpec(
+        source_key="flow_pv_to_load_kw",
+        name="Solver Current Flow PV to Load",
+        entity_id_suffix="current_flow_pv_to_load_kw",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=UnitOfPower.KILO_WATT,
+        suggested_display_precision=3,
+    ),
+    FlattenedAttrSpec(
+        source_key="flow_pv_to_battery_kw",
+        name="Solver Current Flow PV to Battery",
+        entity_id_suffix="current_flow_pv_to_battery_kw",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=UnitOfPower.KILO_WATT,
+        suggested_display_precision=3,
+    ),
+    FlattenedAttrSpec(
+        source_key="flow_pv_to_grid_kw",
+        name="Solver Current Flow PV to Grid",
+        entity_id_suffix="current_flow_pv_to_grid_kw",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=UnitOfPower.KILO_WATT,
+        suggested_display_precision=3,
+    ),
+    FlattenedAttrSpec(
+        source_key="flow_battery_to_load_kw",
+        name="Solver Current Flow Battery to Load",
+        entity_id_suffix="current_flow_battery_to_load_kw",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=UnitOfPower.KILO_WATT,
+        suggested_display_precision=3,
+    ),
+    FlattenedAttrSpec(
+        source_key="flow_battery_to_grid_kw",
+        name="Solver Current Flow Battery to Grid",
+        entity_id_suffix="current_flow_battery_to_grid_kw",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=UnitOfPower.KILO_WATT,
+        suggested_display_precision=3,
+    ),
+    FlattenedAttrSpec(
+        source_key="flow_grid_to_load_kw",
+        name="Solver Current Flow Grid to Load",
+        entity_id_suffix="current_flow_grid_to_load_kw",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=UnitOfPower.KILO_WATT,
+        suggested_display_precision=3,
+    ),
+    FlattenedAttrSpec(
+        source_key="flow_grid_to_battery_kw",
+        name="Solver Current Flow Grid to Battery",
+        entity_id_suffix="current_flow_grid_to_battery_kw",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=UnitOfPower.KILO_WATT,
+        suggested_display_precision=3,
+    ),
+    FlattenedAttrSpec(
+        source_key="flow_battery_cost_basis",
+        name="Solver Current Battery Cost Basis",
+        entity_id_suffix="current_flow_battery_cost_basis",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_AUD_PER_KWH,
+        suggested_display_precision=4,
+    ),
+    # --- Savings decomposition (diagnostic) -- from v0.94.17 (issue #264) ---
+    FlattenedAttrSpec(
+        source_key="savings_pv",
+        name="Solver Current Savings PV",
+        entity_id_suffix="current_savings_pv",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_AUD,
+        suggested_display_precision=4,
+    ),
+    FlattenedAttrSpec(
+        source_key="savings_battery",
+        name="Solver Current Savings Battery",
+        entity_id_suffix="current_savings_battery",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_AUD,
+        suggested_display_precision=4,
+    ),
+    FlattenedAttrSpec(
+        source_key="savings_combined",
+        name="Solver Current Savings Combined",
+        entity_id_suffix="current_savings_combined",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_AUD,
+        suggested_display_precision=4,
+    ),
+    FlattenedAttrSpec(
+        source_key="savings_interaction",
+        name="Solver Current Savings Interaction",
+        entity_id_suffix="current_savings_interaction",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.MONETARY,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_AUD,
+        suggested_display_precision=4,
+    ),
+)
+
+
+def create_flattened_entities_current(
+    entry, sw_version: str | None
+) -> list[_FlattenedAttributeSensor]:
+    """One SensorEntity per FLATTENED_ATTRS_CURRENT row, all attached to
+    the Nimbus hub device (matching Family A's own hub-device attachment).
+
+    Called once by sensor.py's async_setup_entry, in the same "one per
+    hub" position as create_flattened_entities() above.
+    """
+    return [
+        _FlattenedAttributeSensor(entry, sw_version, spec)
+        for spec in FLATTENED_ATTRS_CURRENT
+    ]
+
+
+def dispatch_to_flattened_current(
+    entities: list[_FlattenedAttributeSensor], attributes: dict
+) -> None:
+    """Fan out the CURRENT-period forecast row (forecast[0]) to every
+    Family-B flattened child.
+
+    Called by NimbusSolverBatteryForecastSensor.update_from_solver() AFTER
+    dispatch_to_flattened() has fanned out the top-level scalars. Slices
+    forecast[0] out of the parent's own attributes and hands that single
+    row's dict to each child's update_from_parent().
+
+    Silently no-ops when the parent hasn't published a forecast list yet
+    or the list is empty -- e.g. a solve that failed with `status !=
+    OPTIMAL` and returned an empty plan. Each child then keeps its
+    previous value; the same 5-minute staleness contract on
+    _FlattenedAttributeSensor takes them to `unavailable` if the parent
+    stops publishing entirely.
+    """
+    forecast = attributes.get("forecast")
+    if not isinstance(forecast, list) or not forecast:
+        return
+    current_row = forecast[0]
+    if not isinstance(current_row, dict):
+        return
+    for entity in entities:
+        entity.update_from_parent(current_row)
