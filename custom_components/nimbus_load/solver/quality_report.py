@@ -182,6 +182,24 @@ def compute_quality_report(
         oracle_cost_per_period=oracle_residual.cost_per_period,
     )
 
+    # DIAGNOSTIC (2026-08-29, temporary): compare the oracle's own LP
+    # objective (j_star) against a residual-only (spot rate, zero bonus
+    # knowledge) evaluation of that SAME oracle dispatch, and against the
+    # real achieved residual-only result -- isolates whether the oracle's
+    # own SPOT-market optimization (independent of any P2P bonus mechanism
+    # at all) is genuinely losing to the real, already-realized dispatch,
+    # which should be structurally impossible for a perfect-foresight,
+    # free-choice oracle.
+    import sys as _sys
+    print(
+        f"[DIAG-ORACLE] oracle_plan.total_cost(j_star)={j_star:.4f} "
+        f"oracle_residual.total_cost={oracle_residual.total_cost:.4f} "
+        f"(implied oracle bonus credit={j_star - oracle_residual.total_cost:.4f}) "
+        f"j_ach_residual.total_cost={j_ach_residual.total_cost:.4f} "
+        f"oracle_plan.status={oracle_plan.status}",
+        file=_sys.stderr,
+    )
+
     epr_result = compute_epr(j_ref=j_ref, j_ach=j_ach, j_star=j_star)
 
     tracking_result = compute_tracking_fidelity(
