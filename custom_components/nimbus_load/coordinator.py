@@ -198,17 +198,33 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # min), not worth the complexity of persisting a timestamp
         # that's stale the moment HA restarts anyway.
         self._last_step_prediction: tuple[datetime, float] | None = None
-        # #123 (Mark Purcell, real repro): a configured
-        # temperature_forecast_sensor that yields 0 entries every tick is
-        # a silent accuracy tax, not a crash -- nothing else would ever
-        # surface it. Warn once per coordinator instance (i.e. once per
-        # HA restart / config reload), not once per tick (this
-        # coordinator ticks every UPDATE_INTERVAL_MINUTES), so a
-        # genuinely-broken config is loud in the log without being log
-        # spam for a household that's simply never configured this
-        # optional field at all (that case never reaches the warning --
-        # see _async_fetch_temperature_forecast's own early return).
-        self._temp_forecast_empty_warned = False
+        # #269 (Mark Purcell, real repro, 2026-08-28, direct follow-up to
+        # #123): a transient weather.get_forecasts failure -- most
+        # commonly the HA-restart startup-window race between this
+        # coordinator's first tick and the weather integration's first
+        # successful fetch -- used to silently degrade that cycle's
+        # training input to zero temperature signal, with no recovery
+        # path, plus the one-shot warning below made a later CHRONIC
+        # failure invisible after its first occurrence. Two independent
+        # mitigations, both from Mark's own real proposal:
+        #
+        # Mitigation A: cache the last real, non-empty forecast on the
+        # instance and fall back to a trimmed slice of it on a failed/
+        # empty fetch, instead of training on zero signal. Keyed by
+        # entity_id too -- a mid-session reconfigure to a DIFFERENT
+        # temperature_forecast_sensor must never leak the old sensor's
+        # stale cached values onto the new one.
+        self._temp_forecast_cache: list[tuple[datetime, float]] = []
+        self._temp_forecast_cache_entity: str | None = None
+        # Mitigation B: replaces the old one-shot _temp_forecast_empty_
+        # warned flag with a state-change tracker -- warns on every
+        # success->failure transition (not just the first ever) and logs
+        # an INFO on every failure->success recovery, so a chronic
+        # problem starting DAYS after the first tick is still loud, and
+        # a household triaging a report can tell "did it recover on its
+        # own." None = never fetched yet (no state change to log on the
+        # very first tick either way).
+        self._last_temp_forecast_ok: bool | None = None
 
     # -- config accessors -- only the load sensor is per-subentry (the one
     # thing that's genuinely different for each load). Everything else
@@ -958,20 +974,67 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if ts is not None:
                 out.append((_normalize_forecast_timestamp(ts), temp))
         out.sort(key=lambda x: x[0])
-        if not out and not self._temp_forecast_empty_warned:
-            self._temp_forecast_empty_warned = True
+
+        # #269 mitigation A -- cache the last real, non-empty forecast for
+        # THIS specific entity_id, and fall back to a trimmed (future-only)
+        # slice of it whenever a fetch comes back empty. A genuinely
+        # non-empty result always refreshes the cache; an empty one only
+        # ever reads from it -- never both in the same call, so a cached
+        # value can't get overwritten with the empty result that's about
+        # to be replaced by it.
+        if out:
+            self._temp_forecast_cache = out
+            self._temp_forecast_cache_entity = entity_id
+        cached: list[tuple[datetime, float]] = []
+        if not out and self._temp_forecast_cache_entity == entity_id:
+            now = dt_util.utcnow()
+            cached = [pair for pair in self._temp_forecast_cache if pair[0] >= now]
+        effective = out or cached
+
+        # #269 mitigation B -- warn on every genuine success->failure
+        # transition (not just the very first tick ever), and log an
+        # INFO on every failure->success recovery, so a household
+        # triaging a report can tell whether it recovered on its own.
+        # Deliberate, verified improvement over Mark's own literal sketch
+        # (which treated the very first-ever fetch as "no state change to
+        # log" regardless of outcome): a household whose configured
+        # sensor has NEVER once worked would otherwise never see a single
+        # warning under that literal reading, which is a real regression
+        # from the previous one-shot-on-first-empty-result behaviour this
+        # is replacing. First tick still logs a real warning if it's
+        # already failing; only a genuinely NEW value (not None) skips
+        # logging when the state hasn't changed.
+        now_ok = bool(effective)
+        was_ok = self._last_temp_forecast_ok
+        if was_ok is None:
+            if not now_ok:
+                _LOGGER.warning(
+                    "temperature_forecast_sensor '%s' is configured but yielded 0 "
+                    "forecast entries -- the temperature feature will train as "
+                    "dead weight this cycle. If this is a weather.* entity, "
+                    "confirm it actually supports hourly forecasts (some "
+                    "integrations only support daily); if it's a sensor.* "
+                    "template, confirm its 'forecast' attribute is a real, "
+                    "non-empty list shaped like [{'datetime': ..., "
+                    "'temperature': ...}, ...].",
+                    entity_id,
+                )
+        elif was_ok and not now_ok:
             _LOGGER.warning(
-                "temperature_forecast_sensor '%s' is configured but yielded 0 "
-                "forecast entries -- the temperature feature will train as "
-                "dead weight this cycle. If this is a weather.* entity, "
-                "confirm it actually supports hourly forecasts (some "
-                "integrations only support daily); if it's a sensor.* "
-                "template, confirm its 'forecast' attribute is a real, "
-                "non-empty list shaped like [{'datetime': ..., "
-                "'temperature': ...}, ...].",
+                "temperature_forecast_sensor '%s' stopped yielding forecast "
+                "entries (previously successful) -- the temperature feature "
+                "will train as dead weight until this recovers.",
                 entity_id,
             )
-        return out
+        elif not was_ok and now_ok:
+            _LOGGER.info(
+                "temperature_forecast_sensor '%s' recovered and is yielding "
+                "%d forecast entries again.",
+                entity_id,
+                len(effective),
+            )
+        self._last_temp_forecast_ok = now_ok
+        return effective
 
     async def _async_fetch_weather_forecast_via_service(
         self, entity_id: str
