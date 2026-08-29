@@ -1477,9 +1477,7 @@ class NimbusSolverBatteryForecastSensor(_NimbusSolverPushSensor):
         """
         super().update_from_solver(state, attributes)
         if self._flattened_entities:
-            sensor_flattened.dispatch_to_flattened(
-                self._flattened_entities, attributes
-            )
+            sensor_flattened.dispatch_to_flattened(self._flattened_entities, attributes)
 
 
 class NimbusHouseholdLoadTotalForecastSensor(_NimbusSolverPushSensor):

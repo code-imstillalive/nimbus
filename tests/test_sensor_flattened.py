@@ -52,7 +52,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from custom_components.nimbus_load import sensor, sensor_flattened
 from custom_components.nimbus_load.const import DOMAIN
 
-
 # --- helpers ---------------------------------------------------------------
 
 
@@ -218,16 +217,12 @@ def test_dispatch_updates_every_entity_from_real_payload():
     assert by_id["sensor.nimbus_solver_cost_band_width"].native_value == 21.8198
 
     # Dotted-path extraction (cost_breakdown.*)
-    assert (
-        by_id["sensor.nimbus_solver_cost_breakdown_grid_net"].native_value == 0.4653
-    )
+    assert by_id["sensor.nimbus_solver_cost_breakdown_grid_net"].native_value == 0.4653
     assert (
         by_id["sensor.nimbus_solver_cost_breakdown_degradation"].native_value == 7.7732
     )
     assert (
-        by_id[
-            "sensor.nimbus_solver_cost_breakdown_terminal_value_credit"
-        ].native_value
+        by_id["sensor.nimbus_solver_cost_breakdown_terminal_value_credit"].native_value
         == -0.9611
     )
 
@@ -332,9 +327,7 @@ def test_costs_and_savings_are_primary_sensors():
     by_id = {e.entity_id: e for e in entities}
     assert by_id["sensor.nimbus_solver_total_cost"]._attr_entity_category is None
     assert (
-        by_id[
-            "sensor.nimbus_solver_total_cost_with_fixed_costs"
-        ]._attr_entity_category
+        by_id["sensor.nimbus_solver_total_cost_with_fixed_costs"]._attr_entity_category
         is None
     )
     assert by_id["sensor.nimbus_solver_total_charge_kwh"]._attr_entity_category is None
@@ -371,9 +364,9 @@ def test_lp_internals_and_shadow_prices_are_diagnostic():
         "sensor.nimbus_solver_n_periods",
         "sensor.nimbus_solver_n_clamped_periods",
     ):
-        assert (
-            by_id[entity_id]._attr_entity_category is EntityCategory.DIAGNOSTIC
-        ), f"{entity_id} should be DIAGNOSTIC per the by-what-it-measures rule"
+        assert by_id[entity_id]._attr_entity_category is EntityCategory.DIAGNOSTIC, (
+            f"{entity_id} should be DIAGNOSTIC per the by-what-it-measures rule"
+        )
 
 
 # --- integration with the parent sensor's fan-out --------------------------

@@ -700,7 +700,9 @@ def create_flattened_entities(
     NimbusHouseholdLoadTotalForecastSensor / NimbusDispatchDryRunSensor
     creation lines.
     """
-    return [_FlattenedAttributeSensor(entry, sw_version, spec) for spec in FLATTENED_ATTRS]
+    return [
+        _FlattenedAttributeSensor(entry, sw_version, spec) for spec in FLATTENED_ATTRS
+    ]
 
 
 def dispatch_to_flattened(
