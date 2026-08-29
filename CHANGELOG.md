@@ -10,6 +10,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.94.19] — 2026-08-29
+
+### Fixed
+- Real bug found live on a 2026-08-28 night disrupted by an unrelated household incident: `compute_daily_quality_report()`'s EPR read 145% (invalid — EPR is mathematically bounded to ≤100%). Root cause: the real dispatch barely discharged that night and ended the day accidentally near-100% SoC; `evaluate_realized_cost()`'s flat `salvage_value * final_soc_kwh` credit massively over-rewarded that accidental full ending relative to what even a fully unconstrained perfect-foresight oracle can match (the oracle correctly prefers selling energy during the day over holding it for a flat rate exceeding real achievable prices, so it can never "beat" a trajectory that got lucky on this technicality) — letting the real-achieved trajectory beat the oracle at spot-only economics, which should be structurally impossible. Fixed by extending `evaluate_realized_cost()` to accept the same concave `terminal_value_breakpoints` curve `network.py`'s own LP already uses (2026-08-18/22), applied identically to every trajectory `compute_quality_report()` scores instead of a flat rate on only some of them. Both new params default to `None`, byte-identical to every existing caller.
+
 ## [0.94.18] — 2026-08-28
 
 ### Fixed
