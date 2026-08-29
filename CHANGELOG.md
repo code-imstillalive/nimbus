@@ -10,6 +10,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.94.23] — 2026-08-29
+
+### Fixed
+- `coordinator.py` — a transient `weather.get_forecasts` failure (issue #269, Mark Purcell — most commonly the HA-restart startup race between this coordinator's first tick and the weather integration's own first successful fetch) silently degraded that cycle's temperature training to zero signal, with a one-shot warning flag that hid any later chronic failure. Now caches the last real, non-empty forecast per configured sensor and falls back to a future-only trimmed slice of it on failure, and replaces the one-shot flag with a state-change tracker (warns on every success→failure transition, INFO on every recovery) rather than warning only once ever.
+
 ## [0.94.22] — 2026-08-29
 
 ### Fixed
