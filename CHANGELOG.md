@@ -10,6 +10,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.94.20] — 2026-08-29
+
+### Added
+- `sensor.nimbus_solver_battery_forecast`'s 36 top-level scalar attributes (Family A — monetary/energy/power/battery-health PRIMARY signals plus LP-internal DIAGNOSTIC signals) are now also published as their own individual `SensorEntity` instances, so each one participates in HA history, long-term statistics, and per-entity Lovelace graphs on the same footing as the existing `sensor.nimbus_solver_config` bridge sensor. Purely additive — the parent sensor is unchanged and keeps every attribute it already published. Family B (per-row forecast fields) is a deliberate follow-up, kept out of this PR to keep review surface small. (Mark Purcell)
+- `epr.py`'s module docstring gained a "Scope note" clarifying that EPR is a whole-household ratio (battery charge/discharge, `solar_curtailed_kw`, and per-load `shed_kw` all sit on the same LP objective, with `J_ref` from `counterfactuals.py:no_control_dispatch()`) — distinct from both the BESS-industry "capture rate" (battery-only, no solar/load in scope) and the wind/solar capture rate / Marktwertfaktor (a cannibalisation measure with no benchmark trajectory at all, an unrelated concept despite the similar name). Documentation only, no functional change. (Mark Purcell)
+
+### Fixed
+- `solve_on_price_change` and `solve_on_price_change_debounce_s` were silently unreachable from the Solver settings wizard on every install — `async_step_solver_sources`'s own save loop drops any field not listed in `_SOLVER_WIZARD_SCHEMA_KEYS`, and neither key was in that tuple. Found live while independently verifying #260's price-triggered solving. Fixed by moving both to the same live switch/number entity pattern the 14 numeric Solver fields already use (`switch.nimbus_solve_on_price_change`, `number.nimbus_solve_on_price_change_debounce_s`) — a dashboard toggle now takes effect immediately, no Configure round-trip, with `entry.options` kept as the fallback read path for any not-yet-migrated install. (Mark Purcell, issue #232 follow-up)
+
 ## [0.94.19] — 2026-08-29
 
 ### Fixed
