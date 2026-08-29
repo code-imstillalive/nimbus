@@ -70,13 +70,27 @@ class TestSalvageValue(unittest.TestCase):
     def test_salvage_value_pulls_final_soc_up_when_economically_marginal(self):
         n = 4
         periods = _flat_grid(n)
-        # Real, deliberately MARGINAL scenario: export price exactly
-        # matches discharge_cost (0.01), so discharging to export is
-        # exactly break-even on its own -- salvage_value is the ONLY
-        # real tiebreaker between "hold the energy" and "discharge it".
+        # Real, deliberately MARGINAL scenario: export price (0.02)
+        # narrowly, genuinely exceeds discharge_cost (0.01) -- a real,
+        # non-degenerate $0.01/kWh profit motive to discharge without
+        # salvage_value. Deliberately NOT an exact break-even tie (the
+        # original version of this test used export_price == discharge_
+        # cost exactly): a true tie leaves the LP's own final vertex
+        # among several EQUALLY cost-optimal choices genuinely
+        # underdetermined -- confirmed live (nimbus issue #266's own
+        # grid-direction cap fix) that adding an unrelated, non-binding
+        # constraint elsewhere in the model can shift which degenerate
+        # vertex the simplex lands on, flipping this test's own no-
+        # salvage baseline from "discharges fully" to "holds" even
+        # though both are equally $0-cost-optimal either way -- not a
+        # real behavior change, just an artifact of testing an exact
+        # tie. A small but genuine (non-tied) profit motive keeps this
+        # ablation robust regardless of solver-internal tie-breaking.
+        # salvage_value=0.50 below still vastly exceeds this $0.01/kWh
+        # motive, so the ablation itself is unaffected.
         grid = GridConfig(
             import_price=np.full(n, 0.50),
-            export_price=np.full(n, 0.01),
+            export_price=np.full(n, 0.02),
             import_limit_kw=20.0,
             export_limit_kw=20.0,
         )

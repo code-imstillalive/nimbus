@@ -1135,6 +1135,41 @@ def build_plan(
         # <= 0.
         if has_export_bonus:
             p.add_ub_constraint({export_bonus[t]: 1.0, grid_export[t]: -1.0}, 0.0)
+        # (5) Combined grid-direction cap (nimbus issue #266): constraints
+        # (1)+(2) above close the SAME-PERIOD WASH-TRADE pathway (import
+        # funding export via a fresh charge-then-discharge round trip
+        # within one period) but do NOT close a real, different gap --
+        # grid_import[t] funding charge[t] while an entirely separate,
+        # already-existing SoC (accumulated in an EARLIER period, so (2)
+        # never blocks it) simultaneously discharges to fund grid_export[t]
+        # in that SAME period. Neither leg is a wash trade at the LP-
+        # accounting level (the imported energy and the exported energy
+        # are genuinely different electrons, logically speaking), but a
+        # real household's single grid connection can only carry current
+        # in one direction at any instant -- confirmed live (Mark
+        # Purcell): a real capture showed grid_import_kw=13.133 and
+        # grid_export_kw=30.0 simultaneously in the identical period,
+        # reproduced again (import=6.897/export=30.0, a smaller but still
+        # real violation) by replaying the exact same real solar/load/
+        # price inputs through this file's own (1)-(4) constraints alone
+        # -- i.e. this gap is NOT closed by (1)-(4), confirmed empirically
+        # before writing this fix, not assumed.
+        #
+        # Same technique as (3)'s own battery-side cap, same honest
+        # caveat: bounds the combined magnitude, does not fully eliminate
+        # every possible simultaneous-nonzero case (a true `grid_import[t]
+        # * grid_export[t] == 0` complementarity needs a binary per
+        # period -- MILP, tracked separately as issue #238) --
+        # grid_import[t] + grid_export[t] <= max(import_limit_kw,
+        # export_limit_kw). On any normal row only one side is ever
+        # meaningfully nonzero, so the cap sits above both individual
+        # ub's already in force and changes nothing there; it only binds
+        # on a row exploiting this gap, forcing the LP back toward a
+        # single real net direction.
+        p.add_ub_constraint(
+            {grid_import[t]: 1.0, grid_export[t]: 1.0},
+            max(grid.import_limit_kw, grid.export_limit_kw),
+        )
 
     # ---- SoC-dependent power curves (see BatteryConfig's own
     # charge_power_curve/discharge_power_curve docstring for the full
