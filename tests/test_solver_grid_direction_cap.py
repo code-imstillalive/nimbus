@@ -108,13 +108,17 @@ class TestGridDirectionCap(unittest.TestCase):
         """
         n = 6
         hours = np.array([1.0] * n)
-        periods = PeriodGrid(hours=hours, start=datetime(2026, 8, 28, 12, 0, tzinfo=UTC))
+        periods = PeriodGrid(
+            hours=hours, start=datetime(2026, 8, 28, 12, 0, tzinfo=UTC)
+        )
         grid = _grid(np.full(n, 0.04), np.full(n, 0.33))
         battery = _battery(initial_soc_frac=0.95)
         solar = SolarConfig(forecast_kw=np.full(n, 13.0))
         loads = [LoadConfig(name="load", forecast_kw=np.zeros(n))]
 
-        plan = build_plan(periods=periods, grid=grid, battery=battery, solar=solar, loads=loads)
+        plan = build_plan(
+            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+        )
         self.assertEqual(plan.status, "optimal")
         combined = plan.grid_import_kw + plan.grid_export_kw
         self.assertTrue(
@@ -133,14 +137,20 @@ class TestGridDirectionCap(unittest.TestCase):
         start = datetime(2026, 8, 28, 0, 0, tzinfo=UTC)
         periods = PeriodGrid(hours=hours, start=start)
         rng = np.random.default_rng(266)
-        import_price = 0.20 + 0.05 * np.sin(np.linspace(0, 4 * np.pi, n)) + rng.normal(0, 0.005, n)
+        import_price = (
+            0.20 + 0.05 * np.sin(np.linspace(0, 4 * np.pi, n)) + rng.normal(0, 0.005, n)
+        )
         export_price = import_price - 0.05
         grid = _grid(import_price, export_price)
         battery = _battery(initial_soc_frac=0.5)
-        solar = SolarConfig(forecast_kw=np.clip(8.0 * np.sin(np.linspace(-1, 3, n)), 0.0, None))
+        solar = SolarConfig(
+            forecast_kw=np.clip(8.0 * np.sin(np.linspace(-1, 3, n)), 0.0, None)
+        )
         loads = [LoadConfig(name="house", forecast_kw=np.full(n, 1.5))]
 
-        plan = build_plan(periods=periods, grid=grid, battery=battery, solar=solar, loads=loads)
+        plan = build_plan(
+            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+        )
         self.assertEqual(plan.status, "optimal")
         for t in range(n):
             gi, ge = plan.grid_import_kw[t], plan.grid_export_kw[t]
@@ -151,7 +161,9 @@ class TestGridDirectionCap(unittest.TestCase):
                 "both nonzero with no arbitrage available",
             )
 
-    def test_profitable_configuration_still_shows_partial_grid_direction_violation(self):
+    def test_profitable_configuration_still_shows_partial_grid_direction_violation(
+        self,
+    ):
         """Documents the residual gap: cheap import + high export + a
         near-full battery + real solar makes it genuinely worth both
         continuing to import (to keep charging) and discharging existing,
@@ -162,13 +174,17 @@ class TestGridDirectionCap(unittest.TestCase):
         """
         n = 6
         hours = np.array([1.0] * n)
-        periods = PeriodGrid(hours=hours, start=datetime(2026, 8, 28, 12, 0, tzinfo=UTC))
+        periods = PeriodGrid(
+            hours=hours, start=datetime(2026, 8, 28, 12, 0, tzinfo=UTC)
+        )
         grid = _grid(np.full(n, 0.04), np.full(n, 0.33))
         battery = _battery(initial_soc_frac=0.95)
         solar = SolarConfig(forecast_kw=np.full(n, 13.0))
         loads = [LoadConfig(name="load", forecast_kw=np.zeros(n))]
 
-        plan = build_plan(periods=periods, grid=grid, battery=battery, solar=solar, loads=loads)
+        plan = build_plan(
+            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+        )
         self.assertEqual(plan.status, "optimal")
         combined = plan.grid_import_kw + plan.grid_export_kw
         # The cap always holds...
