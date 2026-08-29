@@ -10,6 +10,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 _Add new entries here as each PR lands. They roll into the next tagged release._
 
+## [0.94.21] — 2026-08-29
+
+### Added
+- `solver/forecast_regret.py` — `compute_forecast_regret()` isolates the forecast-error branch of Mark Purcell's four-way EPR decomposition (issue #273: topology / forecast / optimisation / execution error). Re-solves the same LP under Nimbus's own forecast vs. a naive persistence baseline, evaluates both committed battery trajectories against the same real ground truth, and reports `nimbus_value_add_dollars` — the direct, actionable "what did Nimbus's forecast save you today vs. doing nothing smarter" figure. Pure function, no HA dependency; live wiring into an actual sensor is a follow-up.
+
 ## [0.94.20] — 2026-08-29
 
 ### Added
