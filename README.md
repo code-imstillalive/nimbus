@@ -354,6 +354,16 @@ Edit inline on the dashboard without touching the wizard:
 - Sources: `auto_include_known_solar` switch, plus an optional multi-entity
   load-forecast list for granular per-circuit summation.
 
+### Quality, Backtest, and Counterfactual sub-devices
+
+Three sub-devices parented to the hub, each with a legacy parent entity plus per-attribute flattened child sensors:
+
+- **Nimbus Quality**. Publishes the Efficiency Performance Ratio (EPR) and its cost decomposition: `J_ref`, `J_ach`, `J_star`, `value_captured`, `uplift_available`, `theoretical_maximum_yield`, `regret_dollars`, `tracking_fidelity`, `tracking_cost`. Identity math: `value_captured + uplift_available = TMY`.
+- **Nimbus Backtest**. Publishes reference-benchmark results: `nimbus_efficiency_backtest`, configured efficiency percent, best and worst candidate 24h costs.
+- **Nimbus Counterfactual**. Publishes what Nimbus's plan would have produced against what the plant actually did: `real_soc_anchor_pct`, `real_soc_close_pct`, `nimbus_only_soc_close_pct`.
+
+See [`docs/entities.md`](docs/entities.md) for the full per-entity table (unit, meaning, formula) and the known state_class warnings tracked in [#283](https://github.com/code-imstillalive/nimbus/issues/283).
+
 See [`docs/configuration-reference.md`](docs/configuration-reference.md) for
 every field across every wizard step and subentry type, plus the full
 default, range, and unit table for every `number.nimbus_solver_*` entity above.
