@@ -199,6 +199,17 @@ def compute_quality_report(
         f"oracle_plan.status={oracle_plan.status}",
         file=_sys.stderr,
     )
+    print(
+        f"[DIAG-DISPATCH] real: charge_sum={float(sum(actual_charge_kw * hours)):.2f}kWh "
+        f"discharge_sum={float(sum(actual_discharge_kw * hours)):.2f}kWh "
+        f"final_soc_actual={final_soc_kwh_actual:.2f}kWh (of {battery.capacity_kwh:.1f}) | "
+        f"oracle: charge_sum={float(sum(oracle_plan.battery_charge_kw * hours)):.2f}kWh "
+        f"discharge_sum={float(sum(oracle_plan.battery_discharge_kw * hours)):.2f}kWh "
+        f"final_soc={float(oracle_plan.battery_soc_kwh[-1]):.2f}kWh "
+        f"initial_soc={battery.initial_soc_kwh:.2f}kWh min_soc={battery.min_soc_kwh:.2f} "
+        f"max_soc={battery.max_soc_kwh:.2f} salvage_value={battery.salvage_value}",
+        file=_sys.stderr,
+    )
 
     epr_result = compute_epr(j_ref=j_ref, j_ach=j_ach, j_star=j_star)
 
