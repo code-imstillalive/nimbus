@@ -61,6 +61,8 @@ from .const import (
     CONF_PV_STRING_LABEL,
     CONF_PV_STRING_POWER_SOURCE,
     CONF_SIGNAL_ROLE,
+    CONF_SOLVE_ON_PRICE_CHANGE,
+    CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
     CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
     CONF_SOLVER_BATTERY_CAPACITY_KWH,
     CONF_SOLVER_BATTERY_MAX_SOC_PERCENT,
@@ -327,6 +329,10 @@ _SOLVER_NUMBER_ENTITY_KEYS = (
     CONF_SOLVER_RISK_AVERSION,
     CONF_SOLVER_IMPORT_PRICE_RISK_AVERSION,
     CONF_SOLVER_EXPORT_PRICE_RISK_AVERSION,
+    # Issue #232 follow-up: paired live number entity for the price-
+    # change debounce window (see switch.py's own
+    # NimbusSolverSwitch entry for the paired toggle).
+    CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
 )
 # 2026-08-22: switch.py's own one live boolean toggle -- same
 # "resolve from a live entity, not entry.options" mechanism as
@@ -334,7 +340,17 @@ _SOLVER_NUMBER_ENTITY_KEYS = (
 # (switch.nimbus_{key}, "on"/"off" state -> bool) since HA has no
 # combined number-or-boolean entity type. See switch.py's own module
 # docstring for the full "why this exists" story.
-_SOLVER_SWITCH_ENTITY_KEYS = (CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,)
+_SOLVER_SWITCH_ENTITY_KEYS = (
+    CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
+    # Issue #232 follow-up: moved out of the wizard's solver_grid step
+    # into switch.nimbus_solve_on_price_change (see switch.py's own
+    # NimbusSolverSwitch registration for the full "why not the wizard"
+    # story). The bridge sensor still exposes it via this same resolve
+    # path, so diagnostics and any downstream reader that already reads
+    # sensor.nimbus_solver_config's attributes keeps working with no
+    # change on their side.
+    CONF_SOLVE_ON_PRICE_CHANGE,
+)
 
 
 def object_id_from_source(load_sensor_entity_id: str) -> str:

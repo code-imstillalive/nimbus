@@ -36,8 +36,10 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.loader import async_get_integration
 
 from .const import (
+    CONF_SOLVE_ON_PRICE_CHANGE,
     CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
     CONF_SOLVER_DISPATCH_DRY_RUN,
+    DEFAULT_SOLVE_ON_PRICE_CHANGE,
     DEFAULT_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
     DEFAULT_SOLVER_DISPATCH_DRY_RUN,
     DOMAIN,
@@ -72,6 +74,26 @@ async def async_setup_entry(
                 CONF_SOLVER_DISPATCH_DRY_RUN,
                 "Dispatch Dry Run",
                 DEFAULT_SOLVER_DISPATCH_DRY_RUN,
+                sw_version,
+            ),
+            # Issue #232 follow-up: this used to live in the config-flow
+            # wizard's solver_grid step. Moved out to a live switch entity
+            # for exactly the same reason NimbusSolverNumber exists --
+            # this is a runtime feature toggle a household will want to
+            # flip on/off (e.g. temporarily silence the extra solves
+            # during a debug window) without going through Settings ->
+            # Devices & services -> Configure. __init__.py's own
+            # _configure_price_watcher reads this switch's live state
+            # (falling back to entry.options for a not-yet-migrated
+            # install, until this entity's own restore/seed lands), and
+            # NimbusSolverSwitch.async_turn_on/off below re-invoke that
+            # function on every toggle so the listener registers/tears-
+            # down live with no hub reload.
+            NimbusSolverSwitch(
+                entry,
+                CONF_SOLVE_ON_PRICE_CHANGE,
+                "Solve on Price Change",
+                DEFAULT_SOLVE_ON_PRICE_CHANGE,
                 sw_version,
             ),
         ]
@@ -132,7 +154,23 @@ class NimbusSolverSwitch(SwitchEntity, RestoreEntity):
     async def async_turn_on(self, **kwargs) -> None:
         self._attr_is_on = True
         self.async_write_ha_state()
+        self._reconfigure_dependents()
 
     async def async_turn_off(self, **kwargs) -> None:
         self._attr_is_on = False
         self.async_write_ha_state()
+        self._reconfigure_dependents()
+
+    def _reconfigure_dependents(self) -> None:
+        """Toggling CONF_SOLVE_ON_PRICE_CHANGE must (un)register the
+        price-change state listener live, no hub reload -- the whole
+        point of moving this out of the wizard. Deferred import to
+        avoid a circular import between __init__ and switch.py. No-op
+        for every other switch key so this stays a plain live toggle
+        with zero side-effects.
+        """
+        if self._key != CONF_SOLVE_ON_PRICE_CHANGE:
+            return
+        from . import _configure_price_watcher
+
+        _configure_price_watcher(self.hass, self._entry)
