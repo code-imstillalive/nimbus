@@ -4,6 +4,14 @@ Instructions for any Claude instance working on this repo. Read this before touc
 
 ---
 
+## ⚠️ STANDING DIRECTIVE — UPDATE THIS FILE AT LEAST ONCE DAILY
+
+> **If real work happens in this repo on a given day, this file's own CURRENT STATE section gets updated before that day is done — not batched up across several days.** Same standing rule applies to `116KAT-HA-AI`'s own `CLAUDE.md` for any day real work happens there.
+>
+> Confirmed directly, 2026-08-31: this section was still dated "2026-08-27 night" while real work (issues #244-#252 and beyond, releases up to at least v0.94.19) had already happened across several more days — a future session reading this file cold would trust a stale version number and a stale open-issue list. Undocumented/un-updated work is invisible to the next session; don't let this drift.
+
+---
+
 ## ⚠️ CURRENT STATE (2026-08-27 night) — read this first
 
 Supersedes the 2026-08-26 evening section below, which is kept as historical record only.
