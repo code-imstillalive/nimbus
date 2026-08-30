@@ -388,14 +388,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: NimbusConfigEntry) -> bo
     # background_task() is HA's own documented API for exactly this shape
     # of work: same fire-and-forget task, but explicitly exempt from
     # async_block_till_done()'s wait, while still being auto-cancelled on
-    # HA shutdown and still supporting entry.async_on_unload(task.cancel)
-    # for the real unload/reload case above. Requires a `name=` (used in
-    # log messages if the task raises).
+    # HA shutdown. Requires a `name=` (used in log messages if the task
+    # raises).
     startup_solve_task = hass.async_create_background_task(
         _async_run_solve_with_startup_retries(hass),
         name="nimbus_load_startup_solve_retry",
     )
-    entry.async_on_unload(startup_solve_task.cancel)
+
+    def _cancel_startup_solve_task() -> None:
+        # Real bug found in CI the same day this line was first written:
+        # entry.async_on_unload(startup_solve_task.cancel) directly (i.e.
+        # registering the bound method itself) crashes real HA core's own
+        # ConfigEntry._async_process_on_unload(), which schedules ANY
+        # truthy return value from an on-unload callback as if it were a
+        # coroutine (`self.async_create_task(hass, job, ...)` where `job`
+        # is that return value) -- not just an actual coroutine object.
+        # asyncio.Task.cancel() returns True exactly when the task is
+        # still running at the moment of cancellation (False if it had
+        # already finished) -- i.e. precisely the case this cancellation
+        # exists to handle. A bare wrapper with an explicit `-> None`
+        # return avoids ever handing HA a truthy value to misinterpret.
+        startup_solve_task.cancel()
+
+    entry.async_on_unload(_cancel_startup_solve_task)
 
     return True
 
