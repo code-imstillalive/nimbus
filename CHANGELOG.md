@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.30] — 2026-08-30
+
+### Fixed
+- The Solver's "one immediate cycle at setup" call (meant to avoid sitting with an empty forecast for up to a full 5-minute cron period after a restart) had no retry of its own — it could race the `number.nimbus_solver_*` required entities' own restore-from-registry on a real HA restart, see `sensor.nimbus_solver_config` still reporting `unconfigured`, and lose its one chance. Confirmed live: a restart at 00:50 UTC produced its first real solve at 00:55:00 UTC, a genuine 5-minute cron boundary, not the immediate attempt (or an early retry) succeeding. New `_async_run_solve_with_startup_retries()` retries up to 6 times, 15s apart, before falling back to the regular periodic cron — closes the real, observed gap (household-reported: "it takes a lot of time to come back") without changing behaviour for a genuinely-unconfigured fresh install (which now just retries harmlessly a few times before falling silent, same as before from that point on). New regression test (`tests/test_init_startup_solve_retry.py`).
+
 ## [0.94.29] — 2026-08-30
 
 ### Fixed

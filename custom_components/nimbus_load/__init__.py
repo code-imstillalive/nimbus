@@ -14,6 +14,7 @@ expected-load fields don't apply to a Battery/Solar/Grid power signal).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Callable
 
@@ -70,6 +71,29 @@ PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.NUMBER, Platform.SWITCH]
 # safe even if a cycle occasionally runs long -- unchanged by this fix.
 _SOLVER_CRON_MINUTES = list(range(0, 60, 5))
 _SOLVER_CRON_SECOND = 30
+
+# Startup-retry constants for the "one immediate cycle at setup" call below
+# -- a household-reported real gap (2026-08-30): on a full HA restart, the
+# `number.nimbus_solver_*` required entities (battery capacity, max charge/
+# discharge, grid max import/export) restore their own real values from the
+# entity registry on their OWN schedule, genuinely independent of Nimbus's
+# own setup. The immediate at-setup solve can race that restore and see
+# `sensor.nimbus_solver_config` still reporting `unconfigured` -- a real,
+# transient condition, not a genuine misconfiguration -- and
+# async_run_solve() has no retry of its own (see its own docstring: "never
+# raises," but also never retries). Before this fix, losing that race meant
+# waiting for the next phase-aligned cron tick (up to 5 minutes) for a
+# second chance -- confirmed live: a restart at 00:50 UTC produced its
+# first real solve at 00:55:00 UTC, a genuine 5-minute boundary, not an
+# early retry succeeding.
+#
+# 6 attempts, 15s apart (90s total) -- long enough to comfortably outlast
+# the observed restore race, short enough that a genuinely-unconfigured
+# fresh install (no wizard run yet) gives up quickly and falls back to
+# exactly today's behaviour (silent until the wizard's run, picked up by
+# the next periodic cron tick once it is) rather than retrying forever.
+_STARTUP_RETRY_ATTEMPTS = 6
+_STARTUP_RETRY_DELAY_SECONDS = 15
 
 _FORECASTABLE_SUBENTRY_TYPES = (SUBENTRY_TYPE_LOAD, SUBENTRY_TYPE_SIGNAL)
 
@@ -332,10 +356,37 @@ async def async_setup_entry(hass: HomeAssistant, entry: NimbusConfigEntry) -> bo
 
     # One immediate cycle at setup too, in the background -- so a fresh
     # install (or a restart) doesn't sit with an empty forecast for up to
-    # a full 5-minute cron period before anything shows up.
-    hass.async_create_task(solver_runtime.async_run_solve(hass))
+    # a full 5-minute cron period before anything shows up. Retried a
+    # bounded number of times (see _STARTUP_RETRY_ATTEMPTS/_DELAY_SECONDS'
+    # own comment above) since the very first attempt can race the
+    # required number.nimbus_solver_* entities' own restore-from-registry
+    # on a real HA restart -- a single lost race otherwise meant waiting
+    # out the full periodic cron interval for a second chance.
+    hass.async_create_task(_async_run_solve_with_startup_retries(hass))
 
     return True
+
+
+async def _async_run_solve_with_startup_retries(hass: HomeAssistant) -> None:
+    """Call async_run_solve() once immediately, then retry a bounded
+    number of times on failure (short delay between attempts) before
+    giving up and leaving it to the regular periodic cron.
+
+    Deliberately does not distinguish WHY a cycle failed (Solver not yet
+    configured, a real solve error, anything else async_run_solve()
+    itself already logs) -- a genuinely-unconfigured fresh install just
+    retries harmlessly a few times over _STARTUP_RETRY_ATTEMPTS *
+    _STARTUP_RETRY_DELAY_SECONDS before falling silent, exactly matching
+    today's behaviour from that point on (silent until the wizard's run,
+    picked up by the next periodic cron tick once it is). The only
+    thing this changes is closing the real, observed gap where a
+    transient startup race got only one chance instead of several.
+    """
+    for attempt in range(_STARTUP_RETRY_ATTEMPTS):
+        if await solver_runtime.async_run_solve(hass):
+            return
+        if attempt < _STARTUP_RETRY_ATTEMPTS - 1:
+            await asyncio.sleep(_STARTUP_RETRY_DELAY_SECONDS)
 
 
 def _configured_price_sensors(entry: NimbusConfigEntry) -> tuple[str, ...]:
