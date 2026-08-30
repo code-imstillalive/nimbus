@@ -26,7 +26,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigSubentry
-from homeassistant.const import EntityCategory, UnitOfPower
+from homeassistant.const import EntityCategory, UnitOfPower, UnitOfTemperature
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -555,8 +555,22 @@ async def async_setup_entry(
         entry, sw_version
     )
     battery_forecast._flattened_current_entities = flattened_current_entities
+    # Issue #290 fix (2026-08-30) -- the two weather-mirror dashboard
+    # sensors, same registration treatment as the sensors above. See
+    # NimbusMirrorTemperatureForecastSensor's own docstring for why
+    # these were never migrated when the others were.
+    mirror_temperature_forecast = NimbusMirrorTemperatureForecastSensor(
+        entry, sw_version
+    )
+    mirror_humidity_forecast = NimbusMirrorHumidityForecastSensor(entry, sw_version)
     async_add_entities(
-        [battery_forecast, household_load_forecast, dispatch_dry_run]
+        [
+            battery_forecast,
+            household_load_forecast,
+            dispatch_dry_run,
+            mirror_temperature_forecast,
+            mirror_humidity_forecast,
+        ]
         + flattened_entities
         + flattened_current_entities
     )
@@ -603,6 +617,14 @@ async def async_setup_entry(
     solver_writer.register_entity_handler(
         "sensor.nimbus_solver_dispatch_dry_run",
         dispatch_dry_run.update_from_solver,
+    )
+    solver_writer.register_entity_handler(
+        "sensor.nimbus_mirror_temperature_forecast",
+        mirror_temperature_forecast.update_from_solver,
+    )
+    solver_writer.register_entity_handler(
+        "sensor.nimbus_mirror_humidity_forecast",
+        mirror_humidity_forecast.update_from_solver,
     )
 
     # Family-A completion (2026-08-29, issue #55 follow-up) -- the three
@@ -1632,6 +1654,46 @@ class NimbusDispatchDryRunSensor(_NimbusSolverPushSensor):
 
     _UNIQUE_ID_SUFFIX = "nimbus_solver_dispatch_dry_run"
     _attr_name = "Solver Dispatch (Dry Run)"
+
+
+class NimbusMirrorTemperatureForecastSensor(_NimbusSolverPushSensor):
+    """Real fix for issue #290 (Mark Purcell, 2026-08-30): before this
+    class existed, solver_writer.publish_weather_forecast_mirrors()
+    wrote sensor.nimbus_mirror_temperature_forecast as a raw
+    ha_post_state() with no registered SensorEntity handler at all --
+    every single push (every 5-minute solve cycle) fell through to the
+    #85-instrumented raw states.async_set() fallback, logging a
+    WARNING every time (~288/day) purely from this one entity having
+    never been migrated, unlike every other push sensor in this file.
+
+    Same _NimbusSolverPushSensor base as the #55-migrated sensors
+    above, overriding only device_class/unit/precision for a real
+    temperature value instead of the base class's POWER/kW defaults.
+    No dedicated sub-device (unlike the Family-A parents) -- this is a
+    small, purely cosmetic dashboard mirror (see that publish
+    function's own docstring: "never referenced by the actual LP
+    solve"), so it stays on the shared hub device like its
+    battery/household-load siblings.
+    """
+
+    _UNIQUE_ID_SUFFIX = "nimbus_mirror_temperature_forecast"
+    _attr_name = "Mirror Temperature Forecast"
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_suggested_display_precision = 1
+
+
+class NimbusMirrorHumidityForecastSensor(_NimbusSolverPushSensor):
+    """Same #290 fix as NimbusMirrorTemperatureForecastSensor above, for
+    sensor.nimbus_mirror_humidity_forecast -- see that class's own
+    docstring for the full "why this class exists at all" story.
+    """
+
+    _UNIQUE_ID_SUFFIX = "nimbus_mirror_humidity_forecast"
+    _attr_name = "Mirror Humidity Forecast"
+    _attr_device_class = SensorDeviceClass.HUMIDITY
+    _attr_native_unit_of_measurement = "%"
+    _attr_suggested_display_precision = 1
 
 
 class NimbusSolverQualityReportSensor(_NimbusSolverPushSensor):

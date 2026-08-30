@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.29] — 2026-08-30
+
+### Fixed
+- `sensor.nimbus_mirror_temperature_forecast` and `sensor.nimbus_mirror_humidity_forecast` (issue #290) were being written every 5-minute solve cycle via `solver_writer`'s raw `states.async_set()` fallback — neither had ever been registered as a real `SensorEntity`, unlike every other push sensor in this file, so every single push logged a WARNING (~576 lines/day) and the entities had no `unique_id`/`device_info`/`device_class`/`unit_of_measurement` of their own. New `NimbusMirrorTemperatureForecastSensor`/`NimbusMirrorHumidityForecastSensor` classes (same `_NimbusSolverPushSensor` base as the other #55-migrated sensors, no dedicated sub-device since these are small, purely cosmetic dashboard mirrors), registered in the dispatch table alongside their siblings. New regression test (`tests/test_sensor_mirror_forecast_entities.py`) locks in the class attributes, entity_id/device-link continuity, and dispatch-table routing.
+
 ## [0.94.28] — 2026-08-30
 
 ### Fixed

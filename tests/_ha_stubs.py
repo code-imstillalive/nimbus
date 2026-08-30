@@ -405,6 +405,12 @@ def install_ha_stubs() -> None:
     module(
         "homeassistant.const",
         UnitOfPower=types.SimpleNamespace(WATT="W", KILO_WATT="kW", MEGA_WATT="MW"),
+        # Added 2026-08-30 (issue #290) -- same minimal, real-string-value
+        # stub pattern as UnitOfPower above. sensor.py's new
+        # NimbusMirrorTemperatureForecastSensor imports this at module
+        # level, so it must exist on the stub for every test that imports
+        # sensor.py, whether or not it exercises that specific class.
+        UnitOfTemperature=types.SimpleNamespace(CELSIUS="°C", FAHRENHEIT="°F"),
         Platform=MagicMock(),
         # Real string values, not a MagicMock -- confirmed against HA
         # core's own current source (2026-08-23, Gold entity-category
