@@ -362,7 +362,40 @@ async def async_setup_entry(hass: HomeAssistant, entry: NimbusConfigEntry) -> bo
     # required number.nimbus_solver_* entities' own restore-from-registry
     # on a real HA restart -- a single lost race otherwise meant waiting
     # out the full periodic cron interval for a second chance.
-    hass.async_create_task(_async_run_solve_with_startup_retries(hass))
+    #
+    # Real bug found in CI (2026-08-30, same day this retry loop shipped):
+    # this task was never registered for cancellation on unload, unlike
+    # the periodic-solve timer's own unsub two lines above. A bounded
+    # retry loop that can genuinely sleep for up to
+    # _STARTUP_RETRY_ATTEMPTS * _STARTUP_RETRY_DELAY_SECONDS (90s) is a
+    # fundamentally different risk than the old single-shot call it
+    # replaced -- if the config entry unloads/reloads while a retry is
+    # still sleeping (a real HA integration-test harness reproduced this
+    # directly: setup called repeatedly with no Solver ever configured,
+    # so every single attempt returned False and the loop ran its full
+    # course every time), the task keeps running and sleeping against a
+    # hass instance that may itself be mid-shutdown, with nothing to stop
+    # it. entry.async_on_unload(task.cancel) fixes this the same way the
+    # periodic timer's own unsub already does -- cancelling an
+    # in-progress asyncio.sleep() raises CancelledError immediately,
+    # which naturally unwinds the loop with no special handling needed.
+    #
+    # Follow-up (same day): cancel-on-unload alone wasn't the full fix.
+    # hass.async_create_task() is *tracked* by hass.async_block_till_done()
+    # -- a real HA integration test that calls block_till_done() after
+    # setup (before any unload ever triggers the cancel above) still
+    # blocks for this task's full retry duration. hass.async_create_
+    # background_task() is HA's own documented API for exactly this shape
+    # of work: same fire-and-forget task, but explicitly exempt from
+    # async_block_till_done()'s wait, while still being auto-cancelled on
+    # HA shutdown and still supporting entry.async_on_unload(task.cancel)
+    # for the real unload/reload case above. Requires a `name=` (used in
+    # log messages if the task raises).
+    startup_solve_task = hass.async_create_background_task(
+        _async_run_solve_with_startup_retries(hass),
+        name="nimbus_load_startup_solve_retry",
+    )
+    entry.async_on_unload(startup_solve_task.cancel)
 
     return True
 

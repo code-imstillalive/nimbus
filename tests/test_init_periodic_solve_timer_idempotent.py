@@ -69,14 +69,17 @@ def _make_entry(entry_id: str) -> MagicMock:
 
 
 def _close_coro_task(coro, *_args, **_kwargs) -> MagicMock:
-    # async_setup_entry()'s own final line schedules one immediate solve
-    # via hass.async_create_task(solver_runtime.async_run_solve(hass)) --
-    # a real coroutine that a plain MagicMock stand-in for
-    # hass.async_create_task never awaits or closes, which Python warns
-    # about ("coroutine was never awaited"). Not a bug in the code under
-    # test, just test-harness hygiene -- close it explicitly, same
-    # technique test_coordinator_setup_does_not_block_on_retrain.py's own
-    # scheduled_coro.close() already uses for the identical situation.
+    # async_setup_entry()'s own final block schedules the startup-solve
+    # retry loop via hass.async_create_background_task(...) -- a real
+    # coroutine that a plain MagicMock stand-in never awaits or closes,
+    # which Python warns about ("coroutine was never awaited"). Not a bug
+    # in the code under test, just test-harness hygiene -- close it
+    # explicitly, same technique test_coordinator_setup_does_not_block_
+    # on_retrain.py's own scheduled_coro.close() already uses for the
+    # identical situation. Also wired to hass.async_create_task below,
+    # since that's still used elsewhere in this module (e.g. the price-
+    # watcher's own immediate-solve trigger) even though it's no longer
+    # what the startup-retry task itself uses.
     coro.close()
     return MagicMock()
 
@@ -85,6 +88,7 @@ def _make_hass() -> MagicMock:
     hass = MagicMock()
     hass.config_entries.async_forward_entry_setups = AsyncMock(return_value=None)
     hass.async_create_task = MagicMock(side_effect=_close_coro_task)
+    hass.async_create_background_task = MagicMock(side_effect=_close_coro_task)
     return hass
 
 
