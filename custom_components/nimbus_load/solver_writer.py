@@ -3727,11 +3727,34 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
     storage) -- if this sensor is ever wiped (e.g. by a restart, since a
     plain REST-pushed sensor has no persistent HA backing of its own),
     the day's score is recomputed once, cheaply, rather than lost.
+
+    Real fix (2026-08-30, issues #289/#292): the "already scored" fast
+    path used to just `return` with nothing published. That silently
+    stopped refreshing this entity's own freshness stamp (update_from_
+    solver()'s `_last_updated`, see sensor.py's `_NimbusSolverPushSensor`)
+    the moment a day was first scored -- so after `_STALE_AFTER_SECONDS`
+    (300s) with no NEW publish, the freshness watchdog correctly marked
+    the entity unavailable. HA core's own `Entity.async_write_ha_state()`
+    then writes an EMPTY attributes dict for an unavailable entity (real,
+    long-standing HA core behaviour, not a bug in this integration) --
+    so the VERY NEXT idempotency check here read back `attributes={}`,
+    found no `latest_date` to match, and recomputed+republished from
+    scratch. That one republish refreshed the stamp, the entity went
+    available again, held for up to 300s, then repeated the whole cycle
+    forever -- exactly the "fires every ~10 minutes, self-heals" pattern
+    both issues independently, precisely documented. Fix: re-push the
+    SAME already-read state/attributes on the fast path instead of doing
+    nothing, so the freshness stamp keeps getting refreshed every cycle
+    and the entity never goes stale (and therefore never has its
+    attributes cleared) in the first place, matching the reference
+    script's own "already scored... re-pushing sensor" behaviour that
+    this native path had dropped.
     """
     yesterday_key = (now - timedelta(days=1)).date().isoformat()
     try:
         existing = ha_get(QUALITY_ENTITY_ID)
         if existing.get("attributes", {}).get("latest_date") == yesterday_key:
+            ha_post_state(QUALITY_ENTITY_ID, existing["state"], existing["attributes"])
             return
     except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError):
         pass  # never seen before, or transiently unreachable -- fall through and try to compute
@@ -3919,12 +3942,17 @@ def publish_efficiency_backtest_report(cfg: dict, now: datetime) -> None:
     idempotency-first pattern as publish_daily_quality_report() -- see
     that function's own docstring for why (a solver cycle running every
     minute must not re-solve an already-scored day's whole sweep 1440
-    times).
+    times), and for the real 2026-08-30 fix (issues #289/#292): the
+    fast path re-pushes the same already-read state/attributes instead
+    of returning with nothing published, so this entity's own freshness
+    stamp keeps refreshing and it never goes stale/unavailable between
+    real recomputes.
     """
     yesterday_key = (now - timedelta(days=1)).date().isoformat()
     try:
         existing = ha_get(BACKTEST_ENTITY_ID)
         if existing.get("attributes", {}).get("latest_date") == yesterday_key:
+            ha_post_state(BACKTEST_ENTITY_ID, existing["state"], existing["attributes"])
             return
     except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError):
         pass
@@ -4227,7 +4255,11 @@ def publish_nimbus_only_soc_counterfactual(cfg: dict, now: datetime) -> None:
     reads back this sensor's own currently-published latest_date before
     ever attempting a real day-long rolling replay (96 LP solves), so a
     solver cycle that runs every minute doesn't redo that work 1440
-    times for an already-scored day.
+    times for an already-scored day -- and the same real 2026-08-30 fix
+    (issues #289/#292): the fast path re-pushes the same already-read
+    state/attributes instead of returning with nothing published, so
+    this entity's own freshness stamp keeps refreshing and it never
+    goes stale/unavailable between real recomputes.
     """
     yesterday = (now - timedelta(days=1)).replace(
         hour=0, minute=0, second=0, microsecond=0
@@ -4236,6 +4268,9 @@ def publish_nimbus_only_soc_counterfactual(cfg: dict, now: datetime) -> None:
     try:
         existing = ha_get(COUNTERFACTUAL_ENTITY_ID)
         if existing.get("attributes", {}).get("latest_date") == yesterday_key:
+            ha_post_state(
+                COUNTERFACTUAL_ENTITY_ID, existing["state"], existing["attributes"]
+            )
             return
     except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError):
         pass  # never seen before, or transiently unreachable -- fall through and try to compute
