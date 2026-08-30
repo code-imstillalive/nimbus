@@ -329,9 +329,15 @@ class TestResampleHistoryNearest(unittest.TestCase):
 
 
 class TestPublishDailyQualityReport(unittest.TestCase):
-    def test_already_scored_yesterday_skips_recompute_and_repush(self):
+    def test_already_scored_yesterday_skips_recompute_but_still_repushes(self):
+        """Real fix (2026-08-30, issues #289/#292): the fast path must
+        still re-push the SAME already-read state/attributes -- skipping
+        the expensive recompute but ALSO skipping the publish entirely
+        (the old, buggy behaviour this test used to assert) is exactly
+        what let this entity's own freshness stamp go stale and get
+        marked unavailable, over and over."""
         cfg = _cfg()
-        existing = {"attributes": {"latest_date": "2026-08-24"}}
+        existing = {"state": "0.75", "attributes": {"latest_date": "2026-08-24"}}
         with (
             patch.object(solver_writer, "ha_get", return_value=existing),
             patch.object(solver_writer, "compute_daily_quality_report") as compute,
@@ -339,7 +345,9 @@ class TestPublishDailyQualityReport(unittest.TestCase):
         ):
             solver_writer.publish_daily_quality_report(cfg, NOW)
         compute.assert_not_called()
-        post.assert_not_called()
+        post.assert_called_once_with(
+            solver_writer.QUALITY_ENTITY_ID, existing["state"], existing["attributes"]
+        )
 
     def test_not_yet_scored_computes_and_pushes(self):
         cfg = _cfg()

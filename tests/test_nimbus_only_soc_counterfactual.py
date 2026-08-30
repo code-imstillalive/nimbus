@@ -237,21 +237,31 @@ class TestPublish(unittest.TestCase):
             )
         post.assert_not_called()
 
-    def test_publish_skips_recompute_when_already_scored_for_yesterday(self):
+    def test_publish_skips_recompute_but_still_repushes_when_already_scored_for_yesterday(
+        self,
+    ):
+        """Real fix (2026-08-30, issues #289/#292): the fast path must
+        still re-push the SAME already-read state/attributes -- see
+        test_daily_quality_report.py's own sibling test for the full
+        "why" (skipping the publish entirely let this entity's
+        freshness stamp go stale and get marked unavailable, forever)."""
         cfg = _cfg()
         now = datetime(2026, 8, 25, 10, 0, tzinfo=BRISBANE)
+        existing = {"state": "42.0", "attributes": {"latest_date": "2026-08-24"}}
         with (
-            patch.object(
-                solver_writer,
-                "ha_get",
-                return_value={"attributes": {"latest_date": "2026-08-24"}},
-            ),
+            patch.object(solver_writer, "ha_get", return_value=existing),
             patch.object(
                 solver_writer, "compute_nimbus_only_soc_counterfactual"
             ) as compute,
+            patch.object(solver_writer, "ha_post_state") as post,
         ):
             solver_writer.publish_nimbus_only_soc_counterfactual(cfg, now)
         compute.assert_not_called()
+        post.assert_called_once_with(
+            solver_writer.COUNTERFACTUAL_ENTITY_ID,
+            existing["state"],
+            existing["attributes"],
+        )
 
 
 if __name__ == "__main__":

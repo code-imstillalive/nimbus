@@ -166,10 +166,16 @@ class TestPublishEfficiencyBacktestReportIdempotency(unittest.TestCase):
             return _price_history(YESTERDAY_START, cheap=0.02, expensive=0.10)
         return []
 
-    def test_already_scored_day_skips_recompute(self):
+    def test_already_scored_day_skips_recompute_but_still_repushes(self):
+        """Real fix (2026-08-30, issues #289/#292): the fast path must
+        still re-push the SAME already-read state/attributes -- see
+        test_daily_quality_report.py's own sibling test for the full
+        "why" (skipping the publish entirely let this entity's
+        freshness stamp go stale and get marked unavailable, forever)."""
         cfg = _cfg()
         existing_state = {
-            "attributes": {"latest_date": (NOW - timedelta(days=1)).date().isoformat()}
+            "state": "1.23",
+            "attributes": {"latest_date": (NOW - timedelta(days=1)).date().isoformat()},
         }
         with (
             patch.object(solver_writer, "ha_get", return_value=existing_state),
@@ -178,7 +184,11 @@ class TestPublishEfficiencyBacktestReportIdempotency(unittest.TestCase):
         ):
             solver_writer.publish_efficiency_backtest_report(cfg, NOW)
         fetch.assert_not_called()
-        post.assert_not_called()
+        post.assert_called_once_with(
+            solver_writer.BACKTEST_ENTITY_ID,
+            existing_state["state"],
+            existing_state["attributes"],
+        )
 
     def test_not_yet_scored_day_computes_and_publishes(self):
         cfg = _cfg()
