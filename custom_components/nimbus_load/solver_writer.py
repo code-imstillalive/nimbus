@@ -3803,7 +3803,9 @@ def compute_daily_quality_report(cfg: dict, now: datetime) -> dict | None:
         # own sum does NOT necessarily equal (j_ach - j_star) --
         # deliberate, documented gap for salvage_value / two-tier bonus
         # trajectories (see hourly_regret_breakdown()'s own docstring).
-        "hourly_regret": {str(k): round(float(v), 4) for k, v in report.hourly_regret.items()},
+        "hourly_regret": {
+            str(k): round(float(v), 4) for k, v in report.hourly_regret.items()
+        },
         # 24-hour reconstruction dicts, one per trajectory (2026-08-31,
         # direct ask: "expand the attributes of sensor.nimbus_quality_j_ach
         # to include the average for each of the 24 hours as a dict; the
@@ -3882,7 +3884,28 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
         QUALITY_ENTITY_ID,
         day_entry["epr"],
         {
-            "unit_of_measurement": None,
+            # Real bug found live (household-reported repeated Repairs
+            # entries, 2026-08-31: "sensor.nimbus_solver_quality_report
+            # no longer has a state class" -- on both devhub and the
+            # reference household's NUC1, "pretty sure not the first
+            # time"): this dict used to set unit_of_measurement to a bare
+            # null, with no state_class key at all. In native mode,
+            # with a registered SensorEntity handler present (the normal
+            # case), that entity's own _attr_native_unit_of_measurement/
+            # _attr_state_class correctly override this dict's stray
+            # values by the time a live GET reads the state back -- but
+            # ha_post_state()'s own RAW states.async_set() FALLBACK
+            # (used whenever no handler is registered yet -- e.g. this
+            # function racing sensor.py's own async_setup_entry() right
+            # after a restart, or the fully standalone/cron/addon
+            # deployment path, which never has an entity object at all)
+            # writes these exact keys VERBATIM with no entity-level
+            # correction available. Whichever path is used, correct,
+            # real values here closes the gap outright rather than
+            # relying on an override that only exists on one of the two
+            # possible code paths.
+            "unit_of_measurement": "%",
+            "state_class": "measurement",
             "friendly_name": "Nimbus Solver Quality Report (EPR)",
             "latest_date": yesterday_key,
             "generated_at": now.isoformat(),
