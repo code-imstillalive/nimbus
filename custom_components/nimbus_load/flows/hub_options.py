@@ -73,6 +73,7 @@ from ..const import (
     CONF_HYBRID_RECENT_DAYS,
     CONF_RETRAIN_HOUR_LOCAL,
     CONF_SOLAR_SENSOR,
+    CONF_SOLVER_BATTERY_POWER_POSITIVE_IS_CHARGE,
     CONF_SOLVER_BATTERY_POWER_SENSOR,
     CONF_SOLVER_BATTERY_SOC_SENSOR,
     CONF_SOLVER_EXPORT_PRICE_SENSOR,
@@ -488,6 +489,19 @@ def _solver_sources_schema(
                     "suggested_value": defaults.get(CONF_SOLVER_BATTERY_POWER_SENSOR)
                 },
             ): _entity(),
+            # Real bug fix (Mark Purcell, issue #299, 2026-08-31) -- see
+            # this field's own comment in const.py for the full "SigEnergy
+            # reports the opposite battery-power sign" story. Off (the
+            # default) is byte-for-byte identical to every install before
+            # this field existed.
+            vol.Optional(
+                CONF_SOLVER_BATTERY_POWER_POSITIVE_IS_CHARGE,
+                description={
+                    "suggested_value": defaults.get(
+                        CONF_SOLVER_BATTERY_POWER_POSITIVE_IS_CHARGE
+                    )
+                },
+            ): selector.BooleanSelector(),
             # Optional retailer-specific settlement hook -- see this
             # field's own comment in const.py for the full "why this one
             # genuinely can't be made retailer-agnostic by reading

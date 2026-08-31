@@ -3602,6 +3602,21 @@ def compute_daily_quality_report(cfg: dict, now: datetime) -> dict | None:
     solar_scale = _kw_scale_factor(solar_sensor)
     load_scale = _kw_scale_factor(load_sensor)
     battery_scale = _kw_scale_factor(battery_sensor)
+    # Real, confirmed-live bug found by Mark Purcell (issue #299,
+    # 2026-08-31): this function always assumed the configured battery
+    # sensor follows this project's own established convention
+    # (positive = discharge, matching the reference household's real
+    # sensor.logger_battery_power) with no way to say otherwise. A
+    # SigEnergy plant's own sensor reports the OPPOSITE sign (positive =
+    # charge) -- every charge event was silently booked as a discharge
+    # and vice versa, producing a structurally impossible EPR (-137.47%;
+    # EPR can never go negative when scored correctly, since a
+    # perfect-foresight oracle can never be beaten). See
+    # CONF_SOLVER_BATTERY_POWER_POSITIVE_IS_CHARGE's own comment in
+    # const.py. False (the default) reproduces the exact original
+    # behaviour -- this is a pure multiply-by-plus-or-minus-1, so it's a
+    # complete no-op for every install that never sets the flag.
+    battery_sign = -1.0 if cfg.get("solver_battery_power_positive_is_charge") else 1.0
 
     solar_kw = np.array(
         [
@@ -3616,7 +3631,10 @@ def compute_daily_quality_report(cfg: dict, now: datetime) -> dict | None:
         ]
     )
     actual_net_kw = np.array(
-        [v * battery_scale for v in resample_history_nearest(battery_hist, grid_times)]
+        [
+            v * battery_scale * battery_sign
+            for v in resample_history_nearest(battery_hist, grid_times)
+        ]
     )
     actual_charge_kw = np.array([max(0.0, -v) for v in actual_net_kw])
     actual_discharge_kw = np.array([max(0.0, v) for v in actual_net_kw])
