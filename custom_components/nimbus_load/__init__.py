@@ -72,6 +72,23 @@ PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.NUMBER, Platform.SWITCH]
 _SOLVER_CRON_MINUTES = list(range(0, 60, 5))
 _SOLVER_CRON_SECOND = 30
 
+# Issue #295 (Mark Purcell, 2026-08-31): live-measured evidence (four
+# consecutive NEM boundaries, switch.nimbus_solve_on_price_change on)
+# showed the phase-locked cron above re-running the exact same solve an
+# event-driven trigger had already completed 5s earlier -- same inputs,
+# same LP, same plan, just a redundant CPU burn plus a spurious
+# last_updated restamp on sensor.nimbus_solver_battery_forecast that
+# makes latency measurement (issue #294) ambiguous about which write is
+# which. 60s is deliberately conservative/short relative to the 5-minute
+# cron cadence: a cron tick at :05 still fires even if a price tick at
+# :00 produced a solve (5 minutes have passed, well past this window),
+# but a cron tick at :30 is suppressed if an event-driven solve at :26
+# already ran. The cron is a WATCHDOG (guarantee at least one solve per
+# 5-min block even if Amber goes quiet for a whole window -- a real,
+# if rare, possibility per #295's own "why not just disable cron when
+# the switch is on" section) not a heartbeat that must always fire.
+_CRON_SUPPRESS_WINDOW_S = 60
+
 # Startup-retry constants for the "one immediate cycle at setup" call below
 # -- a household-reported real gap (2026-08-30): on a full HA restart, the
 # `number.nimbus_solver_*` required entities (battery capacity, max charge/
@@ -326,7 +343,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: NimbusConfigEntry) -> bo
         old_unsub()
 
     async def _periodic_solve(now) -> None:
-        await solver_runtime.async_run_solve(hass)
+        # Issue #295: suppress this tick if an event-driven (or startup)
+        # solve already covered this 5-min block -- see
+        # _CRON_SUPPRESS_WINDOW_S's own comment above for the reasoning.
+        # time_since_last_solve() returns None on a fresh install/restart
+        # (nothing has ever solved yet), which correctly never suppresses.
+        since_last_solve = solver_runtime.time_since_last_solve()
+        if since_last_solve is not None and since_last_solve < _CRON_SUPPRESS_WINDOW_S:
+            _LOGGER.debug(
+                "Nimbus Solver: skipping phase-locked cron tick -- a solve "
+                "already completed %.1fs ago (issue #295)",
+                since_last_solve,
+            )
+            return
+        if await solver_runtime.async_run_solve(hass):
+            solver_runtime.record_solve_completed(trigger_source="cron")
 
     # Phase-locked to the NEM 5-minute boundary + 30s (issue #244), not a
     # free-running interval -- see _SOLVER_CRON_MINUTES/_SOLVER_CRON_SECOND's
@@ -432,6 +463,11 @@ async def _async_run_solve_with_startup_retries(hass: HomeAssistant) -> None:
     """
     for attempt in range(_STARTUP_RETRY_ATTEMPTS):
         if await solver_runtime.async_run_solve(hass):
+            # Issue #295: a startup solve counts toward the same
+            # suppression window as a cron/price-change one -- a restart
+            # landing right before a phase-locked cron boundary shouldn't
+            # trigger an immediately-redundant re-solve either.
+            solver_runtime.record_solve_completed(trigger_source="startup")
             return
         if attempt < _STARTUP_RETRY_ATTEMPTS - 1:
             await asyncio.sleep(_STARTUP_RETRY_DELAY_SECONDS)
@@ -532,11 +568,31 @@ def _configure_price_watcher(hass: HomeAssistant, entry: NimbusConfigEntry) -> N
     # HA's own scheduler primitive -- created here by hass.loop.call_later
     # rather than asyncio.get_event_loop() so a test harness that swaps
     # the loop still lands on the harness's own loop.
-    pending: dict[str, object] = {"handle": None}
+    # "entity_id"/"changed_at" (issue #294): the debounced solve this
+    # triggers needs to know WHICH price sensor's change actually caused
+    # it and WHEN that sensor's own state last changed, to publish
+    # sensor.nimbus_solver_price_response_latency's attributes. Captured
+    # in _on_price_change below on every event within the debounce
+    # window, so by the time _fire_solve actually runs, this holds the
+    # LAST (most recent) triggering event in whatever burst caused the
+    # eventual solve -- the same coalescing the debounce itself already
+    # does for the solve trigger.
+    pending: dict[str, object] = {"handle": None, "entity_id": None, "changed_at": None}
+
+    async def _run_price_change_solve() -> None:
+        triggering_entity = pending.get("entity_id")
+        price_change_at = pending.get("changed_at")
+        if await solver_runtime.async_run_solve(hass):
+            solver_runtime.record_solve_completed(
+                trigger_source="price_change",
+                triggering_entity=triggering_entity,
+                price_change_at=price_change_at,
+                debounce_s=debounce_s,
+            )
 
     def _fire_solve() -> None:
         pending["handle"] = None
-        hass.async_create_task(solver_runtime.async_run_solve(hass))
+        hass.async_create_task(_run_price_change_solve())
 
     @callback
     def _on_price_change(event) -> None:
@@ -548,6 +604,11 @@ def _configure_price_watcher(hass: HomeAssistant, entry: NimbusConfigEntry) -> N
         handle = pending.get("handle")
         if handle is not None:
             handle.cancel()  # type: ignore[attr-defined]
+        new_state = event.data.get("new_state")
+        pending["entity_id"] = event.data.get("entity_id")
+        pending["changed_at"] = (
+            new_state.last_changed if new_state is not None else None
+        )
         pending["handle"] = hass.loop.call_later(debounce_s, _fire_solve)
 
     unsub = async_track_state_change_event(hass, list(price_entities), _on_price_change)
