@@ -8,6 +8,12 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.35] — 2026-08-31
+
+### Fixed
+- `compute_daily_quality_report()` always assumed the configured battery power sensor follows this project's own established sign convention (positive = discharge, matching the reference household's own `sensor.logger_battery_power`) — a SigEnergy plant's own sensor reports the opposite (positive = charge), so every charge event was silently booked as a discharge and vice versa, producing a structurally impossible EPR = -137.47% (Mark Purcell, issue #299). Fixed with a new, explicit, opt-in config-flow flag, `solver_battery_power_positive_is_charge` (default `False` — a byte-for-byte no-op for every existing install).
+- `sensor.nimbus_solver_quality_report` (and every other `_NimbusSolverPushSensor` subclass — battery forecast, efficiency backtest, counterfactual SoC) could flap between a real value and a bare `unknown` state on a tight, repeating cadence (issue #302). Root cause: `_async_recheck_availability`'s own "first tick, just record a baseline" branch silently swallowed a staleness transition that had *already* happened by the time the very first recheck tick ever fired, and this had been invisibly papered over the whole time by `should_poll` defaulting to `True` (an unrelated, independently-wasteful default for a push-only entity, also fixed here to `False`). `_was_available` now starts at `True` in `__init__`, matching what `available()` already, definitionally, returns for a freshly-constructed instance — closing the gap directly instead of special-casing around it. Confirmed via CI's own real HA test harness, including the pre-existing regression test that had caught an earlier, incomplete attempt at this fix.
+
 ## [0.94.34] — 2026-08-31
 
 ### Added
