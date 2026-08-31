@@ -1399,6 +1399,25 @@ class _NimbusSolverPushSensor(SensorEntity):
     """
 
     _attr_has_entity_name = True
+    # Real, live-confirmed bug (2026-08-31): this class never set
+    # should_poll, so it silently inherited Entity's own default of
+    # True. This is a pure push entity -- update_from_solver() is the
+    # ONLY thing that should ever change its state, and it defines no
+    # update()/async_update() method at all (both are no-ops if HA's
+    # own polling calls them). Confirmed live on the reference
+    # household's NUC1: sensor.nimbus_solver_quality_report alternated
+    # between a real value (28 attrs) and a bare "unknown" (3 class-
+    # level attrs only -- friendly_name/state_class/unit_of_measurement,
+    # exactly what a freshly-constructed instance's own
+    # extra_state_attributes={} would show) on a clean, repeating
+    # ~15-30s cadence, independent of and out of phase with the real
+    # 1-minute solve cycle -- HA's own default entity-platform scan
+    # interval (15s) matches this almost exactly. should_poll=False
+    # stops HA from ever calling async_update_ha_state(force_refresh=
+    # True) on this entity at all, closing off that path regardless of
+    # the exact mechanism by which a poll cycle was producing (or
+    # exposing) a blank state.
+    _attr_should_poll = False
     _attr_device_class = SensorDeviceClass.POWER
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfPower.KILO_WATT
