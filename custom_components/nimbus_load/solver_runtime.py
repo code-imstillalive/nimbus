@@ -330,16 +330,38 @@ def _log_dispatch_dry_run(hass: HomeAssistant, sw) -> None:
     try:
         dry_run = hass.states.get("switch.nimbus_solver_dispatch_dry_run")
         if dry_run is None or dry_run.state != "on":
+            _LOGGER.warning(
+                "Nimbus Dispatch (dry-run): skipping this cycle -- switch state is "
+                "%s (expected 'on')",
+                dry_run.state if dry_run is not None else "MISSING ENTITY",
+            )
             return
         forecast_state = hass.states.get("sensor.nimbus_solver_battery_forecast")
         if forecast_state is None:
+            _LOGGER.warning(
+                "Nimbus Dispatch (dry-run): skipping this cycle -- "
+                "sensor.nimbus_solver_battery_forecast has no state at all yet"
+            )
             return
         periods = forecast_state.attributes.get("forecast") or []
         if not periods:
+            _LOGGER.warning(
+                "Nimbus Dispatch (dry-run): skipping this cycle -- "
+                "sensor.nimbus_solver_battery_forecast exists (state=%s) but its "
+                "own 'forecast' attribute is empty -- the main solve just pushed "
+                "a state update this same cycle, so this is a real, otherwise-"
+                "silent gap worth knowing about if it recurs",
+                forecast_state.state,
+            )
             return
         current = periods[0]
         battery_kw = current.get("battery_kw")
         if battery_kw is None:
+            _LOGGER.warning(
+                "Nimbus Dispatch (dry-run): skipping this cycle -- "
+                "forecast[0] has no 'battery_kw' key (keys present: %s)",
+                sorted(current.keys()) if isinstance(current, dict) else type(current),
+            )
             return
         _LOGGER.info(
             "Nimbus Dispatch (dry-run): current-period plan is %.2f kW "

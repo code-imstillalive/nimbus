@@ -8,7 +8,10 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
-## [0.94.37] — 2026-08-31
+## [0.94.38] — 2026-08-31
+
+### Fixed
+- `solver_runtime.py`'s `_log_dispatch_dry_run()` had four early-return guard paths with zero diagnostic logging — confirmed live on the reference household's own NUC1: `sensor.nimbus_solver_dispatch_dry_run` silently skipped exactly one solve cycle (real timeline: last push 17:10:32, no push at 17:15, staleness watchdog marked it `unavailable` at 17:15:37, resumed cleanly at 17:20:32), with zero exception, zero log line, and the switch confirmed `on` throughout — meaning the root cause could not be determined after the fact, only that one of the three remaining guards (forecast sensor missing / forecast list empty / `battery_kw` key missing) must have fired. Each of the four early-return branches now logs a `WARNING` naming exactly which condition tripped and the relevant live state, so a future occurrence is diagnosable instead of silent. Purely additive — no behavior change to the dry-run logic itself, this only makes an existing silent path observable.
 
 ### Fixed
 - `solver_battery_power_positive_is_charge` (issue #299, v0.94.35's own SigEnergy sign-convention fix) was unreachable through the Solver settings wizard — `_solver_sources_schema` registered the field on the form, but `async_step_solver_sources`'s save loop only copies keys listed in `_SOLVER_WIZARD_SCHEMA_KEYS`, and the flag was missing from that tuple. Submitting the wizard reported success while the value silently stayed `None`, leaving the v0.94.35 fix unusable from the UI (Mark Purcell, issue #307, PR #309). Fixed by adding the key to the tuple; new regression test locks the save contract.
