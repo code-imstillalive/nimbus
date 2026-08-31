@@ -3791,6 +3791,33 @@ def compute_daily_quality_report(cfg: dict, now: datetime) -> dict | None:
         "tracking_cost": round(report.tracking_cost, 4),
         "real_p2p_dollars": round(real_p2p_dollars, 4),
         "real_p2p_volume_kwh": round(real_p2p_volume_kwh, 3),
+        # Hourly regret breakdown (2026-08-31, sibling addition to the
+        # reconstruction dicts below): the per-hour actual-minus-oracle
+        # cost dict compute_quality_report already built via hourly_
+        # regret_breakdown() but never published. Fanned out to
+        # sensor.nimbus_quality_regret_dollars via FLATTENED_ATTRS_QUALITY's
+        # attrs_source_key = "hourly_regret". Same {str(hour): float, ...}
+        # shape as the reconstruction dicts for a coherent card-side
+        # aggregation contract; string keys because HA/JSON attribute
+        # dicts round-trip better with strings than ints. The dict's
+        # own sum does NOT necessarily equal (j_ach - j_star) --
+        # deliberate, documented gap for salvage_value / two-tier bonus
+        # trajectories (see hourly_regret_breakdown()'s own docstring).
+        "hourly_regret": {str(k): round(float(v), 4) for k, v in report.hourly_regret.items()},
+        # 24-hour reconstruction dicts, one per trajectory (2026-08-31,
+        # direct ask: "expand the attributes of sensor.nimbus_quality_j_ach
+        # to include the average for each of the 24 hours as a dict; the
+        # full reconstruction; buy & sell prices, power levels; grid, PV,
+        # load and battery. This should enable a full reconstruction of
+        # the state. Then once we have completed for sensor.nimbus_quality_
+        # j_ach. Lets do similar for the other quality_j entities.").
+        # Fanned out to the flattened J_ref/J_ach/J_star sensors via
+        # FLATTENED_ATTRS_QUALITY's hourly source keys (sensor_flattened
+        # .py). See QualityReport.j_*_hourly docstring for the exact
+        # dict shape and sign conventions.
+        "j_ref_hourly": report.j_ref_hourly,
+        "j_ach_hourly": report.j_ach_hourly,
+        "j_star_hourly": report.j_star_hourly,
     }
 
 
