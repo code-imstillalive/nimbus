@@ -1593,7 +1593,7 @@ class _NimbusSolverPushSensor(SensorEntity):
         await super().async_added_to_hass()
         print(
             f"[DIAG] async_added_to_hass id={id(self):x} entity_id={self.entity_id} "
-            f"should_poll={self.should_poll} registering recheck timer"
+            f"registering recheck timer"
         )
         self.async_on_remove(
             async_track_time_interval(
