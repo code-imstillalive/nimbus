@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.34] — 2026-08-31
+
+### Added
+- Expanded the four Quality sub-device sensors (`sensor.nimbus_quality_j_ref`, `.j_ach`, `.j_star`, `.regret_dollars`) with per-hour reconstruction attributes (Mark Purcell, PR #297) — 24-key dicts covering import/export price, load/solar/battery/grid power, and SoC%, so a Lovelace card can diff the achieved trajectory against the oracle hour-by-hour from a single state read, with no separate template sensor. `hourly_regret` (already computed internally) is published alongside them for the first time. All four dicts are `_unrecorded_attributes` — live in the HA state cache for cards/automations, never written to Recorder, so the DB stays flat regardless of publish frequency. Fully backward compatible: the other 73 `FlattenedAttrSpec` rows keep publishing no attributes at all, byte-identical to before.
+
 ## [0.94.33] — 2026-08-31
 
 ### Fixed
