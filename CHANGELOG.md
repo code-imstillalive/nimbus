@@ -8,6 +8,12 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.31] — 2026-08-31
+
+### Fixed
+- `publish_daily_quality_report()` / `publish_efficiency_backtest_report()` / `publish_nimbus_only_soc_counterfactual()`'s own "already scored" idempotency check reads back this install's prior publish via `ha_get()` keyed by a fixed literal entity_id (e.g. `sensor.nimbus_solver_quality_report`) — correct on almost every install, but confirmed live on devhub to silently read the WRONG entity's state whenever that literal name is already claimed by something else in the same HA instance (a `remote_homeassistant` mirror of another Nimbus install using the identical sensor names, in this case) — HA's own entity-registry dedup then bumps this install's own platform entity to a `_2` suffix, invisible to a self-read keyed by the plain name. The idempotency check believed "already scored today" on almost every cycle (since the unrelated mirror, a different working install, genuinely had), so this install's own quality-report/backtest/counterfactual entities only ever got a fresh publish on the rare cycle the fast path happened to also re-push something valid through them — explaining multi-hour stale/`unavailable` stretches, confirmed live (3 separate "went unavailable" transitions in 24h, one lasting 9+ hours through a midnight boundary). Fixed with a new `resolve_real_entity_id()` seam: `register_entity_handler()` now optionally records each entity's own real, HA-resolved `entity_id` alongside the existing literal dispatch key (`sensor.py`'s `async_setup_entry` now passes it for all 8 migrated push sensors), and the three idempotency-check self-reads resolve through it before calling `ha_get()`. Purely additive — the dispatch key itself, and every install where the literal name was never contested, are completely unaffected.
+- The same three `publish_*` functions were wrapped in a bare `except Exception: pass` in `main()`, with zero logging — confirmed live this made the bug above completely invisible (200+ recent log lines matching "nimbus" on devhub, zero exceptions, zero tracebacks). Now logs a one-line `_LOGGER.warning(...)` with the real exception message before continuing — the "must never break the real solve" guarantee is unchanged, but a future failure of any of these three publishes is now actually diagnosable instead of only visible as a stale sensor days later.
+
 ## [0.94.30] — 2026-08-30
 
 ### Fixed

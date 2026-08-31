@@ -35,6 +35,23 @@ Also covers the dispatch-table seam in solver_writer.py itself:
 9. The REST branch (native_hass is None) is completely unaffected.
 10. unregister_entity_handler() cleanly pulls the handler back out so a
     config-entry reload doesn't keep a stale bound method alive.
+
+Also covers the real_entity_id / resolve_real_entity_id() seam added
+2026-08-31 (devhub quality-report flicker, confirmed live: a remote_
+homeassistant mirror of another Nimbus install claims the literal
+sensor.nimbus_solver_quality_report entity_id first, bumping this
+install's own platform entity to a "_2" suffix):
+
+11. resolve_real_entity_id() is a pure no-op (returns its input
+    unchanged) when register_entity_handler() was never given a
+    real_entity_id for that key.
+12. register_entity_handler(..., real_entity_id=...) records it, and
+    resolve_real_entity_id() returns it.
+13. unregister_entity_handler() clears the real_entity_id mapping too,
+    not just the dispatch handler.
+14. ha_get(resolve_real_entity_id(...)) reads back THIS install's own
+    real entity even when the literal entity_id string resolves to an
+    unrelated entity elsewhere in the same HA instance.
 """
 
 from __future__ import annotations
@@ -225,6 +242,7 @@ def _clean_dispatch_state():
     falls through" case.
     """
     solver_writer._ENTITY_UPDATE_HANDLERS.clear()
+    solver_writer._ENTITY_REAL_IDS.clear()
     solver_writer._NATIVE_HASS = None
 
 
@@ -307,6 +325,107 @@ def test_register_entity_handler_is_idempotent_and_replaces_stale_handler():
         solver_writer.set_native_hass(hass)
         solver_writer.ha_post_state("sensor.foo", 1.0, {})
         assert received == [("new", 1.0)]
+    finally:
+        _clean_dispatch_state()
+
+
+def test_resolve_real_entity_id_falls_back_to_literal_when_never_registered():
+    """No real_entity_id was ever recorded for this key (REST mode, or a
+    pre-2026-08-31 register_entity_handler() call) -- resolution must be
+    a pure no-op, byte-identical to reading the literal string directly.
+    """
+    _clean_dispatch_state()
+    try:
+        assert (
+            solver_writer.resolve_real_entity_id("sensor.never_registered")
+            == "sensor.never_registered"
+        )
+    finally:
+        _clean_dispatch_state()
+
+
+def test_register_entity_handler_records_real_entity_id_for_resolution():
+    _clean_dispatch_state()
+    try:
+        solver_writer.register_entity_handler(
+            "sensor.nimbus_solver_quality_report",
+            lambda s, a: None,
+            "sensor.nimbus_solver_quality_report_2",
+        )
+        assert (
+            solver_writer.resolve_real_entity_id("sensor.nimbus_solver_quality_report")
+            == "sensor.nimbus_solver_quality_report_2"
+        )
+    finally:
+        _clean_dispatch_state()
+
+
+def test_unregister_entity_handler_also_clears_real_entity_id_mapping():
+    _clean_dispatch_state()
+    try:
+        solver_writer.register_entity_handler(
+            "sensor.foo", lambda s, a: None, "sensor.foo_2"
+        )
+        assert solver_writer.resolve_real_entity_id("sensor.foo") == "sensor.foo_2"
+        solver_writer.unregister_entity_handler("sensor.foo")
+        # Falls back to the literal string again -- no stale mapping left
+        # behind for a reload's new registration to collide with.
+        assert solver_writer.resolve_real_entity_id("sensor.foo") == "sensor.foo"
+    finally:
+        _clean_dispatch_state()
+
+
+def test_ha_get_self_read_finds_real_entity_after_a_name_collision():
+    """Real, live-confirmed incident (2026-08-31, devhub): a remote_
+    homeassistant mirror of another Nimbus install's identically-named
+    sensor.nimbus_solver_quality_report claims that literal entity_id
+    first, so THIS install's own platform entity gets bumped by HA's own
+    dedup to sensor.nimbus_solver_quality_report_2. A self-read keyed by
+    the literal string alone would silently return the UNRELATED
+    mirror's state (a different install's real, valid data) instead of
+    this install's own -- this is the exact bug resolve_real_entity_id()
+    exists to close.
+    """
+    from types import SimpleNamespace
+
+    _clean_dispatch_state()
+    try:
+        hass = _FakeHass()
+        solver_writer.set_native_hass(hass)
+        mirror_state = SimpleNamespace(
+            entity_id="sensor.nimbus_solver_quality_report",
+            state="0.969",
+            attributes={"latest_date": "2026-08-30", "source": "mirror"},
+        )
+        own_state = SimpleNamespace(
+            entity_id="sensor.nimbus_solver_quality_report_2",
+            state="unavailable",
+            attributes={},
+        )
+        hass.states.get = lambda entity_id: {
+            "sensor.nimbus_solver_quality_report": mirror_state,
+            "sensor.nimbus_solver_quality_report_2": own_state,
+        }.get(entity_id)
+
+        solver_writer.register_entity_handler(
+            "sensor.nimbus_solver_quality_report",
+            lambda s, a: None,
+            "sensor.nimbus_solver_quality_report_2",
+        )
+
+        # The naive, un-resolved read (today's pre-fix behaviour) -- would
+        # wrongly return the mirror's data.
+        naive = solver_writer.ha_get("sensor.nimbus_solver_quality_report")
+        assert naive["attributes"]["source"] == "mirror"
+
+        # The fixed read -- resolves through to this install's own real
+        # entity first.
+        real = solver_writer.ha_get(
+            solver_writer.resolve_real_entity_id("sensor.nimbus_solver_quality_report")
+        )
+        assert real["entity_id"] == "sensor.nimbus_solver_quality_report_2"
+        assert real["state"] == "unavailable"
+        assert "source" not in real["attributes"]
     finally:
         _clean_dispatch_state()
 

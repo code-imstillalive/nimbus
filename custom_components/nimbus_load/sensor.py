@@ -606,25 +606,40 @@ async def async_setup_entry(
     solver_runtime.set_default_env_vars(hass)
     from . import solver_writer
 
+    # real_entity_id= (2026-08-31): the dispatch key stays the literal
+    # string (unchanged, still correct for ha_post_state()'s own lookup)
+    # -- passing entity.entity_id alongside it lets solver_writer.py's
+    # own idempotency self-reads (ha_get(resolve_real_entity_id(...)))
+    # find THIS entity even when the literal name is already claimed by
+    # something else in this HA instance (e.g. a remote_homeassistant
+    # mirror of another Nimbus install using the same sensor names --
+    # confirmed live on devhub). See register_entity_handler()'s and
+    # resolve_real_entity_id()'s own docstrings in solver_writer.py for
+    # the full incident this fixes.
     solver_writer.register_entity_handler(
         "sensor.nimbus_solver_battery_forecast",
         battery_forecast.update_from_solver,
+        battery_forecast.entity_id,
     )
     solver_writer.register_entity_handler(
         "sensor.nimbus_household_load_total_forecast",
         household_load_forecast.update_from_solver,
+        household_load_forecast.entity_id,
     )
     solver_writer.register_entity_handler(
         "sensor.nimbus_solver_dispatch_dry_run",
         dispatch_dry_run.update_from_solver,
+        dispatch_dry_run.entity_id,
     )
     solver_writer.register_entity_handler(
         "sensor.nimbus_mirror_temperature_forecast",
         mirror_temperature_forecast.update_from_solver,
+        mirror_temperature_forecast.entity_id,
     )
     solver_writer.register_entity_handler(
         "sensor.nimbus_mirror_humidity_forecast",
         mirror_humidity_forecast.update_from_solver,
+        mirror_humidity_forecast.entity_id,
     )
 
     # Family-A completion (2026-08-29, issue #55 follow-up) -- the three
@@ -662,17 +677,22 @@ async def async_setup_entry(
         + flattened_counterfactual
     )
 
+    # real_entity_id= -- see the matching comment on the five
+    # register_entity_handler() calls above; same fix, same reason.
     solver_writer.register_entity_handler(
         "sensor.nimbus_solver_quality_report",
         quality_report.update_from_solver,
+        quality_report.entity_id,
     )
     solver_writer.register_entity_handler(
         "sensor.nimbus_efficiency_backtest",
         efficiency_backtest.update_from_solver,
+        efficiency_backtest.entity_id,
     )
     solver_writer.register_entity_handler(
         "sensor.nimbus_counterfactual_soc",
         counterfactual_soc.update_from_solver,
+        counterfactual_soc.entity_id,
     )
 
 
