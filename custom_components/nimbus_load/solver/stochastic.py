@@ -9,13 +9,42 @@ never the default until watched" doesn't belong woven through it).
 Deliberately scoped v1, matching the plan's own "battery + solar
 uncertainty only" staging -- NOT a general replacement for build_plan().
 Missing on purpose, all real, all documented here rather than silently
-absent: sheddable loads, adequacy loads, the two-tier P2P export bonus,
-fixed_export_kw, SoC-dependent power curves, terminal_value_breakpoints
-(uses plain flat salvage_value only), and every stability mechanism
-(proximal/max_rate/smoothness) build_plan() has. If A2 is ever watched
-and trusted enough to become more than a shadow-mode comparison, closing
-these gaps is real, separate follow-up work, not something to assume
-already covered.
+absent: sheddable loads, adequacy loads, SoC-dependent power curves,
+terminal_value_breakpoints (uses plain flat salvage_value only), and
+every stability mechanism (proximal/max_rate/smoothness) build_plan()
+has. If A2 is ever watched and trusted enough to become more than a
+shadow-mode comparison, closing these gaps is real, separate follow-up
+work, not something to assume already covered.
+
+## P2P export commitment support (2026-08-31, devhub-only)
+
+`fixed_export_kw` and the two-tier `export_bonus_price`/
+`export_bonus_volume_kwh` mechanism (see `p2p_export.py`'s own module
+docstring for the full real-household reasoning behind each) ARE now
+supported here -- extracted verbatim from network.py's own real,
+live-tested implementation into a separate shared module, specifically
+so this module never has to touch network.py itself (real-money-adjacent
+production code, re-solved every 5 minutes on NUC1/NUC2) to gain this
+capability. Both mechanisms stay genuinely, independently optional --
+`GridConfig.fixed_export_kw`/`export_bonus_price`/`export_bonus_volume_kwh`
+all default to `None`, and every function in `p2p_export.py` is a
+complete no-op when its own relevant field is `None` -- so this module
+keeps working exactly as before for a household with no P2P plan at all,
+and now ALSO reasons correctly about one with a fixed P2P commitment, per
+the explicit household ask: "it should be smart to know how to balance it
+with p2p in play as well as without it there at all... there will be a
+variety of users... different plans different suppliers... the
+integration must handle and allow for variables and various scenarios."
+
+Deployment is deliberately devhub-only and fully reversible: this module
+has zero callers in `nimbus_solver_forecast_writer.py` or any other
+NUC1/NUC2-deployed script (confirmed by grep before this was built) --
+the only real caller is `116KAT-HA-AI`'s own `scripts/
+nimbus_stochastic_comparison_writer.py`, hardcoded against devhub's own
+HA instance, never the NUC1/NUC2 VIP, writing a shadow-mode comparison
+sensor only. Disabling this feature is a single action (stop that one
+script's cron entry) -- network.py and every real NUC1/NUC2 automation
+stay completely untouched regardless.
 
 ## Why a real two-stage structure, not "solve twice"
 
@@ -58,6 +87,7 @@ from dataclasses import dataclass, field
 import numpy as np
 from numpy.typing import NDArray
 
+from . import p2p_export
 from .elements import BatteryConfig, GridConfig, PeriodGrid
 from .lp import LPProblem
 
@@ -81,6 +111,28 @@ class StochasticPlan:
     stage2_discharge_kw: list[NDArray[np.float64]] = field(default_factory=list)
     stage2_soc_kwh: list[NDArray[np.float64]] = field(default_factory=list)
     scenario_cost: list[float] = field(default_factory=list)
+    # Real, pre-existing gap closed 2026-08-31: this module previously
+    # never exposed grid_import/grid_export at all, only battery
+    # charge/discharge/soc -- meaning the P2P fixed_export_kw mechanism
+    # (which pins grid_export[t] directly, not charge/discharge) would
+    # have been unobservable from this result even once wired into the
+    # LP. Same zero-filled-by-default convention as everything else here.
+    stage1_grid_import_kw: NDArray[np.float64] = field(
+        default_factory=lambda: np.array([])
+    )
+    stage1_grid_export_kw: NDArray[np.float64] = field(
+        default_factory=lambda: np.array([])
+    )
+    stage2_grid_import_kw: list[NDArray[np.float64]] = field(default_factory=list)
+    stage2_grid_export_kw: list[NDArray[np.float64]] = field(default_factory=list)
+    # P2P export-bonus allocation (2026-08-31, see p2p_export.py's own
+    # module docstring) -- zero-filled whenever GridConfig.export_bonus_*
+    # isn't configured (the common case), same "represent honestly,
+    # don't paper over" convention as network.py's own Plan.export_bonus_kw.
+    stage1_export_bonus_kw: NDArray[np.float64] = field(
+        default_factory=lambda: np.array([])
+    )
+    stage2_export_bonus_kw: list[NDArray[np.float64]] = field(default_factory=list)
 
 
 def build_stochastic_plan(
@@ -170,7 +222,7 @@ def build_stochastic_plan(
         weight: float,
         prev_soc_ref: str | float,
         apply_terminal_value: bool,
-    ) -> tuple[list[str], list[str], list[str]]:
+    ) -> tuple[list[str], list[str], list[str], list[str], list[str], list[str]]:
         """Shared helper -- builds one family of charge/discharge/soc/
         grid_import/grid_export variables + their SoC-dynamics/balance/
         wash-trade constraints for the given period range, at the given
@@ -193,8 +245,21 @@ def build_stochastic_plan(
         reflect what's actually being modeled. Harmless when salvage_
         value happens to be 0.0 (as in this module's own verification
         scenario), but a real, silent bug for any nonzero value."""
+        # P2P export commitment (2026-08-31, see p2p_export.py's own module
+        # docstring) -- charge{suffix}[t]'s own ub and grid_export{suffix}[t]'s
+        # own (lb, ub) both defer to grid.fixed_export_kw, exactly matching
+        # network.py's own construction. Complete no-op (0.0/max_charge_kw
+        # and (0.0, export_limit_kw), byte-identical to before this existed)
+        # whenever grid.fixed_export_kw is None -- every scenario built
+        # before this feature existed continues to work unchanged.
         charge = {
-            t: p.add_variable(f"charge{suffix}_{t}", lb=0.0, ub=battery.max_charge_kw)
+            t: p.add_variable(
+                f"charge{suffix}_{t}",
+                lb=0.0,
+                ub=p2p_export.charging_ub_during_fixed_window(
+                    t, grid, battery.max_charge_kw
+                ),
+            )
             for t in t_range
         }
         discharge = {
@@ -216,10 +281,9 @@ def build_stochastic_plan(
             for t in t_range
         }
         grid_export = {
-            t: p.add_variable(
-                f"grid_export{suffix}_{t}", lb=0.0, ub=grid.export_limit_kw
-            )
+            t: p.add_variable(f"grid_export{suffix}_{t}", lb=lb, ub=ub)
             for t in t_range
+            for lb, ub in [p2p_export.grid_export_bounds(t, grid, grid.export_limit_kw)]
         }
         solar_used = {
             t: p.add_variable(
@@ -227,6 +291,23 @@ def build_stochastic_plan(
             )
             for t in t_range
         }
+
+        # Two-tier export bonus (see p2p_export.py's own module docstring)
+        # -- genuinely independent of fixed_export_kw above (a household
+        # can have either, both, or neither configured). Empty dict (a
+        # complete no-op everywhere below) whenever grid.export_bonus_*
+        # isn't configured.
+        has_bonus = p2p_export.has_export_bonus(grid)
+        export_bonus = (
+            {
+                t: p2p_export.add_export_bonus_variable(
+                    p, f"export_bonus{suffix}_{t}", grid.export_limit_kw
+                )
+                for t in t_range
+            }
+            if has_bonus
+            else {}
+        )
 
         for t in t_range:
             p.set_cost(grid_import[t], weight * float(grid.import_price[t]) * hours[t])
@@ -243,6 +324,10 @@ def build_stochastic_plan(
                 * (float(discharge_cost_arr[t]) + battery.degradation_cost_per_kwh)
                 * hours[t],
             )
+            if has_bonus:
+                p2p_export.set_export_bonus_cost(
+                    p, export_bonus[t], t, grid, hours, weight=weight
+                )
 
         for t in t_range:
             terms = {
@@ -277,6 +362,10 @@ def build_stochastic_plan(
             p.add_ub_constraint(
                 {grid_export[t]: 1.0, solar_used[t]: -1.0, discharge[t]: -1.0}, 0.0
             )
+            if has_bonus:
+                p2p_export.add_export_bonus_le_export_constraint(
+                    p, export_bonus[t], grid_export[t]
+                )
             draw_coeff = hours[t] / battery.discharge_efficiency
             if t == t_range.start:
                 if isinstance(prev_soc_ref, str):
@@ -293,6 +382,26 @@ def build_stochastic_plan(
                     {discharge[t]: draw_coeff, soc[t - 1]: -1.0}, -battery.min_soc_kwh
                 )
 
+        # Two-tier export bonus cumulative cap + tie-breaker (see
+        # p2p_export.py's own module docstring) -- one call per family,
+        # scoped to THIS family's own real period range only. `label=suffix`
+        # gives each scenario's own cap row a distinct, readable NAME (e.g.
+        # "export_bonus_cap_2026-08-20_s0" vs "..._s1") since every scenario
+        # shares the same stage2_range and would otherwise all propose the
+        # same name -- each scenario's own real LP variables are already
+        # distinct (export_bonus_s0_* vs export_bonus_s1_*), so a name
+        # collision alone can NEVER leak volume between scenarios (see
+        # p2p_export.py's own add_export_bonus_cumulative_caps docstring --
+        # lp.py's constraint names are purely for readability/dual-value
+        # lookup, never required for correctness); `label` only prevents
+        # one scenario's own shadow price from silently shadowing another's
+        # in LPResult.duals. No-op (export_bonus is an empty dict) whenever
+        # has_bonus is False.
+        if has_bonus:
+            p2p_export.add_export_bonus_cumulative_caps(
+                p, export_bonus, periods, grid, label=suffix
+            )
+
         # Terminal value ONLY at the true horizon end (apply_terminal_
         # value=True, stage 2 only) -- plain flat salvage_value (see this
         # module's own docstring for the real, stated "not terminal_
@@ -305,6 +414,9 @@ def build_stochastic_plan(
             [charge[t] for t in t_range],
             [discharge[t] for t in t_range],
             [soc[t] for t in t_range],
+            [grid_import[t] for t in t_range],
+            [grid_export[t] for t in t_range],
+            [export_bonus[t] for t in t_range] if has_bonus else [],
         )
 
     stage1_range = range(stochastic_start_period)
@@ -355,13 +467,22 @@ def build_stochastic_plan(
     stage1_charge = _extract(stage1_names[0]) if stage1_names else np.array([])
     stage1_discharge = _extract(stage1_names[1]) if stage1_names else np.array([])
     stage1_soc = _extract(stage1_names[2]) if stage1_names else np.array([])
+    stage1_grid_import = _extract(stage1_names[3]) if stage1_names else np.array([])
+    stage1_grid_export = _extract(stage1_names[4]) if stage1_names else np.array([])
+    stage1_export_bonus = _extract(stage1_names[5]) if stage1_names else np.array([])
 
     stage2_charge_all, stage2_discharge_all, stage2_soc_all = [], [], []
+    stage2_grid_import_all: list[NDArray[np.float64]] = []
+    stage2_grid_export_all: list[NDArray[np.float64]] = []
+    stage2_export_bonus_all: list[NDArray[np.float64]] = []
     for s in range(n_scenarios):
-        c_names, d_names, soc_names = stage2_names[s]
+        c_names, d_names, soc_names, gi_names, ge_names, bonus_names = stage2_names[s]
         stage2_charge_all.append(_extract(c_names))
         stage2_discharge_all.append(_extract(d_names))
         stage2_soc_all.append(_extract(soc_names))
+        stage2_grid_import_all.append(_extract(gi_names))
+        stage2_grid_export_all.append(_extract(ge_names))
+        stage2_export_bonus_all.append(_extract(bonus_names))
 
     return StochasticPlan(
         status=result.status,
@@ -373,4 +494,10 @@ def build_stochastic_plan(
         stage2_discharge_kw=stage2_discharge_all,
         stage2_soc_kwh=stage2_soc_all,
         scenario_cost=[],
+        stage1_grid_import_kw=stage1_grid_import,
+        stage1_grid_export_kw=stage1_grid_export,
+        stage2_grid_import_kw=stage2_grid_import_all,
+        stage2_grid_export_kw=stage2_grid_export_all,
+        stage1_export_bonus_kw=stage1_export_bonus,
+        stage2_export_bonus_kw=stage2_export_bonus_all,
     )

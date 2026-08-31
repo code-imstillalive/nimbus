@@ -8,6 +8,14 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.39] — 2026-08-31
+
+### Added
+- `solver/p2p_export.py` (new module) — the two-tier P2P export-commitment mechanism (`GridConfig.fixed_export_kw` hard charge gate + export-bounds pinning, `export_bonus_price`/`export_bonus_volume_kwh`'s per-real-calendar-day cap and latest-preferred tie-breaker), extracted verbatim from `network.py`'s own live-tested implementation into a shared module — deliberately without modifying `network.py`/`build_plan()` at all, since that file is real-money-adjacent production code re-solved every 5 minutes on the reference household's own NUC1/NUC2. Every function is a complete no-op whenever its relevant `GridConfig` field is `None`, matching every other optional mechanism in this codebase.
+- `solver/stochastic.py` (Track A2) can now genuinely reason about a P2P export commitment, both stage 1 (the shared, pre-branch decision) and every stage-2 scenario independently — wired via `p2p_export.py`. Direct household ask: "it should be smart to know how to balance it with p2p in play as well as without it there at all... the integration must handle and allow for variables and various scenarios." Also closes a real, pre-existing gap: `StochasticPlan` never exposed `grid_import_kw`/`grid_export_kw` at all before this — a genuine prerequisite, since `fixed_export_kw` pins `grid_export` directly, not battery charge/discharge.
+- New test suite `tests/test_solver_stochastic_p2p.py` (5 tests) — includes two live mutation tests (hard charge gate removed, export-bounds pinning removed) confirming the tests genuinely catch the real bug each mechanism exists to prevent, not passing vacuously. Full existing suite (723 tests total) passes unchanged.
+- `116KAT-HA-AI` repo: `scripts/nimbus_stochastic_comparison_writer.py` — the one real caller of this feature, deliberately devhub-only and fully reversible (hardcoded against devhub's own IP, never the NUC1/NUC2 VIP; writes a standalone shadow-mode comparison sensor only, no live dispatch path). See that repo's own `CLAUDE.md` for the full deploy notes.
+
 ## [0.94.38] — 2026-08-31
 
 ### Fixed
