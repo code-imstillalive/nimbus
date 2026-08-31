@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.41] — 2026-09-01
+
+### Fixed
+- **v0.94.40's own re-entrancy guard broke CI** — its `async_setup_entry()` wrapped the real setup body in `hass.async_create_task(...)` and awaited that call's own return value, but several pre-existing tests (`test_init_cron_suppression.py`, `test_init_periodic_solve_timer_idempotent.py`) mock `hass.async_create_task` as fire-and-forget (closes the coroutine, returns a bare `MagicMock()`), since no call site before this one had ever awaited its own return value. Confirmed live in CI: `TypeError: 'MagicMock' object can't be awaited` across 5 tests. Fixed by switching to plain `asyncio.create_task(...)` for this one internal task — it never needed `hass`'s own fire-and-forget background-task tracking in the first place, since its result is awaited by the same coroutine that creates it; HA's top-level await of `async_setup_entry()` itself already tracks this work's real lifecycle, unchanged from before the guard existed. Verified against the exact CI command locally (836 passed, 0 failed) before pushing. v0.94.40's GitHub release was live and broken (CI red) between its tag push and this fix — no functional regression for anyone who already installed it, since the guard's own logic was correct, only its interaction with these tests' mocks was wrong.
+
 ## [0.94.40] — 2026-09-01
 
 ### Fixed
