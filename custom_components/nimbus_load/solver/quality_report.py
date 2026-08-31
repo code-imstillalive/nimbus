@@ -115,9 +115,12 @@ def _hourly_means_by_key(
     grid, so period index `i` always lives in hour `int(i * hours[i])`
     modulo-24 (int floor of cumulative hours).
     """
-    n = len(hours)
     # Cumulative hours from day-start, floored to hour index. For a
     # uniform 15-min grid this is [0,0,0,0,1,1,1,1,...,23,23,23,23].
+    # ruff F841: the earlier `n = len(hours)` local was leftover from
+    # a defensive length-check that never materialised; the mask/mean
+    # path below tolerates any n, so the local is deleted rather than
+    # kept-and-noqa'd.
     cum = np.cumsum(hours) - hours
     hour_index = np.floor(cum).astype(int) % 24
     out: dict[str, dict[str, float]] = {}
@@ -268,6 +271,7 @@ def compute_quality_report(
     )
     j_ach_soc_kwh = initial_soc_kwh + np.cumsum(ach_delta)
     j_star_soc_kwh = np.asarray(oracle_plan.battery_soc_kwh, dtype=np.float64)
+
     # SoC arrays as % (0..100) for consumer readability. Capacity 0 =>
     # no battery configured, keep the array at 0.0 rather than dividing.
     def _soc_pct(soc_kwh: NDArray[np.float64]) -> NDArray[np.float64]:
