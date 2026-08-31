@@ -136,6 +136,22 @@ class FlattenedAttrSpec:
     # 3 for kW / kWh / AUD (matches parent), fewer for percentages,
     # None for enums / string states.
     suggested_display_precision: int | None
+    # Optional second lookup key on the parent attribute dict, whose
+    # value (a dict) becomes this sensor's extra_state_attributes
+    # (2026-08-31, direct ask: expand quality_j_* sensors with the
+    # 24-hour reconstruction dicts as attributes). None means "no extra
+    # attributes, scalar-only" -- the pre-existing default for every
+    # FLATTENED_ATTRS row before this addition. The value pulled from
+    # the parent MUST be a dict (a per-hour reconstruction dict);
+    # anything else is silently dropped rather than crashing the fan-
+    # out, matching update_from_parent()'s existing missing-key contract.
+    # The whole dict is treated as unrecorded (see _unrecorded_attributes
+    # on the base class) -- the 7 keys x 24 hourly means per publish
+    # are a live reconstruction view, not a metric to graph from HA
+    # history (the parent's own scalars already are, and the LP grid
+    # data lives on sensor.nimbus_solver_battery_forecast for forensic
+    # audit).
+    attrs_source_key: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -715,6 +731,17 @@ class _FlattenedAttributeSensor(SensorEntity):
 
     _attr_has_entity_name = True
     _STALE_AFTER_SECONDS = 5 * 60  # matches _NimbusSolverPushSensor
+    # Every 24-hour reconstruction dict published by any spec with a
+    # non-None attrs_source_key is treated as unrecorded, so Recorder
+    # never persists the 7 x 24 = 168 hourly values per publish (they
+    # live in the HA state cache for the Lovelace card and automations,
+    # not the recorder DB). Rows that don't set attrs_source_key never
+    # populate _extra_attrs in the first place, so this frozenset is a
+    # no-op for them -- honest default, one place to add more attribute
+    # names later without touching the recorder plumbing.
+    _unrecorded_attributes = frozenset(
+        {"j_ref_hourly", "j_ach_hourly", "j_star_hourly", "hourly_regret"}
+    )
 
     def __init__(self, entry, sw_version: str | None, spec: FlattenedAttrSpec) -> None:
         self._entry = entry
@@ -737,6 +764,15 @@ class _FlattenedAttributeSensor(SensorEntity):
         )
         self._state: Any = None
         self._last_updated: float | None = None
+        # Extra state attributes, populated only when spec.attrs_source_key
+        # is set and the parent payload carries a dict at that key. None
+        # (not {}) means "no extra attributes have ever landed" -- HA core
+        # then simply doesn't render the attributes block, same as any
+        # other bare scalar sensor. Empty dict would technically work too
+        # but None keeps the pre-existing scalar-only behaviour exactly
+        # unchanged for the 39 pre-existing FLATTENED_ATTRS_* rows that
+        # don't set attrs_source_key.
+        self._extra_attrs: dict[str, Any] | None = None
 
     @property
     def available(self) -> bool:
@@ -753,6 +789,17 @@ class _FlattenedAttributeSensor(SensorEntity):
     @property
     def native_value(self) -> Any:
         return self._state
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        """Optional per-child attribute payload, only populated when the
+        spec's attrs_source_key is set AND the parent publish carried a
+        dict at that key. Returns None (not {}) when unset so HA renders
+        no attributes block at all for the 39 pre-existing scalar-only
+        FLATTENED_ATTRS_* children -- their behaviour is exactly
+        unchanged.
+        """
+        return self._extra_attrs
 
     @callback
     def update_from_parent(self, attributes: dict) -> None:
@@ -776,6 +823,16 @@ class _FlattenedAttributeSensor(SensorEntity):
             return
         self._state = value
         self._last_updated = time.monotonic()
+        # Optional second lookup for extra_state_attributes -- silently
+        # skipped when either attrs_source_key isn't set or the value at
+        # that key isn't a dict, matching the scalar-side missing-key
+        # contract above (leaves the previous value in place; staleness
+        # eventually flips the whole entity to unavailable).
+        attrs_key = self._spec.attrs_source_key
+        if attrs_key is not None:
+            extra = attributes.get(attrs_key)
+            if isinstance(extra, dict):
+                self._extra_attrs = extra
         if self.hass is not None:
             self.async_write_ha_state()
 
@@ -934,6 +991,12 @@ FLATTENED_ATTRS_QUALITY: tuple[FlattenedAttrSpec, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD,
         suggested_display_precision=3,
+        # 2026-08-31 direct ask: expand attributes with 24-hour
+        # reconstruction (import/export prices, load/solar/battery/grid
+        # kW, SoC %) so consumers can render/diff the trajectories.
+        # This is the IDLE (battery does nothing) trajectory -- battery_kw
+        # is zero, SoC stays flat, grid = load - solar every hour.
+        attrs_source_key="j_ref_hourly",
     ),
     FlattenedAttrSpec(
         source_key="j_ach",
@@ -950,6 +1013,14 @@ FLATTENED_ATTRS_QUALITY: tuple[FlattenedAttrSpec, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD,
         suggested_display_precision=3,
+        # 2026-08-31 direct ask: expand attributes with 24-hour
+        # reconstruction (import/export prices, load/solar/battery/grid
+        # kW, SoC %) so consumers can render/diff the trajectories.
+        # This is the MEASURED (real) trajectory -- battery_kw is the
+        # actual measured net, SoC is integrated from initial via the
+        # sqrt-split efficiencies, grid derived from the reconstruction
+        # identity so it's exact by construction.
+        attrs_source_key="j_ach_hourly",
     ),
     FlattenedAttrSpec(
         source_key="j_star",
@@ -966,6 +1037,17 @@ FLATTENED_ATTRS_QUALITY: tuple[FlattenedAttrSpec, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD,
         suggested_display_precision=3,
+        # 2026-08-31 direct ask: expand attributes with 24-hour
+        # reconstruction (import/export prices, load/solar/battery/grid
+        # kW, SoC %) so consumers can render/diff the trajectories.
+        # This is the ORACLE (perfect-foresight LP) trajectory --
+        # battery_kw and SoC come from oracle_plan directly, prices are
+        # the same real settled prices (identical to j_ach/j_ref),
+        # load/solar are what the LP was solved AGAINST (in the
+        # compute_daily_quality_report caller this happens to also be
+        # the measured history, so the diff column that matters is
+        # battery_kw / grid_kw / soc_pct).
+        attrs_source_key="j_star_hourly",
     ),
     FlattenedAttrSpec(
         source_key="regret_dollars",
@@ -982,6 +1064,12 @@ FLATTENED_ATTRS_QUALITY: tuple[FlattenedAttrSpec, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD,
         suggested_display_precision=3,
+        # 2026-08-31 direct ask ("similar for the other quality_j
+        # entities"): the pre-existing hourly_regret dict (per-hour
+        # actual-minus-oracle cost) is the natural companion attribute
+        # for the regret_dollars scalar -- lets a card show "which hours
+        # cost me the most" without a separate template sensor.
+        attrs_source_key="hourly_regret",
     ),
     # --- Tracking (diagnostic) --------------------------------------------------
     FlattenedAttrSpec(
