@@ -8,6 +8,14 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.32] — 2026-08-31
+
+### Added
+- `sensor.nimbus_solver_price_response_latency` (issue #294, Mark Purcell) — a first-class, continuously-observable version of the "REST-poll two sensors and diff timestamps" measurement Mark had to do by hand to verify issue #232's `solve_on_price_change` fix. `state_class: measurement`/`device_class: duration` so it feeds HA's long-term statistics directly (no Grafana/InfluxDB detour needed for a simple history chart). Updated ONLY on an event-driven (price-change-triggered) solve, per Mark's own explicit design — a cron or startup-triggered solve leaves it at its last event-driven value, since neither has a meaningful "time since the price actually changed" to report. Attributes: `last_price_change_at`, `last_solve_at`, `trigger_source`, `triggering_entity`, `debounce_s`, plus `p50_recent`/`p90_recent`/`max_recent`/`sample_count` over a rolling 50-sample window.
+
+### Fixed
+- The phase-locked periodic cron (issue #244) and the optional event-driven `solve_on_price_change` trigger (issue #256) ran fully independently — Mark's own live capture (issue #295) showed both writing `sensor.nimbus_solver_battery_forecast` within the same NEM 5-minute block, 5s apart, from identical inputs: a genuinely redundant solve, restamping `last_updated` and burning CPU for zero new information. The cron now checks `solver_runtime.time_since_last_solve()` first and skips its own tick if ANY trigger (cron, event-driven, or the startup retry loop) completed a solve within the last 60 seconds — treating the cron as a watchdog ("guarantee at least one solve per 5-min block, e.g. if Amber goes quiet for a whole window") rather than an unconditional heartbeat. A fresh install/restart (nothing has ever solved) is never suppressed.
+
 ## [0.94.31] — 2026-08-31
 
 ### Fixed

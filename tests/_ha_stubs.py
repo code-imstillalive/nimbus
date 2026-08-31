@@ -411,6 +411,12 @@ def install_ha_stubs() -> None:
         # level, so it must exist on the stub for every test that imports
         # sensor.py, whether or not it exercises that specific class.
         UnitOfTemperature=types.SimpleNamespace(CELSIUS="°C", FAHRENHEIT="°F"),
+        # Added 2026-08-31 (issue #294) -- same minimal, real-string-value
+        # stub pattern as UnitOfPower/UnitOfTemperature above.
+        # NimbusSolverPriceResponseLatencySensor imports this at module
+        # level, so it must exist on the stub for every test that imports
+        # sensor.py, whether or not it exercises that specific class.
+        UnitOfTime=types.SimpleNamespace(SECONDS="s", MINUTES="min", HOURS="h"),
         Platform=MagicMock(),
         # Real string values, not a MagicMock -- confirmed against HA
         # core's own current source (2026-08-23, Gold entity-category

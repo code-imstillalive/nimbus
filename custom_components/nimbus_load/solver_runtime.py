@@ -72,10 +72,119 @@ down the rest of the integration.
 from __future__ import annotations
 
 import logging
+import time
+from datetime import datetime
 
 from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
 
 _LOGGER = logging.getLogger(__name__)
+
+# Issues #294/#295 (Mark Purcell, 2026-08-31) -- a tiny, module-level
+# registry, deliberately NOT in __init__.py or sensor.py: __init__.py's
+# own price-watcher/cron code (the only real caller of record_solve_
+# completed()/time_since_last_solve() below) already imports this module
+# at top level, and sensor.py already imports it lazily inside async_
+# setup_entry (see that file's own comment next to `from . import
+# solver_runtime`) -- putting the registry here means neither of those
+# two files needs a NEW import of the other, which would be circular
+# (sensor.py -> __init__.py already can't happen; __init__.py already
+# imports FROM sensor.py for object_id_from_source).
+#
+# _last_solve_completed_monotonic is monotonic, not wall-clock -- only
+# elapsed time matters for issue #295's suppression window, and
+# monotonic sidesteps any clock-skew/DST edge case, same reasoning
+# _NimbusSolverPushSensor's own `_last_updated` field in sensor.py
+# already uses. _price_latency_sensor is a single instance (only ever
+# one hub, same "one per hub" assumption issue #294's own sensor class
+# docstring makes) rather than a dict keyed by entry_id.
+_last_solve_completed_monotonic: float | None = None
+_price_latency_sensor = None
+
+
+def register_price_latency_sensor(sensor) -> None:
+    """Called once, from sensor.py's async_setup_entry, so the price-
+    watcher/cron code in __init__.py has something to push observations
+    into. `sensor` is a NimbusSolverPriceResponseLatencySensor -- typed
+    loosely here (no import) so this module's own top-level scope stays
+    free of homeassistant.components.sensor, which nothing else in this
+    file needs."""
+    global _price_latency_sensor
+    _price_latency_sensor = sensor
+
+
+def record_solve_completed(
+    *,
+    trigger_source: str,
+    triggering_entity: str | None = None,
+    price_change_at: datetime | None = None,
+    debounce_s: float | None = None,
+) -> None:
+    """Record that a solve just completed -- the single call site both
+    issue #295 (cron suppression, via time_since_last_solve() below) and
+    issue #294 (the price-response-latency sensor) build on. Called from
+    __init__.py's three real solve-trigger call sites (the phase-locked
+    cron, the debounced event-driven price-change handler, and the
+    startup-retry loop) immediately after `await async_run_solve(hass)`
+    returns True -- deliberately NOT from inside async_run_solve() /
+    _blocking() itself, since neither of those has any visibility into
+    WHICH of the three triggered this particular cycle or what the
+    triggering price event's own timestamp was; that context only exists
+    at each call site in __init__.py.
+
+    `trigger_source` is a plain string, not an enum, matching this
+    project's own existing convention for this class of internal-only
+    tag (e.g. solver_writer.py's own `dispatch_direction`) -- expected
+    values are "cron", "price_change", and "startup", but nothing here
+    validates that; an unrecognised value just means the sensor update
+    below is skipped, exactly like "cron"/"startup" already are.
+
+    Per issue #294's own explicit design ("For trigger_source=cron,
+    last_price_change_at is null and latency is null... so the sensor
+    sits at its last event-driven value"): only trigger_source==
+    "price_change" ever updates sensor.nimbus_solver_price_response_
+    latency. A cron or startup solve still updates _last_solve_completed_
+    monotonic (issue #295 needs that unconditionally, regardless of
+    which trigger produced the most recent solve) but leaves the
+    latency sensor's own published state untouched.
+    """
+    global _last_solve_completed_monotonic
+    _last_solve_completed_monotonic = time.monotonic()
+    if trigger_source != "price_change" or _price_latency_sensor is None:
+        return
+    solve_at = dt_util.utcnow()
+    latency_s = (
+        (solve_at - price_change_at).total_seconds()
+        if price_change_at is not None
+        else None
+    )
+    _price_latency_sensor.record(
+        latency_s=latency_s,
+        trigger_source=trigger_source,
+        triggering_entity=triggering_entity,
+        price_change_at=price_change_at,
+        solve_at=solve_at,
+        debounce_s=debounce_s,
+    )
+
+
+def time_since_last_solve() -> float | None:
+    """Seconds since the last successful solve completed, from ANY
+    trigger source, or None if no solve has completed yet this process
+    (a fresh install/restart -- the cron should never suppress its very
+    first tick just because nothing has run yet).
+
+    Issue #295: the phase-locked periodic cron in __init__.py calls this
+    before running its own solve, and skips entirely if a solve already
+    completed within _CRON_SUPPRESS_WINDOW_S seconds -- treating the
+    cron as a timeout/watchdog ("guarantee at least one solve per 5-min
+    block") rather than a heartbeat that always fires regardless of
+    whether an event-driven solve already covered this block.
+    """
+    if _last_solve_completed_monotonic is None:
+        return None
+    return time.monotonic() - _last_solve_completed_monotonic
+
 
 # Lazily imported (see _ensure_ready() below) -- this module's own
 # env-var-overridable state/lock file paths (NIMBUS_SOLVER_PLAN_STATE_

@@ -20,6 +20,7 @@ run_solve).
 import asyncio
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -512,6 +513,79 @@ def test_unknown_debounce_state_falls_through_to_entry_options():
         _configure_price_watcher(hass, entry)
 
     assert _price_watcher_unsub.get("entry_debounce_unknown") is not None
+
+
+def test_debounced_solve_records_completion_with_triggering_entity_and_timestamp():
+    """Issue #294 (Mark Purcell): the sensor.nimbus_solver_price_response_
+    latency attributes (triggering_entity, last_price_change_at) have to
+    come from SOMEWHERE -- this is that somewhere. _on_price_change must
+    capture the firing event's own entity_id and new_state.last_changed,
+    and _fire_solve's real solve completion must forward exactly those
+    (plus the resolved debounce_s) to solver_runtime.record_solve_
+    completed() as trigger_source="price_change" -- not just fire-and-
+    forget the bare solve the way the pre-#294 code did.
+    """
+    _reset_module_state()
+
+    async def _run() -> None:
+        loop = asyncio.get_event_loop()
+        hass = MagicMock()
+        hass.loop = loop
+        hass.states.get = MagicMock(return_value=None)
+        hass.async_create_task = lambda coro: asyncio.ensure_future(coro)
+        fake_solve = AsyncMock(return_value=True)
+        fake_record = MagicMock()
+        entry = _fake_entry(
+            "entry_latency_record",
+            {
+                CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_a",
+                CONF_SOLVE_ON_PRICE_CHANGE: True,
+                CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S: 0.05,
+            },
+        )
+
+        captured: dict[str, object] = {}
+
+        def _capture(_hass, _entities, callback):
+            captured["callback"] = callback
+            return MagicMock()
+
+        with (
+            patch(
+                "custom_components.nimbus_load.async_track_state_change_event",
+                side_effect=_capture,
+            ),
+            patch(
+                "custom_components.nimbus_load.solver_runtime.async_run_solve",
+                fake_solve,
+            ),
+            patch(
+                "custom_components.nimbus_load.solver_runtime.record_solve_completed",
+                fake_record,
+            ),
+        ):
+            _configure_price_watcher(hass, entry)
+
+            cb = captured["callback"]
+            last_changed = "2026-08-31T07:55:20.370000+00:00"
+            fake_event = MagicMock()
+            fake_event.data = {
+                "entity_id": "sensor.import_a",
+                "new_state": SimpleNamespace(last_changed=last_changed),
+            }
+            cb(fake_event)
+
+            await asyncio.sleep(0.15)
+
+        fake_solve.assert_called_once_with(hass)
+        fake_record.assert_called_once_with(
+            trigger_source="price_change",
+            triggering_entity="sensor.import_a",
+            price_change_at=last_changed,
+            debounce_s=0.05,
+        )
+
+    asyncio.run(_run())
 
 
 if __name__ == "__main__":

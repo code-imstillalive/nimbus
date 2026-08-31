@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections import deque
 from datetime import UTC, datetime, timedelta
 
 from homeassistant.components.sensor import (
@@ -26,7 +27,12 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigSubentry
-from homeassistant.const import EntityCategory, UnitOfPower, UnitOfTemperature
+from homeassistant.const import (
+    EntityCategory,
+    UnitOfPower,
+    UnitOfTemperature,
+    UnitOfTime,
+)
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -513,6 +519,24 @@ async def async_setup_entry(
     # as the two bridge sensors above. See NimbusHealthReportSensor's
     # own docstring.
     async_add_entities([NimbusHealthReportSensor(entry, sw_version)])
+
+    # Price-response-latency sensor (issue #294) -- same "one per hub"
+    # pattern as the two entities above. Registered with solver_runtime
+    # (not solver_writer's dispatch table -- this sensor's data never
+    # comes from a solve's own output, it comes from __init__.py's price-
+    # watcher/cron scheduling code, a different call path entirely) AFTER
+    # async_add_entities, same reasoning as the register_entity_handler()
+    # calls further down: the entity must be known to hass before the
+    # first price-change solve can publish through it.
+    price_latency_sensor = NimbusSolverPriceResponseLatencySensor(entry, sw_version)
+    async_add_entities([price_latency_sensor])
+    # Re-imports (cheap, already cached in sys.modules) the same module
+    # the mirror/push-sensor registration further down this function
+    # imports under this identical name -- no conflict, deliberately not
+    # hoisted to module top, see that later import's own comment for why.
+    from . import solver_runtime
+
+    solver_runtime.register_price_latency_sensor(price_latency_sensor)
 
     # Hub-level Solver-output entities (2026-08-23, issue #55) --
     # migrated off solver_writer.ha_post_state()'s raw states.async_set()
@@ -1219,6 +1243,132 @@ class NimbusHealthReportSensor(SensorEntity):
             "subentry_status": subentry_status,
             "generated_at": datetime.now(UTC).isoformat(),
         }
+
+
+class NimbusSolverPriceResponseLatencySensor(SensorEntity):
+    """Issue #294 (Mark Purcell, 2026-08-31): a first-class, continuously
+    observable version of the "REST-poll two sensors and diff timestamps"
+    measurement Mark had to do by hand to verify issue #232's
+    `solve_on_price_change` fix. Without this, that latency is only ever
+    knowable by manually correlating a price sensor's `last_changed`
+    against `sensor.nimbus_solver_battery_forecast.last_updated` -- fine
+    for a one-off verification, useless as an ongoing health signal or a
+    regression-bisection tool after touching `_configure_price_watcher`,
+    `solver_runtime.async_run_solve`, or the phase-locked cron scheduler.
+
+    Updated ONLY on an event-driven (price_change) solve -- a cron- or
+    startup-triggered solve leaves this sensor at its last event-driven
+    value, per Mark's own explicit design in #294 ("the sensor sits at
+    its last event-driven value"), since neither of those has a
+    meaningful "time since the price actually changed" to report. See
+    solver_runtime.record_solve_completed()'s own docstring for where
+    that distinction is actually enforced -- this class just renders
+    whatever it's handed.
+
+    One per hub -- there is only ever one price-response pipeline per
+    hub (issue #244's phase-locked cron + issue #256's optional price
+    watcher both operate hub-wide, not per-subentry).
+
+    `state_class: measurement` (Mark's own explicit "preferred" choice
+    over a bare attribute on an existing sensor) is what makes this
+    recordable into HA's long-term statistics, so a plain ApexCharts/
+    history-graph card can chart it with zero Grafana/InfluxDB detour --
+    see #294's own "Rejected for that reason" note on the attribute-only
+    alternative.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Solver Price Response Latency"
+    _attr_native_unit_of_measurement = UnitOfTime.SECONDS
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_suggested_display_precision = 1
+    _attr_entity_category = None  # a real, actively-read health signal
+
+    # ~4h of real history at the observed ~5-min event-driven-solve
+    # cadence (one price tick per NEM boundary) -- enough for a
+    # meaningful p50/p90/max without the deque growing unbounded across
+    # a long-running process. Mark's own proposal only ever said "rolling
+    # stats (optional)" with no specific window; this is a deliberately
+    # conservative, small choice, easy to widen later if a real need for
+    # a longer lookback ever surfaces.
+    _ROLLING_WINDOW = 50
+
+    def __init__(self, entry: NimbusConfigEntry, sw_version: str | None) -> None:
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_solver_price_response_latency"
+        self.entity_id = "sensor.nimbus_solver_price_response_latency"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+            name="Nimbus",
+            manufacturer="Nimbus",
+            model="Hub",
+            sw_version=sw_version,
+        )
+        self._latency_s: float | None = None
+        self._last_price_change_at: str | None = None
+        self._last_solve_at: str | None = None
+        self._trigger_source: str | None = None
+        self._triggering_entity: str | None = None
+        self._debounce_s: float | None = None
+        self._recent: deque[float] = deque(maxlen=self._ROLLING_WINDOW)
+
+    @property
+    def native_value(self) -> float | None:
+        return self._latency_s
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        recent = sorted(self._recent)
+        p50 = p90 = latency_max = None
+        if recent:
+            p50 = recent[len(recent) // 2]
+            p90 = recent[min(len(recent) - 1, int(len(recent) * 0.9))]
+            latency_max = recent[-1]
+        return {
+            "last_price_change_at": self._last_price_change_at,
+            "last_solve_at": self._last_solve_at,
+            "trigger_source": self._trigger_source,
+            "triggering_entity": self._triggering_entity,
+            "debounce_s": self._debounce_s,
+            "p50_recent": p50,
+            "p90_recent": p90,
+            "max_recent": latency_max,
+            "sample_count": len(recent),
+        }
+
+    @callback
+    def record(
+        self,
+        *,
+        latency_s: float | None,
+        trigger_source: str,
+        triggering_entity: str | None,
+        price_change_at: datetime | None,
+        solve_at: datetime | None,
+        debounce_s: float | None,
+    ) -> None:
+        """Called by solver_runtime.record_solve_completed() -- always
+        from the event loop (see that function's own docstring for why
+        this needs no thread-hop, unlike _NimbusSolverPushSensor's own
+        update_from_solver(), which is reached via hass.add_job() from a
+        genuinely different call context)."""
+        self._latency_s = round(latency_s, 3) if latency_s is not None else None
+        self._last_price_change_at = (
+            price_change_at.isoformat() if price_change_at is not None else None
+        )
+        self._last_solve_at = solve_at.isoformat() if solve_at is not None else None
+        self._trigger_source = trigger_source
+        self._triggering_entity = triggering_entity
+        self._debounce_s = debounce_s
+        if latency_s is not None:
+            self._recent.append(latency_s)
+        # Same "entity not added to hass yet" guard as _NimbusSolverPush
+        # Sensor.update_from_solver() -- see that method's own docstring
+        # for why this is a real, expected race, not a defensive
+        # afterthought.
+        if self.hass is not None:
+            self.async_write_ha_state()
 
 
 class _NimbusSolverPushSensor(SensorEntity):
