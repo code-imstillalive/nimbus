@@ -15,7 +15,6 @@ from datetime import datetime, timedelta
 from unittest.mock import patch
 
 import _solver_path  # noqa: F401
-
 import solver_writer
 
 BRISBANE = solver_writer.BRISBANE_TZ
