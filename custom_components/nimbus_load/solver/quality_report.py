@@ -53,6 +53,7 @@ the MOST ACCURATE source available for each:
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 
 import numpy as np
 from numpy.typing import NDArray
@@ -84,55 +85,71 @@ class QualityReport:
     j_ref_hourly: dict[str, dict[str, float]]
     j_ach_hourly: dict[str, dict[str, float]]
     j_star_hourly: dict[str, dict[str, float]]
-    """24-hour reconstruction dicts, one per trajectory, added 2026-08-31
-    for full state reconstruction on the flattened J_ref/J_ach/J_star
-    child sensors. Each dict has SEVEN top-level keys (import_price,
-    export_price, load_kw, solar_kw, battery_kw, grid_kw, soc_pct), and
-    each of those maps 24 string hour indices ('0'..'23') to hourly-mean
-    floats. Sign conventions: battery_kw + = charge / - = discharge,
-    grid_kw + = import / - = export. Prices are identical across the
-    three trajectories (same day's real settled prices) but included in
-    every trajectory dict so each is self-describing. Empty hours
-    (e.g. solar overnight) get 0.0, not None, so consumers can safely
-    sum/mean without None-guards."""
+    """24-hour reconstruction dicts, one per trajectory. Reframed
+    2026-08-31 (direct ask): row-major, indexed by ISO local timestamp
+    with the site tz offset (e.g. `'2026-08-30T00:00:00+10:00'` for
+    Brisbane), each row a self-describing record with SEVEN entity
+    fields (import_price_aud_per_kwh, export_price_aud_per_kwh, load_kw,
+    solar_kw, battery_kw, grid_kw, soc_pct). Sign conventions:
+    battery_kw + = charge / - = discharge, grid_kw + = import / - =
+    export. Prices are identical across the three trajectories (same
+    day's real settled prices) but included in every row so each row is
+    self-describing. Empty periods (e.g. solar overnight) get 0.0, not
+    None, so consumers can safely sum/mean without None-guards."""
 
 
 def _hourly_means_by_key(
     *,
     hours: NDArray[np.float64],
     per_period: dict[str, NDArray[np.float64]],
+    day_start: datetime,
 ) -> dict[str, dict[str, float]]:
-    """Aggregate several 96-period (or n-period) arrays to 24 hourly means,
-    keyed by trajectory-quantity name. Empty hours get 0.0, not None, so
-    the resulting dict is safe to sum/mean without None guards -- the
-    intended consumer is a Lovelace/apexcharts card, not a forensic
-    per-period audit (the LP grid is still available on the parent
-    Nimbus sensors for that use case).
+    """Aggregate several 96-period (or n-period) arrays to 24 hourly rows,
+    row-major, indexed by ISO local timestamp (`day_start` + h hours,
+    tz-aware, formatted as e.g. `'2026-08-30T00:00:00+10:00'`). Each
+    row is a self-describing record with one float per input key. Empty
+    hours get 0.0, not None, so the resulting dict is safe to sum/mean
+    without None guards -- the intended consumer is a Lovelace/
+    apexcharts card, not a forensic per-period audit (the LP grid is
+    still available on the parent Nimbus sensors for that use case).
 
     `hours` is periods.hours (per-period duration in hours, typically
-    a np.full(n, 0.25) array). Timestamps aren't needed here because
-    every daily-quality run is built on a day-start-anchored uniform
-    grid, so period index `i` always lives in hour `int(i * hours[i])`
-    modulo-24 (int floor of cumulative hours).
+    a np.full(n, 0.25) array). `day_start` is the tz-aware datetime
+    the daily-quality run is anchored on (period 0 == day_start,
+    period n-1 == day_start + (n-1)*hours[0]). Period index `i` lives
+    in hour `int(i * hours[i])` modulo-24 (int floor of cumulative
+    hours).
     """
     # Cumulative hours from day-start, floored to hour index. For a
     # uniform 15-min grid this is [0,0,0,0,1,1,1,1,...,23,23,23,23].
-    # ruff F841: the earlier `n = len(hours)` local was leftover from
-    # a defensive length-check that never materialised; the mask/mean
-    # path below tolerates any n, so the local is deleted rather than
-    # kept-and-noqa'd.
     cum = np.cumsum(hours) - hours
     hour_index = np.floor(cum).astype(int) % 24
-    out: dict[str, dict[str, float]] = {}
+    # Pre-build the 24 ISO-format keys once. isoformat() on a
+    # tz-aware datetime produces e.g. '2026-08-30T00:00:00+10:00' --
+    # exactly the shape a Lovelace/apexcharts card can parse straight
+    # back into a Date via `new Date(key)`.
+    hour_keys = [(day_start + timedelta(hours=h)).isoformat() for h in range(24)]
+    # Pre-compute one hourly mean per (key, hour) so the row-major
+    # assembly below is a plain lookup.
+    means: dict[str, list[float]] = {}
     for key, arr in per_period.items():
-        hourly: dict[str, float] = {}
+        row: list[float] = []
         for h in range(24):
             mask = hour_index == h
             if mask.any():
-                hourly[str(h)] = round(float(arr[mask].mean()), 4)
+                row.append(round(float(arr[mask].mean()), 4))
             else:
-                hourly[str(h)] = 0.0
-        out[key] = hourly
+                row.append(0.0)
+        means[key] = row
+    # Assemble row-major: one dict entry per hour, containing one
+    # float per input key. Iteration order of `per_period` (Python 3.7+
+    # ordered) is preserved inside each row, so callers can rely on
+    # import_price / export_price / load_kw / solar_kw / battery_kw /
+    # grid_kw / soc_pct staying in that order when the caller passes
+    # them in that order (see compute_quality_report below).
+    out: dict[str, dict[str, float]] = {}
+    for h in range(24):
+        out[hour_keys[h]] = {key: means[key][h] for key in per_period}
     return out
 
 
@@ -291,6 +308,12 @@ def compute_quality_report(
     j_ref_grid_kw = load.forecast_kw - solar.forecast_kw + zero  # idle battery
     j_ach_grid_kw = load.forecast_kw - solar.forecast_kw + j_ach_battery_net_kw
     j_star_grid_kw = load.forecast_kw - solar.forecast_kw + j_star_battery_net_kw
+    # `timestamps[0]` is period 0's tz-aware datetime, always the
+    # day-start anchor for the daily-quality run (see
+    # compute_daily_quality_report()). Passed through to
+    # _hourly_means_by_key so each hourly row is keyed by the real
+    # local ISO timestamp, not a bare '0'..'23' hour index.
+    day_start = timestamps[0]
     j_ref_hourly = _hourly_means_by_key(
         hours=hours,
         per_period={
@@ -302,6 +325,7 @@ def compute_quality_report(
             "grid_kw": j_ref_grid_kw,
             "soc_pct": j_ref_soc_pct,
         },
+        day_start=day_start,
     )
     j_ach_hourly = _hourly_means_by_key(
         hours=hours,
@@ -314,6 +338,7 @@ def compute_quality_report(
             "grid_kw": j_ach_grid_kw,
             "soc_pct": j_ach_soc_pct,
         },
+        day_start=day_start,
     )
     j_star_hourly = _hourly_means_by_key(
         hours=hours,
@@ -326,6 +351,7 @@ def compute_quality_report(
             "grid_kw": j_star_grid_kw,
             "soc_pct": j_star_soc_pct,
         },
+        day_start=day_start,
     )
 
     epr_result = compute_epr(j_ref=j_ref, j_ach=j_ach, j_star=j_star)
