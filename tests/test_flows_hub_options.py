@@ -30,6 +30,8 @@ from custom_components.nimbus_load.const import (
     CONF_BATTERY_SENSOR,
     CONF_FORECAST_HORIZON_HOURS,
     CONF_HUMIDITY_SENSOR,
+    CONF_SOLVER_BATTERY_POWER_POSITIVE_IS_CHARGE,
+    CONF_SOLVER_BATTERY_POWER_SENSOR,
     CONF_SOLVER_BATTERY_SOC_SENSOR,
     CONF_SOLVER_EXPORT_PRICE_SENSOR,
     CONF_SOLVER_EXPORT_PRICE_SENSOR_2,
@@ -424,6 +426,35 @@ def test_solver_sources_step_saves_and_preserves_untouched_keys():
     # A genuinely-optional wizard field never touched this run resolves to
     # None, not silently missing or silently stale.
     assert result["data"][CONF_SOLVER_SOLAR_FORECAST_SENSOR_2] is None
+
+
+def test_solver_sources_step_saves_the_battery_power_positive_is_charge_flag():
+    # Regression for issue #307: the schema registers the flag in the
+    # solver_sources form, but earlier versions omitted it from
+    # _SOLVER_WIZARD_SCHEMA_KEYS, so the save loop silently dropped it and
+    # the fix released in v0.94.35 was unreachable from the UI. This test
+    # locks the flag into the wizard's own save contract: submitted =
+    # persisted.
+    import asyncio
+
+    flow = _make_flow(options={})
+    flow._solver_data = {
+        **_full_solver_data(),
+        CONF_SOLVER_BATTERY_POWER_SENSOR: "sensor.battery_power",
+        CONF_SOLVER_BATTERY_POWER_POSITIVE_IS_CHARGE: True,
+    }
+    result = asyncio.run(
+        flow.async_step_solver_sources(
+            {
+                CONF_SOLVER_SOLAR_FORECAST_SENSOR: "sensor.solcast",
+                CONF_SOLVER_LOAD_FORECAST_SENSOR: "sensor.load_fc",
+                CONF_SOLVER_BATTERY_POWER_SENSOR: "sensor.battery_power",
+                CONF_SOLVER_BATTERY_POWER_POSITIVE_IS_CHARGE: True,
+            }
+        )
+    )
+    assert result["type"] == "create_entry"
+    assert result["data"][CONF_SOLVER_BATTERY_POWER_POSITIVE_IS_CHARGE] is True
 
 
 def test_solver_sources_step_attempts_to_dismiss_the_setup_notification():
