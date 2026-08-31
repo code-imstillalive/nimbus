@@ -148,8 +148,7 @@ def has_export_bonus(grid: GridConfig) -> bool:
     together (GridConfig's own __post_init__ already enforces this), so
     checking either is sufficient."""
     return (
-        grid.export_bonus_price is not None
-        and grid.export_bonus_volume_kwh is not None
+        grid.export_bonus_price is not None and grid.export_bonus_volume_kwh is not None
     )
 
 

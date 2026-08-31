@@ -247,9 +247,7 @@ class TestExportBonusIndependentPerScenario(unittest.TestCase):
 
         hours_window = periods.hours[3:10]
         for s in range(len(solar_scenarios)):
-            claimed = float(
-                np.sum(plan.stage2_export_bonus_kw[s][0:7] * hours_window)
-            )
+            claimed = float(np.sum(plan.stage2_export_bonus_kw[s][0:7] * hours_window))
             self.assertAlmostEqual(
                 claimed,
                 40.0,
