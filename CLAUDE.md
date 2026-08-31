@@ -12,9 +12,50 @@ Instructions for any Claude instance working on this repo. Read this before touc
 
 ---
 
-## ⚠️ CURRENT STATE (2026-08-27 night) — read this first
+## ⚠️ CURRENT STATE (2026-08-31 night) — read this first
 
-Supersedes the 2026-08-26 evening section below, which is kept as historical record only.
+Supersedes the 2026-08-27 night section below, which is kept as historical record only.
+
+**Version: v0.94.37** (up from v0.94.12 as of the last write-up — a large number of releases
+landed across 2026-08-27 through 2026-08-31 that were never captured in this section; see
+`CHANGELOG.md` for the full, real list, this paragraph is not attempting to re-derive it).
+Open issues as of writing: #114, #217, #236, #273 (mostly resolved-in-comments/deferred-scope),
+plus a real, live, still-open bug (see below).
+
+**#307 (fix, PR #309, v0.94.37) — Mark Purcell caught a real bug in this project's own
+v0.94.35 fix.** `solver_battery_power_positive_is_charge` (the SigEnergy sign-convention flag
+from issue #299) was registered on the Solver Sources wizard form but missing from
+`_SOLVER_WIZARD_SCHEMA_KEYS`, so the save loop silently dropped it — submitting the wizard
+reported success while the value stayed `None` forever, leaving v0.94.35's own fix
+unreachable from the UI. One-line fix, real regression test, verified end-to-end by Mark on
+his own live SigEnergy install before opening the PR. A good, concrete example of exactly
+why his review is treated as high-trust — this shipped a genuine, well-evidenced fix, not a
+guess.
+
+**⚠️ Live, unresolved, deferred to 2026-08-31/09-01 — number.py's RestoreNumber mechanism
+loses real values on some (not all) HA restarts, root cause not yet found.** Confirmed again
+live on devhub the night of 2026-08-31: after a `ha_restart`, the five hardware-limit
+`number.nimbus_solver_*` entities (battery capacity, max charge/discharge, grid max
+import/export) came back correctly restored this time — but this is the same class of bug
+already documented multiple times in this project's own history (116KAT-HA-AI's CLAUDE.md,
+"2026-08-26 evening" section and others) where these exact entities have, on other restarts,
+reset to their own schema placeholder minimum (`0.1`) instead of restoring. `number.py`'s own
+`async_added_to_hass()` calls `self.async_get_last_number_data()` (the standard `RestoreNumber`
+API) and falls back to seeding from `entry.options` only when no restored state is found — this
+looks correct on a read, but the bug is real and has recurred across multiple sessions on a
+full HA **core restart** specifically (not a config-entry reload, which never shows this).
+**Not yet investigated**: whether this is a genuine race in HA core's own restore-state
+timing on a cold boot (entity added before the restore-state cache is fully populated), a
+`RestoreNumber`/`NumberEntity` interaction quirk, or something specific to how many entities
+this platform registers at once on `async_setup_entry`. Household explicitly asked to defer
+digging into this until 2026-09-01 rather than risk another restart late at night — picking
+this back up should start by reading `homeassistant.helpers.restore_state`'s own real source
+(`RestoreEntity.async_get_last_state()`'s timing guarantees relative to `async_added_to_hass`)
+before touching `number.py` again.
+
+---
+
+## ⚠️ CURRENT STATE (2026-08-27 night) — historical, superseded by the section above
 
 **Version: v0.94.12** (up from v0.94.2). PRs #246, #247, #249, #250, #251, #252 merged this
 session; releases v0.94.9 → v0.94.12 cut. Open issues as of writing: #114, #217, #236 (mostly

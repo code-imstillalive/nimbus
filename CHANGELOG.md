@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.37] — 2026-08-31
+
+### Fixed
+- `solver_battery_power_positive_is_charge` (issue #299, v0.94.35's own SigEnergy sign-convention fix) was unreachable through the Solver settings wizard — `_solver_sources_schema` registered the field on the form, but `async_step_solver_sources`'s save loop only copies keys listed in `_SOLVER_WIZARD_SCHEMA_KEYS`, and the flag was missing from that tuple. Submitting the wizard reported success while the value silently stayed `None`, leaving the v0.94.35 fix unusable from the UI (Mark Purcell, issue #307, PR #309). Fixed by adding the key to the tuple; new regression test locks the save contract.
+
 ## [0.94.36] — 2026-08-31
 
 ### Fixed
