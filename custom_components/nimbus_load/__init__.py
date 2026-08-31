@@ -314,9 +314,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: NimbusConfigEntry) -> bo
         )
         return await existing
 
-    task = hass.async_create_task(
-        _async_setup_entry_impl(hass, entry), name=f"nimbus_load setup {entry.entry_id}"
-    )
+    # Deliberately asyncio.create_task(), NOT hass.async_create_task() --
+    # every other backgrounded task in this file uses the hass wrapper
+    # specifically so HA's own shutdown/async_block_till_done() tracking
+    # knows about it (a genuine fire-and-forget task the caller never
+    # awaits). This one is different: its own result IS awaited, right
+    # below, by the same coroutine that created it -- HA's own top-level
+    # await of async_setup_entry() itself is what actually tracks this
+    # work's lifecycle, the same as it always has. Using hass.async_
+    # create_task() here would additionally require every existing test
+    # (and any future one) that calls async_setup_entry() with a mocked
+    # hass to make that mock's async_create_task() return a genuinely
+    # awaitable object -- real breakage confirmed live in CI (2026-09-01):
+    # several pre-existing tests mock hass.async_create_task() as a
+    # fire-and-forget stub (closes the coroutine, returns a bare
+    # MagicMock()) since every PRIOR call site here never awaited its own
+    # return value. Bypassing hass for this specific, purely-internal
+    # task sidesteps that entirely, with no loss of real tracking (see
+    # above).
+    task = asyncio.create_task(_async_setup_entry_impl(hass, entry))
     _setup_tasks[entry.entry_id] = task
     try:
         return await task

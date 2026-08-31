@@ -39,13 +39,12 @@ import custom_components.nimbus_load as nimbus_init
 
 
 def _make_hass() -> MagicMock:
-    """A hass stand-in whose async_create_task() genuinely schedules the
-    given coroutine as a real asyncio Task -- required for this test to
-    exercise real concurrency (a plain MagicMock would never actually run
-    the coroutine at all, defeating the point of this specific test)."""
-    hass = MagicMock()
-    hass.async_create_task = lambda coro, name=None: asyncio.ensure_future(coro)
-    return hass
+    """A bare hass stand-in -- async_setup_entry()'s own re-entrancy guard
+    uses plain asyncio.create_task() internally, not hass.async_create_
+    task(), specifically so it works correctly against every existing
+    test's own hass mock (including plain, unconfigured MagicMock ones)
+    with no special stubbing needed here either."""
+    return MagicMock()
 
 
 def test_concurrent_calls_for_the_same_entry_only_run_setup_once():
