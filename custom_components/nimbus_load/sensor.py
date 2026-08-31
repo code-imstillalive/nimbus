@@ -1457,7 +1457,26 @@ class _NimbusSolverPushSensor(SensorEntity):
         # edge case) is stamped on every real push; `available` below
         # compares against it.
         self._last_updated: float | None = None
-        self._was_available: bool | None = None
+        # Real bug found live (issue #302, 2026-08-31): this used to
+        # start at None, with _async_recheck_availability() treating a
+        # None baseline as "first tick, nothing to compare against yet"
+        # and skipping the write unconditionally. But `available` (see
+        # its own property below) is ALREADY, definitionally, True for a
+        # freshly-constructed instance (both of its own early-return
+        # conditions -- self._state is None, self._last_updated is None
+        # -- are true at this exact point in __init__). Starting the
+        # baseline at None instead of that already-known True value
+        # created a real gap: if enough time has already elapsed BEFORE
+        # the very first recheck tick ever fires (confirmed live and in
+        # a CI regression test: a test that pushes a value then jumps
+        # time forward past _STALE_AFTER_SECONDS in one step, before any
+        # recheck tick has run), that first tick already observes
+        # available=False -- but the None-baseline branch swallows it as
+        # "just establishing a baseline," and the entity never
+        # transitions to `unavailable` at all. True is the correct,
+        # already-known initial value, not a sentinel -- removes the
+        # gap entirely rather than special-casing around it.
+        self._was_available: bool = True
 
     # Sized off __init__.py's own _SOLVER_INTERVAL (1 minute, the native
     # in-process runtime's real cadence -- this entity class is only
@@ -1591,10 +1610,6 @@ class _NimbusSolverPushSensor(SensorEntity):
             self.entity_id,
         )
         await super().async_added_to_hass()
-        print(
-            f"[DIAG] async_added_to_hass id={id(self):x} entity_id={self.entity_id} "
-            f"registering recheck timer"
-        )
         self.async_on_remove(
             async_track_time_interval(
                 self.hass,
@@ -1620,13 +1635,24 @@ class _NimbusSolverPushSensor(SensorEntity):
         real push (self._state is None) actively clobbers whatever a
         concurrent/stale entity instance may have already written.
 
-        Now: exit early, no write at all, unless `available` has
-        genuinely flipped since the last check (both the "log the
-        transition" and the "actually publish it" concerns collapse into
-        the same guard, which is also just a more honest read of what
-        this method is for). native_value/extra_state_attributes are
-        completely unaffected either way -- self._state/self._attrs are
-        never touched here, only ever by update_from_solver().
+        Exit early, no write at all, unless `available` has genuinely
+        flipped since the last check (both the "log the transition" and
+        the "actually publish it" concerns collapse into the same guard,
+        which is also just a more honest read of what this method is
+        for). native_value/extra_state_attributes are completely
+        unaffected either way -- self._state/self._attrs are never
+        touched here, only ever by update_from_solver().
+
+        Real fix (issue #302, 2026-08-31): there used to be a third
+        branch here for "_was_available is None -- first tick, just
+        record a baseline, don't write." That's now handled correctly
+        by `_was_available` simply starting at `True` in __init__ (see
+        that assignment's own comment) instead of a `None` sentinel --
+        removing this branch closes a real gap where a staleness
+        transition that had ALREADY happened by the time of the very
+        first recheck tick (confirmed live, and in a CI regression test)
+        was being silently swallowed as "just establishing a baseline"
+        instead of correctly written.
 
         @callback for the same real reason as update_from_solver() above
         (see its own comment for the full issue #82 story) -- this
@@ -1656,22 +1682,8 @@ class _NimbusSolverPushSensor(SensorEntity):
             self._was_available,
             now_available,
         )
-        print(
-            f"[DIAG] recheck tick id={id(self):x} entity_id={self.entity_id} "
-            f"state={self._state!r} was_avail={self._was_available!r} "
-            f"now_avail={now_available!r} hass_is_none={self.hass is None}"
-        )
-        if self._was_available is None:
-            # First-ever tick after this instance was added -- record a
-            # baseline, but there is nothing to "transition" from yet,
-            # and no earlier publish of ours exists to correct.
-            self._was_available = now_available
-            print("[DIAG] first tick, baseline set, returning")
-            return
         if now_available == self._was_available:
-            print("[DIAG] no change, returning")
             return  # nothing changed -- exactly the flap this exists to avoid
-        print("[DIAG] transition detected, writing state")
         self._was_available = now_available
         if now_available:
             _LOGGER.info("Nimbus: %s is available again", self.entity_id)
