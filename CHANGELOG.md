@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.33] — 2026-08-31
+
+### Fixed
+- `sensor.nimbus_solver_quality_report` and `sensor.nimbus_efficiency_backtest` triggered a recurring "no longer has a state class" / "units changed" Repairs entry, confirmed independently on both devhub and the reference household's own NUC1 ("pretty sure not the first time"). Root cause: `publish_daily_quality_report()`'s own `ha_post_state()` call built its attributes dict with a stray `unit_of_measurement: null` and no `state_class` key at all. In native mode with a registered SensorEntity handler (the normal path), the entity's own declared unit/state-class correctly override these stray values by the time a live read sees them — which is why the entity always reads back correct. But `ha_post_state()`'s raw `states.async_set()` fallback (used whenever no handler is registered yet, e.g. this function racing `sensor.py`'s own setup shortly after a restart) has no entity object to draw a correction from, and writes the stray values verbatim — whichever path Recorder happens to sample when validating long-term statistics, that's what gets flagged. Now sets the real, correct literal values (`"%"` / `"measurement"`, matching `NimbusSolverQualityReportSensor`'s own class attributes) so both code paths produce a correct state on their own, closing the gap outright. New regression test (`tests/test_solver_writer_quality_report_state_class.py`).
+
 ## [0.94.32] — 2026-08-31
 
 ### Added
