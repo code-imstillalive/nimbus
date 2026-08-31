@@ -123,27 +123,49 @@ the actual repo:
    Neither capability exists in HAEO at all, as far as this clone shows — the earlier assumed
    comparison ("HAEO does this, Nimbus doesn't") had the direction backwards on both counts.
 
-**Real, well-scoped work in progress as of this write-up, NOT rushed, explicitly gated
-devhub-only and reversible**: extending `solver/stochastic.py` to support `fixed_export_kw`
-and the two-tier P2P export bonus, so the stochastic comparison works correctly for
-P2P-enabled installs AND plain spot-only installs (direct household ask: "there will be a
-variety of users... different plans, different suppliers... the integration must handle and
-allow for variables and various scenarios"). Real complexity found before writing any new
-code: the mechanism in `network.py` spans ~700 lines (a hard charge-gate during a committed
-export period, bound-pinning `grid_export[t]` to the fixed rate, a separate `export_bonus[t]`
-variable capped per REAL CALENDAR DAY — not once across the whole horizon, a real bug already
-found and fixed once — plus a tie-breaker that's already been flipped once live, 2026-08-20,
-from earliest-preferred to latest-preferred, after a real household-reported "why does the
-lightning bolt drop out" incident). **Explicit safety decision, per direct household
-instruction**: `network.py` itself will NOT be touched or refactored for this — the mechanism
-will be extracted into a new, separate, verbatim-copied shared module instead (zero behavior
-risk to the file actively informing every real solve), wired into `stochastic.py` only, shipped
-behind a new switch that **defaults off everywhere** and gets enabled **on devhub only** —
-NUC1/NUC2 production stays completely untouched, and disabling it is a single toggle. Existing
-tests to mirror/extend before this ships: `test_solver_export_bonus_tiebreak.py`,
-`test_solver_fixed_export.py`, `test_solver_combined_direction_cap.py`. **Not yet built** — this
-paragraph documents the design/safety decision reached before implementation, not a finished
-feature; update this entry once the shared module + tests + devhub-only wiring actually land.
+**v0.94.39, shipped — the stochastic-P2P extension scoped above is now built, tested, and
+released.** New `solver/p2p_export.py` — the P2P mechanism (hard charge-gate during a
+committed export period, `grid_export[t]` pinning, `export_bonus[t]` capped per real
+calendar day with the latest-preferred tie-breaker) extracted **verbatim** from `network.py`,
+as a genuinely separate module — `network.py`/`build_plan()` were never touched, confirmed
+via a clean diff showing zero changes to that file. Wired into `solver/stochastic.py`'s
+`_add_period_vars_and_constraints()` closure, applied per-family (stage 1 shared decision,
+and independently per stage-2 scenario) — every P2P field stays `None` = complete no-op,
+same convention as every other optional mechanism in this codebase.
+
+**A real, pre-existing gap closed as a genuine prerequisite, not scope creep**:
+`StochasticPlan` never exposed `grid_import_kw`/`grid_export_kw` at all before this — since
+`fixed_export_kw` pins `grid_export` directly (not battery charge/discharge), the mechanism
+would have been completely unobservable from the result without this fix. Added
+`stage1_grid_import_kw`/`stage1_grid_export_kw`/`stage2_grid_import_kw`/`stage2_grid_export_kw`
+alongside the new `stage1_export_bonus_kw`/`stage2_export_bonus_kw` fields.
+
+**5 new tests** (`tests/test_solver_stochastic_p2p.py`), including two real live mutation
+tests run before shipping (not just "the tests pass") to confirm they genuinely catch the
+bug each mechanism exists to prevent: removing the hard charge gate reproduces real charging
+during the committed window (up to 40kW — matching the shape of the original 2026-08-22
+live incident); removing the export-bounds pinning confirms `grid_export` reverts to 0kW
+instead of the committed rate. Both mutations reverted immediately after confirming the
+failure. Full suite: 723/723 passing (up from the 718 baseline), zero regressions to anything
+pre-existing. Also caught and corrected a real overclaim in this module's own docstring
+during development: `lp.py`'s constraint `name` field is "purely for readability, never
+required" (confirmed via its own docstring) — a scenario-name collision on the per-day cap's
+constraint name can never leak volume between scenarios (each scenario's own LP variables
+are already distinct), it can only make one scenario's shadow price unreachable in
+`LPResult.duals`. The `label=suffix` mechanism is correctly kept for that reason, but the
+earlier draft's claim that a collision would risk correctness was wrong and has been fixed
+in the shipped docstring.
+
+**The one real caller: `116KAT-HA-AI`'s `scripts/nimbus_stochastic_comparison_writer.py`**
+(PR #814, not yet merged) — deliberately devhub-only and fully reversible: `HA_BASE`
+hardcoded to devhub's real IP (192.168.1.151), never the NUC1/NUC2 VIP; writes a standalone
+`sensor.nimbus_stochastic_comparison` reporting sensor only, never touches Modbus/automations.
+Verified end-to-end with a local smoke test against mocked devhub-shaped HA responses
+(config fetch → forecast fetch → P2P window scoping → stochastic solve → sensor push) —
+confirmed the fixed-export mechanism correctly pins exactly 84/288 5-min periods over a
+24h horizon (matching the real 7h window), leaving every other period free. **Not yet run
+against a real, live devhub** — needs a one-time devhub-scoped Long-Lived Access Token
+(see the script's own "Deploy" docstring section) before its first real run.
 
 ---
 
