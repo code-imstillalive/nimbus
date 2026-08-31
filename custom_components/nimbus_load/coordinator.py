@@ -539,9 +539,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # unhandled exception inside a create_task) at the next
             # scheduled nightly retrain.
             temp_events = (
-                await self._async_fetch_training_history(
-                    self._temp_sensor, start, end
-                )
+                await self._async_fetch_training_history(self._temp_sensor, start, end)
                 if self._temp_sensor
                 else []
             )

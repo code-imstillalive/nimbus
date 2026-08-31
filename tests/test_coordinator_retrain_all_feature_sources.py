@@ -32,7 +32,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
@@ -161,7 +161,6 @@ def test_retrain_fetches_all_six_optional_features_without_crashing():
         captured["battery_events"] = battery_events
         captured["grid_events"] = grid_events
         captured["solar_events"] = solar_events
-        return None  # don't need a real TrainedModel for this test
 
     coordinator_module._train_model_job = _fake_train_model_job
 
