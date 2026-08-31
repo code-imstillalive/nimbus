@@ -81,6 +81,56 @@ class QualityReport:
     own docstring for the rust/teal reading and the real, honest gap
     between this dict's own sum and (j_ach - j_star) whenever
     salvage_value is nonzero."""
+    j_ref_hourly: dict[str, dict[str, float]]
+    j_ach_hourly: dict[str, dict[str, float]]
+    j_star_hourly: dict[str, dict[str, float]]
+    """24-hour reconstruction dicts, one per trajectory, added 2026-08-31
+    for full state reconstruction on the flattened J_ref/J_ach/J_star
+    child sensors. Each dict has SEVEN top-level keys (import_price,
+    export_price, load_kw, solar_kw, battery_kw, grid_kw, soc_pct), and
+    each of those maps 24 string hour indices ('0'..'23') to hourly-mean
+    floats. Sign conventions: battery_kw + = charge / - = discharge,
+    grid_kw + = import / - = export. Prices are identical across the
+    three trajectories (same day's real settled prices) but included in
+    every trajectory dict so each is self-describing. Empty hours
+    (e.g. solar overnight) get 0.0, not None, so consumers can safely
+    sum/mean without None-guards."""
+
+
+def _hourly_means_by_key(
+    *,
+    hours: NDArray[np.float64],
+    per_period: dict[str, NDArray[np.float64]],
+) -> dict[str, dict[str, float]]:
+    """Aggregate several 96-period (or n-period) arrays to 24 hourly means,
+    keyed by trajectory-quantity name. Empty hours get 0.0, not None, so
+    the resulting dict is safe to sum/mean without None guards -- the
+    intended consumer is a Lovelace/apexcharts card, not a forensic
+    per-period audit (the LP grid is still available on the parent
+    Nimbus sensors for that use case).
+
+    `hours` is periods.hours (per-period duration in hours, typically
+    a np.full(n, 0.25) array). Timestamps aren't needed here because
+    every daily-quality run is built on a day-start-anchored uniform
+    grid, so period index `i` always lives in hour `int(i * hours[i])`
+    modulo-24 (int floor of cumulative hours).
+    """
+    n = len(hours)
+    # Cumulative hours from day-start, floored to hour index. For a
+    # uniform 15-min grid this is [0,0,0,0,1,1,1,1,...,23,23,23,23].
+    cum = np.cumsum(hours) - hours
+    hour_index = np.floor(cum).astype(int) % 24
+    out: dict[str, dict[str, float]] = {}
+    for key, arr in per_period.items():
+        hourly: dict[str, float] = {}
+        for h in range(24):
+            mask = hour_index == h
+            if mask.any():
+                hourly[str(h)] = round(float(arr[mask].mean()), 4)
+            else:
+                hourly[str(h)] = 0.0
+        out[key] = hourly
+    return out
 
 
 def compute_quality_report(
@@ -188,6 +238,92 @@ def compute_quality_report(
         oracle_cost_per_period=oracle_residual.cost_per_period,
     )
 
+    # 24-hour reconstruction dicts, one per trajectory (2026-08-31, direct
+    # ask, full state reconstruction on the flattened J_ref/J_ach/J_star
+    # child sensors). Prices are the same across the three trajectories
+    # -- same day's real settled prices -- but included in every
+    # trajectory dict so each dict is self-describing when consumed as a
+    # sensor attribute. Sign conventions: battery_kw + = charge / - =
+    # discharge, grid_kw + = import / - = export. Grid_kw is derived,
+    # not measured, to keep the reconstruction identity (load - solar +
+    # battery_charge - battery_discharge = grid) exact by construction.
+    # SoC is only meaningfully defined for j_ach (measured) and j_star
+    # (oracle plan). For j_ref (idle) it stays flat at the initial value.
+    j_ref_battery_net_kw = zero  # idle trajectory: battery does nothing
+    j_ach_battery_net_kw = actual_charge_kw - actual_discharge_kw
+    j_star_battery_net_kw = np.asarray(
+        oracle_plan.battery_charge_kw - oracle_plan.battery_discharge_kw,
+        dtype=np.float64,
+    )
+    # SoC per trajectory: j_ref flat; j_ach as measured (approximated by
+    # integrating the actual battery net kW from the initial SoC using
+    # the sqrt-split efficiencies); j_star from the oracle plan directly.
+    initial_soc_kwh = battery.initial_soc_kwh
+    capacity_kwh = battery.capacity_kwh
+    # Actual per-period delta_kwh = charge * eta_c * dt - discharge * dt / eta_d.
+    dt = hours
+    ach_delta = (
+        actual_charge_kw * battery.charge_efficiency * dt
+        - actual_discharge_kw * dt / battery.discharge_efficiency
+    )
+    j_ach_soc_kwh = initial_soc_kwh + np.cumsum(ach_delta)
+    j_star_soc_kwh = np.asarray(oracle_plan.battery_soc_kwh, dtype=np.float64)
+    # SoC arrays as % (0..100) for consumer readability. Capacity 0 =>
+    # no battery configured, keep the array at 0.0 rather than dividing.
+    def _soc_pct(soc_kwh: NDArray[np.float64]) -> NDArray[np.float64]:
+        if capacity_kwh <= 0.0:
+            return np.zeros(n)
+        return soc_kwh / capacity_kwh * 100.0
+
+    j_ref_soc_pct = np.full(n, _soc_pct(np.array([initial_soc_kwh]))[0])
+    j_ach_soc_pct = _soc_pct(j_ach_soc_kwh)
+    j_star_soc_pct = _soc_pct(j_star_soc_kwh)
+    # Grid_kw derived from the reconstruction identity, per trajectory.
+    # For j_star the LP uses MODEL solar/load (solar.forecast_kw /
+    # load.forecast_kw) -- same inputs as j_ref/j_ach here because in
+    # compute_daily_quality_report()'s calling site both are set from
+    # yesterday's REAL measured history, but callers who pass a genuine
+    # forecast for j_star will get the LP's own view of grid_kw.
+    j_ref_grid_kw = load.forecast_kw - solar.forecast_kw + zero  # idle battery
+    j_ach_grid_kw = load.forecast_kw - solar.forecast_kw + j_ach_battery_net_kw
+    j_star_grid_kw = load.forecast_kw - solar.forecast_kw + j_star_battery_net_kw
+    j_ref_hourly = _hourly_means_by_key(
+        hours=hours,
+        per_period={
+            "import_price_aud_per_kwh": grid_residual.import_price,
+            "export_price_aud_per_kwh": grid_residual.export_price,
+            "load_kw": load.forecast_kw,
+            "solar_kw": solar.forecast_kw,
+            "battery_kw": j_ref_battery_net_kw,
+            "grid_kw": j_ref_grid_kw,
+            "soc_pct": j_ref_soc_pct,
+        },
+    )
+    j_ach_hourly = _hourly_means_by_key(
+        hours=hours,
+        per_period={
+            "import_price_aud_per_kwh": grid_residual.import_price,
+            "export_price_aud_per_kwh": grid_residual.export_price,
+            "load_kw": load.forecast_kw,
+            "solar_kw": solar.forecast_kw,
+            "battery_kw": j_ach_battery_net_kw,
+            "grid_kw": j_ach_grid_kw,
+            "soc_pct": j_ach_soc_pct,
+        },
+    )
+    j_star_hourly = _hourly_means_by_key(
+        hours=hours,
+        per_period={
+            "import_price_aud_per_kwh": grid_residual.import_price,
+            "export_price_aud_per_kwh": grid_residual.export_price,
+            "load_kw": load.forecast_kw,
+            "solar_kw": solar.forecast_kw,
+            "battery_kw": j_star_battery_net_kw,
+            "grid_kw": j_star_grid_kw,
+            "soc_pct": j_star_soc_pct,
+        },
+    )
+
     epr_result = compute_epr(j_ref=j_ref, j_ach=j_ach, j_star=j_star)
 
     tracking_result = compute_tracking_fidelity(
@@ -210,4 +346,7 @@ def compute_quality_report(
         j_ach=j_ach,
         j_star=j_star,
         hourly_regret=hourly_regret,
+        j_ref_hourly=j_ref_hourly,
+        j_ach_hourly=j_ach_hourly,
+        j_star_hourly=j_star_hourly,
     )
