@@ -8,6 +8,12 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.40] — 2026-09-01
+
+### Fixed
+- **Root-caused the long-standing, intermittent "`number.nimbus_solver_*` entities reset to their schema placeholder minimum on some restarts, not others" bug.** Confirmed live on devhub via a real `ha_get_logs` pull: two genuinely concurrent runs of `async_setup_entry()` for the SAME config entry, ~4.5 seconds apart, produced a hub-wide "Platform nimbus_load does not generate unique IDs" collision storm across every `number`/`sensor`/`switch` entity this integration owns — HA's own "abandon a slow `async_setup_entry()` and silently retry it while the original coroutine keeps running" behaviour (the same general mechanism issues #210/#211 already partially addressed, just tripped by a different, not-yet-backgrounded slow step: the per-subentry coordinator setup+first-refresh loop). Whichever attempt's entities register first wins; the other is silently dropped — non-deterministic across restarts, which is exactly the "sometimes fine, sometimes reset" pattern reported repeatedly. Fixed at the root: `async_setup_entry()` now guards against re-entry for the same `entry_id` — a second, genuinely concurrent call waits for the first attempt's own result instead of duplicating every entity/timer it creates. 3 new regression tests, including a live mutation test confirming the guard's removal reproduces the exact duplicate-setup symptom.
+- The per-subentry coordinator setup loop (the actual slow step that was tripping the race above) is now genuinely concurrent (`asyncio.gather`) instead of sequential, one subentry at a time — a real startup-time speedup on any install with several subentries (the reference household's own 18+ real circuits; devhub similarly loaded), and defense-in-depth alongside the re-entrancy guard: faster setup means fewer opportunities for HA's own abandon-and-retry behaviour to trigger in the first place. Preserves the exact same failure semantics as the old loop (the first subentry to raise still aborts the whole setup).
+
 ## [0.94.39] — 2026-08-31
 
 ### Added

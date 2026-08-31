@@ -174,6 +174,47 @@ _price_watcher_unsub: dict[str, Callable[[], None] | None] = {}
 # below.
 _price_watcher_entities: dict[str, tuple[str, ...]] = {}
 
+# Re-entrancy guard (2026-09-01, live-confirmed root cause of the household's
+# own long-standing "number.nimbus_solver_* entities reset to their schema
+# placeholder minimum on some restarts, not others" bug). Every fix above
+# this comment (backgrounding retrain for #210, idempotent timer-unsub for
+# #211) closed ONE specific slow step that could trip HA's own "abandon a
+# slow async_setup_entry() and silently retry it while the original
+# coroutine keeps running" behaviour -- but the per-subentry coordinator
+# setup+first-refresh loop below (sequential, awaited, one real ML
+# retrain/refresh per subentry) is itself just as capable of tripping the
+# SAME general mechanism, and nothing stopped it from doing so.
+#
+# Confirmed live on devhub, 2026-09-01: a real restart's own log showed
+# TWO separate, ~4.5-second-apart completions of this whole function for
+# the SAME entry_id, the second one's entity_platform.py-level
+# `async_add_entities()` calls colliding with the first's already-
+# registered unique_ids across EVERY number/sensor/switch entity this
+# integration owns ("Platform nimbus_load does not generate unique IDs...
+# ignoring number.nimbus_solver_battery_capacity_kwh" etc., confirmed via
+# a live `ha_get_logs` pull, not assumed). Whichever attempt's entities
+# register FIRST wins; the second is silently dropped. This is genuinely
+# non-deterministic across restarts -- there is no guarantee the SAME
+# attempt wins every time -- which is exactly the "sometimes fine,
+# sometimes reset, no obvious pattern" symptom reported repeatedly across
+# this project's own history. A prior `reload_config_entry` doesn't
+# reliably fix this either: if whatever makes setup slow (e.g. many
+# subentries, per the reference household's own 18+ real circuits) is a
+# standing condition rather than a one-off timing fluke, the reload's own
+# fresh async_setup_entry() call can retrigger the identical race
+# immediately.
+#
+# Fix, at the ROOT of the mechanism rather than patching each newly-
+# discovered slow step one at a time: if a second call for the SAME
+# entry_id arrives while a first is still genuinely in flight, don't run
+# the whole setup (and its real side effects -- entity creation, timer
+# registration, coordinator construction) a second time at all -- just
+# wait for the original attempt to finish and hand its own result back.
+# This makes the "abandoned" retry a true no-op instead of a parallel,
+# colliding duplicate -- regardless of which future step ever becomes the
+# next slow one.
+_setup_tasks: dict[str, asyncio.Task[bool]] = {}
+
 
 async def _async_rename_stale_forecast_entities(
     hass: HomeAssistant, entry: NimbusConfigEntry
@@ -251,7 +292,47 @@ async def _async_rename_stale_forecast_entities(
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: NimbusConfigEntry) -> bool:
-    """Set up the Nimbus hub -- one coordinator per load/power_signal subentry.
+    """Public entry point -- see _setup_tasks' own module-level comment for
+    the full "why a re-entrancy guard, not just another backgrounded slow
+    step" reasoning. A second, genuinely concurrent call for the SAME
+    entry_id (HA's own abandon-and-retry behaviour, not a normal reload --
+    a reload always waits for the prior async_unload_entry() to finish
+    first, so it can never race this guard) waits for the first attempt's
+    own real result instead of duplicating every side effect it caused.
+    """
+    if (
+        existing := _setup_tasks.get(entry.entry_id)
+    ) is not None and not existing.done():
+        _LOGGER.warning(
+            "Nimbus: async_setup_entry re-entered for entry %s while a "
+            "previous attempt is still in flight (this is HA's own "
+            "abandon-and-retry behaviour on a slow setup, not a normal "
+            "reload -- see _setup_tasks' own module-level comment). "
+            "Waiting for the original attempt instead of duplicating "
+            "entity/timer setup a second time.",
+            entry.entry_id,
+        )
+        return await existing
+
+    task = hass.async_create_task(
+        _async_setup_entry_impl(hass, entry), name=f"nimbus_load setup {entry.entry_id}"
+    )
+    _setup_tasks[entry.entry_id] = task
+    try:
+        return await task
+    finally:
+        # Only clear OUR OWN reference -- a task that finished after being
+        # replaced (shouldn't happen given the .done() check above, but
+        # kept as a defensive no-op rather than an assumption) must never
+        # accidentally clear a newer, still-in-flight task's own entry.
+        if _setup_tasks.get(entry.entry_id) is task:
+            del _setup_tasks[entry.entry_id]
+
+
+async def _async_setup_entry_impl(
+    hass: HomeAssistant, entry: NimbusConfigEntry
+) -> bool:
+    """The real setup body -- one coordinator per load/power_signal subentry.
 
     entry.runtime_data is a dict keyed by subentry_id, not a single
     coordinator -- sensor.py iterates it to create one entity per load/
@@ -308,12 +389,33 @@ async def async_setup_entry(hass: HomeAssistant, entry: NimbusConfigEntry) -> bo
         if s.subentry_type in _FORECASTABLE_SUBENTRY_TYPES
     ]
 
-    coordinators: dict[str, NimbusCoordinator] = {}
-    for subentry in forecastable_subentries:
+    # Concurrent, not sequential (2026-09-01) -- each subentry's own
+    # coordinator is fully independent (own persisted model file, own
+    # entry in the per-subentry-id-keyed _retrain_tasks dict above, no
+    # shared mutable state between them), so there was never a real
+    # correctness reason for a plain one-at-a-time for loop here. On an
+    # install with many subentries (the reference household's own 18+
+    # real circuits; devhub similarly loaded) this loop is genuinely the
+    # slow part of setup -- real enough to trip HA's own "abandon a slow
+    # async_setup_entry() and retry it" behaviour (see _setup_tasks' own
+    # module-level comment for the live-confirmed mechanism this fix
+    # complements, not replaces -- that guard protects correctness
+    # regardless of speed; THIS change reduces how often the race even
+    # gets a chance to trigger in the first place). asyncio.gather()'s
+    # default (no return_exceptions=True) preserves the exact same
+    # failure semantics as the old sequential loop: the first subentry
+    # to raise aborts the whole setup, propagating that exception --
+    # not a silent partial-setup regression.
+    async def _setup_one(subentry) -> tuple[str, NimbusCoordinator]:
         coordinator = NimbusCoordinator(hass, entry, subentry)
         await coordinator.async_setup()
         await coordinator.async_config_entry_first_refresh()
-        coordinators[subentry.subentry_id] = coordinator
+        return subentry.subentry_id, coordinator
+
+    results = await asyncio.gather(
+        *(_setup_one(subentry) for subentry in forecastable_subentries)
+    )
+    coordinators: dict[str, NimbusCoordinator] = dict(results)
 
     entry.runtime_data = coordinators
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
