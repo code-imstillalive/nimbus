@@ -1401,6 +1401,7 @@ class _NimbusSolverPushSensor(SensorEntity):
     """
 
     _attr_has_entity_name = True
+    _attr_should_poll = False  # DIAG: temporary, testing #302
     _attr_device_class = SensorDeviceClass.POWER
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfPower.KILO_WATT
@@ -1590,6 +1591,10 @@ class _NimbusSolverPushSensor(SensorEntity):
             self.entity_id,
         )
         await super().async_added_to_hass()
+        print(
+            f"[DIAG] async_added_to_hass id={id(self):x} entity_id={self.entity_id} "
+            f"should_poll={self.should_poll} registering recheck timer"
+        )
         self.async_on_remove(
             async_track_time_interval(
                 self.hass,
@@ -1651,14 +1656,22 @@ class _NimbusSolverPushSensor(SensorEntity):
             self._was_available,
             now_available,
         )
+        print(
+            f"[DIAG] recheck tick id={id(self):x} entity_id={self.entity_id} "
+            f"state={self._state!r} was_avail={self._was_available!r} "
+            f"now_avail={now_available!r} hass_is_none={self.hass is None}"
+        )
         if self._was_available is None:
             # First-ever tick after this instance was added -- record a
             # baseline, but there is nothing to "transition" from yet,
             # and no earlier publish of ours exists to correct.
             self._was_available = now_available
+            print("[DIAG] first tick, baseline set, returning")
             return
         if now_available == self._was_available:
+            print("[DIAG] no change, returning")
             return  # nothing changed -- exactly the flap this exists to avoid
+        print("[DIAG] transition detected, writing state")
         self._was_available = now_available
         if now_available:
             _LOGGER.info("Nimbus: %s is available again", self.entity_id)
