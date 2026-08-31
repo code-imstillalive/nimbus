@@ -204,16 +204,27 @@ def test_recheck_before_first_push_does_not_write_or_log():
     recheck tick fires before update_from_solver() ever has. `available`
     is honestly True here (pre-first-solve, not "broken") -- there is no
     transition to report and, critically, nothing to correct in the
-    state machine yet either. Must be a pure baseline-record, zero
-    writes, zero log lines."""
+    state machine yet either. Zero writes, zero log lines.
+
+    Real fix (issue #302, 2026-08-31): `_was_available` now starts at
+    `True` in __init__ (matching what `available` already,
+    definitionally, returns for a freshly-constructed instance), not a
+    `None` sentinel -- see that assignment's own comment for the real,
+    live bug this closes (a staleness transition that had ALREADY
+    happened by the time of the very first recheck tick used to be
+    silently swallowed as "just establishing a baseline"). This test's
+    own outcome (zero writes on a genuinely unchanged first tick) is
+    unaffected by that fix -- True still correctly equals True here --
+    only the now-obsolete "was None, becomes True" intermediate
+    assertion needed updating."""
     instance = _construct()
     instance.hass = None
     instance.async_write_ha_state = MagicMock()
-    assert instance._was_available is None  # sanity: genuinely first tick
+    assert instance._was_available is True  # sanity: already the correct initial value
 
     instance._async_recheck_availability(now=None)
 
-    assert instance._was_available is True  # baseline recorded
+    assert instance._was_available is True  # unchanged -- nothing transitioned
     instance.async_write_ha_state.assert_not_called()
 
 
