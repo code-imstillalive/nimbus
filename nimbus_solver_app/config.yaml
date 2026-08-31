@@ -6,7 +6,7 @@
 # Nimbus release they had installed. The 'version-lockstep' CI job enforces
 # that these two version strings never drift.
 name: "Nimbus Solver"
-version: "0.94.34"
+version: "0.94.35"
 slug: nimbus_solver
 description: >-
   Runs the Nimbus LP battery/grid dispatch Solver against your live Home
