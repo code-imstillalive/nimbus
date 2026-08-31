@@ -167,6 +167,68 @@ class TestComputeDailyQualityReportRealScore(unittest.TestCase):
         self.assertEqual(report["real_p2p_dollars"], 0.0)
         self.assertEqual(report["real_p2p_volume_kwh"], 0.0)
 
+    def test_hourly_reconstruction_dicts_are_row_major_by_iso_timestamp(self):
+        """Locks the 2026-08-31 reframe of PR #297's reconstruction dicts:
+        row-major, indexed by ISO local timestamp with the site tz offset
+        ('2026-08-30T00:00:00+10:00' style for Brisbane), each row a self-
+        describing record with the seven entity fields inside. Reframe
+        rationale: the column-major shape (7 keys x 24 hour-strings)
+        needed 7 attribute lookups per hour on the consumer side; the
+        row-major shape is 1 lookup per hour and each row parses straight
+        into a Date via `new Date(key)`.
+        """
+        cfg = _cfg()
+        with patch.object(
+            solver_writer,
+            "fetch_entity_history_range",
+            side_effect=self._fetch_side_effect,
+        ):
+            report = solver_writer.compute_daily_quality_report(cfg, NOW)
+        self.assertIsNotNone(report)
+
+        for key in ("j_ref_hourly", "j_ach_hourly", "j_star_hourly"):
+            self.assertIn(key, report)
+            hourly = report[key]
+            self.assertIsInstance(hourly, dict)
+            # 24 rows, one per hour of yesterday.
+            self.assertEqual(len(hourly), 24)
+            expected_ts = [
+                (YESTERDAY_START + timedelta(hours=h)).isoformat() for h in range(24)
+            ]
+            self.assertEqual(list(hourly.keys()), expected_ts)
+            # Every top-level key must parse as an ISO tz-aware datetime
+            # and equal yesterday's local hour anchor.
+            for h, ts in enumerate(hourly):
+                parsed = datetime.fromisoformat(ts)
+                self.assertIsNotNone(parsed.tzinfo)
+                self.assertEqual(parsed, YESTERDAY_START + timedelta(hours=h))
+            # Every row is a dict with exactly the seven entity fields,
+            # in the documented order.
+            expected_fields = [
+                "import_price_aud_per_kwh",
+                "export_price_aud_per_kwh",
+                "load_kw",
+                "solar_kw",
+                "battery_kw",
+                "grid_kw",
+                "soc_pct",
+            ]
+            for ts, row in hourly.items():
+                self.assertIsInstance(row, dict)
+                self.assertEqual(list(row.keys()), expected_fields)
+                for field in expected_fields:
+                    self.assertIsInstance(row[field], float)
+            # Reconstruction identity holds every hour in every trajectory:
+            # load - solar + battery = grid, exact by construction.
+            for row in hourly.values():
+                identity = (
+                    row["load_kw"]
+                    - row["solar_kw"]
+                    + row["battery_kw"]
+                    - row["grid_kw"]
+                )
+                self.assertAlmostEqual(identity, 0.0, places=4)
+
     def test_efficiency_is_sqrt_split_not_applied_directly(self):
         # Nimbus issue #168 (Mark Purcell, 2026-08-25): this used to pass
         # the round-trip solver_efficiency_percent straight through to
