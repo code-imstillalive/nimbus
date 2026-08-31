@@ -53,6 +53,98 @@ this back up should start by reading `homeassistant.helpers.restore_state`'s own
 (`RestoreEntity.async_get_last_state()`'s timing guarantees relative to `async_added_to_hass`)
 before touching `number.py` again.
 
+**PR #310 (Mark Purcell, merged 2026-08-31) — `quality_report.py` refactor, row-major hourly
+reconstruction keyed by ISO local timestamp (#297 follow-up).** Real CI-only issues found and
+fixed before merge, neither one in the PR's own diff: (1) `aiohttp.web_exceptions.
+NotAppKeyWarning` from HA core's own `http` component's internal `app["hass"]` string-key
+usage, promoted to a hard error by this repo's `filterwarnings = ["error", ...]` — added a
+third `filterwarnings` ignore entry, same reasoning as the two already there (a dependency's
+own internal housekeeping warning). (2) Mark's new `http_and_frontend_set_up` conftest fixture
+needed HA core's real `frontend` component to complete setup, which does a bare `import
+hass_frontend` — a separate PyPI package (`home-assistant-frontend`, date-versioned) not
+bundled by `pytest-homeassistant-custom-component`. Added as an unpinned dev dependency. All 7
+CI checks green after both fixes; this also unblocked the earlier PR #92 (topology-card
+frontend bundling), which used the same fixture.
+
+**v0.94.38 — real diagnostic-logging fix for a genuinely mysterious live incident, root cause
+still not fully pinned down.** `sensor.nimbus_solver_dispatch_dry_run` silently dropped exactly
+one solve cycle live on NUC1 the night of 2026-08-31: last real push `17:10:32`, nothing at
+`17:15` (despite the sibling `sensor.nimbus_solver_battery_forecast` getting a fresh push from
+the SAME cycle, proving the main solve loop ran fine), the staleness watchdog correctly marked
+it `unavailable` at `17:15:37`, and it resumed cleanly on its own at `17:20:32`. Confirmed
+precisely, not guessed: the dry-run switch never flickered off (checked its full state
+history — stayed `on` throughout), and zero exception was ever logged (`_log_dispatch_dry_run`'s
+own `except Exception: _LOGGER.exception(...)` never fired — grepped the exact text, zero
+matches). This means one of the function's three remaining silent early-return guards
+(forecast sensor missing / forecast list empty / `battery_kw` key missing) tripped for exactly
+one cycle, with literally no way to tell which after the fact, since none of the four
+early-return paths logged anything. **Fixed**: all four early-return branches now log a
+`WARNING` naming exactly which condition fired and the relevant live state — purely additive,
+no behavior change, so if this recurs it'll be diagnosable instead of a mystery. Shipped
+directly to `main`, tagged, released; a real merge of Mark's own PR #310 landed in between the
+commit and the push, resolved with a clean `git merge` (not a rebase, since the tag had already
+been pushed pointing at the pre-merge commit — rebasing would have orphaned it).
+
+**A real, evidence-based, multi-day validation of Nimbus's own dispatch logic — 12/12 days
+viable, not "just one test night."** `sensor.nimbus_counterfactual_soc_5pm`'s full `history`
+attribute was pulled and reviewed in detail: 12 consecutive real days (2026-08-19 through
+2026-08-30), every single one `viable: true` — i.e. if Nimbus alone had been deciding since
+midnight, the battery would have stayed genuinely ready for that evening's P2P window every
+single night, with Nimbus-only SoC at 5pm consistently landing within a few points of what the
+real system actually achieved (96.9–97.3% vs. real 99.2–100%), including through the real
+NUC2 failover incident on 08-28/29. This is meaningfully stronger evidence than a single
+night's shadow-mode comparison — it directly moves the "Confidence/evidence for live control"
+axis of the Readiness Checklist forward for real, not just anecdotally.
+
+**Two real self-corrections made live, worth recording precisely so they aren't repeated**:
+tonight's own readiness-comparison discussion with the household twice asserted an unverified
+claim about Nimbus's own capabilities being weaker than they actually are, without checking
+the code first — both caught by direct household pushback, both confirmed wrong by grepping
+the actual repo:
+1. **"Stochastic/uncertainty handling: Not built" was false.** `solver/stochastic.py` (Track
+   A2) is a real, correctly-structured two-stage stochastic LP — genuine shared stage-1
+   variables, scenario-indexed stage-2 variables, a weighted-expected-cost objective (the real
+   structure, not a "solve twice" shortcut). It's real and tested (`tests/test_solver_
+   stochastic.py`), just deliberately scoped as a separate, v1, shadow-mode-only module — its
+   own docstring is explicit that it's missing sheddable loads, adequacy loads, the two-tier
+   P2P bonus, `fixed_export_kw`, SoC-dependent power curves, `terminal_value_breakpoints`, and
+   all three stability mechanisms (proximal/max_rate/smoothness) relative to `build_plan()`.
+2. **"SoC-dependent power curves: Not built (Nimbus)" was also false.** `BatteryConfig.
+   charge_power_curve`/`discharge_power_curve` are real, tested fields wired directly into the
+   PRODUCTION LP path (`elements.py`'s `_validate_power_curve` + `network.py`'s own concave
+   piecewise-linear-upper-bound constraint construction, ~line 1174) — confirmed via
+   `tests/test_solver_battery_power_curve.py`. The real gap was narrower than claimed: built
+   and correct, just never actually POPULATED by any writer script until tonight (see the
+   sibling `116KAT-HA-AI` repo's own CLAUDE.md, PR #812).
+3. **Separately confirmed, not assumed**: HAEO's own real source (a local clone,
+   `116KAT-HA-AI/haeo_repo`, 375 real Python files, genuine battery model code present — not an
+   empty/broken clone, though dated 2026-06-08, ~3 months stale) has **zero matches for
+   "stochastic" and zero matches for any power-curve/SoC-dependent-power terminology anywhere**.
+   Neither capability exists in HAEO at all, as far as this clone shows — the earlier assumed
+   comparison ("HAEO does this, Nimbus doesn't") had the direction backwards on both counts.
+
+**Real, well-scoped work in progress as of this write-up, NOT rushed, explicitly gated
+devhub-only and reversible**: extending `solver/stochastic.py` to support `fixed_export_kw`
+and the two-tier P2P export bonus, so the stochastic comparison works correctly for
+P2P-enabled installs AND plain spot-only installs (direct household ask: "there will be a
+variety of users... different plans, different suppliers... the integration must handle and
+allow for variables and various scenarios"). Real complexity found before writing any new
+code: the mechanism in `network.py` spans ~700 lines (a hard charge-gate during a committed
+export period, bound-pinning `grid_export[t]` to the fixed rate, a separate `export_bonus[t]`
+variable capped per REAL CALENDAR DAY — not once across the whole horizon, a real bug already
+found and fixed once — plus a tie-breaker that's already been flipped once live, 2026-08-20,
+from earliest-preferred to latest-preferred, after a real household-reported "why does the
+lightning bolt drop out" incident). **Explicit safety decision, per direct household
+instruction**: `network.py` itself will NOT be touched or refactored for this — the mechanism
+will be extracted into a new, separate, verbatim-copied shared module instead (zero behavior
+risk to the file actively informing every real solve), wired into `stochastic.py` only, shipped
+behind a new switch that **defaults off everywhere** and gets enabled **on devhub only** —
+NUC1/NUC2 production stays completely untouched, and disabling it is a single toggle. Existing
+tests to mirror/extend before this ships: `test_solver_export_bonus_tiebreak.py`,
+`test_solver_fixed_export.py`, `test_solver_combined_direction_cap.py`. **Not yet built** — this
+paragraph documents the design/safety decision reached before implementation, not a finished
+feature; update this entry once the shared module + tests + devhub-only wiring actually land.
+
 ---
 
 ## ⚠️ CURRENT STATE (2026-08-27 night) — historical, superseded by the section above
