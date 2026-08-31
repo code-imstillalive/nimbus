@@ -90,6 +90,7 @@
           "solver_whole_house_cross_check_sensor": "Optional: a real, live whole-house power sensor to sanity-check the very first forecast period against -- leave blank to skip",
           "solver_solar_power_sensor": "Optional: real, currently-measured solar power sensor (not a forecast) -- enables the built-in daily EPR/regret quality score. Leave blank to skip scoring.",
           "solver_battery_power_sensor": "Optional: real, currently-measured net battery power sensor (kW, positive = discharging) -- enables the built-in daily EPR/regret quality score. Leave blank to skip scoring.",
+          "solver_battery_power_positive_is_charge": "Tick ONLY if your battery sensor above reports the opposite convention (positive = charging, negative = discharging) -- e.g. SigEnergy plants. Leave unticked for the far more common positive = discharging convention.",
           "solver_p2p_settlement_history_sensor": "Optional: a sensor publishing real settled export-bonus history ('{date: {export_cost, export_volume}}') if your retailer has a P2P/VPP program -- improves the quality score's accuracy. Leave blank if you have no such program.",
           "solver_weather_forecast_sensor": "Optional: a weather.* entity (e.g. weather.home, weather.pirateweather) or sensor.* forecast for the dashboard's own Temp/Humidity chart. Leave blank to skip."
         },
@@ -100,6 +101,7 @@
           "solver_whole_house_cross_check_sensor": "A real, currently-measured whole-house power sensor (not a forecast) the Solver compares its own very-first forecast period against, purely as a live sanity check surfaced on the forecast sensor's own attributes -- has no effect on the actual dispatch plan itself.",
           "solver_solar_power_sensor": "Feeds the built-in quality score (EPR/regret/tracking, sensor.nimbus_solver_quality_report) with what your solar ACTUALLY produced yesterday, to compare the real dispatch against a perfect-foresight oracle. Genuinely different from the forecast sensor above -- this must be a real measurement, not a forecast.",
           "solver_battery_power_sensor": "Same quality-score role as the solar sensor above, for your battery's real net power (positive = discharging, negative = charging) -- both this and the solar sensor are required together for a score to be published.",
+          "solver_battery_power_positive_is_charge": "Some hardware (confirmed on SigEnergy) reports the opposite sign to the convention this integration assumes everywhere else. Getting this wrong silently inverts every charge/discharge decision in the quality score, producing a nonsensical result (e.g. a negative EPR) -- if your published score looks impossible, this is the first thing to check.",
           "solver_p2p_settlement_history_sensor": "If your retailer pays a real settlement/bonus rate for exported energy (e.g. a P2P or VPP program), point this at a sensor whose 'history' attribute holds real settled '{date: {export_cost, export_volume}}' entries. Without this, the quality score still works but prices export at your plain configured rate only, missing any real bonus revenue."
         }
       },

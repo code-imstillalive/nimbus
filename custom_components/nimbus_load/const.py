@@ -571,6 +571,30 @@ CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR: Final = (
 # forecast, whenever it's configured).
 CONF_SOLVER_SOLAR_POWER_SENSOR: Final = "solver_solar_power_sensor"
 CONF_SOLVER_BATTERY_POWER_SENSOR: Final = "solver_battery_power_sensor"
+# Real, confirmed-live bug found by Mark Purcell (issue #299, 2026-08-31):
+# compute_daily_quality_report() treats CONF_SOLVER_BATTERY_POWER_SENSOR's
+# raw history as already following this project's own established sign
+# convention (positive = discharge, negative = charge -- matches this
+# household's own sensor.logger_battery_power) with NO way to say
+# otherwise. A SigEnergy plant's own sensor.sigen_plant_battery_power uses
+# the OPPOSITE convention (positive = charge). Confirmed live on Mark's
+# install: while genuinely discharging 2kW, the sensor read -0.008kW.
+# Every charge event was silently booked as a discharge and vice versa,
+# producing EPR = -137.47% (structurally invalid -- EPR is bounded to
+# [0%, ~100%+] since j_ach can never beat a perfect-foresight oracle
+# scored under the correct sign).
+#
+# Fixed per Mark's own "Option A" (a config-flow flag, not silent
+# auto-detection -- "silent-fixing conventions in prod is a code-smell",
+# his words, correct). False (the default) reproduces the ORIGINAL,
+# undocumented assumption byte-for-byte on every existing install --
+# this project's own reference household's sensor already matches that
+# convention, so nothing changes for it. True inverts the sign before any
+# charge/discharge split happens, for households (like Mark's SigEnergy
+# one) whose own hardware reports the opposite way.
+CONF_SOLVER_BATTERY_POWER_POSITIVE_IS_CHARGE: Final = (
+    "solver_battery_power_positive_is_charge"
+)
 # Optional retailer-specific settlement hook -- the one piece of the
 # reference script that genuinely CAN'T be made retailer-agnostic by
 # reading recorder history alone (a real bonus/P2P settlement amount is
