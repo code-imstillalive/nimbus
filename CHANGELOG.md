@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.36] — 2026-08-31
+
+### Fixed
+- Every load/power-signal subentry's `_async_retrain()` silently failed to train at all whenever the hub had a temperature sensor, humidity sensor, curtailment sensor, battery sensor, grid sensor, or solar sensor configured (temperature/humidity are shared hub-level options, so this affected effectively every real install). Root cause: #257/#259 (the hybrid recorder+LTS training-source feature) renamed `_async_fetch_history()` to `_async_fetch_recorder_history()` and added a training-source-aware `_async_fetch_training_history()` wrapper, but only migrated the load's own history fetch — the other six fetch call sites (temp, humidity, curtailment, battery, grid, solar) kept calling the now-nonexistent `_async_fetch_history`, raising `AttributeError` immediately, before the model training step was ever reached. Confirmed live: `sensor.nimbus_archerfield_temp_forecast`/`_humidity_forecast` never trained (`training_points: 0`, `model_trained_at: null`) across two separate restarts. A subentry with an existing pre-#257 persisted model masked this silently, since a cold-start retrain is only attempted when no model is already on disk — the bug was live for every subentry the moment it landed, just not yet visible for ones with a cached model. Fixed by routing all six call sites through `_async_fetch_training_history`, matching the load's own fetch. New regression test drives `_async_retrain()` end-to-end with all six sensors configured.
+
 ## [0.94.35] — 2026-08-31
 
 ### Fixed
