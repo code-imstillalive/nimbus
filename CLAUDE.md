@@ -12,9 +12,83 @@ Instructions for any Claude instance working on this repo. Read this before touc
 
 ---
 
-## ⚠️ CURRENT STATE (2026-08-31 night) — read this first
+## ⚠️ CURRENT STATE (2026-09-01) — read this first
 
-Supersedes the 2026-08-27 night section below, which is kept as historical record only.
+Supersedes the 2026-08-31 night section below, which is kept as historical record only.
+
+**v0.94.40/v0.94.41 — the long-standing "`number.nimbus_solver_*` resets to placeholder
+minimum on some restarts" bug is root-caused and fixed, deployed to NUC1, verified live.**
+Live evidence via `ha_get_logs` on devhub: two genuinely concurrent runs of
+`async_setup_entry()` for the SAME config entry, ~4.5s apart, produced a hub-wide "Platform
+nimbus_load does not generate unique IDs" collision storm across every `number`/`sensor`/
+`switch` entity — HA's own "abandon a slow `async_setup_entry()` and silently retry it while
+the original coroutine keeps running" behaviour (the original coroutine is never cancelled;
+if both eventually finish, both try to register every entity, and whichever wins the race
+is non-deterministic across restarts — exactly the "sometimes fine, sometimes reset"
+pattern reported repeatedly since 2026-08-26). Same general mechanism issues #210/#211
+already partially addressed (a slow inline retrain, duplicate timers) — this was a third,
+not-yet-backgrounded slow step: the per-subentry coordinator setup+first-refresh loop.
+
+Fixed at the root: `async_setup_entry()` now guards against re-entry for the same
+`entry_id` (module-level `_setup_tasks` dict) — a second, genuinely concurrent call waits
+for the first attempt's own result instead of duplicating every entity/timer it creates.
+Also parallelized the coordinator setup loop itself (`asyncio.gather`, was a sequential
+`for`) per direct request ("speed up the startup... in some clever way") — faster setup
+means fewer opportunities for the race to trigger at all, defense-in-depth alongside the
+guard. 3 new regression tests including a live mutation test.
+
+**Real process mistake, caught and corrected same session**: v0.94.40's first shipped fix
+wrapped the guarded setup body in `hass.async_create_task(...)` and awaited its own return
+value — broke 5 pre-existing tests in CI (`test_init_cron_suppression.py`,
+`test_init_periodic_solve_timer_idempotent.py`), which mock `hass.async_create_task` as
+fire-and-forget (closes the coroutine, returns a bare `MagicMock()`), since no prior call
+site had ever awaited that return value. My own lighter `tests/run_all.py` custom runner
+did NOT catch this — only running the real `pytest` command CI actually uses did. Caught via
+`gh run watch`, fixed by switching to plain `asyncio.create_task(...)` (this one task's
+result is awaited by its own creator; HA's own top-level await of `async_setup_entry()`
+already tracks its real lifecycle, no `hass` wrapper needed), verified against the exact
+CI command locally (836 passed) before shipping the corrected release as v0.94.41 — a new
+patch version, not an amend of the already-tagged, briefly-broken v0.94.40, per this
+project's own established convention for a same-day follow-up. **Lesson for next time**:
+before trusting any change to `hass.async_create_task`/`hass.async_create_task`-adjacent
+code, grep existing tests for how they mock it — a call site's assumptions about a mock's
+shape are easy to violate silently.
+
+**Deployed to NUC1 (confirmed live MASTER at deploy time — VIP `192.168.1.221` matched
+NUC1's own `sun.sun` state exactly, NUC2 unreachable on 8123, consistent with its BACKUP
+role) and verified end-to-end**: `git pull` + `docker restart`, all 5 hardware-limit number
+entities restored their real values (122.2/40.0/40.0/42.0/40.0 — battery capacity/max
+charge/max discharge/grid import/grid export), zero placeholder resets. Full stack healthy
+within ~11 minutes of restart (`sensor.nimbus_solver_config`="configured" within 30s,
+`sensor.nimbus_solver_battery_forecast` and `sensor.nimbus_solver_dispatch_dry_run` both
+producing fresh real values, `sensor.nimbus_solver_quality_report` live at a real value).
+
+**One narrower, non-destructive residual found live during this same verification, not
+yet root-caused — worth a real look before claiming this fully closed.** A single
+`Platform nimbus_load does not generate unique IDs` ERROR still fired for exactly ONE
+entity (`sensor.nimbus_solver_quality_report`) on this same NUC1 restart, despite the
+entry-level re-entrancy guard being in place. Confirmed via log line count: only ONE
+`Setting up nimbus_load.sensor` line appears for the whole restart (i.e. the sensor
+PLATFORM's own `async_setup_entry` — called via `hass.config_entries.
+async_forward_entry_setups`, not the top-level integration `async_setup_entry` my guard
+covers — was not invoked twice this run), yet the entity still collided with itself.
+Working theory, not yet confirmed: HA's abandon-and-retry behaviour may apply
+independently at the PLATFORM-forwarding level (`entity_platform.py`'s own eager-task
+setup), a narrower granularity than the entry-level guard covers — meaning the general
+race is still reachable, just far less often and with a much smaller blast radius (one
+entity instead of every entity across three platforms) now that the entry-level guard and
+the parallelized coordinator loop both reduce the odds of tripping it at all. **Zero
+functional impact this time** (first registration won, `sensor.nimbus_solver_quality_report`
+had a real, correct value — 0.9642 — both times checked), but non-deterministic by the
+same nature as the original bug, so a future restart could unluckily drop a
+more consequential entity instead. Next session picking this up should start by checking
+whether `entity_platform.py`'s own `_async_setup_platform`/`create_eager_task` path has an
+independent timeout/retry mechanism separate from `config_entries.py`'s entry-level one,
+before assuming the entry-level guard alone was sufficient.
+
+---
+
+## ⚠️ CURRENT STATE (2026-08-31 night) — historical, superseded by the section above
 
 **Version: v0.94.37** (up from v0.94.12 as of the last write-up — a large number of releases
 landed across 2026-08-27 through 2026-08-31 that were never captured in this section; see
