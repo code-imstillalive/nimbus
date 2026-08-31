@@ -108,8 +108,8 @@ _LOGGER = logging.getLogger(__name__)
 # sites in this exact class of bug.
 _retrain_tasks: dict[str, Any] = {}
 
-# Real, confirmed live 2026-08-17 -- see _async_fetch_history()'s own
-# comment at the point this is used for the full incident. A generous
+# Real, confirmed live 2026-08-17 -- see _async_fetch_recorder_history()'s
+# own comment at the point this is used for the full incident. A generous
 # physical sanity ceiling on any convert_power=True history point:
 # comfortably above anything a real household's own load/battery/grid/
 # solar sensor could ever legitimately report (this household's own
@@ -519,18 +519,39 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             load_events = await self._async_fetch_training_history(
                 self._load_sensor, start, end, convert_power=True
             )
+            # Real bug found live (2026-08-31): all six of the calls below used
+            # to read `_async_fetch_history`, a name that stopped existing the
+            # moment #257/#259 (2026-08-28) renamed it to
+            # `_async_fetch_recorder_history` and introduced this training-
+            # source-aware wrapper -- only the load_events call above got
+            # migrated at the time, leaving these six still pointed at a
+            # nonexistent method. Every subentry with ANY of temp/humidity/
+            # curtailment/battery/grid/solar configured (temp/humidity are
+            # shared HUB-level options, so this is effectively every
+            # subentry on a real install) hit an immediate AttributeError
+            # here, before train_model() was ever reached -- explaining why
+            # neither of train_model()'s own "no history"/"too few points"
+            # warnings ever appeared for an affected subentry while
+            # training_points stayed 0 forever. A subentry with a
+            # pre-#257 .pkl already on disk masked this silently: _trained
+            # is not None, so async_setup() never calls _async_retrain() at
+            # startup, and the crash only bites (also silently -- an
+            # unhandled exception inside a create_task) at the next
+            # scheduled nightly retrain.
             temp_events = (
-                await self._async_fetch_history(self._temp_sensor, start, end)
+                await self._async_fetch_training_history(self._temp_sensor, start, end)
                 if self._temp_sensor
                 else []
             )
             humidity_events = (
-                await self._async_fetch_history(self._humidity_sensor, start, end)
+                await self._async_fetch_training_history(
+                    self._humidity_sensor, start, end
+                )
                 if self._humidity_sensor
                 else []
             )
             curtailment_events = (
-                await self._async_fetch_history(
+                await self._async_fetch_training_history(
                     self._curtailment_sensor, start, end, binary=True
                 )
                 if self._curtailment_sensor
@@ -541,21 +562,21 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             # own solar sensor does) while a sibling reports kW; never an
             # optimizer's own plan/forecast entity.
             battery_events = (
-                await self._async_fetch_history(
+                await self._async_fetch_training_history(
                     self._battery_sensor, start, end, convert_power=True
                 )
                 if self._battery_sensor
                 else []
             )
             grid_events = (
-                await self._async_fetch_history(
+                await self._async_fetch_training_history(
                     self._grid_sensor, start, end, convert_power=True
                 )
                 if self._grid_sensor
                 else []
             )
             solar_events = (
-                await self._async_fetch_history(
+                await self._async_fetch_training_history(
                     self._solar_sensor, start, end, convert_power=True
                 )
                 if self._solar_sensor
