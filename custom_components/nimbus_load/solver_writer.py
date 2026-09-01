@@ -3797,7 +3797,17 @@ def compute_daily_quality_report(cfg: dict, now: datetime) -> dict | None:
 
     regret_dollars = report.j_ach - report.j_star
     return {
+        # Fractional EPR (0..1). Canonical downstream contract: the OpEd
+        # hero chart, the compute_quality_report service payload, and the
+        # LinkedIn article all treat this attribute as a 0..1 ratio. Do
+        # not scale here.
         "epr": round(report.epr.epr, 4),
+        # Same value scaled to a real percent (0..100). Separate field so
+        # the parent sensor state and the flattened Quality EPR child can
+        # both publish with unit_of_measurement="%" without lying about
+        # the number. Two decimals is enough resolution for a percent
+        # (four on the fraction gives the same effective precision).
+        "epr_pct": round(report.epr.epr * 100, 2),
         "theoretical_maximum_yield": round(report.epr.theoretical_maximum_yield, 4),
         "value_captured": round(report.epr.value_captured, 4),
         "uplift_available": round(report.epr.uplift_available, 4),
@@ -3900,7 +3910,13 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
         return
     ha_post_state(
         QUALITY_ENTITY_ID,
-        day_entry["epr"],
+        # State channel gets the percent-scaled value (0..100) so it
+        # renders correctly against unit_of_measurement="%" below.
+        # The canonical 0..1 fraction stays available as the "epr"
+        # attribute via the **day_entry expansion for consumers that
+        # want the raw ratio (compute_quality_report service payload,
+        # OpEd hero chart, LinkedIn article calcs).
+        day_entry["epr_pct"],
         {
             # Real bug found live (household-reported repeated Repairs
             # entries, 2026-08-31: "sensor.nimbus_solver_quality_report
