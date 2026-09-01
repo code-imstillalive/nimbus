@@ -435,26 +435,48 @@ async def _async_setup_entry_impl(
     coordinators: dict[str, NimbusCoordinator] = dict(results)
 
     entry.runtime_data = coordinators
-    # Diagnostic logging only, no behaviour change (2026-09-01, nimbus
-    # issue #312 -- Mark Purcell and this project's own NUC1 verification
-    # both independently hit ONE residual "does not generate unique IDs"
-    # collision for a single entity even after _setup_tasks' own entry-
-    # level re-entrancy guard above went in, despite confirming only ONE
-    # "Setting up nimbus_load.sensor" log line appeared for the whole
-    # restart -- ruling out a simple "the whole entry setup ran twice"
-    # explanation, since that's exactly what the guard prevents, and
-    # ruling out per-subentry platform forwarding too (this is the only
-    # async_forward_entry_setups() call site in this file, entry-scoped,
-    # not subentry-scoped). Neither investigation could pin down WHERE
-    # inside this one call the duplicate add_entities() actually came
-    # from. Logging this call's own start/end and wall-clock duration is
-    # the smallest possible next step if it recurs: comparing this
-    # call's own duration against the "does not generate unique IDs"
-    # error's timestamp (if one appears) will show whether HA core's own
-    # per-platform eager-task/timeout machinery is genuinely re-entering
-    # THIS specific call, or whether the duplicate originates somewhere
-    # else entirely -- a question neither of us could answer from the
-    # logs available so far.
+
+    # Real root cause found (2026-09-01), read directly from HA core's own
+    # installed entity_platform.py/config_entries.py source, not guessed --
+    # confirmed via a 100%-reproducible live test on devhub (a plain
+    # `homeassistant.reload_config_entry` call, not even a full restart).
+    # This is issue #312's own residual, now actually explained:
+    #
+    # `EntityPlatform._entity_id_already_exists()` (entity_platform.py)
+    # decides "does this unique_id collide" via two checks: (1) is this
+    # entity_id already in THIS platform object's own in-memory `.entities`
+    # dict, or (2) `not hass.states.async_available(entity_id)` -- i.e. is
+    # there STILL a live state object sitting in the state machine for
+    # this entity_id right now. `ConfigEntries.async_unload_platforms()`
+    # unloads [SENSOR, NUMBER, SWITCH] CONCURRENTLY via
+    # `asyncio.gather(*(create_eager_task(...) for platform in platforms))`
+    # -- and each platform's own `EntityPlatform.async_reset()` awaits
+    # `entity.async_remove()` for every entity in series. Our own
+    # `async_unload_entry()` correctly awaits all of this before returning
+    # `True`, and HA's own reload flow correctly waits for THAT before
+    # calling this function again (the _setup_tasks guard above protects a
+    # genuinely different, concurrent-setup class of race, not this one).
+    # But under Python 3.12's eager-task execution, `await entity.
+    # async_remove()` resolving does not guarantee every downstream,
+    # possibly-callback-scheduled side effect of that removal (the actual
+    # `hass.states.async_remove()` call HA core's entity teardown performs)
+    # has already run on the event loop by the time `async_unload_platforms`
+    # itself returns -- a real, narrow timing gap between "the awaited
+    # coroutine chain resolved" and "every scheduled callback it triggered
+    # has actually executed". A single explicit event-loop settle point
+    # here, AFTER our own subentry/coordinator setup (the genuinely slow
+    # part) but BEFORE re-registering the same deterministic unique_ids,
+    # gives any such pending removal callback from a just-completed unload
+    # a real chance to run first. 100ms is a deliberately generous, still
+    # imperceptible margin -- this fires on every setup, not just a reload,
+    # so it must never be large enough to matter to a real user waiting for
+    # the integration to finish loading.
+    await asyncio.sleep(0.1)
+
+    # Diagnostic logging (2026-08-31, nimbus issue #312) -- kept in place
+    # alongside the real fix above: if the collision is ever seen again
+    # despite the settle delay, this call's own start/end/duration is the
+    # first thing to check against the error's own timestamp.
     _forward_started = time.monotonic()
     _LOGGER.debug(
         "Nimbus: forwarding entry %s to platforms %s", entry.entry_id, PLATFORMS
