@@ -8,6 +8,12 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.45] — 2026-09-01
+
+### Fixed
+- **The retrospective quality scorer's own oracle (J_star) never knew about a household's real fixed-rate P2P export commitment, systematically overstating regret for any install running one.** Found live via a direct household catch on a reconstructed dispatch-regret chart: the oracle's own LP re-solve wanted to export 34–40kW during the evening price peak, when the real, physically-committed P2P rate for that window was 11.5kW — a fictional, unconstrained market the oracle was "solving" against instead of reality. Root cause: `_compute_report_for_window()`'s own `grid_oracle` construction only ever applied `solver_grid_max_export_kw` (a plain capacity limit) — it never reused `fetch_p2p_fixed_export_kw()`, the exact mechanism the *forward-looking* planner (`main()`) already uses to constrain export to a household's configured P2P blocks (`solver_p2p_block_1_rate_kw`/`_start_hour`/`_end_hour`, etc.). Fixed by reusing that same function verbatim for the oracle's own `GridConfig`, so the retrospective scorer and the forward plan can never model this household's real P2P commitment two different ways. Every EPR/regret number computed against a P2P-configured install before this fix should be treated as overstated. 3 new regression tests, including a live mutation test confirming the fix is what actually constrains the oracle (not a no-op).
+- Separately noted, not yet fixed: the *achieved* trajectory (J_ach) also currently gets zero credit for real settled P2P revenue, since no real settlement-history sensor is wired to `solver_p2p_settlement_history_sensor` for this household yet — the existing hook expects a date-keyed `{date: {export_cost, export_volume}}` history dict, and the closest existing entities (`sensor.localvolts_v2_sell_p2p_matched_cost`/`_matched_power`) are running scalars, not that shape. Needs a small daily-accumulator sensor before it can be wired in; tracked as a follow-up, not attempted in this release.
+
 ## [0.94.44] — 2026-09-01
 
 ### Added

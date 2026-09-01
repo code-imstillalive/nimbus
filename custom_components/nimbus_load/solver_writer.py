@@ -3824,13 +3824,48 @@ def _compute_report_for_window(
         export_limit_kw=_cfg_num(cfg, "solver_grid_max_export_kw", 20.0),
     )
 
+    # Real bug found live (2026-09-01, direct household catch on a
+    # reconstructed dispatch-regret chart): the oracle's own LP re-solve
+    # (build_plan(), called on grid_oracle below) previously had no idea
+    # this household's real P2P program is a FIXED, committed export
+    # RATE during specific hours (e.g. 11.5kW, 17:00-24:00 -- see
+    # fetch_p2p_fixed_export_kw()'s own docstring), not an open market it
+    # could export up to solver_grid_max_export_kw (42kW) into whenever
+    # spot-plus-bonus pricing looked attractive. The oracle was
+    # accordingly "solving" a fictional market -- e.g. wanting to dump
+    # 34-40kW in a single hour when the real, physically-committed rate
+    # was 11.5kW -- systematically overstating both J_star's own achieved
+    # value and therefore every regret/EPR number derived from it.
+    # fetch_p2p_fixed_export_kw() already exists and is already the
+    # correct, tested mechanism main()'s own forward-planning branch
+    # uses for exactly this constraint -- reused verbatim here, not
+    # reimplemented, so the retrospective scorer and the forward plan can
+    # never model this household's real P2P commitment two different
+    # ways. Applied to grid_oracle only: evaluate_realized_cost() (which
+    # grid_residual feeds, for J_ref/J_ach) prices an already-fixed,
+    # already-happened trajectory against real prices/limits -- it has
+    # no LP constraints to pin in the first place. Only build_plan()'s
+    # own genuine re-solve (grid_oracle, for J_star) can meaningfully be
+    # constrained by a fixed rate at all.
+    fixed_export_kw = fetch_p2p_fixed_export_kw(cfg, grid_times)
+
     # Optional real settlement hook -- see CONF_SOLVER_P2P_SETTLEMENT_
     # HISTORY_SENSOR's own comment in const.py. Retailer-agnostic in
     # SHAPE: any entity whose 'history' attribute holds real
     # {date: {export_cost, export_volume}} entries works.
     real_p2p_dollars = 0.0
     real_p2p_volume_kwh = 0.0
-    grid_oracle = grid_residual
+    grid_oracle = (
+        elements.GridConfig(
+            import_price=import_price,
+            export_price=export_price,
+            import_limit_kw=grid_residual.import_limit_kw,
+            export_limit_kw=grid_residual.export_limit_kw,
+            fixed_export_kw=np.array(fixed_export_kw),
+        )
+        if fixed_export_kw is not None
+        else grid_residual
+    )
     settlement_sensor = cfg.get("solver_p2p_settlement_history_sensor")
     # Real settlement history is keyed by ISO date, so it is only
     # meaningful when the window exactly matches one real calendar day
@@ -3874,6 +3909,18 @@ def _compute_report_for_window(
                     export_limit_kw=grid_residual.export_limit_kw,
                     export_bonus_price=np.full(n_periods, bonus_rate),
                     export_bonus_volume_kwh=real_p2p_volume_kwh,
+                    # Preserves the fixed-rate constraint set above --
+                    # this branch must never silently drop it just
+                    # because a settlement sensor also happens to be
+                    # configured. Both can be real at once: fixed_
+                    # export_kw pins WHAT the oracle must physically
+                    # deliver each committed hour, export_bonus_price/
+                    # volume prices however much of that (or beyond it)
+                    # earns the real settled P2P rate rather than plain
+                    # spot.
+                    fixed_export_kw=np.array(fixed_export_kw)
+                    if fixed_export_kw is not None
+                    else None,
                 )
 
     solar_cfg = elements.SolarConfig(forecast_kw=solar_kw)
