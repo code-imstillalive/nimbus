@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.46] — 2026-09-01
+
+### Fixed
+- `sensor.nimbus_health_report` was tripping HA's 16384-byte Recorder attribute-size cap continuously -- confirmed live on both devhub and production (NUC1): every 30 seconds, not intermittently. `extra_state_attributes()` returns up to 20 `recent_errors` + 20 `recent_warnings` + one `subentry_status` entry per forecastable subentry -- real, current diagnostic state, never worth long-term storage. Same class of bug `NimbusForecastSensor` already had fixed for issue #99; this class was simply never given the same `_unrecorded_attributes` treatment. `never_trained`/`generated_at` stay recorded (both small).
+
 ## [0.94.45] — 2026-09-01
 
 ### Fixed
