@@ -8,6 +8,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Fixed
+- **Daily quality report no longer crashes when historical SoC sits outside the configured envelope** ([#325](https://github.com/code-imstillalive/nimbus/issues/325), thanks @purcell-lab). The scorer builds its own `BatteryConfig` from the recorder SoC series, and `elements.BatteryConfig`'s invariant — correct for a user-typed static config — was raising `ValueError` straight out through the async publisher whenever the real world reported SoC below the configured floor. Live effect: `sensor.nimbus_solver_quality_report` and all nine `sensor.nimbus_quality_*` sensors `unavailable` for 8.6 hours across 103+ failed publishes, while the solver itself was completely healthy. Root cause on the reporting install was a template SoC sensor averaging the house battery with a DC-EV-charger channel reading 0% when unplugged, but a fault, a cold pack, a fresh install starting empty or plain sensor drift all produce it. Both sensor-fed values (`initial_soc_kwh` and `final_soc_kwh_actual`) are now clamped into `[min_soc, max_soc]` with a single warning naming the likely cause, matching the treatment [#64](https://github.com/code-imstillalive/nimbus/pull/64) already applied to the forward-planning path in `main()`.
+- **Efficiency-backtest report could crash the same way on a backup-reserve install** (found by the "audit every `BatteryConfig` construction" sweep [#325](https://github.com/code-imstillalive/nimbus/issues/325) asked for, not by a live report). `compute_efficiency_backtest_report()` hardcoded its starting SoC to 50% of capacity, which is outside the configured envelope for any household running `solver_battery_min_soc_percent` above 50 — an ordinary setting for anyone keeping a backup reserve — and would have raised the identical `ValueError`. Now clamped. All six `BatteryConfig` construction sites were audited; the remaining four were already correct.
+
+### Changed
+- **Dispatch dry-run no longer logs a WARNING every solve cycle when the switch is intentionally off** ([#326](https://github.com/code-imstillalive/nimbus/issues/326), thanks @purcell-lab). "The user has this feature turned off" is a steady state, not an anomaly, and at a ~5-minute cadence it was measured at 11 lines in a 16-minute window — part of a 41-of-100-line recurring-WARNING share crowding out real signal. That branch is now `DEBUG`, so it's still there for anyone who raises `custom_components.nimbus_load` to debug. A *missing* switch entity is a genuine install-integrity problem and keeps its `WARNING`, now with its own distinct message; the three sibling warnings for real dry-run anomalies are unchanged.
+
 ## [0.94.48] — 2026-09-01
 
 ### Fixed

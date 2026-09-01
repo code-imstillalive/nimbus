@@ -3817,8 +3817,51 @@ def _compute_report_for_window(
         if soc_hist
         else initial_pct
     )
-    initial_soc_kwh = capacity_kwh * initial_pct / 100.0
-    final_soc_kwh_actual = capacity_kwh * final_pct / 100.0
+    initial_soc_kwh_raw = capacity_kwh * initial_pct / 100.0
+    final_soc_kwh_raw = capacity_kwh * final_pct / 100.0
+
+    # Clamp both HISTORICAL SoC readings into the configured envelope
+    # (2026-09-02, nimbus issue #325, Mark Purcell) -- the sibling of the
+    # #58/#64 fix main() already carries, on the code path #64 didn't
+    # reach. elements.BatteryConfig's own __post_init__ invariant is a
+    # correct contract for a user-TYPED static config, but every value
+    # here comes from resample_history_nearest() over the real recorder
+    # series, and the world can legitimately report SoC below the
+    # configured floor: a fault, a cold pack, a fresh install starting
+    # empty, sensor drift, or -- Mark's own live repro -- a template
+    # sensor averaging the house battery with a DC-EV-charger channel
+    # that reads 0% whenever no vehicle is plugged in.
+    #
+    # Crashing was the wrong response to that: the ValueError propagated
+    # out through the async publisher, so sensor.nimbus_solver_quality_
+    # report and all nine sensor.nimbus_quality_* sensors sat
+    # `unavailable` for 8.6h across 103+ failed publishes while the
+    # solver itself was completely healthy. Clamp, warn once per run
+    # with the real cause, keep publishing.
+    #
+    # final_soc_kwh is clamped for the same reason and from the same
+    # source -- it was only escaping the crash by luck, because the
+    # invariant check short-circuits on initial_soc_kwh first.
+    min_soc_kwh_bound = capacity_kwh * min_pct / 100.0
+    max_soc_kwh_bound = capacity_kwh * max_pct / 100.0
+    initial_soc_kwh = min(
+        max(initial_soc_kwh_raw, min_soc_kwh_bound), max_soc_kwh_bound
+    )
+    final_soc_kwh_actual = min(
+        max(final_soc_kwh_raw, min_soc_kwh_bound), max_soc_kwh_bound
+    )
+    if (
+        initial_soc_kwh != initial_soc_kwh_raw
+        or final_soc_kwh_actual != final_soc_kwh_raw
+    ):
+        print(
+            f"WARN: historical SoC outside configured "
+            f"[{min_pct:.2f}%, {max_pct:.2f}%] envelope for this scorer window "
+            f"(start {initial_pct:.2f}%, end {final_pct:.2f}%) -- clamped. Usual "
+            f"real causes: a template-averaged SoC sensor (an EV-charger channel "
+            f"reading 0% when unplugged), a fault, a cold pack, or a recorder gap.",
+            file=sys.stderr,
+        )
 
     # Flat economics only -- deliberately NOT the household-specific
     # day/night discharge-cost/salvage-value schedule main() applies
@@ -3827,8 +3870,11 @@ def _compute_report_for_window(
     # window, no portable equivalent yet"). This scorer always uses the
     # same flat config-flow values every OTHER install's forward plan
     # already falls back to.
-    min_soc_kwh = capacity_kwh * min_pct / 100.0
-    max_soc_kwh = capacity_kwh * max_pct / 100.0
+    # Bounds already computed above for the clamp -- reused here rather
+    # than recomputed, so the envelope the values were clamped INTO and
+    # the envelope BatteryConfig validates against can never drift apart.
+    min_soc_kwh = min_soc_kwh_bound
+    max_soc_kwh = max_soc_kwh_bound
     battery_cfg = elements.BatteryConfig(
         capacity_kwh=capacity_kwh,
         initial_soc_kwh=initial_soc_kwh,
@@ -4288,13 +4334,27 @@ def compute_efficiency_backtest_report(cfg: dict, now: datetime) -> dict | None:
     # regardless, and this feature's whole question is "how did the
     # SHAPE of the optimal plan change with efficiency," not a tracking
     # comparison against one specific real starting SoC.
-    initial_soc_kwh = capacity_kwh * 0.5
+    #
+    # Clamped into the configured envelope anyway (2026-09-02, nimbus
+    # issue #325's own "audit every BatteryConfig construction" ask --
+    # this is the third path that issue predicted, found by that audit
+    # rather than by a live crash). A bare 50% is NOT unconditionally
+    # valid: it sits outside [min, max] for any household running a
+    # backup-reserve floor above 50% (solver_battery_min_soc_percent =
+    # 60 is a perfectly ordinary setting) or a max below it, and would
+    # raise the identical ValueError out of __post_init__ -- taking the
+    # whole efficiency-backtest report down the same way #325 took the
+    # daily quality report down. No live report of this yet; the point
+    # is that there doesn't need to be one.
+    _min_soc_kwh = capacity_kwh * min_pct / 100.0
+    _max_soc_kwh = capacity_kwh * max_pct / 100.0
+    initial_soc_kwh = min(max(capacity_kwh * 0.5, _min_soc_kwh), _max_soc_kwh)
 
     base_battery = elements.BatteryConfig(
         capacity_kwh=capacity_kwh,
         initial_soc_kwh=initial_soc_kwh,
-        min_soc_kwh=capacity_kwh * min_pct / 100.0,
-        max_soc_kwh=capacity_kwh * max_pct / 100.0,
+        min_soc_kwh=_min_soc_kwh,
+        max_soc_kwh=_max_soc_kwh,
         max_charge_kw=_cfg_num(cfg, "solver_max_charge_kw", 5.0),
         max_discharge_kw=_cfg_num(cfg, "solver_max_discharge_kw", 5.0),
         # Overwritten per-candidate by run_efficiency_sensitivity_sweep()

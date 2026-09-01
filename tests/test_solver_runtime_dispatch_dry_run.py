@@ -23,6 +23,7 @@ stand-in homeassistant.* modules.
 
 from __future__ import annotations
 
+import logging
 import sys
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -91,6 +92,54 @@ def test_switch_missing_entirely_does_nothing():
     _log_dispatch_dry_run(hass, sw)
     hass.services.async_call.assert_not_called()
     sw.ha_post_state.assert_not_called()
+
+
+def test_switch_off_logs_at_debug_not_warning(caplog):
+    """Nimbus issue #326: a switch that is simply OFF is the ordinary
+    steady state for any household not currently evaluating dry-run, and
+    this function runs once per ~5-minute solve cycle. Warning about it
+    every cycle drowns real signal -- measured live at 11 lines in a
+    16-minute window, part of a 41-of-100-line recurring-WARNING share.
+
+    Asserts the LEVEL, not just that something was logged: the whole
+    point of the issue is that the message still exists for anyone who
+    raises the logger to DEBUG, it just stops shouting at everyone else.
+    """
+    hass = _make_hass(switch_state="off", forecast=[{"battery_kw": 5.0}])
+    sw = _make_sw()
+    with caplog.at_level(
+        logging.DEBUG, logger="custom_components.nimbus_load.solver_runtime"
+    ):
+        _log_dispatch_dry_run(hass, sw)
+
+    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert warnings == [], (
+        f"switch-off must not warn, got: {[r.message for r in warnings]}"
+    )
+    debugs = [r for r in caplog.records if r.levelno == logging.DEBUG]
+    assert any("skipping this cycle" in r.getMessage() for r in debugs), (
+        "the message must still be emitted at DEBUG, not dropped entirely"
+    )
+
+
+def test_switch_missing_entity_still_warns(caplog):
+    """The other half of #326: a MISSING switch entity is an install-
+    integrity problem, not a user preference, so it keeps WARNING. This
+    is the distinction the issue explicitly asked to preserve -- a blanket
+    demotion of the whole branch would have silenced it too.
+    """
+    hass = _make_hass(switch_state=None, forecast=[{"battery_kw": 5.0}])
+    sw = _make_sw()
+    with caplog.at_level(
+        logging.DEBUG, logger="custom_components.nimbus_load.solver_runtime"
+    ):
+        _log_dispatch_dry_run(hass, sw)
+
+    warnings = [r for r in caplog.records if r.levelno >= logging.WARNING]
+    assert len(warnings) == 1, (
+        f"missing entity must warn exactly once, got {len(warnings)}"
+    )
+    assert "entity is missing" in warnings[0].getMessage()
 
 
 def test_switch_on_but_no_forecast_yet_does_not_crash():

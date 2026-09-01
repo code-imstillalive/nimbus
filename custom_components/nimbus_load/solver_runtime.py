@@ -329,11 +329,32 @@ def _log_dispatch_dry_run(hass: HomeAssistant, sw) -> None:
     """
     try:
         dry_run = hass.states.get("switch.nimbus_solver_dispatch_dry_run")
-        if dry_run is None or dry_run.state != "on":
+        # Two genuinely different conditions, split (2026-09-02, nimbus
+        # issue #326, Mark Purcell). A MISSING entity is an install-
+        # integrity problem worth surfacing; a switch that is simply OFF
+        # is the ordinary steady state for every household not currently
+        # evaluating dry-run, and warning about it once per ~5-minute
+        # solve cycle drowns real signal -- measured live on Mark's
+        # install at 11 of these lines in a 16-minute window, part of a
+        # 41-of-100-line recurring-WARNING log share.
+        #
+        # This does NOT weaken the 2026-08-28 hardening above: that
+        # argument was about the dry-run OBSERVATION log (the INFO line
+        # further down, reporting what a real run would have dispatched),
+        # which stays where it is. Absence-of-a-run is not observation-
+        # of-a-run. The three sibling warnings below stay WARNING too --
+        # each is a genuine anomaly in the dry-run mechanism itself.
+        if dry_run is None:
             _LOGGER.warning(
+                "Nimbus Dispatch (dry-run): switch.nimbus_solver_dispatch_dry_run "
+                "entity is missing -- unexpected, dispatch dry-run cannot proceed"
+            )
+            return
+        if dry_run.state != "on":
+            _LOGGER.debug(
                 "Nimbus Dispatch (dry-run): skipping this cycle -- switch state is "
                 "%s (expected 'on')",
-                dry_run.state if dry_run is not None else "MISSING ENTITY",
+                dry_run.state,
             )
             return
         forecast_state = hass.states.get("sensor.nimbus_solver_battery_forecast")
