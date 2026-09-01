@@ -1037,6 +1037,17 @@ docker restart opt_homeassistant_1
 A Python custom_component change always needs a full restart — a config reload cannot
 reload changed Python modules, only YAML/config.
 
+**Standing directive, 2026-09-01, cross-referenced from `116KAT-HA-AI`'s own CLAUDE.md
+(that file is authoritative — this is a pointer, not a duplicate)**: NUC1/NUC2's own OS-level
+`apt-daily-upgrade.timer` is now disabled on both boxes (a real failover was traced to its
+own automatic-upgrade restart cascade) — package updates on the NUC1/NUC2 host itself are
+fully manual now, and a standing weekly check-in (`apt list --upgradable` on both boxes,
+walked through together, never auto-applied) replaces it. This is about the HOST's own OS
+packages, not Nimbus's own release process below — but since deploying Nimbus to NUC1 means
+touching the same host, any Claude session preparing a NUC1 deploy should be aware this
+check-in cadence exists. See `116KAT-HA-AI`'s own CLAUDE.md, "PRIME DIRECTIVE — WEEKLY MANUAL
+UPDATE CHECK-IN," for the full rule and the dated log of when it was last done.
+
 **devhub (and any other HACS install) needs a cut release, not just a merged PR.**
 Confirmed live, 2026-08-27: merged 4 real fixes to `main` (#210/#212/#213/#214),
 then found `ha_get_hacs_info` on devhub still showed `installed_version` ==
