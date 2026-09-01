@@ -6,3 +6,17 @@ retrain:
           integration: nimbus_load
           multiple: true
 solve_now:
+compute_quality_report:
+  fields:
+    start:
+      required: true
+      selector:
+        datetime:
+    end:
+      required: true
+      selector:
+        datetime:
+    allow_partial:
+      default: true
+      selector:
+        boolean:

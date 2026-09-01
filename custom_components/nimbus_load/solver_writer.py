@@ -3555,26 +3555,85 @@ def compute_daily_quality_report(cfg: dict, now: datetime) -> dict | None:
     genuinely not configured (either power sensor missing) or real
     history for yesterday isn't available yet -- callers must treat
     None as "skip this cycle, retry later," never an error.
+
+    Thin wrapper over `_compute_report_for_window()` since v0.94.42 --
+    the whole scoring body was extracted so the new nimbus_load.compute
+    _quality_report service (issue #316) can score arbitrary windows
+    without duplicating any of it. This wrapper preserves the exact
+    "yesterday" calendar-day semantics every existing caller (main()'s
+    own publish_daily_quality_report path) has always relied on.
     """
+    yesterday = (now - timedelta(days=1)).date()
+    day_start = datetime(
+        yesterday.year, yesterday.month, yesterday.day, tzinfo=BRISBANE_TZ
+    )
+    day_end = day_start + timedelta(days=1)
+    return _compute_report_for_window(cfg, day_start, day_end, allow_partial=False)
+
+
+def _compute_report_for_window(
+    cfg: dict,
+    day_start: datetime,
+    day_end: datetime,
+    allow_partial: bool = False,
+) -> dict | None:
+    """Score an arbitrary [day_start, day_end] window and return the
+    same dict shape compute_daily_quality_report() has always returned.
+
+    Extracted from compute_daily_quality_report() in v0.94.42 (issue
+    #316) so a service call can score any real historical window --
+    diagnostics, backfill after a silent scoring freeze (issue #312),
+    A/B comparing a fix candidate against a fixed reference day. Zero
+    behaviour change for the "yesterday" wrapper: when called with the
+    same calendar-day boundaries this function's own caller has always
+    passed, it computes the exact same numbers via the same code path.
+
+    Arguments:
+    - cfg: fetch_solver_config() output (same as every other writer).
+    - day_start, day_end: timezone-aware datetimes bounding the window
+      to score. Must satisfy day_start < day_end.
+    - allow_partial: if False (the default, matching the yesterday
+      caller), returns None for windows shorter than 24 h. Real
+      calendar-day scoring is what every existing caller has always
+      relied on. When True, scores any real window with at least one
+      full 15-minute period of data. Partial-window scores are honest
+      (they score exactly what is in the window) but the EPR / regret
+      numbers are NOT directly comparable to a full-day score, because
+      the oracle's own optimisation horizon is shorter.
+
+    P2P settlement history lookup is retained only when the window
+    exactly matches a real calendar day. The settlement sensor's own
+    history dict is keyed by ISO date, and a lookup on a non-calendar-
+    aligned window is meaningless. Cross-midnight and partial-day
+    windows publish with real_p2p_dollars=0 / real_p2p_volume_kwh=0,
+    the same as an install with no settlement sensor configured.
+
+    Returns None when either power sensor is missing, real history is
+    not available for the requested window, the oracle solve is
+    genuinely infeasible, or allow_partial is False and the window
+    is shorter than 24 hours.
+    """
+    if day_end <= day_start:
+        return None
+
     solar_sensor = cfg.get("solver_solar_power_sensor")
     battery_sensor = cfg.get("solver_battery_power_sensor")
     load_sensor = cfg.get("solver_whole_house_cross_check_sensor")
     if not solar_sensor or not battery_sensor or not load_sensor:
         return None
 
-    yesterday = (now - timedelta(days=1)).date()
-    day_start = datetime(
-        yesterday.year, yesterday.month, yesterday.day, tzinfo=BRISBANE_TZ
-    )
-    day_end = day_start + timedelta(days=1)
+    window_hours = (day_end - day_start).total_seconds() / 3600.0
+    if not allow_partial and window_hours < 24.0:
+        return None
 
     period_hours = 0.25
-    n_periods = 96
+    n_periods = round(window_hours / period_hours)
+    if n_periods < 1:
+        return None
     grid_times = [
         day_start + timedelta(hours=i * period_hours) for i in range(n_periods)
     ]
     period_hours_arr = np.full(n_periods, period_hours)
-
     solar_hist = fetch_entity_history_range(solar_sensor, day_start, day_end)
     load_hist = fetch_entity_history_range(load_sensor, day_start, day_end)
     battery_hist = fetch_entity_history_range(battery_sensor, day_start, day_end)
@@ -3738,10 +3797,23 @@ def compute_daily_quality_report(cfg: dict, now: datetime) -> dict | None:
     real_p2p_volume_kwh = 0.0
     grid_oracle = grid_residual
     settlement_sensor = cfg.get("solver_p2p_settlement_history_sensor")
-    if settlement_sensor:
+    # Real settlement history is keyed by ISO date, so it is only
+    # meaningful when the window exactly matches one real calendar day
+    # in the local timezone. Cross-midnight windows and partial-day
+    # windows deliberately skip this branch and price export at the
+    # plain configured rate for J_ach and J_star alike -- the same
+    # honest fallback an install with no settlement sensor configured
+    # already uses.
+    is_calendar_day = (
+        window_hours == 24.0
+        and day_start.astimezone(BRISBANE_TZ).time().hour == 0
+        and day_start.astimezone(BRISBANE_TZ).time().minute == 0
+    )
+    if settlement_sensor and is_calendar_day:
+        settled_date = day_start.astimezone(BRISBANE_TZ).date()
         try:
             day_data = (ha_get(settlement_sensor)["attributes"]["history"]).get(
-                yesterday.isoformat()
+                settled_date.isoformat()
             )
         except (
             urllib.error.HTTPError,
