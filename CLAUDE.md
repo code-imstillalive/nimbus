@@ -12,6 +12,52 @@ Instructions for any Claude instance working on this repo. Read this before touc
 
 ---
 
+## ⚠️ CURRENT STATE (2026-09-01, continued) — read this first
+
+Supersedes nothing below within the same day's own section — same date, later work, appended
+rather than rewritten since the earlier 2026-09-01 write-up (NUC1 deploy) is still accurate.
+
+**v0.94.42 → v0.94.44 — Mark Purcell's own IV&V work on the #312 freeze incident, root-caused
+and diagnosed independently on his side, cross-confirming this project's own v0.94.40/41
+fix.** Direct household ask: "help mark as much as you can... deep research before you
+palm off a reply." Before drafting anything, checked GitHub directly rather than trusting
+the conversation's own stale framing (his "wait for tomorrow's clean number" comment on #273
+was already superseded) — found he'd independently opened #312 (parent tracker) with #313/
+#314/#315 (three specific, well-evidenced sub-issues) and already built PR #317 (#316's own
+feature request) himself.
+
+**PR #317 reviewed and merged (v0.94.42)** — `nimbus_load.compute_quality_report` service,
+scores an arbitrary `[start, end]` window on demand via `_compute_report_for_window()`
+(extracted verbatim from `compute_daily_quality_report()`, zero behaviour change for the
+existing "yesterday" wrapper, proven by a direct equivalence test). Genuinely sound, tested
+work — merged on review, no changes requested.
+
+**#313/#314 fixed and shipped (v0.94.42, corrected to v0.94.43 after a ruff lint/format CI
+failure in the new test file — same "verify against the exact CI command before calling it
+done" discipline as the v0.94.40→41 fix earlier the same day).** Every silent-skip path in
+the quality-report pipeline (missing sensor config, no history yet, oracle LP infeasible,
+the routine already-scored fast path) now logs a specific reason at the level matching how
+routine it is — DEBUG for expected skips, INFO for a real history gap (with exact per-sensor
+row counts), WARNING for oracle infeasibility (with `initial_soc`/`min_soc`/`max_soc`, the
+exact values Mark hand-diagnosed this failure shape from on 2026-08-30). 6 new tests,
+including a live mutation test (removed the oracle-infeasible WARNING, confirmed the test
+catches it, reverted). Commented on both issues individually with the exact log-line text
+so Mark can grep for it directly rather than trusting a summary.
+
+**#312's own residual (the platform-level entity collision both his install and this
+project's own NUC1 restart independently hit) — investigated further, not fully
+root-caused, said so plainly rather than guessing.** Checked whether subentry-scoped
+platform forwarding could explain a same-platform self-collision without a second full
+`async_setup_entry` call — ruled out (`async_forward_entry_setups()` has exactly one
+call site in `__init__.py`, entry-scoped, not per-subentry). Shipped v0.94.44: DEBUG-level
+start/completion/duration logging around that one call, diagnostic-only, so a recurrence is
+at least timeable against the "does not generate unique IDs" error's own timestamp next
+time — narrowing, not yet answering, whether HA core's own platform-forwarding/eager-task
+machinery is genuinely re-entering this call. Posted this honestly on #312 rather than
+presenting a guess as a fix; issue stays open per Mark's own explicit recommendation.
+
+---
+
 ## ⚠️ CURRENT STATE (2026-09-01) — read this first
 
 Supersedes the 2026-08-31 night section below, which is kept as historical record only.
