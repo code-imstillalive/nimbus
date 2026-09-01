@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.47] — 2026-09-01
+
+### Fixed
+- Issue #312's own residual: `Platform nimbus_load does not generate unique IDs` firing on essentially every `homeassistant.reload_config_entry` (and some restarts) since v0.94.41. Root-caused by reading HA core's own installed `entity_platform.py`/`config_entries.py` source directly, not guessed: `EntityPlatform._entity_id_already_exists()` treats an entity_id as colliding if a live state object still sits in the state machine for it, and `ConfigEntries.async_unload_platforms()` unloads SENSOR/NUMBER/SWITCH concurrently -- under Python 3.12's eager-task execution, the just-completed unload's own awaited chain resolving doesn't guarantee every scheduled removal callback (the actual `hass.states.async_remove()`) has run yet by the time the next setup starts re-registering the same deterministic unique_ids. This is a different race from the one `_setup_tasks`'s entry-level re-entrancy guard (v0.94.40/41) already closed -- that guard protects against two concurrent SETUPs; this one is about the PRIOR unload not having fully settled. Fixed with a single, explicit 100ms event-loop settle point after subentry/coordinator setup but before platform re-forwarding. A real, previously-frozen symptom this bug also caused (`sensor.nimbus_quality_epr` and its siblings stuck hours-stale while their own parent `sensor.nimbus_solver_quality_report` kept updating normally) should no longer occur.
+
 ## [0.94.46] — 2026-09-01
 
 ### Fixed
