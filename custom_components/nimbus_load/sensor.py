@@ -1180,6 +1180,20 @@ class NimbusHealthReportSensor(SensorEntity):
     _attr_has_entity_name = True
     _attr_name = "Health Report"
     _attr_entity_category = None  # a real, actively-read data source, not a diagnostic
+    # Confirmed live on devhub (2026-09-01): this sensor was hitting HA's
+    # 16384-byte recorder attribute-size limit on nearly every cycle
+    # (62 warnings in one 30-minute window) -- the same class of bug
+    # NimbusForecastSensor's own _unrecorded_attributes fix (issue #99)
+    # addressed for the `forecast` array, just never applied here. This
+    # class's own extra_state_attributes() below returns up to 20
+    # recent_errors + 20 recent_warnings (each a full log message) plus a
+    # subentry_status entry for every forecastable subentry (18+ on the
+    # reference household) -- real, current diagnostic state, not
+    # something worth keeping in long-term statistics. never_trained and
+    # generated_at stay recorded: both are small and cheap either way.
+    _unrecorded_attributes = frozenset(
+        {"recent_errors", "recent_warnings", "subentry_status"}
+    )
 
     def __init__(self, entry: NimbusConfigEntry, sw_version: str | None) -> None:
         self._entry = entry
