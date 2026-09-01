@@ -12,6 +12,87 @@ Instructions for any Claude instance working on this repo. Read this before touc
 
 ---
 
+## ⚠️ CURRENT STATE (2026-09-01, continued further) — read this first
+
+Supersedes nothing below within the same day's own section — appended, not rewritten.
+
+**v0.94.48 — issue #312's residual genuinely root-caused and fixed, after v0.94.47's own fix
+was live-tested and found NOT to work.** Direct household instruction mid-investigation:
+"keep going until you resolve this... not push it aside until we forget." v0.94.47's settle-
+delay theory (a 100ms sleep before platform re-forwarding) was tested live on devhub
+immediately after being written up here — both a full restart and a plain
+`homeassistant.reload_config_entry` reproduced the identical collision at the identical
+millisecond, disproving the theory outright (a cold boot has no prior unload to "settle"
+after at all). CHANGELOG's v0.94.47 entry corrected in place rather than deleted, per this
+project's own "record the mistake, don't quietly erase it" convention.
+
+**Two genuinely separate causes were found, conflated as one bug until this session's own
+live DEBUG-level log capture separated them:**
+
+1. **A real, general nimbus_load code bug (fixed, affects every install).**
+   `async_unload_entry()` called `hass.config_entries.async_unload_platforms()` (which tears
+   down entities and unregisters their `solver_writer.py` push handlers) BEFORE the periodic-
+   solve cron timer, price-watcher listener, and startup-retry task got cancelled — those were
+   only ever cancelled via `entry.async_on_unload()`, which HA core's own `ConfigEntry.
+   async_unload()` only processes AFTER our `async_unload_entry()` has already returned
+   (confirmed by reading that source directly). An old trigger firing in that gap would find
+   its handler just unregistered and fall through to `ha_post_state()`'s raw
+   `states.async_set()` fallback — writing a state with no `ATTR_RESTORED` flag that then
+   collided with the fresh entity's own registration a moment later. Fixed at both ends:
+   `async_unload_entry()` now cancels all three triggers itself, directly, before any platform
+   teardown; `ha_post_state()`'s fallback additionally skips (rather than raw-writes) for the
+   closed set of entity_ids sensor.py does register a native handler for. 6 new regression
+   tests. This is the real explanation for the EPR/flattened-children "freeze" symptom too
+   (`sensor.nimbus_quality_epr` and siblings stuck stale while their parent kept updating) --
+   the flattened child lost this same race and its own `self.hass is None` guard silently
+   no-op'd forever.
+
+2. **A devhub-environment-specific cause, NOT a nimbus_load code bug at all (fixed via devhub
+   config, not code) — this turned out to be the DOMINANT cause of what was actually
+   reproducing live.** devhub's own `remote_homeassistant` integration mirrors NUC1's entire
+   state 1:1 with `entity_prefix` unset -- meaning every nimbus_load entity NUC1 creates
+   (fixed, non-entry-scoped names like `switch.nimbus_solve_on_price_change`) gets mirrored
+   onto devhub under the IDENTICAL literal entity_id string that devhub's OWN local nimbus_load
+   hub also uses. Proven independently and conclusively: the exact same "does not generate
+   unique IDs" error was ALSO firing for devhub's completely unrelated `cast` integration's
+   media_player entities in the identical pattern at the identical restart -- ruling out
+   anything nimbus-specific as the sole cause. Confirmed by checking one of the known orphaned
+   duplicate entities directly: `number.nimbus_solver_battery_capacity_kwh_3` belongs to
+   platform `remote_homeassistant`, not `nimbus_load`. **Fixed live on devhub**: set
+   `entity_prefix: "mirror_"` on the `remote_homeassistant` config entry (`ha_set_integration`),
+   reloaded it, then did a full HA restart. Confirmed zero `nimbus_load` collisions in the log
+   from that restart onward (verified precisely: `switch.nimbus_solve_on_price_change`'s own
+   `last_changed` landed at 20:51:02, after the restart; a direct log query for "does not
+   generate unique" ordered newest-first showed nothing past 20:47:52, the PRIOR, pre-fix
+   restart). Mirrored entities now live at `switch.mirror_nimbus_*`/`number.mirror_nimbus_*`/
+   etc. -- genuinely distinct strings, can never collide with devhub's own local names again.
+   **This means Mark Purcell's own original #312 report almost certainly has a different, or
+   at minimum a much narrower, explanation than what reproduced so reliably on devhub** -- his
+   install is very unlikely to run a `remote_homeassistant` mirror of a second Nimbus install.
+   Cause 1 above (the real code race) is the one that could still affect his install or
+   production NUC1/NUC2 directly.
+
+**Known residual, found live during this same verification, NOT investigated further this
+session (separate from #312, out of scope for tonight's mandate) — worth a look next time.**
+Immediately after the fixed restart, `_async_run_solve_with_startup_retries()`'s first several
+attempts (20:50:30 through at least 20:52:23) failed with `urllib.error.HTTPError: HTTP Error
+404: Entity sensor.nimbus_solver_config not found` -- odd, since `_NATIVE_HASS` should route
+`ha_get()` through a direct `hass.states.get()` read, not a real HTTP round-trip, once native
+mode is registered. `sensor.nimbus_solver_config` itself was confirmed to exist and read
+`configured` by 20:51:32, mid-way through these failures -- suggesting `_NATIVE_HASS` genuinely
+isn't registered yet when the earliest startup-retry attempts fire, a plain startup-ordering
+gap. Self-recovers via the existing bounded retry loop (or the periodic 5-min cron as a last
+resort) with zero user-visible impact confirmed this session -- not the bug that was asked to
+be fixed tonight, flagging here so it isn't lost.
+
+**Still not picked back up this session, per the household's own explicit "don't push it aside
+until we forget" instruction (separate from #312, about the 116KAT-HA-AI repo's NUC2 status
+reporter, not this repo) — see that repo's own CLAUDE.md for the current state of that thread.
+The single most important still-missing piece of evidence there (`/opt/nuc_status_reporter.log`'s
+actual content) has still never been read.**
+
+---
+
 ## ⚠️ CURRENT STATE (2026-09-01, continued) — read this first
 
 Supersedes nothing below within the same day's own section — same date, later work, appended
