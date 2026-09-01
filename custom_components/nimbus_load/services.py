@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import datetime
 
 import voluptuous as vol
 from homeassistant.const import ATTR_ENTITY_ID
@@ -52,6 +53,17 @@ SERVICE_RETRAIN = "retrain"
 # this is purely additive, an on-demand trigger alongside it.
 SERVICE_SOLVE_NOW = "solve_now"
 
+# nimbus issue #316 (Mark Purcell): the built-in scoring path only ever
+# scores "yesterday", from a once-a-day scheduled tick that has no
+# operator-facing knob. When the scorer silently freezes (issue #312),
+# the IV&V feedback loop is "wait for midnight, hope it recovers,
+# otherwise wait another 24 h." Splitting the scoring engine from the
+# scheduling policy lets any caller -- Developer Tools UI, a diagnostic
+# automation, a fixture-based regression test -- score any real
+# historical window on demand, without touching the daily scorer's
+# own semantics or timing.
+SERVICE_COMPUTE_QUALITY_REPORT = "compute_quality_report"
+
 # unique_id is built as f"{subentry_id}{suffix}" -- see __init__.py's own
 # _async_rename_stale_forecast_entities(), which constructs it the other
 # direction. Kept as a plain tuple here rather than importing a shared
@@ -61,6 +73,14 @@ _FORECAST_UNIQUE_ID_SUFFIXES = ("_load_forecast", "_signal_forecast")
 
 SERVICE_RETRAIN_SCHEMA = vol.Schema(
     {vol.Optional(ATTR_ENTITY_ID): cv.entity_ids},
+)
+
+SERVICE_COMPUTE_QUALITY_REPORT_SCHEMA = vol.Schema(
+    {
+        vol.Required("start"): cv.datetime,
+        vol.Required("end"): cv.datetime,
+        vol.Optional("allow_partial", default=True): cv.boolean,
+    }
 )
 
 
@@ -156,6 +176,77 @@ async def _async_handle_solve_now(hass: HomeAssistant, call: ServiceCall) -> Non
         )
 
 
+async def _async_handle_compute_quality_report(
+    hass: HomeAssistant, call: ServiceCall
+) -> dict:
+    """Score an arbitrary [start, end] window using the same scoring
+    engine main() uses for the daily "yesterday" scorer, and return
+    the score dict as the service response.
+
+    The scoring engine (solver_writer._compute_report_for_window) is
+    genuinely blocking -- it reads real recorder history via urllib
+    and runs a HiGHS MILP oracle solve. Runs in a worker via
+    hass.async_add_executor_job(), same pattern solver_runtime.
+    async_run_solve() already uses.
+
+    Raises ServiceValidationError on shape errors (end <= start,
+    window in the future, etc.), HomeAssistantError on genuine
+    scoring failures (either power sensor missing, oracle infeasible,
+    real history not available yet).
+    """
+    from homeassistant.exceptions import HomeAssistantError
+    from homeassistant.util import dt as dt_util
+
+    from . import solver_writer
+
+    start: datetime = call.data["start"]
+    end: datetime = call.data["end"]
+    allow_partial: bool = call.data.get("allow_partial", True)
+
+    if end <= start:
+        raise ServiceValidationError(
+            f"nimbus_load.compute_quality_report: end ({end.isoformat()}) "
+            f"must be strictly after start ({start.isoformat()})"
+        )
+    now = dt_util.now()
+    if end > now:
+        raise ServiceValidationError(
+            f"nimbus_load.compute_quality_report: end ({end.isoformat()}) "
+            f"must not be in the future (now is {now.isoformat()})"
+        )
+
+    def _blocking() -> dict | None:
+        cfg = solver_writer.fetch_solver_config()
+        return solver_writer._compute_report_for_window(
+            cfg, start, end, allow_partial=allow_partial
+        )
+
+    try:
+        result = await hass.async_add_executor_job(_blocking)
+    except Exception as e:
+        raise HomeAssistantError(
+            f"nimbus_load.compute_quality_report: scoring failed for window "
+            f"[{start.isoformat()}, {end.isoformat()}]: {e}"
+        ) from e
+
+    if result is None:
+        raise HomeAssistantError(
+            f"nimbus_load.compute_quality_report: cannot score window "
+            f"[{start.isoformat()}, {end.isoformat()}] -- check that the "
+            f"solar/battery/load power sensors are configured, real recorder "
+            f"history exists for this window, and (with allow_partial=False) "
+            f"the window is at least 24 hours long"
+        )
+
+    window_hours = round((end - start).total_seconds() / 3600.0, 4)
+    return {
+        "window_start": start.isoformat(),
+        "window_end": end.isoformat(),
+        "window_hours": window_hours,
+        **result,
+    }
+
+
 def async_register_services(hass: HomeAssistant) -> None:
     """Idempotent -- safe to call from every async_setup_entry run (hub
     add, edit, reload). HA's own service registry is domain-scoped, not
@@ -177,3 +268,16 @@ def async_register_services(hass: HomeAssistant) -> None:
             await _async_handle_solve_now(hass, call)
 
         hass.services.async_register(DOMAIN, SERVICE_SOLVE_NOW, _handle_solve_now)
+
+    if not hass.services.has_service(DOMAIN, SERVICE_COMPUTE_QUALITY_REPORT):
+
+        async def _handle_compute_quality_report(call: ServiceCall):
+            return await _async_handle_compute_quality_report(hass, call)
+
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_COMPUTE_QUALITY_REPORT,
+            _handle_compute_quality_report,
+            schema=SERVICE_COMPUTE_QUALITY_REPORT_SCHEMA,
+            supports_response=True,
+        )
