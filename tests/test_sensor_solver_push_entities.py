@@ -603,10 +603,14 @@ def test_quality_report_update_from_solver_stores_epr_and_fans_out_to_children()
     for child in children:
         child.hass = None
     # Canned payload matches the real publish_daily_quality_report shape
-    # (see solver_writer.py L3696) -- epr as state, the 10 scalar attrs
-    # as fan-out targets.
+    # (see solver_writer.py's own build site) -- epr_pct as state (percent-
+    # scaled, 0..100, so it renders honestly against unit_of_measurement=%),
+    # the 0..1 fraction preserved as the "epr" attribute for downstream
+    # consumers (compute_quality_report service payload, hero chart, etc.),
+    # and the 10 scalar attrs as fan-out targets.
     attrs = {
-        "epr": 87.3,
+        "epr": 0.873,
+        "epr_pct": 87.3,
         "theoretical_maximum_yield": 12.345,
         "value_captured": 10.789,
         "j_ref": -8.400,
@@ -618,7 +622,10 @@ def test_quality_report_update_from_solver_stores_epr_and_fans_out_to_children()
     }
     instance.update_from_solver(87.3, attrs)
     assert instance.native_value == 87.3
-    # Every child should have pulled its own slice from `attrs`.
+    # Every child should have pulled its own slice from `attrs`. The flattened
+    # Quality EPR child reads the percent-scaled sibling (source_key=epr_pct)
+    # so its native_value is 87.3, not the 0.873 fraction sitting alongside
+    # it in the parent's attributes.
     by_suffix = {c._spec.entity_id_suffix: c for c in children}
     assert by_suffix["epr"].native_value == 87.3
     assert by_suffix["theoretical_maximum_yield"].native_value == 12.345

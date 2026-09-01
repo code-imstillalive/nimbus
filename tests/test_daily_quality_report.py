@@ -128,6 +128,7 @@ class TestComputeDailyQualityReportRealScore(unittest.TestCase):
         self.assertIsNotNone(report)
         for key in (
             "epr",
+            "epr_pct",
             "theoretical_maximum_yield",
             "value_captured",
             "uplift_available",
@@ -141,6 +142,12 @@ class TestComputeDailyQualityReportRealScore(unittest.TestCase):
             "real_p2p_volume_kwh",
         ):
             self.assertIn(key, report)
+
+        # epr_pct is the canonical 0..1 fraction scaled to a real percent
+        # (0..100), locked to two decimals. The state channel and the
+        # flattened Quality EPR child both publish it so the number
+        # renders honestly against unit_of_measurement="%".
+        self.assertAlmostEqual(report["epr_pct"], report["epr"] * 100, places=2)
 
         # No generic commanded-dispatch signal exists (see the function's
         # own docstring) -- commanded is set equal to actual by
@@ -413,8 +420,13 @@ class TestPublishDailyQualityReport(unittest.TestCase):
 
     def test_not_yet_scored_computes_and_pushes(self):
         cfg = _cfg()
+        # Shape matches compute_daily_quality_report()'s real return dict:
+        # epr is the canonical 0..1 fraction, epr_pct is the same value
+        # scaled to a real percent (0..100) for the state channel so it
+        # renders honestly against unit_of_measurement="%".
         day_entry = {
             "epr": 0.5,
+            "epr_pct": 50.0,
             "theoretical_maximum_yield": 1.0,
             "value_captured": 0.5,
             "uplift_available": 0.5,
@@ -442,9 +454,17 @@ class TestPublishDailyQualityReport(unittest.TestCase):
         post.assert_called_once()
         entity_id, state, attrs = post.call_args[0]
         self.assertEqual(entity_id, solver_writer.QUALITY_ENTITY_ID)
-        self.assertEqual(state, 0.5)
+        # State is the percent-scaled value (0..100) so it renders honestly
+        # against unit_of_measurement="%" (the frontend would otherwise
+        # display 0.5 with a "%" suffix as "0.5 %", the real bug this PR
+        # fixes).
+        self.assertEqual(state, 50.0)
         self.assertEqual(attrs["latest_date"], "2026-08-24")
+        # Both fields are preserved on the attribute dict via **day_entry:
+        # epr is the canonical 0..1 fraction for downstream consumers,
+        # epr_pct is the same value scaled to a percent.
         self.assertEqual(attrs["epr"], 0.5)
+        self.assertEqual(attrs["epr_pct"], 50.0)
 
     def test_compute_returning_none_never_pushes(self):
         cfg = _cfg()

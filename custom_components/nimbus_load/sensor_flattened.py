@@ -929,8 +929,12 @@ def dispatch_to_flattened(
 
 FLATTENED_ATTRS_QUALITY: tuple[FlattenedAttrSpec, ...] = (
     # --- Primary: Effective Performance Ratio (mirrors the parent's own state) ---
+    # Reads the percent-scaled sibling field (0..100) rather than the raw
+    # "epr" fraction (0..1) so unit_of_measurement="%" is honest. The 0..1
+    # fraction stays available as the "epr" attribute on the parent for
+    # any consumer that still wants the raw ratio.
     FlattenedAttrSpec(
-        source_key="epr",
+        source_key="epr_pct",
         name="Quality EPR",
         entity_id_suffix="epr",
         entity_category=None,
