@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.43] — 2026-09-01
+
+### Fixed
+- v0.94.42's own new test file (`test_quality_report_skip_logging.py`) failed CI's ruff format/lint check (an unformatted `with` block, one unused `logging` import) — no functional code affected, only the new test file. Fixed and verified against the exact CI commands (`ruff format --check`, `ruff check`) locally before pushing.
+
 ## [0.94.42] — 2026-09-01
 
 ### Added

@@ -12,7 +12,6 @@ log line Mark's own issues specified fires at the level he asked for
 for a genuinely infeasible oracle solve).
 """
 
-import logging
 import unittest
 from datetime import datetime, timedelta
 from unittest.mock import patch
@@ -117,9 +116,7 @@ class TestComputeReportForWindowSkipLogging(unittest.TestCase):
         empty for the window. Must log at INFO (not DEBUG), naming the
         exact per-sensor row counts, per Mark's own proposed fix."""
         with (
-            patch.object(
-                solver_writer, "fetch_entity_history_range", return_value=[]
-            ),
+            patch.object(solver_writer, "fetch_entity_history_range", return_value=[]),
             self.assertLogs(LOGGER_NAME, level="INFO") as cm,
         ):
             result = solver_writer._compute_report_for_window(
@@ -181,9 +178,7 @@ class TestPublishDailyQualityReportSkipLogging(unittest.TestCase):
         ):
             solver_writer.publish_daily_quality_report(_cfg(), self.NOW)
         post.assert_called_once()
-        self.assertTrue(
-            any("fast-path hit" in line for line in cm.output), cm.output
-        )
+        self.assertTrue(any("fast-path hit" in line for line in cm.output), cm.output)
 
     def test_compute_none_logs_debug_and_does_not_publish(self):
         with (
@@ -200,9 +195,7 @@ class TestPublishDailyQualityReportSkipLogging(unittest.TestCase):
         ):
             solver_writer.publish_daily_quality_report(_cfg(), self.NOW)
         post.assert_not_called()
-        self.assertTrue(
-            any("no report for" in line for line in cm.output), cm.output
-        )
+        self.assertTrue(any("no report for" in line for line in cm.output), cm.output)
 
 
 if __name__ == "__main__":
