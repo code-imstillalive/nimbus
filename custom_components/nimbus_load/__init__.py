@@ -175,6 +175,19 @@ _price_watcher_unsub: dict[str, Callable[[], None] | None] = {}
 # below.
 _price_watcher_entities: dict[str, tuple[str, ...]] = {}
 
+# The startup-retry task's own handle, keyed by entry_id (2026-09-01,
+# real root cause of issue #312's residual -- see async_unload_entry()'s
+# own comment for the full story). Registering this task's cancellation
+# ONLY via entry.async_on_unload() left a real window open: HA core only
+# processes those callbacks AFTER our async_unload_entry() has already
+# torn down every platform, so a task still sleeping between retries could
+# wake up, find its target entity's solver_writer handler just
+# unregistered, and fall through to a raw, non-restored state write that
+# then collided with the next setup's fresh entity. Tracked here so
+# async_unload_entry() can cancel it directly, before platform teardown,
+# instead of waiting on entry.async_on_unload()'s later timing.
+_startup_solve_tasks: dict[str, asyncio.Task[None]] = {}
+
 # Re-entrancy guard (2026-09-01, live-confirmed root cause of the household's
 # own long-standing "number.nimbus_solver_* entities reset to their schema
 # placeholder minimum on some restarts, not others" bug). Every fix above
@@ -436,47 +449,58 @@ async def _async_setup_entry_impl(
 
     entry.runtime_data = coordinators
 
-    # Real root cause found (2026-09-01), read directly from HA core's own
-    # installed entity_platform.py/config_entries.py source, not guessed --
-    # confirmed via a 100%-reproducible live test on devhub (a plain
-    # `homeassistant.reload_config_entry` call, not even a full restart).
-    # This is issue #312's own residual, now actually explained:
+    # Real root cause found (2026-09-01), directly observed live on devhub
+    # via a controlled reload with debug logging on -- NOT the theory
+    # v0.94.47 shipped (a 0.1s settle sleep here, on the SETUP side).
+    # That fix was tested live after shipping (both a full restart and a
+    # plain `homeassistant.reload_config_entry`) and CONFIRMED NOT TO
+    # WORK -- the identical collision reproduced both times, at the exact
+    # same millisecond across every affected entity, disproving the
+    # "post-unload settle timing" theory outright (a settle delay on the
+    # SETUP side cannot matter if the thing racing setup is UNLOAD's own
+    # side, and the 0.1s guess was never actually validated against a
+    # measured gap). Removed rather than left in place as dead weight.
     #
-    # `EntityPlatform._entity_id_already_exists()` (entity_platform.py)
-    # decides "does this unique_id collide" via two checks: (1) is this
-    # entity_id already in THIS platform object's own in-memory `.entities`
-    # dict, or (2) `not hass.states.async_available(entity_id)` -- i.e. is
-    # there STILL a live state object sitting in the state machine for
-    # this entity_id right now. `ConfigEntries.async_unload_platforms()`
-    # unloads [SENSOR, NUMBER, SWITCH] CONCURRENTLY via
-    # `asyncio.gather(*(create_eager_task(...) for platform in platforms))`
-    # -- and each platform's own `EntityPlatform.async_reset()` awaits
-    # `entity.async_remove()` for every entity in series. Our own
-    # `async_unload_entry()` correctly awaits all of this before returning
-    # `True`, and HA's own reload flow correctly waits for THAT before
-    # calling this function again (the _setup_tasks guard above protects a
-    # genuinely different, concurrent-setup class of race, not this one).
-    # But under Python 3.12's eager-task execution, `await entity.
-    # async_remove()` resolving does not guarantee every downstream,
-    # possibly-callback-scheduled side effect of that removal (the actual
-    # `hass.states.async_remove()` call HA core's entity teardown performs)
-    # has already run on the event loop by the time `async_unload_platforms`
-    # itself returns -- a real, narrow timing gap between "the awaited
-    # coroutine chain resolved" and "every scheduled callback it triggered
-    # has actually executed". A single explicit event-loop settle point
-    # here, AFTER our own subentry/coordinator setup (the genuinely slow
-    # part) but BEFORE re-registering the same deterministic unique_ids,
-    # gives any such pending removal callback from a just-completed unload
-    # a real chance to run first. 100ms is a deliberately generous, still
-    # imperceptible margin -- this fires on every setup, not just a reload,
-    # so it must never be large enough to matter to a real user waiting for
-    # the integration to finish loading.
-    await asyncio.sleep(0.1)
+    # The real mechanism, confirmed via a live log capture at DEBUG level
+    # spanning a full reload: `sensor.nimbus_solver_quality_report`'s own
+    # solve-cycle output (`ha_post_state()` in solver_writer.py) has a RAW
+    # `hass.states.async_set()` fallback for whenever no SensorEntity has
+    # registered itself as that entity_id's push handler yet (see
+    # register_entity_handler()'s own docstring) -- originally meant only
+    # for entity_ids that will NEVER have a native handler (the standalone/
+    # cron/addon deployment). `async_unload_entry()` below calls `hass.
+    # config_entries.async_unload_platforms()` FIRST, which tears down
+    # every entity (unregistering its solver_writer handler as it goes --
+    # see sensor.py's own `async_will_remove_from_hass()`) -- but the
+    # periodic-solve cron timer, the optional price-watcher listener, and
+    # the startup-retry task are all cancelled via `entry.async_on_unload()`
+    # callbacks, which HA core (`config_entries.py`'s own `ConfigEntry.
+    # async_unload()`) only processes AFTER our `async_unload_entry()` has
+    # already returned -- confirmed by reading that method's source
+    # directly, not guessed. That leaves a real, if narrow, window where
+    # one of those OLD triggers can still fire a solve after its entity's
+    # handler has just been unregistered, land on `ha_post_state()`'s raw
+    # fallback, and write a state with no `ATTR_RESTORED` flag -- which
+    # `EntityPlatform._entity_id_already_exists()` treats as a genuine
+    # occupant, not a safely-overwritable restored placeholder. The FRESH
+    # entity this same reload creates a moment later then collides with
+    # that raw ghost state and gets rejected ("does not generate unique
+    # IDs... ignoring <entity_id>"), exactly matching every live
+    # reproduction this session (both a cold boot and a plain reload).
+    #
+    # Real fix: async_unload_entry() below now explicitly cancels the
+    # periodic-solve timer / price-watcher listener / startup-retry task
+    # itself, BEFORE tearing down platforms -- not relying on entry.
+    # async_on_unload()'s later timing at all. See that function's own
+    # comment for the detail. Defense in depth: solver_writer.ha_post_
+    # state() also now skips (rather than raw-writes) its fallback for the
+    # small, closed set of entity_ids sensor.py DOES register a native
+    # handler for, so even an already-in-flight solve that started before
+    # cancellation can no longer poison the state machine.
 
-    # Diagnostic logging (2026-08-31, nimbus issue #312) -- kept in place
-    # alongside the real fix above: if the collision is ever seen again
-    # despite the settle delay, this call's own start/end/duration is the
-    # first thing to check against the error's own timestamp.
+    # Diagnostic logging (2026-08-31, nimbus issue #312) -- kept in place:
+    # if a collision is ever seen again, this call's own start/end/duration
+    # is the first thing to check against the error's own timestamp.
     _forward_started = time.monotonic()
     _LOGGER.debug(
         "Nimbus: forwarding entry %s to platforms %s", entry.entry_id, PLATFORMS
@@ -595,6 +619,13 @@ async def _async_setup_entry_impl(
         _async_run_solve_with_startup_retries(hass),
         name="nimbus_load_startup_solve_retry",
     )
+    # Tracked so async_unload_entry() can cancel it directly and promptly,
+    # before platform teardown -- see _startup_solve_tasks' own module-
+    # level comment. entry.async_on_unload() below is kept too, as a
+    # defensive second cancellation for a genuine entry REMOVAL (not just
+    # a reload) -- cancelling an already-cancelled/finished task is a safe
+    # no-op, so keeping both is harmless.
+    _startup_solve_tasks[entry.entry_id] = startup_solve_task
 
     def _cancel_startup_solve_task() -> None:
         # Real bug found in CI the same day this line was first written:
@@ -810,20 +841,31 @@ async def _async_update_listener(hass: HomeAssistant, entry: NimbusConfigEntry) 
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: NimbusConfigEntry) -> bool:
-    """Unload the Nimbus hub and every one of its load coordinators."""
+    """Unload the Nimbus hub and every one of its load coordinators.
+
+    Real root cause found (2026-09-01, see async_setup_entry's own comment
+    above for the full story): stop every one of OUR OWN solve triggers
+    (periodic cron, price-watcher, startup-retry task) FIRST, before
+    tearing down platforms -- not via entry.async_on_unload(), which HA
+    core only processes after this function has already returned. Doing
+    it here, first, closes the real window where an old trigger could
+    fire between "entities torn down" and "trigger actually cancelled"
+    and poison solver_writer's raw-fallback state for the entity the next
+    setup is about to (re-)create.
+    """
+    old_timer_unsub = _solver_timer_unsub.pop(entry.entry_id, None)
+    if old_timer_unsub is not None:
+        old_timer_unsub()
+    old_watcher_unsub = _price_watcher_unsub.pop(entry.entry_id, None)
+    if old_watcher_unsub is not None:
+        old_watcher_unsub()
+    _price_watcher_entities.pop(entry.entry_id, None)
+    old_startup_task = _startup_solve_tasks.pop(entry.entry_id, None)
+    if old_startup_task is not None:
+        old_startup_task.cancel()
+
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         for coordinator in entry.runtime_data.values():
             coordinator.async_unload()
-        # Symmetric with _solver_timer_unsub's own registration above --
-        # a genuinely removed (not just reloaded) entry shouldn't leave a
-        # stale, already-cancelled-by-entry.async_on_unload unsub sitting
-        # in this module-level dict forever.
-        _solver_timer_unsub.pop(entry.entry_id, None)
-        # Symmetric with the price-watcher registration in async_setup_
-        # entry above -- the entry.async_on_unload registration already
-        # cancelled the listener, we just don't want a stale key sitting
-        # in these module-level dicts forever after a genuine removal.
-        _price_watcher_unsub.pop(entry.entry_id, None)
-        _price_watcher_entities.pop(entry.entry_id, None)
     return unload_ok

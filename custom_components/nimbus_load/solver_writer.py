@@ -1215,6 +1215,31 @@ _LOGGER = logging.getLogger(__name__)
 # the REST path below is completely unaffected.
 _ENTITY_UPDATE_HANDLERS: dict[str, object] = {}
 
+# Every entity_id sensor.py's own async_setup_entry() DOES eventually call
+# register_entity_handler() for, in native mode (2026-09-01, real root
+# cause of issue #312's residual -- see __init__.py's own async_unload_
+# entry() comment for the full incident). A handler missing for one of
+# THESE specific entity_ids means "the real SensorEntity hasn't (re-)
+# registered yet" -- a genuinely transient condition during setup/unload,
+# never "this entity_id will never have one" -- so ha_post_state() below
+# skips its raw states.async_set() fallback for these rather than writing
+# a non-restored ghost state that then collides with the real entity's
+# own registration a moment later. Any OTHER entity_id (the standalone/
+# cron/addon deployment, or a genuinely not-yet-migrated one) keeps
+# today's exact fallback behaviour, unchanged.
+_NATIVE_MANAGED_ENTITY_IDS: frozenset[str] = frozenset(
+    {
+        "sensor.nimbus_solver_battery_forecast",
+        "sensor.nimbus_household_load_total_forecast",
+        "sensor.nimbus_solver_dispatch_dry_run",
+        "sensor.nimbus_mirror_temperature_forecast",
+        "sensor.nimbus_mirror_humidity_forecast",
+        "sensor.nimbus_solver_quality_report",
+        "sensor.nimbus_efficiency_backtest",
+        "sensor.nimbus_counterfactual_soc",
+    }
+)
+
 # Real-entity-id side-mapping (2026-08-31, devhub flicker investigation):
 # register_entity_handler() below is always called with a fixed, literal
 # entity_id string (e.g. "sensor.nimbus_solver_quality_report") -- correct
@@ -1476,6 +1501,31 @@ def ha_post_state(entity_id: str, state, attributes: dict) -> None:
         _LOGGER.debug(_trace_msg)
         if handler is not None:
             _NATIVE_HASS.add_job(functools.partial(handler, state, attributes))
+            return
+        # Real root cause of issue #312's residual (2026-09-01, see
+        # _NATIVE_MANAGED_ENTITY_IDS' own comment and __init__.py's
+        # async_unload_entry() for the full incident): for an entity_id
+        # that DOES eventually get a native handler, a missing handler
+        # right now means "not (re-)registered yet" -- during setup,
+        # during a reload's unload window, or an old trigger that fired
+        # in the narrow gap before its own cancellation ran -- never
+        # "this will never exist." Writing a raw, non-restored state here
+        # would occupy that entity_id in the state machine and make the
+        # real entity's OWN registration a moment later collide with it
+        # ("does not generate unique IDs... ignoring <entity_id>").
+        # Skipping is safe: the real entity, once it registers, publishes
+        # fresh data on its own very next solve cycle -- losing one push
+        # during a setup/unload transition is a complete non-issue next
+        # to a poisoned, permanently-colliding entity_id.
+        if entity_id in _NATIVE_MANAGED_ENTITY_IDS:
+            _LOGGER.debug(
+                "Nimbus: skipping raw states.async_set fallback for %s -- "
+                "no native handler registered yet (real entity is mid-"
+                "setup/unload, not missing) -- this cycle's update for "
+                "this entity is dropped, the next cycle will publish once "
+                "the real entity has (re-)registered",
+                entity_id,
+            )
             return
         # states.async_set() mutates HA's own state machine and fires a
         # real event -- unlike the plain dict-read in ha_get() above,
