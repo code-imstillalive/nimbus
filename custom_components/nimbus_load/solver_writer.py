@@ -3614,21 +3614,45 @@ def _compute_report_for_window(
     is shorter than 24 hours.
     """
     if day_end <= day_start:
+        _LOGGER.debug(
+            "Nimbus quality: skip. Window end (%s) not after start (%s)",
+            day_end.isoformat(),
+            day_start.isoformat(),
+        )
         return None
 
     solar_sensor = cfg.get("solver_solar_power_sensor")
     battery_sensor = cfg.get("solver_battery_power_sensor")
     load_sensor = cfg.get("solver_whole_house_cross_check_sensor")
     if not solar_sensor or not battery_sensor or not load_sensor:
+        _LOGGER.debug(
+            "Nimbus quality: skip. Missing sensor config (solar=%s battery=%s "
+            "load=%s) -- configure all three under Solver settings to enable "
+            "quality scoring",
+            solar_sensor,
+            battery_sensor,
+            load_sensor,
+        )
         return None
 
     window_hours = (day_end - day_start).total_seconds() / 3600.0
     if not allow_partial and window_hours < 24.0:
+        _LOGGER.debug(
+            "Nimbus quality: skip. Window is %.2f h, shorter than the 24 h a "
+            "full-day score requires (allow_partial=False)",
+            window_hours,
+        )
         return None
 
     period_hours = 0.25
     n_periods = round(window_hours / period_hours)
     if n_periods < 1:
+        _LOGGER.debug(
+            "Nimbus quality: skip. Window (%.4f h) rounds to fewer than one "
+            "%.2f h period",
+            window_hours,
+            period_hours,
+        )
         return None
     grid_times = [
         day_start + timedelta(hours=i * period_hours) for i in range(n_periods)
@@ -3638,6 +3662,17 @@ def _compute_report_for_window(
     load_hist = fetch_entity_history_range(load_sensor, day_start, day_end)
     battery_hist = fetch_entity_history_range(battery_sensor, day_start, day_end)
     if not solar_hist or not load_hist or not battery_hist:
+        _LOGGER.info(
+            "Nimbus quality: skip. Real history missing for window "
+            "[%s, %s] (solar=%d, load=%d, battery=%d rows) -- either the "
+            "window predates when these sensors started recording, or one "
+            "of them went unavailable for the whole window",
+            day_start.isoformat(),
+            day_end.isoformat(),
+            len(solar_hist),
+            len(load_hist),
+            len(battery_hist),
+        )
         return None
 
     import_price_hist = fetch_entity_history_range(
@@ -3861,10 +3896,24 @@ def _compute_report_for_window(
             actual_discharge_kw=actual_discharge_kw,
             final_soc_kwh_actual=final_soc_kwh_actual,
         )
-    except RuntimeError:
+    except RuntimeError as e:
         # Oracle solve genuinely infeasible for this day's real data --
         # skip, same "retry next cycle" convention as every other
-        # genuine failure mode here, never a crash.
+        # genuine failure mode here, never a crash. issue #314 (Mark
+        # Purcell): this exact path was diagnosed once, by hand, on
+        # 2026-08-30 as initial_soc_kwh < min_soc_kwh after a reload --
+        # logging the same three values here makes that diagnosis a
+        # one-line log read instead of a repeat investigation.
+        _LOGGER.warning(
+            "Nimbus quality: skip. Oracle LP infeasible for window "
+            "[%s, %s] (initial_soc=%.3f min_soc=%.3f max_soc=%.3f kWh): %s",
+            day_start.isoformat(),
+            day_end.isoformat(),
+            initial_soc_kwh,
+            min_soc_kwh,
+            max_soc_kwh,
+            e,
+        )
         return None
 
     regret_dollars = report.j_ach - report.j_star
@@ -3973,12 +4022,34 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
         # See that function's own docstring for the full incident.
         existing = ha_get(resolve_real_entity_id(QUALITY_ENTITY_ID))
         if existing.get("attributes", {}).get("latest_date") == yesterday_key:
+            # issue #313 (Mark Purcell): this fast path used to be
+            # externally indistinguishable from every silent-skip path
+            # below it -- same "nothing changed, nothing logged" outcome.
+            # DEBUG, not INFO: this is the expected, common case on every
+            # cycle after the first of a given day, not a diagnostic event.
+            _LOGGER.debug(
+                "Nimbus quality: fast-path hit, already scored %s -- re-"
+                "pushing cached state to keep the freshness stamp alive",
+                yesterday_key,
+            )
             ha_post_state(QUALITY_ENTITY_ID, existing["state"], existing["attributes"])
             return
     except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError):
         pass  # never seen before, or transiently unreachable -- fall through and try to compute
     day_entry = compute_daily_quality_report(cfg, now)
     if day_entry is None:
+        # issue #313: compute_daily_quality_report()/_compute_report_for_
+        # window() already logs the SPECIFIC reason for a None return
+        # (missing config, missing history, infeasible oracle) at its own
+        # call site -- this one line is what ties that reason back to
+        # "and therefore the sensor was not updated this cycle," so a log
+        # search for this entity's own name always surfaces the full story.
+        _LOGGER.debug(
+            "Nimbus quality: no report for %s this cycle -- sensor left "
+            "unchanged, will retry next cycle (see the reason logged just "
+            "above, if any)",
+            yesterday_key,
+        )
         return
     ha_post_state(
         QUALITY_ENTITY_ID,

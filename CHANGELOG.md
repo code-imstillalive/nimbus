@@ -8,6 +8,14 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.42] — 2026-09-01
+
+### Added
+- **`nimbus_load.compute_quality_report` service (Mark Purcell, issue #316, PR #317)** — scores an arbitrary `[start, end]` window on demand, using the exact same scoring engine (`_compute_report_for_window()`, extracted verbatim from `compute_daily_quality_report()`) the daily "yesterday" scorer has always used. Built specifically to unblock IV&V diagnosis of a silent scoring freeze (issue #312) without waiting for the next calendar-day rollover. `allow_partial` (default `True`) permits scoring any real sub-24h window; the P2P settlement lookup only fires when the window exactly matches a real calendar day (its history is keyed by ISO date — a non-aligned lookup would be meaningless). Zero behaviour change for the existing daily wrapper, confirmed by a direct equivalence test comparing both entry points against the same synthetic scenario.
+
+### Fixed
+- **Every silent-skip path in the daily quality-report pipeline now logs a specific, actionable reason (Mark Purcell, issues #313/#314).** A real 14-hour scoring freeze on Mark's own install was externally indistinguishable across four completely different causes (missing sensor config, no history yet, oracle LP infeasible, or the routine "already scored today" fast path) — all four produced the identical external symptom (sensor unchanged, zero log lines). Each path now logs at the level matching how routine/diagnostic it is: `DEBUG` for expected/routine skips (fast-path hit, missing config, window too short), `INFO` for a real history gap (with exact per-sensor row counts), `WARNING` for a genuinely infeasible oracle solve (with `initial_soc`/`min_soc`/`max_soc`, the exact values Mark hand-diagnosed this failure mode from on 2026-08-30). Purely additive — no behavior change to what gets scored or published, only what gets logged. 6 new regression tests, including a live mutation test confirming a removed log line is actually caught.
+
 ## [0.94.41] — 2026-09-01
 
 ### Fixed

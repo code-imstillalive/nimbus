@@ -136,12 +136,20 @@ def test_the_real_compute_path_is_untouched_and_still_gated_on_none():
     recompute-and-first-publish path (`day_entry = compute_...(...)`,
     `if day_entry is None: return`) must be completely unchanged, since
     that's the genuinely correct, already-working "first score of a new
-    day" behaviour neither #289 nor #292 ever implicated."""
+    day" behaviour neither #289 nor #292 ever implicated.
+
+    Tolerates an interposed diagnostic log call between the `if ... is
+    None:` line and its own `return` (issue #313, 2026-09-01: this None
+    path now logs its reason before returning) -- the invariant this
+    test actually cares about is "still gated on None, still eventually
+    returns," not "returns on the very next line with nothing else
+    happening in between."
+    """
     src = _SOLVER_WRITER_PY.read_text(encoding="utf-8")
     for def_marker, _entity_const in _TARGETS:
         block = _extract_function(src, def_marker)
         assert re.search(
-            r"(day_entry|report) = compute_\w+\([^)]*\)\n\s*if \1 is None:\n\s*return",
+            r"(day_entry|report) = compute_\w+\([^)]*\)\n\s*if \1 is None:\n(?:.*\n)*?\s*return",
             block,
         ), (
             f"{def_marker}'s real recompute-and-publish path looks "
