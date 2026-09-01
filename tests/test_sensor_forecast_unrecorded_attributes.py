@@ -38,6 +38,22 @@ def test_forecast_sensor_has_unrecorded_attributes_for_recorder_cap():
     assert cls._unrecorded_attributes == frozenset({"forecast"})
 
 
+def test_health_report_sensor_has_unrecorded_attributes_for_recorder_cap():
+    # Same class of bug as #99 above, found live on devhub (2026-09-01):
+    # NimbusHealthReportSensor's extra_state_attributes() returns up to
+    # 20 recent_errors + 20 recent_warnings + one subentry_status entry
+    # per forecastable subentry -- real, current diagnostic state, not
+    # a historical fact worth keeping in long-term stats, and large
+    # enough to trip the Recorder's 16 KB cap on nearly every cycle
+    # (confirmed live: 62 warnings in one 30-minute window). This class
+    # was never given the same _unrecorded_attributes treatment #99
+    # gave NimbusForecastSensor -- fixed the same way.
+    cls = sensor.NimbusHealthReportSensor
+    assert cls._unrecorded_attributes == frozenset(
+        {"recent_errors", "recent_warnings", "subentry_status"}
+    )
+
+
 if __name__ == "__main__":
     tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
     failed = 0
