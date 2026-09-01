@@ -75,11 +75,32 @@ SERVICE_RETRAIN_SCHEMA = vol.Schema(
     {vol.Optional(ATTR_ENTITY_ID): cv.entity_ids},
 )
 
+
+def _coerce_datetime(value: object) -> datetime:
+    """Accept either a real datetime (from a services.yaml datetime
+    selector, which HA already parses before dispatch) or an ISO
+    format string (from a raw YAML service call), and return a
+    timezone-aware datetime. Kept as a plain module-level function
+    rather than cv.datetime so this schema builds cleanly under the
+    tests/_ha_stubs.py minimal cv module too (which only exposes
+    cv.entity_ids). Real HA's cv.datetime does the same thing and
+    also normalises tz.
+    """
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, str):
+        parsed = datetime.fromisoformat(value)
+        return parsed
+    raise vol.Invalid(
+        f"expected a datetime or an ISO 8601 string, got {type(value).__name__}"
+    )
+
+
 SERVICE_COMPUTE_QUALITY_REPORT_SCHEMA = vol.Schema(
     {
-        vol.Required("start"): cv.datetime,
-        vol.Required("end"): cv.datetime,
-        vol.Optional("allow_partial", default=True): cv.boolean,
+        vol.Required("start"): _coerce_datetime,
+        vol.Required("end"): _coerce_datetime,
+        vol.Optional("allow_partial", default=True): bool,
     }
 )
 

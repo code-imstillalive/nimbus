@@ -209,21 +209,25 @@ def test_handle_retrain_raises_for_partial_match_and_retrains_nothing():
 
 
 def test_async_register_services_registers_both_load_and_signal():
-    """Both services (retrain, solve_now) get registered on a fresh
-    setup -- renamed from the original "_registers_once" name now that
-    there are two, but the underlying fresh-setup behavior is unchanged
-    for retrain specifically (still checked by service name below).
+    """Every service gets registered on a fresh setup: retrain (issue
+    #195), solve_now (issue #232), and compute_quality_report (issue
+    #316). The idempotency guard is exercised by the sibling
+    _is_idempotent_on_reload test.
     """
     hass = MagicMock()
     hass.services.has_service.return_value = False
 
     services.async_register_services(hass)
 
-    assert hass.services.async_register.call_count == 2
+    assert hass.services.async_register.call_count == 3
     registered_names = {
         call.args[1] for call in hass.services.async_register.call_args_list
     }
-    assert registered_names == {services.SERVICE_RETRAIN, services.SERVICE_SOLVE_NOW}
+    assert registered_names == {
+        services.SERVICE_RETRAIN,
+        services.SERVICE_SOLVE_NOW,
+        services.SERVICE_COMPUTE_QUALITY_REPORT,
+    }
     for call in hass.services.async_register.call_args_list:
         assert call.args[0] == services.DOMAIN
 
