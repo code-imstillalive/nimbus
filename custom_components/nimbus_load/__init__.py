@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from collections.abc import Callable
 
 from homeassistant.const import Platform
@@ -434,7 +435,36 @@ async def _async_setup_entry_impl(
     coordinators: dict[str, NimbusCoordinator] = dict(results)
 
     entry.runtime_data = coordinators
+    # Diagnostic logging only, no behaviour change (2026-09-01, nimbus
+    # issue #312 -- Mark Purcell and this project's own NUC1 verification
+    # both independently hit ONE residual "does not generate unique IDs"
+    # collision for a single entity even after _setup_tasks' own entry-
+    # level re-entrancy guard above went in, despite confirming only ONE
+    # "Setting up nimbus_load.sensor" log line appeared for the whole
+    # restart -- ruling out a simple "the whole entry setup ran twice"
+    # explanation, since that's exactly what the guard prevents, and
+    # ruling out per-subentry platform forwarding too (this is the only
+    # async_forward_entry_setups() call site in this file, entry-scoped,
+    # not subentry-scoped). Neither investigation could pin down WHERE
+    # inside this one call the duplicate add_entities() actually came
+    # from. Logging this call's own start/end and wall-clock duration is
+    # the smallest possible next step if it recurs: comparing this
+    # call's own duration against the "does not generate unique IDs"
+    # error's timestamp (if one appears) will show whether HA core's own
+    # per-platform eager-task/timeout machinery is genuinely re-entering
+    # THIS specific call, or whether the duplicate originates somewhere
+    # else entirely -- a question neither of us could answer from the
+    # logs available so far.
+    _forward_started = time.monotonic()
+    _LOGGER.debug(
+        "Nimbus: forwarding entry %s to platforms %s", entry.entry_id, PLATFORMS
+    )
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    _LOGGER.debug(
+        "Nimbus: platform forwarding for entry %s completed in %.3fs",
+        entry.entry_id,
+        time.monotonic() - _forward_started,
+    )
 
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
 

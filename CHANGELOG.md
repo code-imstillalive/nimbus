@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.44] — 2026-09-01
+
+### Added
+- Diagnostic-only logging (DEBUG) around `hass.config_entries.async_forward_entry_setups()` in `async_setup_entry` — start, completion, and wall-clock duration. No behavior change. Added specifically for issue #312's still-open residual: both Mark Purcell's install and this project's own NUC1 verification independently hit one `Platform nimbus_load does not generate unique IDs` collision even after v0.94.40/v0.94.41's entry-level re-entrancy guard, with only one `Setting up nimbus_load.sensor` log line appearing either time — ruling out "the whole entry setup ran twice" (that's exactly what the guard prevents) without pinning down what did happen. This call's own timing is the smallest next diagnostic step if it recurs.
+
 ## [0.94.43] — 2026-09-01
 
 ### Fixed
