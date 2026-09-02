@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.50] — 2026-09-02
+
+### Fixed
+- **`min_soc`/`max_soc` are now a soft LP preference the Solver schedules real recovery toward, not a hard invariant enforced by clamping observed SoC** ([#328](https://github.com/code-imstillalive/nimbus/issues/328), thanks @purcell-lab). `elements.BatteryConfig` previously required `initial_soc_kwh` to sit inside `[min_soc_kwh, max_soc_kwh]`, so every writer-side call site had to clamp a live/historical SoC reading into that envelope before construction — silently reporting a fictional starting state to the LP and corrupting every downstream number (planned throughput, `total_cost`, the next cycle's own starting assumption, and critically the EPR quality-report ratio, which compares two trajectories that started from differently-clamped states). `BatteryConfig` now only enforces the physical bound `[0, capacity_kwh]`; `network.py`'s LP construction adds a new costed `underfill`/`overfill` slack pair that softly enforces the scheduling envelope instead, pinned to its true value by cost-minimization and therefore never gameable. Two other constraints (the discharge wash-trade-prevention guard, and the `terminal_value_breakpoints` segment-fill equation) independently re-imposed a hard floor via algebraic side effects and needed the same fix folded in. A genuinely *physical* clamp (`[0, capacity]`, not the schedule) is deliberately kept at the two live-sensor call sites (`main()`, the quality-report scorer) — a sensor can still report a value outside the battery's own possible range (calibration drift, a template-averaging overshoot).
+
 ## [0.94.49] — 2026-09-02
 
 ### Fixed
