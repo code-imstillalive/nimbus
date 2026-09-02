@@ -20,6 +20,18 @@ resolve_max_discharge_kw() (nimbus #125) and the initial_soc_kwh clamp
 in main() (2026-08-23) -- a tiny relative floor (0.05% of capacity)
 keeps a 0% intent honoured as "effectively no reserve" while staying
 strictly positive and therefore solvable.
+
+Update, nimbus issue #328 (Mark Purcell): elements.BatteryConfig's own
+invariant was relaxed as part of the soft min_soc/max_soc LP-constraint
+redesign -- min_soc_kwh may now legitimately be exactly 0.0 (was
+strict >), so the ORIGINAL crash this function was built to prevent
+(`ValueError: ... 0 < min_soc(0.0) ...`) can no longer happen at all.
+resolve_min_soc_kwh() itself is left as-is deliberately (a low-priority,
+now-partially-redundant leftover, out of #328's own explicit scope) --
+its 0.05%-of-capacity nudge is still harmless and still honestly
+documents "0% intent, effectively no reserve" separately from a literal
+0.0, so keeping it costs nothing. Only this file's own baseline
+assumption (that a bare 0.0 min_soc still raises) needed correcting.
 """
 
 import unittest
@@ -33,13 +45,17 @@ from solver.elements import BatteryConfig
 class TestMarksExactRealRepro(unittest.TestCase):
     """The precise, real numbers from Mark's own live crash report."""
 
-    def test_zero_percent_no_longer_raises(self):
-        # Baseline, pre-fix behaviour if this floor didn't exist: a bare
-        # 0.0 kWh min_soc handed straight to BatteryConfig genuinely
-        # does raise -- documents the real crash this function exists
-        # to prevent from ever reaching that constructor.
-        with self.assertRaises(ValueError):
-            BatteryConfig(
+    def test_bare_zero_min_soc_no_longer_raises_post_328(self):
+        # Historical baseline (pre-#328): a bare 0.0 kWh min_soc handed
+        # straight to BatteryConfig used to raise -- that's the exact
+        # crash this function was originally built to prevent. #328
+        # relaxed elements.BatteryConfig's own invariant to explicitly
+        # allow min_soc_kwh == 0.0, so this no longer raises even
+        # without resolve_min_soc_kwh()'s own separate nudge. This test
+        # now documents that the ORIGINAL crash is structurally
+        # unreachable, not just papered over by the 0.05% floor below.
+        try:
+            bc = BatteryConfig(
                 capacity_kwh=40.0,
                 initial_soc_kwh=20.0,
                 min_soc_kwh=0.0,
@@ -52,6 +68,9 @@ class TestMarksExactRealRepro(unittest.TestCase):
                 discharge_cost=0.01,
                 salvage_value=0.15,
             )
+        except ValueError as e:
+            self.fail(f"BatteryConfig raised on min_soc_kwh=0.0 post-#328: {e}")
+        self.assertEqual(bc.min_soc_kwh, 0.0)
 
     def test_resolve_min_soc_kwh_floors_zero_percent_to_something_positive(self):
         result = solver_writer.resolve_min_soc_kwh(

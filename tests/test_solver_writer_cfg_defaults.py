@@ -76,6 +76,16 @@ class TestBatteryConfigSoCClamp(unittest.TestCase):
     a live HA to fetch from), but its output -- initial_soc_kwh equal
     to min_soc_kwh, or equal to max_soc_kwh -- must be a legal
     BatteryConfig input on both boundaries.
+
+    nimbus issue #328 (Mark Purcell) superseded the original premise of
+    this class -- BatteryConfig no longer treats initial_soc_kwh
+    outside [min_soc_kwh, max_soc_kwh] as an error at all (it's a state
+    OBSERVATION, not a bound the writer must pre-clamp to satisfy).
+    solver_writer.main() itself no longer clamps either (see the WARN
+    log it prints instead) -- kept as regression coverage that the
+    (still legal) boundary-equal values keep working, plus a new test
+    proving the below-floor case that used to be this class's own
+    documented baseline crash no longer raises.
     """
 
     def _base_kwargs(self):
@@ -92,11 +102,25 @@ class TestBatteryConfigSoCClamp(unittest.TestCase):
             "salvage_value": 0.15,
         }
 
-    def test_initial_below_min_still_raises_without_clamp(self):
-        # Baseline: the invariant IS the crash the writer used to
-        # propagate -- documents current behavior of elements.py.
+    def test_initial_below_min_no_longer_raises(self):
+        # nimbus #328: initial_soc_kwh only needs to sit within the
+        # PHYSICAL bounds [0, capacity] -- a live reading below the
+        # configured min_soc floor is exactly the honest, real-world
+        # case the LP's soft-floor penalty (network.py) now schedules
+        # recovery from, not a construction-time error.
         kwargs = self._base_kwargs()
         kwargs["initial_soc_kwh"] = 0.04  # 0.1% -- below the 2.0 kWh floor
+        try:
+            bc = BatteryConfig(**kwargs)
+        except ValueError as e:
+            self.fail(f"BatteryConfig raised on a below-floor initial_soc_kwh: {e}")
+        self.assertEqual(bc.initial_soc_kwh, 0.04)
+
+    def test_initial_below_zero_still_raises(self):
+        # The physical bound still holds -- initial_soc_kwh can't be
+        # genuinely negative, unlike sitting below the scheduling floor.
+        kwargs = self._base_kwargs()
+        kwargs["initial_soc_kwh"] = -0.01
         with self.assertRaises(ValueError):
             BatteryConfig(**kwargs)
 
