@@ -630,9 +630,7 @@ CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR: Final = (
 # CONF_SOLVER_EXPORT_PRICE_SENSOR's own forecast-attribute-or-flat
 # behaviour) -- a clean no-op, not a degraded mode, same convention as
 # every other optional field in this file.
-CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR: Final = (
-    "solver_price_forecast_array_sensor"
-)
+CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR: Final = "solver_price_forecast_array_sensor"
 # Same audit, same real bug class: fetch_aemo_forecast() hardcoded
 # `sensor.nem_pd7day_qld1_nem_spot_price_forecast` -- Australian-
 # NEM-region-specific by NATURE (a genuinely real, honest, disclosed

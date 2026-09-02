@@ -389,9 +389,10 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         -- see _WHOLE_HOUSE_ENTITY's own comment for the full real-bug
         story this closes.
         """
-        whole_house_sensor = self.entry.options.get(
-            CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR
-        ) or self._WHOLE_HOUSE_ENTITY
+        whole_house_sensor = (
+            self.entry.options.get(CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR)
+            or self._WHOLE_HOUSE_ENTITY
+        )
         return (
             self.subentry.subentry_type == SUBENTRY_TYPE_SIGNAL
             or self._load_sensor == whole_house_sensor
