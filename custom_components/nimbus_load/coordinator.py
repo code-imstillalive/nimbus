@@ -50,6 +50,7 @@ from .const import (
     CONF_SCHEDULE_END_HOUR,
     CONF_SCHEDULE_START_HOUR,
     CONF_SOLAR_SENSOR,
+    CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR,
     CONF_TEMPERATURE_FORECAST_SENSOR,
     CONF_TEMPERATURE_SENSOR,
     CONF_TRAIN_DAYS,
@@ -340,14 +341,25 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """
         return self.subentry.subentry_type == SUBENTRY_TYPE_SIGNAL
 
-    # Real, whole-house-meter entity -- the ONE load subentry that's really
-    # a system-level aggregate (bleeds in battery/grid transition effects
-    # the same way Battery's own midnight step does), not a genuinely
-    # momentum-driven individual appliance. Deliberately hardcoded rather
-    # than a new config field -- a real, confirmed-live bug (see
-    # _seasonal_anchor below) needed a fast, well-scoped fix, not a new
-    # UI surface; revisit as a real per-load opt-in if more than this one
-    # load ever needs it.
+    # LEGACY fallback only (2026-09-02 audit, Mark Purcell's real "online
+    # Claude" handoff report + direct household escalation: "STANDING
+    # DIRECTIVE WAS AND STILL IS: NO HARD WIRED NIMBUS PARTS... NO LOCAL
+    # ENTITIES NAMED IN CODE"). This literal used to be the ONLY check
+    # _seasonal_anchor made -- silently, permanently unreachable the
+    # moment a household renames/reconfigures its own whole-house meter
+    # sensor (confirmed live: this exact household's own install moved
+    # to sensor.cb_total_combined_power_adjusted_kw, making the equality
+    # below False forever, which silently disabled two already-shipped
+    # bug fixes -- #6/v0.19.0's midnight-spike fix and #7/v0.20.0's
+    # stair-step fix -- with zero error, zero warning). Real fix below:
+    # _seasonal_anchor now checks the ALREADY-WIZARD-CONFIGURED
+    # CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR field first (no new UI
+    # needed -- this project already uses that exact field as its own
+    # canonical "what's the real whole-house sensor" source of truth
+    # elsewhere in this same file's own entry.options reads), falling
+    # back to this literal ONLY when that field is blank -- so an
+    # install upgrading from an older version that never configured it
+    # doesn't silently regress either.
     _WHOLE_HOUSE_ENTITY = "sensor.logger_load_power"
 
     @property
@@ -371,10 +383,18 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         predict() clamp-to-zero must stay active) -- these two properties
         answer two genuinely different questions and must never be
         conflated into one.
+
+        2026-09-02: the comparison itself now prefers the wizard-
+        configured whole-house sensor over the legacy hardcoded literal
+        -- see _WHOLE_HOUSE_ENTITY's own comment for the full real-bug
+        story this closes.
         """
+        whole_house_sensor = self.entry.options.get(
+            CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR
+        ) or self._WHOLE_HOUSE_ENTITY
         return (
             self.subentry.subentry_type == SUBENTRY_TYPE_SIGNAL
-            or self._load_sensor == self._WHOLE_HOUSE_ENTITY
+            or self._load_sensor == whole_house_sensor
         )
 
     @property
