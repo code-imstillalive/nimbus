@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.51] — 2026-09-02
+
+### Fixed
+- **`number.nimbus_solver_*` no longer silently resets to its schema placeholder on some restarts — real, recurring incident (flagged 2026-08-26, 08-31, 09-01, hit again 2026-09-02: 14 of 38 devhub values reset on a single restart, including grid limits, P2P block 1, all three network-fee tiers, min SoC, SoH, efficiency, and charge cost).** Root cause: `RestoreNumber`'s own restore-state has a genuine, still-not-fully-diagnosed HA-core startup timing race, and this platform's only fallback — seeding from `entry.options` — is a dead end for most of these 38 fields, since `entry.options` is deliberately never kept in sync with a dashboard edit (to avoid a full-hub reload on every value change). Every P2P block, network-fee tier, and risk-aversion dial was never in the config-flow wizard at all, so `entry.options` never held them — a restore-state miss on any of those had zero real fallback and free-fell straight to the hardcoded class default. Adds a small `Store`-backed JSON file per config entry, shared by all 38 number entities: written on every successful restore/seed/edit, read as a fallback before ever reaching `entry.options`/default. A plain `Store` read is a direct JSON-file load with no comparable startup race.
+
 ## [0.94.50] — 2026-09-02
 
 ### Fixed
