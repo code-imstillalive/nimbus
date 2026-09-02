@@ -177,6 +177,33 @@ class _StubPowerConverter:
         return value * cls._TO_WATTS[from_unit] / cls._TO_WATTS[to_unit]
 
 
+class _StubStore:
+    """Real (not mocked) in-memory stand-in for
+    homeassistant.helpers.storage.Store -- backs number.py's own
+    _SharedNumberStore durability fallback (2026-09-02, real incident:
+    RestoreNumber's own restore-state has a startup timing race with no
+    fallback for any dashboard-only field). Persistence is keyed by the
+    literal `key` string constructor argument, matching real Store's own
+    one-file-per-key behaviour -- two Store(...) instances built with the
+    same key string share the same underlying data, same as two real
+    Store objects pointing at the same `.storage/<key>` file would.
+    `from __future__ import annotations` in number.py means its own
+    `Store[dict[str, Any]]` type-hint usage never evaluates at runtime,
+    so this stub doesn't need to support subscripting."""
+
+    _shared_data: ClassVar[dict[str, dict]] = {}
+
+    def __init__(self, hass, version: int, key: str) -> None:
+        self._key = key
+        self._shared_data.setdefault(key, None)
+
+    async def async_load(self):
+        return self._shared_data.get(self._key)
+
+    async def async_save(self, data) -> None:
+        self._shared_data[self._key] = data
+
+
 def _generic_stub_class(name: str) -> type:
     """A stub base class that tolerates HA's own generic-subscript usage,
     e.g. `class Foo(CoordinatorEntity[MyCoordinator], SensorEntity):` --
@@ -485,6 +512,7 @@ def install_ha_stubs() -> None:
         AddEntitiesCallback=_generic_stub_class("AddEntitiesCallback"),
     )
     module("homeassistant.helpers.entity_registry", async_get=MagicMock())
+    module("homeassistant.helpers.storage", Store=_StubStore)
     module(
         "homeassistant.helpers.restore_state",
         RestoreEntity=_generic_stub_class("RestoreEntity"),

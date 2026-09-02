@@ -15,9 +15,10 @@ in real HA, not raise anything obvious).
 
 from __future__ import annotations
 
+import asyncio
 import sys
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ha_stubs import install_ha_stubs
@@ -26,12 +27,19 @@ install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from homeassistant.components.number import NumberDeviceClass
+from homeassistant.helpers.storage import Store
 
 from custom_components.nimbus_load.const import DOMAIN
 from custom_components.nimbus_load.number import (
     _DESCRIPTIONS,
     NimbusSolverNumber,
+    _SharedNumberStore,
 )
+
+
+def _fresh_shared_store(key: str = "test") -> _SharedNumberStore:
+    return _SharedNumberStore(store=Store(MagicMock(), 1, key))
+
 
 # Units with no real matching NumberDeviceClass (verified 2026-08-22 against
 # HA core's own current DEVICE_CLASS_UNITS table) -- device_class must be
@@ -110,7 +118,9 @@ def test_entity_attribute_wiring():
     entry.entry_id = "test_entry_id"
     desc = _DESCRIPTIONS[0]  # Battery Capacity, per the table's own real ordering
 
-    entity = NimbusSolverNumber(entry, desc, sw_version="9.9.9-test")
+    entity = NimbusSolverNumber(
+        entry, desc, sw_version="9.9.9-test", shared_store=_fresh_shared_store()
+    )
 
     assert entity._attr_unique_id == f"test_entry_id_{desc.key}"
     assert entity.entity_id == f"number.nimbus_{desc.key}"
@@ -132,7 +142,9 @@ def test_entity_wiring_carries_through_for_a_field_with_no_device_class():
     # single-match asserts above.
     desc = next(d for d in _DESCRIPTIONS if d.unit == "%")
 
-    entity = NimbusSolverNumber(entry, desc, sw_version=None)
+    entity = NimbusSolverNumber(
+        entry, desc, sw_version=None, shared_store=_fresh_shared_store()
+    )
 
     assert entity._attr_device_class is None
     assert entity._attr_native_unit_of_measurement == "%"
@@ -146,6 +158,117 @@ def test_every_solver_number_is_entity_category_config():
     from homeassistant.const import EntityCategory
 
     assert NimbusSolverNumber._attr_entity_category == EntityCategory.CONFIG
+
+
+def _make_entry(options=None):
+    entry = MagicMock()
+    entry.entry_id = "test_entry_id"
+    entry.options = options or {}
+    return entry
+
+
+# Real regression tests for the 2026-09-02 incident: RestoreNumber's own
+# restore-state has a genuine startup timing race with zero real fallback
+# for any field never set via the wizard (every P2P/network-fee/risk-
+# aversion field). The Store added to number.py is the fix -- these tests
+# exercise the REAL fallback chain (RestoreNumber -> Store -> entry.options
+# -> class default), not a reimplementation.
+
+
+def test_successful_restore_backfills_the_store():
+    desc = _DESCRIPTIONS[0]
+    shared_store = _fresh_shared_store("backfill")
+    entity = NimbusSolverNumber(
+        _make_entry(), desc, sw_version=None, shared_store=shared_store
+    )
+    entity.async_get_last_number_data = AsyncMock(
+        return_value=MagicMock(native_value=999.0)
+    )
+    asyncio.run(entity.async_added_to_hass())
+    assert entity._attr_native_value == 999.0
+    assert asyncio.run(shared_store.async_read(desc.key)) == 999.0
+
+
+def test_restore_miss_falls_back_to_the_store():
+    """The actual bug this fix closes: RestoreNumber returns nothing (the
+    real, live timing race), but the Store already has a real value from
+    an earlier successful restore/edit -- that value must win, NOT the
+    class default."""
+    desc = _DESCRIPTIONS[0]
+    shared_store = _fresh_shared_store("restore-miss")
+    asyncio.run(shared_store.async_write(desc.key, 42.0))
+
+    entity = NimbusSolverNumber(
+        _make_entry(), desc, sw_version=None, shared_store=shared_store
+    )
+    entity.async_get_last_number_data = AsyncMock(return_value=None)
+    asyncio.run(entity.async_added_to_hass())
+    assert entity._attr_native_value == 42.0
+
+
+def test_restore_and_store_both_miss_falls_back_to_options_seed():
+    desc = _DESCRIPTIONS[0]
+    shared_store = _fresh_shared_store("both-miss")
+    entity = NimbusSolverNumber(
+        _make_entry(options={desc.key: 7.0}),
+        desc,
+        sw_version=None,
+        shared_store=shared_store,
+    )
+    entity.async_get_last_number_data = AsyncMock(return_value=None)
+    asyncio.run(entity.async_added_to_hass())
+    assert entity._attr_native_value == 7.0
+    # The options-seed path backfills the Store too, same reasoning as a
+    # successful RestoreNumber restore.
+    assert asyncio.run(shared_store.async_read(desc.key)) == 7.0
+
+
+def test_everything_misses_keeps_the_constructor_default():
+    desc = _DESCRIPTIONS[0]
+    shared_store = _fresh_shared_store("everything-misses")
+    entity = NimbusSolverNumber(
+        _make_entry(), desc, sw_version=None, shared_store=shared_store
+    )
+    entity.async_get_last_number_data = AsyncMock(return_value=None)
+    asyncio.run(entity.async_added_to_hass())
+    assert entity._attr_native_value == desc.default
+
+
+def test_set_native_value_writes_through_to_the_store():
+    desc = _DESCRIPTIONS[0]
+    shared_store = _fresh_shared_store("set-value")
+    entity = NimbusSolverNumber(
+        _make_entry(), desc, sw_version=None, shared_store=shared_store
+    )
+    entity.async_write_ha_state = MagicMock()
+    asyncio.run(entity.async_set_native_value(55.5))
+    assert asyncio.run(shared_store.async_read(desc.key)) == 55.5
+
+
+def test_store_is_genuinely_shared_across_sibling_entities():
+    """The real reason _SharedNumberStore exists rather than one Store per
+    entity: all 38 fields must live in the same JSON file, so a write
+    from one entity is immediately visible to a sibling entity reading
+    the same key."""
+    shared_store = _fresh_shared_store("shared-across-siblings")
+    desc_a, desc_b = _DESCRIPTIONS[0], _DESCRIPTIONS[1]
+    entity_a = NimbusSolverNumber(
+        _make_entry(), desc_a, sw_version=None, shared_store=shared_store
+    )
+    entity_a.async_write_ha_state = MagicMock()
+    asyncio.run(entity_a.async_set_native_value(11.0))
+
+    entity_b = NimbusSolverNumber(
+        _make_entry(), desc_b, sw_version=None, shared_store=shared_store
+    )
+    entity_b.async_get_last_number_data = AsyncMock(return_value=None)
+    asyncio.run(entity_b.async_added_to_hass())
+    # entity_b's own key was never written -- must not see entity_a's
+    # value under its own key, only its own.
+    assert entity_b._attr_native_value == desc_b.default
+    # But entity_a's key IS visible to a fresh read through the same
+    # shared store, proving it's one shared file, not per-entity.
+    assert asyncio.run(shared_store.async_read(desc_a.key)) == 11.0
 
 
 if __name__ == "__main__":

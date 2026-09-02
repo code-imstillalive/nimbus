@@ -39,7 +39,9 @@ already-configured household (like this one, which just finished the old
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import asyncio
+from dataclasses import dataclass, field
+from typing import Any
 
 from homeassistant.components.number import (
     NumberDeviceClass,
@@ -52,6 +54,7 @@ from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.storage import Store
 from homeassistant.loader import async_get_integration
 
 from .const import (
@@ -123,6 +126,61 @@ from .const import (
 # These entities are plain, locally-restored settings (RestoreNumber) --
 # no hub/API to overload, so there's no reason to serialize updates.
 PARALLEL_UPDATES = 0
+
+# nimbus issue: real, live incident 2026-09-02 (devhub restart) -- 14 of
+# these 38 entities (grid limits, P2P block 1, all three network-fee
+# tiers, min SoC, SoH, efficiency, charge cost) silently reset to their
+# schema placeholder. Root cause: RestoreNumber's own restore-state has a
+# genuine, still-not-fully-diagnosed HA-core startup timing race (the
+# `restore_state` integration's cache isn't guaranteed warm by the time
+# this platform's own async_added_to_hass() runs), and this module's own
+# docstring above explains entry.options is DELIBERATELY never kept in
+# sync with a dashboard edit (to avoid a full-hub reload on every value
+# change) -- so a restore-state miss on any field that was ever only
+# ever set from the dashboard (every P2P/network-fee/risk-aversion field,
+# none of which are in the wizard) had ZERO real fallback and free-fell
+# straight to _desc.default. This Store is a durable, independent third
+# layer: written on every successful restore/seed AND on every dashboard
+# edit, read as a fallback BEFORE ever reaching entry.options/default. A
+# plain Store read is a direct JSON-file load with no comparable startup
+# race, so it survives exactly the case RestoreNumber alone couldn't.
+_STORAGE_VERSION = 1
+
+
+@dataclass
+class _SharedNumberStore:
+    """One Store + one lock, shared by every NimbusSolverNumber instance
+    for a given config entry -- all 38 fields live in the SAME small JSON
+    file, so writes must be serialized (read-modify-write across
+    independent entity instances would otherwise race if two fields are
+    edited back-to-back quickly)."""
+
+    store: Store[dict[str, Any]]
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+
+    async def async_read(self, key: str) -> float | None:
+        try:
+            data = await self.store.async_load()
+        except Exception:  # noqa: BLE001 -- a corrupt/unreadable store file
+            # must never block this entity from falling through to its
+            # own next fallback (entry.options / class default); it's a
+            # durability BACKSTOP, not a required dependency.
+            return None
+        if not data or key not in data:
+            return None
+        try:
+            return float(data[key])
+        except (TypeError, ValueError):
+            return None
+
+    async def async_write(self, key: str, value: float) -> None:
+        async with self.lock:
+            try:
+                data = await self.store.async_load() or {}
+            except Exception:  # noqa: BLE001 -- same reasoning as async_read
+                data = {}
+            data[key] = value
+            await self.store.async_save(data)
 
 
 @dataclass(frozen=True)
@@ -603,8 +661,14 @@ async def async_setup_entry(
     # first.
     integration = await async_get_integration(hass, DOMAIN)
     sw_version = str(integration.version) if integration.version else None
+    shared_store = _SharedNumberStore(
+        store=Store(hass, _STORAGE_VERSION, f"{DOMAIN}_{entry.entry_id}_solver_numbers")
+    )
     async_add_entities(
-        [NimbusSolverNumber(entry, desc, sw_version) for desc in _DESCRIPTIONS]
+        [
+            NimbusSolverNumber(entry, desc, sw_version, shared_store)
+            for desc in _DESCRIPTIONS
+        ]
     )
 
 
@@ -625,10 +689,15 @@ class NimbusSolverNumber(RestoreNumber, NumberEntity):
     _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(
-        self, entry: ConfigEntry, desc: _SolverNumberDescription, sw_version: str | None
+        self,
+        entry: ConfigEntry,
+        desc: _SolverNumberDescription,
+        sw_version: str | None,
+        shared_store: _SharedNumberStore,
     ) -> None:
         self._entry = entry
         self._desc = desc
+        self._shared_store = shared_store
         self._attr_unique_id = f"{entry.entry_id}_{desc.key}"
         # Fixed entity_id, same technique/reasoning as NimbusSolverConfigSensor's
         # own entity_id assignment in sensor.py -- one of these per hub per
@@ -655,24 +724,50 @@ class NimbusSolverNumber(RestoreNumber, NumberEntity):
         restored = await self.async_get_last_number_data()
         if restored is not None and restored.native_value is not None:
             self._attr_native_value = restored.native_value
+            # Backfill the durable Store from a successful RestoreNumber
+            # restore -- see this module's own _SharedNumberStore comment
+            # for why this matters: it converges the Store toward full
+            # coverage of the TRUE live state on every normal restart,
+            # so the next time RestoreNumber itself loses the race, this
+            # fallback actually has real data to serve instead of an
+            # empty file.
+            await self._shared_store.async_write(self._desc.key, restored.native_value)
             return
-        # No restored state -- this entity has never existed before on this
-        # install. Seed from whatever's already in entry.options (i.e.
-        # whatever the wizard was run with), so rolling this platform out
-        # doesn't silently reset an already-configured household's values
-        # back to a generic default. A genuinely fresh install (never ran
-        # the wizard either) falls through to _desc.default, set in
-        # __init__ above.
+        # RestoreNumber found nothing (a real, live, still-not-fully-
+        # diagnosed HA-core startup timing race -- see the module-level
+        # comment on _SharedNumberStore for the full 2026-09-02 incident
+        # this exists to prevent). Try this integration's OWN durable
+        # Store next, before ever falling through to a stale wizard-time
+        # entry.options value or the hardcoded class default.
+        stored_value = await self._shared_store.async_read(self._desc.key)
+        if stored_value is not None:
+            self._attr_native_value = stored_value
+            return
+        # No RestoreNumber state AND no Store entry -- this entity has
+        # never existed before on this install. Seed from whatever's
+        # already in entry.options (i.e. whatever the wizard was run
+        # with), so rolling this platform out doesn't silently reset an
+        # already-configured household's values back to a generic
+        # default. A genuinely fresh install (never ran the wizard
+        # either) falls through to _desc.default, set in __init__ above.
         seeded = self._entry.options.get(self._desc.key)
         if seeded is not None:
             try:
                 self._attr_native_value = float(seeded)
             except (TypeError, ValueError):
-                pass
+                return
+            await self._shared_store.async_write(
+                self._desc.key, self._attr_native_value
+            )
 
     async def async_set_native_value(self, value: float) -> None:
         self._attr_native_value = value
         self.async_write_ha_state()
+        # Durable backstop -- see this module's own _SharedNumberStore
+        # comment. Cheap, async, no hub reload (unlike writing into
+        # entry.options, deliberately avoided per this module's own top
+        # docstring).
+        await self._shared_store.async_write(self._desc.key, value)
         # Same live-reconfigure hook NimbusSolverSwitch has for its own
         # CONF_SOLVE_ON_PRICE_CHANGE toggle -- editing the paired debounce
         # window from the dashboard must re-arm the listener with the new
