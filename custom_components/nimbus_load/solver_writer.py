@@ -3864,46 +3864,72 @@ def _compute_report_for_window(
     initial_soc_kwh_raw = capacity_kwh * initial_pct / 100.0
     final_soc_kwh_raw = capacity_kwh * final_pct / 100.0
 
-    # Clamp both HISTORICAL SoC readings into the configured envelope
-    # (2026-09-02, nimbus issue #325, Mark Purcell) -- the sibling of the
-    # #58/#64 fix main() already carries, on the code path #64 didn't
-    # reach. elements.BatteryConfig's own __post_init__ invariant is a
-    # correct contract for a user-TYPED static config, but every value
-    # here comes from resample_history_nearest() over the real recorder
-    # series, and the world can legitimately report SoC below the
-    # configured floor: a fault, a cold pack, a fresh install starting
-    # empty, sensor drift, or -- Mark's own live repro -- a template
-    # sensor averaging the house battery with a DC-EV-charger channel
-    # that reads 0% whenever no vehicle is plugged in.
-    #
-    # Crashing was the wrong response to that: the ValueError propagated
-    # out through the async publisher, so sensor.nimbus_solver_quality_
-    # report and all nine sensor.nimbus_quality_* sensors sat
-    # `unavailable` for 8.6h across 103+ failed publishes while the
-    # solver itself was completely healthy. Clamp, warn once per run
-    # with the real cause, keep publishing.
-    #
-    # final_soc_kwh is clamped for the same reason and from the same
-    # source -- it was only escaping the crash by luck, because the
-    # invariant check short-circuits on initial_soc_kwh first.
+    # nimbus issue #328 (Mark Purcell) -- honest pass-through, no clamp,
+    # same fix and same reasoning as main()'s own initial_soc_kwh site.
+    # The #325/#327 clamp this replaced stopped a real crash (8.6h of
+    # sensor.nimbus_solver_quality_report and all nine sensor.nimbus_
+    # quality_* sensors sitting `unavailable` across 103+ failed
+    # publishes, from elements.BatteryConfig's own invariant rejecting a
+    # historical SoC reading below the configured floor -- a template-
+    # averaged SoC sensor, a fault, a cold pack, a fresh install starting
+    # empty, sensor drift, or a recorder gap can all legitimately produce
+    # one), but it did so by feeding the LP-oracle path (J_ref) a
+    # DIFFERENT, fictional starting state than the achieved-trajectory
+    # path (J_ach) -- Mark's own issue #328 traces exactly how this makes
+    # the resulting EPR ratio meaningless, comparing two trajectories
+    # that started from different states. elements.BatteryConfig now
+    # only requires a value to sit inside the PHYSICAL range [0,
+    # capacity_kwh] (never raises for a below-floor/above-ceiling
+    # historical reading on its own), and the LP's own soc[t]/
+    # underfill[t]/overfill[t] construction treats min_soc/max_soc as a
+    # soft preference -- so both J_ref and J_ach can now see the SAME
+    # true historical state honestly.
     min_soc_kwh_bound = capacity_kwh * min_pct / 100.0
     max_soc_kwh_bound = capacity_kwh * max_pct / 100.0
-    initial_soc_kwh = min(
-        max(initial_soc_kwh_raw, min_soc_kwh_bound), max_soc_kwh_bound
-    )
-    final_soc_kwh_actual = min(
-        max(final_soc_kwh_raw, min_soc_kwh_bound), max_soc_kwh_bound
-    )
-    if (
-        initial_soc_kwh != initial_soc_kwh_raw
-        or final_soc_kwh_actual != final_soc_kwh_raw
+    initial_soc_kwh = initial_soc_kwh_raw
+    final_soc_kwh_actual = final_soc_kwh_raw
+    if not (min_soc_kwh_bound <= initial_soc_kwh_raw <= max_soc_kwh_bound) or not (
+        min_soc_kwh_bound <= final_soc_kwh_raw <= max_soc_kwh_bound
     ):
         print(
             f"WARN: historical SoC outside configured "
             f"[{min_pct:.2f}%, {max_pct:.2f}%] envelope for this scorer window "
-            f"(start {initial_pct:.2f}%, end {final_pct:.2f}%) -- clamped. Usual "
+            f"(start {initial_pct:.2f}%, end {final_pct:.2f}%) -- scoring the real "
+            f"trajectory honestly, both J_ref and J_ach see this true state. Usual "
             f"real causes: a template-averaged SoC sensor (an EV-charger channel "
             f"reading 0% when unplugged), a fault, a cold pack, or a recorder gap.",
+            file=sys.stderr,
+        )
+    # A genuinely PHYSICAL clamp still has to stay here, unlike the
+    # scheduling-envelope clamp removed above: elements.BatteryConfig
+    # only relaxed the [min_soc, max_soc] SCHEDULING invariant (#328),
+    # it still (correctly) rejects a value outside the true physical
+    # range [0, capacity_kwh] -- more energy than the battery can
+    # physically hold, or negative energy, isn't a "real historical
+    # state" for the LP to score honestly, it's sensor nonsense (a
+    # calibration artefact, template-averaging overshoot). Clamping
+    # HERE, to the physical envelope only, preserves #325's own original
+    # guarantee (this scorer must never raise on a bad reading) without
+    # reintroducing #328's bug (silently rewriting a real, physically
+    # valid but out-of-schedule state before the LP ever sees it).
+    if not (0.0 <= initial_soc_kwh_raw <= capacity_kwh):
+        initial_soc_kwh = min(max(initial_soc_kwh_raw, 0.0), capacity_kwh)
+        print(
+            f"WARN: historical starting SoC ({initial_pct:.2f}%) is outside the "
+            f"battery's own PHYSICAL range [0%, 100%] -- clamping to "
+            f"{initial_soc_kwh:.4f} kWh to keep this scorer alive. This is sensor "
+            f"nonsense (calibration drift, a template-averaging overshoot), not a "
+            f"real state -- investigate the sensor if this recurs.",
+            file=sys.stderr,
+        )
+    if not (0.0 <= final_soc_kwh_raw <= capacity_kwh):
+        final_soc_kwh_actual = min(max(final_soc_kwh_raw, 0.0), capacity_kwh)
+        print(
+            f"WARN: historical ending SoC ({final_pct:.2f}%) is outside the "
+            f"battery's own PHYSICAL range [0%, 100%] -- clamping to "
+            f"{final_soc_kwh_actual:.4f} kWh to keep this scorer alive. This is "
+            f"sensor nonsense (calibration drift, a template-averaging overshoot), "
+            f"not a real state -- investigate the sensor if this recurs.",
             file=sys.stderr,
         )
 
@@ -3914,9 +3940,6 @@ def _compute_report_for_window(
     # window, no portable equivalent yet"). This scorer always uses the
     # same flat config-flow values every OTHER install's forward plan
     # already falls back to.
-    # Bounds already computed above for the clamp -- reused here rather
-    # than recomputed, so the envelope the values were clamped INTO and
-    # the envelope BatteryConfig validates against can never drift apart.
     min_soc_kwh = min_soc_kwh_bound
     max_soc_kwh = max_soc_kwh_bound
     battery_cfg = elements.BatteryConfig(
@@ -4390,9 +4413,19 @@ def compute_efficiency_backtest_report(cfg: dict, now: datetime) -> dict | None:
     # whole efficiency-backtest report down the same way #325 took the
     # daily quality report down. No live report of this yet; the point
     # is that there doesn't need to be one.
+    # nimbus issue #328 (Mark Purcell): no clamp needed any more, same
+    # fix as the two sites above -- elements.BatteryConfig only requires
+    # a value inside the physical range [0, capacity_kwh] now, and a
+    # bare capacity_kwh*0.5 is trivially always inside that range
+    # regardless of where min_soc/max_soc happen to sit. If 50% genuinely
+    # falls outside this household's configured [min, max] envelope, the
+    # LP's own soft-constraint machinery schedules honest recovery for
+    # this synthetic starting assumption exactly the same way it would
+    # for a real live/historical below-floor reading -- no separate
+    # clamp-and-pretend needed here either.
     _min_soc_kwh = capacity_kwh * min_pct / 100.0
     _max_soc_kwh = capacity_kwh * max_pct / 100.0
-    initial_soc_kwh = min(max(capacity_kwh * 0.5, _min_soc_kwh), _max_soc_kwh)
+    initial_soc_kwh = capacity_kwh * 0.5
 
     base_battery = elements.BatteryConfig(
         capacity_kwh=capacity_kwh,
@@ -4624,7 +4657,14 @@ def compute_nimbus_only_soc_counterfactual(cfg: dict, day: datetime) -> dict | N
         else None
     )
 
-    sim_soc_kwh = min(max(capacity_kwh * initial_pct / 100.0, min_soc_kwh), max_soc_kwh)
+    # nimbus issue #328 (Mark Purcell): no clamp into [min_soc, max_soc]
+    # here either -- this counterfactual tracker exists specifically to
+    # honestly answer "what would Nimbus-only SoC actually have been,"
+    # so silently pretending the real starting reading was inside the
+    # envelope would corrupt the exact number this whole mechanism is
+    # built to report. Only clamped to the genuine PHYSICAL range further
+    # below, where sim_soc_kwh is updated after each simulated step.
+    sim_soc_kwh = capacity_kwh * initial_pct / 100.0
     bonus_used_kwh_today = 0.0
     sim_soc_checkpoint_pct: float | None = None
 
@@ -4688,7 +4728,7 @@ def compute_nimbus_only_soc_counterfactual(cfg: dict, day: datetime) -> dict | N
         )
         battery = elements.BatteryConfig(
             capacity_kwh=capacity_kwh,
-            initial_soc_kwh=min(max(sim_soc_kwh, min_soc_kwh), max_soc_kwh),
+            initial_soc_kwh=sim_soc_kwh,  # nimbus issue #328: honest, no envelope clamp -- see this loop's own seed comment above
             min_soc_kwh=min_soc_kwh,
             max_soc_kwh=max_soc_kwh,
             max_charge_kw=max_charge_kw,
@@ -4725,7 +4765,14 @@ def compute_nimbus_only_soc_counterfactual(cfg: dict, day: datetime) -> dict | N
                 sim_soc_kwh -= net0 * (step.total_seconds() / 3600.0) / efficiency
             else:
                 sim_soc_kwh += (-net0) * efficiency * (step.total_seconds() / 3600.0)
-            sim_soc_kwh = min(max(sim_soc_kwh, min_soc_kwh), max_soc_kwh)
+            # nimbus issue #328: clamp to the PHYSICAL range only, not
+            # [min_soc, max_soc] -- unlike the envelope clamps removed
+            # elsewhere in this fix, this one is load-bearing and stays:
+            # sim_soc_kwh really cannot go below 0 or above capacity_kwh,
+            # that's a genuine physical law, not a scheduling preference.
+            # Sitting outside [min_soc, max_soc] is exactly the real
+            # state this tracker needs to be free to report honestly.
+            sim_soc_kwh = min(max(sim_soc_kwh, 0.0), capacity_kwh)
             if plan.export_bonus_kw is not None:
                 bonus_used_kwh_today += float(plan.export_bonus_kw[0]) * (
                     step.total_seconds() / 3600.0
@@ -6318,38 +6365,55 @@ def main() -> None:
     min_soc_kwh_val = resolve_min_soc_kwh(min_pct, capacity_kwh, max_soc_kwh_val)
     initial_soc_kwh_raw = capacity_kwh * initial_pct / 100.0
 
-    # Clamp initial_soc_kwh into [min_soc_kwh, max_soc_kwh] before the
-    # BatteryConfig invariant check fires. Real, live cause this exists
-    # (2026-08-23): the SoC sensor genuinely can (and does) read below
-    # min_soc_percent for legitimate reasons -- the inverter runs the
-    # pack below its own configured Solver floor during a fault, a fresh
-    # install starts empty, a battery-cold event drops usable capacity
-    # below the static floor. Every one of those is a real state the
-    # world can be in, not a bad config; a live-sensor reading should
-    # not crash the entire solve. The invariant in
-    # elements.BatteryConfig.__post_init__ correctly protects USER-
-    # PROVIDED configs (someone typing initial_soc=200% into a static
-    # config file), but the writer's own initial_soc comes from a live
-    # sensor -- it needs to gracefully absorb real, transient reality
-    # rather than propagate a ValueError up through async_track_time_
-    # interval every minute (which is exactly what a household reported:
-    # 27+ crashes in a single window while SoC read 0.0% against a 5%
-    # min). Clamp, log the violation, keep solving.
-    initial_soc_kwh = min(max(initial_soc_kwh_raw, min_soc_kwh_val), max_soc_kwh_val)
-    if initial_soc_kwh != initial_soc_kwh_raw:
+    # nimbus issue #328 (Mark Purcell) -- honest pass-through, no clamp.
+    # The 2026-08-23 clamp this replaced stopped the real 27+-crashes-per-
+    # window incident (a live SoC sensor reading below/above the
+    # configured floor/ceiling used to crash elements.BatteryConfig's own
+    # invariant, propagating a ValueError up through async_track_time_
+    # interval every minute), but it did so by silently reporting a
+    # FICTIONAL in-range starting SoC to the LP -- every downstream
+    # number (planned throughput, total_cost, next cycle's own starting
+    # assumption, and the quality-report scorer's EPR ratio) was then
+    # quietly wrong by the clamped gap, with only a single WARN log
+    # naming that it happened. elements.BatteryConfig.__post_init__ now
+    # only requires initial_soc_kwh to sit inside the PHYSICAL range [0,
+    # capacity_kwh] (never raises for a below-floor/above-ceiling value
+    # on its own), and build_plan()'s own soc[t]/underfill[t]/overfill[t]
+    # construction treats min_soc/max_soc as a SOFT, costed preference
+    # the LP schedules real recovery toward -- so the raw, true value can
+    # go straight to the LP honestly, with both sides of any downstream
+    # comparison (this solve and the quality-report scorer) seeing the
+    # same real state.
+    initial_soc_kwh = initial_soc_kwh_raw
+    if not (min_soc_kwh_val <= initial_soc_kwh_raw <= max_soc_kwh_val):
         _initial_pct_raw = (
             initial_soc_kwh_raw / capacity_kwh * 100.0 if capacity_kwh > 0 else 0.0
-        )
-        _initial_pct_clamped = (
-            initial_soc_kwh / capacity_kwh * 100.0 if capacity_kwh > 0 else 0.0
         )
         print(
             f"WARN: live battery SoC {_initial_pct_raw:.2f}% is outside the "
             f"configured Solver floor/ceiling [{min_pct:.2f}%, {max_pct:.2f}%] "
-            f"-- clamped initial_soc to {_initial_pct_clamped:.2f}% for this "
-            f"solve. If this repeats every period the real battery is stuck "
-            f"outside its own configured range (fault, cold pack, sensor drift) "
-            f"-- investigate rather than lower the floor.",
+            f"-- the LP is scheduling real recovery this cycle rather than "
+            f"having this state clamped away. If this repeats every period "
+            f"the real battery is stuck outside its own configured range "
+            f"(fault, cold pack, sensor drift) -- investigate rather than "
+            f"lower the floor.",
+            file=sys.stderr,
+        )
+    # A genuinely PHYSICAL clamp still has to stay, same reasoning as
+    # _compute_report_for_window()'s own site (see that comment) --
+    # elements.BatteryConfig still rejects a value outside the true
+    # physical range [0, capacity_kwh], and this loop runs every solve
+    # cycle against a live sensor, so a single glitch reading (>100% or
+    # negative) must not crash the periodic solve the way the original
+    # 27+-crashes-per-window incident did.
+    if not (0.0 <= initial_soc_kwh_raw <= capacity_kwh):
+        initial_soc_kwh = min(max(initial_soc_kwh_raw, 0.0), capacity_kwh)
+        print(
+            f"WARN: live battery SoC reading is outside the battery's own "
+            f"PHYSICAL range [0, {capacity_kwh:.2f} kWh] -- clamping to "
+            f"{initial_soc_kwh:.4f} kWh to keep this solve alive. This is sensor "
+            f"nonsense (calibration drift, a template-averaging overshoot), not a "
+            f"real state -- investigate the sensor if this recurs.",
             file=sys.stderr,
         )
     charge_discharge_efficiency = (

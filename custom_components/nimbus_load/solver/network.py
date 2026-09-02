@@ -305,6 +305,26 @@ DEFAULT_PROXIMAL_WEIGHT_KW: float = 0.005
 # immediately preceding period).
 DEFAULT_SMOOTHNESS_WEIGHT_KW: float = 0.005
 
+# nimbus issue #328 (Mark Purcell) -- multiplier applied to the LARGEST
+# real $/kWh figure in play (peak import price, peak export price, and
+# the highest terminal_value_breakpoints rate if configured) to derive
+# the soft min/max-SoC penalty when a caller doesn't supply one
+# explicitly. Needs to comfortably dominate every other $/kWh signal the
+# LP sees so that (a) recovering toward min_soc is always more valuable
+# than any real price arbitrage the LP could otherwise chase instead,
+# and (b) the LP is never incentivised to deliberately let SoC drift
+# below min_soc just to "unlock" more headroom in the terminal-value
+# segment-fill construction below (see build_plan()'s own SoC-dynamics
+# comment for the full reasoning on why this specific dominance
+# property, not just "a big number", is what keeps that construction
+# free of a real gaming vector). 10x is Mark's own proposed starting
+# point, explicitly "not a defended value" in the issue -- taking the
+# max across all three real price signals (rather than import price
+# alone) is this implementation's own addition, since a household whose
+# terminal-value rates or export prices happen to exceed its import
+# price would otherwise get a penalty that doesn't actually dominate.
+DEFAULT_SOFT_SOC_PENALTY_MULTIPLIER: float = 10.0
+
 # How close two periods' own real start times need to be to count as
 # "the same real moment" for cross-solve alignment (proximal
 # regularization, rate limiting). 1 second comfortably absorbs any
@@ -622,6 +642,7 @@ def build_plan(
     risk_aversion: float = 0.0,
     import_price_risk_aversion: float = 0.0,
     export_price_risk_aversion: float = 0.0,
+    soft_soc_penalty_per_kwh: float | None = None,
 ) -> Plan:
     """Build and solve one LP for the given horizon/inputs. Pure function --
     no I/O, no HA dependency, safe to call from anywhere including a plain
@@ -654,6 +675,37 @@ def build_plan(
     a load/solar forecast, trusting the import side of a price forecast,
     and trusting the export side of a price forecast are three genuinely
     different judgment calls.
+
+    `soft_soc_penalty_per_kwh` (nimbus issue #328, Mark Purcell): min_soc/
+    max_soc are SCHEDULING PREFERENCES the LP tries to respect and
+    recover toward, not PHYSICAL INVARIANTS it can assume always hold --
+    `battery.initial_soc_kwh` may legitimately arrive below min_soc_kwh
+    (a template-averaged SoC sensor, a cold pack, a fresh install
+    starting empty, sensor drift) or, in principle, above max_soc_kwh.
+    `soc[t]` itself is only ever hard-bounded to the true physical range
+    `[0, capacity_kwh]`; going outside `[min_soc_kwh, max_soc_kwh]` costs
+    a real penalty (this parameter, per kWh per hour) instead of being
+    impossible. `None` (the default) auto-derives the penalty from the
+    real $/kWh signals already in this call -- see
+    DEFAULT_SOFT_SOC_PENALTY_MULTIPLIER's own comment for why it takes
+    the max across import price, export price, AND any configured
+    terminal_value_breakpoints rate, not import price alone. A caller
+    that already knows a good value (e.g. a real historical peak import
+    price across a longer window than this one solve sees) can pass it
+    explicitly instead.
+
+    When `battery.initial_soc_kwh` starts inside `[min_soc_kwh,
+    max_soc_kwh]` and stays there for the whole horizon, this mechanism
+    is a complete no-op -- the penalty terms all evaluate to exactly
+    zero and the plan is numerically identical to the version of this
+    function that hard-bounded `soc[t]` directly. It only ever engages
+    for a genuinely below-floor (or above-ceiling) starting/drifting
+    state, in which case the LP schedules real recovery (charging at
+    cheap import windows, waiting through export windows) using whatever
+    real price/solar/load context this solve actually has, rather than
+    either crashing (the pre-#325 behaviour) or silently reporting a
+    fictional in-range starting SoC (the #325/#327 clamp-and-pretend
+    behaviour this mechanism replaces).
     """
     loads = loads or []
     sheddable_loads = sheddable_loads or []
@@ -681,6 +733,25 @@ def build_plan(
             raise ValueError(msg)
 
     alignment = _align_previous_periods(periods, previous_plan)
+
+    if soft_soc_penalty_per_kwh is None:
+        # See DEFAULT_SOFT_SOC_PENALTY_MULTIPLIER's own comment for why
+        # this takes the max across every real $/kWh signal in play, not
+        # import price alone -- max(..., 0.01) is a genuine floor only,
+        # for the degenerate all-zero-price case (e.g. a synthetic test
+        # with every price at 0.0), so the penalty is never literally
+        # zero and this mechanism can still do its job.
+        candidate_rates = [
+            float(np.max(grid.import_price)) if len(grid.import_price) else 0.0,
+            float(np.max(grid.export_price)) if len(grid.export_price) else 0.0,
+        ]
+        if battery.terminal_value_breakpoints is not None:
+            candidate_rates.append(
+                max(rate for _width, rate in battery.terminal_value_breakpoints)
+            )
+        soft_soc_penalty_per_kwh = DEFAULT_SOFT_SOC_PENALTY_MULTIPLIER * max(
+            *candidate_rates, 0.01
+        )
 
     p = LPProblem()
 
@@ -718,12 +789,49 @@ def build_plan(
         p.add_variable(f"battery_discharge_{t}", lb=0.0, ub=battery.max_discharge_kw)
         for t in range(n)
     ]
+    # nimbus issue #328 (Mark Purcell): soc[t]'s only HARD bound is now
+    # the true physical range [0, capacity_kwh] -- min_soc_kwh/max_soc_kwh
+    # are enforced as a SOFT preference via underfill/overfill below, not
+    # a bound on this variable itself. See build_plan()'s own docstring
+    # ("soft_soc_penalty_per_kwh") for the full design and why this
+    # replaces the pre-#328 hard bound.
     soc = [
+        p.add_variable(f"battery_soc_{t}", lb=0.0, ub=battery.capacity_kwh)
+        for t in range(n)
+    ]
+    # underfill[t] = max(0, min_soc_kwh - soc[t]), overfill[t] = max(0,
+    # soc[t] - max_soc_kwh) -- both genuinely pinned to their exact
+    # max(0, ...) value (not just upper-bounded) because they're COSTED
+    # below: minimizing total cost always drives a costed, otherwise-
+    # unconstrained-from-above slack variable down to the smallest value
+    # its own constraint permits, which is exactly the true violation
+    # amount. This same "pinned by cost + one-sided inequality" property
+    # is what makes it safe to reuse underfill[idx] inside the terminal-
+    # value segment-fill construction and the discharge wash-trade guard
+    # further below, instead of just being a standalone floor penalty --
+    # see each of those sites' own comments for why a naive re-relaxation
+    # there would otherwise reopen a real gaming vector (the LP could
+    # otherwise "unlock" extra terminal-value credit, or extra discharge
+    # headroom, by pretending SoC is lower than it really is).
+    underfill = [
+        p.add_variable(f"battery_soc_underfill_{t}", lb=0.0, ub=battery.min_soc_kwh)
+        for t in range(n)
+    ]
+    overfill = [
         p.add_variable(
-            f"battery_soc_{t}", lb=battery.min_soc_kwh, ub=battery.max_soc_kwh
+            f"battery_soc_overfill_{t}",
+            lb=0.0,
+            ub=battery.capacity_kwh - battery.max_soc_kwh,
         )
         for t in range(n)
     ]
+    for t in range(n):
+        # soc[t] + underfill[t] >= min_soc_kwh
+        p.add_ub_constraint({soc[t]: -1.0, underfill[t]: -1.0}, -battery.min_soc_kwh)
+        # soc[t] - overfill[t] <= max_soc_kwh
+        p.add_ub_constraint({soc[t]: 1.0, overfill[t]: -1.0}, battery.max_soc_kwh)
+        p.set_cost(underfill[t], soft_soc_penalty_per_kwh * hours[t])
+        p.set_cost(overfill[t], soft_soc_penalty_per_kwh * hours[t])
     grid_import = [
         p.add_variable(f"grid_import_{t}", lb=0.0, ub=grid.import_limit_kw)
         for t in range(n)
@@ -960,8 +1068,35 @@ def build_plan(
                 p.add_variable(f"terminal_seg_{idx}_{i}", lb=0.0, ub=width)
                 for i, (width, _rate) in enumerate(battery.terminal_value_breakpoints)
             ]
+            # nimbus issue #328: with soc[idx] now allowed below
+            # min_soc_kwh (see the soc/underfill/overfill construction
+            # above), the original `sum(seg_vars) = soc[idx] -
+            # min_soc_kwh` equality would go negative whenever soc[idx]
+            # is genuinely below the floor -- infeasible outright, since
+            # every seg_var has lb=0. Folding in underfill[idx] (already
+            # pinned to exactly max(0, min_soc_kwh - soc[idx]) by its own
+            # cost, see the comment where it's defined) fixes this
+            # WITHOUT reopening a gaming vector: when soc[idx] >=
+            # min_soc_kwh, underfill[idx] is driven to exactly 0 by its
+            # own penalty (nothing to gain by leaving it nonzero), so
+            # this reduces to the original equation unchanged. When
+            # soc[idx] < min_soc_kwh, underfill[idx] is pinned to exactly
+            # (min_soc_kwh - soc[idx]) the same way, making the RHS
+            # exactly 0 -- seg_vars are forced to sum to zero, i.e. ZERO
+            # terminal-value credit claimed for energy that doesn't
+            # genuinely exist above the floor. The LP cannot profitably
+            # inflate underfill[idx] to "unlock" more seg_var room,
+            # because underfill's own per-kWh penalty
+            # (soft_soc_penalty_per_kwh, dominant by construction -- see
+            # DEFAULT_SOFT_SOC_PENALTY_MULTIPLIER) always costs strictly
+            # more than any terminal_value_breakpoints rate could credit
+            # back.
             p.add_eq_constraint(
-                {**{seg: 1.0 for seg in seg_vars}, soc[idx]: -1.0},
+                {
+                    **{seg: 1.0 for seg in seg_vars},
+                    soc[idx]: -1.0,
+                    underfill[idx]: -1.0,
+                },
                 -battery.min_soc_kwh,
                 name=f"terminal_value_segments_fill_{idx}",
             )
@@ -1096,15 +1231,36 @@ def build_plan(
         # discharge_efficiency <= soc[t-1] - min_soc_kwh (battery.initial_
         # soc_kwh stands in for soc[-1] at t=0, a known constant, so it
         # moves straight to the RHS rather than needing a variable term).
+        #
+        # nimbus issue #328: as originally written, this constraint
+        # implicitly forced soc[t-1] >= min_soc_kwh for ALL t -- even at
+        # discharge[t]=0 (its own lb), satisfying the inequality still
+        # required soc[t-1]-min_soc_kwh >= 0, silently reintroducing a
+        # hard floor the soc[]/underfill[]/overfill[] relaxation above
+        # was specifically built to remove. Fixed the same way as the
+        # terminal-value segment-fill equality above: fold in
+        # underfill[t-1] (pinned to exactly max(0, min_soc_kwh -
+        # soc[t-1]) by its own cost). When soc[t-1] >= min_soc_kwh this
+        # is unchanged (underfill[t-1] pinned to 0). When soc[t-1] is
+        # genuinely below the floor, the RHS collapses to exactly 0,
+        # forcing discharge[t]=0 -- the LP correctly cannot discharge
+        # energy that doesn't exist above the floor, and must recover
+        # (via charging or waiting) before it can discharge again, which
+        # is exactly the intended "schedule recovery, don't pretend"
+        # behaviour. At t=0 there is no underfill[-1] variable --
+        # battery.initial_soc_kwh is a known constant, so the equivalent
+        # max(0, ...) is computed directly in Python rather than via an
+        # LP variable, with the identical effect.
         draw_coeff = hours[t] / battery.discharge_efficiency
         if t == 0:
             p.add_ub_constraint(
                 {discharge[t]: draw_coeff},
-                battery.initial_soc_kwh - battery.min_soc_kwh,
+                max(0.0, battery.initial_soc_kwh - battery.min_soc_kwh),
             )
         else:
             p.add_ub_constraint(
-                {discharge[t]: draw_coeff, soc[t - 1]: -1.0}, -battery.min_soc_kwh
+                {discharge[t]: draw_coeff, soc[t - 1]: -1.0, underfill[t - 1]: -1.0},
+                -battery.min_soc_kwh,
             )
         # (3) Combined-direction cap (nimbus issue #245): the physical
         # battery has one DC current direction at any instant -- it cannot

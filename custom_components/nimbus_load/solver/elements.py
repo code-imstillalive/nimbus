@@ -621,11 +621,30 @@ class BatteryConfig:
     degradation_cost_per_kwh: float = 0.0
 
     def __post_init__(self) -> None:
-        if not (0.0 < self.min_soc_kwh <= self.max_soc_kwh <= self.capacity_kwh):
-            msg = f"Invalid SoC bounds: 0 < min_soc({self.min_soc_kwh}) <= max_soc({self.max_soc_kwh}) <= capacity({self.capacity_kwh}) required"
+        # nimbus issue #328 (Mark Purcell): min_soc is a SCHEDULING
+        # PREFERENCE the LP tries to respect and recover toward (see
+        # network.py's own soft-floor/soft-ceiling penalty construction),
+        # not a PHYSICAL INVARIANT the writer can assume always holds --
+        # real households legitimately observe SoC below the configured
+        # floor for structural reasons (a template-averaged SoC sensor,
+        # a cold pack, a fresh install starting empty, sensor drift, a
+        # controller reboot before the first fresh reading, or simply
+        # lowering the reserve after SoC already dropped). Two changes
+        # from the original strict version:
+        # - min_soc_kwh may be exactly 0 (was strict >), a legitimate
+        #   setting for a chemistry that tolerates full discharge, or an
+        #   installer temporarily lowering the reserve (also unblocks the
+        #   min_soc=0 workaround discussed on issue #58).
+        # - initial_soc_kwh only needs to sit inside the PHYSICAL bounds
+        #   [0, capacity], not the SCHEDULING bounds [min_soc, max_soc] --
+        #   it's a state OBSERVATION, not a bound. The LP itself (not this
+        #   validation) is responsible for scheduling a below-floor start
+        #   back toward min_soc via the soft penalty.
+        if not (0.0 <= self.min_soc_kwh <= self.max_soc_kwh <= self.capacity_kwh):
+            msg = f"Invalid SoC bounds: 0 <= min_soc({self.min_soc_kwh}) <= max_soc({self.max_soc_kwh}) <= capacity({self.capacity_kwh}) required"
             raise ValueError(msg)
-        if not (self.min_soc_kwh <= self.initial_soc_kwh <= self.max_soc_kwh):
-            msg = f"initial_soc_kwh ({self.initial_soc_kwh}) must be within [min_soc, max_soc]"
+        if not (0.0 <= self.initial_soc_kwh <= self.capacity_kwh):
+            msg = f"initial_soc_kwh ({self.initial_soc_kwh}) must be within physical bounds [0, capacity_kwh={self.capacity_kwh}]"
             raise ValueError(msg)
         # Strict < 1.0 on BOTH sides, not <= -- exactly 100% must be
         # REJECTED, not merely allowed at the boundary (real bug caught
