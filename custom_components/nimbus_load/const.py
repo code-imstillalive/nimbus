@@ -612,6 +612,74 @@ CONF_SOLVER_BATTERY_POWER_POSITIVE_IS_CHARGE: Final = (
 CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR: Final = (
     "solver_p2p_settlement_history_sensor"
 )
+# Real hardcoded-foreign-entity audit (2026-09-02, Mark Purcell's real
+# "online Claude" handoff report, direct household escalation: "STANDING
+# DIRECTIVE WAS AND STILL IS: NO HARD WIRED NIMBUS PARTS... NO LOCAL
+# ENTITIES NAMED IN CODE"). main()'s own has_localvolts branch hardcoded
+# `sensor.localvolts_price_forecast` as BOTH the feature-detection check
+# AND the read source for a real, richer per-5-minute price forecast
+# array -- silently unreachable for every install without that exact
+# LocalVolts entity, regardless of whether their own retailer/market
+# integration publishes an equivalent forecast-array sensor under a
+# different name. Retailer-agnostic in SHAPE, not tied to LocalVolts by
+# name: any entity whose own `attributes.forecast` is a list of
+# `{time, costsflexup, earningsflexup}`-shaped points works -- see
+# resample_price_with_extrapolation()'s own docstring for the exact
+# shape this reads. Blank (the default): falls straight through to the
+# already-existing generic branch (CONF_SOLVER_IMPORT_PRICE_SENSOR/
+# CONF_SOLVER_EXPORT_PRICE_SENSOR's own forecast-attribute-or-flat
+# behaviour) -- a clean no-op, not a degraded mode, same convention as
+# every other optional field in this file.
+CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR: Final = "solver_price_forecast_array_sensor"
+# Same audit, same real bug class: fetch_aemo_forecast() hardcoded
+# `sensor.nem_pd7day_qld1_nem_spot_price_forecast` -- Australian-
+# NEM-region-specific by NATURE (a genuinely real, honest, disclosed
+# limitation with no portable equivalent for a non-NEM market yet -- see
+# fetch_aemo_forecast()'s own docstring), but hardcoded to one specific
+# STATE'S region (QLD1) even within the NEM, which a household in NSW/
+# VIC/SA/TAS running the same purcell-lab/nem_pd7day integration for
+# their OWN region could never reach. Blank (the default): returns []
+# (fetch_aemo_forecast()'s own already-existing "unavailable" fallback)
+# -- the AEMO-anchored far-horizon extrapolation simply doesn't run,
+# same graceful degradation every other optional Solver input already
+# has, not a new failure mode.
+CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR: Final = (
+    "solver_regional_spot_forecast_sensor"
+)
+# Same audit, a different sensor from the forecast one above: a real,
+# live/historical wholesale spot-price sensor (this household's own is
+# `sensor.aemo_nem_qld1_current_5min_period_price`, a DIFFERENT AEMO
+# integration from purcell-lab/nem_pd7day, from the older, separately-
+# documented `aemo_nem`/HA_AemoNemData integration -- same "one specific
+# region's entity name" hardcoding, same fix. Used to build a real
+# (retail-markup vs wholesale) offset from RECORDED history, not a
+# forward forecast -- genuinely a different consumer from
+# CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR, not a duplicate field.
+# Blank (the default): compute_5min_offset()'s own existing "either
+# side's history unavailable" fallback (an empty dict, caller falls
+# back further) -- same graceful no-op as every other optional field.
+CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR: Final = (
+    "solver_regional_spot_current_price_sensor"
+)
+# Same audit, a third and last real gap: resample_real_p2p_rate()
+# hardcoded `sensor.localvolts_p2p_forecast` -- a genuinely different
+# CONCEPT from CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR above (that one
+# is a general retail price forecast; this one is real, live PER-
+# INTERVAL P2P-MATCHING data -- matchedCost/volume/proportionP2P per
+# point, the empirical rate a community-trading/peer-export program
+# actually paid for each already-elapsed-or-upcoming interval, not a
+# plain buy/sell price). Retailer-agnostic in shape: any entity whose
+# own `attributes.forecast` is a list of `{time, matchedCost, volume,
+# proportionP2P}`-shaped points works -- see resample_real_p2p_rate()'s
+# own docstring for the exact formula this reads it with. Blank (the
+# default): that function's own existing "missing/malformed source"
+# fallback -- a flat 0.0 array, never a crash, same as every other
+# optional field in this file. A household with no P2P/community-
+# trading program at all (the vast majority of installs) leaves this
+# blank forever, same as CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR.
+CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR: Final = (
+    "solver_p2p_matched_rate_forecast_sensor"
+)
 # Real forward temperature/humidity mirror for the dashboard's own
 # Forecaster chart (2026-08-25) -- points at a weather.* entity (Nimbus
 # calls weather.get_forecasts for you) or a sensor.* whose own 'forecast'

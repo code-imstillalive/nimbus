@@ -2323,7 +2323,9 @@ def _notify_load_forecast_error_once(error: str) -> None:
         pass
 
 
-def resample_real_p2p_rate(grid_times: list[datetime]) -> list[float]:
+def resample_real_p2p_rate(
+    grid_times: list[datetime], sensor_id: str | None = None
+) -> list[float]:
     """Real, per-interval P2P export rate ($/kWh) -- REPLACES the old
     resample_p2p_forecast()/sensor.localvolts_p2p_price_forecast flat-
     $0.50-placeholder approach entirely (2026-08-20, direct household
@@ -2344,11 +2346,13 @@ def resample_real_p2p_rate(grid_times: list[datetime]) -> list[float]:
         rate = matchedCost / (volume * proportionP2P)
     (that card displays cents; this returns dollars -- matched_vol is in
     kWh, matchedCost in $, so cost/matched_vol is already $/kWh directly,
-    no *100/100 round-trip needed). Sourced from sensor.localvolts_p2p_
-    forecast (a genuinely different sensor from the flat placeholder
-    above -- this one carries real per-5-min matchedCost/volume/
-    proportionP2P from LocalVolts' own live matching, the same real data
-    the household's own reference card already uses).
+    no *100/100 round-trip needed). Sourced from `sensor_id`
+    (CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR, was hardcoded to
+    sensor.localvolts_p2p_forecast until the 2026-09-02 audit -- a
+    genuinely different sensor from the flat placeholder above -- this
+    one carries real per-5-min matchedCost/volume/proportionP2P from
+    LocalVolts' own live matching, the same real data the household's
+    own reference card already uses).
 
     Verified live 2026-08-20, before building this, not assumed safe:
     (1) real economic plausibility -- forecast-quality (not yet settled)
@@ -2381,9 +2385,15 @@ def resample_real_p2p_rate(grid_times: list[datetime]) -> list[float]:
     (2026-08-17) where a stray nonzero in-coverage reading leaked outside
     the real window because only the extrapolation branch had the gate;
     not repeating that mistake here.
+
+    Returns a flat 0.0 array (never crashes) if `sensor_id` is blank --
+    the same graceful no-op every household with no P2P/community-
+    trading program at all gets.
     """
+    if not sensor_id:
+        return [0.0 for _ in grid_times]
     try:
-        raw = ha_get("sensor.localvolts_p2p_forecast")["attributes"]["forecast"]
+        raw = ha_get(sensor_id)["attributes"]["forecast"]
     except Exception:  # noqa: BLE001 -- a missing/malformed P2P forecast source degrades to a flat 0.0 array, never crashes the solve
         return [0.0 for _ in grid_times]
 
@@ -2671,7 +2681,7 @@ def resample_generic_price_forecast(
     equivalent above), so this isn't Amber-specific despite the
     motivating case -- any future portable price source that produces
     this same shape gets picked up automatically, no config-flow change
-    needed. This household's own has_localvolts branch never reaches
+    needed. This household's own has_price_forecast_array branch never reaches
     this function -- it exists purely for the portable fallback path,
     kept in sync with the sibling standalone script.
 
@@ -2772,7 +2782,7 @@ def blend_price_with_secondary_sources(
     in case we can feed it more than one... e.g. aemo... and amber").
 
     `primary` is whatever spot_import_raw/spot_export either the
-    has_localvolts or generic branch above already produced -- this
+    has_price_forecast_array or generic branch above already produced -- this
     function never re-derives it, only optionally blends more sources
     in on top. `secondary_keys` is a (key_2, key_3) pair of cfg keys
     (e.g. ("solver_import_price_sensor_2", "solver_import_price_sensor_3"))
@@ -2910,15 +2920,28 @@ def blend_price_with_secondary_sources(
     return list(blended), cross_source_spread(sources)
 
 
-def fetch_aemo_forecast() -> list[tuple[datetime, float]]:
-    """Real, FORWARD-looking AEMO NEM QLD1 spot price forecast -- covers
-    the FULL 96h horizon (confirmed live 2026-08-16: 367 real 30-min
+def fetch_aemo_forecast(
+    sensor_id: str | None = None,
+) -> list[tuple[datetime, float]]:
+    """Real, FORWARD-looking AEMO NEM spot price forecast (a
+    purcell-lab/nem_pd7day-shaped sensor) -- covers the FULL 96h horizon
+    on a real QLD1 install (confirmed live 2026-08-16: 367 real 30-min
     points, now -> +7.6 days), unlike LocalVolts (~24h real) or Amber
     (~23.7h real, confirmed via
     sensor.amber_express_116kathouse_forecast_horizon itself, not
     guessed). This is the only real price source on this system with
     genuine coverage all the way to the end of a 96h horizon, so it's
     the anchor for anything beyond LV's own real coverage.
+
+    `sensor_id` is CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR (const.py's
+    own comment has the full real-bug-audit story, 2026-09-02): the
+    same NEM-region-forecast CONCEPT is genuinely useful outside QLD1
+    (any Australian state running the same nem_pd7day integration for
+    their own region), but the entity name itself is per-region --
+    hardcoding QLD1 made this permanently unreachable for anyone else.
+    None/blank (the default, and the only behaviour for a market with
+    no NEM-equivalent forecast at all) hits the exact same "unavailable"
+    fallback below as it always has.
 
     Uses the 'calibrated' field, NOT 'raw_value' -- real, direct finding
     (2026-08-16, user: "that is why mark written nem pd7 to take out
@@ -2939,10 +2962,10 @@ def fetch_aemo_forecast() -> list[tuple[datetime, float]]:
     layered on top of this coarser forward anchor. Returns [] (caller
     falls back further) if unavailable -- must never crash the writer.
     """
+    if not sensor_id:
+        return []
     try:
-        fc = ha_get("sensor.nem_pd7day_qld1_nem_spot_price_forecast")["attributes"][
-            "forecast"
-        ]
+        fc = ha_get(sensor_id)["attributes"]["forecast"]
     except (urllib.error.HTTPError, KeyError, json.JSONDecodeError):
         return []
     return sorted(
@@ -2956,9 +2979,11 @@ def fetch_aemo_forecast() -> list[tuple[datetime, float]]:
 
 
 def compute_5min_offset(
-    real_history: list[tuple[datetime, float]], days: int = 5
+    real_history: list[tuple[datetime, float]],
+    days: int = 5,
+    regional_spot_sensor: str | None = None,
 ) -> dict[int, float]:
-    """Real, empirical (LV retail price - AEMO wholesale spot) offset,
+    """Real, empirical (retail price - regional wholesale spot) offset,
     binned by 5-MINUTE-of-day (288 buckets: hour*12 + minute//5) from
     real, multi-day RECORDED history for both sides -- not a single
     forecast snapshot.
@@ -2971,22 +2996,24 @@ def compute_5min_offset(
     0.2362-0.2403) but hour 16 still spanned 0.017-0.248 -- a real
     artifact of using one forecast snapshot, not a genuine repeating
     intra-hour pattern. Re-checked against 5 real days of actual
-    RECORDED history (sensor.aemo_nem_qld1_current_5min_period_price vs
-    sensor.costsflexup/earningsflexup, both genuinely 5-min resolution)
-    binned at 5-min-of-day: every one of the 12 buckets inside that same
-    16:00-17:00 hour is now tight across all 5 real days (e.g. 16:00:
-    0.2267-0.2710) -- confirms the earlier hourly smear was a
-    single-snapshot artifact, and that LV's real retail markup pattern
-    genuinely has fine, repeatable 5-min-level structure worth capturing
-    rather than averaging away.
+    RECORDED history (`regional_spot_sensor` -- CONF_SOLVER_REGIONAL_
+    SPOT_CURRENT_PRICE_SENSOR, was hardcoded to this household's own
+    sensor.aemo_nem_qld1_current_5min_period_price until the 2026-09-02
+    audit -- vs sensor.costsflexup/earningsflexup, both genuinely 5-min
+    resolution) binned at 5-min-of-day: every one of the 12 buckets
+    inside that same 16:00-17:00 hour is now tight across all 5 real
+    days (e.g. 16:00: 0.2267-0.2710) -- confirms the earlier hourly
+    smear was a single-snapshot artifact, and that this household's
+    real retail markup pattern genuinely has fine, repeatable 5-min-
+    level structure worth capturing rather than averaging away.
 
     Falls back to an empty dict (caller then falls back further) if
-    either side's real history is unavailable -- must never crash the
-    writer.
+    `regional_spot_sensor` is blank, or either side's real history is
+    unavailable -- must never crash the writer.
     """
-    aemo_history = fetch_price_history(
-        "sensor.aemo_nem_qld1_current_5min_period_price", days=days
-    )
+    if not regional_spot_sensor:
+        return {}
+    aemo_history = fetch_price_history(regional_spot_sensor, days=days)
     if not real_history or not aemo_history:
         return {}
 
@@ -3309,13 +3336,21 @@ def save_plan_state(
         )
 
 
-def p2p_match_fraction(recent_days: int = 5) -> float:
+def p2p_match_fraction(
+    recent_days: int = 5, settlement_sensor: str | None = None
+) -> float:
     """Real, empirical fraction of exported energy during the P2P window
     that actually gets matched at the P2P rate (vs reverting to the much
     lower spot rate) -- averaged over the most recent `recent_days` REAL
-    SETTLED days from sensor.lv_v2_p2p_confirmed_history (the same safe,
-    REST-pushed, zero-recorder-risk mechanism lv_p2p_daily_recalibrate.py
-    already proved out for this exact class of data).
+    SETTLED days from `settlement_sensor` (CONF_SOLVER_P2P_SETTLEMENT_
+    HISTORY_SENSOR -- already documented in const.py as retailer-
+    agnostic in shape; LocalVolts' own sensor.lv_v2_p2p_confirmed_history,
+    the same safe REST-pushed mechanism lv_p2p_daily_recalibrate.py
+    already proved out, just happens to be this household's real value
+    for it. This function itself was hardcoded to that literal until the
+    2026-09-02 audit -- the field already existed and was already wired
+    into compute_daily_quality_report(), just never threaded through
+    here too).
 
     Direct, real finding (2026-08-16): assuming 100% match (this
     project's old flat-$0.50 placeholder, PR #308) overstated a real
@@ -3327,12 +3362,15 @@ def p2p_match_fraction(recent_days: int = 5) -> float:
     accurate estimate of what's likely to happen tonight, not a stale
     long-run average.
 
-    Falls back to P2P_MATCH_FRACTION_FALLBACK if the sensor or its
-    history is unavailable for any reason -- this writer must never
-    crash outright over a secondary accuracy refinement.
+    Falls back to P2P_MATCH_FRACTION_FALLBACK if `settlement_sensor` is
+    blank, or the sensor/its history is unavailable for any reason --
+    this writer must never crash outright over a secondary accuracy
+    refinement.
     """
+    if not settlement_sensor:
+        return P2P_MATCH_FRACTION_FALLBACK
     try:
-        hist = ha_get("sensor.lv_v2_p2p_confirmed_history")["attributes"]["history"]
+        hist = ha_get(settlement_sensor)["attributes"]["history"]
     except (urllib.error.HTTPError, KeyError, json.JSONDecodeError):
         return P2P_MATCH_FRACTION_FALLBACK
     dates = sorted(hist.keys())[-recent_days:]
@@ -3348,11 +3386,14 @@ def p2p_match_fraction(recent_days: int = 5) -> float:
     return sum(fracs) / len(fracs)
 
 
-def p2p_recent_avg_volume_kwh(recent_days: int = 5) -> float:
+def p2p_recent_avg_volume_kwh(
+    recent_days: int = 5, settlement_sensor: str | None = None
+) -> float:
     """Real, empirical AVERAGE ABSOLUTE kWh of export that gets P2P-matched
     per night -- averaged over the most recent `recent_days` REAL SETTLED
-    days, same source (sensor.lv_v2_p2p_confirmed_history) and same
-    recency reasoning as p2p_match_fraction() above.
+    days, same source (`settlement_sensor`, see p2p_match_fraction()'s
+    own docstring for the full field/audit story) and same recency
+    reasoning as p2p_match_fraction() above.
 
     Real, direct fix (2026-08-17, household-confirmed live: "if the
     solver was good it would have kept selling rather than landing
@@ -3373,12 +3414,15 @@ def p2p_recent_avg_volume_kwh(recent_days: int = 5) -> float:
     back to spot only beyond that, rather than a diluted average applied
     to everything.
 
-    Falls back to P2P_RECENT_AVG_VOLUME_FALLBACK_KWH if the sensor or its
-    history is unavailable for any reason -- this writer must never
-    crash outright over a secondary accuracy refinement.
+    Falls back to P2P_RECENT_AVG_VOLUME_FALLBACK_KWH if `settlement_sensor`
+    is blank, or the sensor/its history is unavailable for any reason --
+    this writer must never crash outright over a secondary accuracy
+    refinement.
     """
+    if not settlement_sensor:
+        return P2P_RECENT_AVG_VOLUME_FALLBACK_KWH
     try:
-        hist = ha_get("sensor.lv_v2_p2p_confirmed_history")["attributes"]["history"]
+        hist = ha_get(settlement_sensor)["attributes"]["history"]
     except (urllib.error.HTTPError, KeyError, json.JSONDecodeError):
         return P2P_RECENT_AVG_VOLUME_FALLBACK_KWH
     dates = sorted(hist.keys())[-recent_days:]
@@ -4490,7 +4534,7 @@ def compute_nimbus_only_soc_counterfactual(cfg: dict, day: datetime) -> dict | N
     through. Also, deliberately, ALWAYS uses the flat/generic economics
     (solver_discharge_cost, solver_salvage_value) rather than the
     LocalVolts-specific day/night schedule main() applies for a
-    has_localvolts install -- see that branch's own comment for why that
+    has_price_forecast_array install -- see that branch's own comment for why that
     schedule has no portable equivalent yet.
 
     Returns None if the required generic sensors aren't configured
@@ -5522,21 +5566,26 @@ def main() -> None:
     # is why its own solar figure looks "spot on" for right now, not
     # because its underlying forecasting is better).
     #
-    # sensor.combined_total_dc_power is the real, physical Sungrow
-    # DC-power measurement (W) -- confirmed live, same day: 3.80kW
-    # measured vs 5.57kW forecast at the same instant, a real,
-    # meaningful divergence this closes. Deliberately scoped to index 0
-    # ONLY -- every other period stays a genuine forecast, nothing
-    # propagates beyond "right now". Zero-width confidence band at this
-    # point -- a known, measured value has no forecast uncertainty to
-    # represent. Any read failure (missing/unavailable entity, bad
-    # value) leaves solar_kw[0] as the forecast value, same graceful-
-    # degradation convention as every other optional source in this file.
-    if entity_exists("sensor.combined_total_dc_power"):
+    # CONF_SOLVER_SOLAR_POWER_SENSOR (was hardcoded to this household's
+    # own sensor.combined_total_dc_power until the 2026-09-02 audit --
+    # the SAME real, physical Sungrow DC-power measurement (W) already
+    # wizard-configured for compute_daily_quality_report()'s own oracle
+    # scoring; confirmed live 2026-09-02 to already hold the identical
+    # entity, so this is a pure hardcode-removal, zero behaviour change
+    # for this household). Confirmed live, same day this cross-check was
+    # first built: 3.80kW measured vs 5.57kW forecast at the same
+    # instant, a real, meaningful divergence this closes. Deliberately
+    # scoped to index 0 ONLY -- every other period stays a genuine
+    # forecast, nothing propagates beyond "right now". Zero-width
+    # confidence band at this point -- a known, measured value has no
+    # forecast uncertainty to represent. Any read failure (blank field,
+    # missing/unavailable entity, bad value) leaves solar_kw[0] as the
+    # forecast value, same graceful-degradation convention as every
+    # other optional source in this file.
+    solar_power_sensor = cfg.get("solver_solar_power_sensor")
+    if solar_power_sensor and entity_exists(solar_power_sensor):
         try:
-            live_solar_kw = (
-                float(ha_get("sensor.combined_total_dc_power")["state"]) / 1000.0
-            )
+            live_solar_kw = float(ha_get(solar_power_sensor)["state"]) / 1000.0
             solar_kw[0] = max(0.0, live_solar_kw)
             solar_lower_kw[0] = solar_kw[0]
             solar_upper_kw[0] = solar_kw[0]
@@ -5835,26 +5884,41 @@ def main() -> None:
     except Exception:  # noqa: BLE001 -- see comment above
         solar_delivery = None
 
-    # Two paths, gated on whether THIS system actually has LocalVolts
-    # configured (checked live, not assumed from config alone -- see
-    # entity_exists()'s own docstring). Real households outside this
-    # project's own setup won't have sensor.localvolts_price_forecast at
-    # all, and that's fine: the whole point of 2026-08-20's config-flow
-    # work is that the Solver still runs correctly for them, just without
-    # this household's own extra sophistication.
-    has_localvolts = entity_exists("sensor.localvolts_price_forecast")
-    if has_localvolts:
-        # PRIMARY path -- this household's own real, live setup,
-        # unchanged from before 2026-08-20's config-flow wiring.
-        lv_price_fc = ha_get("sensor.localvolts_price_forecast")["attributes"][
-            "forecast"
-        ]
+    # Two paths, gated on whether a rich, forecast-array-shaped price
+    # sensor is actually CONFIGURED (CONF_SOLVER_PRICE_FORECAST_ARRAY_
+    # SENSOR) -- NOT, as of the 2026-09-02 hardcoded-foreign-entity
+    # audit, on whether a specific LITERAL entity (sensor.localvolts_
+    # price_forecast) happens to exist. Real households outside this
+    # project's own setup can leave this blank, and that's fine: the
+    # whole point of 2026-08-20's config-flow work (and this 2026-09-02
+    # follow-up) is that the Solver still runs correctly for them, just
+    # without this household's own extra sophistication -- see each new
+    # field's own const.py comment for the full real-bug-audit story
+    # (this same block used to hardcode FIVE separate LocalVolts/AEMO-
+    # QLD1 entity names, none of them reachable by any other install
+    # regardless of whether they had a real equivalent).
+    price_forecast_sensor = cfg.get("solver_price_forecast_array_sensor")
+    has_price_forecast_array = bool(price_forecast_sensor) and entity_exists(
+        price_forecast_sensor
+    )
+    if has_price_forecast_array:
+        # PRIMARY path -- richer than the generic fallback below whenever
+        # this field is actually configured, unchanged in BEHAVIOUR from
+        # before 2026-08-20's config-flow wiring; only WHERE each entity
+        # name comes from changed in the 2026-09-02 audit.
+        lv_price_fc = ha_get(price_forecast_sensor)["attributes"]["forecast"]
         # Real AEMO-anchored, 5-min-of-day price extrapolation (2026-08-16,
         # see compute_5min_offset()'s own docstring for the full real
         # finding) -- replaces the old flat-hold-last-value / hourly-average
-        # behaviour for periods beyond LV's real forecast coverage (~24h
-        # after the lv_forecast_writer.py truncation fix, was ~12h).
-        aemo_forecast = fetch_aemo_forecast()
+        # behaviour for periods beyond this sensor's own real forecast
+        # coverage (~24h on this household's own LocalVolts install, after
+        # the lv_forecast_writer.py truncation fix, was ~12h). Both new
+        # entity params default to None (a clean no-op, same graceful
+        # fallback each function already had) whenever the household
+        # hasn't also configured the matching optional field.
+        aemo_forecast = fetch_aemo_forecast(
+            cfg.get("solver_regional_spot_forecast_sensor")
+        )
         # 2026-08-20: migrated off guerrier's sensor.costsflexup/earningsflexup
         # onto our own project-owned equivalents (same shape, same source --
         # lv_forecast_writer.py's push_flex_sensor(), built session 41
@@ -5862,11 +5926,21 @@ def main() -> None:
         # recorder-tracked with real, gap-free history -- confirmed live
         # 2026-08-20). Real goal: this project no longer needs the guerrier
         # HACS integration at all once every consumer is migrated (see
-        # CLAUDE.md's Aug 20 session log for the full investigation).
-        import_history = fetch_price_history("sensor.localvolts_costs_flex_up")
-        export_history = fetch_price_history("sensor.localvolts_earnings_flex_up")
-        import_offset_by_5min = compute_5min_offset(import_history)
-        export_offset_by_5min = compute_5min_offset(export_history)
+        # CLAUDE.md's Aug 20 session log for the full investigation). 2026-
+        # 09-02: these are ALREADY the same real entities this household's
+        # own CONF_SOLVER_IMPORT_PRICE_SENSOR/EXPORT_PRICE_SENSOR fields
+        # point at (confirmed live) -- reusing those existing, already-
+        # wizard-configured fields instead of two more hardcoded literals.
+        import_history = fetch_price_history(cfg["solver_import_price_sensor"])
+        export_history = fetch_price_history(cfg["solver_export_price_sensor"])
+        import_offset_by_5min = compute_5min_offset(
+            import_history,
+            regional_spot_sensor=cfg.get("solver_regional_spot_current_price_sensor"),
+        )
+        export_offset_by_5min = compute_5min_offset(
+            export_history,
+            regional_spot_sensor=cfg.get("solver_regional_spot_current_price_sensor"),
+        )
         # Real empirical price bands for price_risk_aversion (2026-08-21,
         # task #128 -- see compute_price_percentile_band()'s own docstring).
         # A SEPARATE, longer (14-day, vs the 5-day history already fetched
@@ -5875,10 +5949,10 @@ def main() -> None:
         # per bucket than a mean does, and this data has been live and
         # recorder-tracked since well before 14 days ago.
         import_price_upper_band = compute_price_percentile_band(
-            fetch_price_history("sensor.localvolts_costs_flex_up", days=14), 90.0
+            fetch_price_history(cfg["solver_import_price_sensor"], days=14), 90.0
         )
         export_price_lower_band = compute_price_percentile_band(
-            fetch_price_history("sensor.localvolts_earnings_flex_up", days=14), 10.0
+            fetch_price_history(cfg["solver_export_price_sensor"], days=14), 10.0
         )
         spot_import_raw, import_real_mask = resample_price_with_extrapolation(
             lv_price_fc, "costsflexup", grid_times, aemo_forecast, import_offset_by_5min
@@ -5890,7 +5964,9 @@ def main() -> None:
             aemo_forecast,
             export_offset_by_5min,
         )
-        p2p_export = resample_real_p2p_rate(grid_times)
+        p2p_export = resample_real_p2p_rate(
+            grid_times, cfg.get("solver_p2p_matched_rate_forecast_sensor")
+        )
 
         # Real, live-CONFIGURABLE TOU network + flat fees baked directly
         # into import_price[t] (2026-08-16, real ask: "it needs ot be super
@@ -5912,13 +5988,13 @@ def main() -> None:
         #
         # Real bug found live (devhub, 2026-08-24, nimbus repo issue
         # #152): this fee application used to live ONLY inside this
-        # has_localvolts branch, even though network_fee_*/
+        # has_price_forecast_array branch, even though network_fee_*/
         # solver_flat_fee_rate are genuinely generic, portable
         # config-flow fields with no LocalVolts dependency at all --
         # any real installer without LocalVolts who filled them in via
         # the dashboard (exactly as the wizard invites them to) had
         # them silently ignored, zero fee ever applied, zero warning.
-        # Moved below the has_localvolts/else split entirely (see
+        # Moved below the has_price_forecast_array/else split entirely (see
         # "generic + real" fee application, after this if/else) so it
         # applies uniformly to whichever spot_import_raw either branch
         # produced -- LocalVolts-specific behaviour (AEMO extrapolation,
@@ -5938,8 +6014,11 @@ def main() -> None:
         # docstring, "TWO-TIER EXPORT BONUS"). match_fraction is still
         # computed and reported (pushed sensor attribute) for informational
         # context -- no longer used to price the LP.
-        match_fraction = p2p_match_fraction()
-        p2p_recent_volume_kwh = p2p_recent_avg_volume_kwh()
+        p2p_settlement_sensor = cfg.get("solver_p2p_settlement_history_sensor")
+        match_fraction = p2p_match_fraction(settlement_sensor=p2p_settlement_sensor)
+        p2p_recent_volume_kwh = p2p_recent_avg_volume_kwh(
+            settlement_sensor=p2p_settlement_sensor
+        )
         export_bonus_price = [
             max(0.0, p2p_export[i] - spot_export[i]) for i in range(n_periods)
         ]
@@ -6033,16 +6112,17 @@ def main() -> None:
     )
     _block_end = _block_start + timedelta(minutes=5)
     n_settled_periods = sum(1 for t in grid_times if _block_start <= t < _block_end)
-    settled_import_sensor = (
-        "sensor.localvolts_costs_flex_up"
-        if has_localvolts
-        else cfg["solver_import_price_sensor"]
-    )
-    settled_export_sensor = (
-        "sensor.localvolts_earnings_flex_up"
-        if has_localvolts
-        else cfg["solver_export_price_sensor"]
-    )
+    # 2026-09-02 audit: this used to branch on has_localvolts (now
+    # has_price_forecast_array) between a hardcoded LocalVolts literal
+    # and the generic field -- collapsed to just the generic field
+    # unconditionally, since CONF_SOLVER_IMPORT_PRICE_SENSOR/EXPORT_
+    # PRICE_SENSOR are ALREADY the exact same real entities the
+    # hardcoded literals pointed at on this household's own live
+    # install (confirmed live before this change), and are the correct,
+    # portable source for every other install too -- a genuine
+    # simplification, not just a hardcode removal.
+    settled_import_sensor = cfg["solver_import_price_sensor"]
+    settled_export_sensor = cfg["solver_export_price_sensor"]
     _settled_import_value = safe_num(settled_import_sensor, fallback=spot_import_raw[0])
     _settled_export_value = safe_num(settled_export_sensor, fallback=spot_export[0])
     for _i in range(n_settled_periods):
@@ -6140,7 +6220,23 @@ def main() -> None:
         cfg, "solver_charge_cost", 0.01
     )  # not scheduled -- real automations never touch this, manual control
 
-    if has_localvolts:
+    # NOT FIXED by the 2026-09-02 hardcoded-entity audit -- a genuinely
+    # SEPARATE, larger issue (BATTERY_DISCHARGE_COST_NIGHT/DAY and
+    # BATTERY_SALVAGE_VALUE_NIGHT/OTHER, module-level Python constants
+    # with hardcoded hour boundaries, near battery_discharge_cost_rate()'s
+    # own definition) than the entity-name hardcoding fixed everywhere
+    # else in this pass: this is a household-specific ECONOMIC POLICY
+    # schedule, not a foreign sensor reference. Deliberately left gated
+    # on has_price_forecast_array (preserves this household's exact
+    # existing behaviour, since they still have that field configured)
+    # rather than silently redesigned under the same time pressure as
+    # the entity fixes above -- getting a real, revenue-affecting cost
+    # schedule wrong carries more risk than an entity-reference swap
+    # with an already-proven fallback. Real fix (not yet built): a
+    # genuinely portable multi-block day/night cost-schedule config
+    # field, mirroring the already-established solver_p2p_block_1/2/3_
+    # rate_kw/start_hour/end_hour pattern.
+    if has_price_forecast_array:
         # This household's own real, tuned day/night discharge-cost
         # schedule (built around the SAME 5pm/midnight/7am P2P-window
         # boundaries as the pricing block above) -- deliberately KEPT
@@ -6196,7 +6292,7 @@ def main() -> None:
 
     # Widen the risk_aversion band with the real cross-source disagreement
     # computed above, on top of (not instead of) any empirical percentile
-    # band a has_localvolts install already built. A generic install with
+    # band a has_price_forecast_array install already built. A generic install with
     # no percentile band at all (import_price_upper/export_price_lower
     # still None here) but a genuine second/third price source configured
     # still gets a real, earned band from the disagreement alone --

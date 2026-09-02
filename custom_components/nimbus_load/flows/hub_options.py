@@ -85,7 +85,11 @@ from ..const import (
     CONF_SOLVER_LOAD_FORECAST_ENTITIES,
     CONF_SOLVER_LOAD_FORECAST_SENSOR,
     CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY,
+    CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR,
     CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR,
+    CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR,
+    CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR,
+    CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_2,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_3,
@@ -514,6 +518,48 @@ def _solver_sources_schema(
                     )
                 },
             ): _entity(),
+            # Real hardcoded-foreign-entity audit (2026-09-02) -- see each
+            # field's own comment in const.py for the full real-bug
+            # story. All four blank by default (a clean no-op, same
+            # convention as every other optional field here): the
+            # richer price-forecast-array path, the AEMO-anchored far-
+            # horizon extrapolation, the empirical retail-markup offset,
+            # and the real live P2P-matched rate all simply don't run,
+            # falling back to whatever CONF_SOLVER_IMPORT_PRICE_SENSOR/
+            # EXPORT_PRICE_SENSOR's own simpler generic path already
+            # provides -- never a crash, never a degraded mode.
+            vol.Optional(
+                CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR,
+                description={
+                    "suggested_value": defaults.get(
+                        CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR
+                    )
+                },
+            ): _entity(),
+            vol.Optional(
+                CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR,
+                description={
+                    "suggested_value": defaults.get(
+                        CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR
+                    )
+                },
+            ): _entity(),
+            vol.Optional(
+                CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR,
+                description={
+                    "suggested_value": defaults.get(
+                        CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR
+                    )
+                },
+            ): _entity(),
+            vol.Optional(
+                CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR,
+                description={
+                    "suggested_value": defaults.get(
+                        CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR
+                    )
+                },
+            ): _entity(),
             # Dashboard temp/humidity mirror -- see this field's own
             # comment in const.py for why it's a separate field rather
             # than reusing the Forecaster-level temperature_forecast_
@@ -873,6 +919,10 @@ _SOLVER_WIZARD_SCHEMA_KEYS = (
     CONF_SOLVER_BATTERY_POWER_SENSOR,
     CONF_SOLVER_BATTERY_POWER_POSITIVE_IS_CHARGE,
     CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR,
+    CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR,
+    CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR,
+    CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR,
+    CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR,
     CONF_SOLVER_WEATHER_FORECAST_SENSOR,
 )
 
