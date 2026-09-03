@@ -473,32 +473,18 @@ async def _remediate_forecast_lts_unit(
         )
 
 
-def _resolve_via_device_field(
-    hub_device_id: str | None, entry_id: str
-) -> dict[str, object]:
-    """Sub-devices (Quality/Backtest/Counterfactual) link back to the hub
-    device via either `via_device` (a bare (DOMAIN, entry_id) identifier
-    tuple, works on every HA version) or the newer `via_device_id` (a real
-    device-registry row id, HA 2026.9+ only -- resolved once, defensively,
-    by the caller via dr.async_get_device_id_by_identifier when that helper
-    exists).
-
-    nimbus issue #335 (Mark Purcell): HA Core 2026.9 deprecates `via_device`
-    in favour of `via_device_id`, warning today and removing it in 2027.8.
-    This project's own pinned test harness (pytest-homeassistant-custom-
-    component==0.13.357) still resolves homeassistant==2026.8.3, which
-    predates the new helper entirely -- bumping that pin is a real, separate
-    decision (the latest available release only pins a 2026.9 *beta*, not
-    stable), so this stays a runtime feature-detect rather than a hard
-    dependency on the new API.
-
-    Never returns both keys -- HA raises HomeAssistantError if a DeviceInfo
-    carries via_device and via_device_id at the same time (explicitly
-    flagged in the same issue).
-    """
-    if hub_device_id is not None:
-        return {"via_device_id": hub_device_id}
-    return {"via_device": (DOMAIN, entry_id)}
+# nimbus issue #335 follow-up (2026-09-03): this helper moved to
+# sensor_flattened.py so it's shared, not duplicated -- a second,
+# previously-unfixed via_device= call site was found there (the 16
+# flattened-child sub-device sensors, sensor_flattened.py:1264), on a
+# real install that had just upgraded to HA 2026.9.0. sensor.py already
+# imports sensor_flattened (`from . import health, sensor_flattened`),
+# so this re-export carries zero circular-import risk. See
+# sensor_flattened.resolve_via_device_field's own docstring for the full
+# via_device_id background and the "never return both keys"
+# HomeAssistantError note. Kept under this original (private) name here
+# purely so the three existing call sites below don't need to change.
+_resolve_via_device_field = sensor_flattened.resolve_via_device_field
 
 
 async def async_setup_entry(
@@ -746,13 +732,15 @@ async def async_setup_entry(
     counterfactual_soc = NimbusCounterfactualSocSensor(entry, sw_version, hub_device_id)
 
     flattened_quality = sensor_flattened.create_flattened_entities_quality(
-        entry, sw_version
+        entry, sw_version, hub_device_id
     )
     flattened_backtest = sensor_flattened.create_flattened_entities_backtest(
-        entry, sw_version
+        entry, sw_version, hub_device_id
     )
     flattened_counterfactual = (
-        sensor_flattened.create_flattened_entities_counterfactual(entry, sw_version)
+        sensor_flattened.create_flattened_entities_counterfactual(
+            entry, sw_version, hub_device_id
+        )
     )
 
     quality_report._flattened_entities = flattened_quality

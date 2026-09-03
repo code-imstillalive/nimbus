@@ -1199,6 +1199,33 @@ FLATTENED_ATTRS_COUNTERFACTUAL: tuple[FlattenedAttrSpec, ...] = (
 # ---------------------------------------------------------------------------
 
 
+def resolve_via_device_field(
+    hub_device_id: str | None, entry_id: str
+) -> dict[str, object]:
+    """Shared with sensor.py's own three sub-device parents (Quality/
+    Backtest/Counterfactual) -- this is the SAME helper, moved here (not
+    duplicated) specifically so both this module's 16 flattened-child
+    sub-devices and sensor.py's 3 parent sub-devices resolve via_device/
+    via_device_id identically. sensor.py already imports this module
+    (`from . import health, sensor_flattened`), so importing the helper
+    back from here carries zero circular-import risk.
+
+    nimbus issue #335 (Mark Purcell), follow-up 2026-09-03: the original
+    fix only touched the 3 PARENT sensors in sensor.py -- this module's
+    own 16 flattened CHILDREN each built their own DeviceInfo with a bare
+    `via_device=(DOMAIN, entry.entry_id)` and were never covered, so the
+    same HA 2026.9 deprecation warning kept firing from a different call
+    site (`async_add_entities`, sensor.py:712) the moment a real install
+    upgraded past 2026.8.x -- confirmed live on a real devhub running
+    2026.9.0 the same day this was found. See sensor.py's own copy of
+    this docstring (now just a re-export) for the full via_device_id
+    background and the "never return both keys" HomeAssistantError note.
+    """
+    if hub_device_id is not None:
+        return {"via_device_id": hub_device_id}
+    return {"via_device": (DOMAIN, entry_id)}
+
+
 class _FlattenedAttributeSensorSubDevice(_FlattenedAttributeSensor):
     """Same fan-out contract as _FlattenedAttributeSensor above, with one
     difference: DeviceInfo is set to a sub-device linked to the Nimbus hub
@@ -1238,6 +1265,7 @@ class _FlattenedAttributeSensorSubDevice(_FlattenedAttributeSensor):
         device_identifier: tuple[str, str],
         device_name: str,
         entity_id_prefix: str,
+        hub_device_id: str | None = None,
     ) -> None:
         # Drive the base __init__ first so all the class-attribute plumbing
         # (unique_id format, entity_category, device_class, state_class,
@@ -1252,16 +1280,17 @@ class _FlattenedAttributeSensorSubDevice(_FlattenedAttributeSensor):
             f"{entry.entry_id}_{entity_id_prefix}_{spec.entity_id_suffix}"
         )
         self.entity_id = f"sensor.{entity_id_prefix}_{spec.entity_id_suffix}"
-        # DeviceInfo replacement: sub-device identifier + via_device pinning
-        # it as a child of the Nimbus hub. HA's device registry uses
-        # `via_device` to render the parent/child relationship natively.
+        # DeviceInfo replacement: sub-device identifier + via_device/
+        # via_device_id pinning it as a child of the Nimbus hub. See
+        # resolve_via_device_field's own docstring (nimbus issue #335)
+        # for why this is a runtime feature-detect, not a hardcoded key.
         self._attr_device_info = DeviceInfo(
             identifiers={device_identifier},
             name=device_name,
             manufacturer="Nimbus",
             model="Sub-device",
             sw_version=sw_version,
-            via_device=(DOMAIN, entry.entry_id),
+            **resolve_via_device_field(hub_device_id, entry.entry_id),  # type: ignore[typeddict-item]
         )
 
 
@@ -1271,12 +1300,12 @@ class _FlattenedAttributeSensorSubDevice(_FlattenedAttributeSensor):
 
 
 def create_flattened_entities_quality(
-    entry, sw_version: str | None
+    entry, sw_version: str | None, hub_device_id: str | None = None
 ) -> list[_FlattenedAttributeSensorSubDevice]:
     """One SensorEntity per FLATTENED_ATTRS_QUALITY row, all attached to
-    the "Nimbus Quality" sub-device (via_device -> hub). Same "one per
-    hub" call site in sensor.py's async_setup_entry as the existing
-    create_flattened_entities() above.
+    the "Nimbus Quality" sub-device (via_device/via_device_id -> hub).
+    Same "one per hub" call site in sensor.py's async_setup_entry as the
+    existing create_flattened_entities() above.
     """
     device_identifier = (DOMAIN, f"{entry.entry_id}_quality")
     return [
@@ -1287,16 +1316,17 @@ def create_flattened_entities_quality(
             device_identifier=device_identifier,
             device_name="Nimbus Quality",
             entity_id_prefix="nimbus_quality",
+            hub_device_id=hub_device_id,
         )
         for spec in FLATTENED_ATTRS_QUALITY
     ]
 
 
 def create_flattened_entities_backtest(
-    entry, sw_version: str | None
+    entry, sw_version: str | None, hub_device_id: str | None = None
 ) -> list[_FlattenedAttributeSensorSubDevice]:
     """One SensorEntity per FLATTENED_ATTRS_BACKTEST row, all attached to
-    the "Nimbus Backtest" sub-device (via_device -> hub).
+    the "Nimbus Backtest" sub-device (via_device/via_device_id -> hub).
     """
     device_identifier = (DOMAIN, f"{entry.entry_id}_backtest")
     return [
@@ -1307,17 +1337,18 @@ def create_flattened_entities_backtest(
             device_identifier=device_identifier,
             device_name="Nimbus Backtest",
             entity_id_prefix="nimbus_backtest",
+            hub_device_id=hub_device_id,
         )
         for spec in FLATTENED_ATTRS_BACKTEST
     ]
 
 
 def create_flattened_entities_counterfactual(
-    entry, sw_version: str | None
+    entry, sw_version: str | None, hub_device_id: str | None = None
 ) -> list[_FlattenedAttributeSensorSubDevice]:
     """One SensorEntity per FLATTENED_ATTRS_COUNTERFACTUAL row, all
-    attached to the "Nimbus Counterfactual" sub-device (via_device ->
-    hub).
+    attached to the "Nimbus Counterfactual" sub-device (via_device/
+    via_device_id -> hub).
     """
     device_identifier = (DOMAIN, f"{entry.entry_id}_counterfactual")
     return [
@@ -1328,6 +1359,7 @@ def create_flattened_entities_counterfactual(
             device_identifier=device_identifier,
             device_name="Nimbus Counterfactual",
             entity_id_prefix="nimbus_counterfactual",
+            hub_device_id=hub_device_id,
         )
         for spec in FLATTENED_ATTRS_COUNTERFACTUAL
     ]

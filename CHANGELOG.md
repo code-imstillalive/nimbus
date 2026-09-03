@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.53] — 2026-09-03
+
+### Fixed
+- **`DeviceInfo(via_device=...)` deprecation warning, second call site** (nimbus issue [#335](https://github.com/code-imstillalive/nimbus/issues/335) follow-up, confirmed live on a real install running HA 2026.9.0). The v0.94.52 fix only covered the 3 parent sub-device sensors in `sensor.py`; the 16 flattened-child sensors under those same three sub-devices (`sensor_flattened.py`) each built their own `DeviceInfo` with a bare `via_device=(DOMAIN, entry.entry_id)` and were never touched, so the identical HA-core deprecation warning kept firing from a different `async_add_entities` call site. The shared resolution helper moved from `sensor.py` into `sensor_flattened.py` (which `sensor.py` already imports, so this is a clean re-export, not a duplicate) so both the 3 parents and their 16 children resolve `via_device_id` identically.
+
 ## [0.94.52] — 2026-09-03
 
 ### Fixed
