@@ -743,9 +743,7 @@ async def async_setup_entry(
     efficiency_backtest = NimbusEfficiencyBacktestSensor(
         entry, sw_version, hub_device_id
     )
-    counterfactual_soc = NimbusCounterfactualSocSensor(
-        entry, sw_version, hub_device_id
-    )
+    counterfactual_soc = NimbusCounterfactualSocSensor(entry, sw_version, hub_device_id)
 
     flattened_quality = sensor_flattened.create_flattened_entities_quality(
         entry, sw_version
