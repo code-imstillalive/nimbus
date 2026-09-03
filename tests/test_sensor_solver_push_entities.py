@@ -753,40 +753,73 @@ def test_flattened_children_attach_to_correct_sub_device_via_device_hub():
 
 
 def test_resolve_hub_device_id_calls_real_signature_exactly():
-    """Two real bugs shipped, live on devhub, in successive same-night
-    releases -- both against HA 2026.9's real signature
-    `async_get_device_id_by_identifier(registry, identifier_tuple, *,
-    config_entry_id)`:
-    v0.94.53 passed 3 positional args ("takes 2 positional arguments but
-    3 were given"); v0.94.55's fix dropped the extra arg but omitted the
-    REQUIRED KEYWORD-ONLY config_entry_id entirely ("missing 1 required
-    keyword-only argument: 'config_entry_id'"). The stub environment never
-    caught either because it deliberately doesn't define the attribute at
-    all (hasattr is False there, see _ha_stubs.py) -- this test defines a
-    strict fake matching the REAL signature exactly (2 positional + 1
-    required keyword-only, no defaults) so any future regression of
-    either shape fails loudly here instead of shipping.
+    """THREE real bugs shipped, live on devhub, across three successive
+    same-night releases, before the real HA core source
+    (homeassistant/helpers/device_registry.py, tag 2026.9.0) was actually
+    read instead of guessed. Real signature:
+    `async_get_device_id_by_identifier(hass, identifier_tuple, *,
+    config_entry_id)` -- the FIRST positional argument is `hass` itself,
+    not a DeviceRegistry object; the function resolves the registry
+    internally.
+      - v0.94.53: 3 positional args ("takes 2 positional arguments but 3
+        were given").
+      - v0.94.55: dropped the extra arg but omitted the REQUIRED KEYWORD-
+        ONLY config_entry_id entirely ("missing 1 required keyword-only
+        argument: 'config_entry_id'").
+      - v0.94.56: added config_entry_id, but passed `dr.async_get(hass)`
+        (a DeviceRegistry object) as the first positional argument instead
+        of `hass` itself ("AttributeError: 'DeviceRegistry' object has no
+        attribute 'data'" -- the function tried to treat that object AS
+        the hass it expected).
+    The stub environment never caught any of these because it deliberately
+    doesn't define this attribute at all (hasattr is False there, see
+    _ha_stubs.py) -- this test defines a strict fake matching the REAL
+    signature exactly (hass + identifier positional, config_entry_id
+    required keyword-only) and asserts the EXACT hass object passed to
+    _resolve_hub_device_id is what reaches the fake unchanged -- the one
+    assertion that would have caught bug #3 immediately.
     """
     entry = _fake_entry()
+    hass = MagicMock()
     calls = []
 
     def fake_async_get_device_id_by_identifier(
-        registry, identifier, *, config_entry_id
+        hass_arg, identifier, *, config_entry_id
     ):
-        calls.append((registry, identifier, config_entry_id))
+        calls.append((hass_arg, identifier, config_entry_id))
         return "fake-hub-device-id-123"
 
     sensor.dr.async_get_device_id_by_identifier = fake_async_get_device_id_by_identifier
     try:
-        result = sensor._resolve_hub_device_id(hass=MagicMock(), entry=entry)
+        result = sensor._resolve_hub_device_id(hass=hass, entry=entry)
     finally:
         del sensor.dr.async_get_device_id_by_identifier
 
     assert result == "fake-hub-device-id-123"
     assert len(calls) == 1
-    _registry_arg, identifier_arg, config_entry_id_arg = calls[0]
+    hass_arg, identifier_arg, config_entry_id_arg = calls[0]
+    assert hass_arg is hass  # the real hass, not a derived registry object
     assert identifier_arg == (DOMAIN, entry.entry_id)
     assert config_entry_id_arg == entry.entry_id
+
+
+def test_resolve_hub_device_id_handles_value_error_as_expected_first_setup():
+    """Real HA source: raises ValueError (not None) when the hub's own
+    device doesn't exist yet in the registry -- the normal, expected
+    condition on this hub's very first-ever setup. Must degrade to None
+    quietly (not the ERROR-level exception log the generic Exception
+    branch below uses), never raise, never block real entity setup."""
+    entry = _fake_entry()
+
+    def not_found_yet(*args, **kwargs):
+        raise ValueError("There is no device with identifier ... ")
+
+    sensor.dr.async_get_device_id_by_identifier = not_found_yet
+    try:
+        result = sensor._resolve_hub_device_id(hass=MagicMock(), entry=entry)
+    finally:
+        del sensor.dr.async_get_device_id_by_identifier
+    assert result is None
 
 
 def test_resolve_hub_device_id_returns_none_when_helper_missing():

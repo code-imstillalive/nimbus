@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.57] — 2026-09-03
+
+### Fixed
+- **v0.94.56's own `via_device_id` fix was STILL wrong — a THIRD distinct error, live on devhub immediately after that release** (nimbus issue [#335](https://github.com/code-imstillalive/nimbus/issues/335) follow-up). After two guessed-signature fixes both failed live (v0.94.53, v0.94.55), this one was verified against HA core's own actual source (`github.com/home-assistant/core`, `homeassistant/helpers/device_registry.py`, tag `2026.9.0`) instead of guessed a third time. The real signature is `async_get_device_id_by_identifier(hass, identifier_tuple, *, config_entry_id)` — the first positional argument is `hass` itself, not a `DeviceRegistry` object; the function resolves the registry internally. v0.94.56 passed an already-resolved `DeviceRegistry` object instead (`AttributeError: 'DeviceRegistry' object has no attribute 'data'`, since the function tried to treat that object as the `hass` it expected). Also confirmed from the real source: the function *raises* `ValueError` (not `None`) when the hub's own device doesn't exist yet — the normal, expected condition on a hub's very first-ever setup — now handled as a quiet `DEBUG`-level no-op rather than falling into the generic `ERROR`-level exception path. The regression test now asserts the *exact* `hass` object passed to `_resolve_hub_device_id` reaches the (strictly-signatured) fake unchanged — the one assertion that would have caught this exact mistake — plus a dedicated `ValueError` case.
+
 ## [0.94.56] — 2026-09-03
 
 ### Fixed
