@@ -175,6 +175,14 @@ _price_watcher_unsub: dict[str, Callable[[], None] | None] = {}
 # below.
 _price_watcher_entities: dict[str, tuple[str, ...]] = {}
 
+# entry_ids that already have a price-watcher cleanup hook registered
+# with entry.async_on_unload() for the CURRENT load of that entry
+# (nimbus issue #337). One hook per load, not one per (re)configure --
+# every dashboard toggle of switch.nimbus_solve_on_price_change used to
+# append another already-fired unsub to entry._on_unload, each of which
+# would then raise at unload time. Cleared by async_unload_entry.
+_price_watcher_unload_hooked: set[str] = set()
+
 # The startup-retry task's own handle, keyed by entry_id (2026-09-01,
 # real root cause of issue #312's residual -- see async_unload_entry()'s
 # own comment for the full story). Registering this task's cancellation
@@ -697,6 +705,27 @@ def _configured_price_sensors(entry: NimbusConfigEntry) -> tuple[str, ...]:
     )
 
 
+def _cancel_price_watcher(entry_id: str) -> None:
+    """Tear down the price-watcher listener (and any pending debounced
+    solve) for one entry. Idempotent by construction -- pops the unsub
+    out of the module registry, so a second call finds nothing to do.
+
+    nimbus issue #337: this is called from BOTH async_unload_entry()
+    (first, before platform teardown -- see that function's own
+    docstring) AND from the entry.async_on_unload() hook HA core runs
+    afterwards. HA's own async_track_state_change_event() unsub is NOT
+    safe to call twice (`callbacks[key].remove(job)` on a defaultdict
+    raises ValueError the second time), and ConfigEntry.async_unload()
+    turns that exception into FAILED_UNLOAD -- the hub simply never
+    came back on a reload with the price watcher enabled.
+    """
+    _price_watcher_unload_hooked.discard(entry_id)
+    _price_watcher_entities.pop(entry_id, None)
+    unsub = _price_watcher_unsub.pop(entry_id, None)
+    if unsub is not None:
+        unsub()
+
+
 def _configure_price_watcher(hass: HomeAssistant, entry: NimbusConfigEntry) -> None:
     """(Re)register the state-change listener that triggers an on-demand
     solve whenever any configured price sensor's state updates. Runs
@@ -812,22 +841,40 @@ def _configure_price_watcher(hass: HomeAssistant, entry: NimbusConfigEntry) -> N
         )
         pending["handle"] = hass.loop.call_later(debounce_s, _fire_solve)
 
-    unsub = async_track_state_change_event(hass, list(price_entities), _on_price_change)
+    listener_unsub: Callable[[], None] | None = async_track_state_change_event(
+        hass, list(price_entities), _on_price_change
+    )
 
     def _combined_unsub() -> None:
         """Cancel any pending debounced solve as well as the listener
         itself, so a hub unload right after a state-change burst can't
         leave a stray callback still fired for a torn-down hub.
+
+        Idempotent (nimbus issue #337): the underlying HA listener unsub
+        raises if called twice, so it is dropped after its first call.
         """
+        nonlocal listener_unsub
         handle = pending.get("handle")
         if handle is not None:
             handle.cancel()  # type: ignore[attr-defined]
             pending["handle"] = None
-        unsub()
+        if listener_unsub is not None:
+            listener_unsub()
+            listener_unsub = None
 
     _price_watcher_unsub[entry.entry_id] = _combined_unsub
     _price_watcher_entities[entry.entry_id] = price_entities
-    entry.async_on_unload(_combined_unsub)
+    # One cleanup hook per load of this entry (nimbus issue #337). The
+    # hook consults the registry at unload time rather than capturing
+    # this particular listener, so a later re-configure (dashboard
+    # toggle) neither leaks a stale hook nor needs a new one. It stays
+    # registered as a safety net for the one path where HA processes
+    # entry._on_unload WITHOUT ever calling async_unload_entry(): a
+    # setup that fails after this point (ConfigEntryNotReady).
+    if entry.entry_id not in _price_watcher_unload_hooked:
+        _price_watcher_unload_hooked.add(entry.entry_id)
+        entry_id = entry.entry_id
+        entry.async_on_unload(lambda: _cancel_price_watcher(entry_id))
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: NimbusConfigEntry) -> None:
@@ -856,10 +903,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: NimbusConfigEntry) -> b
     old_timer_unsub = _solver_timer_unsub.pop(entry.entry_id, None)
     if old_timer_unsub is not None:
         old_timer_unsub()
-    old_watcher_unsub = _price_watcher_unsub.pop(entry.entry_id, None)
-    if old_watcher_unsub is not None:
-        old_watcher_unsub()
-    _price_watcher_entities.pop(entry.entry_id, None)
+    _cancel_price_watcher(entry.entry_id)
     old_startup_task = _startup_solve_tasks.pop(entry.entry_id, None)
     if old_startup_task is not None:
         old_startup_task.cancel()

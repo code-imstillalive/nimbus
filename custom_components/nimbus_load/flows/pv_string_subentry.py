@@ -43,22 +43,38 @@ def _power_source_options(entry: Any) -> list[dict[str, str]]:
 
 
 def _schema(defaults: dict[str, Any], entry: Any) -> vol.Schema:
+    # nimbus issue #339: no `default=` on the entity/select pickers. A
+    # `default=None` (fresh add) or a stale saved value is injected by
+    # voluptuous on omission and rejected by the selector -- so a PV
+    # string could not be created without a Power Source, a set parent
+    # could not be cleared, and after the parent Power Source was deleted
+    # the string could never be reconfigured again ("value must be one
+    # of []"). suggested_value pre-fills without ever being injected.
+    entity_key = (
+        vol.Required(CONF_PV_STRING_ENTITY, default=defaults.get(CONF_PV_STRING_ENTITY))
+        if defaults.get(CONF_PV_STRING_ENTITY) is not None
+        else vol.Required(CONF_PV_STRING_ENTITY)
+    )
     schema_dict: dict[Any, Any] = {
-        vol.Required(
-            CONF_PV_STRING_ENTITY, default=defaults.get(CONF_PV_STRING_ENTITY)
-        ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+        entity_key: selector.EntitySelector(
+            selector.EntitySelectorConfig(domain="sensor")
+        ),
         vol.Optional(
             CONF_PV_STRING_LABEL, default=defaults.get(CONF_PV_STRING_LABEL, "")
         ): selector.TextSelector(),
     }
+    options = _power_source_options(entry)
+    saved_parent = defaults.get(CONF_PV_STRING_POWER_SOURCE)
+    if saved_parent not in {o["value"] for o in options}:
+        saved_parent = None  # parent deleted since -- don't re-inject it
     schema_dict[
         vol.Optional(
             CONF_PV_STRING_POWER_SOURCE,
-            default=defaults.get(CONF_PV_STRING_POWER_SOURCE),
+            description={"suggested_value": saved_parent},
         )
     ] = selector.SelectSelector(
         selector.SelectSelectorConfig(
-            options=_power_source_options(entry),
+            options=options,
             mode=selector.SelectSelectorMode.DROPDOWN,
         )
     )

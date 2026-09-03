@@ -53,40 +53,46 @@ def _schema(defaults: dict[str, Any], entry: Any) -> vol.Schema:
     entity_selector = selector.EntitySelector(
         selector.EntitySelectorConfig(domain="sensor")
     )
+    # nimbus issue #339: every picker here is Optional and pre-filled via
+    # description={"suggested_value": ...}, never default=. A default=None
+    # (fresh add) is injected by voluptuous when the field is left blank
+    # and rejected by EntitySelector/SelectSelector, so a partially-filled
+    # tower could never be saved and a set field could never be cleared;
+    # a saved parent Power Source that has since been deleted would be
+    # re-injected into a dropdown that no longer offers it ("value must
+    # be one of []"), bricking reconfigure of this tower.
     schema_dict: dict[Any, Any] = {
         # SoC is the single most important field for the diagram (the
         # visible fill-bar), but still genuinely Optional -- a household
         # mid-way through the wizard shouldn't hit a hard validation
         # error on a partially-filled-in tower.
-        vol.Optional(
-            CONF_BATTERY_TOWER_SOC_SENSOR,
-            default=defaults.get(CONF_BATTERY_TOWER_SOC_SENSOR),
-        ): entity_selector,
-        vol.Optional(
-            CONF_BATTERY_TOWER_SOH_SENSOR,
-            default=defaults.get(CONF_BATTERY_TOWER_SOH_SENSOR),
-        ): entity_selector,
-        vol.Optional(
-            CONF_BATTERY_TOWER_VOLTAGE_SENSOR,
-            default=defaults.get(CONF_BATTERY_TOWER_VOLTAGE_SENSOR),
-        ): entity_selector,
-        vol.Optional(
-            CONF_BATTERY_TOWER_TEMPERATURE_SENSOR,
-            default=defaults.get(CONF_BATTERY_TOWER_TEMPERATURE_SENSOR),
-        ): entity_selector,
+        _optional(CONF_BATTERY_TOWER_SOC_SENSOR, defaults): entity_selector,
+        _optional(CONF_BATTERY_TOWER_SOH_SENSOR, defaults): entity_selector,
+        _optional(CONF_BATTERY_TOWER_VOLTAGE_SENSOR, defaults): entity_selector,
+        _optional(CONF_BATTERY_TOWER_TEMPERATURE_SENSOR, defaults): entity_selector,
     }
+    options = _power_source_options(entry)
+    saved_parent = defaults.get(CONF_BATTERY_TOWER_POWER_SOURCE)
+    if saved_parent not in {o["value"] for o in options}:
+        saved_parent = None  # parent deleted since -- don't re-inject it
     schema_dict[
         vol.Optional(
             CONF_BATTERY_TOWER_POWER_SOURCE,
-            default=defaults.get(CONF_BATTERY_TOWER_POWER_SOURCE),
+            description={"suggested_value": saved_parent},
         )
     ] = selector.SelectSelector(
         selector.SelectSelectorConfig(
-            options=_power_source_options(entry),
+            options=options,
             mode=selector.SelectSelectorMode.DROPDOWN,
         )
     )
     return vol.Schema(schema_dict)
+
+
+def _optional(key: str, defaults: dict[str, Any]) -> vol.Optional:
+    """Optional picker: saved value offered as a suggestion, nothing
+    injected when blank -- see the #339 comment in _schema()."""
+    return vol.Optional(key, description={"suggested_value": defaults.get(key)})
 
 
 class NimbusBatteryTowerSubentryFlowHandler(ConfigSubentryFlow):
