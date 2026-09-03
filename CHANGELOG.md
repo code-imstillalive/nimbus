@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.65] — 2026-09-04
+
+### Fixed
+- **v0.94.64's own `set_native_hass()` fix broke 5 real tests in CI** — `AttributeError: 'NoneType'/'_FakeHass' object has no attribute 'config'`. The new `hass.config.time_zone` read is correctly wrapped in `try/except`, but the `except` branch's own logging line re-read `hass.config` directly (not defensively) to build its log message — raising a second, uncaught `AttributeError` before the original exception was even logged, for any caller passing a `hass` without a `.config` attribute (several existing tests deliberately use a narrow fake `hass` that never needed one before this fix). Fixed by resolving the raw timezone string once, via nested `getattr()`s that degrade to `None` at any missing level, before ever calling `ZoneInfo()` on it. 2 new regression tests (a bare object with no `.config` at all, and `hass=None`). 814/814 passing.
+
 ## [0.94.64] — 2026-09-04
 
 ### Fixed

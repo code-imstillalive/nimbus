@@ -93,6 +93,34 @@ class TestLocalTzResolution(unittest.TestCase):
         solver_writer.set_native_hass(hass)
         self.assertIs(solver_writer._NATIVE_HASS, hass)
 
+    def test_hass_with_no_config_attribute_at_all_never_raises(self):
+        """Real CI failure caught the first time this shipped: several
+        existing tests call set_native_hass() with a deliberately narrow
+        fake hass object that has NO .config attribute at all (unlike a
+        MagicMock, which auto-creates one) -- a plain, non-defensive
+        `hass.config.time_zone` raises AttributeError before the
+        try/except around the ZoneInfo() call ever gets a chance to run.
+        """
+        solver_writer.LOCAL_TZ = ZoneInfo("Australia/Brisbane")
+
+        class _BareHass:
+            pass
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("NIMBUS_SOLVER_TIMEZONE", None)
+            solver_writer.set_native_hass(_BareHass())  # must not raise
+
+        self.assertEqual(solver_writer.LOCAL_TZ, ZoneInfo("Australia/Brisbane"))
+
+    def test_hass_none_never_raises(self):
+        solver_writer.LOCAL_TZ = ZoneInfo("Australia/Brisbane")
+
+        with patch.dict(os.environ, {}, clear=False):
+            os.environ.pop("NIMBUS_SOLVER_TIMEZONE", None)
+            solver_writer.set_native_hass(None)  # must not raise
+
+        self.assertEqual(solver_writer.LOCAL_TZ, ZoneInfo("Australia/Brisbane"))
+
 
 if __name__ == "__main__":
     unittest.main()

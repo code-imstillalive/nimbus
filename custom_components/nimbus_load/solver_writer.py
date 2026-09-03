@@ -1327,13 +1327,23 @@ def set_native_hass(hass) -> None:
     global _NATIVE_HASS, LOCAL_TZ
     _NATIVE_HASS = hass
     if "NIMBUS_SOLVER_TIMEZONE" not in os.environ:
+        # Real CI failure caught the first time this shipped: several
+        # existing tests call set_native_hass() with a deliberately
+        # narrow fake hass (a bare _FakeHass with no .config attribute
+        # at all, or literally None) that never needed a .config before
+        # this fix -- hass.config itself raises AttributeError there,
+        # not just hass.config.time_zone. getattr()-based access below,
+        # not a direct attribute chain, so a missing hass/.config/
+        # .time_zone at ANY level degrades to None (-> the except branch)
+        # instead of raising before the try/except can catch it.
+        raw_time_zone = getattr(getattr(hass, "config", None), "time_zone", None)
         try:
-            LOCAL_TZ = ZoneInfo(hass.config.time_zone)
+            LOCAL_TZ = ZoneInfo(raw_time_zone)
         except Exception:
             _LOGGER.exception(
                 "Nimbus: could not resolve hass.config.time_zone (%r) -- "
                 "keeping the existing LOCAL_TZ (%s)",
-                getattr(hass.config, "time_zone", None),
+                raw_time_zone,
                 LOCAL_TZ,
             )
 
