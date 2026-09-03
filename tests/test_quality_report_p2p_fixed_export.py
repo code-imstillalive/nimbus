@@ -23,7 +23,7 @@ from unittest.mock import patch
 import _solver_path  # noqa: F401
 import solver_writer
 
-BRISBANE = solver_writer.BRISBANE_TZ
+BRISBANE = solver_writer.LOCAL_TZ
 
 DAY_START = datetime(2026, 8, 31, 0, 0, tzinfo=BRISBANE)
 DAY_END = DAY_START + timedelta(days=1)

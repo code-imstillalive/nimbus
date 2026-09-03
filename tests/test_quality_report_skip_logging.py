@@ -19,7 +19,7 @@ from unittest.mock import patch
 import _solver_path  # noqa: F401
 import solver_writer
 
-BRISBANE = solver_writer.BRISBANE_TZ
+BRISBANE = solver_writer.LOCAL_TZ
 LOGGER_NAME = solver_writer._LOGGER.name
 
 

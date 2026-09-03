@@ -1,8 +1,14 @@
 rules:
   # Bronze
   action-setup:
-    status: exempt
-    comment: This integration provides no service actions.
+    status: done
+    comment: >-
+      nimbus issue #361 (Mark Purcell): this previously claimed "no service
+      actions", which was already false -- services.py registers 3 real ones
+      (retrain, solve_now, compute_quality_report) via
+      async_register_services(), called from async_setup_entry() and
+      idempotent across reloads (test_async_register_services_is_idempotent_
+      on_reload).
   appropriate-polling: done
   brands:
     status: todo
@@ -26,6 +32,11 @@ rules:
       solver_grid/solver_sources/switchboard) and every config-subentry
       (load/power_signal/power_source/pv_string/battery_tower) in strings.json
       has a data_description sibling. translations/en.json kept byte-identical.
+      nimbus issue #361 (Mark Purcell): this claim was false as of v0.94.63 --
+      9 fields across the forecaster/solver_sources steps had no data/
+      data_description entry at all (rendered as raw snake_case keys in the
+      real UI), and solver_weather_forecast_sensor had a label but no
+      description. Fixed the same release this comment was corrected.
   data-vs-options:
     status: done
     comment: >-
@@ -39,8 +50,10 @@ rules:
     comment: >-
       manifest.json requirements pinned: numpy>=1.24,<3, highspy>=1.15.1,<2.
   docs-actions:
-    status: exempt
-    comment: No service actions.
+    status: done
+    comment: >-
+      nimbus issue #361: same correction as action-setup above -- 3 real
+      service actions exist and are fully documented in services.yaml.
   docs-triggers:
     status: exempt
     comment: No triggers.
@@ -71,15 +84,23 @@ rules:
       sensor.py/diagnostics.py -- confirmed via grep, no hass.data[DOMAIN]
       pattern remains.
   test-before-configure:
-    status: exempt
+    status: todo
     comment: >-
       Hub creation (config_flow.py's async_step_user) has no external
       connection/credential to test -- zero fields, purely local. The one
       real optional dependency (highspy) is never imported at hub-creation
       time by design (lazy, only on the Solver's first periodic solve) --
       see test-before-setup below for how that failure mode is actually
-      handled. Subentry creation (load_subentry.py) does validate its own
-      source sensor exists before allowing creation.
+      handled. That part stays exempt-shaped. nimbus issue #361 (Mark
+      Purcell): the claim that subentry creation validates its own source
+      sensor exists was false -- load_subentry.py's _derive_title() calls
+      hass.states.get() only to build a friendly title, silently falling
+      back to the bare entity_id string when it returns None, and never
+      rejects the submission either way. Genuinely todo, not exempt --
+      deliberately not implemented alongside this correction, since
+      rejecting a not-yet-loaded-but-valid entity at wizard-submission time
+      (e.g. during HA startup) is a real design tradeoff worth its own pass,
+      not a one-line fix to rush in here.
   test-before-setup:
     status: done
     comment: >-
@@ -97,8 +118,15 @@ rules:
 
   # Silver
   action-exceptions:
-    status: exempt
-    comment: No service actions.
+    status: done
+    comment: >-
+      nimbus issue #361: same correction as action-setup above. retrain
+      raises ServiceValidationError for an unresolved/partially-matched
+      entity_id; compute_quality_report raises ServiceValidationError for
+      shape errors (naive datetime, end <= start, window in the future --
+      see issue #345's own fix) and HomeAssistantError for genuine scoring
+      failures; solve_now never raises by contract (async_run_solve()'s own
+      "never raises" guarantee), logging a warning on a failed solve instead.
   config-entry-unloading:
     status: done
     comment: >-

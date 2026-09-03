@@ -33,7 +33,9 @@
           "solar_sensor": "Solar power sensor (optional, real measured value -- never an optimizer's own plan/forecast)",
           "forecast_horizon_hours": "Forecast horizon (hours)",
           "retrain_hour_local": "Retrain at this hour (local time, 0-23)",
-          "train_days": "Days of history to train on"
+          "train_days": "Days of history to train on",
+          "training_source": "Training data source",
+          "hybrid_recent_days": "Hybrid mode: recent days from full-resolution history"
         },
         "data_description": {
           "temperature_sensor": "A real outdoor/ambient temperature sensor. Used as an input feature so the model can learn e.g. \"AC load rises with temperature\" -- purely optional, every load forecasts fine without it, just less precisely for weather-sensitive loads.",
@@ -45,7 +47,9 @@
           "solar_sensor": "Your real, live solar production power sensor -- same caution as above.",
           "forecast_horizon_hours": "How many hours ahead each load's forecast array extends. Longer horizons cost more compute per retrain but let downstream consumers (like the Solver) plan further ahead.",
           "retrain_hour_local": "The local hour (0-23) Nimbus retrains every load's model from scratch against your Recorder history. Pick a quiet hour (e.g. 3am) since a retrain briefly uses real CPU.",
-          "train_days": "How many days of Recorder history each retrain looks back over. More days generally means a more stable model, at the cost of a slower retrain and adapting more slowly to a genuine change in your own usage pattern."
+          "train_days": "How many days of Recorder history each retrain looks back over. More days generally means a more stable model, at the cost of a slower retrain and adapting more slowly to a genuine change in your own usage pattern.",
+          "training_source": "Recorder history (default) reads full-resolution states but is bounded by your own Recorder purge_keep_days -- fine for most installs, but a low purge setting can leave far less history than train_days requests. Long-term statistics reads hour-bucketed data the Recorder keeps indefinitely, so a 30/90/365-day retrain is always possible, at the cost of hourly-only resolution (blurs a load switching on/off within an hour). Hybrid combines both: recent days at full resolution plus the remainder from long-term statistics, gracefully degrading to whichever source is actually available.",
+          "hybrid_recent_days": "Only used when Training data source is set to Hybrid -- how many of the most recent days come from full-resolution Recorder history; the remainder of train_days is filled from long-term statistics instead."
         }
       },
       "solver_battery": {
@@ -85,6 +89,8 @@
         "description": "Where the Solver gets its forward-looking view of what solar you'll generate and what your house will consume -- point these at your own forecast sensors (Solcast, Open-Meteo, Nimbus's own Power Signals, or anything similar that already exists on your system). 🔴 = required.",
         "data": {
           "solver_solar_forecast_sensor": "🔴 Solar generation forecast sensor (kW or kWh) -- your existing solar forecast integration",
+          "solver_solar_forecast_sensor_2": "Optional: second, independently-modeled solar forecast source to blend with the first",
+          "solver_solar_forecast_sensor_3": "Optional: third solar forecast source to blend",
           "solver_load_forecast_sensor": "🔴 Household load forecast sensor (kW) -- e.g. a Nimbus Power Signal forecasting your own whole-house load",
           "solver_load_forecast_entities": "Optional: individual circuit forecast sensors to sum instead of the single sensor above (kW each, e.g. Nimbus Power Signals for specific circuits) -- leave blank to use the sensor above",
           "solver_whole_house_cross_check_sensor": "Optional: a real, live whole-house power sensor to sanity-check the very first forecast period against -- leave blank to skip",
@@ -92,17 +98,28 @@
           "solver_battery_power_sensor": "Optional: real, currently-measured net battery power sensor (kW, positive = discharging) -- enables the built-in daily EPR/regret quality score. Leave blank to skip scoring.",
           "solver_battery_power_positive_is_charge": "Tick ONLY if your battery sensor above reports the opposite convention (positive = charging, negative = discharging) -- e.g. SigEnergy plants. Leave unticked for the far more common positive = discharging convention.",
           "solver_p2p_settlement_history_sensor": "Optional: a sensor publishing real settled export-bonus history ('{date: {export_cost, export_volume}}') if your retailer has a P2P/VPP program -- improves the quality score's accuracy. Leave blank if you have no such program.",
+          "solver_price_forecast_array_sensor": "Optional: a richer per-5-minute price forecast sensor from your own retailer/market integration, if it publishes one",
+          "solver_regional_spot_forecast_sensor": "Optional: a regional wholesale spot-price FORECAST sensor (e.g. a NEM pre-dispatch forecast for your own region) -- Australian NEM markets only",
+          "solver_regional_spot_current_price_sensor": "Optional: a regional wholesale spot-price HISTORY/current sensor, for a retail-markup-vs-wholesale offset -- a different sensor from the forecast one above",
+          "solver_p2p_matched_rate_forecast_sensor": "Optional: a sensor publishing real per-interval P2P/community-trading matched-rate data, if your retailer has such a program",
           "solver_weather_forecast_sensor": "Optional: a weather.* entity (e.g. weather.home, weather.pirateweather) or sensor.* forecast for the dashboard's own Temp/Humidity chart. Leave blank to skip."
         },
         "data_description": {
           "solver_solar_forecast_sensor": "Any sensor exposing a forward-looking solar generation forecast (Solcast, Open-Meteo Solar Forecast, or a Nimbus Power Signal pointed at your own inverter's DC power). The Solver reads its forecast attribute directly if present; if the referenced entity has no forecast, its shape is validated and a clear error is surfaced rather than silently producing a flat, useless plan.",
+          "solver_solar_forecast_sensor_2": "Optional -- a second, independently-modeled solar forecast (e.g. a different provider from the primary source), blended together the same way multiple import/export price sources are. Leave blank to use only the primary source -- a complete no-op.",
+          "solver_solar_forecast_sensor_3": "Optional -- a third solar forecast source, same blending as the second.",
           "solver_load_forecast_sensor": "The single sensor the Solver treats as \"total household load\" for planning. A Nimbus Power Signal on your own whole-house power meter is the simplest choice -- or leave this and use the per-circuit list below instead, which is summed automatically.",
           "solver_load_forecast_entities": "If you'd rather the Solver build its total household load from several individual circuit forecasts (e.g. one Nimbus load per circuit breaker) instead of one whole-house sensor, list them here -- they're summed together every solve. Leave blank to use the single sensor above instead.",
           "solver_whole_house_cross_check_sensor": "A real, currently-measured whole-house power sensor (not a forecast) the Solver compares its own very-first forecast period against, purely as a live sanity check surfaced on the forecast sensor's own attributes -- has no effect on the actual dispatch plan itself.",
           "solver_solar_power_sensor": "Feeds the built-in quality score (EPR/regret/tracking, sensor.nimbus_solver_quality_report) with what your solar ACTUALLY produced yesterday, to compare the real dispatch against a perfect-foresight oracle. Genuinely different from the forecast sensor above -- this must be a real measurement, not a forecast.",
           "solver_battery_power_sensor": "Same quality-score role as the solar sensor above, for your battery's real net power (positive = discharging, negative = charging) -- both this and the solar sensor are required together for a score to be published.",
           "solver_battery_power_positive_is_charge": "Some hardware (confirmed on SigEnergy) reports the opposite sign to the convention this integration assumes everywhere else. Getting this wrong silently inverts every charge/discharge decision in the quality score, producing a nonsensical result (e.g. a negative EPR) -- if your published score looks impossible, this is the first thing to check.",
-          "solver_p2p_settlement_history_sensor": "If your retailer pays a real settlement/bonus rate for exported energy (e.g. a P2P or VPP program), point this at a sensor whose 'history' attribute holds real settled '{date: {export_cost, export_volume}}' entries. Without this, the quality score still works but prices export at your plain configured rate only, missing any real bonus revenue."
+          "solver_p2p_settlement_history_sensor": "If your retailer pays a real settlement/bonus rate for exported energy (e.g. a P2P or VPP program), point this at a sensor whose 'history' attribute holds real settled '{date: {export_cost, export_volume}}' entries. Without this, the quality score still works but prices export at your plain configured rate only, missing any real bonus revenue.",
+          "solver_price_forecast_array_sensor": "Optional -- any entity whose own 'forecast' attribute is a list of real per-5-minute price points, for a richer near-term price plan than a plain current-price sensor alone. Retailer-agnostic in shape, not tied to any one integration by name. Leave blank to fall back to your plain import/export price sensors' own forecast-or-flat behaviour.",
+          "solver_regional_spot_forecast_sensor": "Optional -- a real regional wholesale spot-price forecast (Australian NEM markets only, e.g. a pre-dispatch forecast for your own state's region), used to extend the price plan further into the horizon than your retailer's own forecast reaches. Leave blank to skip this extrapolation -- a clean no-op.",
+          "solver_regional_spot_current_price_sensor": "Optional -- a real, live/historical wholesale spot-price sensor, used to build a retail-markup-vs-wholesale offset from your own recorded history. A genuinely different sensor from the forecast one above, not a duplicate field. Leave blank to skip.",
+          "solver_p2p_matched_rate_forecast_sensor": "Optional -- any entity whose own 'forecast' attribute lists real per-interval P2P-matching data (matched cost/volume/proportion), the empirical rate a community-trading/peer-export program actually paid. A household with no such program leaves this blank forever.",
+          "solver_weather_forecast_sensor": "Optional, purely cosmetic -- feeds the dashboard's own Temp/Humidity chart only, never the actual LP solve. Accepts a weather.* entity directly (Nimbus calls weather.get_forecasts for you) or a sensor.* whose own 'forecast' attribute already carries datetime/temperature[/humidity] entries. Humidity is only published when your chosen source's own forecast actually carries a humidity field."
         }
       },
       "switchboard": {
@@ -290,6 +307,24 @@
     "solve_now": {
       "name": "Solve now",
       "description": "Run one Solver optimisation cycle immediately, instead of waiting for the next scheduled tick. Reuses the exact same solve logic the periodic timer calls -- useful for an automation that watches a real price sensor and wants to react the instant a settled tick actually arrives, rather than guessing at a cron schedule."
+    },
+    "compute_quality_report": {
+      "name": "Compute quality report",
+      "description": "Score the Solver's real dispatch against a perfect-foresight oracle for any past window on demand, without waiting for the daily scheduled report. Returns the same EPR/regret/tracking figures published on sensor.nimbus_solver_quality_report, scoped to exactly the window you ask for.",
+      "fields": {
+        "start": {
+          "name": "Start",
+          "description": "Start of the window to score. Must be in the past."
+        },
+        "end": {
+          "name": "End",
+          "description": "End of the window to score. Must be strictly after Start and not in the future."
+        },
+        "allow_partial": {
+          "name": "Allow partial",
+          "description": "If the window's history is incomplete, score whatever real data is available rather than refusing to score at all."
+        }
+      }
     }
   }
 }

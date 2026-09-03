@@ -183,10 +183,44 @@ from zoneinfo import ZoneInfo
 # 03:00-10:00 the NEXT day.
 #
 # Fix: never trust the system's own local-timezone resolution. Every
-# real-local-time value in this file is built from BRISBANE_TZ
-# explicitly (zoneinfo, Python 3.9+ stdlib -- Brisbane has no DST, so
-# this is also simpler and more robust than any UTC-offset arithmetic).
-BRISBANE_TZ = ZoneInfo("Australia/Brisbane")
+# real-local-time value in this file is built from an explicitly-resolved
+# zone (zoneinfo, Python 3.9+ stdlib), never a bare `.astimezone()`.
+#
+# nimbus issue #347 (Mark Purcell, 2026-09-03): this was hardcoded to
+# Australia/Brisbane -- correct, and harmlessly DST-free, for THIS
+# household's own install, but every hour-of-day decision in this file
+# (TOU fee lookup, the P2P window, midnight SoC anchors, fixed-export
+# blocks, quality-report day boundaries) ran in AEST for every other
+# install too. A Sydney/Melbourne user during AEDT got all of these one
+# hour late; a non-AU install was off by many hours -- the same bug
+# class as the 2026-08-17 incident above, just moved from "the system's
+# own tz" to "one specific household's tz" instead of resolving the
+# REAL configured one. LOCAL_TZ now resolves in priority order: the
+# NIMBUS_SOLVER_TIMEZONE env var (explicit override, works identically
+# in standalone/addon/native mode) if set; otherwise this default
+# (unchanged behaviour for this household and anyone else who never
+# sets the env var) until set_native_hass() below runs, at which point
+# native mode re-resolves it from hass.config.time_zone -- the real,
+# already-configured value every HA install has, needing zero new user
+# configuration. REST/standalone/addon mode has no equivalent live
+# `hass` to ask, so it keeps whatever LOCAL_TZ already resolved to here
+# (the env var, or this default) for the whole run.
+#
+# Deliberately NOT addressed here (nimbus issue #347's own second,
+# separate finding, scoped out of this fix): wall-clock timedelta
+# arithmetic on a tz-aware LOCAL_TZ datetime is genuinely unsafe across
+# a real DST transition (a `timedelta` added to a ZoneInfo-aware
+# datetime moves in WALL-CLOCK terms, not real elapsed time) -- the ML
+# grid, solver period_starts, and per-day P2P cap grouping all build
+# their own time grids this way. Harmless for Brisbane (no DST) and
+# therefore never live-verified against a real transition by this
+# household's own install; a real fix needs the grid built in UTC and
+# converted to local only for feature/day-keying, per the issue's own
+# suggested fix -- a materially larger, riskier change to the core ML/
+# solver time-grid construction, deliberately left for a dedicated pass
+# rather than rushed alongside this narrower, lower-risk timezone-
+# resolution fix.
+LOCAL_TZ = ZoneInfo(os.environ.get("NIMBUS_SOLVER_TIMEZONE", "Australia/Brisbane"))
 
 # PORTABILITY (2026-08-21, env-var-overridable -- was hardcoded, edit-the-
 # file-yourself before this) -- every one of these three household-
@@ -1096,7 +1130,7 @@ def midnight_boundary_period_indices(grid_times: list[datetime]) -> list[int]:
     exact moment a real day (and this household's own real P2P window)
     closes, the correct anchor for "how much should be held back going
     into tomorrow". grid_times[t].hour is already real local AEST (see
-    build_tiered_grid -- 'now' is built from BRISBANE_TZ, not UTC), so
+    build_tiered_grid -- 'now' is built from LOCAL_TZ, not UTC), so
     no timezone conversion is needed here. Works correctly regardless of
     which tier a given midnight falls in -- the 5-min Tier1 region and
     the 1-hour Tier2 region both break exactly on real hour boundaries,
@@ -1279,9 +1313,29 @@ _ENTITY_REAL_IDS: dict[str, str] = {}
 def set_native_hass(hass) -> None:
     """Called once by the Nimbus integration itself, before running a
     solve in-process. See this module's own "PURE INTEGRATION seam"
-    comment immediately above for the full story."""
-    global _NATIVE_HASS
+    comment immediately above for the full story.
+
+    nimbus issue #347: also re-resolves LOCAL_TZ from hass.config.
+    time_zone, the household's own real, already-configured timezone --
+    unless NIMBUS_SOLVER_TIMEZONE was explicitly set, which always wins
+    (an explicit override should never be silently replaced by a live
+    re-resolution). Never raises: an unexpected shape for hass.config.
+    time_zone (missing, empty, not a real IANA name) leaves LOCAL_TZ at
+    whatever it already resolved to at module import time rather than
+    blocking native setup over a timezone lookup.
+    """
+    global _NATIVE_HASS, LOCAL_TZ
     _NATIVE_HASS = hass
+    if "NIMBUS_SOLVER_TIMEZONE" not in os.environ:
+        try:
+            LOCAL_TZ = ZoneInfo(hass.config.time_zone)
+        except Exception:
+            _LOGGER.exception(
+                "Nimbus: could not resolve hass.config.time_zone (%r) -- "
+                "keeping the existing LOCAL_TZ (%s)",
+                getattr(hass.config, "time_zone", None),
+                LOCAL_TZ,
+            )
 
 
 def register_entity_handler(
@@ -1730,7 +1784,7 @@ def publish_weather_forecast_mirrors(cfg: dict) -> None:
         and p.get("datetime") is not None
         and p.get("humidity") is not None
     ]
-    generated_at = datetime.now(UTC).astimezone(BRISBANE_TZ).isoformat()
+    generated_at = datetime.now(UTC).astimezone(LOCAL_TZ).isoformat()
     if temp_points:
         ha_post_state(
             "sensor.nimbus_mirror_temperature_forecast",
@@ -2630,7 +2684,7 @@ def fetch_price_history(entity_id: str, days: int = 5) -> list[tuple[datetime, f
                 v = float(s.state)
             except (TypeError, ValueError):
                 continue
-            out.append((s.last_changed.astimezone(BRISBANE_TZ), v))
+            out.append((s.last_changed.astimezone(LOCAL_TZ), v))
         return sorted(out, key=lambda x: x[0])
     url = (
         f"{HA_BASE}/api/history/period/{start.strftime('%Y-%m-%dT%H:%M:%S')}Z"
@@ -2650,12 +2704,12 @@ def fetch_price_history(entity_id: str, days: int = 5) -> list[tuple[datetime, f
             v = float(p.get("state"))
         except (TypeError, ValueError):
             continue
-        # Explicit BRISBANE_TZ conversion (2026-08-17 fix, see this
+        # Explicit LOCAL_TZ conversion (2026-08-17 fix, see this
         # module's own top-of-file comment) -- matches grid_times' own
         # real local-hour convention (see main()'s own `now`
         # construction), regardless of what the running environment's
         # own system timezone happens to resolve to.
-        out.append((parse_iso(p["last_changed"]).astimezone(BRISBANE_TZ), v))
+        out.append((parse_iso(p["last_changed"]).astimezone(LOCAL_TZ), v))
     return sorted(out, key=lambda x: x[0])
 
 
@@ -3546,7 +3600,7 @@ def fetch_entity_history_range(
                 v = float(s.state)
             except (TypeError, ValueError):
                 continue
-            out.append((s.last_changed.astimezone(BRISBANE_TZ), v))
+            out.append((s.last_changed.astimezone(LOCAL_TZ), v))
         return sorted(out, key=lambda x: x[0])
     url = (
         f"{HA_BASE}/api/history/period/{start.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z"
@@ -3570,7 +3624,7 @@ def fetch_entity_history_range(
             v = float(state)
         except (TypeError, ValueError):
             continue
-        out.append((parse_iso(p["last_changed"]).astimezone(BRISBANE_TZ), v))
+        out.append((parse_iso(p["last_changed"]).astimezone(LOCAL_TZ), v))
     return sorted(out, key=lambda x: x[0])
 
 
@@ -3677,7 +3731,7 @@ def compute_daily_quality_report(cfg: dict, now: datetime) -> dict | None:
     """
     yesterday = (now - timedelta(days=1)).date()
     day_start = datetime(
-        yesterday.year, yesterday.month, yesterday.day, tzinfo=BRISBANE_TZ
+        yesterday.year, yesterday.month, yesterday.day, tzinfo=LOCAL_TZ
     )
     day_end = day_start + timedelta(days=1)
     return _compute_report_for_window(cfg, day_start, day_end, allow_partial=False)
@@ -4057,11 +4111,11 @@ def _compute_report_for_window(
     # already uses.
     is_calendar_day = (
         window_hours == 24.0
-        and day_start.astimezone(BRISBANE_TZ).time().hour == 0
-        and day_start.astimezone(BRISBANE_TZ).time().minute == 0
+        and day_start.astimezone(LOCAL_TZ).time().hour == 0
+        and day_start.astimezone(LOCAL_TZ).time().minute == 0
     )
     if settlement_sensor and is_calendar_day:
-        settled_date = day_start.astimezone(BRISBANE_TZ).date()
+        settled_date = day_start.astimezone(LOCAL_TZ).date()
         try:
             day_data = (ha_get(settlement_sensor)["attributes"]["history"]).get(
                 settled_date.isoformat()
@@ -4356,7 +4410,7 @@ def compute_efficiency_backtest_report(cfg: dict, now: datetime) -> dict | None:
 
     yesterday = (now - timedelta(days=1)).date()
     day_start = datetime(
-        yesterday.year, yesterday.month, yesterday.day, tzinfo=BRISBANE_TZ
+        yesterday.year, yesterday.month, yesterday.day, tzinfo=LOCAL_TZ
     )
     day_end = day_start + timedelta(days=1)
 
@@ -4603,7 +4657,7 @@ def compute_nimbus_only_soc_counterfactual(cfg: dict, day: datetime) -> dict | N
     if capacity_kwh <= 0:
         return None
 
-    day_start = datetime(day.year, day.month, day.day, tzinfo=BRISBANE_TZ)
+    day_start = datetime(day.year, day.month, day.day, tzinfo=LOCAL_TZ)
     day_end = day_start + timedelta(days=1)
     step = timedelta(minutes=15)
 
@@ -5310,7 +5364,7 @@ def main() -> None:
     # for the full "installable by anyone" context this closes.
     cfg = fetch_solver_config()
 
-    now = datetime.now(UTC).astimezone(BRISBANE_TZ).replace(second=0, microsecond=0)
+    now = datetime.now(UTC).astimezone(LOCAL_TZ).replace(second=0, microsecond=0)
     grid_times, period_hours_arr = build_tiered_grid(now)
     n_periods = len(grid_times)
 
@@ -7079,7 +7133,7 @@ def main() -> None:
 if __name__ == "__main__":
     if not acquire_lock():
         print(
-            f"[{datetime.now(UTC).astimezone(BRISBANE_TZ).isoformat()}] previous run still in progress -- skipping this tick",
+            f"[{datetime.now(UTC).astimezone(LOCAL_TZ).isoformat()}] previous run still in progress -- skipping this tick",
             flush=True,
         )
         sys.exit(0)
