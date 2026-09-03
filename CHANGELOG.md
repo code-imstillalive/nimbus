@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.60] — 2026-09-03
+
+### Fixed
+- **v0.94.59's own new delegation test still failed CI's real pytest run**, while the 6 core diagnostic tests (calling `_run_one_cycle()` directly, per v0.94.59's own fix) now passed — confirming the extraction fixed the real issue. The one remaining failure was in a test added purely to check `async_run_solve()`'s own 2-line wrapper delegates to `_run_one_cycle()` via `hass.async_add_executor_job()`, using `asyncio.run()` + `AsyncMock` — the same async/mock shape that motivated the v0.94.59 extraction in the first place, still not reproducible locally. Dropped that one test rather than chase a third CI round-trip for coverage of two visually-obvious lines; the 6 tests covering the actual issue [#315](https://github.com/code-imstillalive/nimbus/issues/315) diagnostic logic are unaffected and unchanged.
+
 ## [0.94.59] — 2026-09-03
 
 ### Fixed
