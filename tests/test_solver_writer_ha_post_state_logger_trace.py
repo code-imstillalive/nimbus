@@ -119,7 +119,26 @@ def test_raw_states_async_set_fallback_has_its_own_logger_trace():
 
 
 if __name__ == "__main__":
-    test_module_defines_a_real_stdlib_logger()
-    test_ha_post_state_mirrors_the_85_trace_to_the_logger_not_just_print()
-    test_raw_states_async_set_fallback_has_its_own_logger_trace()
-    print("OK")
+    import sys
+
+    # 2026-09-03: this used to just call the 3 tests directly and print
+    # "OK" -- silently invisible to tests/run_all.py's own bare-function
+    # harness, which parses stdout for a "N/M passed" summary line to
+    # detect pass/fail. That mismatch made every genuine pass here show
+    # up as "FAILED (exit 0)" in the aggregate run despite exit code 0
+    # and zero assertion errors. Matches the standard pattern every other
+    # bare-function test file in this suite already uses.
+    tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
+    failed = 0
+    for t in tests:
+        try:
+            t()
+            print(f"PASS  {t.__name__}")
+        except AssertionError as e:
+            failed += 1
+            print(f"FAIL  {t.__name__}: {e}")
+        except Exception as e:
+            failed += 1
+            print(f"ERROR {t.__name__}: {type(e).__name__}: {e}")
+    print(f"\n{len(tests) - failed}/{len(tests)} passed")
+    sys.exit(1 if failed else 0)

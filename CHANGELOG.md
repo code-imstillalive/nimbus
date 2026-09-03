@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.55] — 2026-09-03
+
+### Fixed
+- **v0.94.54's own CI run failed on `main`** — a real `pytest` test (`test_role_selector_offers_all_four_real_options`) hardcoded the Power Signal role selector's option list to the original 4 entries; it correctly caught that v0.94.54 added `temperature`/`humidity` without updating this test. Renamed to `test_role_selector_offers_all_six_real_options` and updated to assert all 6. No functional change — the two new roles from v0.94.54 work exactly as shipped. Also fixed `test_solver_writer_ha_post_state_logger_trace.py`'s own `__main__` block (didn't follow this suite's standard summary-line convention, so `tests/run_all.py`'s aggregate runner always reported it as failed despite a genuine pass) — pre-existing, unrelated to this release, fixed opportunistically while touching test infrastructure.
+
 ## [0.94.54] — 2026-09-03
 
 ### Fixed

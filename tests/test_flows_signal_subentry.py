@@ -27,8 +27,10 @@ from custom_components.nimbus_load.const import (
     CONF_SIGNAL_ROLE,
     SIGNAL_ROLE_BATTERY,
     SIGNAL_ROLE_GRID,
+    SIGNAL_ROLE_HUMIDITY,
     SIGNAL_ROLE_OTHER,
     SIGNAL_ROLE_SOLAR,
+    SIGNAL_ROLE_TEMPERATURE,
 )
 from custom_components.nimbus_load.flows.signal_subentry import (
     NimbusSignalSubentryFlowHandler,
@@ -131,7 +133,11 @@ def test_reconfigure_prefills_role_from_existing_data_not_reset_to_other():
     assert marker.default() == SIGNAL_ROLE_BATTERY
 
 
-def test_role_selector_offers_all_four_real_options():
+def test_role_selector_offers_all_six_real_options():
+    # 2026-09-03: was "all four" -- Temperature/Humidity added so a
+    # weather-type power signal isn't forced through kW/POWER semantics
+    # via SIGNAL_ROLE_OTHER (see const.py's own comment on the two new
+    # roles for the real household bug this closes).
     flow = _make_flow(source="user")
     result = asyncio.run(flow.async_step_user(None))
     marker = next(k for k in result["data_schema"].schema if k == CONF_SIGNAL_ROLE)
@@ -141,6 +147,8 @@ def test_role_selector_offers_all_four_real_options():
         SIGNAL_ROLE_BATTERY,
         SIGNAL_ROLE_SOLAR,
         SIGNAL_ROLE_GRID,
+        SIGNAL_ROLE_TEMPERATURE,
+        SIGNAL_ROLE_HUMIDITY,
     ]
 
 
