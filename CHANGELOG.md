@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.58] — 2026-09-03
+
+### Fixed
+- **Native Solver runtime's "previous cycle still in progress" skip was logged at DEBUG, invisible on this project's default WARNING logger level** ([#315](https://github.com/code-imstillalive/nimbus/issues/315), thanks @purcell-lab, "Freshness watchdog trips every 44 min after reload, main-loop cadence degraded"). Real root mechanism, found by reading `solver_runtime.py`'s own `_blocking()`, not guessed: if one solve cycle's `sw.main()` call runs unusually long (a slow external call inside one of its own try/except-wrapped non-essential publishes — weather mirrors, quality report, counterfactual, backtest, solar delivery ratio — none of which has its own timeout), every subsequent phase-locked 5-minute tick silently skips via `acquire_lock()` returning `False` until the slow one finally returns — reproducing exactly the reported "fires every ~44 min" pattern (roughly 8–9 skipped ticks) with zero log breadcrumb explaining why. `solver_runtime.async_run_solve()` now counts consecutive skips and logs them at `WARNING` (with the running count, so one harmless overlap reads differently from a real multi-tick stall), and measures `sw.main()`'s own wall-clock duration, logging at `WARNING` if it exceeds a 120s threshold (roughly 2.5x the documented real 45–52s solve baseline). Diagnostic-only — no behavior change, no timeout added to the individual publishes themselves (a larger, separate change, deferred until these logs identify which one is actually slow, if any). 6 new regression tests.
+
 ## [0.94.57] — 2026-09-03
 
 ### Fixed

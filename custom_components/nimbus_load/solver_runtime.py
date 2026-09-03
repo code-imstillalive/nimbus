@@ -101,6 +101,38 @@ _LOGGER = logging.getLogger(__name__)
 _last_solve_completed_monotonic: float | None = None
 _price_latency_sensor = None
 
+# nimbus issue #315 (Mark Purcell, 2026-08-31) -- "freshness watchdog trips
+# every ~44 min after reload, main-loop cadence degraded". Real, measured
+# root mechanism, not the issue's own hypothesis #2 (watchdog threshold too
+# aggressive): sw.acquire_lock() returning False (a previous cycle's own
+# sw.main() call still genuinely running) was only ever logged at DEBUG --
+# invisible on this project's default WARNING logger level. If one cycle's
+# sw.main() call runs unusually long (a slow external call inside one of
+# its own try/except-wrapped non-essential publishes -- weather mirrors,
+# quality report, counterfactual, backtest, solar delivery ratio -- none of
+# which currently has its own timeout), EVERY subsequent phase-locked
+# 5-minute tick silently skips via this same path until the slow one
+# finally returns, reproducing exactly the "fires every ~44 min" pattern
+# (roughly 8-9 skipped ticks in a row) with zero log breadcrumb explaining
+# why. Fixed below: consecutive skips are now counted and logged at
+# WARNING (not silently at DEBUG), and sw.main()'s own wall-clock duration
+# is measured and logged at WARNING if it exceeds _SLOW_CYCLE_THRESHOLD_S --
+# turning "the watchdog tripped, no idea why" into "cycle N took Xs,
+# here's roughly when it started" the very next time this recurs. This is
+# diagnostic-only, matching issue #315's own proposed fixes #1/#3 -- it
+# does not change solve behaviour, timeout anything, or touch the
+# individual non-essential publish call sites inside solver_writer.main()
+# itself (a much larger, riskier change deferred for a follow-up once
+# these logs identify which specific publish is actually slow, if any).
+_consecutive_lock_skips = 0
+# Real, measured baseline per acquire_lock()'s own docstring: "45-52s solve
+# time" for a genuine LP solve. 120s (roughly 2.5x that measured ceiling)
+# is comfortably above any legitimate single-cycle duration seen so far,
+# while still catching a genuinely runaway cycle within one 5-minute
+# window rather than waiting for the freshness watchdog's own, much
+# coarser 300s/skipped-cycles signal.
+_SLOW_CYCLE_THRESHOLD_S = 120.0
+
 
 def register_price_latency_sensor(sensor) -> None:
     """Called once, from sensor.py's async_setup_entry, so the price-
@@ -488,11 +520,22 @@ async def async_run_solve(hass: HomeAssistant) -> bool:
                     },
                 )
             return False
+        global _consecutive_lock_skips
         if not sw.acquire_lock():
-            _LOGGER.debug(
-                "Nimbus Solver: previous cycle still in progress -- skipping this one"
+            _consecutive_lock_skips += 1
+            # nimbus issue #315: WARNING, not DEBUG -- this is the exact
+            # silent-skip mechanism that reproduces "fires every ~44 min"
+            # with zero prior log breadcrumb. count included so a real
+            # multi-tick stall (several of these in a row) is visibly
+            # distinct from one ordinary, harmless overlap.
+            _LOGGER.warning(
+                "Nimbus Solver: previous cycle still in progress -- skipping "
+                "this tick (consecutive skips: %d)",
+                _consecutive_lock_skips,
             )
             return False
+        _consecutive_lock_skips = 0
+        cycle_started = time.monotonic()
         try:
             sw.main()
             _log_dispatch_dry_run(hass, sw)
@@ -507,6 +550,22 @@ async def async_run_solve(hass: HomeAssistant) -> bool:
             _LOGGER.exception("Nimbus Solver: solve cycle failed")
             return False
         finally:
+            cycle_duration = time.monotonic() - cycle_started
+            # nimbus issue #315's own proposed fix #3 (degraded-cadence
+            # warning), scoped to the one call (sw.main()) that actually
+            # holds the lock for its whole duration -- if THIS is ever
+            # what's slow, it now shows up here instead of only inferred
+            # after the fact from a string of skipped ticks above.
+            if cycle_duration > _SLOW_CYCLE_THRESHOLD_S:
+                _LOGGER.warning(
+                    "Nimbus Solver: cycle took %.1fs (> %.0fs threshold) -- "
+                    "this cycle held the lock long enough to cause "
+                    "subsequent phase-locked ticks to skip",
+                    cycle_duration,
+                    _SLOW_CYCLE_THRESHOLD_S,
+                )
+            else:
+                _LOGGER.debug("Nimbus Solver: cycle took %.1fs", cycle_duration)
             sw.release_lock()
 
     return await hass.async_add_executor_job(_blocking)
