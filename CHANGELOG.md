@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.52] — 2026-09-03
+
+### Fixed
+- **`DeviceInfo(via_device=...)` deprecation warning on HA Core 2026.9** ([#335](https://github.com/code-imstillalive/nimbus/issues/335), thanks @purcell-lab). HA 2026.9 deprecates `via_device` in favour of `via_device_id` (resolved via the new `dr.async_get_device_id_by_identifier()` helper) and will remove `via_device` entirely in 2027.8; setting both raises `HomeAssistantError`. Affected the three sub-device sensors (Quality, Backtest, Counterfactual) in `sensor.py`. This project's own pinned test harness (`pytest-homeassistant-custom-component==0.13.357`) resolves `homeassistant==2026.8.3`, which predates the new helper entirely, so `async_setup_entry()` resolves the hub's own device_id once via a runtime `hasattr()` feature-detect — using `via_device_id` when the helper exists, falling back to the original `via_device` on any older (or stubbed) HA. Purely cosmetic on 2026.8.x installs; silences the warning on 2026.9+.
+
 ## [0.94.51] — 2026-09-02
 
 ### Fixed
