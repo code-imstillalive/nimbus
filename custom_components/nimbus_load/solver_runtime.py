@@ -444,6 +444,131 @@ def _log_dispatch_dry_run(hass: HomeAssistant, sw) -> None:
         _LOGGER.exception("Nimbus Dispatch (dry-run): logging failed, ignoring")
 
 
+def _run_one_cycle(hass: HomeAssistant) -> bool:
+    """The actual blocking body of one Solver cycle -- module-level, not a
+    nested closure inside async_run_solve(), specifically (2026-09-03) so
+    it's directly, synchronously unit-testable (`_run_one_cycle(fake_hass)`)
+    without needing to also mock hass.async_add_executor_job's own
+    thread/executor-job plumbing just to exercise this function's own
+    logic. Called from async_run_solve() below via
+    `hass.async_add_executor_job(_run_one_cycle, hass)`, unchanged in
+    behaviour from when this was inline.
+    """
+    # _ensure_ready() deliberately called IN HERE, not before
+    # hass.async_add_executor_job() below (2026-08-23, real bug found
+    # live on the reference household's own first-ever restart with
+    # this feature enabled -- HA's own blocking-call detector caught
+    # solver_writer.py's module-level TOKEN_PATH file read happening
+    # ON THE EVENT LOOP, because _ensure_ready()'s own lazy `from .
+    # import solver_writer` -- which executes that module's full
+    # top-level code, including the token read, the FIRST time it's
+    # called -- was being invoked synchronously before this executor
+    # job even started. Only ever bites the very first call (every
+    # later call just returns the already-cached module, a trivial,
+    # genuinely non-blocking check) -- matches exactly one warning
+    # in the real log, not one per cycle. Moving the whole call in
+    # here means even that first-ever import (and its own blocking
+    # disk I/O) correctly happens on the worker thread.
+    global _import_error_notified
+    try:
+        sw = _ensure_ready(hass)
+    except (ImportError, ModuleNotFoundError) as e:
+        # Bronze test-before-setup/test-before-configure (2026-08-23):
+        # before this, an import failure here (most commonly no
+        # highspy wheel for this host's architecture -- see the top-
+        # level README's own 64-bit-host caveat) propagated straight
+        # out of this function, up through async_run_solve() -- directly
+        # violating that function's own documented "never raises"
+        # contract, and __init__.py's own periodic-solve callback has
+        # zero try/except of its own, trusting that contract
+        # completely. The real, user-visible effect was a generic
+        # "Error in periodic task" from HA's own dispatcher every
+        # _SOLVER_INTERVAL, with the actual cause (a missing
+        # dependency) buried in a traceback nobody would think to
+        # read as "go check your architecture." Fixed the same way
+        # solver_writer.py's own _notify_load_forecast_error_once()
+        # already handles a different class of setup failure -- a
+        # real, clear persistent_notification, fired once (not every
+        # cycle; see _import_error_notified's own comment above for
+        # why in-memory, not a file sentinel, is the right choice
+        # here specifically).
+        _LOGGER.error(
+            "Nimbus Solver: failed to import required dependencies (%s) -- "
+            "the Solver cannot run until this is fixed. See the top-level "
+            "README's 64-bit-host (amd64/aarch64) requirement.",
+            e,
+        )
+        if not _import_error_notified:
+            _import_error_notified = True
+            hass.add_job(
+                hass.services.async_call,
+                "persistent_notification",
+                "create",
+                {
+                    "title": "Nimbus Solver: missing dependency",
+                    "message": (
+                        f"The Solver failed to start: {e}\n\n"
+                        "This usually means `highspy` has no compiled wheel "
+                        "for this host's CPU architecture -- confirmed "
+                        "available for amd64/aarch64 only. Check `uname -m` "
+                        "and see the top-level README's Solver section. "
+                        "The Nimbus Forecaster (load predictions) is "
+                        "completely unaffected and continues working "
+                        "normally regardless."
+                    ),
+                    "notification_id": "nimbus_solver_import_error",
+                },
+            )
+        return False
+    global _consecutive_lock_skips
+    if not sw.acquire_lock():
+        _consecutive_lock_skips += 1
+        # nimbus issue #315: WARNING, not DEBUG -- this is the exact
+        # silent-skip mechanism that reproduces "fires every ~44 min"
+        # with zero prior log breadcrumb. count included so a real
+        # multi-tick stall (several of these in a row) is visibly
+        # distinct from one ordinary, harmless overlap.
+        _LOGGER.warning(
+            "Nimbus Solver: previous cycle still in progress -- skipping "
+            "this tick (consecutive skips: %d)",
+            _consecutive_lock_skips,
+        )
+        return False
+    _consecutive_lock_skips = 0
+    cycle_started = time.monotonic()
+    try:
+        sw.main()
+        _log_dispatch_dry_run(hass, sw)
+        return True
+    except RuntimeError as e:
+        # fetch_solver_config()'s own "Solver settings not configured
+        # yet" message -- expected on a fresh install before the
+        # wizard's been run, not a real error.
+        _LOGGER.warning("Nimbus Solver: %s", e)
+        return False
+    except Exception:
+        _LOGGER.exception("Nimbus Solver: solve cycle failed")
+        return False
+    finally:
+        cycle_duration = time.monotonic() - cycle_started
+        # nimbus issue #315's own proposed fix #3 (degraded-cadence
+        # warning), scoped to the one call (sw.main()) that actually
+        # holds the lock for its whole duration -- if THIS is ever
+        # what's slow, it now shows up here instead of only inferred
+        # after the fact from a string of skipped ticks above.
+        if cycle_duration > _SLOW_CYCLE_THRESHOLD_S:
+            _LOGGER.warning(
+                "Nimbus Solver: cycle took %.1fs (> %.0fs threshold) -- "
+                "this cycle held the lock long enough to cause "
+                "subsequent phase-locked ticks to skip",
+                cycle_duration,
+                _SLOW_CYCLE_THRESHOLD_S,
+            )
+        else:
+            _LOGGER.debug("Nimbus Solver: cycle took %.1fs", cycle_duration)
+        sw.release_lock()
+
+
 async def async_run_solve(hass: HomeAssistant) -> bool:
     """Run one real Solver cycle in-process, right now. Returns True on a
     genuine, successful push to sensor.nimbus_solver_battery_forecast;
@@ -451,121 +576,10 @@ async def async_run_solve(hass: HomeAssistant) -> bool:
     previous cycle still genuinely in progress, a real solve error) --
     never raises. Called from a periodic timer (__init__.py), where one
     bad cycle must never take down the next one, and safe to call
-    directly too (e.g. a future "solve now" button)."""
+    directly too (e.g. a future "solve now" button).
 
-    def _blocking() -> bool:
-        # _ensure_ready() deliberately called IN HERE, not before
-        # hass.async_add_executor_job() below (2026-08-23, real bug found
-        # live on the reference household's own first-ever restart with
-        # this feature enabled -- HA's own blocking-call detector caught
-        # solver_writer.py's module-level TOKEN_PATH file read happening
-        # ON THE EVENT LOOP, because _ensure_ready()'s own lazy `from .
-        # import solver_writer` -- which executes that module's full
-        # top-level code, including the token read, the FIRST time it's
-        # called -- was being invoked synchronously before this executor
-        # job even started. Only ever bites the very first call (every
-        # later call just returns the already-cached module, a trivial,
-        # genuinely non-blocking check) -- matches exactly one warning
-        # in the real log, not one per cycle. Moving the whole call in
-        # here means even that first-ever import (and its own blocking
-        # disk I/O) correctly happens on the worker thread.
-        global _import_error_notified
-        try:
-            sw = _ensure_ready(hass)
-        except (ImportError, ModuleNotFoundError) as e:
-            # Bronze test-before-setup/test-before-configure (2026-08-23):
-            # before this, an import failure here (most commonly no
-            # highspy wheel for this host's architecture -- see the top-
-            # level README's own 64-bit-host caveat) propagated straight
-            # out of _blocking(), up through async_run_solve() -- directly
-            # violating that function's own documented "never raises"
-            # contract, and __init__.py's own periodic-solve callback has
-            # zero try/except of its own, trusting that contract
-            # completely. The real, user-visible effect was a generic
-            # "Error in periodic task" from HA's own dispatcher every
-            # _SOLVER_INTERVAL, with the actual cause (a missing
-            # dependency) buried in a traceback nobody would think to
-            # read as "go check your architecture." Fixed the same way
-            # solver_writer.py's own _notify_load_forecast_error_once()
-            # already handles a different class of setup failure -- a
-            # real, clear persistent_notification, fired once (not every
-            # cycle; see _import_error_notified's own comment above for
-            # why in-memory, not a file sentinel, is the right choice
-            # here specifically).
-            _LOGGER.error(
-                "Nimbus Solver: failed to import required dependencies (%s) -- "
-                "the Solver cannot run until this is fixed. See the top-level "
-                "README's 64-bit-host (amd64/aarch64) requirement.",
-                e,
-            )
-            if not _import_error_notified:
-                _import_error_notified = True
-                hass.add_job(
-                    hass.services.async_call,
-                    "persistent_notification",
-                    "create",
-                    {
-                        "title": "Nimbus Solver: missing dependency",
-                        "message": (
-                            f"The Solver failed to start: {e}\n\n"
-                            "This usually means `highspy` has no compiled wheel "
-                            "for this host's CPU architecture -- confirmed "
-                            "available for amd64/aarch64 only. Check `uname -m` "
-                            "and see the top-level README's Solver section. "
-                            "The Nimbus Forecaster (load predictions) is "
-                            "completely unaffected and continues working "
-                            "normally regardless."
-                        ),
-                        "notification_id": "nimbus_solver_import_error",
-                    },
-                )
-            return False
-        global _consecutive_lock_skips
-        if not sw.acquire_lock():
-            _consecutive_lock_skips += 1
-            # nimbus issue #315: WARNING, not DEBUG -- this is the exact
-            # silent-skip mechanism that reproduces "fires every ~44 min"
-            # with zero prior log breadcrumb. count included so a real
-            # multi-tick stall (several of these in a row) is visibly
-            # distinct from one ordinary, harmless overlap.
-            _LOGGER.warning(
-                "Nimbus Solver: previous cycle still in progress -- skipping "
-                "this tick (consecutive skips: %d)",
-                _consecutive_lock_skips,
-            )
-            return False
-        _consecutive_lock_skips = 0
-        cycle_started = time.monotonic()
-        try:
-            sw.main()
-            _log_dispatch_dry_run(hass, sw)
-            return True
-        except RuntimeError as e:
-            # fetch_solver_config()'s own "Solver settings not configured
-            # yet" message -- expected on a fresh install before the
-            # wizard's been run, not a real error.
-            _LOGGER.warning("Nimbus Solver: %s", e)
-            return False
-        except Exception:
-            _LOGGER.exception("Nimbus Solver: solve cycle failed")
-            return False
-        finally:
-            cycle_duration = time.monotonic() - cycle_started
-            # nimbus issue #315's own proposed fix #3 (degraded-cadence
-            # warning), scoped to the one call (sw.main()) that actually
-            # holds the lock for its whole duration -- if THIS is ever
-            # what's slow, it now shows up here instead of only inferred
-            # after the fact from a string of skipped ticks above.
-            if cycle_duration > _SLOW_CYCLE_THRESHOLD_S:
-                _LOGGER.warning(
-                    "Nimbus Solver: cycle took %.1fs (> %.0fs threshold) -- "
-                    "this cycle held the lock long enough to cause "
-                    "subsequent phase-locked ticks to skip",
-                    cycle_duration,
-                    _SLOW_CYCLE_THRESHOLD_S,
-                )
-            else:
-                _LOGGER.debug("Nimbus Solver: cycle took %.1fs", cycle_duration)
-            sw.release_lock()
-
-    return await hass.async_add_executor_job(_blocking)
+    Thin wrapper around _run_one_cycle() -- see that function's own
+    docstring for why the actual body lives there, as a plain module-level
+    function, rather than inline here.
+    """
+    return await hass.async_add_executor_job(_run_one_cycle, hass)

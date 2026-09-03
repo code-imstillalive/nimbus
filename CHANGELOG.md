@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.59] — 2026-09-03
+
+### Fixed
+- **v0.94.58's own new test file failed CI's real pytest run** (passed under this project's own `tests/run_all.py` runner, which runs each bare-function file as an isolated subprocess, but failed under pytest's single-process, all-files-collected-together execution). Root cause not fully chased down (an async/mock interaction specific to pytest's collection, not reproducible locally due to this dev machine's own pre-existing `pytest_socket` limitation) — instead, `solver_runtime._blocking()` (previously a nested closure inside `async_run_solve()`) was extracted to a plain, module-level `_run_one_cycle(hass)` function, and the new tests now call it directly instead of through `async_run_solve()`/`hass.async_add_executor_job()`. No functional change; the shipped v0.94.58 diagnostic behavior (issue [#315](https://github.com/code-imstillalive/nimbus/issues/315)) was already correct, only the test's own execution shape needed to change. This dev machine's own local pytest run hits a pre-existing, unrelated `pytest_socket` limitation, so this couldn't be verified against the exact real CI command locally before tagging — watching the actual CI run directly this time instead of assuming green.
+
 ## [0.94.58] — 2026-09-03
 
 ### Fixed

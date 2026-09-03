@@ -1,4 +1,4 @@
-"""Real test of solver_runtime.async_run_solve()'s new nimbus issue #315
+"""Real test of solver_runtime._run_one_cycle()'s new nimbus issue #315
 diagnostics (2026-09-03, Mark Purcell): "freshness watchdog trips every
 ~44 min after reload, main-loop cadence degraded".
 
@@ -12,22 +12,22 @@ same path with zero breadcrumb explaining why, reproducing exactly the
 and logged at WARNING, and sw.main()'s own wall-clock duration is
 measured and logged at WARNING if it exceeds _SLOW_CYCLE_THRESHOLD_S.
 
-Exercises the REAL async_run_solve() (not a reimplementation) via a mock
-hass whose async_add_executor_job runs the given callable synchronously
-(the standard "executor job" test shape for this kind of code) and a
-fake solver_writer module standing in for _ensure_ready()'s own real
-import -- same general approach as test_solver_runtime_dispatch_dry_run.py,
-extended to cover the lock-acquire/main() timing path that file doesn't
-touch.
+Exercises the REAL _run_one_cycle() directly (not a reimplementation, and
+not through async_run_solve()/hass.async_add_executor_job() -- see that
+function's own docstring for why the actual body was extracted to this
+plain, synchronously-callable module-level function specifically so tests
+like this one don't need to mock executor-job plumbing at all) via a fake
+solver_writer module standing in for _ensure_ready()'s own real import --
+same general approach as test_solver_runtime_dispatch_dry_run.py, extended
+to cover the lock-acquire/main() timing path that file doesn't touch.
 """
 
 from __future__ import annotations
 
-import asyncio
 import sys
 import time
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ha_stubs import install_ha_stubs
@@ -36,19 +36,6 @@ install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from custom_components.nimbus_load import solver_runtime
-
-
-def _make_hass() -> MagicMock:
-    hass = MagicMock()
-    # The real HA contract: async_add_executor_job runs its callable on a
-    # worker thread and returns its result via an awaitable -- AsyncMock
-    # with a plain (non-async) side_effect calls it synchronously and
-    # wraps the return value as the awaited result, which is a faithful
-    # enough stand-in for these tests (nothing here depends on genuine
-    # thread-pool behaviour, only on the callable actually running and
-    # its return value propagating back out through the real `await`).
-    hass.async_add_executor_job = AsyncMock(side_effect=lambda fn: fn())
-    return hass
 
 
 def _make_sw(*, acquire_ok: bool = True, main_side_effect=None) -> MagicMock:
@@ -66,13 +53,13 @@ def _reset_module_state() -> None:
 
 def test_lock_skip_is_logged_at_warning_not_debug_with_consecutive_count():
     _reset_module_state()
-    hass = _make_hass()
+    hass = MagicMock()
     sw = _make_sw(acquire_ok=False)
     with (
         patch.object(solver_runtime, "_ensure_ready", return_value=sw),
         patch.object(solver_runtime, "_LOGGER") as mock_logger,
     ):
-        result = asyncio.run(solver_runtime.async_run_solve(hass))
+        result = solver_runtime._run_one_cycle(hass)
 
     assert result is False
     sw.main.assert_not_called()  # never reached -- lock wasn't acquired
@@ -94,7 +81,7 @@ def test_consecutive_lock_skips_increment_across_calls():
         patch.object(solver_runtime, "_LOGGER") as mock_logger,
     ):
         for _ in range(3):
-            asyncio.run(solver_runtime.async_run_solve(_make_hass()))
+            solver_runtime._run_one_cycle(MagicMock())
 
     counts_logged = [call[0][-1] for call in mock_logger.warning.call_args_list]
     assert counts_logged == [1, 2, 3], (
@@ -109,7 +96,7 @@ def test_successful_acquire_resets_the_consecutive_skip_counter():
     solver_runtime._consecutive_lock_skips = 5  # simulate prior skips
     sw = _make_sw(acquire_ok=True)
     with patch.object(solver_runtime, "_ensure_ready", return_value=sw):
-        result = asyncio.run(solver_runtime.async_run_solve(_make_hass()))
+        result = solver_runtime._run_one_cycle(MagicMock())
 
     assert result is True
     assert solver_runtime._consecutive_lock_skips == 0
@@ -122,7 +109,7 @@ def test_normal_cycle_duration_logs_debug_not_warning():
         patch.object(solver_runtime, "_ensure_ready", return_value=sw),
         patch.object(solver_runtime, "_LOGGER") as mock_logger,
     ):
-        asyncio.run(solver_runtime.async_run_solve(_make_hass()))
+        solver_runtime._run_one_cycle(MagicMock())
 
     assert mock_logger.warning.call_count == 0
     assert any("cycle took" in call[0][0] for call in mock_logger.debug.call_args_list)
@@ -144,7 +131,7 @@ def test_slow_cycle_logs_warning_with_real_measured_duration():
         patch.object(solver_runtime, "_SLOW_CYCLE_THRESHOLD_S", 0.01),
         patch.object(solver_runtime, "_LOGGER") as mock_logger,
     ):
-        result = asyncio.run(solver_runtime.async_run_solve(_make_hass()))
+        result = solver_runtime._run_one_cycle(MagicMock())
 
     assert result is True
     assert mock_logger.warning.call_count == 1
@@ -165,10 +152,30 @@ def test_lock_is_always_released_even_when_main_raises():
     _reset_module_state()
     sw = _make_sw(acquire_ok=True, main_side_effect=RuntimeError("boom"))
     with patch.object(solver_runtime, "_ensure_ready", return_value=sw):
-        result = asyncio.run(solver_runtime.async_run_solve(_make_hass()))
+        result = solver_runtime._run_one_cycle(MagicMock())
 
     assert result is False
     sw.release_lock.assert_called_once()
+
+
+def test_async_run_solve_delegates_to_run_one_cycle_via_executor_job():
+    """A thin, separate check that the async wrapper itself is wired
+    correctly -- async_run_solve() must call hass.async_add_executor_job
+    with _run_one_cycle and this same hass, and return whatever it
+    returns."""
+    import asyncio
+    from unittest.mock import AsyncMock
+
+    hass = MagicMock()
+    hass.async_add_executor_job = AsyncMock(side_effect=lambda fn, *args: fn(*args))
+    sw = _make_sw(acquire_ok=True)
+    with patch.object(solver_runtime, "_ensure_ready", return_value=sw):
+        result = asyncio.run(solver_runtime.async_run_solve(hass))
+
+    assert result is True
+    hass.async_add_executor_job.assert_called_once_with(
+        solver_runtime._run_one_cycle, hass
+    )
 
 
 if __name__ == "__main__":
