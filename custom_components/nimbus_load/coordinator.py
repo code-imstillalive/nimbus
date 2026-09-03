@@ -49,6 +49,7 @@ from .const import (
     CONF_RETRAIN_HOUR_LOCAL,
     CONF_SCHEDULE_END_HOUR,
     CONF_SCHEDULE_START_HOUR,
+    CONF_SIGNAL_ROLE,
     CONF_SOLAR_SENSOR,
     CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR,
     CONF_TEMPERATURE_FORECAST_SENSOR,
@@ -66,6 +67,9 @@ from .const import (
     LAG_LONG_STEPS,
     MIN_TRAINING_POINTS,
     RESAMPLE_MINUTES,
+    SIGNAL_ROLE_HUMIDITY,
+    SIGNAL_ROLE_OTHER,
+    SIGNAL_ROLE_TEMPERATURE,
     SUBENTRY_TYPE_SIGNAL,
     TRAINING_SOURCE_HYBRID,
     TRAINING_SOURCE_LTS,
@@ -329,6 +333,25 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         return self.subentry.data.get(CONF_EXPECTED_LOAD_KW)
 
     @property
+    def _signal_role(self) -> str:
+        return self.subentry.data.get(CONF_SIGNAL_ROLE, SIGNAL_ROLE_OTHER)
+
+    @property
+    def _convert_power_for_target(self) -> bool:
+        """False for Temperature/Humidity power-signal subentries -- their
+        own forecast target is never a power quantity, so attempting a
+        PowerConverter conversion against a real °C/% unit always fails
+        and only ever produces a spurious "unconvertible unit -- treating
+        as kW as-is" WARNING every coordinator cycle. Real bug found live
+        2026-09-03: a household was guided to add Temperature/Humidity
+        signals with SIGNAL_ROLE_OTHER (the only option that existed at
+        the time), which left this True unconditionally. True for every
+        other role (Battery/Solar/Grid/other) and for every load
+        subentry, unchanged -- those genuinely are power quantities.
+        """
+        return self._signal_role not in (SIGNAL_ROLE_TEMPERATURE, SIGNAL_ROLE_HUMIDITY)
+
+    @property
     def _allow_negative(self) -> bool:
         """True only for a "power signal" subentry (Battery/Grid/etc) --
         real, genuinely signed targets (negative = charging/exporting),
@@ -538,7 +561,10 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             start = end - timedelta(days=self._train_days)
 
             load_events = await self._async_fetch_training_history(
-                self._load_sensor, start, end, convert_power=True
+                self._load_sensor,
+                start,
+                end,
+                convert_power=self._convert_power_for_target,
             )
             # Real bug found live (2026-08-31): all six of the calls below used
             # to read `_async_fetch_history`, a name that stopped existing the
@@ -1299,7 +1325,10 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # ago" and an hourly LTS mean cannot answer that. The recent lag lookback
         # window is ~1 hour, always well inside any sane recorder retention.
         recent_load_values = await self._async_fetch_recorder_history(
-            self._load_sensor, now_utc - lag_lookback, now_utc, convert_power=True
+            self._load_sensor,
+            now_utc - lag_lookback,
+            now_utc,
+            convert_power=self._convert_power_for_target,
         )
 
         # Resolve the LAST cycle's near-term prediction against what

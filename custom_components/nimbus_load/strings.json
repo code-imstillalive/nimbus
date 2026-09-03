@@ -170,12 +170,12 @@
           "title": "Add a power signal",
           "description": "Forecast a real power signal directly -- Battery, Solar, Grid, or anything else -- as its own genuine target, using the same forecasting engine as a load. Pick a real MEASURED sensor, never an optimizer's own plan/forecast entity. 🔴 = required.",
           "data": {
-            "load_sensor": "🔴 Power sensor to forecast",
-            "signal_role": "Role (optional -- pick Battery/Solar/Grid so the topology dashboard card can auto-wire this signal; leave as Other for anything else)"
+            "load_sensor": "🔴 Sensor to forecast",
+            "signal_role": "Role (optional -- pick Battery/Solar/Grid so the topology dashboard card can auto-wire this signal; Temperature/Humidity for a weather signal; leave as Other for anything else)"
           },
           "data_description": {
-            "load_sensor": "A real, measured whole-system power sensor -- e.g. your inverter's total battery power, total DC/solar power, or your grid meter's total active power. Must be a genuine measurement, not an optimizer's own plan/forecast entity, or the forecaster will learn from its own predictions.",
-            "signal_role": "Purely a labelling hint for the Topology dashboard card's auto-detection -- has no effect on forecasting itself. Setting Battery/Solar/Grid lets the card wire this signal into the diagram automatically, without needing the Switchboard wizard's own fallback fields filled in."
+            "load_sensor": "A real, measured sensor -- e.g. your inverter's total battery power, total DC/solar power, your grid meter's total active power, or (with the Temperature/Humidity role below) a weather sensor. Must be a genuine measurement, not an optimizer's own plan/forecast entity, or the forecaster will learn from its own predictions.",
+            "signal_role": "Battery/Solar/Grid are purely a labelling hint for the Topology dashboard card's auto-detection -- no effect on forecasting itself. Temperature/Humidity are different: they tell Nimbus this signal is NOT a power quantity, so the forecast entity gets a real °C/% unit instead of kW, and the coordinator skips a power-unit conversion that would otherwise fail every cycle. Leave as Other for anything else."
           }
         }
       }
@@ -263,7 +263,9 @@
         "other": "Other",
         "battery": "Battery",
         "solar": "Solar",
-        "grid": "Grid"
+        "grid": "Grid",
+        "temperature": "Temperature",
+        "humidity": "Humidity"
       }
     },
     "training_source": {

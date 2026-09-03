@@ -747,3 +747,64 @@ def test_flattened_children_attach_to_correct_sub_device_via_device_hub():
             assert child._attr_unique_id.startswith(
                 f"{entry.entry_id}_{entity_id_prefix}_"
             )
+
+
+# --- _resolve_hub_device_id (nimbus issue #335 follow-up, 2026-09-03) ------
+
+
+def test_resolve_hub_device_id_calls_real_signature_with_two_positional_args():
+    """A real bug shipped in v0.94.53: the call passed 3 positional args
+    (device_registry, entry.entry_id, {identifier_set}) against HA 2026.9's
+    real signature, which only accepts 2 (device_registry, identifier_tuple)
+    -- TypeError, live on devhub, immediately after release
+    ("async_get_device_id_by_identifier() takes 2 positional arguments but
+    3 were given"). The stub environment never caught this because it
+    deliberately doesn't define the attribute at all (hasattr is False
+    there, see _ha_stubs.py) -- this test defines a strict fake with the
+    REAL 2-arg signature so a future regression of this exact shape (extra
+    or missing positional args) fails loudly here instead of shipping.
+    """
+    entry = _fake_entry()
+    calls = []
+
+    def fake_async_get_device_id_by_identifier(registry, identifier):
+        calls.append((registry, identifier))
+        return "fake-hub-device-id-123"
+
+    sensor.dr.async_get_device_id_by_identifier = fake_async_get_device_id_by_identifier
+    try:
+        result = sensor._resolve_hub_device_id(hass=MagicMock(), entry=entry)
+    finally:
+        del sensor.dr.async_get_device_id_by_identifier
+
+    assert result == "fake-hub-device-id-123"
+    assert len(calls) == 1
+    _registry_arg, identifier_arg = calls[0]
+    assert identifier_arg == (DOMAIN, entry.entry_id)
+
+
+def test_resolve_hub_device_id_returns_none_when_helper_missing():
+    """Matches the pinned CI HA version (2026.8.3, predates the helper) and
+    any older real install -- must degrade to None (via_device fallback),
+    never raise."""
+    entry = _fake_entry()
+    assert not hasattr(sensor.dr, "async_get_device_id_by_identifier")
+    result = sensor._resolve_hub_device_id(hass=MagicMock(), entry=entry)
+    assert result is None
+
+
+def test_resolve_hub_device_id_swallows_exceptions_and_returns_none():
+    """Any failure resolving the hub device_id (registry not ready, a
+    future HA signature change, etc.) must never block real entity setup
+    -- degrade to the via_device fallback instead of raising."""
+    entry = _fake_entry()
+
+    def boom(*args, **kwargs):
+        raise RuntimeError("simulated failure")
+
+    sensor.dr.async_get_device_id_by_identifier = boom
+    try:
+        result = sensor._resolve_hub_device_id(hass=MagicMock(), entry=entry)
+    finally:
+        del sensor.dr.async_get_device_id_by_identifier
+    assert result is None

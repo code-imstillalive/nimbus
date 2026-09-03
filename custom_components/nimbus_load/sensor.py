@@ -144,7 +144,9 @@ from .const import (
     CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR,
     CONF_SWITCHBOARD_SOLAR_ENERGY_DAILY_SENSOR,
     DOMAIN,
+    SIGNAL_ROLE_HUMIDITY,
     SIGNAL_ROLE_OTHER,
+    SIGNAL_ROLE_TEMPERATURE,
     SUBENTRY_TYPE_BATTERY_TOWER,
     SUBENTRY_TYPE_LOAD,
     SUBENTRY_TYPE_POWER_SOURCE,
@@ -487,6 +489,39 @@ async def _remediate_forecast_lts_unit(
 _resolve_via_device_field = sensor_flattened.resolve_via_device_field
 
 
+def _resolve_hub_device_id(hass: HomeAssistant, entry: NimbusConfigEntry) -> str | None:
+    """nimbus issue #335: resolve the hub's own device-registry row id once,
+    defensively -- dr.async_get_device_id_by_identifier only exists on HA
+    2026.9+, so this stays None (falls back to via_device) on any older
+    or stubbed-out HA. See _resolve_via_device_field's own docstring.
+
+    Extracted as its own function (2026-09-03, live bug found on devhub
+    immediately after v0.94.53 shipped) specifically so this exact call is
+    directly unit-testable in isolation -- the real HA signature is
+    `async_get_device_id_by_identifier(registry, identifier_tuple)`, but
+    this shipped calling it with an extra `entry.entry_id` positional arg
+    (`TypeError: ... takes 2 positional arguments but 3 were given`),
+    live on devhub the same night. That shipped undetected because no
+    test ever called this code path: the stub environment deliberately
+    doesn't define this attribute at all (hasattr is False there, see
+    tests/_ha_stubs.py's own comment), so the buggy call was never
+    actually invoked by anything before reaching a real HA 2026.9 install.
+    """
+    if not hasattr(dr, "async_get_device_id_by_identifier"):
+        return None
+    try:
+        device_registry = dr.async_get(hass)
+        return dr.async_get_device_id_by_identifier(
+            device_registry, (DOMAIN, entry.entry_id)
+        )
+    except Exception:  # never let this resolution block real entity setup
+        _LOGGER.exception(
+            "Nimbus: hub device_id resolution failed -- sub-devices will "
+            "fall back to via_device, harmless"
+        )
+        return None
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: NimbusConfigEntry,
@@ -504,23 +539,7 @@ async def async_setup_entry(
     integration = await async_get_integration(hass, DOMAIN)
     sw_version = str(integration.version) if integration.version else None
 
-    # nimbus issue #335: resolve the hub's own device-registry row id once,
-    # defensively -- dr.async_get_device_id_by_identifier only exists on HA
-    # 2026.9+, so this stays None (falls back to via_device) on any older
-    # or stubbed-out HA. See _resolve_via_device_field's own docstring.
-    hub_device_id: str | None = None
-    if hasattr(dr, "async_get_device_id_by_identifier"):
-        try:
-            device_registry = dr.async_get(hass)
-            hub_device_id = dr.async_get_device_id_by_identifier(
-                device_registry, entry.entry_id, {(DOMAIN, entry.entry_id)}
-            )
-        except Exception:  # never let this resolution block real entity setup
-            _LOGGER.exception(
-                "Nimbus: hub device_id resolution failed -- sub-devices will "
-                "fall back to via_device, harmless"
-            )
-            hub_device_id = None
+    hub_device_id = _resolve_hub_device_id(hass, entry)
 
     for subentry in entry.subentries.values():
         if subentry.subentry_type not in _FORECASTABLE_SUBENTRY_TYPES:
@@ -813,6 +832,22 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
         sw_version: str | None = None,
     ) -> None:
         super().__init__(coordinator)
+        # Explicit role (2026-08-23, see const.py's CONF_SIGNAL_ROLE for
+        # the full "why not inferred from naming" reasoning) -- exposed
+        # as a live attribute the same way subentry_type already is, so
+        # the topology dashboard card can auto-discover "which power
+        # signal is Grid/Battery/Solar" directly from hass.states, zero
+        # config file needed. Meaningless-but-harmless on a load
+        # subentry (never has this field set, defaults to "other").
+        # Read BEFORE the device_class/unit block below, which now
+        # depends on it (2026-09-03 fix, see const.py's SIGNAL_ROLE_
+        # TEMPERATURE/SIGNAL_ROLE_HUMIDITY comment for the real bug this
+        # closes: a household was told to add a Temperature/Humidity
+        # signal via SIGNAL_ROLE_OTHER, which forced it through kW/POWER
+        # semantics -- a real, live "unconvertible unit" warning every
+        # coordinator cycle, and a temperature forecast entity literally
+        # labelled in kilowatts).
+        self._signal_role = subentry.data.get(CONF_SIGNAL_ROLE, SIGNAL_ROLE_OTHER)
         # nimbus issue #263 (Mark Purcell) -- belt-and-braces instance-level
         # assignment, NOT the actual fix for the reported "unit has changed"
         # repair. Verified directly: Python already resolves the class-scope
@@ -827,9 +862,21 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
         # cheap, harmless defensiveness against a future refactor (e.g. a
         # subclass computing its own unit dynamically) that might rely on
         # `self._attr_*` rather than the class attribute.
-        self._attr_device_class = SensorDeviceClass.POWER
+        #
+        # 2026-09-03: now genuinely role-dependent, not just a defensive
+        # copy of the class default -- Temperature/Humidity roles get
+        # their own real device_class/unit instead of being forced
+        # through POWER/kW (see this method's own comment above).
+        if self._signal_role == SIGNAL_ROLE_TEMPERATURE:
+            self._attr_device_class = SensorDeviceClass.TEMPERATURE
+            self._attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+        elif self._signal_role == SIGNAL_ROLE_HUMIDITY:
+            self._attr_device_class = SensorDeviceClass.HUMIDITY
+            self._attr_native_unit_of_measurement = "%"
+        else:
+            self._attr_device_class = SensorDeviceClass.POWER
+            self._attr_native_unit_of_measurement = UnitOfPower.KILO_WATT
         self._attr_state_class = SensorStateClass.MEASUREMENT
-        self._attr_native_unit_of_measurement = UnitOfPower.KILO_WATT
         # Deliberately NOT changed to a generic suffix for existing load
         # subentries -- an already-deployed entity's unique_id must never
         # change, or Home Assistant treats it as a brand new entity and
@@ -848,14 +895,6 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
         # attribute at runtime, not by hardcoding entity names. Same
         # design principle already applied to ATTR_MODE.
         self._subentry_type = subentry.subentry_type
-        # Explicit role (2026-08-23, see const.py's CONF_SIGNAL_ROLE for
-        # the full "why not inferred from naming" reasoning) -- exposed
-        # as a live attribute the same way subentry_type already is, so
-        # the topology dashboard card can auto-discover "which power
-        # signal is Grid/Battery/Solar" directly from hass.states, zero
-        # config file needed. Meaningless-but-harmless on a load
-        # subentry (never has this field set, defaults to "other").
-        self._signal_role = subentry.data.get(CONF_SIGNAL_ROLE, SIGNAL_ROLE_OTHER)
         # Silver `entity-unavailable` (2026-08-22, real Mark Purcell audit
         # finding, confirmed correct against this module's own docstring
         # goal above -- "independently able to show unavailable if that

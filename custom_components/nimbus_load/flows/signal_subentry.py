@@ -4,6 +4,14 @@ Nimbus forecast target, rather than only as an input feature for load
 models. Reached via the "+ Add" button on the Nimbus hub's own device
 page, same as a load, just a second entry in the "add" menu.
 
+Also the only place to add a standalone Temperature/Humidity forecast
+signal (2026-09-03) -- despite the "power signal" name, the Temperature/
+Humidity roles tell sensor.py/coordinator.py to build a genuinely
+non-power entity (°C/%, no PowerConverter conversion attempted), not to
+force a weather signal through kW/POWER semantics. See const.py's own
+SIGNAL_ROLE_TEMPERATURE/SIGNAL_ROLE_HUMIDITY comment for the real
+household-hit bug this fixes.
+
 Deliberately just one field -- no schedule/expected-load "deterministic
 mode" concept here (that's specific to a load with a real fixed daily
 timer, e.g. a pool pump running 8am-3pm). Temperature/humidity/
@@ -36,8 +44,10 @@ from ..const import (
     CONF_SIGNAL_ROLE,
     SIGNAL_ROLE_BATTERY,
     SIGNAL_ROLE_GRID,
+    SIGNAL_ROLE_HUMIDITY,
     SIGNAL_ROLE_OTHER,
     SIGNAL_ROLE_SOLAR,
+    SIGNAL_ROLE_TEMPERATURE,
 )
 
 
@@ -108,6 +118,8 @@ class NimbusSignalSubentryFlowHandler(ConfigSubentryFlow):
                             SIGNAL_ROLE_BATTERY,
                             SIGNAL_ROLE_SOLAR,
                             SIGNAL_ROLE_GRID,
+                            SIGNAL_ROLE_TEMPERATURE,
+                            SIGNAL_ROLE_HUMIDITY,
                         ],
                         mode=selector.SelectSelectorMode.DROPDOWN,
                         translation_key="signal_role",

@@ -26,7 +26,9 @@ from custom_components.nimbus_load.const import (
     CONF_SIGNAL_ROLE,
     SIGNAL_ROLE_BATTERY,
     SIGNAL_ROLE_GRID,
+    SIGNAL_ROLE_HUMIDITY,
     SIGNAL_ROLE_OTHER,
+    SIGNAL_ROLE_TEMPERATURE,
     SUBENTRY_TYPE_LOAD,
     SUBENTRY_TYPE_SIGNAL,
 )
@@ -116,6 +118,67 @@ def test_source_sensor_is_exposed_alongside_signal_role():
     )
     s = _make_sensor(subentry)
     assert s.extra_state_attributes[ATTR_SOURCE_SENSOR] == "sensor.mirror_battery_power"
+
+
+def test_temperature_role_gets_temperature_device_class_and_celsius_unit():
+    """Real household bug, 2026-09-03: a household was guided to add a
+    Temperature power signal with SIGNAL_ROLE_OTHER (the only option that
+    existed), which built it as SensorDeviceClass.POWER / kW -- a
+    temperature forecast entity literally labelled in kilowatts. This
+    role must build a genuine Temperature entity instead.
+    """
+    from homeassistant.components.sensor import SensorDeviceClass
+    from homeassistant.const import UnitOfTemperature
+
+    subentry = _fake_subentry(
+        "ps5",
+        SUBENTRY_TYPE_SIGNAL,
+        {
+            CONF_LOAD_SENSOR: "sensor.archerfield_temp",
+            CONF_SIGNAL_ROLE: SIGNAL_ROLE_TEMPERATURE,
+        },
+    )
+    s = _make_sensor(subentry)
+    assert s._attr_device_class is SensorDeviceClass.TEMPERATURE
+    assert s._attr_native_unit_of_measurement == UnitOfTemperature.CELSIUS
+    assert s.extra_state_attributes[ATTR_SIGNAL_ROLE] == SIGNAL_ROLE_TEMPERATURE
+
+
+def test_humidity_role_gets_humidity_device_class_and_percent_unit():
+    from homeassistant.components.sensor import SensorDeviceClass
+
+    subentry = _fake_subentry(
+        "ps6",
+        SUBENTRY_TYPE_SIGNAL,
+        {
+            CONF_LOAD_SENSOR: "sensor.archerfield_humidity",
+            CONF_SIGNAL_ROLE: SIGNAL_ROLE_HUMIDITY,
+        },
+    )
+    s = _make_sensor(subentry)
+    assert s._attr_device_class is SensorDeviceClass.HUMIDITY
+    assert s._attr_native_unit_of_measurement == "%"
+    assert s.extra_state_attributes[ATTR_SIGNAL_ROLE] == SIGNAL_ROLE_HUMIDITY
+
+
+def test_grid_role_still_gets_power_device_class_and_kw_unit():
+    """Guard against the temperature/humidity branch above accidentally
+    swallowing every other role -- Battery/Solar/Grid/other/load must all
+    stay exactly as they were before this fix."""
+    from homeassistant.components.sensor import SensorDeviceClass
+    from homeassistant.const import UnitOfPower
+
+    subentry = _fake_subentry(
+        "ps7",
+        SUBENTRY_TYPE_SIGNAL,
+        {
+            CONF_LOAD_SENSOR: "sensor.logger_meter_total_active_power",
+            CONF_SIGNAL_ROLE: SIGNAL_ROLE_GRID,
+        },
+    )
+    s = _make_sensor(subentry)
+    assert s._attr_device_class is SensorDeviceClass.POWER
+    assert s._attr_native_unit_of_measurement == UnitOfPower.KILO_WATT
 
 
 if __name__ == "__main__":

@@ -121,6 +121,19 @@ SIGNAL_ROLE_OTHER: Final = "other"
 SIGNAL_ROLE_BATTERY: Final = "battery"
 SIGNAL_ROLE_SOLAR: Final = "solar"
 SIGNAL_ROLE_GRID: Final = "grid"
+# 2026-09-03: a real household was guided to add a temperature/humidity
+# Power Signal using SIGNAL_ROLE_OTHER, since no dedicated role existed --
+# NimbusForecastSensor unconditionally builds every power-signal subentry
+# as SensorDeviceClass.POWER / UnitOfPower.KILO_WATT, and coordinator.py
+# unconditionally passes convert_power=True for its own forecast target,
+# so a genuinely non-power signal (°C, %) got mislabelled as kW and the
+# coordinator logged a real "unconvertible unit" warning every cycle
+# trying to PowerConverter-convert temperature/humidity into kW. These two
+# roles let sensor.py/coordinator.py give a weather-type signal correct
+# units/device_class and skip power conversion entirely, instead of
+# forcing every non-electrical signal through power semantics.
+SIGNAL_ROLE_TEMPERATURE: Final = "temperature"
+SIGNAL_ROLE_HUMIDITY: Final = "humidity"
 CONF_TEMPERATURE_SENSOR: Final = "temperature_sensor"
 CONF_TEMPERATURE_FORECAST_SENSOR: Final = "temperature_forecast_sensor"
 CONF_HUMIDITY_SENSOR: Final = "humidity_sensor"
