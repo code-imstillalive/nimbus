@@ -175,6 +175,15 @@ def _make_entry(options=None):
 # -> class default), not a reimplementation.
 
 
+def _last_state_at(timestamp: float) -> MagicMock:
+    """A fake restored State whose own last_updated.timestamp() returns a
+    given epoch float -- what NimbusSolverNumber.async_added_to_hass()
+    now compares against the Store's own written_at (nimbus issue #342)."""
+    state = MagicMock()
+    state.last_updated.timestamp.return_value = timestamp
+    return state
+
+
 def test_successful_restore_backfills_the_store():
     desc = _DESCRIPTIONS[0]
     shared_store = _fresh_shared_store("backfill")
@@ -184,9 +193,65 @@ def test_successful_restore_backfills_the_store():
     entity.async_get_last_number_data = AsyncMock(
         return_value=MagicMock(native_value=999.0)
     )
+    entity.async_get_last_state = AsyncMock(return_value=_last_state_at(1000.0))
     asyncio.run(entity.async_added_to_hass())
     assert entity._attr_native_value == 999.0
     assert asyncio.run(shared_store.async_read(desc.key)) == 999.0
+
+
+def test_restore_older_than_store_does_not_overwrite_the_newer_store_value():
+    """The real bug nimbus issue #342 fixes: a value set at 10:00, last
+    restore-state dump at 09:55, container killed at 10:05 -- restoring
+    the stale 09:55 value must NOT overwrite the Store's own correct,
+    newer 10:00 value."""
+    desc = _DESCRIPTIONS[0]
+    shared_store = _fresh_shared_store("store-newer-than-restore")
+    # Simulate the Store's own more recent write (the real 10:00 edit).
+    asyncio.run(shared_store.async_write(desc.key, 42.0))
+    stored_at = asyncio.run(shared_store._async_read_entry(desc.key))[1]
+
+    entity = NimbusSolverNumber(
+        _make_entry(), desc, sw_version=None, shared_store=shared_store
+    )
+    # The stale 09:55 restore -- older than the Store's own write.
+    entity.async_get_last_number_data = AsyncMock(
+        return_value=MagicMock(native_value=40.0)
+    )
+    entity.async_get_last_state = AsyncMock(
+        return_value=_last_state_at(stored_at - 300)
+    )
+    asyncio.run(entity.async_added_to_hass())
+
+    assert entity._attr_native_value == 42.0, (
+        "the newer Store value must win over a genuinely staler restore"
+    )
+    # And the Store itself must still hold the real, newer value -- not
+    # have been clobbered by the stale restore.
+    assert asyncio.run(shared_store.async_read(desc.key)) == 42.0
+
+
+def test_restore_newer_than_store_wins_and_backfills():
+    """The normal, common case: RestoreNumber genuinely has the freshest
+    data (e.g. a clean shutdown just before this restart) -- it must
+    still win and refresh the Store, same as before this fix."""
+    desc = _DESCRIPTIONS[0]
+    shared_store = _fresh_shared_store("restore-newer-than-store")
+    asyncio.run(shared_store.async_write(desc.key, 40.0))
+    stored_at = asyncio.run(shared_store._async_read_entry(desc.key))[1]
+
+    entity = NimbusSolverNumber(
+        _make_entry(), desc, sw_version=None, shared_store=shared_store
+    )
+    entity.async_get_last_number_data = AsyncMock(
+        return_value=MagicMock(native_value=42.0)
+    )
+    entity.async_get_last_state = AsyncMock(
+        return_value=_last_state_at(stored_at + 300)
+    )
+    asyncio.run(entity.async_added_to_hass())
+
+    assert entity._attr_native_value == 42.0
+    assert asyncio.run(shared_store.async_read(desc.key)) == 42.0
 
 
 def test_restore_miss_falls_back_to_the_store():

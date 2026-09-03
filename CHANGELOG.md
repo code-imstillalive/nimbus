@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.63] — 2026-09-04
+
+### Fixed
+- **A durable-Store backfill could permanently overwrite a genuinely newer edit with a stale restore** ([#342](https://github.com/code-imstillalive/nimbus/issues/342), thanks @purcell-lab). `number.py`'s `RestoreNumber`-restore and its own durable Store backstop have different write cadences — the Store writes synchronously on every set, HA's own restore-state dump only every 15 minutes (plus on a clean shutdown). `async_added_to_hass()` used to unconditionally backfill the Store with whatever `RestoreNumber` returned: a value set at 10:00, killed at 10:05 with the last restore dump at 09:55, restored as the stale 09:55 value and silently overwrote the Store's own correct, newer one — permanently, since `entry.options` is deliberately never kept in sync either. The Store now records `written_at` per key and `async_added_to_hass()` only backfills when the restore is not older than what the Store already holds. `switch.py` had no durable Store at all despite its own docstring claiming to follow `number.py`'s pattern — a lost restore could silently flip `switch.nimbus_solve_on_price_change` back to its default with zero fallback; it now has the identical Store/freshness-compare mechanism as `number.py`. 12 new regression tests across both platforms.
+
 ## [0.94.62] — 2026-09-04
 
 ### Fixed

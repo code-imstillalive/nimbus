@@ -26,6 +26,11 @@ together is the standard equivalent.
 
 from __future__ import annotations
 
+import asyncio
+import time
+from dataclasses import dataclass, field
+from typing import Any
+
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory
@@ -33,6 +38,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
+from homeassistant.helpers.storage import Store
 from homeassistant.loader import async_get_integration
 
 from .const import (
@@ -49,6 +55,63 @@ from .const import (
 # overload by parallelizing.
 PARALLEL_UPDATES = 0
 
+# nimbus issue #342 (Mark Purcell): this module's own docstring above
+# claims "same restore-and-seed-once pattern as number.py", but number.py
+# ALSO has a durable Store backstop (see that module's own _SharedNumberStore
+# docstring for the 2026-09-02 incident it exists to survive) -- this
+# platform had none at all, bare RestoreEntity + seed-from-options only. A
+# restore-state miss (the same genuine, still-not-fully-diagnosed HA-core
+# startup timing race number.py's own comment describes) silently flips
+# e.g. switch.nimbus_solve_on_price_change back to its class default with
+# zero real fallback. A SEPARATE storage file/instance from number.py's own
+# _SharedNumberStore, deliberately -- these are a different type (bool, not
+# float) and are set via independent platform setup calls with no shared
+# object between them; a genuinely shared single Store instance would need
+# its own asyncio.Lock shared across both platforms too, real added
+# complexity for a benefit that doesn't apply here (switch and number keys
+# never overlap, so there's no real cross-entity write race to protect
+# against, only the same single-entity restore-vs-Store freshness compare
+# number.py already solves).
+_STORAGE_VERSION = 1
+
+
+@dataclass
+class _SharedSwitchStore:
+    """One Store + one lock, shared by every NimbusSolverSwitch instance
+    for a given config entry -- same reasoning as number.py's own
+    _SharedNumberStore (all switch keys live in the same small JSON file,
+    so writes must be serialized)."""
+
+    store: Store[dict[str, Any]]
+    lock: asyncio.Lock = field(default_factory=asyncio.Lock)
+
+    async def _async_read_entry(self, key: str) -> tuple[bool, float] | None:
+        """Returns (value, written_at), or None if this key has never
+        been written."""
+        try:
+            data = await self.store.async_load()
+        except Exception:  # noqa: BLE001 -- a corrupt/unreadable store file
+            # must never block this entity from falling through to its
+            # own next fallback (entry.options / class default); it's a
+            # durability BACKSTOP, not a required dependency.
+            return None
+        if not data or key not in data:
+            return None
+        entry = data[key]
+        try:
+            return bool(entry["value"]), float(entry["written_at"])
+        except (TypeError, ValueError, KeyError):
+            return None
+
+    async def async_write(self, key: str, value: bool) -> None:
+        async with self.lock:
+            try:
+                data = await self.store.async_load() or {}
+            except Exception:  # noqa: BLE001 -- same reasoning as above
+                data = {}
+            data[key] = {"value": value, "written_at": time.time()}
+            await self.store.async_save(data)
+
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -60,6 +123,11 @@ async def async_setup_entry(
     # between platform modules.
     integration = await async_get_integration(hass, DOMAIN)
     sw_version = str(integration.version) if integration.version else None
+    shared_store = _SharedSwitchStore(
+        store=Store(
+            hass, _STORAGE_VERSION, f"{DOMAIN}_{entry.entry_id}_solver_switches"
+        )
+    )
     async_add_entities(
         [
             NimbusSolverSwitch(
@@ -68,6 +136,7 @@ async def async_setup_entry(
                 "Auto-Include Known Solar Integrations",
                 DEFAULT_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
                 sw_version,
+                shared_store,
             ),
             NimbusSolverSwitch(
                 entry,
@@ -75,6 +144,7 @@ async def async_setup_entry(
                 "Dispatch Dry Run",
                 DEFAULT_SOLVER_DISPATCH_DRY_RUN,
                 sw_version,
+                shared_store,
             ),
             # Issue #232 follow-up: this used to live in the config-flow
             # wizard's solver_grid step. Moved out to a live switch entity
@@ -95,6 +165,7 @@ async def async_setup_entry(
                 "Solve on Price Change",
                 DEFAULT_SOLVE_ON_PRICE_CHANGE,
                 sw_version,
+                shared_store,
             ),
         ]
     )
@@ -118,10 +189,12 @@ class NimbusSolverSwitch(SwitchEntity, RestoreEntity):
         name: str,
         default: bool,
         sw_version: str | None,
+        shared_store: _SharedSwitchStore,
     ) -> None:
         self._entry = entry
         self._key = key
         self._default = default
+        self._shared_store = shared_store
         self._attr_unique_id = f"{entry.entry_id}_{key}"
         # Fixed entity_id, same technique/reasoning as NimbusSolverNumber's
         # own entity_id assignment in number.py -- one of these per hub
@@ -141,24 +214,49 @@ class NimbusSolverSwitch(SwitchEntity, RestoreEntity):
         await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
         if last_state is not None and last_state.state in ("on", "off"):
-            self._attr_is_on = last_state.state == "on"
+            restored_value = last_state.state == "on"
+            # nimbus issue #342: same freshness compare as number.py's own
+            # NimbusSolverNumber.async_added_to_hass() -- see that
+            # method's own comment for the full "why" (a restore-state
+            # dump can genuinely be staler than this Store's own last
+            # write). Only backfill when the restore isn't older than
+            # what the Store already holds, so a genuinely newer Store
+            # entry always survives a stale restore.
+            restored_at = last_state.last_updated.timestamp()
+            stored_entry = await self._shared_store._async_read_entry(self._key)
+            if stored_entry is not None and stored_entry[1] > restored_at:
+                self._attr_is_on = stored_entry[0]
+                return
+            self._attr_is_on = restored_value
+            await self._shared_store.async_write(self._key, restored_value)
             return
-        # No restored state -- this entity has never existed before on
-        # this install. Seed from whatever's already in entry.options
-        # (same convention as number.py), falling through to _default
-        # (set in __init__ above) for a genuinely fresh install.
+        # No restored state -- try this integration's OWN durable Store
+        # next (nimbus issue #342), before ever falling through to a
+        # stale wizard-time entry.options value or the hardcoded default.
+        stored_entry = await self._shared_store._async_read_entry(self._key)
+        if stored_entry is not None:
+            self._attr_is_on = stored_entry[0]
+            return
+        # No restored state AND no Store entry -- this entity has never
+        # existed before on this install. Seed from whatever's already in
+        # entry.options (same convention as number.py), falling through
+        # to _default (set in __init__ above) for a genuinely fresh
+        # install.
         seeded = self._entry.options.get(self._key)
         if isinstance(seeded, bool):
             self._attr_is_on = seeded
+            await self._shared_store.async_write(self._key, seeded)
 
     async def async_turn_on(self, **kwargs) -> None:
         self._attr_is_on = True
         self.async_write_ha_state()
+        await self._shared_store.async_write(self._key, True)
         self._reconfigure_dependents()
 
     async def async_turn_off(self, **kwargs) -> None:
         self._attr_is_on = False
         self.async_write_ha_state()
+        await self._shared_store.async_write(self._key, False)
         self._reconfigure_dependents()
 
     def _reconfigure_dependents(self) -> None:

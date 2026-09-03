@@ -1,6 +1,9 @@
-"""Real test of NimbusSolverSwitch (switch.py) -- entity-attribute wiring
-plus its 3-branch async_added_to_hass() restore logic (restored state wins,
-then a real bool seeded in entry.options, then the field's own default).
+"""Real test of NimbusSolverSwitch (switch.py) -- entity-attribute wiring,
+its restore-state logic, and (nimbus issue #342, Mark Purcell) its own
+durable Store backstop -- same "restore, then Store, then options-seed,
+then default" fallback chain and freshness-vs-Store compare number.py's
+own NimbusSolverNumber already has, this platform previously had none of
+it beyond a bare restore-then-options-seed.
 
 Imports and exercises the REAL class (not a reimplementation) against mock
 hass/entry objects, via tests/_ha_stubs.py's stand-in homeassistant.*
@@ -11,6 +14,7 @@ project's local dev environment.
 from __future__ import annotations
 
 import asyncio
+import itertools
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -21,16 +25,45 @@ from _ha_stubs import install_ha_stubs
 install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from homeassistant.helpers.storage import Store
+
 from custom_components.nimbus_load.const import DOMAIN
-from custom_components.nimbus_load.switch import NimbusSolverSwitch
+from custom_components.nimbus_load.switch import NimbusSolverSwitch, _SharedSwitchStore
+
+_store_key_counter = itertools.count()
 
 
-def _make_entity(key="auto_include_known_solar", default=False, options=None):
+def _fresh_shared_store(key: str | None = None) -> _SharedSwitchStore:
+    # _StubStore's own backing dict is keyed by this literal string and
+    # shared process-wide (same file == same data, matching real Store
+    # semantics) -- a unique key per call is required so tests that don't
+    # care about sharing don't silently pollute each other. Only tests
+    # that explicitly want a shared store pass a real, shared key.
+    return _SharedSwitchStore(
+        store=Store(MagicMock(), 1, key or f"test-{next(_store_key_counter)}")
+    )
+
+
+def _last_state(state: str, timestamp: float = 1000.0) -> MagicMock:
+    m = MagicMock()
+    m.state = state
+    m.last_updated.timestamp.return_value = timestamp
+    return m
+
+
+def _make_entity(
+    key="auto_include_known_solar", default=False, options=None, shared_store=None
+):
     entry = MagicMock()
     entry.entry_id = "test_entry_id"
     entry.options = options or {}
     return NimbusSolverSwitch(
-        entry, key, "Auto Include Known Solar", default, sw_version="9.9.9-test"
+        entry,
+        key,
+        "Auto Include Known Solar",
+        default,
+        sw_version="9.9.9-test",
+        shared_store=shared_store or _fresh_shared_store(),
     )
 
 
@@ -45,14 +78,14 @@ def test_entity_attribute_wiring():
 
 def test_restored_state_on_wins_over_everything():
     entity = _make_entity(default=False, options={"auto_include_known_solar": False})
-    entity.async_get_last_state = AsyncMock(return_value=MagicMock(state="on"))
+    entity.async_get_last_state = AsyncMock(return_value=_last_state("on"))
     asyncio.run(entity.async_added_to_hass())
     assert entity._attr_is_on is True
 
 
 def test_restored_state_off_wins_over_everything():
     entity = _make_entity(default=True, options={"auto_include_known_solar": True})
-    entity.async_get_last_state = AsyncMock(return_value=MagicMock(state="off"))
+    entity.async_get_last_state = AsyncMock(return_value=_last_state("off"))
     asyncio.run(entity.async_added_to_hass())
     assert entity._attr_is_on is False
 
@@ -84,7 +117,7 @@ def test_non_bool_seeded_value_is_ignored_not_coerced():
 def test_state_neither_on_nor_off_string_is_treated_as_no_restored_state():
     # e.g. "unavailable"/"unknown" -- real values HA can hand back here.
     entity = _make_entity(default=False, options={"auto_include_known_solar": True})
-    entity.async_get_last_state = AsyncMock(return_value=MagicMock(state="unavailable"))
+    entity.async_get_last_state = AsyncMock(return_value=_last_state("unavailable"))
     asyncio.run(entity.async_added_to_hass())
     assert entity._attr_is_on is True  # falls through to the seeded options value
 
@@ -111,6 +144,110 @@ def test_is_entity_category_config():
     from homeassistant.const import EntityCategory
 
     assert NimbusSolverSwitch._attr_entity_category == EntityCategory.CONFIG
+
+
+# --- nimbus issue #342: durable Store backstop -----------------------------
+
+
+def test_successful_restore_backfills_the_store():
+    shared_store = _fresh_shared_store("backfill")
+    entity = _make_entity(shared_store=shared_store)
+    entity.async_write_ha_state = MagicMock()
+    entity.async_get_last_state = AsyncMock(return_value=_last_state("on", 1000.0))
+    asyncio.run(entity.async_added_to_hass())
+    assert entity._attr_is_on is True
+    assert asyncio.run(shared_store._async_read_entry(entity._key))[0] is True
+
+
+def test_restore_miss_falls_back_to_the_store():
+    shared_store = _fresh_shared_store("restore-miss")
+    asyncio.run(shared_store.async_write("auto_include_known_solar", True))
+    entity = _make_entity(shared_store=shared_store)
+    entity.async_get_last_state = AsyncMock(return_value=None)
+    asyncio.run(entity.async_added_to_hass())
+    assert entity._attr_is_on is True
+
+
+def test_restore_older_than_store_does_not_overwrite_the_newer_store_value():
+    """The real bug: a toggle at 10:00, last restore-state dump at 09:55,
+    HA killed at 10:05 -- restoring the stale 09:55 value must NOT
+    overwrite the Store's own correct, newer value."""
+    shared_store = _fresh_shared_store("store-newer-than-restore")
+    asyncio.run(shared_store.async_write("auto_include_known_solar", True))
+    stored_at = asyncio.run(shared_store._async_read_entry("auto_include_known_solar"))[
+        1
+    ]
+
+    entity = _make_entity(shared_store=shared_store, default=False)
+    entity.async_get_last_state = AsyncMock(
+        return_value=_last_state("off", stored_at - 300)
+    )
+    asyncio.run(entity.async_added_to_hass())
+
+    assert entity._attr_is_on is True, (
+        "the newer Store value must win over a genuinely staler restore"
+    )
+    assert (
+        asyncio.run(shared_store._async_read_entry("auto_include_known_solar"))[0]
+        is True
+    )
+
+
+def test_restore_newer_than_store_wins_and_backfills():
+    shared_store = _fresh_shared_store("restore-newer-than-store")
+    asyncio.run(shared_store.async_write("auto_include_known_solar", False))
+    stored_at = asyncio.run(shared_store._async_read_entry("auto_include_known_solar"))[
+        1
+    ]
+
+    entity = _make_entity(shared_store=shared_store, default=False)
+    entity.async_get_last_state = AsyncMock(
+        return_value=_last_state("on", stored_at + 300)
+    )
+    asyncio.run(entity.async_added_to_hass())
+
+    assert entity._attr_is_on is True
+    assert (
+        asyncio.run(shared_store._async_read_entry("auto_include_known_solar"))[0]
+        is True
+    )
+
+
+def test_turn_on_writes_through_to_the_store():
+    shared_store = _fresh_shared_store("turn-on-writes-through")
+    entity = _make_entity(shared_store=shared_store, default=False)
+    entity.async_write_ha_state = MagicMock()
+    asyncio.run(entity.async_turn_on())
+    assert asyncio.run(shared_store._async_read_entry(entity._key))[0] is True
+
+
+def test_turn_off_writes_through_to_the_store():
+    shared_store = _fresh_shared_store("turn-off-writes-through")
+    entity = _make_entity(shared_store=shared_store, default=True)
+    entity.async_write_ha_state = MagicMock()
+    asyncio.run(entity.async_turn_off())
+    assert asyncio.run(shared_store._async_read_entry(entity._key))[0] is False
+
+
+def test_store_is_genuinely_shared_across_sibling_entities():
+    shared_store = _fresh_shared_store("shared-across-siblings")
+    entity_a = _make_entity(
+        key="dispatch_dry_run", shared_store=shared_store, default=False
+    )
+    entity_a.async_write_ha_state = MagicMock()
+    asyncio.run(entity_a.async_turn_on())
+
+    entity_b = _make_entity(
+        key="solve_on_price_change", shared_store=shared_store, default=False
+    )
+    entity_b.async_get_last_state = AsyncMock(return_value=None)
+    asyncio.run(entity_b.async_added_to_hass())
+    # entity_b's own key was never written -- must not see entity_a's
+    # value under its own key.
+    assert entity_b._attr_is_on is False
+    # But entity_a's key IS visible to a fresh read through the same
+    # shared store, proving it's one shared file, not per-entity.
+    assert asyncio.run(shared_store._async_read_entry("dispatch_dry_run"))[0] is True
 
 
 if __name__ == "__main__":

@@ -40,6 +40,7 @@ already-configured household (like this one, which just finished the old
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -159,6 +160,14 @@ class _SharedNumberStore:
     lock: asyncio.Lock = field(default_factory=asyncio.Lock)
 
     async def async_read(self, key: str) -> float | None:
+        entry = await self._async_read_entry(key)
+        return entry[0] if entry is not None else None
+
+    async def _async_read_entry(self, key: str) -> tuple[float, float] | None:
+        """Returns (value, written_at) -- written_at is a time.time()-
+        comparable epoch float, or None if this key has never been
+        written (or the value on disk predates issue #342's fix, see
+        async_write's own comment on the legacy bare-float shape)."""
         try:
             data = await self.store.async_load()
         except Exception:  # noqa: BLE001 -- a corrupt/unreadable store file
@@ -168,9 +177,19 @@ class _SharedNumberStore:
             return None
         if not data or key not in data:
             return None
+        entry = data[key]
         try:
-            return float(data[key])
-        except (TypeError, ValueError):
+            # nimbus issue #342 (Mark Purcell): legacy shape (a bare
+            # float, written by every version of this Store before this
+            # fix) has no timestamp to compare against a restore -- treat
+            # it as maximally stale (0.0) rather than crash or silently
+            # skip it, so a real, if untimed, value still beats a total
+            # restore miss, but never wins a legitimate freshness compare
+            # against ANY successful restore, however old.
+            if isinstance(entry, dict):
+                return float(entry["value"]), float(entry["written_at"])
+            return float(entry), 0.0
+        except (TypeError, ValueError, KeyError):
             return None
 
     async def async_write(self, key: str, value: float) -> None:
@@ -179,7 +198,22 @@ class _SharedNumberStore:
                 data = await self.store.async_load() or {}
             except Exception:  # noqa: BLE001 -- same reasoning as async_read
                 data = {}
-            data[key] = value
+            # nimbus issue #342: was a bare `data[key] = value` -- no way
+            # to tell which of a Store entry and a RestoreNumber restore
+            # is actually newer, so async_added_to_hass() unconditionally
+            # trusted whatever RestoreNumber returned and overwrote the
+            # Store with it even when the Store already held a genuinely
+            # NEWER, real user edit that RestoreNumber's own periodic
+            # dump (STATE_DUMP_INTERVAL, 15 min) hadn't captured yet
+            # before an unclean stop. Real failure scenario: a value set
+            # at 10:00, last restore-state dump at 09:55, container killed
+            # at 10:05 -- the correct 10:00 edit gets silently overwritten
+            # by the stale 09:55 one, with entry.options never in sync
+            # either (this module's own top docstring), making the edit
+            # permanently unrecoverable. Recording when THIS layer's own
+            # write happened lets async_added_to_hass() compare the two
+            # sources honestly instead of blindly preferring one.
+            data[key] = {"value": value, "written_at": time.time()}
             await self.store.async_save(data)
 
 
@@ -723,14 +757,39 @@ class NimbusSolverNumber(RestoreNumber, NumberEntity):
         await super().async_added_to_hass()
         restored = await self.async_get_last_number_data()
         if restored is not None and restored.native_value is not None:
+            # nimbus issue #342 (Mark Purcell): this used to backfill the
+            # Store from ANY successful restore unconditionally -- but
+            # RestoreNumber's own restore-state dump (STATE_DUMP_INTERVAL,
+            # every 15 min, plus on a clean shutdown) and this Store's own
+            # write (synchronous, on every set) have genuinely different
+            # cadences. A value set at 10:00, killed at 10:05 with the
+            # last restore dump at 09:55, restores as the STALE 09:55
+            # value -- and unconditionally backfilling then overwrote the
+            # Store's own correct, newer value with it, permanently
+            # (entry.options is deliberately never kept in sync either,
+            # see this module's own top docstring). The restored STATE's
+            # own last_updated (when HA itself last wrote that state, a
+            # real proxy for "how current is this restored value") is now
+            # compared against the Store's own written_at -- only backfill
+            # when the restore is not older than what the Store already
+            # holds, so a genuinely newer Store entry always survives a
+            # stale restore.
+            restored_state = await self.async_get_last_state()
+            restored_at = (
+                restored_state.last_updated.timestamp()
+                if restored_state is not None
+                else 0.0
+            )
+            stored_entry = await self._shared_store._async_read_entry(self._desc.key)
+            if stored_entry is not None and stored_entry[1] > restored_at:
+                self._attr_native_value = stored_entry[0]
+                return
             self._attr_native_value = restored.native_value
-            # Backfill the durable Store from a successful RestoreNumber
-            # restore -- see this module's own _SharedNumberStore comment
-            # for why this matters: it converges the Store toward full
-            # coverage of the TRUE live state on every normal restart,
-            # so the next time RestoreNumber itself loses the race, this
-            # fallback actually has real data to serve instead of an
-            # empty file.
+            # Converges the Store toward full coverage of the TRUE live
+            # state on every normal restart, so the next time RestoreNumber
+            # itself loses the race, this fallback actually has real data
+            # to serve instead of an empty file -- unchanged from before,
+            # just no longer able to clobber a genuinely newer Store entry.
             await self._shared_store.async_write(self._desc.key, restored.native_value)
             return
         # RestoreNumber found nothing (a real, live, still-not-fully-
