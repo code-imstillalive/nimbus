@@ -3464,8 +3464,26 @@ def acquire_lock() -> bool:
         try:
             with open(LOCK_PATH, "r", encoding="utf-8") as f:
                 old_pid = int(f.read().strip())
-            os.kill(old_pid, 0)  # raises if that PID isn't real; sends no actual signal
-            return False  # a genuine previous run is still alive
+            # nimbus issue #346 (Mark Purcell): in native mode this file
+            # holds HA's OWN pid, not a genuinely separate process's --
+            # `solver_runtime.py`'s own driver calls this in-process, on a
+            # worker thread of the same `hass` process, every cycle. A
+            # worker thread mid-LP-solve when HA is stopped/killed is not
+            # guaranteed to reach this function's own `release_lock()`
+            # (called from solver_runtime.py's `finally:`), so the file
+            # can be left behind holding this same process's own PID. In
+            # a Docker/HAOS container that PID is frequently identical
+            # across restarts (PID 1, or close to it) -- without this
+            # check, `os.kill(old_pid, 0)` genuinely succeeds (it's us),
+            # every single tick returns False forever, and nothing ever
+            # deletes the stale file on its own. A PID that IS our own
+            # can never indicate a real overlapping run (we are, by
+            # definition, not currently blocked acquiring this lock).
+            if old_pid == os.getpid():
+                pass  # stale file from an unclean stop -- safe to reclaim
+            else:
+                os.kill(old_pid, 0)  # raises if that PID isn't real; sends no signal
+                return False  # a genuine previous run is still alive
         except (ValueError, OSError):
             pass  # empty/corrupt/stale lock file, or a PID that's since exited -- safe to reclaim
     with open(LOCK_PATH, "w", encoding="utf-8") as f:

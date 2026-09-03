@@ -979,7 +979,29 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
 
     def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        self._solver_data: dict[str, Any] = {}
+        # nimbus issue #341 (Mark Purcell): this used to start EMPTY,
+        # accumulating only keys genuinely submitted to solver_battery/
+        # solver_grid/solver_sources this run. async_step_solver_sources'
+        # own final merge (below) takes every _SOLVER_WIZARD_SCHEMA_KEYS
+        # key from self._solver_data -- so a step the caller/user never
+        # reached this run (e.g. programmatically driving only
+        # solver_battery, or a UI session that errors out before step 3)
+        # resolved every one of that step's fields to None, wiping battery
+        # SoC sensor, both price sensors, solar/load forecast entities,
+        # and every other Solver Sources field -- including 5 vol.Required
+        # ones. Seeding from the entry's own already-stored options here
+        # means a step never reached this run keeps its real stored
+        # value; a step the caller DID submit this run still overwrites
+        # (via .update() in that step's own handler) exactly as before,
+        # including genuinely clearing an Optional field within a step
+        # that was actually shown. Filtered to this wizard's own keys
+        # only -- Forecaster/Switchboard/dashboard number.nimbus_solver_*
+        # values are a completely separate concern, untouched by this.
+        self._solver_data: dict[str, Any] = {
+            k: v
+            for k, v in self.config_entry.options.items()
+            if k in _SOLVER_WIZARD_SCHEMA_KEYS
+        }
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> Any:
         return self.async_show_menu(

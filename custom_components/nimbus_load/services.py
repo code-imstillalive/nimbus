@@ -32,6 +32,7 @@ from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
+from homeassistant.util import dt as dt_util
 
 from . import solver_runtime
 from .const import DOMAIN
@@ -85,15 +86,38 @@ def _coerce_datetime(value: object) -> datetime:
     tests/_ha_stubs.py minimal cv module too (which only exposes
     cv.entity_ids). Real HA's cv.datetime does the same thing and
     also normalises tz.
+
+    nimbus issue #345 (Mark Purcell): this used to return a NAIVE
+    datetime unmodified whenever `value` was already a `datetime`
+    object OR an ISO string with no offset -- exactly what HA's own
+    `datetime:` selector in services.yaml produces, and what a hand-
+    written YAML service call produces too. Comparing that naive value
+    against the timezone-AWARE `dt_util.now()` in
+    async_handle_compute_quality_report() raised a bare `TypeError`
+    outside that function's own try block, surfacing as an opaque
+    service error instead of the intended ServiceValidationError --
+    and had it not raised, a naive datetime would have mis-windowed
+    the recorder query by the local UTC offset. Both a bare `datetime`
+    input and a string input are now normalised: an already-aware value
+    passes through `dt_util.as_utc()` unchanged in effect; a naive one
+    is anchored to HA's own configured local timezone before conversion
+    (the honest assumption for a value with no explicit offset, not UTC
+    -- these values reach this schema from a HA `datetime:` selector or
+    a household's own local-time YAML, never a UTC API payload).
     """
     if isinstance(value, datetime):
-        return value
-    if isinstance(value, str):
-        parsed = datetime.fromisoformat(value)
-        return parsed
-    raise vol.Invalid(
-        f"expected a datetime or an ISO 8601 string, got {type(value).__name__}"
-    )
+        parsed = value
+    elif isinstance(value, str):
+        parsed = dt_util.parse_datetime(value)
+        if parsed is None:
+            raise vol.Invalid(f"could not parse {value!r} as an ISO 8601 datetime")
+    else:
+        raise vol.Invalid(
+            f"expected a datetime or an ISO 8601 string, got {type(value).__name__}"
+        )
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=dt_util.DEFAULT_TIME_ZONE)
+    return dt_util.as_utc(parsed)
 
 
 SERVICE_COMPUTE_QUALITY_REPORT_SCHEMA = vol.Schema(
@@ -216,7 +240,6 @@ async def _async_handle_compute_quality_report(
     real history not available yet).
     """
     from homeassistant.exceptions import HomeAssistantError
-    from homeassistant.util import dt as dt_util
 
     from . import solver_writer
 

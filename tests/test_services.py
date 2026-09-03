@@ -11,10 +11,12 @@ modules.
 
 import asyncio
 import sys
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+import voluptuous as vol
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ha_stubs import install_ha_stubs
@@ -268,6 +270,90 @@ def test_solve_now_logs_a_warning_on_a_failed_solve_but_does_not_raise():
     services.solver_runtime.async_run_solve = AsyncMock(return_value=False)
 
     asyncio.run(services._async_handle_solve_now(hass, call))  # must not raise
+
+
+# --- _coerce_datetime (nimbus issue #345) -----------------------------------
+#
+# tests/_ha_stubs.py's own homeassistant.util.dt is a bare MagicMock (no real
+# datetime math) -- these tests patch services.dt_util's three functions with
+# real, self-contained implementations (real datetime/zoneinfo arithmetic,
+# not a reimplementation of _coerce_datetime's own logic) so the actual
+# normalisation behaviour is genuinely verified, not just "some MagicMock
+# was called".
+
+
+def _patch_real_dt_util(tz):
+    from datetime import UTC
+    from unittest.mock import patch
+
+    return (
+        patch.object(services.dt_util, "DEFAULT_TIME_ZONE", tz),
+        patch.object(
+            services.dt_util, "parse_datetime", side_effect=datetime.fromisoformat
+        ),
+        patch.object(
+            services.dt_util, "as_utc", side_effect=lambda d: d.astimezone(UTC)
+        ),
+    )
+
+
+def test_coerce_datetime_anchors_a_naive_string_to_ha_local_time_then_converts_to_utc():
+    from datetime import UTC
+    from zoneinfo import ZoneInfo
+
+    brisbane = ZoneInfo("Australia/Brisbane")  # UTC+10, no DST
+    patches = _patch_real_dt_util(brisbane)
+    with patches[0], patches[1], patches[2]:
+        result = services._coerce_datetime("2026-09-01T00:00:00")
+
+    assert result.tzinfo is not None
+    assert result == datetime(2026, 8, 31, 14, 0, 0, tzinfo=UTC)
+
+
+def test_coerce_datetime_anchors_a_naive_datetime_object_to_ha_local_time():
+    """Real bug: HA's own `datetime:` selector in services.yaml hands the
+    handler an ALREADY-PARSED datetime object, not a string -- confirmed
+    this used to return it completely unmodified, naive tzinfo included."""
+    from datetime import UTC
+    from zoneinfo import ZoneInfo
+
+    brisbane = ZoneInfo("Australia/Brisbane")
+    patches = _patch_real_dt_util(brisbane)
+    with patches[0], patches[1], patches[2]:
+        # Deliberately naive -- this is exactly the input shape under test.
+        result = services._coerce_datetime(datetime(2026, 9, 1, 0, 0, 0))  # noqa: DTZ001
+
+    assert result.tzinfo is not None
+    assert result == datetime(2026, 8, 31, 14, 0, 0, tzinfo=UTC)
+
+
+def test_coerce_datetime_leaves_an_already_aware_string_alone_besides_utc_conversion():
+    from datetime import UTC
+    from zoneinfo import ZoneInfo
+
+    brisbane = ZoneInfo("Australia/Brisbane")
+    patches = _patch_real_dt_util(brisbane)
+    with patches[0], patches[1], patches[2]:
+        result = services._coerce_datetime("2026-09-01T00:00:00+10:00")
+
+    # Already carried its own explicit offset -- must NOT be re-anchored to
+    # the (irrelevant, since it was already aware) DEFAULT_TIME_ZONE.
+    assert result == datetime(2026, 8, 31, 14, 0, 0, tzinfo=UTC)
+
+
+def test_coerce_datetime_rejects_an_unparseable_string():
+    from unittest.mock import patch
+
+    with (
+        patch.object(services.dt_util, "parse_datetime", return_value=None),
+        pytest.raises(vol.Invalid),
+    ):
+        services._coerce_datetime("not a real datetime")
+
+
+def test_coerce_datetime_rejects_a_non_datetime_non_string_value():
+    with pytest.raises(vol.Invalid):
+        services._coerce_datetime(12345)
 
 
 if __name__ == "__main__":

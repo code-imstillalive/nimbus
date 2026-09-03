@@ -488,6 +488,32 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             minute=0,
             second=0,
         )
+        # nimbus issue #344 (Mark Purcell): a safety net for the ONE real
+        # teardown path __init__.py's own async_unload_entry() can never
+        # reach -- a sibling subentry's async_config_entry_first_refresh()
+        # raising ConfigEntryNotReady inside __init__.py's asyncio.gather()
+        # call. That exception propagates out of gather() before entry.
+        # runtime_data is ever assigned, so async_unload_entry()'s own
+        # `for coordinator in entry.runtime_data.values(): coordinator.
+        # async_unload()` loop has nothing to iterate -- THIS coordinator's
+        # listener (and every other sibling's, constructed earlier in the
+        # same gather batch) leaks, and HA's own retry-with-backoff on
+        # ConfigEntryNotReady means every retry leaks another full set.
+        # entry.async_on_unload() is HA's own guarantee for exactly this:
+        # it fires on ANY teardown of this entry, including one that never
+        # reaches async_unload_entry() at all (a setup that fails before
+        # completing). Registering the COORDINATOR'S OWN async_unload
+        # (already idempotent -- guards on `self._unsub_retrain is not
+        # None` and sets it back to None) rather than the raw `unsub`
+        # callable directly is deliberate: on the NORMAL successful-setup
+        # path, async_unload_entry() ALSO calls coordinator.async_unload()
+        # explicitly, and HA core only processes async_on_unload hooks
+        # after that function returns -- registering the raw callable here
+        # instead would call the SAME underlying HA listener-removal twice
+        # in that case, reproducing the exact double-unsub ValueError /
+        # FAILED_UNLOAD crash issue #337 (fixed the same way, for the
+        # price-watcher's own equivalent callable) already closed.
+        self.entry.async_on_unload(self.async_unload)
 
         if self._trained is None:
             # Nothing on disk yet -- train immediately (in the background,

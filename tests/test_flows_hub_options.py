@@ -398,6 +398,74 @@ def _full_solver_data() -> dict:
     }
 
 
+def test_init_seeds_solver_data_from_existing_options_filtered_to_wizard_keys():
+    """nimbus issue #341: __init__ used to start self._solver_data
+    completely empty. Constructed via the REAL __init__ (not the
+    __new__()-bypass _make_flow() helper) so this actually exercises the
+    fix, not a hand-set test double."""
+    config_entry = MagicMock(
+        options={
+            CONF_SOLVER_BATTERY_SOC_SENSOR: "sensor.soc",
+            CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.imp",
+            "solver_battery_capacity_kwh": 122.2,  # not a wizard key
+            CONF_TEMPERATURE_SENSOR: "sensor.outdoor",  # not a wizard key
+        }
+    )
+    flow = NimbusHubOptionsFlow(config_entry)
+
+    assert flow._solver_data == {
+        CONF_SOLVER_BATTERY_SOC_SENSOR: "sensor.soc",
+        CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.imp",
+    }
+
+
+def test_init_with_no_existing_options_seeds_an_empty_solver_data():
+    flow = NimbusHubOptionsFlow(MagicMock(options={}))
+    assert flow._solver_data == {}
+
+
+def test_solver_wizard_step_never_reached_this_run_keeps_its_stored_value():
+    """The real bug: a caller (UI session or programmatic) that only
+    drives solver_battery -> solver_sources, genuinely never reaching
+    solver_grid this run, must NOT wipe solver_grid's own already-stored
+    fields. Constructed via the real __init__ so the fix under test is
+    actually exercised end to end."""
+    import asyncio
+
+    config_entry = MagicMock(
+        options={
+            CONF_SOLVER_BATTERY_SOC_SENSOR: "sensor.old_soc",
+            CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.imp",
+            CONF_SOLVER_EXPORT_PRICE_SENSOR: "sensor.exp",
+            CONF_SOLVER_SOLAR_FORECAST_SENSOR: "sensor.solcast",
+        }
+    )
+    flow = NimbusHubOptionsFlow(config_entry)
+    flow.hass = MagicMock()
+
+    # Only step 1 is actually submitted this run -- step 2 (solver_grid)
+    # is never reached at all.
+    asyncio.run(
+        flow.async_step_solver_battery(
+            {CONF_SOLVER_BATTERY_SOC_SENSOR: "sensor.new_soc"}
+        )
+    )
+    result = asyncio.run(
+        flow.async_step_solver_sources(
+            {CONF_SOLVER_SOLAR_FORECAST_SENSOR: "sensor.solcast"}
+        )
+    )
+
+    assert result["type"] == "create_entry"
+    # The step that WAS submitted this run reflects the new value.
+    assert result["data"][CONF_SOLVER_BATTERY_SOC_SENSOR] == "sensor.new_soc"
+    # The step that was NEVER reached this run keeps its real stored
+    # values -- before the #341 fix, both of these silently resolved to
+    # None.
+    assert result["data"][CONF_SOLVER_IMPORT_PRICE_SENSOR] == "sensor.imp"
+    assert result["data"][CONF_SOLVER_EXPORT_PRICE_SENSOR] == "sensor.exp"
+
+
 def test_solver_sources_step_saves_and_preserves_untouched_keys():
     import asyncio
 
