@@ -1071,3 +1071,67 @@ if __name__ == "__main__":
             print(f"ERROR {t.__name__}: {type(e).__name__}: {e}")
     print(f"\n{len(tests) - failed}/{len(tests)} passed")
     sys.exit(1 if failed else 0)
+
+
+# -- nimbus issue #340: include_entities IS enforced at validation, so a
+# saved value outside the discovered candidate list must be folded back
+# in or the whole Solver wizard becomes unsubmittable -------------------------
+
+
+def test_solver_sources_schema_keeps_saved_single_value_selectable():
+    schema = _solver_sources_schema(
+        {CONF_SOLVER_LOAD_FORECAST_SENSOR: "sensor.my_own_template_forecast"},
+        single_load_forecast_candidates=["sensor.whole_house_signal"],
+        summable_load_forecast_candidates=["sensor.circuit_a"],
+    )
+    marker = _find_marker(schema, CONF_SOLVER_LOAD_FORECAST_SENSOR)
+    assert schema.schema[marker].config["include_entities"] == [
+        "sensor.whole_house_signal",
+        "sensor.my_own_template_forecast",
+    ]
+    # The summable list is untouched by the single field's saved value.
+    multi_marker = _find_marker(schema, CONF_SOLVER_LOAD_FORECAST_ENTITIES)
+    assert schema.schema[multi_marker].config["include_entities"] == [
+        "sensor.circuit_a"
+    ]
+
+
+def test_solver_sources_schema_keeps_saved_multi_values_selectable():
+    schema = _solver_sources_schema(
+        {
+            CONF_SOLVER_LOAD_FORECAST_ENTITIES: [
+                "sensor.circuit_a",
+                "sensor.circuit_gone",
+            ]
+        },
+        single_load_forecast_candidates=["sensor.whole_house_signal"],
+        summable_load_forecast_candidates=["sensor.circuit_a", "sensor.circuit_b"],
+    )
+    multi_marker = _find_marker(schema, CONF_SOLVER_LOAD_FORECAST_ENTITIES)
+    assert schema.schema[multi_marker].config["include_entities"] == [
+        "sensor.circuit_a",
+        "sensor.circuit_b",
+        "sensor.circuit_gone",
+    ]
+
+
+def test_solver_sources_schema_saved_value_already_in_list_is_not_duplicated():
+    schema = _solver_sources_schema(
+        {CONF_SOLVER_LOAD_FORECAST_SENSOR: "sensor.whole_house_signal"},
+        single_load_forecast_candidates=["sensor.whole_house_signal"],
+    )
+    marker = _find_marker(schema, CONF_SOLVER_LOAD_FORECAST_SENSOR)
+    assert schema.schema[marker].config["include_entities"] == [
+        "sensor.whole_house_signal"
+    ]
+
+
+def test_solver_sources_schema_saved_value_does_not_create_a_restriction():
+    # No candidates == no restriction; a saved value must not turn that
+    # into a one-entry allow-list.
+    schema = _solver_sources_schema(
+        {CONF_SOLVER_LOAD_FORECAST_SENSOR: "sensor.anything"},
+        single_load_forecast_candidates=None,
+    )
+    marker = _find_marker(schema, CONF_SOLVER_LOAD_FORECAST_SENSOR)
+    assert "include_entities" not in schema.schema[marker].config

@@ -39,22 +39,28 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
     }
     # Both genuinely optional -- a PV-only power source (e.g. Mark
     # Purcell's own separate SolarEdge unit) has no real battery power
-    # to give at all. Same None-default crash avoidance already proven
-    # in load_subentry.py (2026-08-15 finding: an EntitySelector is safe
-    # with default=None, unlike a NumberSelector).
-    schema_dict[
-        vol.Optional(
-            CONF_POWER_SOURCE_BATTERY_SENSOR,
-            default=defaults.get(CONF_POWER_SOURCE_BATTERY_SENSOR),
-        )
-    ] = selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
-    schema_dict[
-        vol.Optional(
-            CONF_POWER_SOURCE_DC_SENSOR,
-            default=defaults.get(CONF_POWER_SOURCE_DC_SENSOR),
-        )
-    ] = selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
+    # to give at all. nimbus issue #339: these MUST use
+    # description={"suggested_value": ...}, never default=. A
+    # `default=None` is injected by voluptuous whenever the picker is
+    # left blank and then handed to EntitySelector, which rejects it
+    # ("Entity None is neither a valid entity ID nor a valid UUID") --
+    # so a PV-only source could never be created, and a set sensor could
+    # never be cleared (the saved default was re-injected on omission).
+    # Same fix hub_options.py already carries for #113/#114.
+    schema_dict[_optional_entity(CONF_POWER_SOURCE_BATTERY_SENSOR, defaults)] = (
+        selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
+    )
+    schema_dict[_optional_entity(CONF_POWER_SOURCE_DC_SENSOR, defaults)] = (
+        selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor"))
+    )
     return vol.Schema(schema_dict)
+
+
+def _optional_entity(key: str, defaults: dict[str, Any]) -> vol.Optional:
+    """An optional picker that pre-fills the saved value as a suggestion
+    (submitted back unchanged if the user leaves it alone) but injects
+    nothing when blank, so it validates cleanly and can be cleared."""
+    return vol.Optional(key, description={"suggested_value": defaults.get(key)})
 
 
 class NimbusPowerSourceSubentryFlowHandler(ConfigSubentryFlow):

@@ -284,12 +284,17 @@ def _entity(
     what's offered; an empty list falls through to "no restriction" --
     but every caller here still passes `None`, never `[]`, in that case,
     so this file's own on-disk behaviour never has to depend on that
-    empty-list nuance holding forever). Deliberately NOT enforced at
-    validation time -- an already-saved value outside the current
-    candidate list is left completely alone (the picker just won't
-    offer it again as a NEW choice), same "restrict the suggestion,
-    never silently override a real saved value" discipline as every
-    other safeguard in this file."""
+    empty-list nuance holding forever).
+
+    nimbus issue #340: contrary to what this docstring used to claim,
+    HA's EntitySelector DOES enforce include_entities at validation time
+    (`vol.In(include_entities)` on every submitted value), so a saved
+    value outside the candidate list would make the step -- and with it
+    the whole 3-step Solver wizard -- unsubmittable. Callers must
+    therefore union any currently-saved value(s) into the list they
+    pass here (see _solver_sources_schema()), so the picker restricts
+    what's OFFERED as a new choice without ever rejecting what's
+    already saved."""
     config: dict[str, Any] = {"domain": domain}
     if include_entities:
         config["include_entities"] = include_entities
@@ -396,6 +401,22 @@ def _solver_grid_schema(defaults: dict[str, Any]) -> vol.Schema:
     )
 
 
+def _with_saved_values(
+    candidates: list[str] | None, saved: str | list[str] | None
+) -> list[str] | None:
+    """Union the currently-saved value(s) for a restricted picker into
+    its candidate list (nimbus issue #340). A None/empty candidate list
+    means "no restriction" and is returned untouched -- there is nothing
+    to be locked out of. Order is preserved; saved extras go last."""
+    if not candidates:
+        return candidates
+    if saved is None:
+        return candidates
+    saved_list = [saved] if isinstance(saved, str) else [s for s in saved if s]
+    extras = [s for s in saved_list if s not in candidates]
+    return [*candidates, *extras] if extras else candidates
+
+
 def _solver_sources_schema(
     defaults: dict[str, Any],
     single_load_forecast_candidates: list[str] | None = None,
@@ -411,6 +432,20 @@ def _solver_sources_schema(
     keeps the function itself honestly self-contained rather than
     silently depending on its one real caller always doing discovery
     first) still gets a fully working, if unrestricted, form."""
+    # nimbus issue #340: include_entities IS enforced at validation (see
+    # _entity()'s docstring), so a saved value outside the live candidate
+    # list -- a household's own template forecast, or a wizard opened
+    # mid-restart before every Nimbus forecast entity has published --
+    # must be folded back into the list, or this step can never be
+    # submitted and no Solver setting can be changed at all.
+    single_load_forecast_candidates = _with_saved_values(
+        single_load_forecast_candidates,
+        defaults.get(CONF_SOLVER_LOAD_FORECAST_SENSOR),
+    )
+    summable_load_forecast_candidates = _with_saved_values(
+        summable_load_forecast_candidates,
+        defaults.get(CONF_SOLVER_LOAD_FORECAST_ENTITIES),
+    )
     return vol.Schema(
         {
             vol.Required(

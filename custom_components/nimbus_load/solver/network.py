@@ -830,8 +830,22 @@ def build_plan(
         p.add_ub_constraint({soc[t]: -1.0, underfill[t]: -1.0}, -battery.min_soc_kwh)
         # soc[t] - overfill[t] <= max_soc_kwh
         p.add_ub_constraint({soc[t]: 1.0, overfill[t]: -1.0}, battery.max_soc_kwh)
-        p.set_cost(underfill[t], soft_soc_penalty_per_kwh * hours[t])
-        p.set_cost(overfill[t], soft_soc_penalty_per_kwh * hours[t])
+        # nimbus issue #338: the penalty is a bare $/kWh on the STATE
+        # violation, deliberately NOT scaled by hours[t]. Every signal
+        # the "penalty dominates" argument above has to beat is itself a
+        # bare $/kWh on an energy quantity -- the terminal-value segment
+        # credit (-rate * scale, unscaled by period length) and the
+        # discharge headroom the wash-trade guard hands out per kWh of
+        # underfill. Scaling only this side by hours[t] made dominance a
+        # function of the grid: safe on a 1 h grid (10x margin), broken
+        # on the production 5-minute grid (0.83x -- the LP could inflate
+        # underfill[n-1] to its ub and bank phantom terminal credit,
+        # then sell real stored energy it should have held). A state
+        # penalty per period is also the right physics: being below the
+        # floor at a 5-minute checkpoint is exactly as much of a
+        # violation as being below it at an hourly one.
+        p.set_cost(underfill[t], soft_soc_penalty_per_kwh)
+        p.set_cost(overfill[t], soft_soc_penalty_per_kwh)
     grid_import = [
         p.add_variable(f"grid_import_{t}", lb=0.0, ub=grid.import_limit_kw)
         for t in range(n)

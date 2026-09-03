@@ -29,10 +29,12 @@ from _ha_stubs import install_ha_stubs
 install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import custom_components.nimbus_load as nimbus_init
 from custom_components.nimbus_load import (
     _configure_price_watcher,
     _configured_price_sensors,
     _price_watcher_entities,
+    _price_watcher_unload_hooked,
     _price_watcher_unsub,
 )
 from custom_components.nimbus_load.const import (
@@ -87,6 +89,7 @@ def _reset_module_state() -> None:
     """
     _price_watcher_unsub.clear()
     _price_watcher_entities.clear()
+    _price_watcher_unload_hooked.clear()
 
 
 def test_configured_price_sensors_returns_only_populated_entries():
@@ -608,3 +611,108 @@ if __name__ == "__main__":
             print(f"ERROR: {name}")
             traceback.print_exc()
     print(f"{passed}/{len(tests)} passed")
+
+
+# -- nimbus issue #337: the state-change unsub is NOT safe to call twice --
+
+
+class _OneShotUnsub:
+    """Mimics HA core's async_track_state_change_event unsub: the second
+    call does `callbacks[key].remove(job)` on an already-emptied
+    defaultdict list and raises ValueError."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def __call__(self) -> None:
+        self.calls += 1
+        if self.calls > 1:
+            raise ValueError("list.remove(x): x not in list")
+
+
+def _entry_with_watcher(entry_id: str):
+    return _fake_entry(
+        entry_id,
+        {
+            CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_a",
+            CONF_SOLVE_ON_PRICE_CHANGE: True,
+        },
+    )
+
+
+def test_unload_path_calls_the_listener_unsub_exactly_once():
+    """async_unload_entry() cancels the watcher explicitly, and HA core
+    then runs the entry.async_on_unload() hook as well. Before the fix
+    the second call raised, ConfigEntry.async_unload() caught it into
+    FAILED_UNLOAD, and the hub never came back on reload."""
+    _reset_module_state()
+    hass = _fake_hass()
+    entry = _entry_with_watcher("entry_337")
+    one_shot = _OneShotUnsub()
+    with patch(
+        "custom_components.nimbus_load.async_track_state_change_event",
+        return_value=one_shot,
+    ):
+        _configure_price_watcher(hass, entry)
+    assert entry.async_on_unload.call_count == 1
+    on_unload_hook = entry.async_on_unload.call_args.args[0]
+
+    # What async_unload_entry() does first...
+    nimbus_init._cancel_price_watcher("entry_337")
+    # ...and what HA core does afterwards. Must not raise.
+    on_unload_hook()
+    # And the module-registry callable itself is idempotent too.
+    assert one_shot.calls == 1
+    assert "entry_337" not in _price_watcher_unsub
+    assert "entry_337" not in _price_watcher_entities
+
+
+def test_reconfigure_toggles_register_one_unload_hook_per_load():
+    """Every dashboard toggle re-runs _configure_price_watcher(). It used
+    to append a fresh (already-fired) unsub to entry._on_unload each
+    time; now exactly one hook is registered per load and it consults
+    the registry, so re-configuring never leaves a stale hook behind."""
+    _reset_module_state()
+    hass = _fake_hass()
+    entry = _entry_with_watcher("entry_toggle")
+    first, second = _OneShotUnsub(), _OneShotUnsub()
+    with patch(
+        "custom_components.nimbus_load.async_track_state_change_event",
+        side_effect=[first, second],
+    ):
+        _configure_price_watcher(hass, entry)
+        # Simulate the toggle going off, then on again.
+        hass.states.get = MagicMock(
+            side_effect=lambda eid: (
+                MagicMock(state="off") if eid.startswith("switch.") else None
+            )
+        )
+        _configure_price_watcher(hass, entry)
+        assert first.calls == 1
+        hass.states.get = MagicMock(
+            side_effect=lambda eid: (
+                MagicMock(state="on") if eid.startswith("switch.") else None
+            )
+        )
+        _configure_price_watcher(hass, entry)
+    assert entry.async_on_unload.call_count == 1
+    hook = entry.async_on_unload.call_args.args[0]
+    nimbus_init._cancel_price_watcher("entry_toggle")
+    hook()
+    assert second.calls == 1
+
+
+def test_combined_unsub_is_idempotent_on_its_own():
+    _reset_module_state()
+    hass = _fake_hass()
+    entry = _entry_with_watcher("entry_idem")
+    one_shot = _OneShotUnsub()
+    with patch(
+        "custom_components.nimbus_load.async_track_state_change_event",
+        return_value=one_shot,
+    ):
+        _configure_price_watcher(hass, entry)
+    combined = _price_watcher_unsub["entry_idem"]
+    combined()
+    combined()
+    assert one_shot.calls == 1
