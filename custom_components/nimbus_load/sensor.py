@@ -498,21 +498,33 @@ def _resolve_hub_device_id(hass: HomeAssistant, entry: NimbusConfigEntry) -> str
     Extracted as its own function (2026-09-03, live bug found on devhub
     immediately after v0.94.53 shipped) specifically so this exact call is
     directly unit-testable in isolation -- the real HA signature is
-    `async_get_device_id_by_identifier(registry, identifier_tuple)`, but
-    this shipped calling it with an extra `entry.entry_id` positional arg
-    (`TypeError: ... takes 2 positional arguments but 3 were given`),
-    live on devhub the same night. That shipped undetected because no
-    test ever called this code path: the stub environment deliberately
-    doesn't define this attribute at all (hasattr is False there, see
-    tests/_ha_stubs.py's own comment), so the buggy call was never
-    actually invoked by anything before reaching a real HA 2026.9 install.
+    `async_get_device_id_by_identifier(registry, identifier_tuple, *,
+    config_entry_id)`, i.e. `config_entry_id` is a REQUIRED KEYWORD-ONLY
+    argument, not optional and not positional. Got this wrong TWICE, live
+    on devhub, in successive same-night releases: v0.94.53 called it with
+    an extra positional `entry.entry_id` arg (`TypeError: ... takes 2
+    positional arguments but 3 were given`); the very next fix (v0.94.55)
+    dropped that extra arg but still omitted `config_entry_id` entirely
+    (`TypeError: ... missing 1 required keyword-only argument:
+    'config_entry_id'`) -- HA's own device_registry helper has genuinely
+    unusual call semantics here (a keyword-only required arg is rare) and
+    both mistakes shipped undetected for the same reason: the stub
+    environment deliberately doesn't define this attribute at all (hasattr
+    is False there, see tests/_ha_stubs.py's own comment), so the buggy
+    call was never actually invoked by anything before reaching a real HA
+    2026.9 install. The regression tests below now mimic the REAL
+    signature exactly (2 positional + 1 required keyword-only), so a
+    caller passing the wrong shape raises here, in CI, the same way it
+    would against the real function.
     """
     if not hasattr(dr, "async_get_device_id_by_identifier"):
         return None
     try:
         device_registry = dr.async_get(hass)
         return dr.async_get_device_id_by_identifier(
-            device_registry, (DOMAIN, entry.entry_id)
+            device_registry,
+            (DOMAIN, entry.entry_id),
+            config_entry_id=entry.entry_id,
         )
     except Exception:  # never let this resolution block real entity setup
         _LOGGER.exception(

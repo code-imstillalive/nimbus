@@ -752,23 +752,28 @@ def test_flattened_children_attach_to_correct_sub_device_via_device_hub():
 # --- _resolve_hub_device_id (nimbus issue #335 follow-up, 2026-09-03) ------
 
 
-def test_resolve_hub_device_id_calls_real_signature_with_two_positional_args():
-    """A real bug shipped in v0.94.53: the call passed 3 positional args
-    (device_registry, entry.entry_id, {identifier_set}) against HA 2026.9's
-    real signature, which only accepts 2 (device_registry, identifier_tuple)
-    -- TypeError, live on devhub, immediately after release
-    ("async_get_device_id_by_identifier() takes 2 positional arguments but
-    3 were given"). The stub environment never caught this because it
-    deliberately doesn't define the attribute at all (hasattr is False
-    there, see _ha_stubs.py) -- this test defines a strict fake with the
-    REAL 2-arg signature so a future regression of this exact shape (extra
-    or missing positional args) fails loudly here instead of shipping.
+def test_resolve_hub_device_id_calls_real_signature_exactly():
+    """Two real bugs shipped, live on devhub, in successive same-night
+    releases -- both against HA 2026.9's real signature
+    `async_get_device_id_by_identifier(registry, identifier_tuple, *,
+    config_entry_id)`:
+    v0.94.53 passed 3 positional args ("takes 2 positional arguments but
+    3 were given"); v0.94.55's fix dropped the extra arg but omitted the
+    REQUIRED KEYWORD-ONLY config_entry_id entirely ("missing 1 required
+    keyword-only argument: 'config_entry_id'"). The stub environment never
+    caught either because it deliberately doesn't define the attribute at
+    all (hasattr is False there, see _ha_stubs.py) -- this test defines a
+    strict fake matching the REAL signature exactly (2 positional + 1
+    required keyword-only, no defaults) so any future regression of
+    either shape fails loudly here instead of shipping.
     """
     entry = _fake_entry()
     calls = []
 
-    def fake_async_get_device_id_by_identifier(registry, identifier):
-        calls.append((registry, identifier))
+    def fake_async_get_device_id_by_identifier(
+        registry, identifier, *, config_entry_id
+    ):
+        calls.append((registry, identifier, config_entry_id))
         return "fake-hub-device-id-123"
 
     sensor.dr.async_get_device_id_by_identifier = fake_async_get_device_id_by_identifier
@@ -779,8 +784,9 @@ def test_resolve_hub_device_id_calls_real_signature_with_two_positional_args():
 
     assert result == "fake-hub-device-id-123"
     assert len(calls) == 1
-    _registry_arg, identifier_arg = calls[0]
+    _registry_arg, identifier_arg, config_entry_id_arg = calls[0]
     assert identifier_arg == (DOMAIN, entry.entry_id)
+    assert config_entry_id_arg == entry.entry_id
 
 
 def test_resolve_hub_device_id_returns_none_when_helper_missing():

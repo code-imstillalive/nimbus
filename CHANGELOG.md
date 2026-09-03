@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.56] — 2026-09-03
+
+### Fixed
+- **v0.94.55's own `via_device_id` fix was STILL wrong — a second, different `TypeError`, live on devhub immediately after that release too** (nimbus issue [#335](https://github.com/code-imstillalive/nimbus/issues/335) follow-up). The real HA signature is `async_get_device_id_by_identifier(registry, identifier_tuple, *, config_entry_id)` — `config_entry_id` is a REQUIRED KEYWORD-ONLY argument, not optional. v0.94.53 passed 3 positional args; v0.94.55's fix corrected that but omitted `config_entry_id` entirely (`TypeError: async_get_device_id_by_identifier() missing 1 required keyword-only argument: 'config_entry_id'`), caught the same night via a direct live restart + log check rather than assumed fixed. `_resolve_hub_device_id()` now passes `config_entry_id=entry.entry_id` as required; the regression test now defines its fake with the exact real signature (2 positional + 1 required keyword-only, no defaults) instead of a looser stand-in, so a future signature mismatch of either shape fails in CI instead of shipping.
+
 ## [0.94.55] — 2026-09-03
 
 ### Fixed
