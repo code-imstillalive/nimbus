@@ -34,6 +34,7 @@ from homeassistant.const import (
     UnitOfTime,
 )
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
@@ -472,6 +473,34 @@ async def _remediate_forecast_lts_unit(
         )
 
 
+def _resolve_via_device_field(
+    hub_device_id: str | None, entry_id: str
+) -> dict[str, object]:
+    """Sub-devices (Quality/Backtest/Counterfactual) link back to the hub
+    device via either `via_device` (a bare (DOMAIN, entry_id) identifier
+    tuple, works on every HA version) or the newer `via_device_id` (a real
+    device-registry row id, HA 2026.9+ only -- resolved once, defensively,
+    by the caller via dr.async_get_device_id_by_identifier when that helper
+    exists).
+
+    nimbus issue #335 (Mark Purcell): HA Core 2026.9 deprecates `via_device`
+    in favour of `via_device_id`, warning today and removing it in 2027.8.
+    This project's own pinned test harness (pytest-homeassistant-custom-
+    component==0.13.357) still resolves homeassistant==2026.8.3, which
+    predates the new helper entirely -- bumping that pin is a real, separate
+    decision (the latest available release only pins a 2026.9 *beta*, not
+    stable), so this stays a runtime feature-detect rather than a hard
+    dependency on the new API.
+
+    Never returns both keys -- HA raises HomeAssistantError if a DeviceInfo
+    carries via_device and via_device_id at the same time (explicitly
+    flagged in the same issue).
+    """
+    if hub_device_id is not None:
+        return {"via_device_id": hub_device_id}
+    return {"via_device": (DOMAIN, entry_id)}
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: NimbusConfigEntry,
@@ -488,6 +517,25 @@ async def async_setup_entry(
     # live instead of needing its own separately-maintained copy.
     integration = await async_get_integration(hass, DOMAIN)
     sw_version = str(integration.version) if integration.version else None
+
+    # nimbus issue #335: resolve the hub's own device-registry row id once,
+    # defensively -- dr.async_get_device_id_by_identifier only exists on HA
+    # 2026.9+, so this stays None (falls back to via_device) on any older
+    # or stubbed-out HA. See _resolve_via_device_field's own docstring.
+    hub_device_id: str | None = None
+    if hasattr(dr, "async_get_device_id_by_identifier"):
+        try:
+            device_registry = dr.async_get(hass)
+            hub_device_id = dr.async_get_device_id_by_identifier(
+                device_registry, entry.entry_id, {(DOMAIN, entry.entry_id)}
+            )
+        except Exception:  # never let this resolution block real entity setup
+            _LOGGER.exception(
+                "Nimbus: hub device_id resolution failed -- sub-devices will "
+                "fall back to via_device, harmless"
+            )
+            hub_device_id = None
+
     for subentry in entry.subentries.values():
         if subentry.subentry_type not in _FORECASTABLE_SUBENTRY_TYPES:
             continue
@@ -691,9 +739,13 @@ async def async_setup_entry(
     # EfficiencyBacktestSensor / NimbusCounterfactualSocSensor below
     # and the FLATTENED_ATTRS_QUALITY / _BACKTEST / _COUNTERFACTUAL
     # tables in sensor_flattened.py for the declarative fan-out.
-    quality_report = NimbusSolverQualityReportSensor(entry, sw_version)
-    efficiency_backtest = NimbusEfficiencyBacktestSensor(entry, sw_version)
-    counterfactual_soc = NimbusCounterfactualSocSensor(entry, sw_version)
+    quality_report = NimbusSolverQualityReportSensor(entry, sw_version, hub_device_id)
+    efficiency_backtest = NimbusEfficiencyBacktestSensor(
+        entry, sw_version, hub_device_id
+    )
+    counterfactual_soc = NimbusCounterfactualSocSensor(
+        entry, sw_version, hub_device_id
+    )
 
     flattened_quality = sensor_flattened.create_flattened_entities_quality(
         entry, sw_version
@@ -1979,21 +2031,28 @@ class NimbusSolverQualityReportSensor(_NimbusSolverPushSensor):
     # never-recorded scalar just because it happens to be called `forecast`.
     _unrecorded_attributes = frozenset()
 
-    def __init__(self, entry: NimbusConfigEntry, sw_version: str | None) -> None:
+    def __init__(
+        self,
+        entry: NimbusConfigEntry,
+        sw_version: str | None,
+        hub_device_id: str | None = None,
+    ) -> None:
         super().__init__(entry, sw_version)
         # Sub-device replacement -- see class docstring for why. The base
         # class already set self._attr_device_info to the hub identifier;
         # we override it here so this parent lives on its own device page.
-        # via_device is the HA-native mechanism for "child device linked to
-        # parent" -- the frontend renders "Part of Nimbus" on the sub-device
-        # page and includes it in the hub's device tree.
+        # via_device/via_device_id is the HA-native mechanism for "child
+        # device linked to parent" -- the frontend renders "Part of Nimbus"
+        # on the sub-device page and includes it in the hub's device tree.
+        # See _resolve_via_device_field's own docstring (nimbus issue #335)
+        # for why this is a runtime feature-detect, not a hardcoded key.
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, f"{entry.entry_id}_quality")},
             name="Nimbus Quality",
             manufacturer="Nimbus",
             model="Sub-device",
             sw_version=sw_version,
-            via_device=(DOMAIN, entry.entry_id),
+            **_resolve_via_device_field(hub_device_id, entry.entry_id),  # type: ignore[typeddict-item]
         )
         # Populated by async_setup_entry immediately after construction;
         # empty list until then. update_from_solver() below guards on
@@ -2058,7 +2117,12 @@ class NimbusEfficiencyBacktestSensor(_NimbusSolverPushSensor):
     # NimbusSolverQualityReportSensor above.
     _unrecorded_attributes = frozenset()
 
-    def __init__(self, entry: NimbusConfigEntry, sw_version: str | None) -> None:
+    def __init__(
+        self,
+        entry: NimbusConfigEntry,
+        sw_version: str | None,
+        hub_device_id: str | None = None,
+    ) -> None:
         super().__init__(entry, sw_version)
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, f"{entry.entry_id}_backtest")},
@@ -2066,7 +2130,7 @@ class NimbusEfficiencyBacktestSensor(_NimbusSolverPushSensor):
             manufacturer="Nimbus",
             model="Sub-device",
             sw_version=sw_version,
-            via_device=(DOMAIN, entry.entry_id),
+            **_resolve_via_device_field(hub_device_id, entry.entry_id),  # type: ignore[typeddict-item]
         )
         self._flattened_entities: list = []
 
@@ -2121,7 +2185,12 @@ class NimbusCounterfactualSocSensor(_NimbusSolverPushSensor):
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _unrecorded_attributes = frozenset()
 
-    def __init__(self, entry: NimbusConfigEntry, sw_version: str | None) -> None:
+    def __init__(
+        self,
+        entry: NimbusConfigEntry,
+        sw_version: str | None,
+        hub_device_id: str | None = None,
+    ) -> None:
         super().__init__(entry, sw_version)
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, f"{entry.entry_id}_counterfactual")},
@@ -2129,7 +2198,7 @@ class NimbusCounterfactualSocSensor(_NimbusSolverPushSensor):
             manufacturer="Nimbus",
             model="Sub-device",
             sw_version=sw_version,
-            via_device=(DOMAIN, entry.entry_id),
+            **_resolve_via_device_field(hub_device_id, entry.entry_id),  # type: ignore[typeddict-item]
         )
         self._flattened_entities: list = []
 

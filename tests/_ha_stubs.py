@@ -512,6 +512,19 @@ def install_ha_stubs() -> None:
         AddEntitiesCallback=_generic_stub_class("AddEntitiesCallback"),
     )
     module("homeassistant.helpers.entity_registry", async_get=MagicMock())
+    module(
+        "homeassistant.helpers.device_registry",
+        # Real, load-bearing constraint (nimbus issue #335): the new
+        # async_get_device_id_by_identifier() helper only exists on HA
+        # 2026.9+. Deliberately NOT stubbed here, so hasattr(dr, "async_
+        # get_device_id_by_identifier") is False -- exercising the same
+        # via_device fallback path this project's own pinned HA test
+        # version (2026.8.3, which predates the helper entirely) actually
+        # takes. sensor.py's own hub_device_id resolution in async_setup_
+        # entry() must degrade to None here, never raise, for every test
+        # that imports the sensor module to keep collecting.
+        async_get=MagicMock(),
+    )
     module("homeassistant.helpers.storage", Store=_StubStore)
     module(
         "homeassistant.helpers.restore_state",
