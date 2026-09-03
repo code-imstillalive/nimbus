@@ -388,6 +388,84 @@ TIER2_PERIOD_HOURS = (
 # shift the objective by a constant).
 FIXED_DAILY_CHARGES = 1.95  # $/day, real bill-confirmed
 
+# nimbus issue #348 (Mark Purcell, 2026-09-03 codebase review): several
+# real, deliberate household-specific tuning choices in this file
+# (documented individually at each of their own definitions --
+# FIXED_DAILY_CHARGES above, SELF_CONSUME_HOURS_AFTER_MIDNIGHT_CLOSE
+# below, battery_discharge_cost_rate()/battery_salvage_value_rate()'s
+# own day/night schedule, and the "generic" price-forecast-array field's
+# LocalVolts-specific costsflexup/earningsflexup key parsing) silently
+# override or ignore an install's own wizard-configured values with zero
+# visibility into that happening. Each one is a genuine, considered
+# tradeoff (see its own definition's comment for why it was kept rather
+# than generalised under time pressure), not an oversight -- but "silent"
+# is the real, fixable problem the review correctly flagged, independent
+# of whether each one is eventually made a real wizard field. This
+# module-level flag + _log_active_household_specific_overrides_once()
+# (called once near the top of main(), see that function's own call
+# site) makes every currently-active one visible in the log at startup,
+# by name, instead of only discoverable by reading this file's source.
+_household_specific_overrides_logged = False
+
+
+def _log_active_household_specific_overrides_once(cfg: dict) -> None:
+    """Logs, once per process (not once per solve cycle -- main() runs
+    every ~1-5 minutes), which of the known household-specific overrides
+    in this file are currently active for THIS install's own config.
+    Never raises: a lookup miss on any single condition just skips that
+    one line rather than blocking the real solve this function is
+    otherwise unrelated to.
+    """
+    global _household_specific_overrides_logged
+    if _household_specific_overrides_logged:
+        return
+    _household_specific_overrides_logged = True
+    active: list[str] = []
+    try:
+        price_forecast_sensor = cfg.get("solver_price_forecast_array_sensor")
+        if price_forecast_sensor and entity_exists(price_forecast_sensor):
+            active.append(
+                f"solver_price_forecast_array_sensor ({price_forecast_sensor!r}) is "
+                "configured -- its forecast is parsed with LocalVolts-specific "
+                "'costsflexup'/'earningsflexup' attribute keys, and your own "
+                "solver_discharge_cost/solver_salvage_value wizard values are "
+                "IGNORED in favour of a hardcoded day/night schedule"
+            )
+    except Exception:  # noqa: BLE001, S110 -- diagnostic-only, never block the real solve
+        pass
+    active.append(
+        f"a fixed daily charge of ${FIXED_DAILY_CHARGES}/day is always added to "
+        "total_cost_with_fixed_costs, regardless of your own real retailer's "
+        "actual daily supply charge"
+    )
+    try:
+        for rate_key, start_key, end_key in P2P_BLOCK_KEYS:
+            if _cfg_num(cfg, end_key, 0.0) >= 24.0 and _cfg_num(cfg, rate_key, 0.0) > 0:
+                active.append(
+                    f"{end_key} reaches 24 (a P2P block runs through midnight) -- "
+                    f"grid export is hard-pinned to 0kW for the following "
+                    f"{SELF_CONSUME_HOURS_AFTER_MIDNIGHT_CLOSE} hours after "
+                    "midnight regardless of price, a fixed constant not "
+                    "exposed as a wizard field"
+                )
+                break
+    except Exception:  # noqa: BLE001, S110 -- diagnostic-only
+        pass
+    if cfg.get("solver_p2p_matched_rate_forecast_sensor"):
+        active.append(
+            "solver_p2p_matched_rate_forecast_sensor is configured -- its real "
+            "matched rate is forced to 0 outside the fixed 17:00-24:00 window "
+            "regardless of your own configured P2P block hours"
+        )
+    if active:
+        _LOGGER.warning(
+            "Nimbus Solver: %d household-specific override(s) active for this "
+            "install (see nimbus issue #348 for the full context) -- %s",
+            len(active),
+            "; ".join(active),
+        )
+
+
 # Real empirical fallback if the live confirmed-history sensor is
 # unavailable for some reason -- roughly the 13-day all-time average
 # (0.686) as of 2026-08-16, NOT the more-accurate live-computed recent
@@ -5373,6 +5451,7 @@ def main() -> None:
     # been configured yet -- see fetch_solver_config()'s own docstring
     # for the full "installable by anyone" context this closes.
     cfg = fetch_solver_config()
+    _log_active_household_specific_overrides_once(cfg)
 
     now = datetime.now(UTC).astimezone(LOCAL_TZ).replace(second=0, microsecond=0)
     grid_times, period_hours_arr = build_tiered_grid(now)

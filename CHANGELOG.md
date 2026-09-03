@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.66] — 2026-09-04
+
+### Changed
+- **Several real, deliberate household-specific tuning choices in `solver_writer.py` now log their own presence at startup instead of being silently invisible** ([#348](https://github.com/code-imstillalive/nimbus/issues/348), thanks @purcell-lab, partial fix — see the issue for the remaining, deliberately-deferred work). A hardcoded day/night discharge-cost schedule (silently overriding the wizard's own `solver_discharge_cost`/`solver_salvage_value` whenever a price-forecast-array sensor is configured), LocalVolts-specific `costsflexup`/`earningsflexup` key parsing on the "generic" price-forecast-array field, a fixed `$1.95/day` charge always added to `total_cost_with_fixed_costs`, a hardcoded 4-hour post-midnight self-consume window whenever a P2P block runs through midnight, and a hardcoded 17:00–24:00 window forcing the real P2P matched rate to 0 outside it, are each genuine, considered tradeoffs (documented individually at their own definitions) — not oversights, and not changed here. `solver_writer.py` now logs a single `WARNING`, once per process, naming every one of these that's actually active for the current install's own config, so they're visible in the log instead of only discoverable by reading source. Making each one a real, generic wizard field (the issue's own longer-term suggested fix) is a materially larger, riskier change to core dispatch/cost math, deliberately left for a dedicated follow-up rather than rushed here. 8 new regression tests.
+
 ## [0.94.65] — 2026-09-04
 
 ### Fixed
