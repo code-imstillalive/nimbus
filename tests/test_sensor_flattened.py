@@ -37,6 +37,7 @@ preserve:
 
 from __future__ import annotations
 
+import asyncio
 import sys
 import time
 from pathlib import Path
@@ -314,6 +315,79 @@ def test_available_flips_to_false_after_stale_threshold():
         e._last_updated = time.monotonic() - (6 * 60)
     for e in entities:
         assert e.available is False
+
+
+# --- nimbus issue #362 finding 3: should_poll=False + a real, self-driven --
+# --- staleness recheck, not just the `available` property in isolation  ---
+
+
+def test_should_poll_is_false():
+    """Before this fix, these ~77 entities had no _attr_should_poll at
+    all -- SensorEntity's own default of True meant HA's platform-wide
+    30s poll incidentally re-evaluated `available` for every one of
+    them, a needless state write every 30s per entity purely as a side
+    effect of never having set this explicitly."""
+    assert sensor_flattened._FlattenedAttributeSensor._attr_should_poll is False
+
+
+def test_async_added_to_hass_registers_a_removable_periodic_timer():
+    """The real correctness point this fix depends on: `available` only
+    ever reaches the state machine when something calls
+    async_write_ha_state() -- update_from_parent() is the only such call
+    site, and it stops right along with the parent. Without a self-
+    driven recheck, _attr_should_poll=False alone would have silently
+    frozen every child's staleness detection forever (it worked before
+    only by accident, via HA's own incidental 30s platform poll)."""
+    entities, _ = _build_entities()
+    entity = entities[0]
+    entity.hass = MagicMock()
+    asyncio.run(entity.async_added_to_hass())
+    assert hasattr(entity, "_on_remove_callbacks")
+    assert len(entity._on_remove_callbacks) == 1
+    assert callable(entity._on_remove_callbacks[0])
+
+
+def test_recheck_flips_availability_and_writes_state_after_parent_stops():
+    """End-to-end proof the recheck mechanism actually does its job, not
+    just that it's registered: a genuinely stale entity must transition
+    to unavailable via the recheck tick, not merely report False from
+    the property if something else happened to ask."""
+    entities, _ = _build_entities()
+    entity = entities[0]
+    entity.hass = MagicMock()
+    entity.async_write_ha_state = MagicMock()
+    sensor_flattened.dispatch_to_flattened([entity], _real_looking_parent_payload())
+    entity.async_write_ha_state.reset_mock()  # ignore the dispatch's own write
+    entity._last_updated = time.monotonic() - (entity._STALE_AFTER_SECONDS + 1)
+
+    assert entity._was_available is True
+    entity._async_recheck_availability(now=None)
+
+    assert entity._was_available is False
+    entity.async_write_ha_state.assert_called_once()
+
+
+def test_recheck_is_a_noop_while_available_stays_unchanged():
+    entities, _ = _build_entities()
+    entity = entities[0]
+    entity.hass = MagicMock()
+    entity.async_write_ha_state = MagicMock()
+    sensor_flattened.dispatch_to_flattened([entity], _real_looking_parent_payload())
+    entity.async_write_ha_state.reset_mock()  # ignore the dispatch's own write
+
+    entity._async_recheck_availability(now=None)  # still fresh -- no-op
+
+    entity.async_write_ha_state.assert_not_called()
+
+
+def test_recheck_availability_is_marked_hass_callback():
+    """Same real bug class as issue #82 (see test_sensor_push_availability.py's
+    own coverage of the sibling class): registered directly as async_
+    track_time_interval's own callback, so it must be @callback-marked
+    or HA's job-type detection would route every tick to the executor
+    thread pool instead of the event loop."""
+    job = sensor_flattened._FlattenedAttributeSensor._async_recheck_availability
+    assert getattr(job, "_hass_callback", False) is True
 
 
 # --- category rule (by what it measures) ----------------------------------

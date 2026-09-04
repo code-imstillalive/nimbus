@@ -61,6 +61,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -71,6 +72,7 @@ from homeassistant.components.sensor import (
 from homeassistant.const import EntityCategory, UnitOfPower
 from homeassistant.core import callback
 from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.event import async_track_time_interval
 
 # HA core exposes PERCENTAGE / UnitOfEnergy / UnitOfTime as constants,
 # but the rest of this integration (see sensor.py: only UnitOfPower is
@@ -730,6 +732,24 @@ class _FlattenedAttributeSensor(SensorEntity):
     """
 
     _attr_has_entity_name = True
+    # nimbus issue #362 (Mark Purcell, codebase review), finding 3: this
+    # class's own docstring above promises "becomes unavailable when no
+    # fresh solve has landed", but `available` only ever reaches the
+    # state machine when something calls async_write_ha_state() -- the
+    # only call site was update_from_parent(), which by definition stops
+    # right along with the parent. It worked before this fix only
+    # because SensorEntity.should_poll defaults to True, so HA's own 30s
+    # platform poll incidentally re-evaluated `available` -- at the cost
+    # of a needless state write every 30s for all ~77 of these entities
+    # (a real, measured recorder-churn cost this same issue's findings
+    # 1/2 already fixed for the health-report/quality-report sensors).
+    # _attr_should_poll = False alone, with no replacement mechanism,
+    # would have silently frozen every child's staleness detection
+    # forever -- fixed together with the same self-driven periodic
+    # recheck _NimbusSolverPushSensor already uses (see sensor.py's own
+    # async_added_to_hass()/_async_recheck_availability() for the full
+    # "why a recheck, not just the property" reasoning, identical here).
+    _attr_should_poll = False
     _STALE_AFTER_SECONDS = 5 * 60  # matches _NimbusSolverPushSensor
     # Every 24-hour reconstruction dict published by any spec with a
     # non-None attrs_source_key is treated as unrecorded, so Recorder
@@ -773,6 +793,13 @@ class _FlattenedAttributeSensor(SensorEntity):
         # unchanged for the 39 pre-existing FLATTENED_ATTRS_* rows that
         # don't set attrs_source_key.
         self._extra_attrs: dict[str, Any] | None = None
+        # Same reasoning as _NimbusSolverPushSensor's own `_was_available`
+        # (sensor.py) -- True, not None, since `available` is already,
+        # definitionally, True right here (both of its own early-return
+        # conditions are true at this exact point). A None sentinel would
+        # silently swallow a staleness transition that had ALREADY
+        # happened by the time the very first recheck tick fires.
+        self._was_available: bool = True
 
     @property
     def available(self) -> bool:
@@ -835,6 +862,53 @@ class _FlattenedAttributeSensor(SensorEntity):
                 self._extra_attrs = extra
         if self.hass is not None:
             self.async_write_ha_state()
+
+    async def async_added_to_hass(self) -> None:
+        """Registers the same self-driven periodic staleness recheck as
+        _NimbusSolverPushSensor (sensor.py) -- see that class's own
+        async_added_to_hass() docstring for the full "why a recheck, not
+        just the property" reasoning, identical here: `available`'s
+        return value only reaches the state machine when something calls
+        async_write_ha_state(), and update_from_parent() only ever gets
+        called while the parent keeps publishing. Without this, a
+        genuinely stopped Solver would leave every child confidently
+        showing its last value forever, with `_attr_should_poll = False`
+        removing the only thing that was incidentally re-evaluating it.
+        """
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            async_track_time_interval(
+                self.hass,
+                self._async_recheck_availability,
+                timedelta(seconds=self._STALE_AFTER_SECONDS / 5),
+            )
+        )
+
+    @callback
+    def _async_recheck_availability(self, now) -> None:
+        """Same contract as _NimbusSolverPushSensor's own recheck
+        (sensor.py) -- exits early, no write at all, unless `available`
+        has genuinely flipped since the last check. Publishing on every
+        tick regardless would reintroduce exactly the kind of needless-
+        churn/flap risk this issue's other findings already fixed
+        elsewhere; native_value/extra_state_attributes are untouched
+        either way, only ever set by update_from_parent().
+        """
+        now_available = self.available
+        if now_available == self._was_available:
+            return
+        self._was_available = now_available
+        if now_available:
+            _LOGGER.info("Nimbus: %s is available again", self.entity_id)
+        else:
+            _LOGGER.warning(
+                "Nimbus: %s has not received a fresh Solver plan in over "
+                "%d seconds -- marking unavailable rather than continue "
+                "showing a stale value",
+                self.entity_id,
+                self._STALE_AFTER_SECONDS,
+            )
+        self.async_write_ha_state()
 
     def _extract(self, attributes: dict) -> Any:
         """Support dotted source_keys like `cost_band.lower` for one

@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.110] — 2026-09-05
+
+### Fixed
+- **#362 finding 3: the ~77 flattened per-attribute sensors now genuinely detect staleness instead of relying on incidental polling** ([#362](https://github.com/code-imstillalive/nimbus/issues/362), thanks @purcell-lab). `_FlattenedAttributeSensor`'s own docstring promised "becomes `unavailable` when no fresh solve has landed", but `available` only ever reaches the state machine when something calls `async_write_ha_state()` -- the only call site was `update_from_parent()`, which by definition stops right along with the parent. It worked before this fix only because `SensorEntity.should_poll` defaults to `True`, so HA's own 30s platform poll incidentally re-evaluated `available` -- at the cost of a needless state write every 30s for all ~77 of these entities, and a real landmine: anyone adding `_attr_should_poll = False` for consistency with the sibling push sensors would have silently frozen every child's staleness detection forever.
+  Fixed with `_attr_should_poll = False` **and** the same self-driven periodic recheck (`async_added_to_hass()` registering `async_track_time_interval`, `_async_recheck_availability()` exiting early unless `available` has genuinely flipped) that `_NimbusSolverPushSensor` (sensor.py) already uses -- matching the review's own suggested fix directly, applied to the shared base class so both `_FlattenedAttributeSensor` and its `_FlattenedAttributeSensorSubDevice` subclass get it via inheritance with no duplicate code. The review's own "ideally via a shared `_NimbusStalePushMixin`" suggestion (extracting this pattern out of `sensor.py`/`number.py`/`switch.py`/`sensor_flattened.py` entirely) remains open as a separate, larger structural refactor.
+  6 new regression tests, including an end-to-end check that the recheck tick genuinely flips availability and writes state (not just that the property returns the right bool) -- the same "test the mechanism, not just the value" discipline this project's `test_sensor_push_availability.py` already established for the sibling class. Mutation-tested: removing `_attr_should_poll = False` and separately removing the whole recheck mechanism were both confirmed to fail the new tests before being trusted.
+  Remaining open in #362: findings 4b (`NimbusSolverConfigSensor.native_value` mutating state from inside a property getter) and 4d (an entity_id collision risk when two subentries share one source sensor), plus the mixin-extraction refactor noted above.
+
 ## [0.94.109] — 2026-09-05
 
 ### Fixed
