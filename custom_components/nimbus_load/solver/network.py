@@ -273,6 +273,7 @@ from datetime import timedelta
 import numpy as np
 from numpy.typing import NDArray
 
+from . import p2p_export
 from .elements import (
     AdequacyLoadConfig,
     BatteryConfig,
@@ -797,12 +798,7 @@ def build_plan(
         p.add_variable(
             f"battery_charge_{t}",
             lb=0.0,
-            ub=(
-                0.0
-                if grid.fixed_export_kw is not None
-                and not np.isnan(grid.fixed_export_kw[t])
-                else battery.max_charge_kw
-            ),
+            ub=p2p_export.charging_ub_during_fixed_window(t, grid, battery.max_charge_kw),
         )
         for t in range(n)
     ]
@@ -880,24 +876,12 @@ def build_plan(
     # other period (fixed_export_kw is None, or that period's own entry
     # is NaN) keeps the normal [0, export_limit_kw] bounds, byte-
     # identical to before this field existed.
-    grid_export = [
-        p.add_variable(
-            f"grid_export_{t}",
-            lb=(
-                float(grid.fixed_export_kw[t])
-                if grid.fixed_export_kw is not None
-                and not np.isnan(grid.fixed_export_kw[t])
-                else 0.0
-            ),
-            ub=(
-                float(grid.fixed_export_kw[t])
-                if grid.fixed_export_kw is not None
-                and not np.isnan(grid.fixed_export_kw[t])
-                else grid.export_limit_kw
-            ),
+    grid_export = []
+    for t in range(n):
+        export_lb, export_ub = p2p_export.grid_export_bounds(t, grid, grid.export_limit_kw)
+        grid_export.append(
+            p.add_variable(f"grid_export_{t}", lb=export_lb, ub=export_ub)
         )
-        for t in range(n)
-    ]
 
     # Two-tier export bonus (see elements.py's own GridConfig docstring,
     # "export_bonus_price / export_bonus_volume_kwh") -- export_bonus[t]
@@ -905,12 +889,12 @@ def build_plan(
     # constraint, not a variable upper bound, since grid_export[t] is
     # itself a variable not a constant); the cumulative volume cap is
     # added further below alongside the other whole-horizon constraints.
-    has_export_bonus = (
-        grid.export_bonus_price is not None and grid.export_bonus_volume_kwh is not None
-    )
+    has_export_bonus = p2p_export.has_export_bonus(grid)
     export_bonus = (
         [
-            p.add_variable(f"export_bonus_{t}", lb=0.0, ub=grid.export_limit_kw)
+            p2p_export.add_export_bonus_variable(
+                p, f"export_bonus_{t}", grid.export_limit_kw
+            )
             for t in range(n)
         ]
         if has_export_bonus
@@ -1041,7 +1025,7 @@ def build_plan(
     # accumulation.
     if has_export_bonus:
         for t in range(n):
-            p.set_cost(export_bonus[t], -float(grid.export_bonus_price[t]) * hours[t])
+            p2p_export.set_export_bonus_cost(p, export_bonus[t], t, grid, hours)
     if battery.terminal_value_breakpoints is not None:
         # Piecewise-linear concave terminal value (2026-08-18, Mark
         # Purcell's audit item #7 -- see BatteryConfig's own docstring
@@ -1325,7 +1309,9 @@ def build_plan(
         # that never actually happened -- export_bonus[t] - grid_export[t]
         # <= 0.
         if has_export_bonus:
-            p.add_ub_constraint({export_bonus[t]: 1.0, grid_export[t]: -1.0}, 0.0)
+            p2p_export.add_export_bonus_le_export_constraint(
+                p, export_bonus[t], grid_export[t]
+            )
         # (5) Combined grid-direction cap (nimbus issue #266): constraints
         # (1)+(2) above close the SAME-PERIOD WASH-TRADE pathway (import
         # funding export via a fresh charge-then-discharge round trip
@@ -1457,84 +1443,15 @@ def build_plan(
     # timestamps, so a single conservative cap is the only honest option
     # in that case, not a silent behaviour change.
     if has_export_bonus:
-        starts = periods.period_starts
-        # Tie-breaker (2026-08-20, direct household report: "what makes
-        # this lightning bolt drop out"). When export_bonus_price is
-        # near-flat across a real P2P window -- a genuine, observed
-        # pattern, live data showed 0.320 vs 0.314, a ~1.9% gap -- the LP
-        # has no real economic preference for WHICH periods claim the
-        # capped bonus volume once the total claimed sums to the same cap
-        # either way. Confirmed via a local repro
-        # (116KAT-HA-AI repo: scratchpad/repro_p2p_bolt_flicker.py) that
-        # this genuinely produces an arbitrary, scattered ON/OFF pattern
-        # (3 separate transitions on a 24-period test, not a clean split)
-        # -- a real degenerate-vertex artifact, not a display bug and not
-        # a real economic decision either. grid_export_kw/battery_kw are
-        # completely unaffected either way (this only relabels WHICH kWh
-        # count toward the bonus cap, never changes how much is exported).
-        #
-        # Direction flipped LATEST, not earliest (2026-08-20, same day,
-        # real live finding, direct household correction: "our window
-        # closes 0.00 not 23.50... period"). The original EARLIEST version
-        # of this tie-breaker had a real, undesirable side effect once the
-        # cap genuinely binds (not just a degenerate tie): confirmed live,
-        # a full evening's steady ~14kW discharge exhausted the day's
-        # export_bonus_volume_kwh estimate at 23:50, and because the LP
-        # had already been nudged to claim every bonus-eligible kWh as
-        # EARLY as possible, the plan simply stopped selling at the bonus
-        # rate 10 minutes before the real window's own close (00:00) --
-        # bonus_price itself was still fully $0.443 through 23:55, only
-        # the cap said "no more". LATEST is also the more robust choice,
-        # not just the one that matches the real boundary: export_bonus_
-        # volume_kwh is a HISTORICAL AVERAGE estimate (p2p_recent_avg_
-        # volume_kwh()), not a hard, known-in-advance number -- on any
-        # night where the real LocalVolts match volume comes in ABOVE that
-        # average, an earliest-claiming plan has already assumed the cap
-        # is spent and stops trying, while a latest-claiming plan keeps
-        # selling at the bonus rate for as long as the real window (and
-        # therefore the real, possibly-higher matched volume) allows.
-        # Same underlying mechanism, same epsilon, same "can only break a
-        # genuine tie, never override a real price difference" guarantee
-        # -- only the ranking direction changed.
-        _TIE_BREAK_EPSILON = 1e-7  # $, per day-local rank step
-        if starts is None:
-            terms = {export_bonus[t]: hours[t] for t in range(n)}
-            p.add_ub_constraint(
-                terms,
-                float(grid.export_bonus_volume_kwh),
-                name="export_bonus_cap_global",
-            )
-            for t in range(n):
-                p.set_cost(export_bonus[t], -_TIE_BREAK_EPSILON * (t + 1))
-        else:
-            by_day: dict[object, list[int]] = {}
-            for t, start_t in enumerate(starts):
-                by_day.setdefault(start_t.date(), []).append(t)
-            # Named per real calendar date (2026-08-18) -- its dual value
-            # answers, directly and per-night, "is tonight's P2P bonus
-            # volume allotment actually the binding constraint, and how
-            # much extra would one more kWh of allotment be worth" --
-            # exactly the real question this whole cap exists to model
-            # (see this block's own docstring above, "per real calendar
-            # day, not once across the whole horizon").
-            for day_date, day_indices in by_day.items():
-                terms = {export_bonus[t]: hours[t] for t in day_indices}
-                p.add_ub_constraint(
-                    terms,
-                    float(grid.export_bonus_volume_kwh),
-                    name=f"export_bonus_cap_{day_date.isoformat()}",
-                )
-                # Same tie-breaker, scoped to THIS day's own periods only
-                # (day-local rank, not a raw global period index) -- keeps
-                # the needed dynamic range small regardless of how long
-                # the overall horizon is, and naturally resets every day,
-                # matching the volume cap's own "resets every real night"
-                # philosophy documented just above. LATEST-preferred (see
-                # this block's own comment above for why) -- rank+1 grows
-                # with t, so the last period in the day gets the most
-                # negative (most preferred) cost.
-                for rank, t in enumerate(day_indices):
-                    p.set_cost(export_bonus[t], -_TIE_BREAK_EPSILON * (rank + 1))
+        # Per-real-calendar-day cumulative cap + latest-preferred
+        # tie-breaker -- extracted to p2p_export.py (nimbus issue #355),
+        # see that module's own add_export_bonus_cumulative_caps()
+        # docstring for the full "why per-day not global" and "why
+        # latest not earliest" reasoning (both real, live household
+        # findings, not design choices made in the abstract).
+        p2p_export.add_export_bonus_cumulative_caps(
+            p, {t: export_bonus[t] for t in range(n)}, periods, grid
+        )
 
     result: LPResult = p.solve()
     if result.status != "optimal":
