@@ -127,7 +127,3 @@ class TestTimeLimitIsActuallySetOnTheHighsInstance(unittest.TestCase):
             _trivial_problem().solve()
 
         self.assertIn(("time_limit", lp.DEFAULT_TIME_LIMIT_SECONDS), seen_calls)
-
-
-if __name__ == "__main__":
-    unittest.main()

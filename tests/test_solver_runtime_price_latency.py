@@ -23,10 +23,11 @@ level globals, not per-test instances).
 """
 
 import sys
-import time
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ha_stubs import install_ha_stubs
@@ -82,18 +83,23 @@ def test_record_solve_completed_startup_also_leaves_the_sensor_untouched():
 
 
 def test_time_since_last_solve_reflects_real_elapsed_time():
-    # A generous sleep + a loose lower bound -- this is checking "does
-    # this reflect real elapsed time at all" (catches a stale/zeroed
-    # implementation), not measuring precise timer resolution, so a wide
-    # margin avoids OS scheduler jitter flaking the test.
+    # nimbus issue #360 (Mark Purcell, codebase review): this used to
+    # block on a REAL `time.sleep(0.15)` plus a loose lower-bound assert
+    # -- a real, if generous, dependency on OS scheduler timing that
+    # could in principle flake on a sufficiently loaded runner. The thing
+    # actually under test (does time_since_last_solve() compute a REAL
+    # delta off time.monotonic(), not a stale/zeroed value) doesn't need
+    # any real time to pass at all -- patching time.monotonic() directly
+    # proves the exact same subtraction is happening, deterministically
+    # and instantly, with zero dependency on real elapsed wall-clock time.
     _reset_module_state()
-    solver_runtime.record_solve_completed(trigger_source="cron")
-    time.sleep(0.15)
-    since = solver_runtime.time_since_last_solve()
-    assert since >= 0.10, (
-        f"expected at least 0.10s elapsed after a 0.15s sleep, got "
-        f"{since!r} -- time_since_last_solve() should reflect real wall/"
-        "monotonic time, not a stale or zeroed value"
+    with patch.object(solver_runtime.time, "monotonic", side_effect=[100.0, 100.15]):
+        solver_runtime.record_solve_completed(trigger_source="cron")
+        since = solver_runtime.time_since_last_solve()
+    assert since == pytest.approx(0.15), (
+        f"expected time_since_last_solve() to reflect the exact monotonic "
+        f"delta (100.15 - 100.0 = 0.15), got {since!r} -- should reflect "
+        "real monotonic time, not a stale or zeroed value"
     )
 
 

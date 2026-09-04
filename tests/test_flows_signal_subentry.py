@@ -34,6 +34,7 @@ from custom_components.nimbus_load.const import (
 )
 from custom_components.nimbus_load.flows.signal_subentry import (
     NimbusSignalSubentryFlowHandler,
+    _schema,
 )
 
 
@@ -66,22 +67,28 @@ def test_fresh_add_with_no_input_shows_the_form():
 
 
 def test_fresh_add_with_input_creates_a_new_entry():
+    user_input = {CONF_LOAD_SENSOR: "sensor.battery_power"}
+    # nimbus issue #360 (Mark Purcell, codebase review): calling
+    # async_step_user() directly (below) bypasses FlowManager.
+    # async_configure()'s own real schema validation entirely -- confirm
+    # this fixture is genuinely something the real schema would accept.
+    _schema({})(user_input)
     flow = _make_flow(source="user")
     flow.hass.states.get.return_value = None
-    result = asyncio.run(
-        flow.async_step_user({CONF_LOAD_SENSOR: "sensor.battery_power"})
-    )
+    result = asyncio.run(flow.async_step_user(user_input))
     assert result["type"] == "create_entry"
     assert result["data"] == {CONF_LOAD_SENSOR: "sensor.battery_power"}
 
 
 def test_reconfigure_source_updates_existing_entry_not_creates_new():
+    user_input = {CONF_LOAD_SENSOR: "sensor.old_battery"}
+    _schema({})(user_input)  # nimbus issue #360 -- see the sibling test above
     flow = _make_flow(source="reconfigure")
     fake_subentry = MagicMock(data={CONF_LOAD_SENSOR: "sensor.old_battery"})
     flow._get_reconfigure_subentry = MagicMock(return_value=fake_subentry)
     flow._get_entry = MagicMock(return_value=MagicMock())
     flow.hass.states.get.return_value = None
-    result = asyncio.run(flow.async_step_user({CONF_LOAD_SENSOR: "sensor.old_battery"}))
+    result = asyncio.run(flow.async_step_user(user_input))
     flow._get_reconfigure_subentry.assert_called_once()
     assert result["type"] == "update_and_abort"
 
@@ -108,13 +115,14 @@ def test_fresh_form_defaults_role_to_other():
 
 
 def test_role_is_preserved_through_a_real_submission():
+    user_input = {
+        CONF_LOAD_SENSOR: "sensor.grid_meter",
+        CONF_SIGNAL_ROLE: SIGNAL_ROLE_GRID,
+    }
+    _schema({})(user_input)  # nimbus issue #360 -- see the sibling test above
     flow = _make_flow(source="user")
     flow.hass.states.get.return_value = None
-    result = asyncio.run(
-        flow.async_step_user(
-            {CONF_LOAD_SENSOR: "sensor.grid_meter", CONF_SIGNAL_ROLE: SIGNAL_ROLE_GRID}
-        )
-    )
+    result = asyncio.run(flow.async_step_user(user_input))
     assert result["type"] == "create_entry"
     assert result["data"][CONF_SIGNAL_ROLE] == SIGNAL_ROLE_GRID
 
@@ -153,12 +161,12 @@ def test_role_selector_offers_all_six_real_options():
 
 
 def test_step_reconfigure_alias_delegates_to_step_user():
+    user_input = {CONF_LOAD_SENSOR: "sensor.existing"}
+    _schema({})(user_input)  # nimbus issue #360 -- see the sibling test above
     flow = _make_flow(source="reconfigure")
     fake_subentry = MagicMock(data={CONF_LOAD_SENSOR: "sensor.existing"})
     flow._get_reconfigure_subentry = MagicMock(return_value=fake_subentry)
     flow._get_entry = MagicMock(return_value=MagicMock())
     flow.hass.states.get.return_value = None
-    result = asyncio.run(
-        flow.async_step_reconfigure({CONF_LOAD_SENSOR: "sensor.existing"})
-    )
+    result = asyncio.run(flow.async_step_reconfigure(user_input))
     assert result["type"] == "update_and_abort"

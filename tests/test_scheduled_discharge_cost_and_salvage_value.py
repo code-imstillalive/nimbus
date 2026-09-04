@@ -205,7 +205,3 @@ class TestPriceForecastArrayKeysAreConfigurable(unittest.TestCase):
             forecast, "costsflexup", grid_times, [], {}
         )
         self.assertEqual(old_values, [0.0])
-
-
-if __name__ == "__main__":
-    unittest.main()

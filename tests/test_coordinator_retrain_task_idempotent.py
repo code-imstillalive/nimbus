@@ -43,10 +43,22 @@ _SUBENTRY_ID = "test-subentry-idempotent-retrain"
 
 async def _slow_retrain() -> None:
     # Stands in for the real _async_retrain() (sequential recorder fetches
-    # + real ML training) -- long enough that a "second setup races the
-    # first" test can reliably observe the first task still in flight
-    # before cancelling it, without needing to mock out that whole body.
-    await asyncio.sleep(10)
+    # + real ML training) -- a task that never finishes on its own, so a
+    # "second setup races the first" test can reliably observe the first
+    # task still in flight before cancelling it, without needing to mock
+    # out that whole body.
+    #
+    # nimbus issue #360 (Mark Purcell, codebase review): this used to be
+    # `await asyncio.sleep(10)` -- a REAL wall-clock wait standing in for
+    # "hasn't finished yet," which only works because every test below
+    # cancels the task well before those 10 seconds actually elapse. A
+    # genuinely loaded test runner slow enough to blow through 10 real
+    # seconds between task creation and cancellation would make this
+    # assumption silently false. `asyncio.Event().wait()` has the same
+    # "never completes on its own" property with zero dependency on real
+    # time passing at all -- it only ever completes via cancellation,
+    # which is the only way this test ever intends to end it.
+    await asyncio.Event().wait()
 
 
 def _make_bare_coordinator(loop: asyncio.AbstractEventLoop) -> NimbusCoordinator:

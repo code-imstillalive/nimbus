@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from custom_components.nimbus_load.const import CONF_POWER_SOURCE_NAME
 from custom_components.nimbus_load.flows.power_source_subentry import (
     NimbusPowerSourceSubentryFlowHandler,
+    _schema,
 )
 
 
@@ -42,21 +43,27 @@ def test_fresh_add_with_no_input_shows_the_form():
 
 
 def test_fresh_add_with_input_creates_a_new_entry_titled_from_the_name_field():
+    user_input = {CONF_POWER_SOURCE_NAME: "Inverter 1 (SH25T)"}
+    # nimbus issue #360 (Mark Purcell, codebase review): calling
+    # async_step_user() directly (below) bypasses FlowManager.
+    # async_configure()'s own real schema validation entirely -- confirm
+    # this fixture is genuinely something the real schema would accept.
+    _schema({})(user_input)
     flow = _make_flow(source="user")
-    result = asyncio.run(
-        flow.async_step_user({CONF_POWER_SOURCE_NAME: "Inverter 1 (SH25T)"})
-    )
+    result = asyncio.run(flow.async_step_user(user_input))
     assert result["type"] == "create_entry"
     assert result["title"] == "Inverter 1 (SH25T)"
     assert result["data"] == {CONF_POWER_SOURCE_NAME: "Inverter 1 (SH25T)"}
 
 
 def test_reconfigure_source_updates_existing_entry_not_creates_new():
+    user_input = {CONF_POWER_SOURCE_NAME: "New Name"}
+    _schema({})(user_input)  # nimbus issue #360 -- see the sibling test above
     flow = _make_flow(source="reconfigure")
     fake_subentry = MagicMock(data={CONF_POWER_SOURCE_NAME: "Old Name"})
     flow._get_reconfigure_subentry = MagicMock(return_value=fake_subentry)
     flow._get_entry = MagicMock(return_value=MagicMock())
-    result = asyncio.run(flow.async_step_user({CONF_POWER_SOURCE_NAME: "New Name"}))
+    result = asyncio.run(flow.async_step_user(user_input))
     flow._get_reconfigure_subentry.assert_called_once()
     assert result["type"] == "update_and_abort"
 
@@ -74,11 +81,11 @@ def test_reconfigure_with_no_input_prefills_form_from_existing_data():
 
 
 def test_step_reconfigure_alias_delegates_to_step_user():
+    user_input = {CONF_POWER_SOURCE_NAME: "Existing"}
+    _schema({})(user_input)  # nimbus issue #360 -- see the sibling test above
     flow = _make_flow(source="reconfigure")
     fake_subentry = MagicMock(data={CONF_POWER_SOURCE_NAME: "Existing"})
     flow._get_reconfigure_subentry = MagicMock(return_value=fake_subentry)
     flow._get_entry = MagicMock(return_value=MagicMock())
-    result = asyncio.run(
-        flow.async_step_reconfigure({CONF_POWER_SOURCE_NAME: "Existing"})
-    )
+    result = asyncio.run(flow.async_step_reconfigure(user_input))
     assert result["type"] == "update_and_abort"

@@ -198,7 +198,3 @@ class TestMatchesReferenceNestedLoop(unittest.TestCase):
         new = PeriodGrid(hours=np.full(10, 0.25), start=None)
         prev = _optimal_plan(old)
         self.assertEqual(_align_previous_periods(new, prev), {})
-
-
-if __name__ == "__main__":
-    unittest.main()

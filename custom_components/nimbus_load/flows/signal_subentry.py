@@ -51,6 +51,50 @@ from ..const import (
 )
 
 
+# nimbus issue #360 (Mark Purcell, codebase review): extracted from
+# _async_step()'s own inline vol.Schema(...) construction, matching the
+# already-established module-level `_schema(defaults)` convention every
+# sibling subentry flow file (load_subentry.py, power_source_subentry.py,
+# etc.) already uses -- this was the one flow file in the set that never
+# had one, silently blocking any test file from validating a fixture
+# against the REAL schema without also driving the whole async handler
+# method. Pure extraction, zero behaviour change: _async_step() below
+# calls this with the exact same `current_data` dict it always built the
+# schema from inline.
+def _schema(defaults: dict[str, Any]) -> vol.Schema:
+    return vol.Schema(
+        {
+            vol.Required(
+                CONF_LOAD_SENSOR, default=defaults.get(CONF_LOAD_SENSOR)
+            ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+            # Explicit role (2026-08-23) -- see const.py's own comment
+            # on CONF_SIGNAL_ROLE for why this can't be inferred from
+            # naming. default=, not suggested_value -- a SelectSelector
+            # with a real, always-valid default value is safe (unlike
+            # an EntitySelector, which needs the "genuinely clearable"
+            # suggested_value pattern -- this field can never be
+            # cleared to nothing, "other" always is a valid choice).
+            vol.Optional(
+                CONF_SIGNAL_ROLE,
+                default=defaults.get(CONF_SIGNAL_ROLE, SIGNAL_ROLE_OTHER),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        SIGNAL_ROLE_OTHER,
+                        SIGNAL_ROLE_BATTERY,
+                        SIGNAL_ROLE_SOLAR,
+                        SIGNAL_ROLE_GRID,
+                        SIGNAL_ROLE_TEMPERATURE,
+                        SIGNAL_ROLE_HUMIDITY,
+                    ],
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                    translation_key="signal_role",
+                )
+            ),
+        }
+    )
+
+
 class NimbusSignalSubentryFlowHandler(ConfigSubentryFlow):
     """Add (or reconfigure) one power signal (Battery/Solar/Grid/etc) under
     the Nimbus hub."""
@@ -94,40 +138,7 @@ class NimbusSignalSubentryFlowHandler(ConfigSubentryFlow):
         # EntitySelector, unlike NumberSelector, has no null-default crash
         # (confirmed live via load_subentry.py's own identical, already-
         # proven pattern) -- safe to always pass default=, even None.
-        schema = vol.Schema(
-            {
-                vol.Required(
-                    CONF_LOAD_SENSOR, default=current_data.get(CONF_LOAD_SENSOR)
-                ): selector.EntitySelector(
-                    selector.EntitySelectorConfig(domain="sensor")
-                ),
-                # Explicit role (2026-08-23) -- see const.py's own comment
-                # on CONF_SIGNAL_ROLE for why this can't be inferred from
-                # naming. default=, not suggested_value -- a SelectSelector
-                # with a real, always-valid default value is safe (unlike
-                # an EntitySelector, which needs the "genuinely clearable"
-                # suggested_value pattern -- this field can never be
-                # cleared to nothing, "other" always is a valid choice).
-                vol.Optional(
-                    CONF_SIGNAL_ROLE,
-                    default=current_data.get(CONF_SIGNAL_ROLE, SIGNAL_ROLE_OTHER),
-                ): selector.SelectSelector(
-                    selector.SelectSelectorConfig(
-                        options=[
-                            SIGNAL_ROLE_OTHER,
-                            SIGNAL_ROLE_BATTERY,
-                            SIGNAL_ROLE_SOLAR,
-                            SIGNAL_ROLE_GRID,
-                            SIGNAL_ROLE_TEMPERATURE,
-                            SIGNAL_ROLE_HUMIDITY,
-                        ],
-                        mode=selector.SelectSelectorMode.DROPDOWN,
-                        translation_key="signal_role",
-                    )
-                ),
-            }
-        )
-        return self.async_show_form(step_id="user", data_schema=schema)
+        return self.async_show_form(step_id="user", data_schema=_schema(current_data))
 
     def _derive_title(self, sensor_entity_id: str) -> str:
         """Same convention as load_subentry.py's own _derive_title -- use

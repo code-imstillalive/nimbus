@@ -128,7 +128,3 @@ class TestEfficiencyMessageWording(unittest.TestCase):
         msg = str(ctx.exception)
         self.assertIn("(0, 1)", msg)
         self.assertNotIn("(0, 1]", msg)
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -28,6 +28,34 @@ from _ha_stubs import install_ha_stubs
 
 install_ha_stubs()
 
+
+async def _wait_until(predicate, *, timeout: float = 2.0, step: float = 0.01) -> None:
+    """Poll `predicate()` on a real, short interval until it's true or
+    `timeout` real seconds have passed.
+
+    nimbus issue #360 (Mark Purcell, codebase review): the two debounce-
+    coalescing tests below need a REAL asyncio loop and a REAL
+    `hass.loop.call_later()` fire, since that's the actual production
+    mechanism being proven (there is no injectable/fake clock to swap in
+    for a raw `loop.call_later` call) -- so this isn't a case where a
+    real sleep can be eliminated entirely. What CAN be removed is the
+    fixed-margin guess (was `await asyncio.sleep(0.15)`, a flat 3x over
+    the 0.05s debounce) that assumed 100ms of slack is always enough on
+    ANY runner. Polling instead waits exactly as long as the real timer
+    actually takes (typically ~1-2 poll steps past the debounce, i.e.
+    a few tens of ms) and only fails if the debounced callback genuinely
+    never fires within a generous 2s ceiling -- fast on a healthy runner,
+    robust on a loaded one, and still a real test of the real timer.
+    """
+    elapsed = 0.0
+    while not predicate():
+        if elapsed >= timeout:
+            msg = f"condition not met within {timeout}s"
+            raise AssertionError(msg)
+        await asyncio.sleep(step)
+        elapsed += step
+
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import custom_components.nimbus_load as nimbus_init
 from custom_components.nimbus_load import (
@@ -359,9 +387,10 @@ def test_debounce_coalesces_a_burst_of_state_changes_into_one_solve():
             cb(fake_event)
             cb(fake_event)
 
-            # Wait past the debounce window and let the coalesced task
-            # actually run.
-            await asyncio.sleep(0.15)
+            # Wait for the real debounce timer to fire and the coalesced
+            # task to actually run -- see _wait_until()'s own docstring
+            # for why this polls instead of a fixed sleep.
+            await _wait_until(lambda: fake_solve.called)
 
         fake_solve.assert_called_once_with(hass)
 
@@ -578,7 +607,7 @@ def test_debounced_solve_records_completion_with_triggering_entity_and_timestamp
             }
             cb(fake_event)
 
-            await asyncio.sleep(0.15)
+            await _wait_until(lambda: fake_solve.called)
 
         fake_solve.assert_called_once_with(hass)
         fake_record.assert_called_once_with(

@@ -156,9 +156,19 @@ def test_fresh_add_with_no_input_shows_the_form():
 
 
 def test_fresh_add_with_input_creates_a_new_entry_not_update_and_abort():
+    user_input = {CONF_LOAD_SENSOR: "sensor.new_load"}
+    # nimbus issue #360 (Mark Purcell, codebase review): calling
+    # async_step_user() directly (below) bypasses FlowManager.
+    # async_configure()'s own real schema validation entirely -- the
+    # exact gap the review flagged as where real flow bugs live. This
+    # assertion closes it for THIS fixture: confirms the input driving
+    # the rest of this test is genuinely something the real schema would
+    # accept, not just something the handler's own body happens to
+    # tolerate when fed directly.
+    _schema({})(user_input)
     flow = _make_flow(source="user")
     flow.hass.states.get.return_value = None
-    result = asyncio.run(flow.async_step_user({CONF_LOAD_SENSOR: "sensor.new_load"}))
+    result = asyncio.run(flow.async_step_user(user_input))
     assert result["type"] == "create_entry"
     assert result["data"] == {CONF_LOAD_SENSOR: "sensor.new_load"}
 
@@ -169,12 +179,14 @@ def test_reconfigure_source_calls_get_reconfigure_subentry_not_treated_as_new():
     # expected user" from async_create_entry the moment someone tried to
     # edit an existing load. self.source, not which method got called, is
     # the real signal for which case this is.
+    user_input = {CONF_LOAD_SENSOR: "sensor.existing"}
+    _schema({})(user_input)  # nimbus issue #360 -- see the sibling test above
     flow = _make_flow(source="reconfigure")
     fake_subentry = MagicMock(data={CONF_LOAD_SENSOR: "sensor.existing"})
     flow._get_reconfigure_subentry = MagicMock(return_value=fake_subentry)
     flow._get_entry = MagicMock(return_value=MagicMock())
     flow.hass.states.get.return_value = None
-    result = asyncio.run(flow.async_step_user({CONF_LOAD_SENSOR: "sensor.existing"}))
+    result = asyncio.run(flow.async_step_user(user_input))
     flow._get_reconfigure_subentry.assert_called_once()
     assert result["type"] == "update_and_abort"
 

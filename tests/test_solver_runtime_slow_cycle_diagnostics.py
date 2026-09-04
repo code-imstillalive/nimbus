@@ -25,9 +25,10 @@ to cover the lock-acquire/main() timing path that file doesn't touch.
 from __future__ import annotations
 
 import sys
-import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ha_stubs import install_ha_stubs
@@ -116,20 +117,21 @@ def test_normal_cycle_duration_logs_debug_not_warning():
 
 
 def test_slow_cycle_logs_warning_with_real_measured_duration():
+    # nimbus issue #360 (Mark Purcell, codebase review): this used to
+    # make sw.main() genuinely block on a REAL `time.sleep(0.1)` to prove
+    # the duration measurement is a real time.monotonic() delta, not a
+    # hardcoded stub -- a real, if small, dependency on OS scheduler
+    # timing. _run_one_cycle() calls time.monotonic() exactly twice
+    # (before and after sw.main()) -- patching it directly proves the
+    # exact same subtraction with zero real elapsed time and zero
+    # scheduler-jitter risk on any runner.
     _reset_module_state()
-
-    def _slow_main():
-        # Real, if small, elapsed time -- proves the measurement is a
-        # genuine time.monotonic() delta around sw.main(), not a
-        # hardcoded stub. A generous lower-bound margin below avoids OS
-        # scheduler jitter flaking this on a loaded CI runner.
-        time.sleep(0.1)
-
-    sw = _make_sw(acquire_ok=True, main_side_effect=_slow_main)
+    sw = _make_sw(acquire_ok=True)
     with (
         patch.object(solver_runtime, "_ensure_ready", return_value=sw),
         patch.object(solver_runtime, "_SLOW_CYCLE_THRESHOLD_S", 0.01),
         patch.object(solver_runtime, "_LOGGER") as mock_logger,
+        patch.object(solver_runtime.time, "monotonic", side_effect=[100.0, 100.1]),
     ):
         result = solver_runtime._run_one_cycle(MagicMock())
 
@@ -138,8 +140,8 @@ def test_slow_cycle_logs_warning_with_real_measured_duration():
     warning_args = mock_logger.warning.call_args[0]
     assert "cycle took" in warning_args[0]
     measured_duration = warning_args[1]
-    assert measured_duration >= 0.05, (
-        f"expected a real measured delta close to the 0.1s sleep, got "
+    assert measured_duration == pytest.approx(0.1), (
+        f"expected the exact monotonic delta (100.1 - 100.0 = 0.1), got "
         f"{measured_duration!r}"
     )
 

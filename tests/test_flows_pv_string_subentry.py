@@ -30,6 +30,7 @@ from custom_components.nimbus_load.const import (
 from custom_components.nimbus_load.flows.pv_string_subentry import (
     NimbusPvStringSubentryFlowHandler,
     _power_source_options,
+    _schema,
 )
 
 
@@ -79,11 +80,15 @@ def test_fresh_add_with_no_input_shows_the_form():
 
 
 def test_fresh_add_with_input_creates_a_new_entry():
+    user_input = {CONF_PV_STRING_ENTITY: "sensor.string3_power_inv1"}
+    # nimbus issue #360 (Mark Purcell, codebase review): calling
+    # async_step_user() directly (below) bypasses FlowManager.
+    # async_configure()'s own real schema validation entirely -- confirm
+    # this fixture is genuinely something the real schema would accept.
+    _schema({}, _fake_entry({}))(user_input)
     flow = _make_flow(source="user")
     flow.hass.states.get.return_value = None
-    result = asyncio.run(
-        flow.async_step_user({CONF_PV_STRING_ENTITY: "sensor.string3_power_inv1"})
-    )
+    result = asyncio.run(flow.async_step_user(user_input))
     assert result["type"] == "create_entry"
     assert result["data"][CONF_PV_STRING_ENTITY] == "sensor.string3_power_inv1"
 
@@ -114,12 +119,12 @@ def test_title_falls_back_to_entity_id_when_no_label_or_friendly_name():
 
 
 def test_reconfigure_source_updates_existing_entry_not_creates_new():
+    user_input = {CONF_PV_STRING_ENTITY: "sensor.old_string"}
+    _schema({}, _fake_entry({}))(user_input)  # nimbus issue #360 -- see above
     flow = _make_flow(source="reconfigure")
     fake_subentry = MagicMock(data={CONF_PV_STRING_ENTITY: "sensor.old_string"})
     flow._get_reconfigure_subentry = MagicMock(return_value=fake_subentry)
     flow.hass.states.get.return_value = None
-    result = asyncio.run(
-        flow.async_step_user({CONF_PV_STRING_ENTITY: "sensor.old_string"})
-    )
+    result = asyncio.run(flow.async_step_user(user_input))
     flow._get_reconfigure_subentry.assert_called_once()
     assert result["type"] == "update_and_abort"

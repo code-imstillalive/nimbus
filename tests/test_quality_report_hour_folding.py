@@ -110,7 +110,3 @@ class TestLongWindowNoLongerFoldsDistinctDaysTogether(unittest.TestCase):
         self.assertEqual(len(utc_keys), len(set(utc_keys)))
         for a, b in pairwise(utc_keys):
             self.assertLess(a, b)
-
-
-if __name__ == "__main__":
-    unittest.main()
