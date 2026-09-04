@@ -76,6 +76,16 @@ def test_entity_attribute_wiring():
     assert (DOMAIN, "test_entry_id") in entity._attr_device_info["identifiers"]
 
 
+def test_does_not_poll_it_has_no_async_update_at_all():
+    # nimbus issue #365 (Mark Purcell): this class's state is driven
+    # entirely by real user toggles and RestoreEntity, never by polling
+    # anything external -- HA's default should_poll=True would call a
+    # (nonexistent) update path on every one of these every 30s cycle
+    # for no reason.
+    assert NimbusSolverSwitch._attr_should_poll is False
+    assert not hasattr(NimbusSolverSwitch, "async_update")
+
+
 def test_restored_state_on_wins_over_everything():
     entity = _make_entity(default=False, options={"auto_include_known_solar": False})
     entity.async_get_last_state = AsyncMock(return_value=_last_state("on"))

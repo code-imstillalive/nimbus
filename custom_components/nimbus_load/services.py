@@ -199,8 +199,20 @@ async def _retrain_all(coordinators: list[NimbusCoordinator]) -> None:
     # flag) and this is a synchronous-triggered-by-a-user service call,
     # not the daily scheduler -- no reason to make someone retraining 18
     # loads wait for them one at a time.
+    #
+    # nimbus issue #365 (Mark Purcell): return_exceptions=True so one
+    # coordinator's own failure can't abort every OTHER coordinator's
+    # already-in-flight retrain, leaving the service call itself raise a
+    # single opaque error with no indication which load(s) actually
+    # failed. Coordinator.py's own _async_retrain() now catches and logs
+    # everything internally (see that method's own comment) rather than
+    # ever propagating, so this is belt-and-suspenders today -- kept as
+    # a real guarantee against the shape of bug regardless of whether
+    # that stays true.
     if coordinators:
-        await asyncio.gather(*(c._async_retrain() for c in coordinators))
+        await asyncio.gather(
+            *(c._async_retrain() for c in coordinators), return_exceptions=True
+        )
 
 
 async def _async_handle_solve_now(hass: HomeAssistant, call: ServiceCall) -> None:

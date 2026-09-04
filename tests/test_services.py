@@ -145,6 +145,29 @@ def test_handle_retrain_with_no_entity_id_retrains_every_coordinator():
     coord_b._async_retrain.assert_called_once()
 
 
+def test_one_coordinator_failing_does_not_abort_the_others():
+    """nimbus issue #365 (Mark Purcell): asyncio.gather() without
+    return_exceptions=True aborts EVERY other in-flight coordinate the
+    moment one raises, so a service call retraining 18 loads could fail
+    with one opaque error while some loads never even started. coord_b
+    and coord_c must both still be awaited even though coord_a's own
+    _async_retrain() raises."""
+    coord_a = _fake_coordinator()
+    coord_a._async_retrain = AsyncMock(side_effect=RuntimeError("boom"))
+    coord_b = _fake_coordinator()
+    coord_c = _fake_coordinator()
+    hass = _fake_hass_with_coordinators({"a": coord_a, "b": coord_b, "c": coord_c})
+    call = _fake_call({})
+
+    # Must not raise -- return_exceptions=True means gather() itself
+    # never propagates any one coordinator's own failure.
+    asyncio.run(services._async_handle_retrain(hass, call))
+
+    coord_a._async_retrain.assert_called_once()
+    coord_b._async_retrain.assert_called_once()
+    coord_c._async_retrain.assert_called_once()
+
+
 def test_handle_retrain_with_no_entity_id_and_no_coordinators_is_a_noop():
     hass = _fake_hass_with_coordinators({})
     call = _fake_call({})

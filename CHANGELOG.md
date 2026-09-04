@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.78] — 2026-09-04
+
+### Fixed
+- **A background retrain failure was completely invisible** ([#365](https://github.com/code-imstillalive/nimbus/issues/365), thanks @purcell-lab, 3 of 7 findings). `_async_retrain()` is scheduled via a bare `hass.async_create_task()` (backgrounded so cold-start training can't block hub setup) but had no `except` clause at all — any real failure inside it (a bad history fetch, a training bug) surfaced only as an "unretrieved task exception" asyncio logs on its own, completely invisible to `sensor.nimbus_health_report`'s own WARNING+ ring buffer. This is exactly how a real `AttributeError` (2026-08-31) stayed silent for days while the health report kept showing 0 errors. Now catches and logs via `_LOGGER.exception()`, which reaches the health report the same way every other real warning in this integration does. The `nimbus_load.retrain` service's own `asyncio.gather()` also gained `return_exceptions=True`, so one coordinator's failure can no longer abort every other coordinator's already-in-flight retrain in the same service call (belt-and-suspenders now that `_async_retrain()` itself never propagates, but a real guarantee regardless). Also added `_attr_should_poll = False` to `NimbusSolverSwitch` — it has no `async_update()` at all (state is driven entirely by real user toggles and `RestoreEntity`), so HA's default 30s poll cadence was calling a nonexistent update path on every one of these switches for no reason every cycle. The other 4 findings in the same issue (service unregistration on last-entry-removal, an executor solve that can outlive `async_unload_entry`, module globals never reset across a re-add, and the `_setup_tasks` guard's own `finally` cleanup ordering) are larger, more architecturally involved changes left for a dedicated pass. 7 new regression tests.
+
 ## [0.94.77] — 2026-09-04
 
 ### Fixed

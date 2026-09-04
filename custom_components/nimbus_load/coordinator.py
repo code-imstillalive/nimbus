@@ -677,6 +677,25 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self._save_model_to_disk, trained
                 )
                 await self.async_request_refresh()
+        except Exception:
+            # nimbus issue #365 (Mark Purcell): this coroutine is
+            # scheduled via hass.async_create_task() (background retrain,
+            # see async_setup()'s own docstring for why) -- with no
+            # except clause here, any real failure (a bad history fetch,
+            # a training bug) surfaced ONLY as an "unretrieved task
+            # exception" asyncio logs on its own, invisible to health.py's
+            # own WARNING+ ring buffer. This is precisely how a real
+            # AttributeError (2026-08-31, see the comment above this
+            # method) stayed silent for days: the health report kept
+            # showing 0 errors while training was completely dead for
+            # every affected subentry. _LOGGER.exception() here reaches
+            # NimbusLogBufferHandler the same way every other real
+            # WARNING+ in this integration does.
+            _LOGGER.exception(
+                "Nimbus: retrain failed for subentry %s -- will retry on "
+                "the next scheduled cycle",
+                self.subentry.subentry_id,
+            )
         finally:
             self._retraining = False
 

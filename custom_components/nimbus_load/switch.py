@@ -181,6 +181,13 @@ class NimbusSolverSwitch(SwitchEntity, RestoreEntity):
     # NimbusSolverNumber's own CONFIG marking: this is a Solver tuning
     # toggle, not a primary reading or a diagnostic.
     _attr_entity_category = EntityCategory.CONFIG
+    # nimbus issue #365 (Mark Purcell): this class has no async_update()
+    # at all -- its state is driven entirely by real user toggles
+    # (async_turn_on/async_turn_off) and RestoreEntity on startup, never
+    # by polling anything external. Without this, HA's platform-level
+    # 30s poll cadence calls the (nonexistent) update path on every one
+    # of these switches for no reason every cycle.
+    _attr_should_poll = False
 
     def __init__(
         self,
