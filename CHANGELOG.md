@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.111] — 2026-09-05
+
+### Fixed
+- **#362 finding 4b: `NimbusSolverConfigSensor.native_value` no longer mutates state or logs from inside a property getter** ([#362](https://github.com/code-imstillalive/nimbus/issues/362), thanks @purcell-lab). `native_value` used to compute the resolved config state, compare it against `self._last_computed_state`, and log a WARNING/INFO on a genuine transition -- all as a side effect of being *read*. A property getter is expected to be a pure, idempotent read, safe to call any number of times from anywhere (diagnostics, templates, a future second poll path) with no side effects; mutating instance state and logging from inside one means the log a caller sees depends on incidental read order, not on the real, HA-visible state transition.
+  The transition-detection/logging now lives in a new `async_update()` -- HA's own guaranteed-once-per-poll lifecycle hook, called before properties are read on this class's existing `should_poll=True` default cadence, and the correct, idiomatic place for exactly this kind of side effect. `native_value` is now a pure one-line read with zero side effects; `extra_state_attributes` is unchanged (it already independently recomputed the unresolved-keys list). Same log content, level, and "log on transition, not every poll" cadence as before -- purely relocated, not changed.
+  Existing log-assertion tests in `tests/test_sensor_solver_config_flap.py` updated to call `async_update()` (simulating each poll) before checking log output; a new test confirms `native_value` alone never logs regardless of how many times it's read or how much the underlying resolved value changes. Mutation-tested: reintroducing the mutating property getter was confirmed to fail the new test first.
+  Remaining open in #362: finding 4d (entity_id collision risk when two subentries share one source sensor) and the shared `_NimbusStalePushMixin` extraction.
+
 ## [0.94.110] — 2026-09-05
 
 ### Fixed

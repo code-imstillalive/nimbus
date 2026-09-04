@@ -1182,31 +1182,32 @@ class NimbusSolverConfigSensor(SensorEntity):
         """
         return [k for k in _SOLVER_REQUIRED_KEYS if self._resolve(k) in (None, "")]
 
-    @property
-    def native_value(self) -> str:
-        """ "configured" only once every REQUIRED Solver field has a real
-        value -- lets an external caller check this ONE field before
-        attempting to build a plan, instead of discovering a missing
-        field halfway through a solve with a confusing KeyError.
-
-        Issue #85 instrumentation (2026-08-23): every REAL transition
-        (configured <-> unconfigured) is logged at WARNING with the
-        list of unresolved required keys, so a startup race
-        (RestoreEntity still restoring number.nimbus_solver_* entities
-        while this sensor is polled) is directly observable in the log,
-        instead of only surfacing as a confusing "not configured yet"
-        WARNING from solver_runtime.py with no attribution back to
-        which sensor state actually triggered it. No behavioural
-        change -- same string returned, same required-keys check, same
-        cadence.
+    async def async_update(self) -> None:
+        """Detects and logs a REAL transition (configured <-> unconfigured)
+        exactly once per HA poll cycle -- native_value used to do this
+        directly inside its own property getter (issue #85
+        instrumentation, 2026-08-23), which is a real correctness smell
+        nimbus issue #362 finding 4b (Mark Purcell, codebase review)
+        correctly flagged: a property getter is expected to be a pure,
+        idempotent read, safe to call any number of times from anywhere
+        (diagnostics, templates, a future second poll path) with no side
+        effects -- mutating self._last_computed_state and logging from
+        inside it meant the log message a caller saw depended on
+        incidental READ ORDER, not on the real, HA-visible state
+        transition. async_update() is HA's own guaranteed-once-per-poll
+        lifecycle hook (called before properties are read, on
+        should_poll=True's default cadence this class already relies
+        on) -- the correct, idiomatic place for this side effect.
+        native_value/extra_state_attributes are otherwise UNCHANGED --
+        same required-keys check, same cadence, same log content and
+        level, purely relocated.
         """
         unresolved = self._unresolved_required_keys()
         new_state = "configured" if not unresolved else "unconfigured"
 
-        # Log ONLY on a real transition, not every read -- native_value
-        # is polled on every state-machine read (potentially many per
-        # second under load), and a stable "configured" or a stable
-        # "unconfigured" doesn't need per-read logging.
+        # Log ONLY on a real transition, not every poll -- a stable
+        # "configured" or a stable "unconfigured" doesn't need per-poll
+        # logging.
         if self._last_computed_state != new_state:
             if new_state == "unconfigured":
                 _LOGGER.warning(
@@ -1226,7 +1227,18 @@ class NimbusSolverConfigSensor(SensorEntity):
                 )
             self._last_computed_state = new_state
 
-        return new_state
+    @property
+    def native_value(self) -> str:
+        """ "configured" only once every REQUIRED Solver field has a real
+        value -- lets an external caller check this ONE field before
+        attempting to build a plan, instead of discovering a missing
+        field halfway through a solve with a confusing KeyError.
+
+        A pure, idempotent read -- see async_update() above for the
+        transition-detection/logging side effect this used to also
+        perform inline, moved out per nimbus issue #362 finding 4b.
+        """
+        return "configured" if not self._unresolved_required_keys() else "unconfigured"
 
     @property
     def extra_state_attributes(self) -> dict:

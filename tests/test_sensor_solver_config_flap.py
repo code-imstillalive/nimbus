@@ -47,6 +47,7 @@ either keep or remove these existing assertions accordingly.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import sys
 from pathlib import Path
@@ -283,21 +284,30 @@ def test_unresolved_required_keys_pinpoints_a_single_missing_field():
     ]
 
 
-# --- 3. Log-on-transition, not per-read -----------------------------------
+# --- 3. Log-on-transition, not per-poll -------------------------------------
+#
+# nimbus issue #362 finding 4b (Mark Purcell, codebase review): the
+# transition-detection/logging side effect that used to live inside
+# native_value's own property getter was moved to async_update() --
+# HA's guaranteed-once-per-poll lifecycle hook, called BEFORE properties
+# are read on this class's should_poll=True default cadence. native_value
+# itself is now a pure, idempotent read with no logging side effect at
+# all, so these tests call async_update() (simulating each poll) and
+# assert on the resulting log output, then separately confirm
+# native_value still reports the correct value afterward.
 
 
 def test_transition_to_unconfigured_logs_a_warning_exactly_once_per_flip():
-    """First read that flips configured -> unconfigured must log at
-    WARNING with the unresolved keys called out. A SECOND read while
-    still unconfigured (native_value is polled every state-machine
-    read) must NOT log again -- same "log-when-unavailable" discipline
-    the sibling push sensors already enforce (see
+    """First poll that flips configured -> unconfigured must log at
+    WARNING with the unresolved keys called out. A SECOND poll while
+    still unconfigured must NOT log again -- same "log-when-unavailable"
+    discipline the sibling push sensors already enforce (see
     test_sensor_push_availability.py's own test on this)."""
     entry = _entry_with_options(_fully_configured_options())
     instance = _construct_bridge_sensor(entry)
     # Seed: pretend the previous native_value was "configured" (which
     # is what the recorder-observed live flap looks like -- restart,
-    # first read goes to unconfigured, transition logs).
+    # first poll goes to unconfigured, transition logs).
     instance._last_computed_state = "configured"
 
     states = {eid: _unknown_state() for eid in _five_number_entity_ids()}
@@ -316,9 +326,12 @@ def test_transition_to_unconfigured_logs_a_warning_exactly_once_per_flip():
     original_level = sensor._LOGGER.level
     sensor._LOGGER.setLevel(logging.DEBUG)
     try:
+        asyncio.run(instance.async_update())
         assert instance.native_value == "unconfigured"
-        assert instance.native_value == "unconfigured"  # second read, no new log
-        assert instance.native_value == "unconfigured"  # third read either
+        asyncio.run(instance.async_update())  # second poll, no new log
+        assert instance.native_value == "unconfigured"
+        asyncio.run(instance.async_update())  # third poll either
+        assert instance.native_value == "unconfigured"
     finally:
         sensor._LOGGER.removeHandler(handler)
         sensor._LOGGER.setLevel(original_level)
@@ -333,10 +346,10 @@ def test_transition_to_unconfigured_logs_a_warning_exactly_once_per_flip():
 
 def test_transition_back_to_configured_logs_an_info_recovery_line():
     """Recovery half of the log-on-transition contract: once the
-    numbers have restored and native_value flips back to configured,
-    that transition must ALSO log (at INFO, since it's the good
-    outcome) -- otherwise a maintainer sees only the WARNING for the
-    downgrade with no matching "and here's when it recovered" line."""
+    numbers have restored and a poll re-evaluates the transition, it
+    must ALSO log (at INFO, since it's the good outcome) -- otherwise a
+    maintainer sees only the WARNING for the downgrade with no matching
+    "and here's when it recovered" line."""
     entry = _entry_with_options(_fully_configured_options())
     instance = _construct_bridge_sensor(entry)
     # Seed: previous state was unconfigured (mid-flap).
@@ -361,8 +374,10 @@ def test_transition_back_to_configured_logs_an_info_recovery_line():
     original_level = sensor._LOGGER.level
     sensor._LOGGER.setLevel(logging.DEBUG)
     try:
+        asyncio.run(instance.async_update())
         assert instance.native_value == "configured"
-        assert instance.native_value == "configured"  # second read, silent
+        asyncio.run(instance.async_update())  # second poll, silent
+        assert instance.native_value == "configured"
     finally:
         sensor._LOGGER.removeHandler(handler)
         sensor._LOGGER.setLevel(original_level)
@@ -376,13 +391,12 @@ def test_transition_back_to_configured_logs_an_info_recovery_line():
 
 def test_stable_configured_at_startup_does_not_log_at_all():
     """The most common real path -- a healthy restart where every
-    number entity's RestoreEntity landed BEFORE the first
-    native_value poll (uncommon on this reporter's install but the
-    intended happy path). No log line at all: no phantom WARNING for
-    a transition that didn't happen, no INFO recovery for a
-    downgrade that didn't happen. Startup silence is the whole
-    point of gating log emission on _last_computed_state, not on
-    every read."""
+    number entity's RestoreEntity landed BEFORE the first poll (uncommon
+    on this reporter's install but the intended happy path). No phantom
+    WARNING for a transition that didn't happen. Startup silence (beyond
+    one honest "first observed configured" INFO line) is the whole
+    point of gating log emission on _last_computed_state, not on every
+    poll."""
     entry = _entry_with_options(_fully_configured_options())
     instance = _construct_bridge_sensor(entry)
     # No seed -- fresh instance, _last_computed_state is None.
@@ -406,6 +420,7 @@ def test_stable_configured_at_startup_does_not_log_at_all():
     original_level = sensor._LOGGER.level
     sensor._LOGGER.setLevel(logging.DEBUG)
     try:
+        asyncio.run(instance.async_update())
         assert instance.native_value == "configured"
     finally:
         sensor._LOGGER.removeHandler(handler)
@@ -421,3 +436,46 @@ def test_stable_configured_at_startup_does_not_log_at_all():
         f"a startup that came up cleanly must not log any WARNING; "
         f"got: {[r.getMessage() for r in warnings]}"
     )
+
+
+def test_native_value_alone_never_logs_anything():
+    """nimbus issue #362 finding 4b: native_value must be a pure,
+    idempotent property with no logging side effect at all -- reading
+    it any number of times, from anywhere, with no async_update() call
+    in between, must never emit a log line regardless of how many
+    times the underlying resolved value has genuinely changed."""
+    entry = _entry_with_options(_fully_configured_options())
+    instance = _construct_bridge_sensor(entry)
+    instance._last_computed_state = "configured"
+
+    state_registry = {eid: _unknown_state() for eid in _five_number_entity_ids()}
+    hass = MagicMock()
+    hass.states.get = lambda eid: state_registry.get(eid)
+    instance.hass = hass
+
+    logged: list[logging.LogRecord] = []
+
+    class _Capture(logging.Handler):
+        def emit(self, record):
+            logged.append(record)
+
+    handler = _Capture()
+    sensor._LOGGER.addHandler(handler)
+    original_level = sensor._LOGGER.level
+    sensor._LOGGER.setLevel(logging.DEBUG)
+    try:
+        assert instance.native_value == "unconfigured"
+        for eid, value in _five_number_entity_ids().items():
+            state_registry[eid] = _real_number_state(value)
+        assert instance.native_value == "configured"
+        assert instance.native_value == "configured"
+    finally:
+        sensor._LOGGER.removeHandler(handler)
+        sensor._LOGGER.setLevel(original_level)
+
+    assert logged == [], (
+        f"native_value alone must never log; got: {[r.getMessage() for r in logged]}"
+    )
+    # And _last_computed_state must be untouched by these pure reads --
+    # only async_update() is allowed to mutate it.
+    assert instance._last_computed_state == "configured"
