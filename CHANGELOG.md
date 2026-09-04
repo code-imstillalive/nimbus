@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.99] — 2026-09-05
+
+### Changed
+- **#359 finding 3: `integration_type` corrected from `"service"` to `"hub"`** ([#359](https://github.com/code-imstillalive/nimbus/issues/359), thanks @purcell-lab, the one item of 5 remaining after v0.94.76 fixed findings 1/2/4). HA's own documented meaning for `"service"` is a cloud/web-service integration; Nimbus is purely local and creates a single hub config entry with multiple subentry-devices attached (Load, Power Signal, Power Source, PV String, Battery Tower) — exactly the documented `"hub"` shape. New regression test locks in this value alongside the two other manifest fields findings 1/2 already fixed (`frontend` dependency, `single_config_entry`), so a future accidental revert of any of the three is caught (hassfest only validates manifest SHAPE, not these specific values).
+- **Finding 5 (armv7/`highspy`), investigated, confirmed already effectively addressed**: the top-level `README.md`'s own "Compatibility" section already correctly documents the limitation ("Solver: `amd64` or `aarch64` only... no wheel exists for 32-bit armv7, Pi 3, or Zero") — the review's quoted false "pure numpy, no such limitation" claim lives in `custom_components/nimbus_load/solver/README.md` instead (stale since `lp.py`'s 2026-08-18 rewrite to use `highspy`), which is a distinct, already-tracked finding under #364, not this issue. The suggested alternative (making `highspy` a lazily-imported optional requirement so the Forecaster still works without the Solver) is a real, separate architecture change — not pursued here given the shrinking real-world relevance of 32-bit ARM HA installs relative to the effort.
+
 ## [0.94.98] — 2026-09-05
 
 ### Changed
