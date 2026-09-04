@@ -346,6 +346,48 @@ def resample_last_value(
     return out
 
 
+def resample_observed_mask(
+    events: list[tuple[datetime, float]], grid: list[datetime]
+) -> list[bool]:
+    """Parallel to resample_last_value() above: True at a grid point only
+    when it carries a genuinely NEW observation (the underlying source
+    event index advanced since the previous grid point); False where the
+    resampled value is a pure forward-fill carry-over with zero new
+    information at that point.
+
+    nimbus issue #350 (Mark Purcell): resample_last_value() forward-fills
+    the LAST known value onto every grid point regardless of how sparse
+    the real source events are -- for an hourly-cadence source (LTS
+    statistics, or any load that just doesn't update often) resampled
+    onto the 15-min training grid, three of every four consecutive grid
+    points carry the IDENTICAL forward-filled value. train_model()'s own
+    lag_short feature is "the value LAG_SHORT_STEPS grid points ago" --
+    for exactly these forward-filled points, that's frequently the exact
+    same source event as the target itself, so lag_short == y trivially
+    for the row. Reproduced live (30 days of hourly LTS events resampled
+    onto a 15-min grid): 75.0% of rows had lag_short identical to the
+    target, and GBRT's own reported validation MAE was roughly HALF what
+    the same data scored at its true, native hourly cadence -- the model
+    was being rewarded for copying a lag input that IS the answer, not
+    genuinely forecasting.
+
+    Used by train_model() to skip emitting a training ROW at grid points
+    where the TARGET itself isn't a genuine new observation -- the lag
+    inputs feeding that row can still legitimately be forward-filled
+    (a real "this was the last known value" fact), it's specifically the
+    row's own y that must be real, or the row is manufactured, not
+    observed.
+    """
+    times = [e[0] for e in events]
+    out: list[bool] = []
+    prev_idx = -1
+    for g in grid:
+        idx = bisect_right(times, g) - 1
+        out.append(idx >= 0 and idx != prev_idx)
+        prev_idx = idx
+    return out
+
+
 def _build_grid(
     start: datetime, end: datetime, resample_minutes: int
 ) -> list[datetime]:
@@ -421,6 +463,14 @@ def train_model(
 
     grid = _build_grid(start, end, resample_minutes)
     load_vals = resample_last_value(load_events, grid)
+    # nimbus issue #350: see resample_observed_mask()'s own docstring --
+    # used below (the x_rows loop) to skip emitting a training ROW where
+    # the TARGET itself is a pure forward-fill carry-over, not a genuine
+    # new observation. Deliberately NOT applied to the seasonal_lookup
+    # table just below, which intentionally wants the widest possible
+    # real-data coverage regardless of whether a given point happens to
+    # also be freshly-observed (see that table's own comment).
+    load_observed = resample_observed_mask(load_events, grid)
 
     # Seasonal lookup (see TrainedModel.seasonal_lookup's own docstring) --
     # built from EVERY grid point with a real observed value, deliberately
@@ -545,6 +595,16 @@ def train_model(
             and math.isfinite(lag_short_v)
             and math.isfinite(lag_long_v)
         ):
+            continue
+        # nimbus issue #350: skip a row whose TARGET is a pure forward-
+        # fill carry-over, not a genuine new observation -- see
+        # resample_observed_mask()'s own docstring for the full "lag_
+        # short == y trivially, for sparse sources resampled onto a
+        # finer training grid" story this fixes. The row's own lag
+        # inputs (lag_short_v/lag_long_v above) can still legitimately
+        # be forward-filled -- only the target itself must be real, or
+        # the row is manufactured, not observed.
+        if not load_observed[i]:
             continue
         tv = temp_vals[i] if temp_vals[i] is not None else 22.0
         hv = humidity_vals[i] if humidity_vals[i] is not None else 50.0

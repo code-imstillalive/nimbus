@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.75] — 2026-09-04
+
+### Fixed
+- **A sparse signal resampled onto the finer training grid manufactured duplicate training rows, inflating reported accuracy** ([#350](https://github.com/code-imstillalive/nimbus/issues/350), thanks @purcell-lab). `resample_last_value()` forward-fills a source's last known value onto every grid point regardless of how sparse the real events are — for an hourly-cadence source (`training_source=lts`, or simply a load that doesn't update often) resampled onto the 15-minute training grid, three of every four consecutive grid points carried the identical forward-filled value. `train_model()`'s own `lag_short` feature ("the value one grid step ago") was then frequently the exact same underlying observation as the target itself, so the model was trivially rewarded for copying its own lag input rather than genuinely forecasting — reported live: 75% of rows had `lag_short` identical to the target, with GBRT's own validation MAE roughly half what the same data scored at its true, native hourly cadence. Also inflated `training_points` by the same ~4x, and contaminated the chronological train/validation split with duplicate rows straddling the boundary. Fixed with a new `resample_observed_mask()` helper marking exactly which grid points carry a genuinely new observation versus a pure forward-fill carry-over — `train_model()` now skips emitting a training row wherever the *target* isn't a fresh observation (a row's own lag inputs can still legitimately be forward-filled; only the target must be real). Applies generally, not just to `lts`/`hybrid` sources — a sparsely-updating load under the default `recorder` source gets the same correction, though in practice most recorder-backed sensors update often enough that this changes little there. Verified with a mutation test (reverted the fix, confirmed the new tests fail with the issue's own reported ~4x row-count inflation, restored it). 6 new regression tests.
+
 ## [0.94.74] — 2026-09-04
 
 ### Fixed
