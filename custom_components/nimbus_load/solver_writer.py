@@ -2615,6 +2615,45 @@ def read_load_forecast_sensor(
     return load_kw, load_lower_kw, load_upper_kw, None, coverage_hours
 
 
+def _is_transient_startup_load_forecast_error(error: str) -> bool:
+    """True for the specific shape of load_forecast_error that means
+    "this entity genuinely exists but hasn't published real data yet"
+    (a startup race -- RestoreEntity/coordinator not caught up, or a
+    real fetch failure while HA itself is still starting), as opposed
+    to a genuine, persistent misconfiguration.
+
+    nimbus issue #370 (Mark Purcell, codebase review): confirmed live,
+    a HA restart left sensor.nimbus_sigen_plant_total_load_power_forecast
+    briefly `unavailable` with zero attributes -- read_load_forecast_
+    sensor() correctly reported "no usable 'forecast' attribute (list-
+    valued attributes present: none)", but main() substituted a flat
+    0.0 kW load and published a confidently "optimal" plan (idle
+    battery, exactly zero-width cost band) for the ~3 minutes until the
+    sensor caught up. The zero-load fallback exists for a genuinely
+    MISCONFIGURED sensor (see the 90%-zeros circular-reference check in
+    read_load_forecast_sensor() above) -- a sensor that just hasn't
+    published its first real point yet is a completely different case
+    and should never be treated as "confirmed zero load."
+
+    Deliberately narrow: only matches the two shapes that specifically
+    mean "no real data reached us at all" (a raw fetch failure, or an
+    entity with LITERALLY NO list-valued attributes -- the exact
+    signature of a third-party entity restored into the state machine
+    as unavailable with its attributes wiped). Does NOT match a
+    present-but-empty forecast (explicitly a different, multi-day
+    "hasn't trained yet" case elsewhere in this file), a shape/key
+    mismatch (a real, persistent misconfiguration worth surfacing via
+    the persistent_notification below, not silently retrying forever),
+    or the 90%-zeros circular-reference message (explicitly, already, a
+    real misconfiguration diagnosis) -- all three keep the existing
+    zero-fallback + notification behaviour unchanged.
+    """
+    return (
+        "could not be read (" in error
+        or "list-valued attributes present: none)" in error
+    )
+
+
 def _notify_load_forecast_error_once(error: str) -> None:
     """Fires a real HA persistent_notification, but only once per
     genuinely NEW error message -- an unchanging misconfiguration
@@ -6143,6 +6182,23 @@ def main() -> None:
             cfg["solver_load_forecast_sensor"], grid_times, now
         )
         if load_forecast_error is not None:
+            # nimbus issue #370 (Mark Purcell, codebase review): a
+            # transient startup-race error (the entity exists but hasn't
+            # published real data yet) must never be silently treated as
+            # "confirmed zero load" -- raising here instead means this
+            # cycle publishes nothing (the sensor's own staleness
+            # watchdog handles the rest, same self-healing shape as the
+            # #365 config-sensor 404 fix), and the startup-retry loop
+            # (or just the next periodic tick) simply tries again once
+            # the source has real data. See _is_transient_startup_load_
+            # forecast_error()'s own docstring for exactly which error
+            # shapes this does/doesn't cover -- a genuine misconfiguration
+            # still falls through to the zero-fallback + notification
+            # below, unchanged.
+            if _is_transient_startup_load_forecast_error(load_forecast_error):
+                raise RuntimeError(
+                    f"Load forecast not ready yet: {load_forecast_error}"
+                )
             _LOGGER.warning("Nimbus Solver: %s", load_forecast_error)
             load_kw = [0.0] * n_periods
             load_lower_kw = [0.0] * n_periods

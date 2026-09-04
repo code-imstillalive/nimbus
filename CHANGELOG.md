@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.114] — 2026-09-05
+
+### Fixed
+- **#370 (High): a HA restart could publish a confidently-wrong zero-load "optimal" plan for a few minutes** ([#370](https://github.com/code-imstillalive/nimbus/issues/370), thanks @purcell-lab — found live, v0.94.69, 4 Sep 2026, via a real restart). When a third-party load-forecast sensor is restored into the state machine as `unavailable` with its attributes wiped (the normal shape right after a HA restart, before that integration's own first refresh lands), `main()`'s existing zero-load fallback -- designed for a genuinely *misconfigured* sensor -- treated "hasn't published yet" identically to "confirmed zero load", solving against a flat 0.0 kW household demand and publishing a plan with `status: optimal`, an idle battery, and an exactly zero-width cost band. Confirmed live: the battery sat idle through real evening prices for ~3 minutes until the next cycle found the sensor back and published a correct plan.
+  Fixed narrowly: a new `_is_transient_startup_load_forecast_error()` distinguishes the specific error shapes that mean "no real data reached us at all" (a raw fetch failure, or an entity with *no list-valued attributes whatsoever* -- the exact signature of a restored-unavailable entity) from a genuine, persistent misconfiguration (a present-but-empty forecast, a real shape/key mismatch, or the existing #118 90%-zeros circular-reference check) -- only the former now raises instead of substituting zero, so the cycle publishes nothing and self-heals on the next tick, exactly the same shape as #365's own config-sensor-404 fix. The latter three keep their existing zero-fallback + persistent_notification behavior unchanged, so a genuinely broken sensor still gets a real diagnostic rather than silently going quiet forever.
+  Verified two ways: exhaustive unit tests for the new classification function covering every error shape this file can produce, and a full end-to-end test driving the real `main()` with a comprehensive `ha_get` mock -- which, run against the pre-fix code, reproduced the exact live bug (`status=optimal ... summed_18_loads_now=0.00kW`, a real push to the state machine), then confirmed clean against the fix (raises, nothing published). Mutation-tested by reverting the fix and confirming the new test fails with the identical symptom seen live.
+
 ## [0.94.113] — 2026-09-05
 
 ### Fixed
