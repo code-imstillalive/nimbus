@@ -216,6 +216,34 @@ GBRT_QUANTILE_UPPER = 1 - GBRT_QUANTILE_LOWER
 NAIVE_SEASONAL_STEPS_PER_WEEK_DAYS = 7
 MIN_MASE_SCALE_POINTS = 20
 
+# Recursive multi-step validation (nimbus issue #351, Mark Purcell): scoring
+# model selection on one-step MAE with TRUE lags is apples-to-oranges --
+# both against the naive baseline's own multi-step ("one week ago")
+# forecast, AND against what predict() actually does in production. Past
+# LAG_LONG_STEPS grid-steps into any real forecast, predict()'s own lag
+# inputs are the MODEL'S OWN prior predictions, not ground truth (see this
+# module's top-of-file "Recursive multi-step forecast" comment) -- a
+# one-step comparison never exercises that self-feeding regime at all,
+# structurally flattering knn/gbrt (both benefit from a true near-term
+# lag every single validation row) while making the naive baseline
+# "almost never win" per issue #351's own title, independent of whether
+# naive would actually be the better DEPLOYED choice. Fixed by
+# additionally scoring every candidate over real, multi-hour ROLLING-
+# ORIGIN recursive windows within the validation region, using each
+# candidate's own self-generated lag chain the same way predict() does --
+# grid-index arithmetic here, not predict()'s own datetime/DST-safety
+# machinery, which is unneeded since this only ever runs against the
+# training grid's own already-DST-safe indices. model_type selection is
+# now based on THIS metric when it can be computed; the one-step
+# validation_mae above is still computed and exposed (diagnostics,
+# MASE scaling, back-compat) -- it just no longer decides the winner.
+RECURSIVE_VALIDATION_HORIZON_STEPS = 16
+# Capped, not "every possible origin in the validation region" -- bounds
+# this to a fixed, predictable extra cost (this runs synchronously in an
+# executor thread on every retrain) regardless of how large the
+# validation window happens to be for a given install/load.
+RECURSIVE_VALIDATION_MAX_ORIGINS = 30
+
 
 @dataclass
 class TrainedModel:
@@ -241,6 +269,16 @@ class TrainedModel:
     # history to compute a trustworthy scale -- an absent key is an
     # honest "couldn't compute this," not a fabricated number.
     validation_mase: dict[str, float] = field(default_factory=dict)
+    # Nimbus issue #351 (Mark Purcell): what actually DECIDES model_type
+    # now (see RECURSIVE_VALIDATION_HORIZON_STEPS's own comment above) --
+    # rolling-origin recursive multi-step MAE, the same self-feeding lag
+    # regime predict() itself runs in production, unlike validation_mae
+    # above (one-step, true lags, never used for selection since this
+    # issue). Empty dict when the validation region was too short to fit
+    # even one recursive window (same "genuinely can't compute yet, not
+    # broken" convention as validation_mase) -- model_type selection
+    # falls back to validation_mae in that case.
+    validation_recursive_mae: dict[str, float] = field(default_factory=dict)
     # Nimbus issue #113 (Mark Purcell, 2026-08-25): "if MASE is meant to
     # be computed, it isn't" -- validation_mase's own empty-dict-on-
     # insufficient-data behaviour (above) is correct by design, but
@@ -473,6 +511,68 @@ def _knn_predict_batch(
 
 def _mae(a: np.ndarray, b: np.ndarray) -> float:
     return float(np.mean(np.abs(a - b)))
+
+
+def _recursive_multistep_mae(
+    predict_at,
+    *,
+    grid: list[datetime],
+    load_vals: list[float | None],
+    load_observed: list[bool],
+    origins: list[int],
+    horizon_steps: int,
+    default_lag: float,
+) -> float | None:
+    """Rolling-origin recursive multi-step MAE (nimbus issue #351).
+
+    For each `origin` grid index, walks forward `horizon_steps` grid
+    points calling `predict_at(i, lag_short_v, lag_long_v)` for a
+    candidate's own prediction at index `i`. `lag_short_v`/`lag_long_v`
+    come from real history for any index at or before `origin`, and from
+    this SAME function's own earlier predictions for any index after it --
+    exactly the self-feeding lag chain predict() runs in production (see
+    RECURSIVE_VALIDATION_HORIZON_STEPS's own module-level comment), just
+    against grid-index arithmetic rather than predict()'s own datetime/
+    DST-safety machinery (unneeded here -- the training grid is already
+    DST-safe by construction).
+
+    `predict_at` is model-specific (k-NN/GBRT build a real feature row
+    and query their own fitted model; naive does a plain "one week ago"
+    lookup with `lag_long_v` as its fallback) -- this function owns only
+    the origin/recursion bookkeeping shared by all three candidates.
+
+    Returns None (not 0.0 or NaN) when no origin produced a single real,
+    observed comparison point -- an honest "couldn't compute this," not
+    a fabricated number silently treated as a genuine zero-error result.
+    """
+    errors: list[float] = []
+    for origin in origins:
+        generated: dict[int, float] = {}
+
+        def value_at(i: int, _origin: int = origin, _generated=generated) -> float:
+            if i <= _origin:
+                v = load_vals[i] if 0 <= i < len(load_vals) else None
+                if v is not None and math.isfinite(v):
+                    return v
+                return default_lag
+            return _generated.get(i, default_lag)
+
+        for i in range(origin + 1, min(origin + 1 + horizon_steps, len(grid))):
+            lag_short_v = value_at(i - LAG_SHORT_STEPS)
+            lag_long_v = value_at(i - LAG_LONG_STEPS)
+            pred = predict_at(i, lag_short_v, lag_long_v)
+            generated[i] = pred
+            actual = load_vals[i] if i < len(load_vals) else None
+            if (
+                actual is not None
+                and math.isfinite(actual)
+                and i < len(load_observed)
+                and load_observed[i]
+            ):
+                errors.append(abs(pred - actual))
+    if not errors:
+        return None
+    return float(np.mean(errors))
 
 
 def train_model(
@@ -716,6 +816,7 @@ def train_model(
 
     validation_mae: dict[str, float] = {}
     validation_mase: dict[str, float] = {}
+    recursive_mae: dict[str, float] = {}
     mase_scale_points = 0
     model_type = (
         "knn"  # safe default if validation set is too small to compare meaningfully
@@ -818,14 +919,138 @@ def train_model(
             "gbrt": validation_mae["gbrt"],
             "naive": validation_mae["naive"],
         }
-        model_type = min(candidate_mae, key=candidate_mae.get)
         _LOGGER.info(
-            "Model validation: knn_mae=%.4f gbrt_mae=%.4f naive_mae=%.4f -> using %s",
+            "Model validation (one-step): knn_mae=%.4f gbrt_mae=%.4f naive_mae=%.4f",
             validation_mae["knn"],
             validation_mae["gbrt"],
             validation_mae["naive"],
-            model_type,
         )
+
+        # Nimbus issue #351 (Mark Purcell): model_type is now decided by
+        # rolling-origin RECURSIVE multi-step MAE, not the one-step
+        # numbers just logged above -- see RECURSIVE_VALIDATION_HORIZON_
+        # STEPS's own module-level comment for the full "one-step scoring
+        # never exercises predict()'s own self-feeding lag regime, and
+        # structurally flatters knn/gbrt over naive" story. Falls back to
+        # the one-step candidate_mae only when the validation region is
+        # too short to fit a single recursive origin (see origins' own
+        # construction below) -- an honest degradation, not a silent one
+        # (recursive_mae stays {} in that case, visible on TrainedModel).
+        valid_origins = [int(idx) for idx in grid_idx_val if int(idx) + 1 < len(grid)]
+        if len(valid_origins) > RECURSIVE_VALIDATION_MAX_ORIGINS:
+            pick_every = len(valid_origins) / RECURSIVE_VALIDATION_MAX_ORIGINS
+            origins = [
+                valid_origins[int(k * pick_every)]
+                for k in range(RECURSIVE_VALIDATION_MAX_ORIGINS)
+            ]
+        else:
+            origins = valid_origins
+
+        if origins:
+            default_lag_val = float(np.mean(y_tr)) if len(y_tr) else 0.0
+
+            def _knn_predict_at(i: int, lag_short_v: float, lag_long_v: float) -> float:
+                tv = temp_vals[i] if temp_vals[i] is not None else 22.0
+                hv = humidity_vals[i] if humidity_vals[i] is not None else 50.0
+                cv = curtailment_vals[i] if curtailment_vals[i] is not None else 0.0
+                bv = battery_vals[i] if battery_vals[i] is not None else 0.0
+                gv = grid_vals[i] if grid_vals[i] is not None else 0.0
+                sv = solar_vals[i] if solar_vals[i] is not None else 0.0
+                row = np.array(
+                    [
+                        build_features(
+                            grid[i],
+                            tv,
+                            hv,
+                            lag_short_v,
+                            lag_long_v,
+                            cv,
+                            schedule_start_hour,
+                            schedule_end_hour,
+                            bv,
+                            gv,
+                            sv,
+                        )
+                    ],
+                    dtype=np.float64,
+                )
+                return float(_knn_predict_batch(x_mean, x_std, x_tr_std, y_tr, row)[0])
+
+            def _gbrt_predict_at(
+                i: int, lag_short_v: float, lag_long_v: float
+            ) -> float:
+                tv = temp_vals[i] if temp_vals[i] is not None else 22.0
+                hv = humidity_vals[i] if humidity_vals[i] is not None else 50.0
+                cv = curtailment_vals[i] if curtailment_vals[i] is not None else 0.0
+                bv = battery_vals[i] if battery_vals[i] is not None else 0.0
+                gv = grid_vals[i] if grid_vals[i] is not None else 0.0
+                sv = solar_vals[i] if solar_vals[i] is not None else 0.0
+                row = np.array(
+                    [
+                        build_features(
+                            grid[i],
+                            tv,
+                            hv,
+                            lag_short_v,
+                            lag_long_v,
+                            cv,
+                            schedule_start_hour,
+                            schedule_end_hour,
+                            bv,
+                            gv,
+                            sv,
+                        )
+                    ],
+                    dtype=np.float64,
+                )
+                row_std = (row - x_mean) / x_std
+                return float(gbrt_val.predict(row_std)[0])
+
+            def _naive_predict_at(
+                i: int, _lag_short_v: float, lag_long_v: float
+            ) -> float:
+                week_ago_idx = i - week_steps
+                week_val = load_vals[week_ago_idx] if week_ago_idx >= 0 else None
+                if week_val is not None and not math.isfinite(week_val):
+                    week_val = None
+                return week_val if week_val is not None else lag_long_v
+
+            for name, predict_at in (
+                ("knn", _knn_predict_at),
+                ("gbrt", _gbrt_predict_at),
+                ("naive", _naive_predict_at),
+            ):
+                mae_val = _recursive_multistep_mae(
+                    predict_at,
+                    grid=grid,
+                    load_vals=load_vals,
+                    load_observed=load_observed,
+                    origins=origins,
+                    horizon_steps=RECURSIVE_VALIDATION_HORIZON_STEPS,
+                    default_lag=default_lag_val,
+                )
+                if mae_val is not None:
+                    recursive_mae[name] = mae_val
+
+        if len(recursive_mae) == len(candidate_mae):
+            model_type = min(recursive_mae, key=recursive_mae.get)
+            _LOGGER.info(
+                "Model validation (recursive, %d origins x %d steps): "
+                "knn_mae=%.4f gbrt_mae=%.4f naive_mae=%.4f -> using %s",
+                len(origins),
+                RECURSIVE_VALIDATION_HORIZON_STEPS,
+                recursive_mae["knn"],
+                recursive_mae["gbrt"],
+                recursive_mae["naive"],
+                model_type,
+            )
+        else:
+            model_type = min(candidate_mae, key=candidate_mae.get)
+            _LOGGER.info(
+                "Too few origins for recursive validation -- falling back "
+                "to one-step selection -> using %s",
+                model_type,
+            )
 
         # MASE: validation_mae scaled by the TRAINING set's own mean
         # absolute week-over-week difference -- turns a raw kW error into
@@ -948,6 +1173,7 @@ def train_model(
         training_points=len(x_rows),
         validation_mae=validation_mae,
         validation_mase=validation_mase,
+        validation_recursive_mae=recursive_mae,
         mase_scale_points=mase_scale_points,
         resample_minutes=resample_minutes,
         training_span_days=round(training_span_days, 2),
