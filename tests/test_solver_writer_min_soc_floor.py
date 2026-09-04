@@ -144,23 +144,28 @@ class TestPathologicalMaxSocAlsoNearZero(unittest.TestCase):
 
 
 class TestWarnsOnlyWhenActuallyClamped(unittest.TestCase):
-    """A real, sane Min SoC must never print a spurious warning -- the
+    """A real, sane Min SoC must never log a spurious warning -- the
     same discipline already proven for resolve_max_discharge_kw()'s own
-    fallback warnings."""
+    fallback warnings.
+
+    nimbus issue #363 (Mark Purcell, codebase review): this warning used
+    to be a bare print(file=sys.stderr), invisible to HA's own log --
+    now a real _LOGGER.warning() call.
+    """
 
     def test_no_warning_for_a_normal_value(self):
-        with patch("builtins.print") as mock_print:
+        with patch.object(solver_writer, "_LOGGER") as mock_logger:
             solver_writer.resolve_min_soc_kwh(
                 min_pct=5.0, capacity_kwh=40.0, max_soc_kwh=40.0
             )
-            mock_print.assert_not_called()
+            mock_logger.warning.assert_not_called()
 
     def test_warning_fires_when_actually_clamped(self):
-        with patch("builtins.print") as mock_print:
+        with patch.object(solver_writer, "_LOGGER") as mock_logger:
             solver_writer.resolve_min_soc_kwh(
                 min_pct=0.0, capacity_kwh=40.0, max_soc_kwh=40.0
             )
-            mock_print.assert_called_once()
-            (msg,), _kwargs = mock_print.call_args
-            self.assertIn("WARN", msg)
+            mock_logger.warning.assert_called_once()
+            args, _kwargs = mock_logger.warning.call_args
+            msg = args[0] % args[1:]
             self.assertIn("Min SoC", msg)

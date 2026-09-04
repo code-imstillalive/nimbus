@@ -697,11 +697,11 @@ def resolve_max_discharge_kw(cfg: dict) -> float:
         try:
             return float(ha_get(live_entity)["attributes"]["max"])
         except (KeyError, TypeError, ValueError):
-            print(
-                f"WARN: solver_max_discharge_live_entity '{live_entity}' "
-                f"exists but has no usable numeric 'max' attribute -- "
-                f"falling back to solver_max_discharge_kw.",
-                file=sys.stderr,
+            _LOGGER.warning(
+                "Nimbus Solver: solver_max_discharge_live_entity '%s' exists "
+                "but has no usable numeric 'max' attribute -- falling back "
+                "to solver_max_discharge_kw.",
+                live_entity,
             )
     return float(cfg["solver_max_discharge_kw"])
 
@@ -748,15 +748,16 @@ def resolve_min_soc_kwh(
     min_soc_kwh = capacity_kwh * min_pct / 100.0
     if min_soc_kwh <= 0.0:
         floor_kwh = min(capacity_kwh * _MIN_SOC_FLOOR_FRACTION, max_soc_kwh)
-        print(
-            f"WARN: configured Min SoC ({min_pct:.2f}%) resolves to "
-            f"{min_soc_kwh:.4f} kWh, at or below zero -- the solver "
-            f"requires a strictly positive floor to stay solvable. "
-            f"Clamped to {floor_kwh:.4f} kWh for this solve "
-            f"(effectively no reserve, not a literal 0%). If you "
-            f"genuinely want a small real reserve instead, raise Min "
-            f"SoC above 0% on the dashboard.",
-            file=sys.stderr,
+        _LOGGER.warning(
+            "Nimbus Solver: configured Min SoC (%.2f%%) resolves to %.4f "
+            "kWh, at or below zero -- the solver requires a strictly "
+            "positive floor to stay solvable. Clamped to %.4f kWh for this "
+            "solve (effectively no reserve, not a literal 0%%). If you "
+            "genuinely want a small real reserve instead, raise Min SoC "
+            "above 0%% on the dashboard.",
+            min_pct,
+            min_soc_kwh,
+            floor_kwh,
         )
         return floor_kwh
     return min_soc_kwh
@@ -798,14 +799,15 @@ def safe_num(entity_id: str, fallback: float = 0.0) -> float:
     try:
         return float(ha_get(entity_id)["state"])
     except (KeyError, TypeError, ValueError) as e:
-        print(
-            f"WARN: entity '{entity_id}' has a non-numeric state -- "
-            f"could not parse it as a price/SoC value ({e}). Falling "
-            f"back to {fallback} for this solve. Check that this "
-            f"entity is genuinely configured correctly (a real price/"
-            f"SoC sensor, not something else that happens to share the "
-            f"name).",
-            file=sys.stderr,
+        _LOGGER.warning(
+            "Nimbus Solver: entity '%s' has a non-numeric state -- could "
+            "not parse it as a price/SoC value (%s). Falling back to %s "
+            "for this solve. Check that this entity is genuinely "
+            "configured correctly (a real price/SoC sensor, not "
+            "something else that happens to share the name).",
+            entity_id,
+            e,
+            fallback,
         )
         return fallback
 
@@ -1109,7 +1111,11 @@ def compute_cost_band(
             grid_import_limit_kw=import_limit_kw,
             grid_export_limit_kw=export_limit_kw,
         ).total_cost
-    except Exception:  # noqa: BLE001 -- cosmetic diagnostic, must never break the real solve
+    except Exception:
+        # nimbus issue #363 (Mark Purcell, codebase review): swallow stays
+        # (this is a read-only, best-effort diagnostic re-costing, never
+        # worth breaking the real solve over), but now with a breadcrumb.
+        _LOGGER.debug("Nimbus Solver: compute_cost_band failed", exc_info=True)
         return None
     return {
         "lower": round(lower_cost, 4),
@@ -1778,22 +1784,25 @@ def ha_post_state(entity_id: str, state, attributes: dict) -> None:
         # fallback for an entity_id that SHOULD have a registered
         # handler (which would mean the handler was unregistered
         # between two calls -- a real, different bug class from #83).
-        # print() kept for the standalone/cron/addon deployment (still
-        # zero HA imports there, and this trace is genuinely useful when
-        # tailing that process's own stdout). _LOGGER.debug() added
-        # alongside it (2026-08-27, live devhub recurrence of #85's own
-        # symptom on these same two entities, ~3x the expected write
-        # frequency per the recorder's own 16 KB-attrs WARNING counts) --
-        # purcell-lab's own suggested next capture on #85 was exactly
-        # this: "_LOGGER (not print) for ha_post_state, so it lands in
-        # error_log". Native-mode only (this whole branch already is),
-        # so the standalone/addon "zero HA imports" contract is untouched.
+        # nimbus issue #363 (Mark Purcell, codebase review): this used to
+        # ALSO print() unconditionally here, on top of the _LOGGER.debug()
+        # call below -- but this whole branch only ever executes when
+        # _NATIVE_HASS is not None, i.e. ONLY in native (in-process HA
+        # integration) mode, never the standalone/cron/addon deployment
+        # the removed comment claimed to be keeping it for (that path
+        # never sets _NATIVE_HASS at all). A native-mode user reads HA's
+        # own logs, not this container's raw stdout, so the print() was
+        # pure unconditional noise (8+ lines per cycle) with zero real
+        # audience -- _LOGGER.debug() alone already gives the identical
+        # trace, correctly gated by log level and visible via HA's own
+        # error_log/`logger: default: debug` exactly as issue #85's own
+        # original ask wanted ("_LOGGER (not print) for ha_post_state, so
+        # it lands in error_log").
         _trace_msg = (
             f"#85 trace: ha_post_state entity_id={entity_id} state={state!r} "
             f"attrs_keys={sorted(attributes.keys()) if attributes else attributes} "
             f"via_handler={handler is not None}"
         )
-        print(f"[{datetime.now(UTC).isoformat()}] {_trace_msg}")
         _LOGGER.debug(_trace_msg)
         if handler is not None:
             _NATIVE_HASS.add_job(functools.partial(handler, state, attributes))
@@ -1931,7 +1940,19 @@ def ha_call_service_with_response(domain: str, service: str, data: dict) -> dict
 
             future = asyncio.run_coroutine_threadsafe(_call(), _NATIVE_HASS.loop)
             return future.result(timeout=15)
-        except Exception:  # noqa: BLE001 -- see this function's own "deliberately swallows every failure" docstring line
+        except Exception:
+            # nimbus issue #363 (Mark Purcell, codebase review): the swallow
+            # itself is the correct, deliberate contract (see docstring) --
+            # what was missing is any breadcrumb AT ALL when it fires.
+            # DEBUG, not WARNING: a missing/unavailable weather-forecast
+            # service call is already an accepted, routine no-op for every
+            # caller here, not an operator-actionable condition on its own.
+            _LOGGER.debug(
+                "Nimbus Solver: ha_call_service_with_response(%s.%s) failed",
+                domain,
+                service,
+                exc_info=True,
+            )
             return None
     body = json.dumps(data).encode("utf-8")
     req = urllib.request.Request(
@@ -2142,9 +2163,10 @@ def fetch_load_forecast_safe(entity_id: str) -> tuple[list[dict] | None, str | N
         KeyError,
         json.JSONDecodeError,
     ) as e:
-        print(
-            f"WARN: {entity_id} unavailable ({e}) -- treating as 0.0 kW for this solve",
-            file=sys.stderr,
+        _LOGGER.warning(
+            "Nimbus Solver: %s unavailable (%s) -- treating as 0.0 kW for this solve",
+            entity_id,
+            e,
         )
         return None, f"{entity_id} unavailable ({e})"
 
@@ -2153,7 +2175,7 @@ def fetch_load_forecast_safe(entity_id: str) -> tuple[list[dict] | None, str | N
         entity_id, attrs
     )
     if error is not None:
-        print(f"WARN: {error} -- treating as 0.0 kW for this solve", file=sys.stderr)
+        _LOGGER.warning("Nimbus Solver: %s -- treating as 0.0 kW for this solve", error)
         return None, error
     return fc_dicts, None
 
@@ -2629,8 +2651,17 @@ def _notify_load_forecast_error_once(error: str) -> None:
         )
         with open(LOAD_FORECAST_ERROR_NOTIFIED_PATH, "w", encoding="utf-8") as f:
             f.write(error)
-    except Exception:  # noqa: BLE001, S110 -- a failed notification/sentinel-file write must never break the solve; nothing to log or react to beyond that
-        pass
+    except Exception:
+        # nimbus issue #363 (Mark Purcell, codebase review): the swallow
+        # stays (a failed notification must never break the real solve),
+        # but this used to have zero breadcrumb at all -- if this fires
+        # repeatedly, the household never gets the intended persistent
+        # notification about their own load-forecast misconfiguration,
+        # which is worth being able to diagnose.
+        _LOGGER.debug(
+            "Nimbus Solver: _notify_load_forecast_error_once failed",
+            exc_info=True,
+        )
 
 
 def resample_real_p2p_rate(
@@ -2704,7 +2735,16 @@ def resample_real_p2p_rate(
         return [0.0 for _ in grid_times]
     try:
         raw = ha_get(sensor_id)["attributes"]["forecast"]
-    except Exception:  # noqa: BLE001 -- a missing/malformed P2P forecast source degrades to a flat 0.0 array, never crashes the solve
+    except Exception:
+        # nimbus issue #363 (Mark Purcell, codebase review): the degrade-
+        # to-flat-0.0 behaviour stays, but this used to have zero
+        # breadcrumb -- a genuinely misconfigured/renamed P2P sensor would
+        # otherwise silently price every period as if no P2P program
+        # existed at all, with no way to tell that apart from "genuinely
+        # no P2P configured."
+        _LOGGER.debug(
+            "Nimbus Solver: resample_real_p2p_rate(%s) failed", sensor_id, exc_info=True
+        )
         return [0.0 for _ in grid_times]
 
     pts = []
@@ -2942,7 +2982,17 @@ def fetch_price_history(entity_id: str, days: int = 5) -> list[tuple[datetime, f
             future = asyncio.run_coroutine_threadsafe(_fetch(), _NATIVE_HASS.loop)
             changes = future.result(timeout=30)
             states = changes.get(entity_id, [])
-        except Exception:  # noqa: BLE001 -- a recorder read failure degrades to no price-band enrichment, never crashes the solve
+        except Exception:
+            # nimbus issue #363 (Mark Purcell, codebase review): degrade
+            # stays, breadcrumb added -- a recurring recorder failure here
+            # (API signature change after an HA upgrade, executor
+            # rejection) previously vanished with zero trace, the same
+            # silent-skip pattern #313/#314 fixed elsewhere in this file.
+            _LOGGER.debug(
+                "Nimbus Solver: fetch_price_history(%s) recorder read failed",
+                entity_id,
+                exc_info=True,
+            )
             return []
         out: list[tuple[datetime, float]] = []
         for s in states:
@@ -3065,7 +3115,14 @@ def resample_generic_price_forecast_with_coverage(
     """
     try:
         state = ha_get(entity_id)
-    except Exception:  # noqa: BLE001 -- see docstring: "never raises", caller falls back to the flat current-value repeat
+    except Exception:
+        # nimbus issue #363 (Mark Purcell, codebase review): fallback
+        # stays, breadcrumb added.
+        _LOGGER.debug(
+            "Nimbus Solver: resample_generic_price_forecast_with_coverage(%s) failed",
+            entity_id,
+            exc_info=True,
+        )
         return None
     forecast = state.get("attributes", {}).get("forecast")
     if not forecast:
@@ -3652,9 +3709,10 @@ def save_plan_state(
                 f,
             )
     except OSError as e:
-        print(
-            f"WARN: could not save plan state ({e}) -- next run will solve without stability continuity",
-            file=sys.stderr,
+        _LOGGER.warning(
+            "Nimbus Solver: could not save plan state (%s) -- next run will "
+            "solve without stability continuity",
+            e,
         )
 
 
@@ -3860,7 +3918,15 @@ def fetch_entity_history_range(
             future = asyncio.run_coroutine_threadsafe(_fetch(), _NATIVE_HASS.loop)
             changes = future.result(timeout=30)
             states = changes.get(entity_id, [])
-        except Exception:  # noqa: BLE001 -- a recorder read failure degrades to no history for this entity, never crashes the scoring cycle
+        except Exception:
+            # nimbus issue #363 (Mark Purcell, codebase review): degrade
+            # stays, breadcrumb added -- same reasoning as fetch_price_
+            # history()'s own identical recorder-bridge except above.
+            _LOGGER.debug(
+                "Nimbus Solver: fetch_entity_history_range(%s) recorder read failed",
+                entity_id,
+                exc_info=True,
+            )
             return []
         out: list[tuple[datetime, float]] = []
         for s in states:
@@ -4233,14 +4299,17 @@ def _compute_report_for_window(
     if not (min_soc_kwh_bound <= initial_soc_kwh_raw <= max_soc_kwh_bound) or not (
         min_soc_kwh_bound <= final_soc_kwh_raw <= max_soc_kwh_bound
     ):
-        print(
-            f"WARN: historical SoC outside configured "
-            f"[{min_pct:.2f}%, {max_pct:.2f}%] envelope for this scorer window "
-            f"(start {initial_pct:.2f}%, end {final_pct:.2f}%) -- scoring the real "
-            f"trajectory honestly, both J_ref and J_ach see this true state. Usual "
-            f"real causes: a template-averaged SoC sensor (an EV-charger channel "
-            f"reading 0% when unplugged), a fault, a cold pack, or a recorder gap.",
-            file=sys.stderr,
+        _LOGGER.warning(
+            "Nimbus Solver: historical SoC outside configured [%.2f%%, %.2f%%] "
+            "envelope for this scorer window (start %.2f%%, end %.2f%%) -- "
+            "scoring the real trajectory honestly, both J_ref and J_ach see "
+            "this true state. Usual real causes: a template-averaged SoC "
+            "sensor (an EV-charger channel reading 0%% when unplugged), a "
+            "fault, a cold pack, or a recorder gap.",
+            min_pct,
+            max_pct,
+            initial_pct,
+            final_pct,
         )
     # A genuinely PHYSICAL clamp still has to stay here, unlike the
     # scheduling-envelope clamp removed above: elements.BatteryConfig
@@ -4256,23 +4325,25 @@ def _compute_report_for_window(
     # valid but out-of-schedule state before the LP ever sees it).
     if not (0.0 <= initial_soc_kwh_raw <= capacity_kwh):
         initial_soc_kwh = min(max(initial_soc_kwh_raw, 0.0), capacity_kwh)
-        print(
-            f"WARN: historical starting SoC ({initial_pct:.2f}%) is outside the "
-            f"battery's own PHYSICAL range [0%, 100%] -- clamping to "
-            f"{initial_soc_kwh:.4f} kWh to keep this scorer alive. This is sensor "
-            f"nonsense (calibration drift, a template-averaging overshoot), not a "
-            f"real state -- investigate the sensor if this recurs.",
-            file=sys.stderr,
+        _LOGGER.warning(
+            "Nimbus Solver: historical starting SoC (%.2f%%) is outside the "
+            "battery's own PHYSICAL range [0%%, 100%%] -- clamping to %.4f "
+            "kWh to keep this scorer alive. This is sensor nonsense "
+            "(calibration drift, a template-averaging overshoot), not a "
+            "real state -- investigate the sensor if this recurs.",
+            initial_pct,
+            initial_soc_kwh,
         )
     if not (0.0 <= final_soc_kwh_raw <= capacity_kwh):
         final_soc_kwh_actual = min(max(final_soc_kwh_raw, 0.0), capacity_kwh)
-        print(
-            f"WARN: historical ending SoC ({final_pct:.2f}%) is outside the "
-            f"battery's own PHYSICAL range [0%, 100%] -- clamping to "
-            f"{final_soc_kwh_actual:.4f} kWh to keep this scorer alive. This is "
-            f"sensor nonsense (calibration drift, a template-averaging overshoot), "
-            f"not a real state -- investigate the sensor if this recurs.",
-            file=sys.stderr,
+        _LOGGER.warning(
+            "Nimbus Solver: historical ending SoC (%.2f%%) is outside the "
+            "battery's own PHYSICAL range [0%%, 100%%] -- clamping to %.4f "
+            "kWh to keep this scorer alive. This is sensor nonsense "
+            "(calibration drift, a template-averaging overshoot), not a "
+            "real state -- investigate the sensor if this recurs.",
+            final_pct,
+            final_soc_kwh_actual,
         )
 
     # Flat economics only -- deliberately NOT the household-specific
@@ -5114,7 +5185,14 @@ def compute_nimbus_only_soc_counterfactual(cfg: dict, day: datetime) -> dict | N
                 loads=loads,
                 smoothness_weight=network.DEFAULT_SMOOTHNESS_WEIGHT_KW,
             )
-        except Exception:  # noqa: BLE001 -- one bad/infeasible tick must not sink the whole day's replay; hold SoC unchanged and keep going, same convention as the reference script
+        except Exception:
+            # nimbus issue #363 (Mark Purcell, codebase review): the
+            # freeze-and-continue behaviour stays, breadcrumb added.
+            _LOGGER.debug(
+                "Nimbus Solver: compute_nimbus_only_soc_counterfactual "
+                "tick solve failed",
+                exc_info=True,
+            )
             plan = None
 
         if plan is not None and plan.status == "optimal":
@@ -5928,16 +6006,15 @@ def main() -> None:
         # other genuinely-optional input in this file. A loud WARNING
         # (not a silent fallback) still fires so this is visible in the
         # log, same as the load-forecast equivalent.
-        print(
-            "WARN: no solar forecast source produced any real data this "
-            "cycle (all configured sources unavailable, or none "
+        _LOGGER.warning(
+            "Nimbus Solver: no solar forecast source produced any real "
+            "data this cycle (all configured sources unavailable, or none "
             "configured) -- solving with a flat 0.0 kW solar placeholder "
             "instead of refusing to solve. This is expected and harmless "
             "overnight (0.0 kW solar overnight is the correct real value "
             "regardless); if this fires during genuine daylight hours, "
             "check that at least one solver_solar_forecast_sensor_*/"
-            "auto-include-known-solar source is configured and reachable.",
-            file=sys.stderr,
+            "auto-include-known-solar source is configured and reachable."
         )
         solar_values = [np.zeros(n_periods)]
         solar_lowers = [np.zeros(n_periods)]
@@ -6066,7 +6143,7 @@ def main() -> None:
             cfg["solver_load_forecast_sensor"], grid_times, now
         )
         if load_forecast_error is not None:
-            print(f"WARN: {load_forecast_error}", file=sys.stderr)
+            _LOGGER.warning("Nimbus Solver: %s", load_forecast_error)
             load_kw = [0.0] * n_periods
             load_lower_kw = [0.0] * n_periods
             load_upper_kw = [0.0] * n_periods
@@ -6112,7 +6189,9 @@ def main() -> None:
             KeyError,
             json.JSONDecodeError,
         ) as e:
-            print(f"WARN: whole-house cross-check unavailable ({e})", file=sys.stderr)
+            _LOGGER.warning(
+                "Nimbus Solver: whole-house cross-check unavailable (%s)", e
+            )
             whole_house_now_kw = None
     summed_18_now_kw = load_kw[0]
 
@@ -6255,8 +6334,12 @@ def main() -> None:
     # publish must never be allowed to break the actual solve.
     try:
         publish_weather_forecast_mirrors(cfg)
-    except Exception:  # noqa: BLE001, S110 -- cosmetic-only, see comment above
-        pass
+    except Exception as e:  # noqa: BLE001 -- see comment above; must never break the real solve
+        # nimbus issue #363 (Mark Purcell, codebase review): same "bare
+        # pass hid a real, diagnosable bug for days" lesson as the four
+        # sibling publishes below -- now logged instead of silently
+        # swallowed.
+        _LOGGER.warning("Nimbus: weather forecast mirror publish failed: %s", e)
 
     # Built-in EPR/regret/tracking quality score (2026-08-25) -- own
     # cheap idempotency check means this is safe to call every cycle;
@@ -6303,7 +6386,11 @@ def main() -> None:
     # update_solar_delivery_ratio()'s own docstring (nimbus issue #128).
     try:
         solar_delivery = update_solar_delivery_ratio(cfg, now, grid_times, solar_kw)
-    except Exception:  # noqa: BLE001 -- see comment above
+    except Exception as e:  # noqa: BLE001 -- see comment above; must never break the real solve
+        # nimbus issue #363 (Mark Purcell, codebase review): same "bare
+        # pass hid a real, diagnosable bug for days" lesson as the
+        # publishes above -- now logged instead of silently swallowed.
+        _LOGGER.warning("Nimbus: solar delivery ratio update failed: %s", e)
         solar_delivery = None
 
     # Two paths, gated on whether a rich, forecast-array-shaped price
@@ -6772,15 +6859,17 @@ def main() -> None:
         _initial_pct_raw = (
             initial_soc_kwh_raw / capacity_kwh * 100.0 if capacity_kwh > 0 else 0.0
         )
-        print(
-            f"WARN: live battery SoC {_initial_pct_raw:.2f}% is outside the "
-            f"configured Solver floor/ceiling [{min_pct:.2f}%, {max_pct:.2f}%] "
-            f"-- the LP is scheduling real recovery this cycle rather than "
-            f"having this state clamped away. If this repeats every period "
-            f"the real battery is stuck outside its own configured range "
-            f"(fault, cold pack, sensor drift) -- investigate rather than "
-            f"lower the floor.",
-            file=sys.stderr,
+        _LOGGER.warning(
+            "Nimbus Solver: live battery SoC %.2f%% is outside the "
+            "configured Solver floor/ceiling [%.2f%%, %.2f%%] -- the LP is "
+            "scheduling real recovery this cycle rather than having this "
+            "state clamped away. If this repeats every period the real "
+            "battery is stuck outside its own configured range (fault, "
+            "cold pack, sensor drift) -- investigate rather than lower the "
+            "floor.",
+            _initial_pct_raw,
+            min_pct,
+            max_pct,
         )
     # A genuinely PHYSICAL clamp still has to stay, same reasoning as
     # _compute_report_for_window()'s own site (see that comment) --
@@ -6791,13 +6880,14 @@ def main() -> None:
     # 27+-crashes-per-window incident did.
     if not (0.0 <= initial_soc_kwh_raw <= capacity_kwh):
         initial_soc_kwh = min(max(initial_soc_kwh_raw, 0.0), capacity_kwh)
-        print(
-            f"WARN: live battery SoC reading is outside the battery's own "
-            f"PHYSICAL range [0, {capacity_kwh:.2f} kWh] -- clamping to "
-            f"{initial_soc_kwh:.4f} kWh to keep this solve alive. This is sensor "
-            f"nonsense (calibration drift, a template-averaging overshoot), not a "
-            f"real state -- investigate the sensor if this recurs.",
-            file=sys.stderr,
+        _LOGGER.warning(
+            "Nimbus Solver: live battery SoC reading is outside the "
+            "battery's own PHYSICAL range [0, %.2f kWh] -- clamping to "
+            "%.4f kWh to keep this solve alive. This is sensor nonsense "
+            "(calibration drift, a template-averaging overshoot), not a "
+            "real state -- investigate the sensor if this recurs.",
+            capacity_kwh,
+            initial_soc_kwh,
         )
     charge_discharge_efficiency = (
         min(_cfg_num(cfg, "solver_efficiency_percent", 95.0) / 100.0, 0.999) ** 0.5
@@ -7040,12 +7130,12 @@ def main() -> None:
         _violation_mask = _fixed_mask & (plan.battery_charge_kw > 0.05)
         _n_violations = int(np.sum(_violation_mask))
         if _n_violations > 0:
-            print(
-                f"[{now.isoformat()}] *** WARNING: solver returned {_n_violations} "
-                f"period(s) with battery_charge_kw>0 during a committed "
-                f"fixed_export_kw period -- mathematically should be impossible, "
-                f"applying defensive clamp before push. ***",
-                file=sys.stderr,
+            _LOGGER.warning(
+                "Nimbus Solver: solver returned %d period(s) with "
+                "battery_charge_kw>0 during a committed fixed_export_kw "
+                "period -- mathematically should be impossible, applying "
+                "defensive clamp before push.",
+                _n_violations,
             )
             net_battery = np.where(
                 _violation_mask, plan.battery_discharge_kw, net_battery

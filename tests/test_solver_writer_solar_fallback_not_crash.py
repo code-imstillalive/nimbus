@@ -82,8 +82,12 @@ def test_no_solar_data_still_logs_a_loud_warning():
     """The fix must not silently swallow the condition -- a genuine
     all-sources-down scenario during real daylight hours should still
     be visible in the log, same discipline as every other optional-
-    input fallback in this file (e.g. the load-forecast equivalent)."""
+    input fallback in this file (e.g. the load-forecast equivalent).
+
+    nimbus issue #363 (Mark Purcell, codebase review): this used to be a
+    bare print(file=sys.stderr), invisible to HA's own log -- now a real
+    _LOGGER.warning() call.
+    """
     src = _SOLVER_WRITER_PY.read_text(encoding="utf-8")
     block = _extract_no_solar_data_block(src)
-    assert "WARN" in block
-    assert "file=sys.stderr" in block
+    assert "_LOGGER.warning(" in block

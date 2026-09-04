@@ -36,18 +36,21 @@ class TestMarksExactRealRepro(unittest.TestCase):
         self.assertEqual(result, 0.0)  # the default fallback
 
     def test_warns_with_the_entity_id_and_bad_value_named(self):
+        # nimbus issue #363 (Mark Purcell, codebase review): this warning
+        # used to be a bare print(file=sys.stderr), invisible to HA's own
+        # log -- now a real _LOGGER.warning() call.
         with (
             patch.object(
                 solver_writer,
                 "ha_get",
                 return_value={"state": "2026-08-24T13:00:00+10:00"},
             ),
-            patch("builtins.print") as mock_print,
+            patch.object(solver_writer, "_LOGGER") as mock_logger,
         ):
             solver_writer.safe_num("sensor.misconfigured_export_price")
-            mock_print.assert_called_once()
-            (msg,), _kwargs = mock_print.call_args
-            self.assertIn("WARN", msg)
+            mock_logger.warning.assert_called_once()
+            args, _kwargs = mock_logger.warning.call_args
+            msg = args[0] % args[1:]
             self.assertIn("sensor.misconfigured_export_price", msg)
 
 
@@ -68,10 +71,10 @@ class TestNormalNumericStatesPassThroughUnchanged(unittest.TestCase):
     def test_no_warning_for_a_normal_value(self):
         with (
             patch.object(solver_writer, "ha_get", return_value={"state": "0.15"}),
-            patch("builtins.print") as mock_print,
+            patch.object(solver_writer, "_LOGGER") as mock_logger,
         ):
             solver_writer.safe_num("sensor.real_export_price")
-            mock_print.assert_not_called()
+            mock_logger.warning.assert_not_called()
 
 
 class TestOtherRealFailureShapes(unittest.TestCase):
