@@ -24,8 +24,13 @@ with units, plus the terms you omit. Anything absent from J cannot
 appear in regret.")
 
     J = sum_t [ p_buy(t)*g_import(t)*dt(t)  -  p_sell(t)*g_export(t)*dt(t)
-              + c_chg*p_chg(t)*dt(t)  +  c_dis*p_dis(t)*dt(t) ]
+              + (c_chg + c_deg)*p_chg(t)*dt(t)  +  (c_dis + c_deg)*p_dis(t)*dt(t) ]
         - v_salv * E(T)
+
+c_deg (`degradation_cost_per_kwh`) mirrors network.py's own live LP
+objective exactly -- added to BOTH charge and discharge cost terms,
+zero by default (a complete no-op for any install that doesn't
+configure it).
 
 All monetary terms in $ (AUD, matching this household's real currency);
 p_buy/p_sell in $/kWh; g_import/g_export/p_chg/p_dis in kW; dt(t) in
@@ -41,8 +46,16 @@ actually IN J, not about total household welfare):**
 - No demand-charge / peak-kW tariff term (this household's real Energex
   tariff, per this project's own CLAUDE.md, is TOU energy-rate based;
   not independently re-verified here as demand-charge-free).
-- No battery degradation/cycle-life cost beyond the linear c_chg/c_dis
-  friction terms already in J -- no explicit capacity-fade curve.
+- No explicit capacity-fade / cycle-life CURVE (only a flat, linear
+  $/kWh-throughput friction term, `degradation_cost_per_kwh` --
+  identical in form to `c_chg`/`c_dis` and, since nimbus issue #336
+  (Mark Purcell's live-dashboard finding, 2026-09-04), genuinely
+  included in J below rather than silently dropped. Before that fix,
+  this evaluator priced `c_chg`/`c_dis` only, while `network.py`'s own
+  live LP additionally added `degradation_cost_per_kwh` to both -- a
+  real install with that field configured nonzero (e.g. 3c/kWh) had its
+  real dispatch optimizing against a DIFFERENT, more expensive J than
+  the one this file's own regret/EPR numbers claimed to measure).
 - No comfort/inconvenience cost for sheddable loads (this household has
   zero real sheddable loads configured today; SheddableLoadConfig's own
   shed_cost would need real calibration if that changed).
@@ -158,6 +171,7 @@ def evaluate_realized_cost(
     grid_export_limit_kw: float,
     terminal_value_breakpoints: list[tuple[float, float]] | None = None,
     battery_min_soc_kwh: float | None = None,
+    degradation_cost_per_kwh: float = 0.0,
 ) -> RealizedCost:
     """J evaluated against REALIZED ground truth for a given (committed
     battery) dispatch trajectory. grid_import/export and solar_used are
@@ -227,9 +241,21 @@ def evaluate_realized_cost(
     to re-decide curtailment after the fact.
     """
     n = len(hours)
-    charge_cost_arr = np.broadcast_to(np.asarray(charge_cost, dtype=np.float64), (n,))
-    discharge_cost_arr = np.broadcast_to(
-        np.asarray(discharge_cost, dtype=np.float64), (n,)
+    # nimbus issue #336 (Mark Purcell's live-dashboard finding,
+    # 2026-09-04): degradation_cost_per_kwh added to BOTH charge and
+    # discharge cost arrays, mirroring network.py's own live LP
+    # objective exactly (`(charge_cost_arr[t] + battery.degradation_
+    # cost_per_kwh) * hours[t]`, same for discharge) -- see this
+    # function's own docstring and the module's "J, stated explicitly"
+    # section for the full story. Zero by default: a complete no-op for
+    # any install that doesn't configure this field.
+    charge_cost_arr = (
+        np.broadcast_to(np.asarray(charge_cost, dtype=np.float64), (n,))
+        + degradation_cost_per_kwh
+    )
+    discharge_cost_arr = (
+        np.broadcast_to(np.asarray(discharge_cost, dtype=np.float64), (n,))
+        + degradation_cost_per_kwh
     )
     solar_used = solar_real_kw
     net_needed = (

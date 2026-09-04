@@ -44,6 +44,14 @@
 # Ruff config itself lives in pyproject.toml (added in #69), so hooks
 # and CI read the same ruleset.
 
+# nimbus issue #358 (Mark Purcell) flagged this as mismatched against
+# requires-python (">=3.14.4"). Left at 3.12 deliberately -- see
+# pyproject.toml's own [tool.ruff] target-version comment for why:
+# bumping ruff's target-version to match 3.14 turned out to make ruff
+# format rewrite every multi-exception `except (A, B):` into 3.14-only
+# unparenthesized syntax, which breaks local dev on any machine that
+# isn't already on 3.14. Revisit both together once local dev
+# environments are confirmed upgraded.
 default_language_version:
   python: python3.12
 

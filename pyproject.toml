@@ -150,24 +150,20 @@ filterwarnings = [
     # narrow so real regressions still surface.
     "ignore::DeprecationWarning:homeassistant.*",
     "ignore::PendingDeprecationWarning:homeassistant.*",
-    # Real root cause of the #92 "0 live entity instances" / "Setup
-    # failed for dependencies: ['http']" CI failure (2026-08-23), found
-    # by reading the full job log, not guessed: HA core's own stock
-    # http component does `self.app["hass"] = self.hass` (a plain
-    # string key) at homeassistant/components/http/server.py:290 --
-    # unrelated to anything in this repo's own diff. Current aiohttp
-    # (3.14.3, whatever pip resolves against homeassistant==2026.8.3;
-    # neither package hard-pins the other) treats that as soft-
-    # deprecated and calls warnings.warn(NotAppKeyWarning). `"error"`
-    # above promotes it to a hard exception, which crashes http's own
-    # setup and cascades into nimbus_load failing (http is a declared
-    # manifest dependency, needed for frontend.py's static-path
-    # registration). This is HA core's own internal housekeeping
-    # warning, not a signal about anything we own -- same reasoning as
-    # the two ignores immediately above, just scoped to aiohttp instead
-    # of homeassistant.* since the warning is raised from inside
-    # aiohttp's own web_app.py, not HA's.
-    "ignore::aiohttp.web_exceptions.NotAppKeyWarning",
+    # The aiohttp.web_exceptions.NotAppKeyWarning ignore (root cause:
+    # #92's "0 live entity instances" CI failure) used to live here as a
+    # dotted-path ignore entry -- but nimbus issue #358 (Mark Purcell):
+    # resolving a THIRD-PARTY dotted warning-category path here happens
+    # during pytest's own config bootstrap, which imports aiohttp to do
+    # it. aiohttp is only ever installed transitively via the [dev]
+    # extra's homeassistant/pytest-homeassistant-custom-component deps,
+    # never a base [project.dependencies] requirement -- a fresh clone
+    # with only `pip install -e .` (no [dev]) aborts ALL test collection
+    # with "Failed to import filter module 'aiohttp'" before a single
+    # test runs. Moved to tests/conftest.py's own pytest_configure hook
+    # (guarded by a plain ImportError catch) so it degrades to a no-op
+    # instead of a hard abort when aiohttp genuinely isn't installed --
+    # see that hook's own docstring for the full story.
 ]
 
 # ---------------------------------------------------------------------------
@@ -183,6 +179,22 @@ filterwarnings = [
 # ---------------------------------------------------------------------------
 
 [tool.ruff]
+# nimbus issue #358 (Mark Purcell): flagged that this says "py312" while
+# requires-python above says ">=3.14.4" and CI/tests pin
+# homeassistant==2026.8.3 (which runs 3.14). Tried bumping this to
+# "py314" and found a real reason NOT to, worth recording: ruff's
+# formatter treats target-version >=3.14 as license to rewrite every
+# multi-exception `except (A, B):` into PEP 758's new unparenthesized
+# `except A, B:` form, which is a SyntaxError on any Python before 3.14
+# -- this project's own local dev workflow (tests/run_all.py, direct
+# pytest/unittest invocations) runs on whatever Python is actually
+# installed on the machine, not necessarily 3.14 yet. Bumping this
+# would silently make the whole tree unparseable locally the moment
+# ruff format ever ran, while still passing CI (which does run 3.14) --
+# exactly the kind of gap a "just match requires-python" fix can open
+# without also confirming every real local dev environment is already
+# on the same interpreter version. Left at py312 deliberately until
+# local dev environments are confirmed on 3.14 too.
 target-version = "py312"
 extend-exclude = [
     "__pycache__",

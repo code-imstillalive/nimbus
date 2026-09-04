@@ -196,6 +196,7 @@ def compute_quality_report(
         grid_export_limit_kw=grid_residual.export_limit_kw,
         terminal_value_breakpoints=battery.terminal_value_breakpoints,
         battery_min_soc_kwh=battery.min_soc_kwh,
+        degradation_cost_per_kwh=battery.degradation_cost_per_kwh,
     )
     j_ref = j_ref_result.total_cost
 
@@ -215,6 +216,7 @@ def compute_quality_report(
         grid_export_limit_kw=grid_residual.export_limit_kw,
         terminal_value_breakpoints=battery.terminal_value_breakpoints,
         battery_min_soc_kwh=battery.min_soc_kwh,
+        degradation_cost_per_kwh=battery.degradation_cost_per_kwh,
     )
     j_ach = j_ach_residual.total_cost - real_p2p_dollars_earned
 

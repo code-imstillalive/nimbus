@@ -14,6 +14,11 @@ on:
     branches: [main]
   pull_request:
 
+# nimbus issue #358 (Mark Purcell): read-only checkout + validator, never
+# writes anything -- least-privilege default token scope.
+permissions:
+  contents: read
+
 jobs:
   validate:
     if: github.event.repository.visibility != 'private'

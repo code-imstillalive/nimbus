@@ -36,6 +36,14 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# nimbus issue #358 (Mark Purcell): this workflow only reads the repo and
+# runs checks -- it never needs to write anything (no releases, no PR
+# comments). Declaring the default GITHUB_TOKEN read-only here is the
+# standard least-privilege hardening for a workflow that can run against
+# a pull_request from a fork.
+permissions:
+  contents: read
+
 jobs:
 
   # ---------------------------------------------------------------------------

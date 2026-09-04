@@ -4124,6 +4124,22 @@ def _compute_report_for_window(
         ** 0.5,
         charge_cost=_cfg_num(cfg, "solver_charge_cost", 0.01),
         discharge_cost=np.full(n_periods, _cfg_num(cfg, "solver_discharge_cost", 0.01)),
+        # nimbus issue #336 (Mark Purcell's live-dashboard finding,
+        # 2026-09-04): this scorer's own battery config never populated
+        # degradation_cost_per_kwh at all, defaulting it to 0.0 -- so
+        # j_ref/j_ach (via evaluate_realized_cost(), regret.py) and
+        # j_star/the oracle (via build_plan(), network.py) all scored
+        # a battery that cycles for free, while main()'s own REAL live
+        # dispatch battery config (see its matching comment) prices this
+        # field for real. For an install with it configured nonzero
+        # (e.g. 3c/kWh), the oracle in particular over-cycled for "free"
+        # arbitrage the real household would never actually find
+        # worthwhile net of degradation -- inflating regret_dollars.
+        # Threading the same real value through here means j_ref/j_ach/
+        # j_star all price the SAME battery physics, matching the
+        # comment on charge_efficiency/discharge_efficiency above about
+        # why that parity matters for EPR/regret to mean anything.
+        degradation_cost_per_kwh=_cfg_num(cfg, "solver_degradation_cost_per_kwh", 0.0),
         # ZERO, not the configured forward-planning solver_salvage_value, and
         # deliberately no terminal_value_breakpoints either (issue: EPR>100%,
         # negative regret_dollars, reported live 2026-08-29/30). This scorer

@@ -4,11 +4,12 @@
   "after_dependencies": ["energy"],
   "codeowners": ["@code-imstillalive"],
   "config_flow": true,
-  "dependencies": ["http", "recorder"],
+  "dependencies": ["frontend", "http", "recorder"],
   "documentation": "https://github.com/code-imstillalive/nimbus",
   "integration_type": "service",
   "iot_class": "calculated",
   "issue_tracker": "https://github.com/code-imstillalive/nimbus/issues",
   "requirements": ["numpy>=1.24,<3", "highspy>=1.15.1,<2"],
-  "version": "0.94.75"
+  "single_config_entry": true,
+  "version": "0.94.76"
 }
