@@ -11,5 +11,5 @@
   "issue_tracker": "https://github.com/code-imstillalive/nimbus/issues",
   "requirements": ["numpy>=1.24,<3", "highspy>=1.15.1,<2"],
   "single_config_entry": true,
-  "version": "0.94.97"
+  "version": "0.94.98"
 }

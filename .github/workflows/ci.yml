@@ -44,6 +44,15 @@ concurrency:
 permissions:
   contents: read
 
+# nimbus issue #358 (Mark Purcell): every `uses:` across all 4 workflow
+# files in this repo is pinned to a full commit SHA, not a mutable tag or
+# branch (`@v5`, `@master`, `@main`) -- a floating reference can start
+# running different, unreviewed code on this repo's own default GITHUB_
+# TOKEN at any time, with no diff to review and no way to pin back to
+# "what CI ran yesterday." The `# vX.Y.Z` (or, for the two actions with
+# no real semver tag, `# master @ <date>`) trailing comment on each pin
+# is what a human (or Dependabot/Renovate, if configured later) reads to
+# know what the SHA actually corresponds to and bump it deliberately.
 jobs:
 
   # ---------------------------------------------------------------------------
@@ -57,9 +66,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
       - name: Run hassfest
-        uses: home-assistant/actions/hassfest@master
+        uses: home-assistant/actions/hassfest@a7c616ce81ccda50150bf1595786c71b1883fabb # master @ 2026-09-05
 
   # ---------------------------------------------------------------------------
   # STRICT: Lint (ruff format + ruff check).
@@ -74,9 +83,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.14"
       - name: Install ruff
@@ -104,9 +113,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.14"
       - name: Install mypy
@@ -133,9 +142,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out code
-        uses: actions/checkout@v5
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
       - name: Set up Python
-        uses: actions/setup-python@v7
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.14"
       - name: Install dev dependencies
@@ -182,17 +191,30 @@ jobs:
             --cov-report=xml \
             -v
       - name: Run pytest (real HA harness, hass_integration only)
+        # nimbus issue #358 (Mark Purcell): --cov-fail-under is a real
+        # ratchet, not a symbolic gesture -- this is the SECOND (--cov-
+        # append) invocation, so the fail-under check here evaluates the
+        # FULL combined coverage across both pytest runs, not just this
+        # one's own slice. 75% is a deliberately conservative floor
+        # below the ~80% the stub-based run alone already measures
+        # locally (the combined CI number, stub + real-HA-harness, is
+        # expected to be at or above that) -- enough margin that a
+        # legitimate, small, real coverage dip from adding a genuinely
+        # hard-to-test code path doesn't false-fail CI, while still
+        # catching a real regression (e.g. a large deleted/skipped test
+        # file) before it merges silently.
         run: |
           pytest tests/hass_integration/ \
             --cov=custom_components/nimbus_load \
             --cov-append \
             --cov-report=term-missing \
             --cov-report=xml \
+            --cov-fail-under=75 \
             -v
       - name: Upload coverage artifact
         if: always()
         continue-on-error: true
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.0
         with:
           name: coverage-report
           path: coverage.xml
