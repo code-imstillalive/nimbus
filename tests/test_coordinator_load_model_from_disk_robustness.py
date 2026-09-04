@@ -101,6 +101,39 @@ class TestLoadModelFromDiskRobustness(unittest.TestCase):
         coord = _make_coordinator(self._model_path)
         self.assertIsNone(coord._load_model_from_disk())
 
+    def test_a_wrong_schema_version_returns_none_not_raise(self):
+        """nimbus issue #366 finding 3: a persisted model whose schema_
+        version doesn't match the current code's own TRAINED_MODEL_SCHEMA_
+        VERSION is a real, meaning-changing incompatibility (not just a
+        feature-count mismatch) -- must discard and retrain fresh, the
+        same self-healing fallback as the feature-count check above."""
+        trained = _real_trained_model()
+        object.__setattr__(trained, "schema_version", -1)
+        self._model_path.write_bytes(pickle.dumps(trained))
+        coord = _make_coordinator(self._model_path)
+        self.assertIsNone(coord._load_model_from_disk())
+
+    def test_a_pre_versioning_pickle_missing_schema_version_returns_none(self):
+        """A pickle written before schema_version existed at all has no
+        such key in its restored __dict__ -- TrainedModel.__setstate__
+        backfills it to 0, which always mismatches any real current
+        version, so this self-heals via one retrain rather than being
+        silently trusted forever."""
+        old = object.__new__(TrainedModel)
+        old.__dict__ = {
+            "model_type": "knn",
+            "x_mean": np.zeros(len(FEATURE_NAMES)),
+            "x_std": np.ones(len(FEATURE_NAMES)),
+            "x_train": np.zeros((5, len(FEATURE_NAMES))),
+            "y_train": np.zeros(5),
+            "gbrt": None,
+            "trained_at": None,
+            "training_points": 5,
+        }
+        self._model_path.write_bytes(pickle.dumps(old))
+        coord = _make_coordinator(self._model_path)
+        self.assertIsNone(coord._load_model_from_disk())
+
     def test_a_pickle_missing_x_mean_entirely_returns_none_not_raise(self):
         """The real bug this issue describes: before the fix, accessing
         `trained.x_mean` on an object with no such attribute raised a

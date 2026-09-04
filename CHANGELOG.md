@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.107] — 2026-09-05
+
+### Fixed
+- **#366 finding 3: real pickle schema versioning for `TrainedModel`, plus a robust backfill for older persisted models** ([#366](https://github.com/code-imstillalive/nimbus/issues/366), thanks @purcell-lab — v0.94.80 already fixed the narrower issue of `_load_model_from_disk()`'s compatibility check sitting outside the `pickle.loads()` try/except; this closes out the fuller ask). `TrainedModel` gained a `schema_version: int` field (`TRAINED_MODEL_SCHEMA_VERSION = 1`); `_load_model_from_disk()` now discards and retrains fresh on a mismatch, the same self-healing fallback already used for a feature-count mismatch.
+  A plain `@dataclass`'s default pickling restores an old persisted object's `__dict__` verbatim on unpickle, skipping `__init__` and every field default entirely -- this repo's own CLAUDE.md already documented finding this the hard way for `seasonal_lookup` (an old `.pkl` written before that field existed unpickled with the attribute genuinely missing, raising a real `AttributeError`). Rather than add a defensive `getattr(trained, "x", default)` at every one of the several call sites the review flagged (`gbrt_lower`/`gbrt_upper`, `model_type`, `validation_mae`/`validation_mase` are all accessed directly), `TrainedModel.__setstate__` now seeds every current field's default before overlaying the pickle's own real state -- any field an old pickle lacks is backfilled instead of absent, so direct attribute access is safe everywhere without touching each call site individually. A pickle from before `schema_version` existed at all backfills to `0` via this same mechanism, which always mismatches the current version -- every already-deployed `.pkl` self-heals via one retrain the first time it's loaded under this code.
+  Verified via the exact `object.__new__()` + manual `__dict__` round-trip technique CLAUDE.md's own prior fix used, through the real pickle protocol (`tests/test_trained_model_setstate_backfill.py`), plus new schema-version-mismatch coverage in `tests/test_coordinator_load_model_from_disk_robustness.py`. Mutation-tested: removing `__setstate__` was confirmed to fail 3 of the new tests -- including revealing that `schema_version`'s own plain-default class-attribute fallback would otherwise silently mask a pre-versioning pickle as "current" instead of correctly flagging it as version 0, which is exactly why the backfill needed to write `schema_version` into `__dict__` explicitly rather than rely on it.
+  Finding 4 (quantile band coverage, ~76.7% vs an 80% target) was explicitly recorded by the review as "not a bug" -- a known, documented approximation, not something this pass changes.
+
+This closes out every actionable finding raised in #366.
+
 ## [0.94.106] — 2026-09-05
 
 ### Fixed

@@ -80,6 +80,7 @@ from .const import (
 from .ml.features import FEATURE_NAMES
 from .ml.model import (
     MAX_RESIDUALS_STORED,
+    TRAINED_MODEL_SCHEMA_VERSION,
     PredictionResult,
     TrainedModel,
     calibrated_band,
@@ -1303,6 +1304,25 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     self.subentry.subentry_id,
                     trained.x_mean.shape[0],
                     len(FEATURE_NAMES),
+                )
+                return None
+            # nimbus issue #366 finding 3: a schema_version mismatch means a
+            # real, meaning-changing shape/semantics break (see
+            # TrainedModel.schema_version's own docstring) -- discard and
+            # retrain fresh, same self-healing fallback as the feature-count
+            # check above. A pickle from before schema_version existed at
+            # all backfills to 0 via TrainedModel.__setstate__, which always
+            # mismatches the current version, so every already-deployed
+            # .pkl self-heals via one retrain the first time it's loaded
+            # under this code.
+            if trained.schema_version != TRAINED_MODEL_SCHEMA_VERSION:
+                _LOGGER.warning(
+                    "Persisted model for %s has schema_version=%s but the "
+                    "current code expects %s -- discarding and retraining "
+                    "fresh instead of trusting a stale/incompatible pickle.",
+                    self.subentry.subentry_id,
+                    trained.schema_version,
+                    TRAINED_MODEL_SCHEMA_VERSION,
                 )
                 return None
         except Exception:

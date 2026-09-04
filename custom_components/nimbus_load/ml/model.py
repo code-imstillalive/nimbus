@@ -256,6 +256,17 @@ RECURSIVE_VALIDATION_HORIZON_STEPS = 16
 # validation window happens to be for a given install/load.
 RECURSIVE_VALIDATION_MAX_ORIGINS = 30
 
+# nimbus issue #366 finding 3: bumped only for a genuine, meaning-changing
+# TrainedModel shape/semantics break -- _load_model_from_disk() discards
+# and retrains fresh on any mismatch, the same self-healing fallback
+# already used for a feature-count (x_mean.shape) mismatch. A pickle from
+# before this field existed at all has no schema_version in its restored
+# __dict__ (see TrainedModel.__setstate__ below), which backfills it to 0
+# -- always a mismatch against any real current version, so every
+# already-deployed .pkl self-heals via one retrain the first time it's
+# loaded under this code.
+TRAINED_MODEL_SCHEMA_VERSION = 1
+
 
 @dataclass
 class TrainedModel:
@@ -377,6 +388,49 @@ class TrainedModel:
     # bucketing keeps midnight (23:45 vs 00:00, still fully separate
     # buckets) exactly as sharp while removing that artificial flatness.
     seasonal_lookup: dict[tuple[int, int, int], float] = field(default_factory=dict)
+    # nimbus issue #366 (Mark Purcell) finding 3: the only compat gate a
+    # persisted pickle had was _load_model_from_disk()'s own x_mean.shape
+    # check -- no way to reject a genuinely incompatible schema change
+    # that ISN'T a feature-count mismatch (e.g. a field whose stored
+    # semantics change without a shape change). schema_version is bumped
+    # only for that kind of real, meaning-changing shape/semantics break;
+    # a purely additive new field does not need a bump (see __setstate__
+    # below, which backfills those regardless of schema_version).
+    schema_version: int = TRAINED_MODEL_SCHEMA_VERSION
+
+    def __setstate__(self, state: dict) -> None:
+        """A plain @dataclass's default pickling restores an old
+        persisted object's __dict__ verbatim on unpickle, skipping
+        __init__ and every field(default_factory=...)/`= default` entirely
+        (see this repo's own CLAUDE.md, which first found this the hard
+        way for seasonal_lookup: an old .pkl written before that field
+        existed unpickled with the attribute genuinely MISSING, raising a
+        real AttributeError on the very next predict() call). Rather than
+        keep adding a defensive getattr(trained, "x", default) at every
+        call site for every field ever added after some already-deployed
+        pickle was written, seed every CURRENT field's default here first,
+        then overlay the pickle's own real state on top -- any field the
+        old pickle didn't have keeps the default instead of being absent,
+        so direct attribute access anywhere in the codebase is safe.
+        schema_version above is the harder gate for a genuine breaking
+        change; this only backfills additive fields for pickles from
+        before they existed.
+        """
+        self.__dict__.update(
+            {
+                "validation_mae": {},
+                "validation_mase": {},
+                "validation_recursive_mae": {},
+                "mase_scale_points": 0,
+                "resample_minutes": 0,
+                "training_span_days": 0.0,
+                "gbrt_lower": None,
+                "gbrt_upper": None,
+                "seasonal_lookup": {},
+                "schema_version": 0,
+            }
+        )
+        self.__dict__.update(state)
 
 
 def resample_last_value(
