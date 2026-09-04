@@ -427,6 +427,23 @@ def _align_previous_periods(
     Every downstream caller (proximal regularization, rate limiting)
     treats an empty dict identically to "this mechanism is off" -- no
     separate None-handling needed anywhere else in this file.
+
+    nimbus issue #356 (Mark Purcell), item 4: this used to be a plain
+    nested loop -- for every new period, rescan `old_starts` from its
+    own index 0 looking for the first match. O(n*m) real datetime
+    comparisons per solve (~133k at this project's own documented
+    production scale, a ~365-period 96h tiered grid re-solving against
+    a same-shaped previous plan every cycle). Fixed to a two-pointer
+    merge instead: both `new_starts` and `old_starts` are guaranteed
+    monotonically increasing (PeriodGrid rejects any non-positive
+    period duration, and `period_starts` is a running cumulative sum),
+    so the OLD index that could match a LATER new period can never be
+    earlier than the old index that matched an earlier new period --
+    `old_idx` only ever needs to move forward, never reset per new
+    period. This is the standard sorted-merge technique, O(n+m) total
+    instead of O(n*m), and returns the exact same mapping as the old
+    nested loop (same "first old index the tolerance window reaches"
+    semantics, just found without rescanning from zero every time).
     """
     if previous_plan is None or not previous_plan.is_optimal:
         return {}
@@ -435,11 +452,15 @@ def _align_previous_periods(
     if new_starts is None or old_starts is None:
         return {}
     mapping: dict[int, int] = {}
+    old_idx = 0
+    n_old = len(old_starts)
     for new_idx, new_t in enumerate(new_starts):
-        for old_idx, old_t in enumerate(old_starts):
-            if abs(new_t - old_t) <= _ALIGNMENT_TOLERANCE:
-                mapping[new_idx] = old_idx
-                break
+        while (
+            old_idx < n_old - 1 and old_starts[old_idx] < new_t - _ALIGNMENT_TOLERANCE
+        ):
+            old_idx += 1
+        if abs(new_t - old_starts[old_idx]) <= _ALIGNMENT_TOLERANCE:
+            mapping[new_idx] = old_idx
     return mapping
 
 

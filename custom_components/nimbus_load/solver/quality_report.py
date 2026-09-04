@@ -85,10 +85,14 @@ class QualityReport:
     j_ref_hourly: dict[str, dict[str, float]]
     j_ach_hourly: dict[str, dict[str, float]]
     j_star_hourly: dict[str, dict[str, float]]
-    """24-hour reconstruction dicts, one per trajectory. Reframed
-    2026-08-31 (direct ask): row-major, indexed by ISO local timestamp
-    with the site tz offset (e.g. `'2026-08-30T00:00:00+10:00'` for
-    Brisbane), each row a self-describing record with SEVEN entity
+    """Hourly reconstruction dicts, one per trajectory -- 24 rows for
+    the normal, real-calendar-day case, more for a longer window (see
+    `_hourly_means_by_key()`'s own docstring, nimbus issue #356 item 4:
+    a window longer than 24h used to be silently folded onto the same
+    24 hour-of-day buckets, blending distinct real days together).
+    Reframed 2026-08-31 (direct ask): row-major, indexed by ISO local
+    timestamp with the site tz offset (e.g. `'2026-08-30T00:00:00+10:00'`
+    for Brisbane), each row a self-describing record with SEVEN entity
     fields (import_price_aud_per_kwh, export_price_aud_per_kwh, load_kw,
     solar_kw, battery_kw, grid_kw, soc_pct). Sign conventions:
     battery_kw + = charge / - = discharge, grid_kw + = import / - =
@@ -104,30 +108,53 @@ def _hourly_means_by_key(
     per_period: dict[str, NDArray[np.float64]],
     day_start: datetime,
 ) -> dict[str, dict[str, float]]:
-    """Aggregate several 96-period (or n-period) arrays to 24 hourly rows,
-    row-major, indexed by ISO local timestamp (`day_start` + h hours,
-    tz-aware, formatted as e.g. `'2026-08-30T00:00:00+10:00'`). Each
-    row is a self-describing record with one float per input key. Empty
-    hours get 0.0, not None, so the resulting dict is safe to sum/mean
+    """Aggregate several n-period arrays to hourly rows, row-major,
+    indexed by ISO local timestamp (`day_start` + h hours, tz-aware,
+    formatted as e.g. `'2026-08-30T00:00:00+10:00'`). Each row is a
+    self-describing record with one float per input key. Empty hours
+    get 0.0, not None, so the resulting dict is safe to sum/mean
     without None guards -- the intended consumer is a Lovelace/
     apexcharts card, not a forensic per-period audit (the LP grid is
     still available on the parent Nimbus sensors for that use case).
 
     `hours` is periods.hours (per-period duration in hours, typically
     a np.full(n, 0.25) array). `day_start` is the tz-aware datetime
-    the daily-quality run is anchored on (period 0 == day_start,
-    period n-1 == day_start + (n-1)*hours[0]). Period index `i` lives
-    in hour `int(i * hours[i])` modulo-24 (int floor of cumulative
-    hours).
+    the run is anchored on (period 0 == day_start, period n-1 ==
+    day_start + cumulative-hours-so-far). The number of rows returned
+    is however many real hours the window actually spans (`ceil(sum(
+    hours))`) -- 24 for the normal, byte-identical-to-before daily
+    case, more for a longer window.
+
+    nimbus issue #356 (Mark Purcell), item 4: this used to hard-fold
+    every period onto exactly 24 buckets via `% 24`, silently
+    correct ONLY because `compute_daily_quality_report()` was, at the
+    time, the only caller and always passed exactly one real calendar
+    day. Issue #316's own `compute_quality_report` service (added in
+    v0.94.42) lets a caller request an ARBITRARY window, including
+    `allow_partial=True` windows longer than 24h (explicitly for
+    diagnostics/backfill/A-B comparison, per `_compute_report_for_
+    window()`'s own docstring) -- for any such window, the old `% 24`
+    genuinely averaged DIFFERENT REAL CALENDAR DAYS' data into the same
+    hour-of-day bucket (e.g. a 48h window's hour 24 and hour 0 landing
+    in the same bucket), silently blending two distinct days' worth of
+    prices/dispatch into one number with zero indication this happened.
+    Now indexes by REAL ELAPSED HOUR from `day_start` (no modulo) --
+    a <=24h window (the normal, and only previously-correct, case)
+    produces byte-identical output to before this fix; a longer window
+    now produces one honest row per real hour actually in it, instead
+    of a silently-blended one.
     """
-    # Cumulative hours from day-start, floored to hour index. For a
-    # uniform 15-min grid this is [0,0,0,0,1,1,1,1,...,23,23,23,23].
+    # Cumulative hours from day-start, floored to an hour index. For a
+    # uniform 15-min grid within one day this is
+    # [0,0,0,0,1,1,1,1,...,23,23,23,23] -- identical to the pre-fix
+    # values, since there's nothing to fold when the window IS <=24h.
     cum = np.cumsum(hours) - hours
-    hour_index = np.floor(cum).astype(int) % 24
-    # Pre-build the 24 ISO-format keys once. isoformat() on a
-    # tz-aware datetime produces e.g. '2026-08-30T00:00:00+10:00' --
-    # exactly the shape a Lovelace/apexcharts card can parse straight
-    # back into a Date via `new Date(key)`.
+    hour_index = np.floor(cum).astype(int)
+    n_hours = int(hour_index.max()) + 1 if len(hour_index) else 0
+    # Pre-build the ISO-format keys once. isoformat() on a tz-aware
+    # datetime produces e.g. '2026-08-30T00:00:00+10:00' -- exactly the
+    # shape a Lovelace/apexcharts card can parse straight back into a
+    # Date via `new Date(key)`.
     #
     # nimbus issue #368: accumulated in UTC, not by naive wall-clock
     # `day_start + timedelta(hours=h)`. Adding a timedelta to a
@@ -138,21 +165,22 @@ def _hourly_means_by_key(
     # silently overwrites the other's in the `means` dict below).
     # Converting day_start to UTC, stepping there, then converting each
     # instant back keeps the same local-ISO-string output shape while
-    # making the 24 keys genuinely distinct real hours. No-op for a
-    # UTC or DST-free zone (Brisbane, this project's own reference
-    # household, never observes DST).
+    # making every key a genuinely distinct real hour, however many
+    # hours the window spans. No-op for a UTC or DST-free zone
+    # (Brisbane, this project's own reference household, never
+    # observes DST).
     day_start_tzinfo = day_start.tzinfo
     day_start_utc = day_start.astimezone(UTC)
     hour_keys = [
         (day_start_utc + timedelta(hours=h)).astimezone(day_start_tzinfo).isoformat()
-        for h in range(24)
+        for h in range(n_hours)
     ]
     # Pre-compute one hourly mean per (key, hour) so the row-major
     # assembly below is a plain lookup.
     means: dict[str, list[float]] = {}
     for key, arr in per_period.items():
         row: list[float] = []
-        for h in range(24):
+        for h in range(n_hours):
             mask = hour_index == h
             if mask.any():
                 row.append(round(float(arr[mask].mean()), 4))
@@ -166,7 +194,7 @@ def _hourly_means_by_key(
     # grid_kw / soc_pct staying in that order when the caller passes
     # them in that order (see compute_quality_report below).
     out: dict[str, dict[str, float]] = {}
-    for h in range(24):
+    for h in range(n_hours):
         out[hour_keys[h]] = {key: means[key][h] for key in per_period}
     return out
 
