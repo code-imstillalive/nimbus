@@ -740,7 +740,28 @@ async def async_setup_entry(
     from . import solver_runtime
 
     solver_runtime.set_default_env_vars(hass)
-    from . import solver_writer
+    # nimbus issue #349 (Mark Purcell, 2026-09-03 codebase review): this
+    # bare `from . import solver_writer` runs solver_writer.py's own
+    # module-level body -- a synchronous file open (TOKEN_PATH), a
+    # sys.path mutation, and `import numpy`/`import highspy` (a native
+    # extension load) -- ON THE EVENT LOOP, the first time it happens in
+    # the process (confirmed by this function's own comment above,
+    # predating this fix). solver_runtime.py's own _ensure_ready() already
+    # got the equivalent fix for ITS OWN first-import call site (see that
+    # function's docstring, and the "Real bug fixed here" comment above --
+    # this is the one remaining call site with the same shape).
+    # hass.async_add_import_executor_job() is HA core's own real,
+    # documented API for exactly this: run a plain, synchronous
+    # importlib.import_module() call on the dedicated import executor
+    # instead of the event loop. A later import of an already-loaded
+    # module is a trivial sys.modules cache hit either way -- this only
+    # matters for the genuine first import, but costs nothing on every
+    # subsequent one.
+    import importlib
+
+    solver_writer = await hass.async_add_import_executor_job(
+        importlib.import_module, ".solver_writer", __package__
+    )
 
     # real_entity_id= (2026-08-31): the dispatch key stays the literal
     # string (unchanged, still correct for ha_post_state()'s own lookup)

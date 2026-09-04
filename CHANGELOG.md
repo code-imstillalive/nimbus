@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.67] — 2026-09-04
+
+### Fixed
+- **`solver_writer.py`'s first import ran blocking I/O on the event loop** ([#349](https://github.com/code-imstillalive/nimbus/issues/349), thanks @purcell-lab, partial fix). `sensor.py`'s `async_setup_entry` is genuinely the first place `solver_writer.py` can be imported in the process on a fresh start — a plain `from . import solver_writer` there ran that module's own synchronous file open, `sys.path` mutation, and `import numpy`/`import highspy` (a native extension load) directly on the event loop. Now uses `hass.async_add_import_executor_job(importlib.import_module, ...)` — HA core's own real API for exactly this, verified against HA core's source — so the import runs on the dedicated import executor instead. The issue's own second, separate finding (the `sys.path` shim making several module names importable as top-level names process-wide, a real trap for any future `isinstance`/identity check across that boundary) is deliberately **not** addressed here — restructuring `solver_writer.py`'s own import mechanism would touch the exact "one file, three deployments" (native/standalone-cron/HAOS-add-on) architecture this project relies on, and needs its own careful, dedicated pass rather than a rushed change alongside this narrower fix.
+
 ## [0.94.66] — 2026-09-04
 
 ### Changed
