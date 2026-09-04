@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.104] — 2026-09-05
+
+### Fixed
+- **#362 finding 4a: a stale "DIAG: temporary" code comment corrected against #302's own closed conclusion** ([#362](https://github.com/code-imstillalive/nimbus/issues/362), thanks @purcell-lab — findings 1/2 were fixed in v0.94.70; finding 4c, `register_price_latency_sensor()`'s missing unregister counterpart, is now also resolved as a side effect of v0.94.101's `solver_runtime.reset_module_state()`, which clears the same module-level reference on unload). `_NimbusSolverPushSensor._attr_should_poll = False` carried a `# DIAG: temporary, testing #302` comment, but #302's own closed investigation explicitly concluded this is real, permanent, independently-justified hygiene (a pure push entity with no `update()` method was being force-polled by HA's own default 15s scan interval, the confirmed cause of a live flap on the reference household's own NUC1) — not a temporary diagnostic flag at all. Comment corrected to state the real, confirmed, permanent status; the flag itself is unchanged (removing it would revert a real fix and reintroduce #302's own bug). New regression test locks in `_attr_should_poll is False` on the base class, guarding against exactly the "someone reads 'DIAG: temporary' and removes it" risk the stale wording invited. Mutation-tested.
+- Finding 3 (a shared `_NimbusStalePushMixin` extraction across `sensor.py`/`number.py`/`switch.py`/`sensor_flattened.py`) and the remaining smaller items in finding 4 (`NimbusSolverConfigSensor.native_value` mutating state from inside a property getter; a real but narrow entity_id collision risk when two subentries share one source sensor) remain open — the mixin extraction is a genuine, larger structural refactor, and the other two carry real production-entity-naming/lifecycle risk that warrants its own dedicated, careful pass rather than a rushed fix bundled here.
+
 ## [0.94.103] — 2026-09-05
 
 ### Changed

@@ -1609,7 +1609,22 @@ class _NimbusSolverPushSensor(SensorEntity):
     """
 
     _attr_has_entity_name = True
-    _attr_should_poll = False  # DIAG: temporary, testing #302
+    # nimbus issue #302: NOT a temporary diagnostic flag despite an
+    # earlier comment here saying so -- confirmed permanent, real,
+    # independently-justified hygiene by #302's own closed conclusion.
+    # This is a pure push entity (see class docstring) with no
+    # update()/async_update() method at all; leaving should_poll at its
+    # default True meant HA's own default entity-platform scan interval
+    # (15s on a real installed HA core) polled it anyway, force-
+    # refreshing a push-only entity that never asked to be polled. Real,
+    # observed effect on the reference household's own NUC1: sensor.
+    # nimbus_solver_quality_report flapped between its real value and a
+    # bare "unknown" (a freshly-constructed, never-updated instance's own
+    # class-level attrs only) every ~30s. nimbus issue #362 (Mark
+    # Purcell, codebase review) correctly flagged the stale "DIAG:
+    # temporary" wording as misleading -- the fix itself was always
+    # meant to stay, this is that correction.
+    _attr_should_poll = False
     _attr_device_class = SensorDeviceClass.POWER
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = UnitOfPower.KILO_WATT

@@ -49,6 +49,28 @@ def _construct(cls=sensor.NimbusSolverBatteryForecastSensor):
     return instance
 
 
+# --- should_poll: must stay False -------------------------------------------
+
+
+def test_should_poll_is_false():
+    """nimbus issue #302: this class has no update()/async_update() at
+    all -- it's a pure push entity, updated only via update_from_solver().
+    Leaving should_poll at its default True meant HA's own default
+    entity-platform scan interval (15s on a real installed core) polled
+    it anyway, force-refreshing a push-only entity that never asked to
+    be polled -- confirmed as the real cause of a live flap on the
+    reference household's own NUC1 (sensor.nimbus_solver_quality_report
+    alternating between its real value and a bare "unknown" every ~30s).
+
+    nimbus issue #362 (Mark Purcell, codebase review) correctly flagged
+    the fix's own code comment as misleadingly calling this "DIAG:
+    temporary" when #302's own closed conclusion says the opposite --
+    this must never be reverted or reintroduced as an actual temporary
+    flag; this test locks in that it stays False permanently.
+    """
+    assert sensor._NimbusSolverPushSensor._attr_should_poll is False
+
+
 # --- available: pre-first-solve is "unknown", not "unavailable" -----------
 
 
