@@ -8,6 +8,9 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Changed
+- **Repo hygiene** ([#364](https://github.com/code-imstillalive/nimbus/issues/364), thanks @purcell-lab, 3 of 7 findings — no functional/runtime impact, no version bump needed). `.gitignore` gained `*.pkl`/`coverage.xml`/`.pytest_cache/`/`.ruff_cache/`/`.mypy_cache/` (real local artifacts that were never actually excluded). Fixed inconsistent executable bits on 18 shebang'd scripts (`nimbus_solver_app/nimbus_solver_forecast_writer.py` plus 17 under `docs/real-world-integration/files/`) that `pyproject.toml`'s own comment claimed were all `chmod +x`'d but weren't. Moved the 592 KB `icon.psd` Photoshop source (unreferenced by any code, only `icon.png`/`icon@2x.png` are actually used) from `custom_components/nimbus_load/brand/` to a new repo-root `assets/` — it was shipping inside the exact directory HACS copies into every install for zero functional benefit. The other 4 findings (rewriting `solver/README.md` and generating an entity/service reference table for the main `README.md`, splitting `CLAUDE.md`'s 85 KB journal, and removing hardcoded household IPs/paths from research scripts) are left for a dedicated pass.
+
 ## [0.94.81] — 2026-09-04
 
 ### Fixed

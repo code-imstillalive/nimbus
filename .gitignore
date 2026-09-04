@@ -4,3 +4,12 @@ __pycache__/
 *.egg-info/
 .coverage
 htmlcov/
+# nimbus issue #364 (Mark Purcell): real gaps -- *.pkl is what CLAUDE.md's
+# own deploy step deletes (nimbus_load_*.pkl persisted model files, never
+# meant to be tracked); the other three are the real local cache
+# directories ruff/mypy/pytest create right in the repo root.
+*.pkl
+coverage.xml
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
