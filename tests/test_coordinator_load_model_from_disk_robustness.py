@@ -101,24 +101,43 @@ class TestLoadModelFromDiskRobustness(unittest.TestCase):
         coord = _make_coordinator(self._model_path)
         self.assertIsNone(coord._load_model_from_disk())
 
-    def test_a_wrong_schema_version_returns_none_not_raise(self):
-        """nimbus issue #366 finding 3: a persisted model whose schema_
-        version doesn't match the current code's own TRAINED_MODEL_SCHEMA_
-        VERSION is a real, meaning-changing incompatibility (not just a
-        feature-count mismatch) -- must discard and retrain fresh, the
-        same self-healing fallback as the feature-count check above."""
+    def test_an_older_schema_version_is_served_as_a_stale_fallback_not_discarded(self):
+        """nimbus issue #373 (Mark Purcell, codebase review), real live
+        incident: the original #366 finding 3 fix discarded ANY schema_
+        version mismatch outright, relying on an immediate retrain to
+        replace it -- but that retrain failing (confirmed live: the #372
+        LTS crash) left the subentry with genuinely nothing for 20+
+        hours. An OLDER pickle is safe to keep serving (TrainedModel.
+        __setstate__ already backfills every field it lacks), so this
+        must now be RETURNED, not discarded -- async_setup() still
+        schedules an immediate retrain regardless (see its own test)."""
         trained = _real_trained_model()
-        object.__setattr__(trained, "schema_version", -1)
+        object.__setattr__(trained, "schema_version", 0)
+        self._model_path.write_bytes(pickle.dumps(trained))
+        coord = _make_coordinator(self._model_path)
+        result = coord._load_model_from_disk()
+        self.assertIsNotNone(result)
+        self.assertEqual(result.schema_version, 0)
+
+    def test_a_newer_schema_version_still_returns_none_not_raise(self):
+        """The other direction (a pickle from a NEWER, not-yet-understood
+        version -- e.g. a genuine downgrade) is a fundamentally different
+        risk from an older, already-backfilled pickle: this code has no
+        idea what a newer schema means and no backfill logic for it, so
+        it must still discard and retrain fresh, same as before this
+        fix."""
+        trained = _real_trained_model()
+        object.__setattr__(trained, "schema_version", 999)
         self._model_path.write_bytes(pickle.dumps(trained))
         coord = _make_coordinator(self._model_path)
         self.assertIsNone(coord._load_model_from_disk())
 
-    def test_a_pre_versioning_pickle_missing_schema_version_returns_none(self):
+    def test_a_pre_versioning_pickle_is_served_as_a_stale_fallback_not_discarded(self):
         """A pickle written before schema_version existed at all has no
         such key in its restored __dict__ -- TrainedModel.__setstate__
-        backfills it to 0, which always mismatches any real current
-        version, so this self-heals via one retrain rather than being
-        silently trusted forever."""
+        backfills it to 0, which is OLDER than any real current version,
+        so (per the fix above) this is also served as a stale-but-
+        compatible fallback rather than discarded."""
         old = object.__new__(TrainedModel)
         old.__dict__ = {
             "model_type": "knn",
@@ -132,7 +151,9 @@ class TestLoadModelFromDiskRobustness(unittest.TestCase):
         }
         self._model_path.write_bytes(pickle.dumps(old))
         coord = _make_coordinator(self._model_path)
-        self.assertIsNone(coord._load_model_from_disk())
+        result = coord._load_model_from_disk()
+        self.assertIsNotNone(result)
+        self.assertEqual(result.schema_version, 0)
 
     def test_a_pickle_missing_x_mean_entirely_returns_none_not_raise(self):
         """The real bug this issue describes: before the fix, accessing

@@ -166,6 +166,17 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self._unsub_retrain: Any = None
         self._retraining = False
+        # nimbus issue #373 (Mark Purcell, codebase review): the only
+        # operator-facing signal a retrain failure had before this was a
+        # log line -- last_update_success stayed True (the *coordinator*
+        # update succeeded; it's _async_retrain(), a separate background
+        # task, that failed) with nothing on the forecast entity itself
+        # hinting that training is broken. Published as a diagnostic
+        # attribute (see _async_update_data()'s own dict) so this is
+        # visible without reading the log. None once a retrain has never
+        # failed, or after the next one succeeds -- see _async_retrain()'s
+        # own try/except for where this is set/cleared.
+        self._last_retrain_error: str | None = None
 
         # Confidence-band calibration state (see ml/model.py's own
         # calibrated_band() for the actual math). Deliberately persisted
@@ -518,9 +529,27 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         # price-watcher's own equivalent callable) already closed.
         self.entry.async_on_unload(self.async_unload)
 
-        if self._trained is None:
-            # Nothing on disk yet -- train immediately (in the background,
-            # NOT awaited here) so the sensor has real data soon after setup,
+        # nimbus issue #373: a loaded model with an older schema_version
+        # is being served as a genuine, predict()-able fallback (see
+        # _load_model_from_disk()'s own comment) rather than discarded,
+        # but it should still be replaced with a properly-versioned
+        # model as soon as possible -- same immediate-background-retrain
+        # trigger as the "nothing on disk yet" case below, just for a
+        # different reason. getattr-defensive, same reasoning as every
+        # other TrainedModel field accessed this way in this file --
+        # schema_version is guaranteed on any real TrainedModel (a plain
+        # dataclass default, or __setstate__'s own backfill on unpickle),
+        # but treating it as "already current" if it's ever genuinely
+        # absent is a safe, conservative default (skips the extra
+        # retrain rather than risk an unexpected AttributeError here).
+        needs_immediate_retrain = self._trained is None or (
+            getattr(self._trained, "schema_version", TRAINED_MODEL_SCHEMA_VERSION)
+            != TRAINED_MODEL_SCHEMA_VERSION
+        )
+        if needs_immediate_retrain:
+            # Nothing on disk yet (or what's there is schema-stale) --
+            # train immediately (in the background, NOT awaited here) so
+            # the sensor has real, properly-versioned data soon after setup,
             # instead of sitting empty for up to 24h waiting for the next
             # scheduled retrain hour. Same "kick it off, don't block setup"
             # pattern __init__.py already uses for the Solver's own first
@@ -675,11 +704,15 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             )
             if trained is not None:
                 self._trained = trained
+                # nimbus issue #373: a genuine success clears any prior
+                # failure -- a stale error attribute lingering after the
+                # problem is actually fixed would be its own false alarm.
+                self._last_retrain_error = None
                 await self.hass.async_add_executor_job(
                     self._save_model_to_disk, trained
                 )
                 await self.async_request_refresh()
-        except Exception:
+        except Exception as e:
             # nimbus issue #365 (Mark Purcell): this coroutine is
             # scheduled via hass.async_create_task() (background retrain,
             # see async_setup()'s own docstring for why) -- with no
@@ -698,6 +731,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "the next scheduled cycle",
                 self.subentry.subentry_id,
             )
+            self._last_retrain_error = f"{type(e).__name__}: {e}"
         finally:
             self._retraining = False
 
@@ -1321,25 +1355,58 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     len(FEATURE_NAMES),
                 )
                 return None
-            # nimbus issue #366 finding 3: a schema_version mismatch means a
-            # real, meaning-changing shape/semantics break (see
-            # TrainedModel.schema_version's own docstring) -- discard and
-            # retrain fresh, same self-healing fallback as the feature-count
-            # check above. A pickle from before schema_version existed at
-            # all backfills to 0 via TrainedModel.__setstate__, which always
-            # mismatches the current version, so every already-deployed
-            # .pkl self-heals via one retrain the first time it's loaded
-            # under this code.
-            if trained.schema_version != TRAINED_MODEL_SCHEMA_VERSION:
+            # nimbus issue #373 (Mark Purcell, codebase review), real
+            # live incident: the original #366 finding 3 fix discarded
+            # ANY schema_version mismatch outright and relied on an
+            # immediate retrain to replace it -- but "discard first,
+            # replace later" means a subentry has genuinely NOTHING the
+            # moment that retrain fails for any reason (confirmed live:
+            # the #372 LTS float-epoch crash turned one version bump
+            # into a 20+ hour, every-forecast-`unknown` outage on a real
+            # install, and the exact same gap exists for ANY OTHER
+            # retrain failure -- a transient recorder error, the
+            # recorder daemon still starting, a briefly-unavailable
+            # sensor). An OLDER pickle (schema_version < current) is
+            # SAFE to keep serving as a stale-but-compatible fallback:
+            # TrainedModel.__setstate__ has ALREADY backfilled every
+            # field it lacks with the same sane defaults predict() would
+            # otherwise need a defensive getattr() for, so it predicts
+            # correctly, just possibly without a newer field's full
+            # benefit. async_setup() below still schedules an immediate
+            # retrain regardless of this fallback, so it's replaced with
+            # a properly-versioned model as soon as one succeeds, and
+            # this stale copy is never re-persisted to disk (only a
+            # genuinely fresh, correctly-versioned retrain result is).
+            #
+            # A NEWER pickle (schema_version > current, e.g. a real
+            # downgrade) is a fundamentally different risk -- THIS code
+            # doesn't know what that future schema means and has no
+            # backfill logic for it, so that direction still discards
+            # outright, same as before.
+            if trained.schema_version > TRAINED_MODEL_SCHEMA_VERSION:
                 _LOGGER.warning(
-                    "Persisted model for %s has schema_version=%s but the "
-                    "current code expects %s -- discarding and retraining "
-                    "fresh instead of trusting a stale/incompatible pickle.",
+                    "Persisted model for %s has schema_version=%s, newer "
+                    "than this code's own %s -- discarding and retraining "
+                    "fresh rather than trusting a pickle from a newer, "
+                    "not-yet-understood version.",
                     self.subentry.subentry_id,
                     trained.schema_version,
                     TRAINED_MODEL_SCHEMA_VERSION,
                 )
                 return None
+            if trained.schema_version < TRAINED_MODEL_SCHEMA_VERSION:
+                _LOGGER.warning(
+                    "Persisted model for %s has schema_version=%s but the "
+                    "current code expects %s -- serving it as a stale-but-"
+                    "compatible fallback (every field this version lacks "
+                    "is already backfilled to a safe default) while a "
+                    "fresh retrain runs in the background, rather than "
+                    "leaving this subentry with nothing until that retrain "
+                    "succeeds.",
+                    self.subentry.subentry_id,
+                    trained.schema_version,
+                    TRAINED_MODEL_SCHEMA_VERSION,
+                )
         except Exception:
             _LOGGER.warning(
                 "Could not load persisted model, will retrain.", exc_info=True
@@ -1426,6 +1493,8 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "resample_minutes": 0,
                 "training_span_days": 0.0,
                 "residual_drift_status": asdict(self._residual_drift_status),
+                "model_schema_stale": False,
+                "last_retrain_error": self._last_retrain_error,
             }
 
         now_utc = dt_util.utcnow()
@@ -1615,6 +1684,15 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "resample_minutes": getattr(self._trained, "resample_minutes", 0),
             "training_span_days": getattr(self._trained, "training_span_days", 0.0),
             "residual_drift_status": asdict(self._residual_drift_status),
+            # nimbus issue #373 (Mark Purcell, codebase review): operator-
+            # visible signal that this is an older-schema model being
+            # served as a fallback while a fresh retrain runs in the
+            # background (see _load_model_from_disk()'s own comment) --
+            # without this, "the forecast still works" looks identical
+            # to "everything's fully up to date."
+            "model_schema_stale": self._trained.schema_version
+            != TRAINED_MODEL_SCHEMA_VERSION,
+            "last_retrain_error": self._last_retrain_error,
         }
 
 

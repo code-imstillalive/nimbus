@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.117] — 2026-09-05
+
+### Fixed
+- **#373 (High): a schema-version mismatch discarded a working model with no fallback, so one failed retrain left every forecast `unknown` until the next day** ([#373](https://github.com/code-imstillalive/nimbus/issues/373), thanks @purcell-lab -- filed via the same IV&V confirmation pass as #370/#372/#374, #371). The original #366 finding 3 fix discarded ANY `schema_version` mismatch outright, relying on an immediate retrain to replace it -- but with nothing on either side of that gap, any retrain failure (the #372 LTS crash, or genuinely any other transient failure: a recorder still starting, a briefly-unavailable sensor) left the subentry with nothing until the next scheduled retrain hour. Confirmed live: three forecast sensors `unknown` for 20+ hours after an upgrade.
+  Fixed per the review's own suggested option: an OLDER persisted model (`schema_version` less than current) is now served as a genuine, `predict()`-able fallback instead of discarded -- `TrainedModel.__setstate__` (added for #366) already backfills every field it lacks with a safe default, so it's provably safe to keep serving while a fresh, properly-versioned retrain runs in the background (triggered immediately, the same way a genuinely missing model already was). A NEWER, not-yet-understood `schema_version` (the other direction -- a real downgrade) still discards outright, since this code has no idea what a future schema means. New `model_schema_stale` and `last_retrain_error` diagnostic attributes make both states operator-visible on the forecast entity itself, rather than only in the log.
+  10 new/updated regression tests across the model-load, setup-retrain-trigger, and retrain-failure-visibility paths; mutation-tested (a wrong retrain-trigger condition and a missing error-set were each confirmed to fail their own tests first). Also fixed a related fragility found while testing: `async_setup()`'s new schema check now reads `schema_version` defensively (`getattr(..., default)`), matching this file's own established convention for `TrainedModel` fields, after an existing test's lightweight test-double (a bare sentinel, not a real `TrainedModel`) surfaced a real `AttributeError` risk for any caller that isn't a genuine `TrainedModel`.
+
 ## [0.94.116] — 2026-09-05
 
 ### Fixed
