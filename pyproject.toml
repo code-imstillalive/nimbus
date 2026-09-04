@@ -191,6 +191,24 @@ filterwarnings = [
     # dropped by pytest's own per-test filter re-application, since it's
     # a real ini entry again, not a conftest-level side effect).
     "ignore:It is recommended to use web.AppKey instances for keys:",
+    # Found live in CI (2026-09-05, v0.94.101), reproduced deterministically
+    # on a rerun -- NOT a flake, and not owned by this repo's own code.
+    # `tests/test_solver_soft_min_soc_constraint.py` (a plain solver LP
+    # test with zero tempfile usage of its own) failed with
+    # `pytest.PytestUnraisableExceptionWarning: Exception ignored while
+    # calling deallocator <function _TemporaryFileCloser.__del__ ...>:
+    # None`, only on CI's Python 3.14.7 (never reproduced locally on
+    # 3.12.10) -- a garbage-collected, never-explicitly-closed temp file
+    # object (almost certainly created deep inside `highspy`/HiGHS's own
+    # C-extension internals during an EARLIER test's solve, not this
+    # test's own code) happening to get finalized while this
+    # unrelated, later test is executing. Confirmed test-order-dependent,
+    # not this test's own fault: `filterwarnings = ["error"]` above
+    # promotes pytest's own GC-timing-driven warning into a hard failure
+    # wherever in the suite it happens to land, exactly the same
+    # "dependency's own internal housekeeping, not a real regression in
+    # our diff" shape as the aiohttp entry above.
+    "ignore:Exception ignored while calling deallocator",
 ]
 
 # ---------------------------------------------------------------------------

@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.102] — 2026-09-05
+
+### Fixed
+- **Real CI break from v0.94.101, on Python 3.14.7 specifically (never reproduced on local 3.12.10)**: `tests/test_solver_soft_min_soc_constraint.py` (a plain solver LP test with zero tempfile usage of its own) failed deterministically (confirmed via a rerun, not a one-off flake) with `pytest.PytestUnraisableExceptionWarning: Exception ignored while calling deallocator <function _TemporaryFileCloser.__del__ ...>: None` — a garbage-collected, never-explicitly-closed temp file object (almost certainly created deep inside `highspy`/HiGHS's own C-extension internals during an earlier test's solve, not this test's own code) happening to get finalized while this unrelated, later test executes. `pyproject.toml`'s own `filterwarnings = ["error"]` promotes pytest's GC-timing-driven warning into a hard failure wherever in the suite it happens to land. Added a message-based `filterwarnings` ignore entry, same "a dependency's own internal housekeeping quirk, not a real regression in our diff" shape as the existing aiohttp entry.
+
 ## [0.94.101] — 2026-09-05
 
 ### Fixed
