@@ -35,6 +35,7 @@ from homeassistant.const import (
 )
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
@@ -1121,6 +1122,31 @@ class NimbusSolverConfigSensor(SensorEntity):
             sw_version=sw_version,
         )
 
+    def _entity_id_for(self, domain: str, key: str) -> str:
+        """Resolve `key`'s REAL, HA-assigned entity_id for `domain`
+        ("number"/"switch"), not a guessed literal string (nimbus issue
+        #343, Mark Purcell). number.py/switch.py both derive `unique_id`
+        as f"{entry.entry_id}_{key}" (entry-scoped, always unique) but
+        pin `self.entity_id` to a NON-entry-scoped literal
+        (f"{domain}.nimbus_{key}") -- if anything else in this HA
+        instance claims that literal name first (a remote_homeassistant
+        mirror of another Nimbus install using the identical convention,
+        confirmed live on devhub; an orphaned registry row), HA's own
+        dedup bumps NIMBUS's real entity to `_2`/`_3`, and reading the
+        guessed literal here would silently return the FOREIGN entity's
+        value -- the LP would then plan against another install's
+        battery capacity or grid limits with no error at all. The entity
+        registry's own unique_id lookup always finds the REAL current
+        entity_id regardless of any such collision, since HA tracks that
+        mapping directly rather than by name. Falls back to the guessed
+        literal only if the registry has no match (a test double, or an
+        entity that genuinely hasn't been registered yet) -- preserves
+        every existing behaviour for that case.
+        """
+        unique_id = f"{self._entry.entry_id}_{key}"
+        real_id = er.async_get(self.hass).async_get_entity_id(domain, DOMAIN, unique_id)
+        return real_id if isinstance(real_id, str) else f"{domain}.nimbus_{key}"
+
     def _resolve(self, key: str):
         """One field's real current value, from whichever place is now
         authoritative for it -- see this class's own module-level comment
@@ -1128,7 +1154,7 @@ class NimbusSolverConfigSensor(SensorEntity):
         sources, on purpose" reasoning.
         """
         if key in _SOLVER_NUMBER_ENTITY_KEYS:
-            state = self.hass.states.get(f"number.nimbus_{key}")
+            state = self.hass.states.get(self._entity_id_for("number", key))
             if state is None or state.state in (None, "unknown", "unavailable"):
                 return None
             try:
@@ -1136,7 +1162,7 @@ class NimbusSolverConfigSensor(SensorEntity):
             except ValueError:
                 return None
         if key in _SOLVER_SWITCH_ENTITY_KEYS:
-            state = self.hass.states.get(f"switch.nimbus_{key}")
+            state = self.hass.states.get(self._entity_id_for("switch", key))
             if state is None or state.state in (None, "unknown", "unavailable"):
                 return None
             return state.state == "on"
@@ -1911,7 +1937,23 @@ class _NimbusSolverPushSensor(SensorEntity):
         )
         from . import solver_writer
 
-        solver_writer.unregister_entity_handler(self.entity_id)
+        # nimbus issue #343 (Mark Purcell): register_entity_handler() in
+        # async_setup_entry is ALWAYS called with the literal dispatch
+        # key (f"sensor.{self._UNIQUE_ID_SUFFIX}"), regardless of what
+        # HA actually assigns this entity live -- but self.entity_id
+        # here reflects whatever HA ACTUALLY assigned, which can differ
+        # from that literal on exactly the collision this project has
+        # already hit live (a remote_homeassistant mirror, or an
+        # orphaned registry row, winning the plain name first and
+        # bumping Nimbus's own entity to `_2`; confirmed non-deterministic
+        # across restarts in this project's own history). Unregistering
+        # by self.entity_id in that case is a silent no-op -- the stale
+        # handler is never removed from _ENTITY_UPDATE_HANDLERS, and the
+        # next solve schedules a write on this now-removed entity.
+        # Reconstructing the SAME literal key used at registration
+        # (rather than storing it separately) guarantees the two calls
+        # always agree regardless of what self.entity_id becomes.
+        solver_writer.unregister_entity_handler(f"sensor.{self._UNIQUE_ID_SUFFIX}")
         await super().async_will_remove_from_hass()
 
 

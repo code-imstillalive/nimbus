@@ -24,6 +24,15 @@ async def _noop_async_added_to_hass(self) -> None:
     pass
 
 
+async def _noop_async_will_remove_from_hass(self) -> None:
+    """Symmetric partner to _noop_async_added_to_hass above -- a real
+    entity's own async_will_remove_from_hass() override calling
+    `await super().async_will_remove_from_hass()` (e.g. nimbus issue #343's
+    fix in sensor.py's _NimbusSolverPushSensor) needs SOMETHING at that
+    point in the MRO to resolve to, same reasoning as the added-to-hass
+    side."""
+
+
 def _stub_callback(func):
     """Real HA's homeassistant.core.callback -- setattr(func,
     "_hass_callback", True), verified against HA core's own current
@@ -235,6 +244,7 @@ def _generic_stub_class(name: str) -> type:
         {
             "__class_getitem__": classmethod(lambda cls, item: cls),
             "async_added_to_hass": _noop_async_added_to_hass,
+            "async_will_remove_from_hass": _noop_async_will_remove_from_hass,
             "async_on_remove": _stub_async_on_remove,
             "__init__": lambda self, *args, **kwargs: None,
         },

@@ -305,6 +305,44 @@ def test_unregister_entity_handler_cleanly_removes_and_is_safe_on_unknown_id():
         _clean_dispatch_state()
 
 
+def test_async_will_remove_from_hass_unregisters_the_literal_key_not_self_entity_id():
+    """nimbus issue #343 (Mark Purcell): register_entity_handler() is
+    ALWAYS called (async_setup_entry) with the literal dispatch key
+    (f"sensor.{_UNIQUE_ID_SUFFIX}"), regardless of what HA actually
+    assigns this entity live. But self.entity_id reflects whatever HA
+    ACTUALLY assigned -- which can differ from that literal on exactly
+    the collision this project has already hit live (a remote_
+    homeassistant mirror, or an orphaned registry row, winning the plain
+    name first and bumping Nimbus's own entity to `_2`; confirmed non-
+    deterministic across restarts in this project's own history).
+    Before this fix, async_will_remove_from_hass() unregistered by
+    self.entity_id -- a silent no-op in that collision scenario, leaving
+    the stale handler in _ENTITY_UPDATE_HANDLERS under the literal key
+    forever, so the next solve schedules a write on a removed entity."""
+    import asyncio
+
+    _clean_dispatch_state()
+    try:
+        instance, _entry = _construct(sensor.NimbusSolverBatteryForecastSensor)
+        literal_key = f"sensor.{instance._UNIQUE_ID_SUFFIX}"
+        solver_writer.register_entity_handler(literal_key, instance.update_from_solver)
+        assert literal_key in solver_writer._ENTITY_UPDATE_HANDLERS
+
+        # Simulate the real collision: HA bumped this entity's OWN live
+        # entity_id away from the literal it was constructed with.
+        instance.entity_id = f"{literal_key}_2"
+
+        asyncio.run(instance.async_will_remove_from_hass())
+
+        assert literal_key not in solver_writer._ENTITY_UPDATE_HANDLERS, (
+            "the handler registered under the literal dispatch key survived "
+            "teardown -- async_will_remove_from_hass() unregistered the "
+            "wrong key (self.entity_id) instead of the literal one"
+        )
+    finally:
+        _clean_dispatch_state()
+
+
 def test_register_entity_handler_is_idempotent_and_replaces_stale_handler():
     """A config-entry reload tears down the old entity and creates a
     new one; the new entity's async_setup_entry re-calls

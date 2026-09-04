@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.73] — 2026-09-04
+
+### Fixed
+- **A wrong entity name collision could make Nimbus silently plan against a different install's battery/grid limits** ([#343](https://github.com/code-imstillalive/nimbus/issues/343), thanks @purcell-lab, 2 of 3 defects). `NimbusSolverConfigSensor._resolve()` (the bridge the LP itself reads battery capacity/max charge/grid limits through) guessed a hardware-limit entity's entity_id as the literal string `f"number.nimbus_{key}"` — but `number.py`/`switch.py` only pin *their own* `self.entity_id` to that same non-entry-scoped literal; their real `unique_id` is entry-scoped. If anything else in the same HA instance claimed the literal name first (a `remote_homeassistant` mirror of another Nimbus install using the identical convention — confirmed live on devhub; an orphaned registry row), HA's own dedup bumps Nimbus's real entity to `_2`/`_3`, and the guessed literal then silently resolved to the *foreign* entity's value, with zero error. `_resolve()` now looks the real entity_id up via the entity registry's own `async_get_entity_id(domain, DOMAIN, unique_id)` — which HA tracks correctly regardless of any name collision — falling back to the guessed literal only when the registry has no match. Separately, the shared push-sensor base class's `async_will_remove_from_hass()` unregistered its solver-writer dispatch handler by `self.entity_id`, which reflects whatever HA *actually* assigned — a silent no-op on the exact same collision, leaking a stale handler that the next solve would schedule a write through on an already-removed entity. Now unregisters by the same literal dispatch key registration always uses, regardless of what `self.entity_id` becomes live. The third defect (multi-entry support is effectively unsupported and undocumented — `single_config_entry` isn't declared in the manifest) is left open. 6 new regression tests, plus a new `_noop_async_will_remove_from_hass` stub added to the test harness so this lifecycle hook is testable at all going forward.
+
 ## [0.94.72] — 2026-09-04
 
 ### Fixed
