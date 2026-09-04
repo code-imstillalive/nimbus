@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.71] — 2026-09-04
+
+### Fixed
+- **v0.94.70 broke real CI** — `tests/test_sensor_solver_push_entities.py::test_quality_report_has_required_sensor_entity_class_attributes` still asserted the pre-#362 `_unrecorded_attributes == frozenset()` for `NimbusSolverQualityReportSensor`, unnoticed locally before shipping because this file has a stray `if __name__ == "__main__":` block partway through it (line ~433) — every test defined after that point, including this one, is invisible to `tests/run_all.py`'s bare-function subprocess runner (which only sees whatever `__main__` executes) while still being fully collected by real pytest. A live, concrete example of the exact "two runners, different semantics" gap nimbus issue #360 describes. Fixed the stale assertion to match #362's real fix; verified against the exact CI command (`pytest tests/ --ignore=tests/hass_integration/ -p no:homeassistant -q`) locally (980 passed) before shipping, not just `run_all.py` again.
+
 ## [0.94.70] — 2026-09-04
 
 ### Fixed

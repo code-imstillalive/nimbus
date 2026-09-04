@@ -487,9 +487,15 @@ def test_quality_report_has_required_sensor_entity_class_attributes():
     from homeassistant.components.sensor import SensorStateClass
 
     assert cls._attr_state_class is SensorStateClass.MEASUREMENT
-    # This parent doesn't carry a `forecast` array (all attrs are scalar);
-    # explicit empty set beats inheriting the base's forecast-only default.
-    assert cls._unrecorded_attributes == frozenset()
+    # nimbus issue #362 (Mark Purcell): the parent's real payload carries
+    # j_ref_hourly/j_ach_hourly/j_star_hourly/hourly_regret (24 ISO-keyed
+    # rows x 7 floats each) -- a realistic payload measured at 14,609
+    # bytes against the recorder's 16,384-byte cap. These are excluded,
+    # matching what the flattened children already exclude; every other
+    # (small, scalar) attribute stays recorded.
+    assert cls._unrecorded_attributes == frozenset(
+        {"j_ref_hourly", "j_ach_hourly", "j_star_hourly", "hourly_regret"}
+    )
 
 
 def test_efficiency_backtest_has_required_sensor_entity_class_attributes():
