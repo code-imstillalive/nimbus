@@ -1,19 +1,42 @@
-# Nimbus Solver — draft, observation-only
+# Nimbus Solver
 
-**Status: draft, 2026-08-15. Not wired into anything. Not imported by `__init__.py`,
-`coordinator.py`, or `config_flow.py`. Registers zero HA entities, writes nothing
-to Modbus/any switch/number entity, never touches a live restart.** This is
-intentional and load-bearing, not an oversight — see the architecture sketch's
-own explicit scope: *"we will not automate it to control anything... just to
-see how it behaves."*
+**nimbus issue #364 (Mark Purcell, codebase review): this file's own header
+and "Running the tests" section used to describe a 2026-08-15 draft state —
+"not wired into anything," "registers zero HA entities," a from-scratch pure-
+numpy simplex, and a 3-file test list — none of which has been true for a
+long time. `solver_writer.py` imports this package directly and runs it
+in-process on every solve cycle (`services.py`/`solver_runtime.py`); `lp.py`
+has used `highspy` (a real compiled LP/MIP solver) since 2026-08-18, not a
+from-scratch simplex (see that module's own docstring, "Why this changed",
+for the full story); and the real current test suite is `tests/test_solver_
+*.py`/`tests/test_elements_*.py` (50+ files as of 2026-09), not the three
+files this section used to name. Corrected below. Everything else in this
+file past this point is a real, historical record of the design decisions,
+bugs found, and experiments run while this package was BUILT (2026-08-15/16)
+— genuinely useful history, kept as-is, but describing that period, not the
+package's current wiring.**
+
+**Current status: live, shadow-mode.** This is the real LP/MIP engine behind
+every Nimbus Solver dispatch decision — `solver_writer.py`'s `build_plan()`
+call (native in-process runtime AND the standalone cron deployment path
+both use the identical package, see nimbus issue #357) runs every solve
+cycle and publishes a real, live 96-hour dispatch plan
+(`sensor.nimbus_solver_battery_forecast`) plus a durable dry-run record of
+what it would dispatch (`sensor.nimbus_solver_dispatch_dry_run`) — but has
+no write path to any real hardware yet; nothing in this package or its
+callers has ever sent a real command to an inverter. See this repo's own
+root `CLAUDE.md` for the full, current architecture and roadmap; this
+README is a package-level reference, not the authoritative current-state
+document.
 
 ## What's here
 
-- `lp.py` — a small, general-purpose LP solver, pure numpy (two-phase simplex,
-  dense tableau, Bland's rule for anti-cycling). No scipy/PuLP/highspy — this
-  integration has no C compiler / no confirmed compiled-wheel availability
-  inside the HA container it deploys into (the same reasoning `ml/gbrt.py`'s
-  own from-scratch GBRT already established for the Forecaster).
+- `lp.py` — a thin `highspy` (HiGHS, a real compiled LP/MIP solver) builder
+  layer, not a from-scratch simplex — see the module's own docstring for
+  why (the original "no compiled-wheel availability inside the HA
+  container" assumption was correct about the container, but this solver
+  runs on the HOST, a completely different Python environment with its own
+  pip, where a real `highspy` wheel installs and solves cleanly).
 - `elements.py` — typed configs for this household's real topology: `Grid`,
   `Battery` (one aggregate, v1 simplification — the 2 real inverters/4 towers
   are not modeled separately yet), `Solar`, `Load`, `SheddableLoad`. Sheddable
@@ -106,25 +129,16 @@ this project's own commit-message/code-comment history.
 
 ## Running the tests
 
-Same pattern as the Forecaster's own local test harness (see this repo's own
-`CLAUDE.md`, "Testing" section) — pure numpy + stdlib, zero HA dependency, so
-these run directly with a plain Python interpreter, no HA container needed:
-
-```
-test_lp_correctness.py        -- 8 tests, hand-verifiable LP answers (a
-                                  textbook 2-variable LP, an exact battery
-                                  arbitrage case, infeasible/unbounded detection)
-test_network_synthetic.py     -- 14 tests, hand-derivable scenarios one layer
-                                  up (price arbitrage, solar+load balance,
-                                  sheddable-load shortfall handling, degeneracy
-                                  guards actually firing)
-test_real_household_data.py   -- end-to-end run against REAL solar/load
-                                  forecasts and REAL HAEO price data (never
-                                  the Battery/Grid power-signal forecasts,
-                                  which represent what the EXISTING system
-                                  already decided — using those as input would
-                                  be circular, not an independent test)
-```
+`solver/` and `ml/` are genuinely HA-import-free (pure numpy + stdlib), so
+every `tests/test_solver_*.py`/`tests/test_elements_*.py` file imports this
+package directly via `tests/_solver_path.py`'s own `sys.path` shim and runs
+with a plain `pytest`, no HA container or stub needed — see this repo's own
+root `CLAUDE.md`, "Testing" section, for the exact current commands. That's
+50+ files as of 2026-09 covering this package (LP correctness, network
+construction, every stability/degeneracy/adequacy/stochastic mechanism, the
+writer's own integration points) — deliberately not itemized here by name,
+since a specific list is exactly what went stale and became actively
+misleading the last time this section tried to enumerate them.
 
 ## A real finding from tonight's real-data run — and a correction to how it was first described
 

@@ -361,6 +361,48 @@ Edit inline on the dashboard without touching the wizard:
 - Sources: `auto_include_known_solar` switch, plus an optional multi-entity
   load-forecast list for granular per-circuit summation.
 
+### Diagnostics, dry-run, and other hub sensors
+
+- `sensor.nimbus_health_report`. Always-on "what's failing, what's flatlined,
+  what's not running" summary. `native_value` is a plain ERROR-level count
+  from recent log activity; `recent_errors`/`recent_warnings` (up to 20 each)
+  and a `subentry_status` entry per forecastable subentry give the detail
+  behind that count without digging through the log file.
+- `switch.nimbus_solver_dispatch_dry_run` / `sensor.nimbus_solver_dispatch_dry_run`.
+  Real-dispatch groundwork — while the switch is on, every solve cycle
+  records what the Solver *would* have dispatched (`battery_kw`, `soc_pct`,
+  `grid_import_kw`/`grid_export_kw`, `import_price`/`export_price`) as a
+  durable, gap-free history via HA's own recorder and long-term statistics.
+  Purely observational: nothing on this path ever calls a service or writes
+  to real hardware, on or off.
+- `sensor.nimbus_solver_price_response_latency`. Seconds between a
+  configured price sensor changing and the resulting event-driven solve
+  completing — the ongoing health signal for the `solve_on_price_change`
+  feature. Only updates on a price-triggered solve; a cron- or
+  startup-triggered solve leaves it at its last real value, since neither
+  has a meaningful "time since the price changed" to report.
+- `sensor.nimbus_mirror_temperature_forecast` / `sensor.nimbus_mirror_humidity_forecast`.
+  A read-only dashboard mirror of whatever temperature/humidity forecast
+  source is configured under Solver settings — never fed into the LP solve
+  itself, purely for a single dashboard to show weather context alongside
+  the dispatch plan without a second card pointed at a different entity.
+
+### Services
+
+- `nimbus_load.compute_quality_report` (`start`, `end` timestamps, optional
+  `allow_partial`, default `true`). Scores an arbitrary historical window
+  the same way the daily quality report scores "yesterday" — useful for
+  diagnostics, backfilling a report after a gap, or comparing two specific
+  days head-to-head. A window shorter than 24h needs `allow_partial: true`
+  to run at all; `allow_partial: false` restricts scoring to full real
+  calendar days, matching the daily report's own behaviour exactly.
+- `nimbus_load.retrain` (optional `entity_id`). Forces an immediate retrain
+  of one Load/Power Signal, or every configured one if `entity_id` is
+  omitted, without waiting for the next scheduled retrain window.
+- `nimbus_load.solve_now`. Triggers an immediate Solver cycle on demand,
+  reusing the exact same solve path the periodic timer and price-triggered
+  solve both call — not a separate implementation.
+
 ### Quality, Backtest, and Counterfactual sub-devices
 
 Three sub-devices parented to the hub, each with a legacy parent entity plus per-attribute flattened child sensors:
