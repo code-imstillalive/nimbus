@@ -798,7 +798,9 @@ def build_plan(
         p.add_variable(
             f"battery_charge_{t}",
             lb=0.0,
-            ub=p2p_export.charging_ub_during_fixed_window(t, grid, battery.max_charge_kw),
+            ub=p2p_export.charging_ub_during_fixed_window(
+                t, grid, battery.max_charge_kw
+            ),
         )
         for t in range(n)
     ]
@@ -878,7 +880,9 @@ def build_plan(
     # identical to before this field existed.
     grid_export = []
     for t in range(n):
-        export_lb, export_ub = p2p_export.grid_export_bounds(t, grid, grid.export_limit_kw)
+        export_lb, export_ub = p2p_export.grid_export_bounds(
+            t, grid, grid.export_limit_kw
+        )
         grid_export.append(
             p.add_variable(f"grid_export_{t}", lb=export_lb, ub=export_ub)
         )
