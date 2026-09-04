@@ -264,6 +264,67 @@ def test_lts_source_drops_insane_means():
     assert values == [2.0], f"insane value must be dropped, got {values}"
 
 
+def test_recorder_source_drops_nan_states():
+    """nimbus issue #353 (Mark Purcell): float("nan") does not raise, so
+    the existing try/except (TypeError, ValueError) around float(s.state)
+    lets a "nan" state straight through -- and abs(nan) > MAX_SANE_POWER_KW
+    is False, so the existing sanity ceiling doesn't catch it either. A
+    template/REST/Modbus sensor without a numeric device_class/state_class
+    can genuinely publish this. One NaN training row poisons x_mean/x_std
+    for the whole retrain -- dropped here, same as an unparseable state.
+    """
+    now = datetime(2026, 9, 4, 0, 0, tzinfo=UTC)
+    _install_recorder_history([])  # unused directly -- states set below
+    coordinator_module.get_significant_states = MagicMock(
+        return_value={
+            "sensor.test_load": [
+                _FakeState("2.0", now - timedelta(hours=2)),
+                _FakeState("nan", now - timedelta(hours=1)),  # dropped
+                _FakeState("3.0", now),
+            ]
+        }
+    )
+
+    coord = _make_bare_coordinator({})
+    result = _run(
+        coord._async_fetch_training_history(
+            "sensor.test_load",
+            now - timedelta(hours=24),
+            now,
+            convert_power=True,
+        )
+    )
+
+    values = [v for _, v in result]
+    assert values == [2.0, 3.0], f"NaN state must be dropped, got {values}"
+
+
+def test_lts_source_drops_nan_means():
+    """Same NaN-poisoning risk as the recorder path (see its own test) --
+    an hourly LTS mean built from a NaN-containing bucket is itself NaN,
+    and the abs(value) > MAX_SANE_POWER_KW guard can't catch it either.
+    """
+    now = datetime(2026, 9, 4, 0, 0, tzinfo=UTC)
+    _install_lts_rows(
+        [
+            {"start": now - timedelta(hours=2), "mean": 1.0},
+            {"start": now - timedelta(hours=1), "mean": float("nan")},  # dropped
+            {"start": now, "mean": 2.0},
+        ]
+    )
+
+    coord = _make_bare_coordinator({CONF_TRAINING_SOURCE: TRAINING_SOURCE_LTS})
+    coord.hass.states.get = MagicMock(return_value=None)
+    result = _run(
+        coord._async_fetch_training_history(
+            "sensor.test_load", now - timedelta(hours=24), now
+        )
+    )
+
+    values = [v for _, v in result]
+    assert values == [1.0, 2.0], f"NaN mean must be dropped, got {values}"
+
+
 # ---------------------------------------------------------------------------
 # Dispatch: training_source=hybrid concatenates older-LTS + recent-recorder
 # ---------------------------------------------------------------------------
@@ -451,6 +512,8 @@ if __name__ == "__main__":
         test_lts_source_uses_only_statistics_during_period,
         test_lts_source_drops_none_means,
         test_lts_source_drops_insane_means,
+        test_recorder_source_drops_nan_states,
+        test_lts_source_drops_nan_means,
         test_hybrid_source_concatenates_older_lts_and_recent_recorder,
         test_hybrid_source_degrades_to_recorder_when_recent_days_exceeds_window,
         test_unknown_source_falls_back_to_recorder,

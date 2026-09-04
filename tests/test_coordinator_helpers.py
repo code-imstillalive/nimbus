@@ -211,6 +211,20 @@ def test_current_measured_power_unparseable_state_returns_zero_not_raises():
     assert coord._current_measured_power("sensor.battery") == 0.0
 
 
+def test_current_measured_power_nan_state_returns_zero_not_nan():
+    """nimbus issue #353: float("nan") does not raise, unlike a genuinely
+    unparseable state -- a template/REST/Modbus sensor without a numeric
+    device_class/state_class can publish this. Feeding NaN into a live
+    forecast's stale-flat-carry feature would poison every recursive step.
+    """
+    coord = _make_bare_coordinator()
+    coord.hass = MagicMock()
+    coord.hass.states.get.return_value = MagicMock(
+        state="nan", attributes={"unit_of_measurement": "kW"}
+    )
+    assert coord._current_measured_power("sensor.battery") == 0.0
+
+
 def test_current_measured_power_kw_reading_passes_through_unchanged():
     coord = _make_bare_coordinator()
     coord.hass = MagicMock()

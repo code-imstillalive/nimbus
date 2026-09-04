@@ -64,6 +64,7 @@ directly on Home Assistant's event loop -- see coordinator.py.
 from __future__ import annotations
 
 import logging
+import math
 from bisect import bisect_right
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
@@ -449,7 +450,13 @@ def train_model(
     seasonal_sums: dict[tuple[int, int, int], list[float]] = {}
     hour_sums: dict[int, list[float]] = {}
     for g, lv in zip(grid, load_vals, strict=True):
-        if lv is None:
+        # nimbus issue #353: a NaN load_vals entry (see
+        # resample_last_value()'s own callers -- coordinator.py now
+        # filters this at the fetch layer, but this is a cheap,
+        # worthwhile second line of defense for any other caller) would
+        # otherwise poison every seasonal_lookup bucket it lands in, since
+        # sum([..., nan, ...]) is itself NaN.
+        if lv is None or not math.isfinite(lv):
             continue
         minute_bucket = (g.minute // 15) * 15
         seasonal_sums.setdefault((g.weekday(), g.hour, minute_bucket), []).append(lv)
@@ -526,6 +533,18 @@ def train_model(
         lag_short_v = load_vals[i - LAG_SHORT_STEPS]
         lag_long_v = load_vals[i - LAG_LONG_STEPS]
         if lv is None or lag_short_v is None or lag_long_v is None:
+            continue
+        # nimbus issue #353: a defensive second line against exactly the
+        # NaN-poisoning chain the issue describes (one NaN row -> NaN
+        # x_mean/x_std -> every validation_mae NaN -> min() over a NaN
+        # dict still "picks" a model -> predict() silently returns 0.0
+        # for every step) -- coordinator.py's fetch layer now filters
+        # this at the source, this only guards a caller that bypasses it.
+        if not (
+            math.isfinite(lv)
+            and math.isfinite(lag_short_v)
+            and math.isfinite(lag_long_v)
+        ):
             continue
         tv = temp_vals[i] if temp_vals[i] is not None else 22.0
         hv = humidity_vals[i] if humidity_vals[i] is not None else 50.0
@@ -638,6 +657,15 @@ def train_model(
         for j, idx in enumerate(grid_idx_val):
             week_ago_idx = int(idx) - week_steps
             week_val = load_vals[week_ago_idx] if week_ago_idx >= 0 else None
+            # nimbus issue #353: this reads load_vals at an arbitrary
+            # week-ago index, not one already isfinite-screened by the
+            # x_rows loop above -- a NaN week-ago reading must fall
+            # through to the same lag_long_val fallback as a genuinely
+            # missing one, or it poisons this baseline's own MAE (and,
+            # via min() over validation_mae, potentially model_type
+            # selection itself) even though the ML candidates are clean.
+            if week_val is not None and not math.isfinite(week_val):
+                week_val = None
             naive_val_pred[j] = week_val if week_val is not None else lag_long_val[j]
         validation_mae["naive"] = _mae(y_val, naive_val_pred)
 

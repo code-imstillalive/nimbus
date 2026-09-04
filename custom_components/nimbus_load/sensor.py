@@ -1344,10 +1344,23 @@ class NimbusHealthReportSensor(SensorEntity):
     # recent_errors + 20 recent_warnings (each a full log message) plus a
     # subentry_status entry for every forecastable subentry (18+ on the
     # reference household) -- real, current diagnostic state, not
-    # something worth keeping in long-term statistics. never_trained and
-    # generated_at stay recorded: both are small and cheap either way.
+    # something worth keeping in long-term statistics. never_trained
+    # stays recorded: small, cheap, and genuinely useful in history.
+    #
+    # nimbus issue #362 (Mark Purcell): the original reasoning above for
+    # ALSO excluding generated_at ("small and cheap either way") missed
+    # the actual bug -- size was never the problem, CHURN was. This
+    # entity polls every 30s with no should_poll=False, and
+    # generated_at is recomputed fresh on every single read regardless
+    # of whether anything else changed. Since it wasn't excluded, the
+    # attribute dict differed on every poll even when recent_errors/
+    # recent_warnings/subentry_status were byte-for-byte identical --
+    # firing state_changed and making the recorder write a full,
+    # non-dedupable states + state_attributes row every 30s (~2880/day)
+    # for no real reason. Excluding it here means a poll with no actual
+    # change is finally a genuine no-op for the recorder.
     _unrecorded_attributes = frozenset(
-        {"recent_errors", "recent_warnings", "subentry_status"}
+        {"recent_errors", "recent_warnings", "subentry_status", "generated_at"}
     )
 
     def __init__(self, entry: NimbusConfigEntry, sw_version: str | None) -> None:
@@ -2116,10 +2129,23 @@ class NimbusSolverQualityReportSensor(_NimbusSolverPushSensor):
     # because it was built around the two forecast parents -- this parent
     # doesn't publish a `forecast` array (its attributes are all scalar), so
     # the default is harmless but also honestly not what this class needs.
-    # Cleared to the empty set so a future attribute rename in
-    # publish_daily_quality_report() doesn't silently create a
-    # never-recorded scalar just because it happens to be called `forecast`.
-    _unrecorded_attributes = frozenset()
+    #
+    # nimbus issue #362 (Mark Purcell): clearing it to frozenset() was
+    # correct about `forecast` but wrong about everything else -- this
+    # parent's payload (see solver_writer.py's publish_daily_quality_
+    # report()) also carries j_ref_hourly/j_ach_hourly/j_star_hourly (24
+    # ISO-keyed rows x 7 floats each) plus hourly_regret. A realistic
+    # payload measured at 14,609 bytes against the recorder's 16,384-byte
+    # MAX_STATE_ATTRS_BYTES cap -- 89% of the way there already, with zero
+    # margin for one more trajectory or per-hour field before the recorder
+    # silently drops the ENTIRE attribute dict (not just the offending
+    # key) and logs a size warning. The flattened children already
+    # exclude exactly these four keys (sensor_flattened.py's own
+    # FLATTENED_ATTRS_QUALITY exclusion comment) since each one is its
+    # own real entity there -- the parent just never matched that.
+    _unrecorded_attributes = frozenset(
+        {"j_ref_hourly", "j_ach_hourly", "j_star_hourly", "hourly_regret"}
+    )
 
     def __init__(
         self,

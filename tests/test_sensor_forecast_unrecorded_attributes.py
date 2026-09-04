@@ -48,9 +48,35 @@ def test_health_report_sensor_has_unrecorded_attributes_for_recorder_cap():
     # (confirmed live: 62 warnings in one 30-minute window). This class
     # was never given the same _unrecorded_attributes treatment #99
     # gave NimbusForecastSensor -- fixed the same way.
+    #
+    # nimbus issue #362 (Mark Purcell): generated_at ALSO needs to be
+    # here. Size was never the actual problem -- churn was. This entity
+    # polls every 30s and generated_at is recomputed fresh on every
+    # single read, so the attribute dict differed on every poll (firing
+    # a non-dedupable recorder write) even when the three keys above
+    # were byte-for-byte unchanged.
     cls = sensor.NimbusHealthReportSensor
     assert cls._unrecorded_attributes == frozenset(
-        {"recent_errors", "recent_warnings", "subentry_status"}
+        {"recent_errors", "recent_warnings", "subentry_status", "generated_at"}
+    )
+
+
+def test_quality_report_sensor_excludes_its_oversized_hourly_arrays():
+    # nimbus issue #362 (Mark Purcell): NimbusSolverQualityReportSensor
+    # cleared _unrecorded_attributes to frozenset() reasoning only about
+    # the inherited "forecast" key -- but its real payload (see
+    # solver_writer.py's publish_daily_quality_report()) also carries
+    # j_ref_hourly/j_ach_hourly/j_star_hourly (24 ISO-keyed rows x 7
+    # floats each) plus hourly_regret. A realistic payload measured at
+    # 14,609 bytes against the recorder's 16,384-byte MAX_STATE_ATTRS_
+    # BYTES cap -- one more trajectory or per-hour field tips it over,
+    # at which point the recorder drops the ENTIRE attribute dict. The
+    # flattened children already exclude exactly these four keys
+    # (sensor_flattened.py's own FLATTENED_ATTRS_QUALITY) -- the parent
+    # now matches.
+    cls = sensor.NimbusSolverQualityReportSensor
+    assert cls._unrecorded_attributes == frozenset(
+        {"j_ref_hourly", "j_ach_hourly", "j_star_hourly", "hourly_regret"}
     )
 
 

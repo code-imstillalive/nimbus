@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import pickle
 from bisect import bisect_right
 from dataclasses import asdict
@@ -801,6 +802,22 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     value = float(s.state)
                 except (TypeError, ValueError):
                     continue
+                # nimbus issue #353 (Mark Purcell): float("nan") does not
+                # raise, so a template/REST/Modbus sensor without a numeric
+                # device_class/state_class (HA core's own state-write guard
+                # only rejects non-numeric states for those) can publish
+                # "nan" straight into recorder history -- and abs(nan) >
+                # MAX_SANE_POWER_KW below is False, so the existing sanity
+                # ceiling silently passes it through. Reproduced: one NaN
+                # training row poisons x_mean/x_std for the whole retrain,
+                # every model's validation_mae comes out NaN, min() over a
+                # NaN dict still "picks" a model, and predict() then
+                # returns 0.0 for every step (max(0.0, nan) == 0.0) --
+                # silently, with no error, until the next successful
+                # retrain overwrites the poisoned pickle. Dropped here,
+                # same as an unparseable state already is.
+                if not math.isfinite(value):
+                    continue
                 if convert_power:
                     unit = s.attributes.get("unit_of_measurement")
                     if unit and unit != UnitOfPower.KILO_WATT:
@@ -931,6 +948,13 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 if mean is None:
                     continue
                 value = float(mean)
+                # nimbus issue #353 -- same NaN-poisoning risk as the
+                # recorder path (see its own comment): an hourly mean built
+                # from a NaN-containing bucket is itself NaN, and the
+                # abs(value) > MAX_SANE_POWER_KW check below can't catch
+                # it either. Dropped, same as the recorder path.
+                if not math.isfinite(value):
+                    continue
                 if convert_power and unit and unit != UnitOfPower.KILO_WATT:
                     try:
                         value = PowerConverter.convert(
@@ -1017,6 +1041,14 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             value = float(state.state)
         except (TypeError, ValueError):
+            return 0.0
+        # nimbus issue #353 -- same NaN-poisoning risk as the history
+        # fetch paths (see _async_fetch_recorder_history's own comment):
+        # a template/REST/Modbus sensor without a numeric device_class/
+        # state_class can publish "nan", which float() accepts without
+        # raising. Feeding NaN into a live forecast's stale-flat-carry
+        # feature would poison every recursive step, not just training.
+        if not math.isfinite(value):
             return 0.0
         unit = state.attributes.get("unit_of_measurement")
         if unit and unit != UnitOfPower.KILO_WATT:
