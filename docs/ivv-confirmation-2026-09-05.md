@@ -85,3 +85,20 @@ v0.94.116 shipped the #372 fix while this report was being discussed. Upgraded t
 - **Forecasts still absent.** Every retrain now stops at `Only 464–478 usable training points (need >= 500)`. LTS exists back to 2026-05-31 for all three sensors, so the hybrid path is fetching ~1 300 hourly rows and producing zero training rows from them: an hourly bucket on the 15-minute grid, the 45-minute staleness cap (#353) and the #350 observed-mask together leave every LTS-derived row without a `lag_short` value, and the row loop drops it. Filed as **#375**; the chain is now #372 (done) → #375 → #373 → #374.
 - **#374 reproduced again** at 08:15:04 and 08:15:27 on v0.94.116 once the coordinator published `forecast: []`.
 - Log level for `custom_components.nimbus_load` was raised to debug for one retrain and restored to warning afterwards. No hub options were changed.
+
+## Follow-up — v0.94.118 (09:23–09:27 AEST): incident chain closed
+
+Upgraded the same install v0.94.116 → v0.94.118 (carries #373 in v0.94.117 and #375 in v0.94.118) and restarted at 09:23. No config changes, no manual retrain.
+
+| Check | v0.94.116 | v0.94.118 |
+|---|---|---|
+| Boot with a schema-0 pickle (#373) | discarded, sensors `unknown` | served as stale fallback (3× warning at 09:24:28), sensors populated within the first minute |
+| Retrain (#372, #375) | `Only 464–478 usable training points` | 1 649 / 1 649 / 1 634 points, all three models trained at 09:24:28, GBRT selected (MAE 1.26 / 1.37 / 3.28 vs naive 3.40 / 2.91 / 4.21) |
+| `last_retrain_error` | n/a | `null` on all three coordinators |
+| Load forecast sensors | `unknown` | 385 points each; bands well-formed (first live confirmation of #352 on a power signal: 0.46 / 7.23) |
+| Solver plan | zero-load, band width 0.0 | coverage 96.0 h, band width 18.0, peak load 8.7 kW, `optimal` at 09:25:46 |
+| Startup window | "present but empty" → zero-load plan | 09:25:06–09:25:15 `Load forecast not ready yet` (nothing published), then the real plan |
+
+**#374 not reproduced** on this boot: #373 removed the empty-forecast window, so the "present but empty" branch was never reached. The branch is unchanged in code and remains reachable for a subentry with no model at all; left open for the owner's decision.
+
+Final status of the chain: #372 ✅ · #373 ✅ · #375 ✅ verified live · #374 mitigated, open.
