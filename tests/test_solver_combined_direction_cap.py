@@ -208,7 +208,3 @@ class TestCombinedDirectionCap(unittest.TestCase):
             "(or the scenario needs revisiting) and this test's own "
             "docstring should be updated",
         )
-
-
-if __name__ == "__main__":
-    unittest.main()

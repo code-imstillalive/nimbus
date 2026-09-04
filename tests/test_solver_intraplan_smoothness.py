@@ -235,7 +235,3 @@ class TestIntraplanSmoothness(unittest.TestCase):
             step_on, 50.0, "the fix must not smear a genuine, large, real transition"
         )
         self.assertAlmostEqual(step_on, step_off, delta=1.0)
-
-
-if __name__ == "__main__":
-    unittest.main()

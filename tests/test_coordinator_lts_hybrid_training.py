@@ -501,31 +501,3 @@ def test_binary_sensor_always_uses_recorder_even_in_lts_mode():
     # Alternating 1.0/0.0 mirroring "on"/"off"
     assert values == [1.0, 0.0] * 6, f"got {values}"
     assert not coordinator_module.statistics_during_period.called
-
-
-if __name__ == "__main__":
-    # Run in-order so any earlier install_* mutation is deterministic --
-    # the module namespace is shared across tests, same convention as the
-    # other coordinator-level tests already do.
-    tests = [
-        test_recorder_source_uses_only_recorder_history,
-        test_lts_source_uses_only_statistics_during_period,
-        test_lts_source_drops_none_means,
-        test_lts_source_drops_insane_means,
-        test_recorder_source_drops_nan_states,
-        test_lts_source_drops_nan_means,
-        test_hybrid_source_concatenates_older_lts_and_recent_recorder,
-        test_hybrid_source_degrades_to_recorder_when_recent_days_exceeds_window,
-        test_unknown_source_falls_back_to_recorder,
-        test_binary_sensor_always_uses_recorder_even_in_lts_mode,
-    ]
-    passed = 0
-    for t in tests:
-        try:
-            t()
-            passed += 1
-            print(f"PASS: {t.__name__}")
-        except Exception as e:
-            print(f"FAIL: {t.__name__}: {e}")
-            raise
-    print(f"\n{passed}/{len(tests)} tests passed")

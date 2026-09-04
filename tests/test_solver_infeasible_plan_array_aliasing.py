@@ -71,7 +71,3 @@ class TestInfeasiblePlanArrayAliasing(unittest.TestCase):
         self.assertTrue((plan.export_bonus_kw == 0.0).all())
         self.assertTrue((plan.solar_used_kw == 0.0).all())
         self.assertTrue((plan.solar_curtailed_kw == 0.0).all())
-
-
-if __name__ == "__main__":
-    unittest.main()

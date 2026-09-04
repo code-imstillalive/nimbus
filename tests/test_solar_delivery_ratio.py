@@ -166,7 +166,3 @@ class TestQueueAndResolve(unittest.TestCase):
 
         self.assertEqual(result["solar_delivery_sample_count"], 1)
         self.assertAlmostEqual(result["solar_delivery_ratio"], 0.9, places=3)
-
-
-if __name__ == "__main__":
-    unittest.main()

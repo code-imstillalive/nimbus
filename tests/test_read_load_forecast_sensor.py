@@ -235,9 +235,5 @@ class TestNotifyOnce(unittest.TestCase):
         ):
             try:
                 solver_writer._notify_load_forecast_error_once("some error")
-            except Exception as e:  # BLE001 ignored globally (see #72 Stage 2)
+            except Exception as e:  # noqa: BLE001 -- reporting a clean self.fail() message for genuinely any exception here, not narrowing to a specific type
                 self.fail(f"_notify_load_forecast_error_once raised: {e}")
-
-
-if __name__ == "__main__":
-    unittest.main()

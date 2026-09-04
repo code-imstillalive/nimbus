@@ -183,8 +183,3 @@ def test_retrain_fetches_all_six_optional_features_without_crashing():
     assert captured["curtailment_events"] == [
         (datetime(2026, 8, 31, 0, 0, tzinfo=UTC), 1.0)
     ]
-
-
-if __name__ == "__main__":
-    test_retrain_fetches_all_six_optional_features_without_crashing()
-    print("OK")

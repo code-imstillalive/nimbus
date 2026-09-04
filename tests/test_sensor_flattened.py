@@ -434,23 +434,6 @@ def test_parent_update_is_safe_before_flattened_entities_are_wired():
     assert parent.native_value == -1.979
 
 
-if __name__ == "__main__":
-    tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
-    failed = 0
-    for t in tests:
-        try:
-            t()
-            print(f"PASS  {t.__name__}")
-        except AssertionError as e:
-            failed += 1
-            print(f"FAIL  {t.__name__}: {e}")
-        except Exception as e:
-            failed += 1
-            print(f"ERROR {t.__name__}: {type(e).__name__}: {e}")
-    print(f"\n{len(tests) - failed}/{len(tests)} passed")
-    sys.exit(1 if failed else 0)
-
-
 # ===========================================================================
 # Family B (v0.94.20 CHANGELOG deferred item): per-row forecast fields on
 # sensor.nimbus_solver_battery_forecast, restricted to the current-period row

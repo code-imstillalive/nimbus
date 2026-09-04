@@ -161,7 +161,3 @@ class TestEvaluateRealizedCostDegradationCost(unittest.TestCase):
         light_deg_cost = light.total_cost - light_zero_deg.total_cost
         heavy_deg_cost = heavy.total_cost - heavy_zero_deg.total_cost
         self.assertAlmostEqual(heavy_deg_cost, 2 * light_deg_cost, places=9)
-
-
-if __name__ == "__main__":
-    unittest.main()

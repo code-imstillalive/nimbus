@@ -97,12 +97,8 @@ class TestLogBufferHandler(unittest.TestCase):
         # into the caller's own log statement.
         try:
             self.logger.warning("missing arg: %s")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 -- reporting a clean self.fail() message for genuinely any exception here, not narrowing to a specific type
             self.fail(f"a malformed log call must never raise: {e}")
         self.assertEqual(
             len(health.get_recent_log_entries(min_level=logging.WARNING)), 1
         )
-
-
-if __name__ == "__main__":
-    unittest.main()

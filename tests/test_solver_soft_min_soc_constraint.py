@@ -262,7 +262,3 @@ class TestTerminalValueSegmentFillStaysFeasible(unittest.TestCase):
             periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
         )
         self.assertEqual(plan.status, "optimal")
-
-
-if __name__ == "__main__":
-    unittest.main()

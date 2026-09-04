@@ -156,7 +156,3 @@ class TestComputeForecastRegret(unittest.TestCase):
             load_persistence_kw=bad_persistence_load,
         )
         self.assertGreater(result.nimbus_value_add_dollars, 0.0)
-
-
-if __name__ == "__main__":
-    unittest.main()

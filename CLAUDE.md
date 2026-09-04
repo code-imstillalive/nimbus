@@ -1106,17 +1106,37 @@ don't repeat that either.
 
 ## Testing
 
-No scikit-learn/pytest infra inside the HA container this trains in, so verification
-happens locally: copy the relevant `custom_components/nimbus_load/{const.py,ml/*.py}`
-files (pure numpy + stdlib, zero HA dependencies) into a scratch test package and run
-real synthetic data through `train_model()`/`predict()` before shipping — not just a
-syntax check. See recent PR descriptions for the pattern.
+**Corrected 2026-09-04 (nimbus issue #360, Mark Purcell, codebase review)** — this
+section used to say "no scikit-learn/pytest infra" and recommend copying files into a
+scratch package. That was true once, in 2026-08-15-era history; it stopped being true
+long before this correction landed, and the stale text was actively misleading anyone
+who read it. This repo has a real, full `pytest` suite (`tests/`, 900+ tests) wired via
+`pyproject.toml`'s `[dev]` extra — **pytest is the only test runner this project has.**
+`tests/run_all.py` (a hand-rolled dual-mode runner working around a genuine gap that no
+longer exists — see its own git history if curious) and the ~125 duplicated
+`if __name__ == "__main__":` bare-function collectors every test file used to carry are
+both gone, removed in the same pass as this correction.
 
-The config-flow/entity/sensor files (`config_flow.py`, `flows/*.py`, `sensor.py`,
-`coordinator.py`) import `homeassistant.*` directly and can't be instantiated in that
-same local test environment (no `homeassistant` package installed there) — `py_compile`
-syntax checks + careful mirroring of an already-proven pattern is the most that can be
-verified before a real deploy for these files.
+**Local commands** (identical to what CI actually runs, `.github/workflows/ci.yml`):
+```
+pip install -e '.[dev]'
+pytest tests/ --ignore=tests/hass_integration/ -p no:homeassistant -v
+pytest tests/hass_integration/ -v
+```
+The first run is stub-based (`tests/_ha_stubs.py` fakes `homeassistant.*`) and fast —
+use this for iterating. The second uses a real
+`pytest-homeassistant-custom-component` harness (genuine `hass` fixture, real event
+loop) and is what actually exercises `config_flow.py`/`flows/*.py`/`sensor.py`/
+`coordinator.py` against real HA internals — **this is the step that has caught real
+regressions the stub-based run and this project's own now-deleted local-only checks
+both missed** (the three-release #82/#83/#85 flap chain, and two same-day CI-only
+failures during this same 2026-09-04 session). Never call a fix verified from the
+stub-based run alone if it touches anything HA-facing — always confirm the real-HA-
+harness job is green too, e.g. via `gh run watch` after pushing.
+
+`solver/` and `ml/` are genuinely HA-import-free (pure numpy + stdlib) and are directly
+importable without any stub at all via `tests/_solver_path.py`/`tests/_ml_path.py`'s own
+sys.path shims — see any `test_solver_*.py`/`test_train_model_*.py` file for the pattern.
 
 ## Translations — keep `strings.json` and `translations/en.json` byte-identical
 

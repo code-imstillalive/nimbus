@@ -60,20 +60,3 @@ def test_every_wizard_saveable_key_is_exposed_by_the_bridge_sensor():
 def test_the_two_specific_fields_from_the_real_2026_08_23_incident_are_present():
     assert CONF_SOLVER_LOAD_FORECAST_ENTITIES in sensor._SOLVER_ALL_KEYS
     assert CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR in sensor._SOLVER_ALL_KEYS
-
-
-if __name__ == "__main__":
-    tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
-    failed = 0
-    for t in tests:
-        try:
-            t()
-            print(f"PASS  {t.__name__}")
-        except AssertionError as e:
-            failed += 1
-            print(f"FAIL  {t.__name__}: {e}")
-        except Exception as e:
-            failed += 1
-            print(f"ERROR {t.__name__}: {type(e).__name__}: {e}")
-    print(f"\n{len(tests) - failed}/{len(tests)} passed")
-    sys.exit(1 if failed else 0)

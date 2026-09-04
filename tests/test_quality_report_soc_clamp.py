@@ -222,7 +222,3 @@ class TestEfficiencyBacktestSocClamp(unittest.TestCase):
                 _cfg(solver_battery_max_soc_percent=40.0), DAY_END
             )
         self.assertTrue(result is None or isinstance(result, dict))
-
-
-if __name__ == "__main__":
-    unittest.main()

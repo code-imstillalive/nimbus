@@ -147,7 +147,3 @@ class TestBatteryConfigSoCClamp(unittest.TestCase):
         except ValueError as e:
             self.fail(f"BatteryConfig raised on clamp-to-max value: {e}")
         self.assertEqual(bc.initial_soc_kwh, kwargs["max_soc_kwh"])
-
-
-if __name__ == "__main__":
-    unittest.main()

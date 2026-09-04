@@ -98,20 +98,3 @@ def test_gives_up_after_the_configured_number_of_attempts():
     assert run_solve.call_count == _STARTUP_RETRY_ATTEMPTS
     # One fewer sleep than attempts -- no delay after the final, giving-up attempt.
     assert sleep_mock.call_count == _STARTUP_RETRY_ATTEMPTS - 1
-
-
-if __name__ == "__main__":
-    tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
-    failed = 0
-    for t in tests:
-        try:
-            t()
-            print(f"PASS  {t.__name__}")
-        except AssertionError as e:
-            failed += 1
-            print(f"FAIL  {t.__name__}: {e}")
-        except Exception as e:
-            failed += 1
-            print(f"ERROR {t.__name__}: {type(e).__name__}: {e}")
-    print(f"\n{len(tests) - failed}/{len(tests)} passed")
-    sys.exit(1 if failed else 0)

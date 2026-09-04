@@ -353,7 +353,3 @@ class TestPriceRiskAversion(unittest.TestCase):
             np.allclose(plan_imp_on.grid_import_kw, plan_imp_off.grid_import_kw),
             "import_price_risk_aversion=1.0 with a real bound had no measurable effect at all",
         )
-
-
-if __name__ == "__main__":
-    unittest.main()

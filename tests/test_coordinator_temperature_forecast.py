@@ -499,22 +499,3 @@ def test_cache_trims_to_future_only_not_stale_past_entries():
     coord.hass.services.async_call = AsyncMock(side_effect=RuntimeError("down"))
     rescued = asyncio.run(coord._async_fetch_temperature_forecast())
     assert [t for _, t in rescued] == [20.0]
-
-
-if __name__ == "__main__":
-    tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
-    failed = 0
-    for t in tests:
-        try:
-            if "caplog" in t.__code__.co_varnames[: t.__code__.co_argcount]:
-                continue  # caplog fixture only runs under pytest
-            t()
-            print(f"PASS  {t.__name__}")
-        except AssertionError as e:
-            failed += 1
-            print(f"FAIL  {t.__name__}: {e}")
-        except Exception as e:
-            failed += 1
-            print(f"ERROR {t.__name__}: {type(e).__name__}: {e}")
-    print(f"\n{len(tests) - failed}/{len(tests)} passed")
-    sys.exit(1 if failed else 0)

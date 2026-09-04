@@ -139,7 +139,3 @@ class TestCostBreakdownReconciliation(unittest.TestCase):
             period_hours=np.full(1, 0.25),
         )
         self.assertAlmostEqual(breakdown["terminal_value_credit"], -1.0, places=6)
-
-
-if __name__ == "__main__":
-    unittest.main()

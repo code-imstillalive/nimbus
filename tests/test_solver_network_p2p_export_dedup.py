@@ -64,7 +64,3 @@ class TestNetworkImportsP2PExport(unittest.TestCase):
         for call in expected_calls:
             with self.subTest(call=call):
                 self.assertIn(call, self._source)
-
-
-if __name__ == "__main__":
-    unittest.main()

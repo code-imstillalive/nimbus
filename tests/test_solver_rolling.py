@@ -342,20 +342,3 @@ def test_infeasible_solve_freezes_the_last_known_good_dispatch():
         assert infeasible_tick.dispatched_charge_kw == prev.dispatched_charge_kw
         assert infeasible_tick.dispatched_discharge_kw == prev.dispatched_discharge_kw
         assert infeasible_tick.dispatched_soc_kwh == prev.dispatched_soc_kwh
-
-
-if __name__ == "__main__":
-    tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
-    failed = 0
-    for t in tests:
-        try:
-            t()
-            print(f"PASS  {t.__name__}")
-        except AssertionError as e:
-            failed += 1
-            print(f"FAIL  {t.__name__}: {e}")
-        except Exception as e:
-            failed += 1
-            print(f"ERROR {t.__name__}: {type(e).__name__}: {e}")
-    print(f"\n{len(tests) - failed}/{len(tests)} passed")
-    sys.exit(1 if failed else 0)

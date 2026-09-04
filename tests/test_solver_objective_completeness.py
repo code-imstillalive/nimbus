@@ -347,7 +347,3 @@ class TestShedCost(unittest.TestCase):
             total_shed_expensive,
             "a cheap shed_cost should lead to strictly MORE real shedding than an expensive one under the same binding constraint",
         )
-
-
-if __name__ == "__main__":
-    unittest.main()

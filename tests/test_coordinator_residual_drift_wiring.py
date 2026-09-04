@@ -112,9 +112,3 @@ def test_a_broken_check_logs_a_warning_and_never_raises(caplog):
         coord._check_residual_drift()  # must not raise
     assert len(caplog.records) == 1
     assert "failed" in caplog.records[0].getMessage().lower()
-
-
-if __name__ == "__main__":
-    import pytest
-
-    sys.exit(pytest.main([__file__, "-v"]))

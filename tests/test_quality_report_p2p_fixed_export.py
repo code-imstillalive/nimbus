@@ -181,7 +181,3 @@ class TestOracleRespectsFixedP2PExportRate(unittest.TestCase):
         # that it is NOT pinned to -11.5 (unconstrained, whatever value
         # that turns out to be).
         self.assertNotAlmostEqual(row["grid_kw"], -11.5, places=1)
-
-
-if __name__ == "__main__":
-    unittest.main()

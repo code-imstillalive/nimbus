@@ -171,7 +171,3 @@ class TestPredictDispatchesNaiveModelToSeasonalLookup(unittest.TestCase):
                 seasonal_v, f"expected full seasonal coverage for {ts}"
             )
             self.assertAlmostEqual(predicted, seasonal_v, places=6)
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -168,13 +168,21 @@ def test_one_coordinator_failing_does_not_abort_the_others():
     coord_c._async_retrain.assert_called_once()
 
 
-def test_handle_retrain_with_no_entity_id_and_no_coordinators_is_a_noop():
+def test_handle_retrain_with_no_entity_id_and_no_coordinators_is_a_noop(caplog):
+    # nimbus issue #360 (Mark Purcell, codebase review): "must not raise"
+    # alone is a blind assertion -- it passes just as well if this whole
+    # branch (the `if not targets:` warning) silently stopped being
+    # reached at all as it does for the real, intended "genuinely a
+    # no-op" behaviour. Asserting the real WARNING it's supposed to log
+    # actually fired closes that gap.
     hass = _fake_hass_with_coordinators({})
     call = _fake_call({})
 
     # Must not raise -- "nothing configured yet" is a real, valid state
     # for a fresh install, not an error.
-    asyncio.run(services._async_handle_retrain(hass, call))
+    with caplog.at_level("WARNING"):
+        asyncio.run(services._async_handle_retrain(hass, call))
+    assert "no entity_id and no" in caplog.text
 
 
 def test_handle_retrain_with_specific_entity_id_retrains_only_that_one():
@@ -280,19 +288,27 @@ def test_solve_now_calls_async_run_solve():
     fake_run_solve.assert_called_once_with(hass)
 
 
-def test_solve_now_logs_a_warning_on_a_failed_solve_but_does_not_raise():
+def test_solve_now_logs_a_warning_on_a_failed_solve_but_does_not_raise(caplog):
     """async_run_solve()'s own contract is "never raises, returns False
     on any handled failure" -- the service handler must respect that
     same contract, not treat a False return as something to propagate
     as an exception (which would surface as a confusing generic HA
     service-call error instead of the real, already-descriptive status
     already sitting on sensor.nimbus_solver_battery_forecast).
+
+    nimbus issue #360 (Mark Purcell, codebase review): the function's
+    own name promises a warning gets logged, but the original test never
+    checked for one -- "must not raise" alone passes just as well if the
+    `if not ok:` branch silently stopped logging (or stopped being
+    reached) as it does for the real, intended behaviour.
     """
     hass = MagicMock()
     call = _fake_call({})
     services.solver_runtime.async_run_solve = AsyncMock(return_value=False)
 
-    asyncio.run(services._async_handle_solve_now(hass, call))  # must not raise
+    with caplog.at_level("WARNING"):
+        asyncio.run(services._async_handle_solve_now(hass, call))  # must not raise
+    assert "did not produce a successful solve" in caplog.text
 
 
 # --- _coerce_datetime (nimbus issue #345) -----------------------------------
@@ -377,25 +393,3 @@ def test_coerce_datetime_rejects_an_unparseable_string():
 def test_coerce_datetime_rejects_a_non_datetime_non_string_value():
     with pytest.raises(vol.Invalid):
         services._coerce_datetime(12345)
-
-
-if __name__ == "__main__":
-    import traceback
-
-    tests = [
-        (name, obj)
-        for name, obj in sorted(globals().items())
-        if name.startswith("test_") and callable(obj)
-    ]
-    passed = 0
-    for name, fn in tests:
-        try:
-            fn()
-            passed += 1
-        except AssertionError:
-            print(f"FAIL: {name}")
-            traceback.print_exc()
-        except Exception:
-            print(f"ERROR: {name}")
-            traceback.print_exc()
-    print(f"{passed}/{len(tests)} passed")

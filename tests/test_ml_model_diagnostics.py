@@ -121,7 +121,3 @@ class TestMaseScalePointsVisibility(unittest.TestCase):
         # (only MASE's own scale is) -- still populated, proving the two
         # are genuinely independent gates, not the same one reported twice.
         self.assertIn("knn", trained.validation_mae)
-
-
-if __name__ == "__main__":
-    unittest.main()

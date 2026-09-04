@@ -105,8 +105,3 @@ def test_async_setup_schedules_retrain_in_the_background_when_untrained():
     # -- _trained stays exactly what the (mocked) disk-load reported, None,
     # not something _async_retrain() would have set on a real completion.
     assert coord._trained is None
-
-
-if __name__ == "__main__":
-    test_async_setup_schedules_retrain_in_the_background_when_untrained()
-    print("OK")

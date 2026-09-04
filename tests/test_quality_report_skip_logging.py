@@ -196,7 +196,3 @@ class TestPublishDailyQualityReportSkipLogging(unittest.TestCase):
             solver_writer.publish_daily_quality_report(_cfg(), self.NOW)
         post.assert_not_called()
         self.assertTrue(any("no report for" in line for line in cm.output), cm.output)
-
-
-if __name__ == "__main__":
-    unittest.main()

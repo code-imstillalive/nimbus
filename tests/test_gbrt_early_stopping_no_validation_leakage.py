@@ -127,7 +127,3 @@ class TestGbrtEarlyStoppingNoValidationLeakage(unittest.TestCase):
             "issue #351 describes (early stopping peeking at the set "
             "it's later judged against)",
         )
-
-
-if __name__ == "__main__":
-    unittest.main()

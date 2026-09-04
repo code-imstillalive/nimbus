@@ -102,7 +102,3 @@ class TestSelfPidLockReclaim(unittest.TestCase):
         self.assertTrue(acquired)
         with open(self.lock_path, "r", encoding="utf-8") as f:
             self.assertEqual(int(f.read().strip()), os.getpid())
-
-
-if __name__ == "__main__":
-    unittest.main()

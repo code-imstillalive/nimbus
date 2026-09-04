@@ -114,7 +114,3 @@ class TestLoadModelFromDiskRobustness(unittest.TestCase):
         coord = _make_coordinator(self._model_path)
         # Must not raise.
         self.assertIsNone(coord._load_model_from_disk())
-
-
-if __name__ == "__main__":
-    unittest.main()

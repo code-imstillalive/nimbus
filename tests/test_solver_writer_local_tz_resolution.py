@@ -120,7 +120,3 @@ class TestLocalTzResolution(unittest.TestCase):
             solver_writer.set_native_hass(None)  # must not raise
 
         self.assertEqual(solver_writer.LOCAL_TZ, ZoneInfo("Australia/Brisbane"))
-
-
-if __name__ == "__main__":
-    unittest.main()

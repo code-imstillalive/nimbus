@@ -59,7 +59,3 @@ class TestImportFeeRateBlockSelection(unittest.TestCase):
 
     def test_everything_unconfigured_is_a_complete_no_op(self):
         self.assertEqual(solver_writer.import_fee_rate({}, 12), 0.0)
-
-
-if __name__ == "__main__":
-    unittest.main()

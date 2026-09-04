@@ -79,7 +79,3 @@ class TestComputeCostBand(unittest.TestCase):
             export_limit_kw=20.0,
         )
         self.assertIsNone(result)
-
-
-if __name__ == "__main__":
-    unittest.main()

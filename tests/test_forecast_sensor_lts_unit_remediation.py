@@ -125,31 +125,23 @@ def test_a_genuinely_different_real_unit_is_never_touched():
 def test_a_recorder_error_never_propagates():
     # This is a cosmetic, one-time cleanup -- it must never be capable
     # of blocking or crashing real entity setup, regardless of cause.
+    #
+    # nimbus issue #360 (Mark Purcell, codebase review): "must not raise"
+    # alone is a blind assertion -- it passes just as well if the
+    # function silently short-circuits before ever reaching get_instance
+    # (e.g. a future refactor that accidentally returns early) as it
+    # does for the real, intended behaviour of "genuinely tried, hit a
+    # real error, swallowed it." Asserting get_instance was actually
+    # called closes that gap.
     hass = MagicMock()
     with patch(
         "homeassistant.components.recorder.get_instance",
         side_effect=RuntimeError("boom"),
-    ):
+    ) as mock_get_instance:
 
         async def _go():
             hass.loop = asyncio.get_running_loop()
             await _remediate_forecast_lts_unit(hass, ENTITY_ID, "kW")  # must not raise
 
         asyncio.run(_go())
-
-
-if __name__ == "__main__":
-    tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
-    failed = 0
-    for t in tests:
-        try:
-            t()
-            print(f"PASS  {t.__name__}")
-        except AssertionError as e:
-            failed += 1
-            print(f"FAIL  {t.__name__}: {e}")
-        except Exception as e:
-            failed += 1
-            print(f"ERROR {t.__name__}: {type(e).__name__}: {e}")
-    print(f"\n{len(tests) - failed}/{len(tests)} passed")
-    sys.exit(1 if failed else 0)
+    mock_get_instance.assert_called_once_with(hass)

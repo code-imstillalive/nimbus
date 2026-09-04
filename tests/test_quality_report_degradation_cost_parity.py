@@ -153,7 +153,3 @@ class TestQualityReportDegradationCostParity(unittest.TestCase):
             "reading (1.0kW flat) -- the achieved leg is still scoring "
             "a free-to-cycle battery",
         )
-
-
-if __name__ == "__main__":
-    unittest.main()

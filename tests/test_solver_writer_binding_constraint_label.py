@@ -229,7 +229,3 @@ class TestUnexpectedNeitherBoundDegradesHonestly(unittest.TestCase):
             plan, 0.0, _IMPORT_LIMIT_KW, _MAX_CHARGE_KW, _MAX_DISCHARGE_KW
         )
         self.assertEqual(label, "Grid export at zero (not economical right now)")
-
-
-if __name__ == "__main__":
-    unittest.main()

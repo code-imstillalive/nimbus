@@ -164,7 +164,3 @@ class TestWarnsOnlyWhenActuallyClamped(unittest.TestCase):
             (msg,), _kwargs = mock_print.call_args
             self.assertIn("WARN", msg)
             self.assertIn("Min SoC", msg)
-
-
-if __name__ == "__main__":
-    unittest.main()

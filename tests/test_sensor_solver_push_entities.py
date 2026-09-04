@@ -468,23 +468,6 @@ def test_ha_get_self_read_finds_real_entity_after_a_name_collision():
         _clean_dispatch_state()
 
 
-if __name__ == "__main__":
-    tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
-    failed = 0
-    for t in tests:
-        try:
-            t()
-            print(f"PASS  {t.__name__}")
-        except AssertionError as e:
-            failed += 1
-            print(f"FAIL  {t.__name__}: {e}")
-        except Exception as e:
-            failed += 1
-            print(f"ERROR {t.__name__}: {type(e).__name__}: {e}")
-    print(f"\n{len(tests) - failed}/{len(tests)} passed")
-    sys.exit(1 if failed else 0)
-
-
 # ===========================================================================
 # Family-A completion (2026-08-29, issue #55 follow-up):
 # NimbusSolverQualityReportSensor, NimbusEfficiencyBacktestSensor, and

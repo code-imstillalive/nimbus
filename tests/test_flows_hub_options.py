@@ -1198,23 +1198,6 @@ def test_init_step_shows_the_forecaster_vs_solver_vs_switchboard_menu():
     assert result["menu_options"] == ["forecaster", "solver_battery", "switchboard"]
 
 
-if __name__ == "__main__":
-    tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
-    failed = 0
-    for t in tests:
-        try:
-            t()
-            print(f"PASS  {t.__name__}")
-        except AssertionError as e:
-            failed += 1
-            print(f"FAIL  {t.__name__}: {e}")
-        except Exception as e:
-            failed += 1
-            print(f"ERROR {t.__name__}: {type(e).__name__}: {e}")
-    print(f"\n{len(tests) - failed}/{len(tests)} passed")
-    sys.exit(1 if failed else 0)
-
-
 # -- nimbus issue #340: include_entities IS enforced at validation, so a
 # saved value outside the discovered candidate list must be folded back
 # in or the whole Solver wizard becomes unsubmittable -------------------------

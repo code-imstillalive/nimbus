@@ -95,7 +95,3 @@ class TestSumLoadForecastsCoverage(unittest.TestCase):
             solver_writer.fetch_load_forecast_safe = original
         self.assertEqual(failed, ["sensor.dead"])
         self.assertIsNone(coverage_hours)
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -51,7 +51,3 @@ class TestLoadForecastSourceUsedLabel(unittest.TestCase):
         )
         self.assertIn("summed 1 circuit(s)", label)
         self.assertIn("sensor.nimbus_mirror_pool_1_forecast", label)
-
-
-if __name__ == "__main__":
-    unittest.main()

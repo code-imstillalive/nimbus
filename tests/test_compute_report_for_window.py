@@ -305,7 +305,3 @@ class TestYesterdayWrapperBackwardCompat(unittest.TestCase):
                 helper_result[key],
                 f"{key} diverges after extraction",
             )
-
-
-if __name__ == "__main__":
-    unittest.main()

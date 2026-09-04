@@ -163,7 +163,3 @@ class TestTrainModelSkipsForwardFilledDuplicateRows(unittest.TestCase):
             "suggests the same real observation produced more than one "
             "training row via forward-fill duplication",
         )
-
-
-if __name__ == "__main__":
-    unittest.main()

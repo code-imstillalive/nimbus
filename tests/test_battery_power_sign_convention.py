@@ -159,7 +159,3 @@ class TestBatteryPowerSignConvention(unittest.TestCase):
         charge, discharge = self._run_and_capture_actual_net(cfg, -5.0)
         self.assertTrue((discharge == 5.0).all())
         self.assertTrue((charge == 0.0).all())
-
-
-if __name__ == "__main__":
-    unittest.main()

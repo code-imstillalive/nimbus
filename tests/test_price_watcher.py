@@ -591,28 +591,6 @@ def test_debounced_solve_records_completion_with_triggering_entity_and_timestamp
     asyncio.run(_run())
 
 
-if __name__ == "__main__":
-    import traceback
-
-    tests = [
-        (name, obj)
-        for name, obj in sorted(globals().items())
-        if name.startswith("test_") and callable(obj)
-    ]
-    passed = 0
-    for name, fn in tests:
-        try:
-            fn()
-            passed += 1
-        except AssertionError:
-            print(f"FAIL: {name}")
-            traceback.print_exc()
-        except Exception:
-            print(f"ERROR: {name}")
-            traceback.print_exc()
-    print(f"{passed}/{len(tests)} passed")
-
-
 # -- nimbus issue #337: the state-change unsub is NOT safe to call twice --
 
 

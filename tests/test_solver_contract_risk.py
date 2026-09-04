@@ -211,7 +211,3 @@ class TestScoringDetectsRealMatchShortfall(unittest.TestCase):
             report_full_match.epr.epr,
             "a total real match failure should score strictly worse than a full real match",
         )
-
-
-if __name__ == "__main__":
-    unittest.main()

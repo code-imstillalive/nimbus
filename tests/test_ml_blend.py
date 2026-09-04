@@ -151,7 +151,3 @@ class TestCrossSourceSpread(unittest.TestCase):
     def test_empty_raises(self):
         with self.assertRaises(ValueError):
             cross_source_spread([])
-
-
-if __name__ == "__main__":
-    unittest.main()

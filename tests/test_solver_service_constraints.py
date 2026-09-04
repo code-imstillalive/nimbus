@@ -175,7 +175,3 @@ class TestAdequacyGenuineInfeasibility(unittest.TestCase):
             "infeasible",
             "a physically-impossible adequacy target must surface honestly as infeasible, not a silently-adjusted or partial outcome",
         )
-
-
-if __name__ == "__main__":
-    unittest.main()

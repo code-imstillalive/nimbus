@@ -179,20 +179,3 @@ def test_grid_role_still_gets_power_device_class_and_kw_unit():
     s = _make_sensor(subentry)
     assert s._attr_device_class is SensorDeviceClass.POWER
     assert s._attr_native_unit_of_measurement == UnitOfPower.KILO_WATT
-
-
-if __name__ == "__main__":
-    tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
-    failed = 0
-    for t in tests:
-        try:
-            t()
-            print(f"PASS  {t.__name__}")
-        except AssertionError as e:
-            failed += 1
-            print(f"FAIL  {t.__name__}: {e}")
-        except Exception as e:
-            failed += 1
-            print(f"ERROR {t.__name__}: {type(e).__name__}: {e}")
-    print(f"\n{len(tests) - failed}/{len(tests)} passed")
-    sys.exit(1 if failed else 0)

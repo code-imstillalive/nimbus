@@ -161,7 +161,3 @@ class TestMalformedLiveEntityDegradesGracefully(unittest.TestCase):
                 _cfg(solver_max_discharge_live_entity="number.weird")
             )
         self.assertEqual(result, 24.0)
-
-
-if __name__ == "__main__":
-    unittest.main()

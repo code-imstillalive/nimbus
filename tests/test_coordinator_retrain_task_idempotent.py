@@ -128,9 +128,3 @@ def test_async_unload_cancels_the_tracked_retrain_task():
         assert task.cancelled()
 
     asyncio.run(_run())
-
-
-if __name__ == "__main__":
-    test_second_coordinator_for_same_subentry_cancels_first_retrain_task()
-    test_async_unload_cancels_the_tracked_retrain_task()
-    print("OK")

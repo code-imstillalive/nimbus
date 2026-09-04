@@ -87,22 +87,3 @@ def test_no_solar_data_still_logs_a_loud_warning():
     block = _extract_no_solar_data_block(src)
     assert "WARN" in block
     assert "file=sys.stderr" in block
-
-
-if __name__ == "__main__":
-    tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
-    failed = 0
-    for t in tests:
-        try:
-            t()
-            print(f"PASS  {t.__name__}")
-        except AssertionError as e:
-            failed += 1
-            print(f"FAIL  {t.__name__}: {e}")
-        except Exception as e:
-            failed += 1
-            print(f"ERROR {t.__name__}: {type(e).__name__}: {e}")
-    print(f"\n{len(tests) - failed}/{len(tests)} passed")
-    import sys
-
-    sys.exit(1 if failed else 0)

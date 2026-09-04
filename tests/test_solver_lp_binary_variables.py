@@ -171,7 +171,3 @@ class TestMipSolveRecoversRealDuals(unittest.TestCase):
         self.assertIsInstance(result.reduced_costs, dict)
         self.assertIn("use_machine", result.reduced_costs)
         self.assertIn("output", result.reduced_costs)
-
-
-if __name__ == "__main__":
-    unittest.main()

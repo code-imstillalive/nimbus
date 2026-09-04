@@ -213,7 +213,3 @@ class TestLargeDegradationCostStopsCycling(unittest.TestCase):
         # large enough to make cycling a real net loss, not merely a
         # smaller-but-still-positive gain.
         self.assertLess(total_throughput, 1.0)
-
-
-if __name__ == "__main__":
-    unittest.main()

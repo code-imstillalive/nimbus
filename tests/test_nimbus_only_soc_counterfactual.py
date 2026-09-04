@@ -262,8 +262,3 @@ class TestPublish(unittest.TestCase):
             existing["state"],
             existing["attributes"],
         )
-
-
-if __name__ == "__main__":
-    tests = [v for k, v in list(globals().items()) if k.startswith("Test")]
-    unittest.main()

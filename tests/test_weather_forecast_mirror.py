@@ -140,7 +140,3 @@ class TestSensorDomain(unittest.TestCase):
         ):
             solver_writer.publish_weather_forecast_mirrors(cfg)
         post.assert_not_called()
-
-
-if __name__ == "__main__":
-    unittest.main()

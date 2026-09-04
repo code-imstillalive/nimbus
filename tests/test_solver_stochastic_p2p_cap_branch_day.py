@@ -146,7 +146,3 @@ class TestP2PCapNotDoubledOnBranchDay(unittest.TestCase):
             "this test scenario may not actually incentivize claiming "
             "the cap at all, making the main assertion vacuous",
         )
-
-
-if __name__ == "__main__":
-    unittest.main()

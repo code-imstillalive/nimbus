@@ -182,7 +182,3 @@ class TestRunEfficiencySensitivitySweep(unittest.TestCase):
             candidates_percent=(80.0, 99.0),
         )
         self.assertEqual({r.label for r in results}, {"80%", "99%"})
-
-
-if __name__ == "__main__":
-    unittest.main()

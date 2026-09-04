@@ -218,7 +218,3 @@ class TestPublishEfficiencyBacktestReportIdempotency(unittest.TestCase):
         self.assertEqual(
             attrs["latest_date"], (NOW - timedelta(days=1)).date().isoformat()
         )
-
-
-if __name__ == "__main__":
-    unittest.main()

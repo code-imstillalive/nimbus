@@ -103,7 +103,3 @@ class TestOtherRealFailureShapes(unittest.TestCase):
         ):
             result = solver_writer.safe_num("sensor.bad", fallback=0.15)
         self.assertEqual(result, 0.15)
-
-
-if __name__ == "__main__":
-    unittest.main()

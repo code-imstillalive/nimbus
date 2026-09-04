@@ -130,7 +130,3 @@ class TestTrainModelNanPoisoning(unittest.TestCase):
             "every predicted value is exactly 0.0 -- looks like the "
             "poisoned-model regression this issue describes",
         )
-
-
-if __name__ == "__main__":
-    unittest.main()

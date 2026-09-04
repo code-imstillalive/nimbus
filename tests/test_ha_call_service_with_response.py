@@ -101,7 +101,3 @@ class TestHaCallServiceWithResponseNativeMode(unittest.TestCase):
             "weather", "get_forecasts", {"entity_id": "weather.home", "type": "hourly"}
         )
         self.assertIsNone(result)
-
-
-if __name__ == "__main__":
-    unittest.main()

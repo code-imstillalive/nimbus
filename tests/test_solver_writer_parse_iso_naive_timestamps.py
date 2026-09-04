@@ -85,7 +85,3 @@ class TestResampleForecastWithMixedNaiveAndAwareSources(unittest.TestCase):
         # Nearest-at-or-before: 00:00->1.0, 01:00->1.0 (still before 02:00),
         # 02:00->3.0, 03:00->3.0.
         self.assertEqual(result, [1.0, 1.0, 3.0, 3.0])
-
-
-if __name__ == "__main__":
-    unittest.main()

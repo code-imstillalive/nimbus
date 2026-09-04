@@ -109,20 +109,3 @@ def test_solver_config_diagnostic_still_deliberately_uses_the_pre_anchor_snapsho
     diagnostic's own real purpose."""
     src = _SOLVER_WRITER_PY.read_text(encoding="utf-8")
     assert '"load_summed_18_now_kw": round(summed_18_now_kw, 3),' in src
-
-
-if __name__ == "__main__":
-    tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
-    failed = 0
-    for t in tests:
-        try:
-            t()
-            print(f"PASS  {t.__name__}")
-        except AssertionError as e:
-            failed += 1
-            print(f"FAIL  {t.__name__}: {e}")
-        except Exception as e:
-            failed += 1
-            print(f"ERROR {t.__name__}: {type(e).__name__}: {e}")
-    print(f"\n{len(tests) - failed}/{len(tests)} passed")
-    sys.exit(1 if failed else 0)

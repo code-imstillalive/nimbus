@@ -262,7 +262,3 @@ class TestFixedExportKw(unittest.TestCase):
         # The fixed export commitment itself must still hold exactly,
         # completely unaffected by the charging gate.
         np.testing.assert_allclose(plan.grid_export_kw[10:17], target_kw, atol=1e-4)
-
-
-if __name__ == "__main__":
-    unittest.main()

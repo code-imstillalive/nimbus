@@ -80,7 +80,3 @@ class TestReferenceBenchmarkInvariants(unittest.TestCase):
         r = self.result.regret
         for value in (r.j_star, r.j_forecast, r.j_persistence):
             self.assertTrue(math.isfinite(value))
-
-
-if __name__ == "__main__":
-    unittest.main()

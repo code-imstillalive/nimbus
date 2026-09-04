@@ -355,7 +355,3 @@ class TestBroadScenarioMatrix(unittest.TestCase):
                         "optimal",
                         f"fixed_export={fixed_export}, bonus={bonus} failed to solve",
                     )
-
-
-if __name__ == "__main__":
-    unittest.main()

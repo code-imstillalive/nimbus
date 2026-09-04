@@ -229,7 +229,3 @@ class TestSalvageValueOnlyAtTrueHorizonEnd(unittest.TestCase):
         )
         self.assertEqual(plan.status, "optimal")
         self.assertAlmostEqual(sum(plan.stage1_charge_kw), 0.0, places=3)
-
-
-if __name__ == "__main__":
-    unittest.main()

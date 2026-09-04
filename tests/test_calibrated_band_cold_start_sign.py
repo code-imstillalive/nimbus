@@ -52,7 +52,3 @@ class TestCalibratedBandColdStartSign(unittest.TestCase):
         lower = point_value - band
         upper = point_value + band
         self.assertLessEqual(lower, upper)
-
-
-if __name__ == "__main__":
-    unittest.main()

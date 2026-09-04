@@ -228,30 +228,22 @@ def test_hass_states_get_raising_does_not_propagate():
     sw.ha_post_state.assert_not_called()
 
 
-def test_sw_ha_post_state_raising_does_not_propagate():
+def test_sw_ha_post_state_raising_does_not_propagate(caplog):
     # The sensor push itself is new (2026-08-28) -- confirm a broken
     # ha_post_state() (e.g. a torn-down entity mid-reload) is caught by
     # the same top-of-body try/except as everything else in this
     # function, not a new, separate failure mode this fix could
     # introduce into the real solve cycle.
+    #
+    # nimbus issue #360 (Mark Purcell, codebase review): "must not raise"
+    # alone doesn't prove ha_post_state was ever genuinely reached and
+    # called -- a future early return right before it would pass this
+    # test just as well. Asserting the call happened, and that the
+    # except clause's own log line fired, closes that gap.
     hass = _make_hass(switch_state="on", forecast=[{"battery_kw": 1.0}])
     sw = _make_sw()
     sw.ha_post_state.side_effect = RuntimeError("boom")
-    _log_dispatch_dry_run(hass, sw)  # must not raise
-
-
-if __name__ == "__main__":
-    tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
-    failed = 0
-    for t in tests:
-        try:
-            t()
-            print(f"PASS  {t.__name__}")
-        except AssertionError as e:
-            failed += 1
-            print(f"FAIL  {t.__name__}: {e}")
-        except Exception as e:
-            failed += 1
-            print(f"ERROR {t.__name__}: {type(e).__name__}: {e}")
-    print(f"\n{len(tests) - failed}/{len(tests)} passed")
-    sys.exit(1 if failed else 0)
+    with caplog.at_level("ERROR"):
+        _log_dispatch_dry_run(hass, sw)  # must not raise
+    sw.ha_post_state.assert_called_once()
+    assert "logging failed, ignoring" in caplog.text

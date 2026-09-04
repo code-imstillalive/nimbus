@@ -144,7 +144,3 @@ class TestBoundaryAtTenPercent(unittest.TestCase):
                 )
             )
         self.assertIsNotNone(error)
-
-
-if __name__ == "__main__":
-    unittest.main()

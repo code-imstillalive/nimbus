@@ -128,7 +128,3 @@ class TestHouseholdOverrideVisibility(unittest.TestCase):
             solver_writer, "entity_exists", side_effect=RuntimeError("boom")
         ):
             solver_writer._log_active_household_specific_overrides_once(cfg)  # no raise
-
-
-if __name__ == "__main__":
-    unittest.main()

@@ -21,8 +21,6 @@ test_resample_generic_price_forecast.py).
 
 from __future__ import annotations
 
-import sys
-
 import _solver_path  # noqa: F401
 import solver_writer
 
@@ -150,20 +148,3 @@ def test_forecast_periods_carry_the_new_fields():
     assert isinstance(result[0], str)
     assert isinstance(result[2], float)
     assert isinstance(result[4], float)
-
-
-if __name__ == "__main__":
-    tests = [v for k, v in list(globals().items()) if k.startswith("test_")]
-    failed = 0
-    for t in tests:
-        try:
-            t()
-            print(f"PASS  {t.__name__}")
-        except AssertionError as e:
-            failed += 1
-            print(f"FAIL  {t.__name__}: {e}")
-        except Exception as e:
-            failed += 1
-            print(f"ERROR {t.__name__}: {type(e).__name__}: {e}")
-    print(f"\n{len(tests) - failed}/{len(tests)} passed")
-    sys.exit(1 if failed else 0)

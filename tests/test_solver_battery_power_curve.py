@@ -291,7 +291,3 @@ class TestSolveTimeStaysCheap(unittest.TestCase):
             5.0,
             f"solve took {elapsed:.2f}s, expected well under 5s at this scale",
         )
-
-
-if __name__ == "__main__":
-    unittest.main()

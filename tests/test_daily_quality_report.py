@@ -481,7 +481,3 @@ class TestPublishDailyQualityReport(unittest.TestCase):
         ):
             solver_writer.publish_daily_quality_report(cfg, NOW)
         post.assert_not_called()
-
-
-if __name__ == "__main__":
-    unittest.main()

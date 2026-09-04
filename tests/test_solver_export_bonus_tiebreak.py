@@ -157,7 +157,3 @@ class TestExportBonusTieBreak(unittest.TestCase):
         self.assertAlmostEqual(
             plan.total_cost, expected_cost_without_tiebreaker, places=2
         )
-
-
-if __name__ == "__main__":
-    unittest.main()

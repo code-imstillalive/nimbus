@@ -204,7 +204,3 @@ class TestMalformedCircuitGetsARealDiagnosticNotJustDropped(unittest.TestCase):
         self.assertEqual(warnings, {})
         self.assertAlmostEqual(total_kw[0], 1.5, places=6)
         self.assertAlmostEqual(total_kw[1], 3.0, places=6)
-
-
-if __name__ == "__main__":
-    unittest.main()

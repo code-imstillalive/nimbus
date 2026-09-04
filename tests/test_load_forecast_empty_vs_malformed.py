@@ -53,7 +53,3 @@ class TestEmptyForecastGetsDistinctColdStartMessage(unittest.TestCase):
         self.assertIsNone(error)
         self.assertIsNotNone(fc)
         self.assertEqual(len(fc), 1)
-
-
-if __name__ == "__main__":
-    unittest.main()

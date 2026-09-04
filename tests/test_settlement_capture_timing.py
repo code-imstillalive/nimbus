@@ -149,7 +149,3 @@ class TestSettlementCaptureTiming(unittest.TestCase):
         for m in range(60):
             for s in (0, 1, 15, 29, 30, 31, 39, 40, 45, 59):
                 self.assertGreaterEqual(seconds_to_settlement_capture(_at(m, s)), 0.0)
-
-
-if __name__ == "__main__":
-    unittest.main()
