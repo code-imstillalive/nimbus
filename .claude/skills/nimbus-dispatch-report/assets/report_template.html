@@ -1,0 +1,282 @@
+<title>Nimbus Day-Ahead Plan</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  color-scheme:light;
+  --page:#f4f5f7; --surface:#fcfcfd; --ink:#101418; --ink-2:#4f5560; --muted:#8a8f99;
+  --grid:#e3e5ea; --axis:#c5c9d1; --ring:rgba(16,20,24,.10);
+  --batt:#2a78d6; --grid-s:#eb6834; --pv:#eda100; --exp:#1baf7a; --soc-fill:#86b6ef;
+  --fallback:rgba(16,20,24,.045); --reg-pos:#e34948; --reg-neg:#2a78d6;
+  --good-ink:#006300; --serious-ink:#9a3a12;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --page:#0e1013; --surface:#181a1e; --ink:#f4f5f7; --ink-2:#c0c4cc; --muted:#8a8f99;
+    --grid:#2a2d33; --axis:#3a3e46; --ring:rgba(255,255,255,.10);
+    --batt:#3987e5; --grid-s:#d95926; --pv:#c98500; --exp:#199e70; --soc-fill:#1c5cab;
+    --fallback:rgba(255,255,255,.06); --reg-pos:#e66767; --reg-neg:#3987e5;
+    --good-ink:#0ca30c; --serious-ink:#ec835a;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --page:#0e1013; --surface:#181a1e; --ink:#f4f5f7; --ink-2:#c0c4cc; --muted:#8a8f99;
+  --grid:#2a2d33; --axis:#3a3e46; --ring:rgba(255,255,255,.10);
+  --batt:#3987e5; --grid-s:#d95926; --pv:#c98500; --exp:#199e70; --soc-fill:#1c5cab;
+  --fallback:rgba(255,255,255,.06); --reg-pos:#e66767; --reg-neg:#3987e5;
+  --good-ink:#0ca30c; --serious-ink:#ec835a;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--ink);font:15px/1.5 var(--sans);-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:28px 20px 56px}
+header{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:12px 24px;margin-bottom:18px}
+h1{font-size:26px;line-height:1.15;font-weight:600;margin:0;letter-spacing:-.01em;text-wrap:balance}
+.sub{color:var(--ink-2);margin:6px 0 0;max-width:68ch}
+.stamp{font:12px/1.4 var(--mono);color:var(--muted);text-align:right}
+.stamp b{color:var(--ink-2);font-weight:500}
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:0 0 18px}
+.kpi{background:var(--surface);border:1px solid var(--ring);border-radius:6px;padding:12px 14px 10px}
+.kpi .l{font-size:12px;color:var(--ink-2);letter-spacing:.02em;text-transform:uppercase}
+.kpi .v{font-size:24px;font-weight:600;line-height:1.15;margin-top:4px}
+.kpi .d{font-size:12px;color:var(--muted);margin-top:2px}
+.card{background:var(--surface);border:1px solid var(--ring);border-radius:6px;padding:14px 16px 8px}
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:13px;color:var(--ink-2);margin:0 0 4px;padding:0;list-style:none}
+.legend li{display:flex;align-items:center;gap:7px}
+.key{width:18px;height:0;border-top:2px solid;border-radius:2px}
+.key.fill{height:10px;border:0;border-radius:2px;opacity:.55}
+.key.dash{border-top-style:dashed}
+.viz{position:relative}
+svg{display:block;width:100%;height:auto;font-family:var(--sans)}
+.tick{font:11px var(--mono);fill:var(--muted)}
+.plabel{font:12px var(--sans);fill:var(--ink-2);font-weight:500}
+.dl{font:11px var(--sans);fill:var(--ink-2);font-weight:500;paint-order:stroke;stroke:var(--surface);stroke-width:3px;stroke-linejoin:round}
+.gl{stroke:var(--grid);stroke-width:1}
+.ax{stroke:var(--axis);stroke-width:1}
+.co circle{fill:var(--ink);stroke:var(--surface);stroke-width:2}
+.co text{font:11px var(--mono);font-weight:500;fill:var(--surface)}
+.co line{stroke:var(--ink);stroke-width:1;opacity:.6}
+.xh{stroke:var(--ink);stroke-width:1;opacity:.5;pointer-events:none}
+.tip{position:absolute;pointer-events:none;background:var(--surface);border:1px solid var(--ring);border-radius:5px;padding:8px 10px;font-size:12px;line-height:1.35;box-shadow:0 4px 18px rgba(0,0,0,.12);min-width:180px;display:none}
+.tip .t{font:12px var(--mono);color:var(--muted);margin-bottom:5px}
+.tip .r{display:flex;align-items:center;gap:8px;justify-content:space-between}
+.tip .r span:first-child{display:flex;align-items:center;gap:6px;color:var(--ink-2)}
+.tip .r b{font-variant-numeric:tabular-nums;font-weight:600;color:var(--ink)}
+.tip .k{width:12px;height:0;border-top:2px solid;border-radius:2px;display:inline-block}
+.tip .fb{color:var(--muted);font-size:11px;margin-top:5px}
+.callouts{counter-reset:c;display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:10px 22px;margin:16px 0 0;padding:0;list-style:none}
+.callouts li{display:grid;grid-template-columns:24px 1fr;gap:10px;align-items:start;font-size:14px;color:var(--ink-2)}
+.callouts li::before{counter-increment:c;content:counter(c);display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--ink);color:var(--surface);font:11px var(--mono);font-weight:500;margin-top:2px}
+.callouts b,.lessons b,.grid2 b{color:var(--ink);font-weight:600}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;margin-top:18px}
+.grid2 .card,.lessons.card{padding:14px 18px 12px}
+h2{font-size:15px;font-weight:600;margin:0 0 8px;display:flex;align-items:center;gap:8px}
+h2.big{font-size:20px;margin:0}
+.chip{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:500;letter-spacing:.03em;text-transform:uppercase;padding:2px 8px;border-radius:999px;border:1px solid currentColor}
+.chip.good{color:var(--good-ink)} .chip.serious{color:var(--serious-ink)}
+.grid2 ul,.lessons ul{margin:0;padding-left:18px;color:var(--ink-2)} .grid2 li,.lessons li{margin:6px 0}
+.tools{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:14px 0 6px;font-size:12px;color:var(--muted)}
+button{font:13px var(--sans);color:var(--ink-2);background:var(--surface);border:1px solid var(--ring);border-radius:5px;padding:5px 10px;cursor:pointer}
+button:hover{color:var(--ink)} button:focus-visible{outline:2px solid var(--batt);outline-offset:2px}
+.tablewrap{overflow-x:auto;margin-top:8px}
+table{border-collapse:collapse;width:100%;font-size:13px;font-variant-numeric:tabular-nums}
+th,td{padding:5px 10px;text-align:right;border-bottom:1px solid var(--grid);white-space:nowrap}
+th{color:var(--ink-2);font-weight:500;font-size:12px} td:first-child,th:first-child{text-align:left;font-family:var(--mono);font-size:12px}
+.mono{font-family:var(--mono);font-size:12px}
+.foot{font-size:12px;color:var(--muted);margin-top:16px;max-width:90ch}
+.lessons{margin-top:14px}
+[hidden]{display:none!important}
+@media (prefers-reduced-motion:no-preference){.tip{transition:opacity .08s}}
+</style>
+
+<div class="wrap">
+<header>
+  <div><h1 id="title"></h1><p class="sub" id="subtitle"></p></div>
+  <div class="stamp" id="stamp"></div>
+</header>
+<div class="kpis" id="kpis"></div>
+
+<div class="card">
+  <ul class="legend">
+    <li><span class="key" style="border-color:var(--grid-s)"></span>Import price · Grid import</li>
+    <li><span class="key" style="border-color:var(--exp)"></span>Export (feed-in) price</li>
+    <li><span class="key" style="border-color:var(--batt)"></span>Battery (above 0 = discharge, below 0 = charge) · State of charge</li>
+    <li><span class="key fill" style="background:var(--pv)"></span>Solar</li>
+    <li><span class="key" style="border-color:var(--ink)"></span>House load</li>
+    <li><span class="key fill" style="background:var(--fallback);opacity:1;border:1px solid var(--axis)"></span>Price blend on forecast fallback</li>
+  </ul>
+  <div class="viz" id="viz"><div class="tip" id="tip"></div></div>
+  <ol class="callouts" id="callouts"></ol>
+  <div class="tools"><span>Hover or use ← → for values at any period.</span><button id="tbtn" type="button" aria-controls="tbl" aria-expanded="false">Show hourly table</button></div>
+  <div class="tablewrap" id="tbl" hidden></div>
+</div>
+
+<div class="grid2" id="sw" hidden>
+  <div class="card"><h2>Strengths <span class="chip good">✓ works</span></h2><ul id="strengths"></ul></div>
+  <div class="card"><h2>Weaknesses <span class="chip serious">⚠ watch</span></h2><ul id="weaknesses"></ul></div>
+</div>
+
+<div class="card" style="margin-top:18px" id="ycard" hidden>
+  <header style="margin-bottom:10px;align-items:baseline"><div><h2 class="big" id="ytitle"></h2><p class="sub" id="ysubtitle" style="margin-top:4px"></p></div></header>
+  <div class="kpis" style="margin-bottom:12px" id="ykpis"></div>
+  <ul class="legend">
+    <li><span class="key" style="border-color:var(--grid-s)"></span>Import price</li>
+    <li><span class="key" style="border-color:var(--exp)"></span>Export price</li>
+    <li><span class="key" style="border-color:var(--ink)"></span>Real SoC (recorder)</li>
+    <li><span class="key dash" style="border-color:var(--batt)"></span>Achieved SoC as scored (integrated from battery power)</li>
+    <li><span class="key" style="border-color:var(--batt)"></span>Oracle SoC</li>
+    <li><span class="key fill" style="background:var(--reg-pos)"></span>Regret: value left on the table</li>
+    <li><span class="key fill" style="background:var(--reg-neg)"></span>Regret: oracle spent here to earn later</li>
+  </ul>
+  <div class="viz" id="yviz"><div class="tip" id="ytip"></div></div>
+  <ol class="callouts" id="ycallouts"></ol>
+</div>
+<div class="card lessons" id="lcard" hidden><h2>Lessons</h2><ul id="lessons"></ul></div>
+
+<p class="foot" id="foot"></p>
+</div>
+
+<script id="report" type="application/json">__REPORT__</script>
+<script>
+(function(){
+const R = JSON.parse(document.getElementById('report').textContent);
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const ns = 'http://www.w3.org/2000/svg';
+const el = (t, a, txt) => { const e = document.createElementNS(ns, t); for (const k in a) e.setAttribute(k, a[k]); if (txt != null) e.textContent = txt; return e; };
+const esc = s => String(s == null ? '' : s);
+const kpiHtml = list => list.map(k => `<div class="kpi"><div class="l">${esc(k[0])}</div><div class="v">${esc(k[1])}</div><div class="d">${esc(k[2])}</div></div>`).join('');
+const num = (v, d) => (v < 0 ? '−' : '') + Math.abs(v).toFixed(d);
+
+// ---------- header / KPIs ----------
+document.title = R.title || document.title;
+document.getElementById('title').textContent = R.title || '';
+document.getElementById('subtitle').textContent = R.subtitle || '';
+const m = R.meta || {};
+document.getElementById('stamp').innerHTML = `Nimbus <b>v${esc(m.version || '?')}</b> · solve <b>${esc(m.solve_seconds)} s</b> · status <b>${esc(m.status)}</b>${R.stamp_extra ? '<br>' + esc(R.stamp_extra) : ''}`;
+document.getElementById('kpis').innerHTML = kpiHtml(R.kpis || []);
+document.getElementById('foot').textContent = R.footnote || '';
+
+// ---------- shared chart machinery ----------
+function chart(root, tipEl, spec){
+  const W = 1120, ML = 52, MR = 84, gapP = 34, topPad = 26;
+  let y = topPad; spec.panels.forEach(p => { p.top = y; y += p.h + gapP; });
+  const H = y - gapP + 40, bottom = spec.panels[spec.panels.length-1].top + spec.panels[spec.panels.length-1].h;
+  const yOf = (p, v) => p.top + (p.y1 - v) / (p.y1 - p.y0) * p.h;
+  const svg = el('svg', {viewBox:`0 0 ${W} ${H}`, role:'img', 'aria-label':spec.label, tabindex:'0'});
+  root.prepend(svg);
+  const n = spec.n, xAt = spec.xAt(ML, W - MR);
+  spec.panels.forEach(p => {
+    if (p.shade) svg.appendChild(el('rect', {x:xAt(p.shade[0]), y:p.top, width:xAt(p.shade[1]) - xAt(p.shade[0]), height:p.h, fill:css('--fallback')}));
+    p.ticks.forEach(v => { const yy = yOf(p, v); svg.appendChild(el('line', {x1:ML, x2:W-MR, y1:yy, y2:yy, class: v===0 && p.key!=='soc' && p.key!=='ysoc' ? 'ax' : 'gl'})); svg.appendChild(el('text', {x:ML-8, y:yy+4, 'text-anchor':'end', class:'tick'}, String(v))); });
+    (spec.vgrid || []).forEach(i => svg.appendChild(el('line', {x1:xAt(i), x2:xAt(i), y1:p.top, y2:p.top+p.h, class:'gl'})));
+    svg.appendChild(el('text', {x:ML, y:p.top-9, class:'plabel'}, p.label));
+  });
+  spec.xlabels.forEach(([i, l, anchor, dy]) => svg.appendChild(el('text', {x:xAt(i), y:bottom + (dy || 18), 'text-anchor':anchor || 'middle', class:'tick'}, l)));
+  const P = p => spec.panels.find(q => q.key === p);
+  const path = (pkey, get, area) => { const p = P(pkey); let d = ''; for (let i = 0; i < n; i++) d += (i ? 'L' : 'M') + xAt(i).toFixed(1) + ' ' + yOf(p, get(i)).toFixed(1); if (area) d += 'L' + xAt(n-1).toFixed(1) + ' ' + yOf(p, 0).toFixed(1) + 'L' + xAt(0).toFixed(1) + ' ' + yOf(p, 0).toFixed(1) + 'Z'; return d; };
+  const api = {svg, W, ML, MR, xAt, yOf, P, path, bottom, topPad, el,
+    line(pkey, get, stroke, width, dash){ const a = {d:path(pkey, get, false), fill:'none', stroke, 'stroke-width':width||2, 'stroke-linejoin':'round'}; if (dash) a['stroke-dasharray']=dash; svg.appendChild(el('path', a)); },
+    area(pkey, get, fill, op){ svg.appendChild(el('path', {d:path(pkey, get, true), fill, opacity:op})); },
+    hline(pkey, v, stroke, dash, txt){ const p=P(pkey); svg.appendChild(el('line', {x1:ML, x2:W-MR, y1:yOf(p,v), y2:yOf(p,v), stroke, 'stroke-width':1, 'stroke-dasharray':dash||'', opacity:.8})); if (txt) svg.appendChild(el('text', {x:ML+6, y:yOf(p,v)-4, class:'dl', 'text-anchor':'start'}, txt)); },
+    dl(pkey, i, v, txt, dx, dy, anchor){ svg.appendChild(el('text', {x:xAt(i)+(dx||0), y:yOf(P(pkey), v)+(dy||0), class:'dl', 'text-anchor':anchor||'middle'}, txt)); },
+    endl(pkey, v, txt, dy){ svg.appendChild(el('text', {x:W-MR+6, y:yOf(P(pkey), v)+(dy||4), class:'dl'}, txt)); },
+    callouts(list, indexOf, listEl){ const cg = el('g', {class:'co'}); svg.appendChild(cg); const ok = [];
+      list.forEach(c => { const i = indexOf(c.t); const p = P(c.panel); if (i < 0 || !p) { console.warn('callout anchor not found', c); return; } ok.push(c);
+        const px = xAt(i), py = yOf(p, c.v), cx = px + (c.dx||0), cy = py + (c.dy||0); cg.appendChild(el('line', {x1:px, y1:py, x2:cx, y2:cy})); cg.appendChild(el('circle', {cx, cy, r:10})); cg.appendChild(el('text', {x:cx, y:cy+4, 'text-anchor':'middle'}, String(ok.length))); });
+      listEl.innerHTML = ok.map(c => `<li><span>${c.text}</span></li>`).join(''); },
+    hover(rows, titleOf, extraOf){ const xh = el('line', {class:'xh', y1:topPad, y2:bottom, x1:-10, x2:-10}); svg.appendChild(xh); let cur = -1;
+      const show = i => { if (i<0||i>=n) return; cur=i; xh.setAttribute('x1', xAt(i)); xh.setAttribute('x2', xAt(i)); tipEl.replaceChildren(); const t=document.createElement('div'); t.className='t'; t.textContent=titleOf(i); tipEl.appendChild(t);
+        rows.forEach(([nm, get, u, col, d]) => { const v = get(i); const r=document.createElement('div'); r.className='r'; const a=document.createElement('span'); const k=document.createElement('i'); k.className='k'; k.style.borderColor=css(col); a.append(k, document.createTextNode(nm)); const b=document.createElement('b'); b.textContent=(typeof v==='number' ? num(v, d==null?1:d) : '–') + u; r.append(a,b); tipEl.appendChild(r); });
+        const ex = extraOf && extraOf(i); if (ex) { const f=document.createElement('div'); f.className='fb'; f.textContent=ex; tipEl.appendChild(f); }
+        tipEl.style.display='block'; const box=root.getBoundingClientRect(); const rel=xAt(i)/W*box.width; tipEl.style.left=Math.min(box.width-tipEl.offsetWidth-4, Math.max(4, rel+(rel>box.width*0.6?-tipEl.offsetWidth-14:14)))+'px'; tipEl.style.top='8px'; };
+      svg.addEventListener('pointermove', e => { const box=svg.getBoundingClientRect(); show(spec.indexFromX((e.clientX-box.left)/box.width*W, ML, W-MR)); });
+      svg.addEventListener('pointerleave', () => { tipEl.style.display='none'; xh.setAttribute('x1',-10); xh.setAttribute('x2',-10); });
+      svg.addEventListener('keydown', e => { if (e.key==='ArrowRight'){show(Math.min(n-1,(cur<0?0:cur)+1));e.preventDefault();} if (e.key==='ArrowLeft'){show(Math.max(0,(cur<0?0:cur)-1));e.preventDefault();} });
+      svg.addEventListener('focus', () => { if (cur<0) show(0); }); svg.addEventListener('blur', () => { tipEl.style.display='none'; }); }
+  };
+  return api;
+}
+
+// ---------- day-ahead chart ----------
+(function(){
+  const P = R.pts; if (!P || !P.length) return; // [label, ts, imp, exp, expRaw, load, pv, grid, batt, soc, hours, fallback]
+  const t0 = P[0][1], t1 = P[P.length-1][1] + P[P.length-1][10]*3600;
+  const maxKw = Math.max(35, ...P.map(r => Math.max(r[5], r[6], r[7], r[8]))) ; const minKw = Math.min(-25, ...P.map(r => r[8]));
+  const maxP = Math.max(36, ...P.map(r => r[2]), ...P.map(r => r[3])), minP = Math.min(-4, ...P.map(r => r[3]));
+  const tickStep = v => v > 60 ? 20 : 10; const ticks = (a, b, s) => { const o=[]; for (let v=Math.ceil(a/s)*s; v<=b; v+=s) o.push(v); return o; };
+  const fbIdx = P.findIndex(r => r[11] === 1);
+  const spec = { n: P.length, label:'Day-ahead plan: prices, power flows and state of charge',
+    xAt: (a, b) => i => a + (P[i][1] - t0) / (t1 - t0) * (b - a),
+    indexFromX: (xx, a, b) => { const t = t0 + (xx - a) / (b - a) * (t1 - t0); let lo=0, hi=P.length-1; while (lo<hi){ const mid=(lo+hi)>>1; if (P[mid][1] < t) lo=mid+1; else hi=mid; } return Math.max(0, Math.min(P.length-1, lo)); },
+    panels: [
+      {key:'price', h:170, y0:Math.floor(minP/5)*5, y1:Math.ceil(maxP/10)*10, ticks:ticks(Math.floor(minP/5)*5, Math.ceil(maxP/10)*10, 10).filter(v=>v>=0), label:'Prices (¢/kWh)', shade: fbIdx >= 0 ? [fbIdx, P.length-1] : null},
+      {key:'power', h:230, y0:Math.floor(minKw/5)*5, y1:Math.ceil(maxKw/5)*5, ticks:ticks(Math.floor(minKw/5)*5, Math.ceil(maxKw/5)*5, tickStep(maxKw-minKw)), label:'Power flows (kW)'},
+      {key:'soc', h:130, y0:0, y1:100, ticks:[0,25,50,75,100], label:'State of charge (%)'},
+    ], xlabels: [], vgrid: [] };
+  const hourIdx = []; P.forEach((r, i) => { const mm = r[0].slice(-2); const hh = parseInt(r[0].replace('+','').slice(0,2),10); if (mm === '00' && hh % 2 === 0) hourIdx.push(i); });
+  spec.vgrid = hourIdx; spec.xlabels = hourIdx.map(i => [i, P[i][0].replace('+',''), 'middle', 18]);
+  const dayLabel = (m.window_start || '').slice(0,10); const nextIdx = P.findIndex(r => r[0].startsWith('+'));
+  spec.xlabels.push([0, dayLabel, 'start', 32]); if (nextIdx > 0) spec.xlabels.push([nextIdx, 'next day', 'start', 32]);
+  const c = chart(document.getElementById('viz'), document.getElementById('tip'), spec);
+  c.area('power', i => P[i][6], css('--pv'), .42); c.area('power', i => P[i][7], css('--grid-s'), .32); c.area('power', i => P[i][8], css('--batt'), .38);
+  c.line('power', i => P[i][8], css('--batt'), 1.5); c.line('power', i => P[i][5], css('--ink'), 2);
+  c.area('soc', i => P[i][9], css('--soc-fill'), .35); c.line('soc', i => P[i][9], css('--batt'), 2);
+  if (m.min_soc_pct) c.hline('soc', m.min_soc_pct, css('--serious-ink'), '3 3', m.min_soc_pct + ' % floor');
+  c.line('price', i => P[i][2], css('--grid-s'), 2); c.line('price', i => P[i][3], css('--exp'), 2);
+  const last = P[P.length-1];
+  c.endl('price', last[2], 'Import ' + last[2].toFixed(1) + ' ¢'); c.endl('price', last[3], 'Export ' + last[3].toFixed(1) + ' ¢', 14);
+  c.endl('power', last[5], 'Load ' + last[5].toFixed(0) + ' kW'); c.endl('soc', last[9], last[9].toFixed(0) + ' %');
+  if (fbIdx >= 0) c.dl('price', Math.min(P.length-1, fbIdx + Math.floor((P.length-fbIdx)/2)), c.P('price').y1 - 8, 'forecast fallback →');
+  const idx = t => P.findIndex(r => r[0] === t);
+  c.callouts(R.callouts || [], idx, document.getElementById('callouts'));
+  c.hover([['Import price', i=>P[i][2], ' ¢', '--grid-s'], ['Export price', i=>P[i][3], ' ¢', '--exp'], ['Load', i=>P[i][5], ' kW', '--ink'], ['Solar', i=>P[i][6], ' kW', '--pv'], ['Grid import', i=>P[i][7], ' kW', '--grid-s'], ['Battery', i=>P[i][8], ' kW', '--batt'], ['SoC', i=>P[i][9], ' %', '--batt']],
+    i => (P[i][0].startsWith('+') ? 'next day ' + P[i][0].slice(1) : P[i][0]) + (P[i][11] ? ' · price on fallback blend' : ''), i => P[i][11] ? 'Raw export price: ' + P[i][4].toFixed(1) + ' ¢' : '');
+  // table
+  const tb = document.getElementById('tbl'), btn = document.getElementById('tbtn');
+  const hdr = ['Hour','Import ¢','Export ¢','Load kWh','Solar kWh','Import kWh','Export kWh','Battery kWh','SoC end %','Cost $'];
+  tb.innerHTML = '<table><thead><tr>' + hdr.map(h=>'<th>'+h+'</th>').join('') + '</tr></thead><tbody>' + (R.table||[]).map(r => '<tr>' + r.map((v,i) => '<td>' + (i===0 ? esc(v) : (typeof v==='number' ? num(v, i===9?2:1) : esc(v))) + '</td>').join('') + '</tr>').join('') + '</tbody></table>';
+  btn.addEventListener('click', () => { const open = tb.hidden; tb.hidden = !open; btn.setAttribute('aria-expanded', String(open)); btn.textContent = open ? 'Hide hourly table' : 'Show hourly table'; });
+})();
+
+// ---------- strengths / weaknesses ----------
+if ((R.strengths||[]).length || (R.weaknesses||[]).length) {
+  document.getElementById('sw').hidden = false;
+  document.getElementById('strengths').innerHTML = (R.strengths||[]).map(s => '<li>' + s + '</li>').join('');
+  document.getElementById('weaknesses').innerHTML = (R.weaknesses||[]).map(s => '<li>' + s + '</li>').join('');
+}
+
+// ---------- yesterday ----------
+(function(){
+  const Y = R.yesterday; if (!Y || !Y.rows || !Y.rows.length) return;
+  const Rw = Y.rows; // [h, imp, exp, real, ach, orc, regret, achBat, orcBat, load, pv, achGrid, orcGrid, meterGrid, meterBatt]
+  document.getElementById('ycard').hidden = false;
+  document.getElementById('ytitle').textContent = Y.title || ''; document.getElementById('ysubtitle').textContent = Y.subtitle || '';
+  document.getElementById('ykpis').innerHTML = kpiHtml(Y.kpis || []);
+  const n = Rw.length; const maxP = Math.max(42, ...Rw.map(r => r[1])); const regs = Rw.map(r => r[6]); const rmax = Math.max(1, Math.ceil(Math.max(...regs)*2)/2), rmin = Math.min(-0.5, Math.floor(Math.min(...regs)*2)/2);
+  const spec = { n, label:'Yesterday: prices, real vs scored vs oracle state of charge, hourly regret',
+    xAt: (a, b) => i => a + (b - a) / n * (i + 0.5), indexFromX: (xx, a, b) => Math.max(0, Math.min(n-1, Math.floor((xx - a) / ((b - a) / n)))),
+    panels: [
+      {key:'yprice', h:120, y0:-4, y1:Math.ceil(maxP/10)*10, ticks:[0,10,20,30,40].filter(v => v <= Math.ceil(maxP/10)*10), label:'Prices (¢/kWh)'},
+      {key:'ysoc', h:170, y0:0, y1:100, ticks:[0,25,50,75,100], label:'State of charge (%)'},
+      {key:'yreg', h:130, y0:rmin, y1:rmax, ticks:(() => { const o=[]; for (let v=Math.ceil(rmin); v<=rmax; v+=1) o.push(v); return o; })(), label:'Hourly regret ($, achieved − oracle)'},
+    ], xlabels: Rw.map((r,i) => [i, r[0], 'middle', 18]).filter((_, i) => i % 2 === 0), vgrid: [] };
+  spec.xlabels.push([0, (Y.kpis_raw && Y.kpis_raw.latest_date ? Y.kpis_raw.latest_date : '') + ' · hourly means', 'start', 32]);
+  const c = chart(document.getElementById('yviz'), document.getElementById('ytip'), spec);
+  const bw = (c.W - c.ML - c.MR) / n;
+  c.line('yprice', i => Rw[i][1], css('--grid-s')); c.line('yprice', i => Rw[i][2], css('--exp'));
+  if (m.min_soc_pct) c.hline('ysoc', m.min_soc_pct, css('--serious-ink'), '3 3', m.min_soc_pct + ' % floor');
+  c.line('ysoc', i => Rw[i][5], css('--batt')); c.line('ysoc', i => Rw[i][4], css('--batt'), 2, '5 4');
+  if (Rw.every(r => r[3] != null)) c.line('ysoc', i => Rw[i][3], css('--ink'));
+  const p = c.P('yreg'); Rw.forEach((r, i) => { const y0 = c.yOf(p, 0), y1 = c.yOf(p, r[6]); c.svg.appendChild(c.el('rect', {x:c.xAt(i) - bw/2 + 2, y:Math.min(y0,y1), width:bw-4, height:Math.abs(y1-y0), rx:2, fill: r[6] >= 0 ? css('--reg-pos') : css('--reg-neg')})); });
+  const last = Rw[n-1];
+  if (last[3] != null) c.endl('ysoc', last[3], 'Real ' + last[3].toFixed(0) + ' %'); c.endl('ysoc', last[4], 'Scored ' + last[4].toFixed(0) + ' %', -8); c.endl('ysoc', last[5], 'Oracle ' + last[5].toFixed(0) + ' %', 16);
+  const idx = t => Rw.findIndex(r => r[0] === t);
+  c.callouts(Y.callouts || [], idx, document.getElementById('ycallouts'));
+  c.hover([['Import price', i=>Rw[i][1], ' ¢', '--grid-s'], ['Export price', i=>Rw[i][2], ' ¢', '--exp'], ['Real SoC', i=>Rw[i][3], ' %', '--ink'], ['Scored SoC', i=>Rw[i][4], ' %', '--batt'], ['Oracle SoC', i=>Rw[i][5], ' %', '--batt'], ['Regret', i=>Rw[i][6], ' $', '--ink', 2], ['Achieved battery', i=>Rw[i][7], ' kW', '--batt'], ['Oracle battery', i=>Rw[i][8], ' kW', '--batt'], ['Load', i=>Rw[i][9], ' kW', '--ink'], ['Solar', i=>Rw[i][10], ' kW', '--pv']], i => Rw[i][0] + ' (hourly mean)');
+  if ((Y.lessons||[]).length) { document.getElementById('lcard').hidden = false; document.getElementById('lessons').innerHTML = Y.lessons.map(s => '<li>' + s + '</li>').join(''); }
+})();
+})();
+</script>

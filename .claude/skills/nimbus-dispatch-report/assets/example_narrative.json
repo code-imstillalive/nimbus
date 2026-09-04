@@ -1,0 +1,50 @@
+{
+  "title": "Nimbus day-ahead battery plan",
+  "subtitle": "The next 24 hours as the solver published them at 11:56 AEST on Thu 4 Sep: what the 100 kWh battery charges, when it carries the house, and where the plan's confidence is thinnest.",
+  "stamp_extra": "Amber (QLD1) · Solcast · 5-min periods · export sensor: Amber feed-in",
+  "kpis": null,
+  "callouts": [
+    {"panel": "power", "t": "13:30", "v": -21.0, "dx": 64, "dy": 6, "text": "<b>Grid charge at 2.7–4.9 ¢.</b> 74 kWh bought 11:56–16:00 with import pinned at the 30 kW cap and charging at the 21 kW cap; solar covers the rest of the 23 kW midday load."},
+    {"panel": "soc", "t": "15:55", "v": 100, "dx": -14, "dy": -4, "text": "<b>Full at 15:55, five minutes before the cliff.</b> Import price steps from 4.3 ¢ to 30.1 ¢ at 16:00."},
+    {"panel": "power", "t": "18:30", "v": 6.2, "dx": 0, "dy": -26, "text": "<b>15 h discharge, 92.6 kWh.</b> Battery matches the 6 kW evening load; zero grid import 16:00–22:00 through the 32.5 ¢ peak at 17:30."},
+    {"panel": "price", "t": "+02:00", "v": 15.0, "dx": 0, "dy": -24, "text": "<b>Overnight low, 15.0 ¢.</b> 5.2 kWh imported at 02:00 and discharge eased to 1.8 kW, keeping stored energy for the 17.5 ¢ hours at 05:00–06:00."},
+    {"panel": "soc", "t": "+07:30", "v": 5, "dx": 0, "dy": -22, "text": "<b>Empty at 06:55, floor for 2.6 h.</b> The 07:00–09:00 shoulder (10.6–11.6 ¢) is served from the grid: 5.8 kWh. No reserve survives the night."},
+    {"panel": "price", "t": "+05:30", "v": 5.3, "dx": 0, "dy": 26, "text": "<b>Forecast fallback from 03:35.</b> 101 of 292 periods use the pd7day blend rather than raw Amber. Tomorrow’s 09:30 recharge (24.5 kWh at 3–10 ¢) is decided on it."},
+    {"panel": "price", "t": "13:30", "v": -0.5, "dx": 44, "dy": 14, "text": "<b>Export worth nothing.</b> Feed-in peaks at 7.4 ¢ and is −2.3 ¢ midday, so 0 kWh exported and solar goes to load and battery instead."}
+  ],
+  "strengths": [
+    "<b>Clean two-block arbitrage.</b> 74 kWh bought at 2.7–4.9 ¢ between 11:56 and 16:00, then 92.6 kWh returned to the house at 15–32 ¢ from 16:00 to 07:00. Effective grid cost for the day is $6.24 for 240.6 kWh of load, about 2.6 ¢/kWh.",
+    "<b>Timing to the cliff.</b> Full (100 %) at 15:55; the import price steps from 4.3 ¢ to 30.1 ¢ at 16:00. No headroom is wasted and nothing is bought at peak.",
+    "<b>Peak covered entirely.</b> Zero grid import from 16:00 to 22:00 (32.5 ¢ peak at 17:30). Battery discharge tracks the 6 kW evening load one-to-one instead of dumping.",
+    "<b>Export correctly suppressed.</b> Feed-in never exceeds 7.4 ¢ and is negative midday (−2.3 ¢), so 0 kWh exported and no simultaneous import/export in any period.",
+    "<b>Both hardware limits used.</b> 35 periods pinned at the 30 kW import cap and 24 at the 21 kW charge cap, with solar covering the gap to the 23 kW midday load.",
+    "<b>Intelligent overnight shaving.</b> At 02:00, the overnight price low (15.0 ¢), it imports 5.2 kWh and eases discharge so stored energy is kept for the 17.5 ¢ hours at 05:00–06:00."
+  ],
+  "weaknesses": [
+    "<b>Empty for the morning shoulder.</b> SoC hits the 5 % floor at 06:55 and stays there 2.6 h while 07:00–09:00 prices sit at 10.6–11.6 ¢ (5.8 kWh imported). No reserve is left for a morning spike; risk aversion is only 0.05.",
+    "<b>Load forecast disagrees with the meter now.</b> The ML load input reads 22.3 kW while the whole-house meter reads 16.5 kW, a 35 % gap, and the coordinator has logged residual drift at 4× its baseline today. Midday load of 21–23 kW drives the 30 kW import pin; if it is high, the plan over-buys.",
+    "<b>Degradation is the second-largest cost.</b> 0.03 $/kWh on 191 kWh of throughput is ≈$5.74 for the day, nearly equal to the grid bill, and $22.1 of the $62 four-day total. If the real per-cycle cost is lower the plan is too shy; if higher it is over-cycling (3.7 full cycles in 96 h).",
+    "<b>Tomorrow rests on a forecast blend.</b> From 03:35 the blended price departs from the raw Amber feed (101 of 292 periods use the pd7day fallback). Tomorrow's 09:30 recharge, 24.5 kWh at 3–10 ¢, is decided on that blend, not on Amber's own forecast.",
+    "<b>Wide uncertainty band.</b> The 96 h expected cost is $62 with a band of $19 to $80. With export worthless the plan is fully exposed to midday import price, and a spike there has no hedge.",
+    "<b>Missing temperature feature.</b> <span class=\"mono\">weather.home</span> returns no hourly forecast, so the load model trains without temperature, which matters for a house whose evening load is dominated by climate."
+  ],
+  "yesterday": {
+    "subtitle": "Nimbus's own quality report scores the day the battery actually had (driven by HAEO, with Nimbus in shadow) against a perfect-foresight oracle and an idle-battery reference. EPR 35.5 %: idle $5.56 → achieved $0.97 → oracle −$7.37, regret $8.34.",
+    "kpis": null,
+    "callouts": [
+      {"panel": "yreg", "t": "20:00", "v": 3.0, "dx": 0, "dy": -20, "text": "<b>$8.40 of regret in four hours.</b> Achieved held ~31 % from 20:00; the oracle exported up to 22 kW at 12–13 ¢ and ran to 5.5 %."},
+      {"panel": "ysoc", "t": "00:00", "v": 24.9, "dx": 20, "dy": -22, "text": "<b>Oracle exports 11 kW at 6.8 ¢ at midnight.</b> Only \"optimal\" because the scoring LP carries no degradation cost; net of the household’s 5 ¢ of fees + degradation it is worth nothing."},
+      {"panel": "ysoc", "t": "08:00", "v": 1.0, "dx": 0, "dy": -22, "text": "<b>Real SoC hit 1.0 % at 08:00</b> (below the 5 % floor) while the scored trajectory says 29 %. Battery power read idle overnight as SoC fell 26 points."},
+      {"panel": "ysoc", "t": "14:00", "v": 81.4, "dx": -8, "dy": -22, "text": "<b>Real 81 % vs scored 70 % at 14:00.</b> A 32-point charge the battery-power sensor did not record (−0.4 kW mean). The scored day closes at 31 %; the real one at 27 %."},
+      {"panel": "yreg", "t": "05:00", "v": 0.52, "dx": 0, "dy": -20, "text": "<b>Dawn export at 6.4 ¢</b> books $0.52 of regret for the same degradation-free reason as callout 2."}
+    ],
+    "lessons": [
+      "<b>The regret is one decision.</b> $8.4 of the $8.34 total sits in 19:00–22:00. The achieved dispatch stopped discharging near 31 % and carried ~26 kWh through 12–13 ¢ export and 37–39 ¢ import, while the oracle ran the pack to 5.5 % exporting up to 22 kW. Nimbus's own counterfactual says it would have closed at 19.2 % rather than the real 25.5 %: in the oracle's direction, but still holding a reserve.",
+      "<b>The oracle cycles free.</b> The report's oracle and reference LPs are built without <span class=\"mono\">degradation_cost_per_kwh</span> (it defaults to 0; the live plan pays 3 ¢/kWh). Re-priced at 3 ¢, the oracle's 217 kWh of throughput costs ~$6.5 and the achieved 87 kWh ~$2.6; the defensible missed value is closer to $3 than $8.",
+      "<b>\"Achieved\" is a model, not a measurement.</b> The scored trajectory is integrated from <span class=\"mono\">sensor.sigen_plant_battery_power</span>, but the configured SoC sensor is <span class=\"mono\">sensor.combined_soc</span>. The recorder shows SoC falling 31.8 → 6.2 % overnight and touching 1.0 % at 08:00 while battery power reads idle, and a +32 % jump at 14:00 while power reads −0.4 kW. The scored day closes at 31.4 %; the real one at 26.6 %.",
+      "<b>Tracking fidelity is vacuous in shadow mode.</b> 1.0 / $0.00 says nothing while Nimbus issues no commands.",
+      "<b>Today's plan over-corrects the same risk.</b> Yesterday's real system reached 1 % at 08:00; today's plan deliberately sits on the 5 % floor from 06:55. The reserve question is the parameter both days turn on."
+    ]
+  },
+  "footnote": "Source: Home Assistant diagnostics dump for the Nimbus config entry, downloaded 12:00 AEST 4 Sep 2026 (sensor.nimbus_solver_battery_forecast, 364-period horizon, first 292 periods shown); yesterday's scoring from sensor.nimbus_solver_quality_report (cross-checked with the compute_quality_report service for the same window, identical) and hourly recorder statistics for the real SoC and prices. Prices are ¢/kWh after Nimbus's primary-preferring blend of the retailer feed with the forecast fallback; power is AC-side kW; battery sign is positive-discharge. The fixed daily supply charge is excluded from the day cost shown."
+}
