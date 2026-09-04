@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.116] — 2026-09-05
+
+### Fixed
+- **#372 (High): the `lts`/`hybrid` training source crashed on every single retrain** ([#372](https://github.com/code-imstillalive/nimbus/issues/372), thanks @purcell-lab -- filed via an independent IV&V confirmation pass, #371). `_async_fetch_lts_history()`'s own comment claimed HA core's `statistics_during_period()` returns each row's `"start"` as "a UTC datetime object (or ISO string in older HA cores)" -- wrong on every currently-supported core: HA core has returned `start`/`end` as float epoch **seconds** since HA 2023.4 (`recorder/statistics.py`'s own `_sorted_statistics_to_dict`). Every retrain with `training_source: lts` or `hybrid` crashed with `AttributeError: 'float' object has no attribute 'tzinfo'` inside `dt_util.as_local()` -- confirmed live, reproduced on three subentries across two restarts and a reload on a real install. Before v0.94.78 (#365) this failure was silently swallowed, so the install just kept serving a stale model with zero visible symptom; #365 making retrain failures loud is what surfaced this bug at all.
+  Fixed by accepting the float-epoch shape (`dt_util.utc_from_timestamp(ts_raw)`) alongside the existing `str`/`datetime` branches (kept for genuinely older cores). Every existing test fixture for this path faked `"start"` as a real `datetime` object -- exactly the wrong shape, which is why 1174+ tests stayed green while this crashed on every real install. A new test uses the real float-epoch shape HA core actually returns and is confirmed to fail against the pre-fix code with the identical `AttributeError` class this issue reports. Mutation-tested.
+  This bug, combined with #366's own schema-version pickle discard (see #373) and the resulting empty-forecast fallback (see #374), is what produced the real day-long forecast outage the IV&V report found -- fixing this root cause is the first of three coordinated fixes landing for that incident.
+
 ## [0.94.115] — 2026-09-05
 
 ### Fixed

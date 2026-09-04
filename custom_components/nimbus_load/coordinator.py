@@ -1005,12 +1005,27 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                         r.get("start"),
                     )
                     continue
-                # LTS row "start" is a UTC datetime object (or ISO string in older
-                # HA cores); normalize both, then convert to local for parity with
-                # the recorder path's dt_util.as_local(s.last_changed).
+                # nimbus issue #372 (Mark Purcell, codebase review): the
+                # comment this replaces claimed "start" is a UTC datetime
+                # object (or ISO string in older HA cores) -- wrong on
+                # every currently-supported core. HA core's own
+                # statistics_during_period() (homeassistant/components/
+                # recorder/statistics.py, _sorted_statistics_to_dict) has
+                # returned "start"/"end" as float epoch SECONDS
+                # (start_ts) since HA 2023.4, not a datetime or ISO
+                # string at all. This crashed every single retrain on
+                # training_source lts/hybrid with AttributeError: 'float'
+                # object has no attribute 'tzinfo' the moment #365 made
+                # a retrain failure loud instead of silent -- confirmed
+                # live, real IV&V report, 2026-09-05. str/datetime
+                # branches kept for genuinely older cores and this
+                # file's own existing test fixtures, which predate this
+                # fix and mock datetime rows.
                 ts_raw = r.get("start")
                 if isinstance(ts_raw, str):
                     ts_utc = datetime.fromisoformat(ts_raw)
+                elif isinstance(ts_raw, int | float):
+                    ts_utc = dt_util.utc_from_timestamp(ts_raw)
                 else:
                     ts_utc = ts_raw
                 if ts_utc is None:

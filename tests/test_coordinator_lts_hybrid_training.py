@@ -46,6 +46,16 @@ import homeassistant.util as _ha_util
 
 _ha_util.dt.as_local = lambda x: x  # datetimes stay tz-aware as-is
 _ha_util.dt.utcnow = lambda: datetime.now(UTC)
+# nimbus issue #372 (Mark Purcell, codebase review): real behaviour needed
+# here too, not left as a bare MagicMock -- _async_fetch_lts_history()'s
+# own fix converts a float epoch "start" (what HA core's real
+# statistics_during_period() actually returns, confirmed live) via
+# dt_util.utc_from_timestamp() before handing it to as_local() above. A
+# MagicMock stand-in would silently produce a MagicMock "timestamp"
+# instead of a real datetime, masking exactly the class of bug this fix
+# addresses. Matches HA core's own real implementation
+# (functools.partial(datetime.fromtimestamp, tz=UTC)).
+_ha_util.dt.utc_from_timestamp = lambda ts: datetime.fromtimestamp(ts, tz=UTC)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from custom_components.nimbus_load import coordinator as coordinator_module
@@ -206,6 +216,54 @@ def test_lts_source_uses_only_statistics_during_period():
         assert v == 3.7, f"LTS value should pass through as kW, got {v}"
     # And get_significant_states was never actually called
     assert not coordinator_module.get_significant_states.called
+
+
+def test_lts_source_handles_real_float_epoch_start_timestamps():
+    """nimbus issue #372 (Mark Purcell, codebase review): every OTHER
+    test in this file fakes "start" as a real datetime object -- which
+    is exactly why this suite stayed green while every real install's
+    lts/hybrid retrain crashed with `AttributeError: 'float' object has
+    no attribute 'tzinfo'`. HA core's own statistics_during_period()
+    (homeassistant/components/recorder/statistics.py,
+    _sorted_statistics_to_dict) has returned "start"/"end" as float
+    epoch SECONDS since HA 2023.4, on every currently-supported core --
+    confirmed live. This test uses that real shape, not the wrong one
+    every sibling test here (pre-dating this fix) still uses.
+    """
+    now = datetime(2026, 8, 28, 0, 0, tzinfo=UTC)
+    lts_rows = [
+        {"start": (now - timedelta(hours=h)).timestamp(), "mean": 3.7}
+        for h in range(30 * 24)
+    ]
+    _install_lts_rows(lts_rows)
+    recorder_sentinel = [_FakeState("999.0", now)]
+    coordinator_module.get_significant_states = MagicMock(
+        return_value={"sensor.test_load": recorder_sentinel}
+    )
+
+    coord = _make_bare_coordinator({CONF_TRAINING_SOURCE: TRAINING_SOURCE_LTS})
+    coord.hass.states.get = MagicMock(
+        return_value=MagicMock(attributes={"unit_of_measurement": "kW"})
+    )
+    result = _run(
+        coord._async_fetch_training_history(
+            "sensor.test_load",
+            now - timedelta(days=30),
+            now,
+            convert_power=True,
+        )
+    )
+
+    assert len(result) == 30 * 24, f"expected 720 rows, got {len(result)}"
+    for ts, v in result:
+        assert v == 3.7
+        assert isinstance(ts, datetime), (
+            f"a float epoch 'start' must become a real datetime, got {type(ts)}"
+        )
+    # Real epoch-second precision round-trips correctly, not just "some
+    # datetime" -- the most recent row's timestamp must match `now`
+    # itself (h=0), not an off-by-one-hour or truncated value.
+    assert max(ts for ts, _ in result) == now
 
 
 def test_lts_source_drops_none_means():
