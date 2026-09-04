@@ -237,6 +237,18 @@ MIN_MASE_SCALE_POINTS = 20
 # now based on THIS metric when it can be computed; the one-step
 # validation_mae above is still computed and exposed (diagnostics,
 # MASE scaling, back-compat) -- it just no longer decides the winner.
+# nimbus issue #353 (Mark Purcell, defect 2): resample_last_value()'s
+# forward-fill has no staleness limit on its own -- see that function's
+# own docstring for the "a real HA outage/unavailable sensor holds a
+# stale value flat across the whole gap, trained on as genuine and
+# folded into seasonal_lookup" story this bounds. 3 grid steps (not a
+# fixed wall-clock duration) so this scales correctly with whatever
+# resample_minutes a given call actually uses -- generous enough that a
+# normal handful-of-minutes recorder polling gap (a brief HA restart, a
+# Modbus hiccup) never trips it, tight enough that a real multi-hour-plus
+# outage genuinely gets excluded rather than silently forward-filled.
+MAX_TRAINING_STALENESS_GRID_STEPS = 3
+
 RECURSIVE_VALIDATION_HORIZON_STEPS = 16
 # Capped, not "every possible origin in the validation region" -- bounds
 # this to a fixed, predictable extra cost (this runs synchronously in an
@@ -368,24 +380,51 @@ class TrainedModel:
 
 
 def resample_last_value(
-    events: list[tuple[datetime, float]], grid: list[datetime]
+    events: list[tuple[datetime, float]],
+    grid: list[datetime],
+    max_staleness: timedelta | None = None,
 ) -> list[float | None]:
     """Forward-fill a series of (timestamp, value) events onto a fixed `grid`.
 
     `events` must already be sorted ascending by timestamp. Returns None for
     any grid point before the first event (nothing to fill from yet).
 
+    `max_staleness` (nimbus issue #353, Mark Purcell, defect 2): when
+    given, a grid point whose most recent real event is OLDER than this
+    is treated the same as "nothing to fill from yet" (returns None)
+    instead of forward-filling an arbitrarily stale value. Without this,
+    an HA outage or a sensor going `unavailable` for (say) two real days
+    holds the last-known value flat across the entire gap -- trained on
+    as if it were genuine, continuously-observed load/temp/humidity/
+    battery/grid/solar for every one of those grid points, and folded
+    into `seasonal_lookup`'s own per-bucket averages as a real (but
+    entirely fabricated) constant. `None` (the default) preserves the
+    original unbounded forward-fill -- this is a pure function shared by
+    every one of train_model()'s call sites, some of which may
+    legitimately want a different staleness tolerance (or none at all)
+    depending on the caller's own real update cadence, so the bound is
+    opt-in per call, not baked into this function's own behaviour.
+
     nimbus issue #368: bisects on `_dst_safe_key()`-normalized (UTC)
     instants, not the raw tz-aware local datetimes -- see that
     function's own docstring for why a plain aware-to-aware comparison
-    is fold-blind across a DST transition.
+    is fold-blind across a DST transition. `max_staleness` is likewise
+    compared as a real elapsed-UTC-time difference, not wall-clock, for
+    the identical reason.
     """
     times = [_dst_safe_key(e[0]) for e in events]
     values = [e[1] for e in events]
     out: list[float | None] = []
     for g in grid:
-        idx = bisect_right(times, _dst_safe_key(g)) - 1
-        out.append(values[idx] if idx >= 0 else None)
+        g_key = _dst_safe_key(g)
+        idx = bisect_right(times, g_key) - 1
+        if idx < 0:
+            out.append(None)
+            continue
+        if max_staleness is not None and (g_key - times[idx]) > max_staleness:
+            out.append(None)
+            continue
+        out.append(values[idx])
     return out
 
 
@@ -614,7 +653,10 @@ def train_model(
         return None
 
     grid = _build_grid(start, end, resample_minutes)
-    load_vals = resample_last_value(load_events, grid)
+    max_staleness = timedelta(
+        minutes=resample_minutes * MAX_TRAINING_STALENESS_GRID_STEPS
+    )
+    load_vals = resample_last_value(load_events, grid, max_staleness=max_staleness)
     # nimbus issue #350: see resample_observed_mask()'s own docstring --
     # used below (the x_rows loop) to skip emitting a training ROW where
     # the TARGET itself is a pure forward-fill carry-over, not a genuine
@@ -693,28 +735,34 @@ def train_model(
             n + SHRINKAGE_K
         )
     temp_vals = (
-        resample_last_value(temp_events, grid) if temp_events else [None] * len(grid)
+        resample_last_value(temp_events, grid, max_staleness=max_staleness)
+        if temp_events
+        else [None] * len(grid)
     )
     humidity_vals = (
-        resample_last_value(humidity_events, grid)
+        resample_last_value(humidity_events, grid, max_staleness=max_staleness)
         if humidity_events
         else [None] * len(grid)
     )
     curtailment_vals = (
-        resample_last_value(curtailment_events, grid)
+        resample_last_value(curtailment_events, grid, max_staleness=max_staleness)
         if curtailment_events
         else [None] * len(grid)
     )
     battery_vals = (
-        resample_last_value(battery_events, grid)
+        resample_last_value(battery_events, grid, max_staleness=max_staleness)
         if battery_events
         else [None] * len(grid)
     )
     grid_vals = (
-        resample_last_value(grid_events, grid) if grid_events else [None] * len(grid)
+        resample_last_value(grid_events, grid, max_staleness=max_staleness)
+        if grid_events
+        else [None] * len(grid)
     )
     solar_vals = (
-        resample_last_value(solar_events, grid) if solar_events else [None] * len(grid)
+        resample_last_value(solar_events, grid, max_staleness=max_staleness)
+        if solar_events
+        else [None] * len(grid)
     )
 
     x_rows: list[list[float]] = []
