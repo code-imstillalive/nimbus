@@ -605,18 +605,25 @@ def _infeasible_plan(periods: PeriodGrid, status: str, iterations: int) -> Plan:
     REAL signal to check is `status`/`is_optimal`, not array presence.
     """
     n = periods.n_periods
-    zeros = np.zeros(n)
+    # nimbus issue #356 (Mark Purcell): every field below used to alias
+    # the SAME single np.zeros(n) array object -- verified live:
+    # `plan.battery_charge_kw is plan.grid_import_kw` was True. Plan is
+    # frozen=True (the dataclass itself is immutable), but that says
+    # nothing about the arrays it holds -- any consumer doing in-place
+    # arithmetic on one field of a non-optimal plan (a `+=`, or
+    # `np.clip(..., out=...)`) would silently corrupt the other seven
+    # fields too. A fresh zeros(n) per field removes the aliasing.
     return Plan(
         status=status,
         periods=periods,
-        battery_charge_kw=zeros,
-        battery_discharge_kw=zeros,
-        battery_soc_kwh=zeros,
-        grid_import_kw=zeros,
-        grid_export_kw=zeros,
-        export_bonus_kw=zeros,
-        solar_used_kw=zeros,
-        solar_curtailed_kw=zeros,
+        battery_charge_kw=np.zeros(n),
+        battery_discharge_kw=np.zeros(n),
+        battery_soc_kwh=np.zeros(n),
+        grid_import_kw=np.zeros(n),
+        grid_export_kw=np.zeros(n),
+        export_bonus_kw=np.zeros(n),
+        solar_used_kw=np.zeros(n),
+        solar_curtailed_kw=np.zeros(n),
         sheddable_loads=[],
         adequacy_loads=[],
         total_cost=None,
@@ -731,6 +738,20 @@ def build_plan(
         if al.deadline_period >= n:
             msg = f"Adequacy load '{al.name}': deadline_period ({al.deadline_period}) is outside this PeriodGrid (0..{n - 1})"
             raise ValueError(msg)
+    # nimbus issue #356 (Mark Purcell): elements.py's own BatteryConfig
+    # validation checks terminal_value_period_indices for >= 0 and
+    # duplicates, but can't check `< n` there -- it has no PeriodGrid to
+    # check against at construction time (mirrors why deadline_period's
+    # own bounds check, above, also lives here rather than on
+    # AdequacyLoad itself). Without this, a stale index from a shorter
+    # horizon (verified: [0, 99] on a 4-period grid) reaches soc[idx]
+    # deep inside the terminal-value construction below as a raw,
+    # unhelpful IndexError instead of a clear config error here.
+    if battery.terminal_value_period_indices is not None:
+        for idx in battery.terminal_value_period_indices:
+            if idx >= n:
+                msg = f"BatteryConfig.terminal_value_period_indices: index {idx} is outside this PeriodGrid (0..{n - 1})"
+                raise ValueError(msg)
 
     alignment = _align_previous_periods(periods, previous_plan)
 

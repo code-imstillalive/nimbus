@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.72] — 2026-09-04
+
+### Fixed
+- **Two of the cheapest, highest-payoff findings from #356** ([#356](https://github.com/code-imstillalive/nimbus/issues/356), thanks @purcell-lab, 2 of 4 findings). `network.py`'s own `_infeasible_plan()` (the well-formed, zero-filled `Plan` returned for any non-optimal solve) built all eight of its array fields from the SAME single `np.zeros(n)` object — verified live: `plan.battery_charge_kw is plan.grid_import_kw` was `True`. `Plan` is `frozen=True`, but that only stops reassigning an attribute — it says nothing about the numpy array object itself, so any consumer doing genuine in-place mutation (a slice assignment, `np.clip(..., out=...)`) on one field of a non-optimal plan would silently corrupt the other seven. Now a fresh `np.zeros(n)` per field. Separately, `elements.py`'s `BatteryConfig` validates `terminal_value_period_indices` for non-negative values and duplicates, but has no `PeriodGrid` to check `< n` against at construction time — a stale index from a shorter horizon (verified: `[0, 99]` on a 4-period grid) reached `soc[idx]` deep inside `build_plan()`'s terminal-value construction as a raw `IndexError`. `build_plan()` now validates this the same way it already validates `adequacy_loads`' own `deadline_period` bound, raising a clear `ValueError` naming the bad index. The other 2 findings in the same issue (HiGHS non-optimal status collapse + missing solve time limit, and the smaller `elements.py`/`quality_report.py`/`network.py` items) are larger or need more careful validation and are left open. 4 new regression tests.
+
 ## [0.94.71] — 2026-09-04
 
 ### Fixed

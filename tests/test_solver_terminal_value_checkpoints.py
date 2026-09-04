@@ -416,5 +416,38 @@ class TestTerminalValuePeriodIndicesValidation(unittest.TestCase):
             )
 
 
+class TestTerminalValuePeriodIndicesOutOfRange(unittest.TestCase):
+    """nimbus issue #356 (Mark Purcell): elements.py's own BatteryConfig
+    validation can check >= 0 and duplicates, but has no PeriodGrid to
+    check `< n` against at construction time -- that check has to live
+    in build_plan() itself, same as the existing adequacy_loads deadline_
+    period bounds check right above it in network.py. Before this fix, a
+    stale index from a shorter horizon reached soc[idx] deep inside the
+    terminal-value LP construction as a raw, unhelpful IndexError instead
+    of a clear config error at the top of build_plan().
+    """
+
+    def test_index_past_the_end_of_the_grid_raises_a_clear_value_error(self):
+        # FINAL_IDX + 1 == n -- one past the last real period, same shape
+        # as the issue's own verified repro ([0, 99] on a 4-period grid).
+        periods, grid, battery, solar, loads = _scenario(
+            period_indices=[DAY_BOUNDARY_IDX, FINAL_IDX + 1]
+        )
+        with self.assertRaises(ValueError) as ctx:
+            build_plan(
+                periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+            )
+        self.assertIn("terminal_value_period_indices", str(ctx.exception))
+        self.assertIn(str(FINAL_IDX + 1), str(ctx.exception))
+
+    def test_index_exactly_at_the_true_final_period_is_still_valid(self):
+        # Boundary case: n-1 is the last VALID index, must not raise.
+        periods, grid, battery, solar, loads = _scenario(period_indices=[FINAL_IDX])
+        plan = build_plan(
+            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+        )
+        self.assertEqual(plan.status, "optimal")
+
+
 if __name__ == "__main__":
     unittest.main()
