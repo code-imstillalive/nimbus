@@ -150,20 +150,47 @@ filterwarnings = [
     # narrow so real regressions still surface.
     "ignore::DeprecationWarning:homeassistant.*",
     "ignore::PendingDeprecationWarning:homeassistant.*",
-    # The aiohttp.web_exceptions.NotAppKeyWarning ignore (root cause:
-    # #92's "0 live entity instances" CI failure) used to live here as a
-    # dotted-path ignore entry -- but nimbus issue #358 (Mark Purcell):
-    # resolving a THIRD-PARTY dotted warning-category path here happens
-    # during pytest's own config bootstrap, which imports aiohttp to do
-    # it. aiohttp is only ever installed transitively via the [dev]
-    # extra's homeassistant/pytest-homeassistant-custom-component deps,
-    # never a base [project.dependencies] requirement -- a fresh clone
-    # with only `pip install -e .` (no [dev]) aborts ALL test collection
-    # with "Failed to import filter module 'aiohttp'" before a single
-    # test runs. Moved to tests/conftest.py's own pytest_configure hook
-    # (guarded by a plain ImportError catch) so it degrades to a no-op
-    # instead of a hard abort when aiohttp genuinely isn't installed --
-    # see that hook's own docstring for the full story.
+    # Root cause of the #92 "0 live entity instances" / "Setup failed
+    # for dependencies: ['http']" CI failure (2026-08-23): HA core's own
+    # stock http component does `self.app["hass"] = self.hass` (a plain
+    # string key) at homeassistant/components/http/server.py:290 --
+    # unrelated to anything in this repo's own diff. aiohttp (whatever
+    # version pip resolves against the pinned homeassistant release;
+    # neither package hard-pins the other) treats that as soft-
+    # deprecated and warns NotAppKeyWarning; "error" above promotes it
+    # to a hard exception, crashing http's own setup and cascading into
+    # nimbus_load failing (http is a declared manifest dependency).
+    #
+    # nimbus issue #358 (Mark Purcell) flagged the ORIGINAL form of this
+    # entry here, `"ignore::aiohttp.web_exceptions.NotAppKeyWarning"` --
+    # a dotted CATEGORY path pytest resolves by importing aiohttp during
+    # its own config bootstrap. aiohttp is only ever installed
+    # transitively via the [dev] extra, never a base
+    # [project.dependencies] requirement, so a fresh clone with only
+    # `pip install -e .` aborted ALL test collection with "Failed to
+    # import filter module 'aiohttp'" before a single test could run.
+    #
+    # Tried moving this into a tests/conftest.py pytest_configure() hook
+    # instead (a plain runtime `warnings.filterwarnings()` call, guarded
+    # by ImportError) -- found a real, worse regression doing that: this
+    # ini list is not just applied once at startup, pytest re-applies it
+    # fresh inside a warnings.catch_warnings() scope around EVERY test
+    # item, which silently discards any filter registered globally via
+    # a conftest hook the moment the first real test runs. Confirmed
+    # live: the "real HA harness" CI job (which, unlike the stub job,
+    # actually executes http's real async_initialize()) started failing
+    # 9 tests with exactly the original #92 crash once the ini entry was
+    # removed in favour of the conftest hook.
+    #
+    # The actual fix: filter by MESSAGE instead of dotted CATEGORY path.
+    # pytest's own filterwarnings syntax accepts `action:message:...`
+    # with the category/module/lineno fields left blank, matched via a
+    # plain regex against the warning's message string -- no import of
+    # anything required to parse or apply it, so this is immune to both
+    # problems above (fresh-clone collection abort, and getting silently
+    # dropped by pytest's own per-test filter re-application, since it's
+    # a real ini entry again, not a conftest-level side effect).
+    "ignore:It is recommended to use web.AppKey instances for keys:",
 ]
 
 # ---------------------------------------------------------------------------
