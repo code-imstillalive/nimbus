@@ -222,7 +222,15 @@ def build_stochastic_plan(
         weight: float,
         prev_soc_ref: str | float,
         apply_terminal_value: bool,
-    ) -> tuple[list[str], list[str], list[str], list[str], list[str], list[str]]:
+    ) -> tuple[
+        list[str],
+        list[str],
+        list[str],
+        list[str],
+        list[str],
+        list[str],
+        dict[int, str],
+    ]:
         """Shared helper -- builds one family of charge/discharge/soc/
         grid_import/grid_export variables + their SoC-dynamics/balance/
         wash-trade constraints for the given period range, at the given
@@ -397,6 +405,27 @@ def build_stochastic_plan(
         # one scenario's own shadow price from silently shadowing another's
         # in LPResult.duals. No-op (export_bonus is an empty dict) whenever
         # has_bonus is False.
+        #
+        # nimbus issue #354 (Mark Purcell): scoping this call to ONLY this
+        # family's own t_range means a real calendar day that stage 1's
+        # own periods and a scenario's stage-2 periods both fall on (the
+        # day the stochastic_start_period branch point sits inside) gets
+        # capped TWICE, independently, at the FULL real daily volume each
+        # time -- a single scenario-world could then plan as if 2x the
+        # real committed daily volume were available on that one day.
+        # This per-family call is kept AS-IS deliberately (it's not wrong
+        # on its own, and its own tie-breaker cost term is genuinely
+        # per-family-correct) -- the real fix is the SUPPLEMENTARY,
+        # cross-family constraint added once per scenario after both
+        # stages are built below, which is the one that actually binds
+        # the true combined volume on the shared day. See that section's
+        # own comment for why a second, ADDITIVE constraint here (rather
+        # than restructuring this call) is the safe way to close the gap
+        # without also double-applying the tie-breaker's own cost term
+        # (LPProblem.set_cost() is additive, not overwriting -- calling
+        # add_export_bonus_cumulative_caps() with stage-1's shared
+        # variables folded into more than one scenario's own call would
+        # silently multiply their tie-break cost by the scenario count).
         if has_bonus:
             p2p_export.add_export_bonus_cumulative_caps(
                 p, export_bonus, periods, grid, label=suffix
@@ -417,6 +446,12 @@ def build_stochastic_plan(
             [grid_import[t] for t in t_range],
             [grid_export[t] for t in t_range],
             [export_bonus[t] for t in t_range] if has_bonus else [],
+            # nimbus issue #354: the raw {period_index: var_name} dict
+            # (not just the list above) -- needed below to build the
+            # cross-stage supplementary cap constraint, which must know
+            # each variable's own real, absolute period index to group
+            # correctly by real calendar day alongside stage 1's own.
+            dict(export_bonus) if has_bonus else {},
         )
 
     stage1_range = range(stochastic_start_period)
@@ -431,7 +466,17 @@ def build_stochastic_plan(
             apply_terminal_value=False,
         )
 
-    stage2_names: list[tuple[list[str], list[str], list[str]]] = []
+    stage2_names: list[
+        tuple[
+            list[str],
+            list[str],
+            list[str],
+            list[str],
+            list[str],
+            list[str],
+            dict[int, str],
+        ]
+    ] = []
     stage2_range = range(stochastic_start_period, n)
     for s in range(n_scenarios):
         if stochastic_start_period > 0:
@@ -449,6 +494,60 @@ def build_stochastic_plan(
             apply_terminal_value=True,
         )
         stage2_names.append(names)
+
+    # nimbus issue #354 (Mark Purcell): supplementary cross-stage P2P
+    # export-bonus cap. Stage 1 and a given scenario's own stage 2 are
+    # adjacent, non-overlapping period ranges -- the only real calendar
+    # day they can ever share is the one containing the
+    # stochastic_start_period boundary itself (or none at all, if the
+    # branch happens to fall exactly at a real day boundary). The
+    # per-family add_export_bonus_cumulative_caps() calls above each cap
+    # ONLY their own half of that shared day at the FULL real daily
+    # volume -- independently, so a single scenario-world could plan as
+    # if stage-1's own (real, already-committed) volume for that day AND
+    # a full separate allocation for its own stage-2 portion were both
+    # available, effectively doubling the real cap on that one day. This
+    # adds the ONE constraint actually missing: stage 1's real volume for
+    # that day PLUS this scenario's own stage-2 volume for the same day,
+    # bound to the real configured cap -- additive to (not a replacement
+    # for) the per-family calls above, which is deliberate: see
+    # _add_period_vars_and_constraints' own comment on why folding
+    # stage-1's shared variables into more than one scenario's own
+    # add_export_bonus_cumulative_caps() call would silently multiply
+    # their tie-breaker cost (LPProblem.set_cost() is additive) instead
+    # of just adding a redundant-but-harmless extra volume constraint.
+    has_bonus = p2p_export.has_export_bonus(grid)
+    if has_bonus and stage1_names is not None:
+        stage1_bonus_dict = stage1_names[6]
+
+        def _day_key(t: int) -> object:
+            starts = periods.period_starts
+            return starts[t].date() if starts is not None else None
+
+        stage1_days: dict[object, list[int]] = {}
+        for t in stage1_bonus_dict:
+            stage1_days.setdefault(_day_key(t), []).append(t)
+
+        for s in range(n_scenarios):
+            stage2_bonus_dict = stage2_names[s][6]
+            stage2_days: dict[object, list[int]] = {}
+            for t in stage2_bonus_dict:
+                stage2_days.setdefault(_day_key(t), []).append(t)
+
+            for day_key in set(stage1_days) & set(stage2_days):
+                combined_vars = {t: stage1_bonus_dict[t] for t in stage1_days[day_key]}
+                combined_vars.update(
+                    {t: stage2_bonus_dict[t] for t in stage2_days[day_key]}
+                )
+                terms = {
+                    var_name: periods.hours[t] for t, var_name in combined_vars.items()
+                }
+                day_label = day_key.isoformat() if day_key is not None else "global"
+                p.add_ub_constraint(
+                    terms,
+                    float(grid.export_bonus_volume_kwh),
+                    name=f"export_bonus_cap_branchday_{day_label}_s{s}",
+                )
 
     result = p.solve()
 
@@ -476,7 +575,9 @@ def build_stochastic_plan(
     stage2_grid_export_all: list[NDArray[np.float64]] = []
     stage2_export_bonus_all: list[NDArray[np.float64]] = []
     for s in range(n_scenarios):
-        c_names, d_names, soc_names, gi_names, ge_names, bonus_names = stage2_names[s]
+        c_names, d_names, soc_names, gi_names, ge_names, bonus_names, _bonus_dict = (
+            stage2_names[s]
+        )
         stage2_charge_all.append(_extract(c_names))
         stage2_discharge_all.append(_extract(d_names))
         stage2_soc_all.append(_extract(soc_names))

@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.81] — 2026-09-04
+
+### Fixed
+- **The stochastic solver could plan against 2x the real committed daily P2P export volume on the stage1/stage2 branch day** ([#354](https://github.com/code-imstillalive/nimbus/issues/354), thanks @purcell-lab, 1 of 3 findings — this module is deliberately shadow-mode-only, never wired into live dispatch). Stage 1 and each scenario's own stage 2 are adjacent, non-overlapping period ranges that can genuinely share one real calendar day (the day containing the branch point) — `add_export_bonus_cumulative_caps()` was called once per family, each capping only its own half of that shared day at the *full* real daily volume independently, so a single scenario-world could plan as if stage 1's own committed volume for that day *and* a full separate allocation for its own stage-2 portion were both available. Fixed with an additive supplementary constraint (added once per scenario, after both stages are built) binding stage 1's real volume for the shared day plus that scenario's own stage-2 volume for the same day to the real configured cap — kept additive rather than restructuring the existing per-family calls, since folding stage 1's shared variables into more than one scenario's own cap call would have silently multiplied the tie-breaker's own cost term (`LPProblem.set_cost()` is additive, not overwriting). Verified with a mutation test. The other 2 findings in the same issue (soft-SoC relaxation parity with #328, missing combined-direction caps) are larger changes affecting core LP structure, left for a dedicated pass. 2 new regression tests.
+
 ## [0.94.80] — 2026-09-04
 
 ### Fixed
