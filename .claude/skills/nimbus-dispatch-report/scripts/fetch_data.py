@@ -25,6 +25,20 @@ import hamcp  # noqa: E402
 QUALITY_SENSOR = "sensor.nimbus_solver_quality_report"
 
 
+def call(name, args, attempts=3):
+    """hamcp.call_tool with a bounded retry: the diagnostics download in
+    particular has failed once mid-stream and succeeded on the next try."""
+    import time
+    for i in range(attempts):
+        try:
+            return hamcp.call_tool(name, args)
+        except Exception as exc:  # noqa: BLE001 -- retry any transport/tool error, re-raise on the last attempt
+            if i == attempts - 1:
+                raise
+            print(f"{name} failed (attempt {i + 1}/{attempts}): {str(exc)[:200]} -- retrying", file=sys.stderr)
+            time.sleep(3 * (i + 1))
+
+
 def _dump(path: str, obj) -> None:
     with open(path, "w", encoding="utf-8") as f:
         json.dump(obj, f)
@@ -44,7 +58,7 @@ def main() -> int:
     # 1. config entry
     entry_id = args.entry_id
     if not entry_id:
-        lst = hamcp.call_tool("ha_get_integration", {"domain": "nimbus_load"})
+        lst = call("ha_get_integration", {"domain": "nimbus_load"})
         entries = lst.get("entries") or []
         if not entries:
             sys.exit("no nimbus_load config entry found")
@@ -52,7 +66,7 @@ def main() -> int:
         print("entry:", entry_id, entries[0].get("state"))
 
     # 2. diagnostics
-    diag = hamcp.call_tool("ha_get_integration", {"entry_id": entry_id, "include_diagnostics": True})
+    diag = call("ha_get_integration", {"entry_id": entry_id, "include_diagnostics": True})
     diagnostics = diag.get("diagnostics") or diag
     _dump(os.path.join(args.out, "diagnostics.json"), diagnostics)
     data = diagnostics.get("data", {}).get("data", {})
@@ -68,13 +82,13 @@ def main() -> int:
     print("scoring window:", start.isoformat(), "->", end.isoformat())
 
     # 3. quality report sensor
-    st = hamcp.call_tool("ha_get_state", {"entity_id": [QUALITY_SENSOR]})
+    st = call("ha_get_state", {"entity_id": [QUALITY_SENSOR]})
     _dump(os.path.join(args.out, "quality_report.json"), st)
 
     # 4. compute_quality_report cross-check
     if not args.skip_cqr:
         try:
-            cqr = hamcp.call_tool(
+            cqr = call(
                 "ha_call_service",
                 {"domain": "nimbus_load", "service": "compute_quality_report",
                  "data": {"start": start.isoformat(), "end": end.isoformat()},
@@ -101,7 +115,7 @@ def main() -> int:
     }
     ids = [v for v in sensors.values() if v]
     print("recorder sensors:", sensors)
-    hist = hamcp.call_tool(
+    hist = call(
         "ha_get_history",
         {"entity_ids": ids, "source": "statistics", "period": "hour",
          "start_time": start.astimezone(dt.timezone.utc).isoformat(),
