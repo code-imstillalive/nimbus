@@ -398,6 +398,14 @@ class Plan:
     # problem that was never actually solved.
     duals: dict[str, float] = field(default_factory=dict)
     reduced_costs: dict[str, float] = field(default_factory=dict)
+    # nimbus issue #356 (Mark Purcell): only ever populated (from LPResult's
+    # own raw_status) when status == "error" -- HiGHS's own status name
+    # (e.g. "Time limit reached"), so a caller can log/report the real
+    # solver-level cause instead of treating "not optimal" as an
+    # undifferentiated blob. None for every other status, including the
+    # genuine "infeasible"/"unbounded" outcomes, which already have their
+    # own unambiguous meaning and don't need a raw string to explain them.
+    raw_status: str | None = None
 
     @property
     def is_optimal(self) -> bool:
@@ -599,7 +607,12 @@ def _add_rate_limit(
         p.add_ub_constraint({var_names[t]: -1.0, var_names[t - 1]: 1.0}, max_rate_kw)
 
 
-def _infeasible_plan(periods: PeriodGrid, status: str, iterations: int) -> Plan:
+def _infeasible_plan(
+    periods: PeriodGrid,
+    status: str,
+    iterations: int,
+    raw_status: str | None = None,
+) -> Plan:
     """A well-formed but empty Plan for a non-optimal solve -- every array
     present (zero-filled), never omitted, so a caller can always safely
     index into a Plan's arrays without a separate None-check first; the
@@ -631,6 +644,7 @@ def _infeasible_plan(periods: PeriodGrid, status: str, iterations: int) -> Plan:
         iterations=iterations,
         duals={},
         reduced_costs={},
+        raw_status=raw_status,
     )
 
 
@@ -1459,7 +1473,9 @@ def build_plan(
 
     result: LPResult = p.solve()
     if result.status != "optimal":
-        return _infeasible_plan(periods, result.status, result.iterations)
+        return _infeasible_plan(
+            periods, result.status, result.iterations, raw_status=result.raw_status
+        )
 
     def _get(names: list[str]) -> NDArray[np.float64]:
         return p.values_of(result, names)

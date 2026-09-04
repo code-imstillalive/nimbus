@@ -664,6 +664,34 @@ class BatteryConfig:
         if not (0.0 <= self.min_soc_kwh <= self.max_soc_kwh <= self.capacity_kwh):
             msg = f"Invalid SoC bounds: 0 <= min_soc({self.min_soc_kwh}) <= max_soc({self.max_soc_kwh}) <= capacity({self.capacity_kwh}) required"
             raise ValueError(msg)
+        # nimbus issue #356 (Mark Purcell): the chain above requires
+        # capacity_kwh >= max_soc_kwh >= min_soc_kwh >= 0, but never
+        # rejects all four being simultaneously 0 -- a genuinely
+        # degenerate, physically meaningless "battery" (zero usable
+        # capacity) previously sailed straight through validation and
+        # only surfaced much later, deep inside network.py's own LP
+        # construction, as an opaque HiGHS-level error.
+        if self.capacity_kwh <= 0.0:
+            msg = f"capacity_kwh ({self.capacity_kwh}) must be > 0 -- a battery with zero usable capacity is not a real, dispatchable device"
+            raise ValueError(msg)
+        # nimbus issue #356: neither max_charge_kw nor max_discharge_kw
+        # was ever checked for a genuinely nonsensical NEGATIVE value --
+        # verified live, max_charge_kw=-5 was accepted here and only
+        # surfaced later as a raw `ValueError: Variable 'battery_charge_0'
+        # has lb=0.0 > ub=-5` from deep inside lp.py, giving no hint the
+        # real problem was this config field. Deliberately `< 0.0`, not
+        # `<= 0.0` -- exactly 0.0 is a real, if extreme, legitimate
+        # config: "this direction is physically disabled" (a battery
+        # that can only ever charge, or only ever discharge). Several
+        # existing tests (test_solver_backtest.py, test_solver_rolling.py)
+        # already rely on max_charge_kw=max_discharge_kw=0.0 to construct
+        # a genuinely infeasible-but-validly-shaped scenario on purpose.
+        if self.max_charge_kw < 0.0:
+            msg = f"max_charge_kw ({self.max_charge_kw}) cannot be negative"
+            raise ValueError(msg)
+        if self.max_discharge_kw < 0.0:
+            msg = f"max_discharge_kw ({self.max_discharge_kw}) cannot be negative"
+            raise ValueError(msg)
         if not (0.0 <= self.initial_soc_kwh <= self.capacity_kwh):
             msg = f"initial_soc_kwh ({self.initial_soc_kwh}) must be within physical bounds [0, capacity_kwh={self.capacity_kwh}]"
             raise ValueError(msg)
@@ -676,7 +704,13 @@ class BatteryConfig:
         if not (0.0 < self.charge_efficiency < 1.0) or not (
             0.0 < self.discharge_efficiency < 1.0
         ):
-            msg = "Battery efficiencies must be in (0, 1] -- exactly 100% is rejected (see the architecture sketch's own §6: real efficiency is also a natural degeneracy guard, independent of the cost floor)"
+            # nimbus issue #356 (Mark Purcell): this message used to say
+            # "(0, 1]" -- implying exactly 1.0 (100%) is ALLOWED -- while
+            # the guard immediately above enforces a strict `< 1.0` on
+            # both sides, REJECTING exactly 1.0. The message contradicted
+            # the rule it was defending; fixed to describe the real, open
+            # interval the code actually enforces.
+            msg = "Battery efficiencies must be in (0, 1) -- exactly 100% is rejected (see the architecture sketch's own §6: real efficiency is also a natural degeneracy guard, independent of the cost floor)"
             raise DegenerateConfigError(msg)
         # np.asarray + elementwise comparison handles BOTH a plain scalar
         # (0-d array, np.any() over a single value works fine) and a real

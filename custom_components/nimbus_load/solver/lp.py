@@ -63,14 +63,40 @@ import highspy
 import numpy as np
 from numpy.typing import NDArray
 
+# nimbus issue #356: bounds a genuinely stuck solve (see _solve_highs's own
+# comment at its call site for the full reasoning) -- not a performance
+# tuning knob, a safety backstop.
+DEFAULT_TIME_LIMIT_SECONDS: float = 60.0
+
 
 @dataclass(frozen=True)
 class LPResult:
-    """Outcome of solve(). `status` is always one of "optimal", "infeasible",
-    or "unbounded" -- never an exception for a genuinely infeasible/unbounded
-    problem, since both are real, expected outcomes a caller (network.py)
-    needs to handle explicitly, not treat as a crash. `x`/`objective` are
-    only meaningful when status == "optimal".
+    """Outcome of solve(). `status` is one of "optimal", "infeasible",
+    "unbounded", or "error" -- never an exception for a genuinely
+    infeasible/unbounded problem, since both are real, expected outcomes a
+    caller (network.py) needs to handle explicitly, not treat as a crash.
+    `x`/`objective` are only meaningful when status == "optimal".
+
+    nimbus issue #356 (Mark Purcell): "error" (2026-09-04) is a distinct
+    outcome from "infeasible" -- HiGHS can report several genuine
+    SOLVER-level failures (hit the time limit, hit an iteration/solution
+    limit, an internal model/solve error, or a plain "unknown" status) that
+    are NOT the same thing as a model that was actually proven infeasible.
+    Before this fix, every one of those was silently collapsed into
+    `status="infeasible"`, misleading every downstream consumer (and any
+    operator reading a log) into thinking the model itself has no feasible
+    dispatch, when the real problem is that the SOLVER gave up/timed out
+    on a model that may well have a feasible answer. Confirmed safe to add
+    as a genuinely new value (not just a naming change): every existing
+    consumer of `.status`/`Plan.status` in this repo (network.py,
+    stochastic.py, solver_writer.py) only ever checks `== "optimal"` or
+    `!= "optimal"`, never `== "infeasible"` specifically -- so introducing
+    "error" changes no existing control-flow branch, it only adds
+    diagnostic precision for whichever branch already runs for "not
+    optimal". `raw_status` carries HiGHS's own status name (e.g.
+    "kTimeLimit") whenever status is "error", so a caller/log line can name
+    the real cause instead of sending an operator hunting for a modeling
+    bug that doesn't exist.
 
     `duals` (2026-08-18): one entry per named constraint ROW, keyed by
     whatever `name=` was passed to add_ub_constraint()/add_eq_constraint()
@@ -100,6 +126,7 @@ class LPResult:
     iterations: int = 0
     duals: dict[str, float] = field(default_factory=dict)
     reduced_costs: dict[str, float] = field(default_factory=dict)
+    raw_status: str | None = None
 
 
 @dataclass
@@ -286,6 +313,21 @@ def _solve_highs(problem: LPProblem) -> LPResult:
 
     h = highspy.Highs()
     h.setOptionValue("output_flag", False)
+    # nimbus issue #356 (Mark Purcell): no time limit was ever set, so a
+    # genuinely pathological problem (e.g. a MIP -- see issue #238's own
+    # binary-variable groundwork -- that branch-and-bound can't close
+    # quickly) could block indefinitely. This runs on HA's own shared
+    # executor thread pool (solver_writer.py's `hass.async_add_executor_
+    # job()`), a limited, shared resource -- an unbounded solve there
+    # doesn't just delay one solve cycle, it can starve whatever else HA
+    # is trying to run on that same pool. Every real solve this project
+    # has ever measured completes in well under a second even at full
+    # production scale (~4000 variables, ~1500 constraints, per this
+    # module's own docstring) -- 60s is generous headroom for a
+    # legitimately large problem, while still bounding a genuinely stuck
+    # solve to a small fraction of even the fastest solve cadence this
+    # project runs (the native runtime's own 1-minute timer).
+    h.setOptionValue("time_limit", DEFAULT_TIME_LIMIT_SECONDS)
 
     # Real, confirmed live (2026-08-18): highspy's own batched
     # addVariables(n, lb=array, ub=array) form REJECTS per-variable array
@@ -357,13 +399,21 @@ def _solve_highs(problem: LPProblem) -> LPResult:
     if status == highspy.HighsModelStatus.kUnbounded:
         return LPResult(status="unbounded", iterations=iterations)
     if status != highspy.HighsModelStatus.kOptimal:
-        # Any other non-optimal status (e.g. a solver-level issue short
-        # of a clean infeasible/unbounded classification) is surfaced as
-        # infeasible rather than silently mishandled -- matches this
-        # module's own long-standing "status is always optimal,
-        # infeasible, or unbounded" contract, never a fourth case a
-        # caller (network.py) hasn't been told to expect.
-        return LPResult(status="infeasible", iterations=iterations)
+        # nimbus issue #356 (Mark Purcell): every other non-optimal status
+        # (kTimeLimit, kIterationLimit, kSolutionLimit, kUnknown,
+        # kUnboundedOrInfeasible, kModelError, kSolveError) used to be
+        # surfaced as "infeasible" too -- indistinguishable from a model
+        # HiGHS actually proved has no feasible dispatch at all. None of
+        # these are that: they're all genuine SOLVER-level failures (gave
+        # up, hit a limit, hit an internal error) on a model whose real
+        # feasibility was never actually determined either way. Reported
+        # as "error" instead, with HiGHS's own status name preserved in
+        # raw_status so a caller/log line can name the real cause.
+        return LPResult(
+            status="error",
+            iterations=iterations,
+            raw_status=h.modelStatusToString(status),
+        )
 
     x = np.array([h.val(var_array[i]) for i in range(n)])
     objective = float(h.getObjectiveValue())

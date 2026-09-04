@@ -6806,6 +6806,19 @@ def main() -> None:
     solve_seconds = time.monotonic() - solve_started
     if plan.status == "optimal":
         save_plan_state(plan, period_hours_arr, grid_times[0])
+    elif plan.status == "error":
+        # nimbus issue #356 (Mark Purcell): this is genuinely NOT the same
+        # thing as a real infeasible model -- HiGHS gave up/hit a limit
+        # without ever determining feasibility either way (see network.py's
+        # own Plan.raw_status docstring). Named explicitly here so an
+        # operator sees "the solver failed, here's HiGHS's own reason"
+        # rather than being sent hunting for a modeling/config problem that
+        # doesn't exist.
+        _LOGGER.warning(
+            "Nimbus: solve did not complete -- HiGHS solver failure (%s), "
+            "not a genuinely infeasible model",
+            plan.raw_status or "unknown reason",
+        )
 
     # Real fixed daily charges (Network Access + LV Fee), reported
     # honestly alongside the LP's own total_cost -- NOT fed into the LP
