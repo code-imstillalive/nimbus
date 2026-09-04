@@ -115,12 +115,16 @@ Solver source: /opt/homeassistant/config/nimbus_repo/custom_components/nimbus_lo
          (the real git clone of code-imstillalive/nimbus)
 
 Cron (as homehub, whichever NUC currently holds the VIP -- runs fine on
-either, only ever reads real settled history, never writes anything back):
+either, only ever reads real settled history, never writes anything back).
+Set HA_TOKEN_PATH/NIMBUS_COUNTERFACTUAL_HISTORY_FILE (and HA_BASE if your
+HA instance isn't reachable at its default mDNS hostname) before running
+-- see this file's own HA_BASE/TOKEN_FILE/HISTORY_FILE comment above:
   cd /opt/homeassistant && git pull origin main
   git show origin/main:scripts/nimbus_counterfactual_writer.py > /opt/nimbus_counterfactual_writer.py
+  export HA_TOKEN_PATH=/home/homehub/.ha_token NIMBUS_COUNTERFACTUAL_HISTORY_FILE=/home/homehub/nimbus_counterfactual_history.json
   sudo touch /opt/nimbus_counterfactual_writer.log && sudo chown homehub:homehub /opt/nimbus_counterfactual_writer.log
   python3 /opt/nimbus_counterfactual_writer.py   # one-off test run first
-  (crontab -l 2>/dev/null; echo "30 20 * * * python3 /opt/nimbus_counterfactual_writer.py >> /opt/nimbus_counterfactual_writer.log 2>&1") | crontab -
+  (crontab -l 2>/dev/null; echo "30 20 * * * HA_TOKEN_PATH=$HA_TOKEN_PATH NIMBUS_COUNTERFACTUAL_HISTORY_FILE=$NIMBUS_COUNTERFACTUAL_HISTORY_FILE python3 /opt/nimbus_counterfactual_writer.py >> /opt/nimbus_counterfactual_writer.log 2>&1") | crontab -
 
 (20:30 UTC = 06:30 AEST the following day -- 30 minutes after
 lv_p2p_daily_recalibrate.py's own 06:00 AEST run, so yesterday's real P2P
@@ -129,6 +133,7 @@ settlement/SoC data is already fully recorded by the time this runs.)
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from datetime import datetime, timedelta, timezone
@@ -137,9 +142,15 @@ sys.path.insert(0, "/opt/homeassistant/config/nimbus_repo/custom_components/nimb
 import numpy as np  # noqa: E402
 from solver import elements, network  # noqa: E402
 
-HA_BASE = "http://192.168.1.221:8123"
-TOKEN_FILE = "/home/homehub/.ha_token"
-HISTORY_FILE = "/home/homehub/nimbus_counterfactual_history.json"
+# nimbus issue #364 finding 4 (Mark Purcell, codebase review): these
+# three used to be hardcoded to one household's own real IP/paths.
+# HA_BASE falls back to HA's own standard local mDNS hostname (a
+# genuinely useful default, not a real household's address); TOKEN_FILE/
+# HISTORY_FILE are inherently host-specific with no safe generic
+# default, so they're required.
+HA_BASE = os.environ.get("HA_BASE", "http://homeassistant.local:8123")
+TOKEN_FILE = os.environ["HA_TOKEN_PATH"]
+HISTORY_FILE = os.environ["NIMBUS_COUNTERFACTUAL_HISTORY_FILE"]
 AEST = timezone(timedelta(hours=10))
 
 # Real household config, same values confirmed live throughout the night

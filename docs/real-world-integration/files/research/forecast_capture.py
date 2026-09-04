@@ -39,27 +39,37 @@ as nimbus_counterfactual_history.json, a growing dataset that doesn't
 belong in the repo itself).
 
 Deploy (host cron, NOT inside the HA container -- same pattern as every
-other writer script):
+other writer script). Set HA_TOKEN_PATH/SNAPSHOT_DIR (and HA_BASE if your
+HA instance isn't reachable at its default mDNS hostname) before running
+-- see this file's own HA_BASE/TOKEN_PATH/SNAPSHOT_DIR comment above:
   cd /opt/homeassistant && git pull origin main
   git show origin/main:scripts/research/forecast_capture.py > /opt/forecast_capture.py
-  mkdir -p /home/homehub/forecast_snapshots
+  export HA_TOKEN_PATH=/home/homehub/.ha_token SNAPSHOT_DIR=/home/homehub/forecast_snapshots
+  mkdir -p "$SNAPSHOT_DIR"
   sudo touch /opt/forecast_capture.log && sudo chown homehub:homehub /opt/forecast_capture.log
   python3 /opt/forecast_capture.py   # one-off test run first
-  (crontab -l 2>/dev/null; echo "0 */6 * * * python3 /opt/forecast_capture.py >> /opt/forecast_capture.log 2>&1") | crontab -
+  (crontab -l 2>/dev/null; echo "0 */6 * * * HA_TOKEN_PATH=$HA_TOKEN_PATH SNAPSHOT_DIR=$SNAPSHOT_DIR python3 /opt/forecast_capture.py >> /opt/forecast_capture.log 2>&1") | crontab -
   # every 6h -- solar/price/load forecasts don't meaningfully change
   # faster than that, and this keeps the snapshot count/disk growth
   # modest over weeks of accumulation.
 """
 import json
+import os
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
 BRISBANE_TZ = ZoneInfo("Australia/Brisbane")
-HA_BASE = "http://192.168.1.221:8123"
-TOKEN_PATH = "/home/homehub/.ha_token"
-SNAPSHOT_DIR = Path("/home/homehub/forecast_snapshots")
+# nimbus issue #364 finding 4 (Mark Purcell, codebase review): these three
+# used to be hardcoded to one specific household's own real IP/paths.
+# Read from the environment instead -- HA_BASE falls back to HA's own
+# standard local mDNS hostname (a genuinely useful default, not a real
+# household's address); TOKEN_PATH/SNAPSHOT_DIR are inherently host-
+# specific with no safe generic default, so they're required.
+HA_BASE = os.environ.get("HA_BASE", "http://homeassistant.local:8123")
+TOKEN_PATH = os.environ["HA_TOKEN_PATH"]
+SNAPSHOT_DIR = Path(os.environ["SNAPSHOT_DIR"])
 
 with open(TOKEN_PATH, encoding="utf-8") as f:
     TOKEN = f.read().strip()

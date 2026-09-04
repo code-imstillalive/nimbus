@@ -85,21 +85,35 @@ exactly the kind of two-part honest answer this project's own
 docstring discipline (regret.py/tracking.py/epr.py) calls for.
 """
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
-sys.path.insert(0, r"C:\Users\Raf_local\nimbus\custom_components\nimbus_load")
+# nimbus issue #364 finding 4 (Mark Purcell, codebase review): this used
+# to be one specific dev machine's own absolute path. This script always
+# sits at docs/real-world-integration/files/research/<name>.py within a
+# clone of this repo (unlike forecast_capture.py's own family, which is
+# explicitly documented as copied elsewhere for cron deployment) -- so a
+# path derived from __file__ is portable across any real checkout.
+sys.path.insert(
+    0, str(Path(__file__).resolve().parents[4] / "custom_components" / "nimbus_load")
+)
 from solver import elements  # noqa: E402
 from solver.network import build_plan  # noqa: E402
 import numpy as np  # noqa: E402
 
 BRISBANE_TZ = ZoneInfo("Australia/Brisbane")
-HA_BASE = "http://192.168.1.221:8123"
-TOKEN_PATH = r"C:\Users\Raf_local\.ha_token"
+# Same finding -- HA_BASE/TOKEN_PATH used to be one household's own real
+# IP/path. HA_BASE falls back to HA's own standard local mDNS hostname (a
+# genuinely useful default); TOKEN_PATH is inherently host-specific with
+# no safe generic default, so it's required.
+HA_BASE = os.environ.get("HA_BASE", "http://homeassistant.local:8123")
+TOKEN_PATH = os.environ["HA_TOKEN_PATH"]
 
 PERIOD_HOURS = 0.25
 N_PERIODS = 96

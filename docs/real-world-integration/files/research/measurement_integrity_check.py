@@ -55,14 +55,18 @@ real day tested -- not just informally close, verified under the real
 stated bar.
 """
 import json
+import os
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 BRISBANE_TZ = ZoneInfo("Australia/Brisbane")
-HA_BASE = "http://192.168.1.221:8123"
-TOKEN_PATH = r"C:\Users\Raf_local\.ha_token"
+# nimbus issue #364 finding 4 (Mark Purcell, codebase review): see
+# contract_risk_injection_test.py's own identical comment -- these used
+# to be one household's own real IP/path.
+HA_BASE = os.environ.get("HA_BASE", "http://homeassistant.local:8123")
+TOKEN_PATH = os.environ["HA_TOKEN_PATH"]
 STRICT_TOLERANCE_PCT = 1.0
 
 with open(TOKEN_PATH, encoding="utf-8") as f:

@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.113] — 2026-09-05
+
+### Fixed
+- **#364 finding 4: hardcoded household IPs/paths removed from every doc/research script** ([#364](https://github.com/code-imstillalive/nimbus/issues/364), thanks @purcell-lab). 9 files under `docs/real-world-integration/` hardcoded one specific household's real internal IP (`192.168.1.221`) as `HA_BASE`, plus various host-specific token/snapshot/history paths -- 5 of them also hardcoded a dev machine's own absolute path (`C:\Users\...`) as a `sys.path.insert()`. None of this ships inside `custom_components/` (the directory HACS actually installs), but it's still real hardcoding in a public repo's own documentation/example code.
+  `HA_BASE` now reads from the environment with a genuinely useful, non-identifying fallback (`http://homeassistant.local:8123`, HA's own standard local mDNS hostname); token/snapshot/history paths are inherently host-specific with no safe generic default, so they're now required env vars (`HA_TOKEN_PATH`, `SNAPSHOT_DIR`, `NIMBUS_COUNTERFACTUAL_HISTORY_FILE`) rather than silently falling back to someone else's real paths. The 5 files with a hardcoded dev-machine `sys.path.insert()` now derive it from `Path(__file__)` instead, portable across any real checkout of this repo (distinct from `nimbus_counterfactual_writer.py`'s own `sys.path.insert()`, which points at the real, documented NUC deployment location and was correctly left untouched). `docs/real-world-integration/README.md` gained a short setup note naming the required env vars.
+  Verified via `ast.parse()` syntax checks and a full local test run (these are standalone scripts outside the automated test suite and CI's own lint scope, so this is deliberately a lighter-weight verification than a code change inside `custom_components/` would get). This closes out every actionable finding in #364 -- finding 3 (splitting `CLAUDE.md`'s own journal into a dated worklog) remains open as its own larger editorial effort, deliberately not rushed.
+
 ## [0.94.112] — 2026-09-05
 
 ### Fixed

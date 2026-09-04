@@ -311,7 +311,22 @@ config change here, not a new mechanism to build.
 These are the scripts used to work through (and mostly close) a real,
 external 9-item Solver audit — 8 of 9 items closed as of this export.
 All read-only against live HA history via the REST API; none write
-anything. Worth reading in roughly this order if you want the story:
+anything.
+
+**Before running any of them**, set two environment variables (nimbus
+issue #364 finding 4 — these no longer default to any real household's
+own values):
+
+```
+export HA_TOKEN_PATH=/path/to/your/.ha_token   # a HA long-lived access token, one line
+export SNAPSHOT_DIR=/path/to/forecast_snapshots  # forecast_capture.py / forecast_accuracy_compare.py only
+```
+
+`HA_BASE` is optional — it falls back to `http://homeassistant.local:8123`
+(HA's own standard local mDNS hostname); set it explicitly if your
+instance isn't reachable there.
+
+Worth reading in roughly this order if you want the story:
 
 - `measurement_integrity_check.py` — audit item #1. Reconstructs real
   exported energy from raw meter history and checks it against

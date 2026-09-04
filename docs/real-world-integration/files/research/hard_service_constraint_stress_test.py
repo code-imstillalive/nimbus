@@ -72,21 +72,32 @@ hard service constraint is genuinely robust at this scale, not just
 structurally plausible.
 """
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
-sys.path.insert(0, r"C:\Users\Raf_local\nimbus\custom_components\nimbus_load")
+# nimbus issue #364 finding 4 (Mark Purcell, codebase review): see
+# contract_risk_injection_test.py's own identical comment -- this used
+# to be one specific dev machine's own absolute path; derived from
+# __file__ instead so it's portable across any real checkout.
+sys.path.insert(
+    0, str(Path(__file__).resolve().parents[4] / "custom_components" / "nimbus_load")
+)
 from solver import elements  # noqa: E402
 from solver.network import build_plan  # noqa: E402
 import numpy as np  # noqa: E402
 
 BRISBANE_TZ = ZoneInfo("Australia/Brisbane")
-HA_BASE = "http://192.168.1.221:8123"
-TOKEN_PATH = r"C:\Users\Raf_local\.ha_token"
+# Same finding -- HA_BASE/TOKEN_PATH used to be one household's own real
+# IP/path. See contract_risk_injection_test.py's own comment for the
+# full reasoning.
+HA_BASE = os.environ.get("HA_BASE", "http://homeassistant.local:8123")
+TOKEN_PATH = os.environ["HA_TOKEN_PATH"]
 
 PERIOD_HOURS = 0.25
 N_PERIODS = 96

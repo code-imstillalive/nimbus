@@ -35,6 +35,7 @@ data to make it meaningful (a single day's worth of solar/price points
 is a reasonable first read, but not yet a statistically solid one).
 """
 import json
+import os
 import urllib.error
 import urllib.request
 from datetime import datetime, timedelta, timezone
@@ -42,13 +43,17 @@ from pathlib import Path
 from zoneinfo import ZoneInfo
 
 BRISBANE_TZ = ZoneInfo("Australia/Brisbane")
-HA_BASE = "http://192.168.1.221:8123"
 # 2026-08-21: NUC-local paths, matching forecast_capture.py's own real
 # cron deployment -- run on demand (not cron-scheduled itself) via:
 #   git show origin/main:scripts/research/forecast_accuracy_compare.py > /opt/forecast_accuracy_compare.py
-#   python3 /opt/forecast_accuracy_compare.py
-TOKEN_PATH = "/home/homehub/.ha_token"
-SNAPSHOT_DIR = Path("/home/homehub/forecast_snapshots")
+#   HA_TOKEN_PATH=/home/homehub/.ha_token SNAPSHOT_DIR=/home/homehub/forecast_snapshots python3 /opt/forecast_accuracy_compare.py
+#
+# nimbus issue #364 finding 4 (Mark Purcell, codebase review): these used
+# to be hardcoded to one specific household's own real IP/paths -- see
+# forecast_capture.py's own identical comment for the full reasoning.
+HA_BASE = os.environ.get("HA_BASE", "http://homeassistant.local:8123")
+TOKEN_PATH = os.environ["HA_TOKEN_PATH"]
+SNAPSHOT_DIR = Path(os.environ["SNAPSHOT_DIR"])
 
 with open(TOKEN_PATH, encoding="utf-8") as f:
     TOKEN = f.read().strip()
