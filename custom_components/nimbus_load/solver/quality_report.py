@@ -53,7 +53,7 @@ the MOST ACCURATE source available for each:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import numpy as np
 from numpy.typing import NDArray
@@ -128,7 +128,25 @@ def _hourly_means_by_key(
     # tz-aware datetime produces e.g. '2026-08-30T00:00:00+10:00' --
     # exactly the shape a Lovelace/apexcharts card can parse straight
     # back into a Date via `new Date(key)`.
-    hour_keys = [(day_start + timedelta(hours=h)).isoformat() for h in range(24)]
+    #
+    # nimbus issue #368: accumulated in UTC, not by naive wall-clock
+    # `day_start + timedelta(hours=h)`. Adding a timedelta to a
+    # ZoneInfo-aware datetime is pure wall-clock arithmetic -- across a
+    # real DST transition day this either skips a real hour (spring-
+    # forward, one key silently missing/wrong) or produces two IDENTICAL
+    # keys for the repeated hour (fall-back, one real hour's data
+    # silently overwrites the other's in the `means` dict below).
+    # Converting day_start to UTC, stepping there, then converting each
+    # instant back keeps the same local-ISO-string output shape while
+    # making the 24 keys genuinely distinct real hours. No-op for a
+    # UTC or DST-free zone (Brisbane, this project's own reference
+    # household, never observes DST).
+    day_start_tzinfo = day_start.tzinfo
+    day_start_utc = day_start.astimezone(UTC)
+    hour_keys = [
+        (day_start_utc + timedelta(hours=h)).astimezone(day_start_tzinfo).isoformat()
+        for h in range(24)
+    ]
     # Pre-compute one hourly mean per (key, hour) so the row-major
     # assembly below is a plain lookup.
     means: dict[str, list[float]] = {}

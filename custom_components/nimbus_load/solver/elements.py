@@ -20,7 +20,7 @@ proved out for the Forecaster.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import numpy as np
 from numpy.typing import NDArray
@@ -96,14 +96,35 @@ class PeriodGrid:
         grid has no calendar anchor (`start is None`). Computed by
         cumulative addition of each period's own duration -- NOT assumed
         uniform, since `hours` explicitly supports variable-width periods.
+
+        nimbus issue #368: accumulated in UTC, not by naive wall-clock
+        `+timedelta` on `self.start` directly. Adding a `timedelta` to a
+        ZoneInfo-aware datetime only ever touches the naive field values
+        and reattaches the same tzinfo -- it does NOT re-resolve the UTC
+        offset for the result, so across a real DST transition this
+        either skips a real hour of elapsed time (spring-forward) or
+        produces duplicate/out-of-order instants for the repeated hour
+        (fall-back). Both silently corrupt every downstream consumer
+        keyed off period_starts -- network.py's own per-calendar-day P2P
+        bonus cap groups by `period_starts[t].date()`, and
+        quality_report.py's hourly buckets key off the same real
+        instants. Accumulating in UTC first and converting back to
+        `self.start`'s own local tzinfo only for the returned values
+        keeps every existing caller's contract (a list of local,
+        ZoneInfo-aware datetimes) unchanged while making the underlying
+        instants correct. No-op for a UTC or DST-free zone (Brisbane,
+        this project's own reference household, never observes DST) --
+        confirmed live against Australia/Sydney for both transition
+        directions.
         """
         if self.start is None:
             return None
+        tzinfo = self.start.tzinfo
         starts: list[datetime] = []
-        t = self.start
+        t_utc = self.start.astimezone(UTC)
         for h in self.hours:
-            starts.append(t)
-            t = t + timedelta(hours=float(h))
+            starts.append(t_utc.astimezone(tzinfo))
+            t_utc = t_utc + timedelta(hours=float(h))
         return starts
 
     def __post_init__(self) -> None:

@@ -67,7 +67,7 @@ import logging
 import math
 from bisect import bisect_right
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import numpy as np
 
@@ -336,12 +336,17 @@ def resample_last_value(
 
     `events` must already be sorted ascending by timestamp. Returns None for
     any grid point before the first event (nothing to fill from yet).
+
+    nimbus issue #368: bisects on `_dst_safe_key()`-normalized (UTC)
+    instants, not the raw tz-aware local datetimes -- see that
+    function's own docstring for why a plain aware-to-aware comparison
+    is fold-blind across a DST transition.
     """
-    times = [e[0] for e in events]
+    times = [_dst_safe_key(e[0]) for e in events]
     values = [e[1] for e in events]
     out: list[float | None] = []
     for g in grid:
-        idx = bisect_right(times, g) - 1
+        idx = bisect_right(times, _dst_safe_key(g)) - 1
         out.append(values[idx] if idx >= 0 else None)
     return out
 
@@ -377,15 +382,61 @@ def resample_observed_mask(
     (a real "this was the last known value" fact), it's specifically the
     row's own y that must be real, or the row is manufactured, not
     observed.
+
+    nimbus issue #368: same UTC-normalized bisect as resample_last_value()
+    above, for the same DST-fold-blindness reason.
     """
-    times = [e[0] for e in events]
+    times = [_dst_safe_key(e[0]) for e in events]
     out: list[bool] = []
     prev_idx = -1
     for g in grid:
-        idx = bisect_right(times, g) - 1
+        idx = bisect_right(times, _dst_safe_key(g)) - 1
         out.append(idx >= 0 and idx != prev_idx)
         prev_idx = idx
     return out
+
+
+def _dst_safe_add(dt: datetime, delta: timedelta) -> datetime:
+    """Add a real-elapsed-time `delta` to a tz-aware LOCAL `dt`, computed
+    in UTC so a DST transition inside the span can't distort it, then
+    converted back to `dt`'s own local tzinfo.
+
+    nimbus issue #368: `dt + delta` on a ZoneInfo-aware datetime is pure
+    wall-clock arithmetic -- Python only ever touches the naive field
+    values and reattaches the same tzinfo, it does NOT re-resolve the
+    UTC offset for the result. Across a real DST transition this either
+    marches straight through wall-clock times that never happened
+    (spring-forward) or produces duplicate/out-of-order instants for the
+    repeated hour (fall-back) -- confirmed live against Australia/Sydney
+    for both directions (this repo's own reference household is
+    Brisbane, which never observes DST, so this was invisible there).
+    Doing the arithmetic in UTC first makes `delta` mean exactly what it
+    says (real elapsed time) regardless of any local transition inside
+    the span; converting back to local afterward keeps every existing
+    caller's contract (a local, ZoneInfo-aware datetime) unchanged.
+    """
+    return (dt.astimezone(UTC) + delta).astimezone(dt.tzinfo)
+
+
+def _dst_safe_key(dt: datetime) -> datetime:
+    """UTC-normalized sort/comparison key for a tz-aware LOCAL datetime.
+
+    nimbus issue #368: Python's own aware-datetime comparison only
+    corrects for UTC offset when the two operands' `tzinfo` attributes
+    are NOT the same object -- when both share the identical ZoneInfo
+    instance (the normal case throughout this module: every timestamp
+    carries the same configured local zone), comparison instead compares
+    the NAIVE wall-clock fields directly and ignores `fold` entirely.
+    During a real fall-back DST transition, the ambiguous repeated
+    hour's two real, hour-apart instants (fold=0 and fold=1) then
+    compare as EQUAL -- silently breaking the ascending-order assumption
+    bisect_right() requires, and returning a value from the wrong
+    occurrence of that hour (confirmed live against Australia/Sydney:
+    got hour-6..9 values where hour-2..5 values were expected).
+    Comparing the UTC-converted key instead is unambiguous regardless of
+    fold, DST, or which local zone is in play.
+    """
+    return dt.astimezone(UTC)
 
 
 def _build_grid(
@@ -394,9 +445,10 @@ def _build_grid(
     step = timedelta(minutes=resample_minutes)
     grid = []
     t = start
-    while t <= end:
+    end_key = _dst_safe_key(end)
+    while _dst_safe_key(t) <= end_key:
         grid.append(t)
-        t += step
+        t = _dst_safe_add(t, step)
     return grid
 
 
@@ -1057,20 +1109,29 @@ def predict(
     # Rolling buffer of (timestamp, value), seeded from real history, that
     # we append our own predictions onto as we go -- this IS the lag
     # source for every step.
-    buffer = sorted(recent_load_values, key=lambda p: p[0])
-    buffer_times = [p[0] for p in buffer]
+    buffer = sorted(recent_load_values, key=lambda p: _dst_safe_key(p[0]))
+    # nimbus issue #368: kept UTC-normalized throughout, not the raw
+    # local datetimes -- bisect_right() and the cutoff comparison below
+    # both need this for the same DST-fold-blindness reason
+    # _dst_safe_key() itself documents. The loop further down appends
+    # each step's own prediction onto both this and buffer_vals as it
+    # goes, so the buffer keeps growing with the same UTC keying.
+    buffer_times_utc = [_dst_safe_key(p[0]) for p in buffer]
     buffer_vals = [p[1] for p in buffer]
     default_lag = float(np.mean(trained.y_train)) if len(trained.y_train) else 0.0
     # Boundary past which lag_at() would otherwise be forced to use a
     # SELF-GENERATED prediction rather than a real observed value --
     # captured BEFORE the loop below starts appending its own predictions
-    # onto buffer_times/buffer_vals. None (no real recent data at all)
-    # means every lookup is beyond the cutoff. See TrainedModel.
+    # onto buffer_times_utc/buffer_vals. None (no real recent data at
+    # all) means every lookup is beyond the cutoff. See TrainedModel.
     # seasonal_lookup's own docstring for why this matters.
-    real_data_cutoff = buffer_times[-1] if buffer_times else None
+    real_data_cutoff_utc = buffer_times_utc[-1] if buffer_times_utc else None
 
     def lag_at(target: datetime) -> float:
-        if seasonal_anchor and (real_data_cutoff is None or target > real_data_cutoff):
+        target_utc = _dst_safe_key(target)
+        if seasonal_anchor and (
+            real_data_cutoff_utc is None or target_utc > real_data_cutoff_utc
+        ):
             # getattr(..., {}) not trained.seasonal_lookup directly --
             # plain @dataclass pickling restores an OLD persisted
             # TrainedModel's __dict__ verbatim, skipping __init__ and its
@@ -1093,7 +1154,7 @@ def predict(
             # silently using the flat default_lag, which would be a
             # worse approximation than "whatever the chain currently
             # believes" for a single missing bucket.
-        idx = bisect_right(buffer_times, target) - 1
+        idx = bisect_right(buffer_times_utc, target_utc) - 1
         return buffer_vals[idx] if idx >= 0 else default_lag
 
     def seasonal_at(ts: datetime) -> float | None:
@@ -1136,8 +1197,8 @@ def predict(
         solar_list,
         strict=True,
     ):
-        lag_short_t = ts - LAG_SHORT_STEPS * step
-        lag_long_t = ts - LAG_LONG_STEPS * step
+        lag_short_t = _dst_safe_add(ts, -LAG_SHORT_STEPS * step)
+        lag_long_t = _dst_safe_add(ts, -LAG_LONG_STEPS * step)
         lag_short_v = lag_at(lag_short_t)
         lag_long_v = lag_at(lag_long_t)
         # A deployed "naive" model (nimbus issue #110) IS the seasonal
@@ -1150,7 +1211,10 @@ def predict(
             is_naive_model
             or (
                 seasonal_anchor
-                and (real_data_cutoff is None or lag_long_t > real_data_cutoff)
+                and (
+                    real_data_cutoff_utc is None
+                    or _dst_safe_key(lag_long_t) > real_data_cutoff_utc
+                )
             )
         )
 
@@ -1223,7 +1287,7 @@ def predict(
             raw_half_widths.append(max(0.0, upper_raw - lower_raw) / 2.0)
 
         raw_preds.append(pred)
-        buffer_times.append(ts)
+        buffer_times_utc.append(_dst_safe_key(ts))
         buffer_vals.append(pred)
 
     smoothed: list[float] = []

@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.86] — 2026-09-04
+
+### Fixed
+- **DST wall-clock `+timedelta` arithmetic on tz-aware local datetimes silently broke the ML training grid, the lag-lookback bisect, `PeriodGrid.period_starts`, and the quality-report's hourly buckets on any DST transition day** ([#368](https://github.com/code-imstillalive/nimbus/issues/368), thanks @purcell-lab, split out of #347). Adding a `timedelta` to a ZoneInfo-aware datetime is pure wall-clock arithmetic — Python only touches the naive field values and reattaches the same tzinfo, it never re-resolves the real UTC offset for the result. Across a real DST transition this either marches straight through wall-clock times that never happened (spring-forward — the grid silently fabricated a nonexistent point, or skipped the true one-hour jump) or produces duplicate/out-of-order instants for the repeated hour (fall-back — `ml/model.py`'s `_build_grid()` and `PeriodGrid.period_starts` both did this). Separately, Python's own aware-datetime comparison is fold-blind whenever both operands share the identical `tzinfo` object (the normal case throughout this codebase) — `resample_last_value()`/`resample_observed_mask()`'s bisect and `predict()`'s own lag-lookback used to compare the two real, hour-apart instants of a repeated fall-back hour as *equal*, silently returning a value from the wrong occurrence. This project's own reference household (Brisbane) never observes DST, so none of this was ever visible there — it's real for any AEDT/NZ/EU/US install, which #347 made a supported configuration by making the timezone itself configurable. Fixed by doing every step/accumulation/comparison against the real UTC instant, converting back to the caller's own local tzinfo only for the returned values — every existing caller's contract (a local, ZoneInfo-aware datetime) is unchanged. 7 new regression tests against `Australia/Sydney` (both transition directions), each confirmed via mutation testing to genuinely fail against the pre-fix code.
+
 ## [0.94.85] — 2026-09-04
 
 ### Removed
