@@ -247,8 +247,9 @@ extend-exclude = [
 [tool.ruff.lint]
 ignore = [
     # BLE001 (blind-except, 28 findings) done, 2026-08-23: every real
-    # site in custom_components/nimbus_load/ and the two portable script
-    # copies (docs/real-world-integration/files/, nimbus_solver_app/) now
+    # site in custom_components/nimbus_load/ and the portable script copy
+    # (docs/real-world-integration/files/ -- nimbus_solver_app/ carried a
+    # third copy of the same script until it was removed in #357) now
     # carries its own individual `# noqa: BLE001 -- <reason>` -- see the
     # per-file-ignores block below for the one remaining category
     # (test-collector boilerplate) that's a deliberate pattern repeated

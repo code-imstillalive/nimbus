@@ -2,8 +2,9 @@
 integration" path (2026-08-22).
 
 Real motivation, not a nice-to-have: Mark Purcell hit a genuine wall
-trying to install nimbus_solver_app (this repo's HAOS Supervisor add-on)
-against this private repo -- Supervisor's own "Add repository" flow does
+trying to install nimbus_solver_app (this repo's HAOS Supervisor add-on
+at the time -- removed entirely in nimbus issue #357) against this
+private repo -- Supervisor's own "Add repository" flow does
 a raw, unauthenticated `git clone`, no PAT support at all, so it fails
 outright (`fatal: could not read Username for 'https://github.com'`)
 regardless of the HACS integration itself already working fine for him

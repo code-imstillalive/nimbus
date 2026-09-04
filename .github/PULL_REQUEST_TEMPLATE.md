@@ -60,7 +60,6 @@
 -->
 
 - [ ] Bumped `custom_components/nimbus_load/manifest.json` version
-- [ ] Bumped `nimbus_solver_app/config.yaml` version to match (the `version-lockstep` CI job enforces this)
 - [ ] Renamed `## [Unreleased]` in `CHANGELOG.md` to `## [X.Y.Z] — YYYY-MM-DD` and added a fresh empty `## [Unreleased]` above it
 - [ ] Every non-trivial change since the last release has an entry
 - [ ] Post-merge: tag `git tag -a vX.Y.Z -m "release: <theme>" && git push --tags`

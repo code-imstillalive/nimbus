@@ -119,9 +119,6 @@ Anything not named above, including but not limited to:
   `price_blend_algorithm`, and similar) — genuinely useful today, not yet
   promoted because they haven't had a full release cycle of real-world use
   to confirm their final shape.
-- Everything under `nimbus_solver_app` (the deprecated standalone add-on,
-  removed in v1.0.0 per the top-level README) — no new stability commitment
-  is being made to a path already scheduled for removal.
 
 A field moving from this list into the stable subset above is a MINOR bump,
 announced in `CHANGELOG.md`.

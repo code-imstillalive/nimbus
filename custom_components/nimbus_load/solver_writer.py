@@ -41,26 +41,26 @@ part of the nimbus_load custom_component itself
 (custom_components/nimbus_load/solver_writer.py, same repo) and gets run
 in-process by custom_components/nimbus_load/solver_runtime.py -- no
 separate device, no cron, no Add-on Store git-clone-with-no-auth wall
-(a real, live blocker hit installing the addon below against this
-private repo), and no separate token file at all. This is now genuinely
-the SIMPLEST path for anyone new: install the Nimbus integration via
-HACS, run its "Solver settings" wizard, done -- the forecast starts
-producing itself. The standalone-script path below (and the
-nimbus_solver_app addon) still exist and are unchanged/still fully
-supported -- this household's own live NUC deployment keeps using cron
-exactly as documented below, deliberately not migrated in the same
-change that added the native path, to avoid any risk to a real, already-
-working production system for a change that exists to help OTHER
-installs.
+(a real, live blocker hit installing the HAOS add-on this repo used to
+ship against this private repo), and no separate token file at all. This
+is now genuinely the SIMPLEST path for anyone new: install the Nimbus
+integration via HACS, run its "Solver settings" wizard, done -- the
+forecast starts producing itself. The standalone-script path below still
+exists and is unchanged/still fully supported -- this household's own
+live NUC deployment keeps using cron exactly as documented below,
+deliberately not migrated in the same change that added the native path,
+to avoid any risk to a real, already-working production system for a
+change that exists to help OTHER installs.
 
-Only if genuinely nothing else works would a real HAOS Add-on (a proper
-Docker-packaged Supervisor add-on, not this bare script) be the honest
-fallback -- a bigger, separate build, still available (nimbus_solver_app,
-same repo) but no longer the recommended first choice given the native
-path above. The Solver's own config-flow "Solver settings" wizard
-(Nimbus hub -> Configure) installs and works fine via HACS on ANY
-platform including HAOS regardless of any of the above -- it's what
-actually makes the native path possible now.
+nimbus issue #357 (2026-09-04): the `nimbus_solver_app` HAOS Supervisor
+add-on this section used to describe as "a bigger, separate build, still
+available" has been removed from this repo entirely -- it had silently
+drifted out of sync with this file's own solver code (missing several
+fixes) with no real path to staying maintained as a third copy, and the
+native in-process path above already covers every architecture it did.
+The Solver's own config-flow "Solver settings" wizard (Nimbus hub ->
+Configure) installs and works fine via HACS on ANY platform including
+HAOS -- it's what actually makes the native path possible now.
 
 Deliberately reads LocalVolts' own native price sensors
 (sensor.localvolts_price_forecast, sensor.localvolts_p2p_price_forecast)
@@ -227,10 +227,9 @@ LOCAL_TZ = ZoneInfo(os.environ.get("NIMBUS_SOLVER_TIMEZONE", "Australia/Brisbane
 # specific values now has a real default (this NUC's own exact current
 # setup, so behavior here is UNCHANGED with zero env vars set) but can be
 # overridden without touching a single line of actual solve logic. This
-# is what makes it possible for nimbus_solver_app/ (a real Home Assistant
-# Supervisor app -- see that folder, same repo) to run the EXACT same
-# script unmodified inside a container, rather than needing a forked/
-# drifted copy.
+# is also what let the now-removed nimbus_solver_app/ Supervisor add-on
+# (nimbus issue #357) run this exact script unmodified inside a container,
+# back when it existed, rather than needing a forked/drifted copy.
 sys.path.insert(
     0,
     os.environ.get(
@@ -253,7 +252,7 @@ from solver.regret import evaluate_realized_cost
 
 if os.environ.get("SUPERVISOR_TOKEN") and not os.environ.get("HA_BASE"):
     # Running inside a real HA Supervisor app/add-on container with
-    # homeassistant_api: true set (see nimbus_solver_app/config.yaml) --
+    # homeassistant_api: true set in that add-on's own config.yaml --
     # Supervisor auto-injects SUPERVISOR_TOKEN and proxies the real REST
     # API at this internal address. Best understanding from HA's own
     # published docs as of 2026-08-21, NOT yet live-verified against a
@@ -1267,8 +1266,9 @@ def terminal_value_breakpoints_for(
 # /home/homehub/.ha_token, and no SUPERVISOR_TOKEN either, since native
 # mode doesn't go through Supervisor at all) -- long before the native
 # seam ever got a chance to make TOKEN completely irrelevant. Genuinely
-# needed for REST/standalone mode (cron, the nimbus_solver_app addon) --
-# unchanged, still fails loudly there, which is correct, existing,
+# needed for REST/standalone mode (cron, or the now-removed
+# nimbus_solver_app addon while it existed) -- unchanged, still fails
+# loudly there, which is correct, existing,
 # already-accepted behaviour for that deployment path. Wrapped in
 # try/except purely so a MISSING token can never crash native mode,
 # which never reads TOKEN at all (see ha_get()/ha_post_state()/
@@ -1285,15 +1285,15 @@ if not TOKEN:
 
 # PURE INTEGRATION seam (2026-08-22, direct real-world push: Mark Purcell
 # hit a private-repo git-clone-with-no-auth wall trying to install the
-# nimbus_solver_app addon, and separately flagged the deeper, correct
-# architectural point -- "EMHASS had the addon, which was always a
-# complication for access logs and sending commands... HAEO runs as a
-# pure integration." This is the fix: a real, additive extension point
-# that lets the EXACT SAME ~2400 lines below run natively inside HA
-# Core's own process (via custom_components/nimbus_load/
+# nimbus_solver_app addon (since removed, #357), and separately flagged
+# the deeper, correct architectural point -- "EMHASS had the addon, which
+# was always a complication for access logs and sending commands... HAEO
+# runs as a pure integration." This is the fix: a real, additive
+# extension point that lets the EXACT SAME ~2400 lines below run natively
+# inside HA Core's own process (via custom_components/nimbus_load/
 # solver_runtime.py, same repo), with ZERO behaviour change to the
-# existing standalone deployment (cron on this household's own NUC, or
-# the nimbus_solver_app addon) -- _NATIVE_HASS defaults to None, and
+# existing standalone deployment (cron on this household's own NUC) --
+# _NATIVE_HASS defaults to None, and
 # every one of the ~2400 lines below still just calls ha_get(...)/
 # ha_post_state(...)/fetch_price_history(...) by name, exactly as it
 # always has. Only what THOSE THREE functions do internally branches on

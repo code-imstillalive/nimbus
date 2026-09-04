@@ -297,12 +297,19 @@ can't cover: you'd rather run the Solver on a separate always-on device than
 inside HA's process. The standalone script (`nimbus_solver_forecast_writer.py`)
 lives in `docs/real-world-integration/`. Both paths run byte-identical solve logic.
 
-**Deprecated (v0.73.0):** the `nimbus_solver_app` Supervisor add-on will be removed
-in v1.0.0. The native in-process path above covers every architecture the add-on
-covered, with no separate container, no version-lockstep discipline, and no
-three-way copy sync. Existing installs: uninstall the add-on and finish the
-integration's Solver wizard; the native path takes over the same
-`sensor.nimbus_solver_*` outputs with no config migration. Tracking:
+**Removed:** the `nimbus_solver_app` Supervisor add-on (deprecated since
+v0.73.0) has been removed from this repo entirely — ahead of the v1.0.0
+shadow-mode-graduation milestone, as its own standalone cleanup (see
+[#357](https://github.com/code-imstillalive/nimbus/issues/357)), since it had
+already drifted out of sync with the integration's own solver code and had no
+real path to staying maintained as a third copy. The native in-process path
+above covered every architecture the add-on did, with no separate container,
+no version-lockstep discipline, and no three-way copy sync to maintain. If
+you're still on the add-on: uninstall it (Settings → Add-ons →
+**Nimbus Solver** → **Uninstall**, then remove the repository from Add-on
+Store → Repositories) and finish the integration's Solver wizard instead; the
+native path takes over the same `sensor.nimbus_solver_*` outputs with no
+config migration. Tracking:
 [#76](https://github.com/code-imstillalive/nimbus/issues/76).
 
 ## What Nimbus publishes
@@ -467,9 +474,10 @@ default, range, and unit table for every `number.nimbus_solver_*` entity above.
    integration mode, its plan-state and lock files at the paths shown in
    `solver_writer.py`'s `PLAN_STATE_PATH` and `LOCK_PATH` (both env-var
    overridable; defaults live under `.storage/` too).
-4. If you also installed the (now-deprecated) `nimbus_solver_app` Supervisor
-   add-on: Settings → Add-ons → **Nimbus Solver** → **Uninstall**, then remove
-   the repository from Add-on Store → Repositories.
+4. If you also installed the `nimbus_solver_app` Supervisor add-on (removed
+   from this repo, see "Legacy standalone-script path" above): Settings →
+   Add-ons → **Nimbus Solver** → **Uninstall**, then remove the repository
+   from Add-on Store → Repositories.
 
 ## Status and roadmap
 
@@ -485,7 +493,6 @@ The next milestones (as tracked in GitHub Issues):
   of shadow mode.
 - Sheddable loads: LP scaffolding exists; the config surface and reference
   automations are next.
-- v1.0.0 removes the deprecated `nimbus_solver_app` add-on.
 
 `BatteryConfig` is a single aggregate, not a per-tower or per-inverter
 list. Internal battery-to-inverter routing and load-sharing is the

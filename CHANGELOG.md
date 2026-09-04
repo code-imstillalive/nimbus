@@ -2,9 +2,14 @@
 
 All notable changes to Nimbus are recorded here.
 
-Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This project adopts [Semantic Versioning](https://semver.org/spec/v2.0.0.html), and both the Nimbus integration (`custom_components/nimbus_load`) and the Nimbus Solver add-on (`nimbus_solver_app`) share a single version line — the `version-lockstep` CI job enforces that they never drift.
+Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This project adopts [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Versioned from `custom_components/nimbus_load/manifest.json` — the Nimbus Solver add-on (`nimbus_solver_app`) that used to share this version line was removed in v0.94.85 (see [#357](https://github.com/code-imstillalive/nimbus/issues/357)).
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
+
+## [0.94.85] — 2026-09-04
+
+### Removed
+- **The `nimbus_solver_app` Home Assistant Supervisor add-on has been deleted from this repo entirely** ([#357](https://github.com/code-imstillalive/nimbus/issues/357), thanks @purcell-lab). It had been marked `DEPRECATED` since v0.73.0 in favour of the native in-process Solver path, but was still shipping as a real, installable Supervisor app — and had silently drifted out of sync with the integration's own solver code (missing #328's soft-SoC work, #238's MILP groundwork, and the #297/#310 quality-report refactor), with no CI check ever catching the drift. Rather than add a sync-check to keep maintaining a third copy of the same logic, the add-on is gone: `nimbus_solver_app/` deleted, the now-orphaned `repository.yaml` (the HA Supervisor add-on repository manifest) deleted, and the `version-lockstep` CI job removed since there's nothing left to keep in lockstep with `manifest.json`. Every reference across `README.md`, `CLAUDE.md`, `pyproject.toml`, `.github/PULL_REQUEST_TEMPLATE.md`, `docs/TESTERS.md`, `docs/api-contract.md`, and the comment blocks in `solver_writer.py`/`solver_runtime.py`/the docs-copy writer script has been updated to reflect this — the standalone bare-script + cron deployment path (`docs/real-world-integration/`) is untouched and remains fully supported for anyone who'd rather run the Solver on a separate always-on device outside HA's own process. Existing add-on installs: uninstall it via Settings → Add-ons → **Nimbus Solver** → **Uninstall**, then finish the integration's own "Solver settings" wizard instead — the native path takes over the same `sensor.nimbus_solver_*` outputs with no config migration needed.
 
 ## [Unreleased]
 

@@ -1068,10 +1068,17 @@ tracks GitHub *releases* (`vX.Y.Z` tags, published by `.github/workflows/release
 on tag push), never raw commits on `main`. A merge alone is invisible to every HACS
 install, including devhub, until a release is actually cut. **After merging PR(s) to
 main, always follow up**: add a `## [X.Y.Z]` section to `CHANGELOG.md`, bump
-`manifest.json`'s and `nimbus_solver_app/config.yaml`'s `version` to match (same
-value — `version-lockstep` CI enforces it), commit as its own "Release vX.Y.Z" PR,
-merge it, then tag that commit `vX.Y.Z` and push the tag. Only then will HACS's
-update entity on any install see the new version and offer it.
+`manifest.json`'s `version`, commit as its own "Release vX.Y.Z" PR, merge it,
+then tag that commit `vX.Y.Z` and push the tag. Only then will HACS's update
+entity on any install see the new version and offer it.
+
+**2026-09-04, nimbus issue #357: the `nimbus_solver_app` Supervisor add-on and
+its `version-lockstep` CI job are both gone.** The add-on had silently drifted
+out of sync with the integration's own solver code (missing several fixes)
+with no real path to staying maintained as a third copy of the same logic —
+removed entirely rather than kept in sync. `manifest.json`'s `version` is now
+the only version number in this repo; there is nothing left to keep in
+lockstep with it.
 
 ## Git workflow
 

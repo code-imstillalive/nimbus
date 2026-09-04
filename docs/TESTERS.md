@@ -19,9 +19,10 @@ so a fix can be verified against the exact same conditions:
 - **Nimbus version** — `custom_components/nimbus_load/manifest.json`'s
   `version` field (or the HACS-shown version).
 - **Home Assistant Core version.**
-- **Install method** — HACS (native in-process Solver) or the
-  deprecated `nimbus_solver_app` add-on (see the top-level README's own
-  deprecation note).
+- **Install method** — HACS (native in-process Solver) or a standalone
+  cron script (see `docs/real-world-integration/`). The `nimbus_solver_app`
+  Supervisor add-on was removed in v1.0.0 — if you're reporting against an
+  install older than that, note the exact version too.
 - **Real hardware/integration** feeding the Solver's Battery/Grid/Solar
   sensors (inverter brand, price-sensor source) — genuinely different
   hardware has already surfaced real gaps (see Mark's row above).
