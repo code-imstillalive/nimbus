@@ -92,20 +92,36 @@ def _build_tree(
         total_sum = cum_sum[-1]
         total_sum_sq = cum_sum_sq[-1]
 
-        for i in distinct:
-            n_left = i + 1
-            n_right = n - n_left
-            if n_left < min_samples_leaf or n_right < min_samples_leaf:
-                continue
-            left_sum = cum_sum[i]
-            left_sse = cum_sum_sq[i] - (left_sum**2) / n_left
-            right_sum = total_sum - left_sum
-            right_sse = (total_sum_sq - cum_sum_sq[i]) - (right_sum**2) / n_right
-            gain = parent_sse - (left_sse + right_sse)
-            if gain > best_gain:
-                best_gain = gain
-                best_feature = f
-                best_threshold = float((sorted_col[i] + sorted_col[i + 1]) / 2.0)
+        # Vectorized split search (#366): the same per-candidate arithmetic
+        # as the original `for i in distinct: ...` Python loop, evaluated
+        # for every candidate at once via numpy indexing instead of one
+        # candidate at a time. `np.argmax` returns the FIRST occurrence of
+        # the max on a tie, matching the original loop's strict `gain >
+        # best_gain` (only a strictly-better candidate ever replaces the
+        # champion, so the first candidate to reach a given value wins) --
+        # this is required for bit-identical split decisions, not just
+        # equivalent-ish ones. See
+        # tests/test_gbrt_split_vectorization_equivalence.py, which pins a
+        # verbatim copy of the original loop as a differential oracle.
+        n_left = distinct + 1
+        n_right = n - n_left
+        valid = (n_left >= min_samples_leaf) & (n_right >= min_samples_leaf)
+        if not np.any(valid):
+            continue
+
+        left_sum = cum_sum[distinct]
+        left_sse = cum_sum_sq[distinct] - (left_sum**2) / n_left
+        right_sum = total_sum - left_sum
+        right_sse = (total_sum_sq - cum_sum_sq[distinct]) - (right_sum**2) / n_right
+        gain = np.where(valid, parent_sse - (left_sse + right_sse), -np.inf)
+
+        local_best_idx = int(np.argmax(gain))
+        local_best_gain = gain[local_best_idx]
+        if local_best_gain > best_gain:
+            best_gain = float(local_best_gain)
+            best_feature = f
+            i = distinct[local_best_idx]
+            best_threshold = float((sorted_col[i] + sorted_col[i + 1]) / 2.0)
 
     if best_feature is None or best_gain <= 1e-9:
         return _TreeNode(value=_leaf_value(residuals, quantile))

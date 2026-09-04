@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.105] — 2026-09-05
+
+### Fixed
+- **#366 finding 1: `ml/gbrt.py`'s pure-Python GBRT split search vectorized, ~1000x faster per tree fit** ([#366](https://github.com/code-imstillalive/nimbus/issues/366), thanks @purcell-lab — the review measured 7.2s per tree fit at 2880 rows and 22.8s at 8760 rows, with `train_model()` doing up to 4 fits). `_build_tree()`'s inner `for i in distinct:` loop computed `left_sse`/`right_sse`/`gain` one candidate split point at a time in pure Python; rewritten to evaluate every candidate for a feature at once via numpy array indexing (`cum_sum[distinct]`, `cum_sum_sq[distinct]`) plus a single `np.argmax` over the masked gain array, replacing the O(candidates) Python loop with O(1) vectorized numpy calls per feature. Benchmarked locally: 8760-row single tree fit now 0.013s (was 22.8s), 2880-row 0.006s (was 7.2s).
+  This changes the actual split decisions the model learns from, not just plumbing around it, so it was treated with the same care as any other correctness-critical change in this project: a verbatim copy of the original pure-Python loop is pinned as a reference oracle in `tests/test_gbrt_split_vectorization_equivalence.py`, and the vectorized version is asserted bit-for-bit identical against it (same feature/threshold at every split, same leaf values, same predictions) across 270+ randomized trials plus explicit edge cases — duplicate feature values, exact gain ties (verifying the vectorized version reproduces the original's first-occurrence tie-break via `np.argmax`'s own first-occurrence semantics), `min_samples_leaf` boundary cases, quantile trees, and a full `GBRT.fit()`/`predict()` round trip. Mutation-tested: reversing the candidate evaluation order (breaking the tie-break) was confirmed to fail 12 of 13 differential tests before the fix was accepted.
+  Findings 2 (per-cycle percentile/quantile inference work) and 3 (a real `schema_version` field for pickle compat, beyond v0.94.80's existing partial fix) remain open.
+
 ## [0.94.104] — 2026-09-05
 
 ### Fixed
