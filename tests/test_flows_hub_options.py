@@ -363,7 +363,13 @@ def test_solver_battery_step_submission_chains_straight_to_grid_form():
     )
     assert result["type"] == "form"
     assert result["step_id"] == "solver_grid"
-    assert flow._solver_data == {CONF_SOLVER_BATTERY_SOC_SENSOR: "sensor.soc"}
+    # nimbus issue #341 follow-up: this step's own Optional field
+    # (never submitted here) is explicitly nulled, not silently absent --
+    # see _absorb_step's own docstring for why that distinction matters.
+    assert flow._solver_data == {
+        CONF_SOLVER_BATTERY_SOC_SENSOR: "sensor.soc",
+        CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY: None,
+    }
 
 
 def test_solver_grid_step_submission_chains_straight_to_sources_form():
@@ -382,11 +388,17 @@ def test_solver_grid_step_submission_chains_straight_to_sources_form():
         )
     )
     assert result["step_id"] == "solver_sources"
-    # Accumulated ACROSS steps, not replaced.
+    # Accumulated ACROSS steps, not replaced -- this step's own Optional
+    # fields (never submitted here) are explicitly nulled, not silently
+    # absent (nimbus issue #341 follow-up).
     assert flow._solver_data == {
         CONF_SOLVER_BATTERY_SOC_SENSOR: "sensor.soc",
         CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.imp",
         CONF_SOLVER_EXPORT_PRICE_SENSOR: "sensor.exp",
+        CONF_SOLVER_IMPORT_PRICE_SENSOR_2: None,
+        CONF_SOLVER_IMPORT_PRICE_SENSOR_3: None,
+        CONF_SOLVER_EXPORT_PRICE_SENSOR_2: None,
+        CONF_SOLVER_EXPORT_PRICE_SENSOR_3: None,
     }
 
 
@@ -464,6 +476,51 @@ def test_solver_wizard_step_never_reached_this_run_keeps_its_stored_value():
     # None.
     assert result["data"][CONF_SOLVER_IMPORT_PRICE_SENSOR] == "sensor.imp"
     assert result["data"][CONF_SOLVER_EXPORT_PRICE_SENSOR] == "sensor.exp"
+
+
+def test_solver_wizard_clearing_an_optional_field_on_a_submitted_step_still_works():
+    """nimbus issue #341 follow-up (Mark Purcell): v0.94.62's own fix for
+    "step never reached this run" regressed the opposite case -- an
+    Optional field genuinely cleared on a step that WAS submitted no
+    longer cleared, because self._solver_data now starts pre-seeded from
+    stored options, and a plain `.update(user_input)` leaves any key
+    absent from user_input (the real "cleared" signal a genuine HA
+    frontend submission uses) sitting at its old seeded value. Mark's own
+    exact repro: submit solver_sources with solver_solar_forecast_sensor_2
+    omitted while it's stored as sensor.solar_2 -- must resolve to None,
+    while a step genuinely never reached this run (solver_battery here)
+    still keeps its own real stored value. Constructed via the real
+    __init__ so the fix is exercised end to end, not via _make_flow's
+    __new__()-bypass (which is what let the original regression slip past
+    every pre-existing test)."""
+    import asyncio
+
+    config_entry = MagicMock(
+        options={
+            CONF_SOLVER_BATTERY_SOC_SENSOR: "sensor.soc",
+            CONF_SOLVER_SOLAR_FORECAST_SENSOR: "sensor.solcast",
+            CONF_SOLVER_SOLAR_FORECAST_SENSOR_2: "sensor.solar_2",
+        }
+    )
+    flow = NimbusHubOptionsFlow(config_entry)
+    flow.hass = MagicMock()
+
+    # solver_battery is never reached this run at all -- only solver_
+    # sources is submitted, clearing solar_2 by omitting it.
+    result = asyncio.run(
+        flow.async_step_solver_sources(
+            {
+                CONF_SOLVER_SOLAR_FORECAST_SENSOR: "sensor.solcast",
+                CONF_SOLVER_LOAD_FORECAST_SENSOR: "sensor.load_fc",
+            }
+        )
+    )
+
+    assert result["type"] == "create_entry"
+    # Genuinely cleared on the step that WAS submitted.
+    assert result["data"][CONF_SOLVER_SOLAR_FORECAST_SENSOR_2] is None
+    # A step never reached this run keeps its real stored value.
+    assert result["data"][CONF_SOLVER_BATTERY_SOC_SENSOR] == "sensor.soc"
 
 
 def test_solver_sources_step_saves_and_preserves_untouched_keys():

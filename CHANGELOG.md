@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.69] — 2026-09-04
+
+### Fixed
+- **v0.94.62's own fix for #341 regressed the opposite case it wasn't looking for** ([#341](https://github.com/code-imstillalive/nimbus/issues/341), thanks @purcell-lab, follow-up verification). Seeding `self._solver_data` from stored options (so a Solver-wizard step never reached in a given run keeps its real value) meant a plain `self._solver_data.update(user_input)` could no longer tell "this key was never touched because its own step wasn't reached" apart from "this key was genuinely cleared on a step that WAS submitted" — both now look identical (absent from `user_input`) once the dict starts pre-seeded, so a cleared Optional field on a submitted step silently kept its old stored value forever instead of clearing. Reproduced directly against Mark's own repro (clearing `solver_solar_forecast_sensor_2` while it's stored, on a real submitted `solver_sources` step). Fixed with a new `_absorb_step()` helper: after merging a step's `user_input`, every key belonging to THAT step's own schema still absent from `user_input` is explicitly nulled — keys from a step not yet reached this run (never in that step's schema) are left untouched. 1 new regression test through the real `__init__` (the existing hub-options tests all bypass it via a `__new__()` helper, which is why the regression itself slipped past every pre-existing test).
+
 ## [0.94.68] — 2026-09-04
 
 ### Fixed

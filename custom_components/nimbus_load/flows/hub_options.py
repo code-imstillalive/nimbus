@@ -1133,11 +1133,34 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
             step_id="switchboard", data_schema=_switchboard_schema(form_defaults)
         )
 
+    def _absorb_step(self, schema: vol.Schema, user_input: dict[str, Any]) -> None:
+        """Merge one Solver-wizard step's submission into self._solver_data,
+        distinguishing "this step's own key was genuinely cleared" from "a
+        different step's key hasn't been reached this run" (nimbus issue
+        #341 follow-up, Mark Purcell: seeding self._solver_data from stored
+        options in __init__ -- so a step never reached this run keeps its
+        real value -- meant a plain `.update(user_input)` could no longer
+        tell "cleared on a step actually submitted" apart from "untouched
+        because its own step wasn't reached", since both now look identical
+        (key simply absent from user_input) once the dict starts pre-
+        seeded. Reproduced directly: clearing an Optional field on a step
+        that WAS submitted silently kept its old stored value forever).
+        Every key belonging to THIS step's own schema that's absent from
+        user_input is explicitly nulled -- a genuine clear on a step
+        actually shown. Every other key in self._solver_data (seeded from
+        stored options for a step not yet reached this run) is untouched.
+        """
+        self._solver_data.update(user_input)
+        for marker in schema.schema:
+            key = str(marker)
+            if key not in user_input:
+                self._solver_data[key] = None
+
     async def async_step_solver_battery(
         self, user_input: dict[str, Any] | None = None
     ) -> Any:
         if user_input is not None:
-            self._solver_data.update(user_input)
+            self._absorb_step(_solver_battery_schema({}), user_input)
             return await self.async_step_solver_grid()
         # Same Group B suggestion mechanism as async_step_forecaster above
         # -- fills the SoC field ONLY when unambiguous, never overwrites
@@ -1154,7 +1177,7 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
         self, user_input: dict[str, Any] | None = None
     ) -> Any:
         if user_input is not None:
-            self._solver_data.update(user_input)
+            self._absorb_step(_solver_grid_schema({}), user_input)
             return await self.async_step_solver_sources()
         return self.async_show_form(
             step_id="solver_grid",
@@ -1165,7 +1188,7 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
         self, user_input: dict[str, Any] | None = None
     ) -> Any:
         if user_input is not None:
-            self._solver_data.update(user_input)
+            self._absorb_step(_solver_sources_schema({}), user_input)
             # Same explicit-key-list fix as async_step_forecaster (see its
             # own comment for the full story) -- self._solver_data now
             # holds whatever was actually submitted across all 3 Solver
