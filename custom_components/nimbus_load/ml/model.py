@@ -628,19 +628,40 @@ def train_model(
         knn_val_pred = _knn_predict_batch(x_mean, x_std, x_tr_std, y_tr, x_val)
         validation_mae["knn"] = _mae(y_val, knn_val_pred)
 
+        # nimbus issue #351 (Mark Purcell): early stopping picked its own
+        # best round using x_val_std/y_val -- the SAME points
+        # validation_mae["gbrt"] was then scored on below. That's real
+        # leakage: GBRT gets to peek at the exact set it's later
+        # judged against and stop at whichever round scores best on it,
+        # an optimistic bias neither k-NN (no per-round tuning at all)
+        # nor naive (no tuning, period) receive. Fixed by early-stopping
+        # against a further chronological split carved out of the
+        # TRAINING portion instead -- x_val_std/y_val stays completely
+        # untouched until the single, final MAE computation, a genuinely
+        # held-out measurement of whatever round early stopping picked,
+        # not the set that picked it. Falls back to the old fixed-
+        # n_estimators fit (no early stopping at all) when the training
+        # portion is too small to carve out a real early-stopping
+        # sub-split without starving the fit itself -- same "no
+        # legitimate held-out set, don't fake one" reasoning gbrt_final's
+        # own no-early-stopping refit below already uses.
+        gbrt_es_split = int(len(x_tr_std) * (1 - VALIDATION_HOLDOUT_FRACTION))
         gbrt_val = GBRT(
             n_estimators=GBRT_N_ESTIMATORS,
             max_depth=GBRT_MAX_DEPTH,
             learning_rate=GBRT_LEARNING_RATE,
             min_samples_leaf=GBRT_MIN_SAMPLES_LEAF,
         )
-        gbrt_val.fit(
-            x_tr_std,
-            y_tr,
-            x_val=x_val_std,
-            y_val=y_val,
-            early_stopping_rounds=GBRT_EARLY_STOPPING_ROUNDS,
-        )
+        if len(x_tr_std) - gbrt_es_split >= 20:
+            gbrt_val.fit(
+                x_tr_std[:gbrt_es_split],
+                y_tr[:gbrt_es_split],
+                x_val=x_tr_std[gbrt_es_split:],
+                y_val=y_tr[gbrt_es_split:],
+                early_stopping_rounds=GBRT_EARLY_STOPPING_ROUNDS,
+            )
+        else:
+            gbrt_val.fit(x_tr_std, y_tr)
         gbrt_val_pred = gbrt_val.predict(x_val_std)
         validation_mae["gbrt"] = _mae(y_val, gbrt_val_pred)
 

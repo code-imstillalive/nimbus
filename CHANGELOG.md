@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.74] — 2026-09-04
+
+### Fixed
+- **GBRT's own model-selection accuracy figure had an optimistic bias k-NN and naive never got** ([#351](https://github.com/code-imstillalive/nimbus/issues/351), thanks @purcell-lab, one of two findings). `train_model()`'s GBRT candidate early-stopped against `x_val`/`y_val` — the exact same held-out points `validation_mae["gbrt"]` was then computed from — so GBRT got to pick whichever boosting round scored best on that set and then report that set's own error at that round as its accuracy. k-NN has no per-round tuning at all; the naive baseline has no tuning, period — neither gets this advantage, so the three-way comparison `model_type` selection runs on (nimbus issue #110) wasn't a fair fight. Now GBRT early-stops against a further chronological split carved out of the *training* portion instead, leaving `x_val`/`y_val` genuinely untouched until the single, final comparison. Falls back to a fixed-`n_estimators` fit (no early stopping) when the training portion is too small to carve out a real sub-split without starving the fit itself. Verified with a mutation test (reverted the fix, confirmed the new regression test fails against the original leaky code, restored it). The deeper, harder half of this issue — one-step-ahead validation with real lags doesn't measure the recursive, exposure-biased 96h forecast users actually see, so naive can structurally never win on a lot of signals — is **not** addressed here. Validating against the actual deployed recursive `predict()` path (the issue's own suggested fix) is a materially larger change to core model-selection behavior for every load in production, and this project's own history is explicit that ML changes like this need verification against real household data, not synthetic scenarios alone — left for a dedicated pass. 1 new regression test.
+
 ## [0.94.73] — 2026-09-04
 
 ### Fixed
