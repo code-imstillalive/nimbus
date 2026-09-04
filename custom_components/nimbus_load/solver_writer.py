@@ -222,33 +222,62 @@ from zoneinfo import ZoneInfo
 # resolution fix.
 LOCAL_TZ = ZoneInfo(os.environ.get("NIMBUS_SOLVER_TIMEZONE", "Australia/Brisbane"))
 
-# PORTABILITY (2026-08-21, env-var-overridable -- was hardcoded, edit-the-
-# file-yourself before this) -- every one of these three household-
-# specific values now has a real default (this NUC's own exact current
-# setup, so behavior here is UNCHANGED with zero env vars set) but can be
-# overridden without touching a single line of actual solve logic. This
-# is also what let the now-removed nimbus_solver_app/ Supervisor add-on
-# (nimbus issue #357) run this exact script unmodified inside a container,
-# back when it existed, rather than needing a forked/drifted copy.
-sys.path.insert(
-    0,
-    os.environ.get(
-        "NIMBUS_SOLVER_PATH",
-        "/opt/homeassistant/config/nimbus_repo/custom_components/nimbus_load",
-    ),
-)
-# ^ wherever your own clone of https://github.com/code-imstillalive/nimbus
-# actually lives (NIMBUS_SOLVER_PATH env var, or this exact NUC path by
-# default) -- doesn't need to be inside an HA config tree at all, this
-# script never touches HA's filesystem, only imports the pure-Python
-# solver/ package from wherever it's checked out.
 import numpy as np
-from ml.blend import blend_forecast_array, cross_source_spread
 from numpy.typing import NDArray
-from solver import elements, network
-from solver.backtest import run_efficiency_sensitivity_sweep
-from solver.quality_report import compute_quality_report
-from solver.regret import evaluate_realized_cost
+
+# nimbus issue #349 (Mark Purcell, codebase review): this used to run an
+# UNCONDITIONAL sys.path.insert(0, <package dir>) here, every single
+# time this module was imported -- including natively, as
+# custom_components.nimbus_load.solver_writer, where it's not needed at
+# all (a plain relative import already resolves the real .ml/.solver
+# subpackages correctly with zero sys.path mutation). That unconditional
+# insert made `ml`/`solver`/`sensor`/`const`/etc. importable as TOP-
+# LEVEL names for every other integration and library in the same HA
+# process -- a real, process-wide namespace-pollution risk (a same-named
+# module imported later by anything else would get shadowed), and
+# created two genuinely distinct module objects for the same file
+# (`ml.blend` here vs. `custom_components.nimbus_load.ml.blend` via
+# coordinator.py) -- harmless for pure functions today, a real
+# isinstance/identity trap the moment either package holds a dataclass/
+# enum/singleton that crosses that boundary.
+#
+# Now tries the real relative import FIRST (native mode, and this
+# project's own test suite via tests/_solver_path.py's sys.path shim
+# both hit this successfully) -- the sys.path shim below is only ever
+# reached via the ImportError this raises when there's genuinely no
+# parent package to resolve `.ml`/`.solver` against (a bare
+# `python3 solver_writer.py` cron/standalone run, __package__ == ""),
+# not unconditionally on every import.
+try:
+    from .ml.blend import blend_forecast_array, cross_source_spread
+    from .solver import elements, network
+    from .solver.backtest import run_efficiency_sensitivity_sweep
+    from .solver.quality_report import compute_quality_report
+    from .solver.regret import evaluate_realized_cost
+except ImportError:
+    # Standalone/cron mode (2026-08-21, env-var-overridable -- was
+    # hardcoded, edit-the-file-yourself before this): every one of these
+    # three household-specific values now has a real default (this
+    # NUC's own exact current setup, so behavior here is UNCHANGED with
+    # zero env vars set) but can be overridden without touching a single
+    # line of actual solve logic.
+    sys.path.insert(
+        0,
+        os.environ.get(
+            "NIMBUS_SOLVER_PATH",
+            "/opt/homeassistant/config/nimbus_repo/custom_components/nimbus_load",
+        ),
+    )
+    # ^ wherever your own clone of https://github.com/code-imstillalive/nimbus
+    # actually lives (NIMBUS_SOLVER_PATH env var, or this exact NUC path
+    # by default) -- doesn't need to be inside an HA config tree at all,
+    # this script never touches HA's filesystem, only imports the
+    # pure-Python solver/ package from wherever it's checked out.
+    from ml.blend import blend_forecast_array, cross_source_spread
+    from solver import elements, network
+    from solver.backtest import run_efficiency_sensitivity_sweep
+    from solver.quality_report import compute_quality_report
+    from solver.regret import evaluate_realized_cost
 
 if os.environ.get("SUPERVISOR_TOKEN") and not os.environ.get("HA_BASE"):
     # Running inside a real HA Supervisor app/add-on container with
@@ -1253,13 +1282,35 @@ def terminal_value_breakpoints_for(
 # which never reads TOKEN at all (see ha_get()/ha_post_state()/
 # fetch_price_history() above -- every REST branch that would actually
 # USE this value is skipped entirely once _NATIVE_HASS is set).
-TOKEN = os.environ.get("SUPERVISOR_TOKEN") or os.environ.get("HA_TOKEN")
-if not TOKEN:
-    try:
-        with open(TOKEN_PATH, "r", encoding="utf-8") as f:
-            TOKEN = f.read().strip()
-    except OSError:
-        TOKEN = None
+_TOKEN: str | None = None
+_TOKEN_LOADED = False
+
+
+def _load_token() -> str | None:
+    """Lazily resolves the REST-mode bearer token (nimbus issue #349,
+    Mark Purcell): the original module-level TOKEN resolution above ran
+    UNCONDITIONALLY at import time -- a real blocking file read
+    (TOKEN_PATH) on the event loop the moment this module is first
+    imported natively (sensor.py's own async_setup_entry). Only ever
+    called from the REST-mode branches below (ha_get()/ha_post_state()/
+    fetch_price_history()) -- native mode's own _NATIVE_HASS seam skips
+    every one of those entirely, so a native install now never touches
+    this file/env lookup at all, not even once. Cached (resolved once
+    per process, same as the original module-level TOKEN) since the
+    token itself never changes mid-run.
+    """
+    global _TOKEN, _TOKEN_LOADED
+    if _TOKEN_LOADED:
+        return _TOKEN
+    _TOKEN_LOADED = True
+    _TOKEN = os.environ.get("SUPERVISOR_TOKEN") or os.environ.get("HA_TOKEN")
+    if not _TOKEN:
+        try:
+            with open(TOKEN_PATH, "r", encoding="utf-8") as f:
+                _TOKEN = f.read().strip()
+        except OSError:
+            _TOKEN = None
+    return _TOKEN
 
 
 # PURE INTEGRATION seam (2026-08-22, direct real-world push: Mark Purcell
@@ -1520,7 +1571,7 @@ def ha_get(entity_id: str) -> dict:
         }
     req = urllib.request.Request(
         f"{HA_BASE}/api/states/{entity_id}",
-        headers={"Authorization": f"Bearer {TOKEN}"},
+        headers={"Authorization": f"Bearer {_load_token()}"},
     )
     with urllib.request.urlopen(req, timeout=15) as resp:
         return json.loads(resp.read())
@@ -1680,7 +1731,7 @@ def ha_post_state(entity_id: str, state, attributes: dict) -> None:
         data=body,
         method="POST",
         headers={
-            "Authorization": f"Bearer {TOKEN}",
+            "Authorization": f"Bearer {_load_token()}",
             "Content-Type": "application/json",
         },
     )
@@ -1706,7 +1757,7 @@ def ha_call_service(domain: str, service: str, data: dict) -> None:
         data=body,
         method="POST",
         headers={
-            "Authorization": f"Bearer {TOKEN}",
+            "Authorization": f"Bearer {_load_token()}",
             "Content-Type": "application/json",
         },
     )
@@ -1764,7 +1815,7 @@ def ha_call_service_with_response(domain: str, service: str, data: dict) -> dict
         data=body,
         method="POST",
         headers={
-            "Authorization": f"Bearer {TOKEN}",
+            "Authorization": f"Bearer {_load_token()}",
             "Content-Type": "application/json",
         },
     )
@@ -2781,7 +2832,9 @@ def fetch_price_history(entity_id: str, days: int = 5) -> list[tuple[datetime, f
         f"{HA_BASE}/api/history/period/{start.strftime('%Y-%m-%dT%H:%M:%S')}Z"
         f"?filter_entity_id={entity_id}&end_time={end.strftime('%Y-%m-%dT%H:%M:%S')}Z&minimal_response"
     )
-    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {TOKEN}"})
+    req = urllib.request.Request(
+        url, headers={"Authorization": f"Bearer {_load_token()}"}
+    )
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             data = json.loads(resp.read())
@@ -3698,7 +3751,9 @@ def fetch_entity_history_range(
         f"?filter_entity_id={entity_id}"
         f"&end_time={end.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z&minimal_response"
     )
-    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {TOKEN}"})
+    req = urllib.request.Request(
+        url, headers={"Authorization": f"Bearer {_load_token()}"}
+    )
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             data = json.loads(resp.read())

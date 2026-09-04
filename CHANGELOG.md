@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.89] — 2026-09-04
+
+### Fixed
+- **`solver_writer.py`'s own internal imports and REST bearer-token resolution both had real, if narrow, costs specific to running natively inside HA's process** ([#349](https://github.com/code-imstillalive/nimbus/issues/349), thanks @purcell-lab). Three findings, all scoped to the native in-process Solver path (`solver_runtime.py`), not the standalone/cron deployment: (1) `sensor.py`'s own first `solver_writer` import was already confirmed to go through `hass.async_add_import_executor_job()` from an earlier session — a regression test now source-scans for this so a future edit can't silently revert it to a bare blocking import on the event loop. (2) `solver_writer.py`'s own `.ml`/`.solver` imports now try a real relative import first — resolving with zero `sys.path` mutation and the correctly-namespaced module object when loaded as part of the real `custom_components.nimbus_load` package, instead of an unconditional `sys.path.insert()` that leaked `ml`/`solver`/`sensor`/`const` as top-level module names into every other integration sharing the same HA process. The `sys.path` shim is only ever reached via the `ImportError` a genuine standalone/cron run raises (no parent package). (3) The REST-mode bearer token is now lazily resolved via `_load_token()` (cached after first call) instead of a module-level `TOKEN_PATH` file read at import time — native mode never touches disk for this at all. The standalone deployment copy (`docs/real-world-integration/files/nimbus_solver_forecast_writer.py`) was reviewed and needs no equivalent change — it has no parent package to import relatively against and no shared-process `sys.path` to pollute, since it's always a standalone script, and it already degrades gracefully (`TOKEN = None`) if its own token file is missing. 5 new regression tests.
+
 ## [0.94.88] — 2026-09-04
 
 ### Added
