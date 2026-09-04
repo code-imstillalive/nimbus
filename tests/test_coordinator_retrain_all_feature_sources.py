@@ -34,7 +34,7 @@ import asyncio
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ha_stubs import install_ha_stubs
@@ -153,6 +153,7 @@ def test_retrain_fetches_all_six_optional_features_without_crashing():
         battery_events,
         grid_events,
         solar_events,
+        max_staleness_minutes=None,
     ):
         captured["load_events"] = load_events
         captured["temp_events"] = temp_events
@@ -162,9 +163,15 @@ def test_retrain_fetches_all_six_optional_features_without_crashing():
         captured["grid_events"] = grid_events
         captured["solar_events"] = solar_events
 
-    coordinator_module._train_model_job = _fake_train_model_job
-
-    asyncio.run(coord._async_retrain())
+    # patch.object (auto-restoring), not a raw attribute assignment --
+    # coordinator_module is a shared module object, and a plain
+    # `coordinator_module._train_model_job = ...` with no cleanup
+    # permanently replaces the REAL _train_model_job for the rest of the
+    # pytest process, silently corrupting any later test that relies on
+    # the genuine implementation (same real pollution bug found and
+    # fixed in tests/test_services.py this same session).
+    with patch.object(coordinator_module, "_train_model_job", _fake_train_model_job):
+        asyncio.run(coord._async_retrain())
 
     # The real assertion: every one of the six previously-broken call sites
     # actually fetched real data, not an empty list from a swallowed crash.

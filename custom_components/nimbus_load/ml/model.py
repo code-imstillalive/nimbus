@@ -683,6 +683,7 @@ def train_model(
     battery_events: list[tuple[datetime, float]] | None = None,
     grid_events: list[tuple[datetime, float]] | None = None,
     solar_events: list[tuple[datetime, float]] | None = None,
+    max_staleness_minutes: float | None = None,
 ) -> TrainedModel | None:
     """Build a fresh model from real (local-time) history events.
 
@@ -701,6 +702,27 @@ def train_model(
     cycle never takes the integration down -- the coordinator just keeps
     using whatever model it already has (or none yet) and tries again
     next cycle.
+
+    max_staleness_minutes (nimbus issue #375, Mark Purcell, codebase
+    review): overrides the default lag-staleness cap (resample_minutes *
+    MAX_TRAINING_STALENESS_GRID_STEPS, #353's own outage-detection
+    guard) when given. Real, live-reproduced mechanism this exists for:
+    coordinator.py's own hybrid/lts training sources feed events derived
+    from HA's hourly long-term-statistics buckets, a coarser cadence
+    than this function's own 15-min training grid -- resample_observed_
+    mask() (#350) correctly marks only ONE grid point per hour as a
+    genuine observation, but that point's own LAG lookup (one grid step
+    back) can land up to ~59 minutes after the PREVIOUS hour's LTS
+    event, which the default 45-min cap (sized for recorder-cadence
+    data) rejects as stale -- silently dropping every single LTS-derived
+    training row. Confirmed live: a real install training on 60 days of
+    hybrid history (55 days LTS + 5 days recorder) produced only
+    ~470 usable rows -- exactly "5 days at native cadence," meaning the
+    entire 55-day LTS contribution was silently zero. This module stays
+    source-agnostic by design (no knowledge of "LTS" or HA at all) --
+    the caller who DOES know which training_source is active passes the
+    right cap in; None (the default) preserves the original, unchanged
+    behaviour for the plain recorder-only path.
     """
     if not load_events:
         _LOGGER.warning("No load history available -- skipping this training cycle.")
@@ -708,7 +730,9 @@ def train_model(
 
     grid = _build_grid(start, end, resample_minutes)
     max_staleness = timedelta(
-        minutes=resample_minutes * MAX_TRAINING_STALENESS_GRID_STEPS
+        minutes=max_staleness_minutes
+        if max_staleness_minutes is not None
+        else resample_minutes * MAX_TRAINING_STALENESS_GRID_STEPS
     )
     load_vals = resample_last_value(load_events, grid, max_staleness=max_staleness)
     # nimbus issue #350: see resample_observed_mask()'s own docstring --

@@ -89,6 +89,13 @@ from .ml.model import (
     train_model,
 )
 
+# nimbus issue #375 (Mark Purcell, codebase review): matches
+# _async_fetch_lts_history()'s own hardcoded period="hour" argument to
+# statistics_during_period() below -- named here (not just inline) so
+# the lag-staleness-cap override in _async_retrain() stays obviously in
+# sync with the real LTS bucket width if that literal ever changes.
+_LTS_PERIOD_MINUTES = 60
+
 _LOGGER = logging.getLogger(__name__)
 
 # Idempotent cold-start-retrain task tracking, module-level (survives across
@@ -688,6 +695,26 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 else []
             )
 
+            # nimbus issue #375 (Mark Purcell, codebase review): lts/
+            # hybrid sources feed events derived from HA's own hourly
+            # long-term-statistics buckets -- coarser than the training
+            # grid's 15-min step. The default lag-staleness cap (sized
+            # for recorder-cadence data) silently drops every single
+            # LTS-derived training row's own lag lookup -- confirmed
+            # live, a real install training on 60 days of hybrid history
+            # (55 LTS + 5 recorder) produced only ~470 usable rows,
+            # exactly "5 days at native cadence." Sized to comfortably
+            # cover one full LTS bucket period plus one grid step of
+            # slack (75 min for the current 15-min grid) -- see train_
+            # model()'s own max_staleness_minutes docstring for the full
+            # mechanism. None (recorder-only) keeps the original,
+            # unchanged 45-min cap.
+            max_staleness_minutes = (
+                _LTS_PERIOD_MINUTES + RESAMPLE_MINUTES
+                if self._training_source
+                in (TRAINING_SOURCE_LTS, TRAINING_SOURCE_HYBRID)
+                else None
+            )
             trained = await self.hass.async_add_executor_job(
                 _train_model_job,
                 load_events,
@@ -701,6 +728,7 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 battery_events,
                 grid_events,
                 solar_events,
+                max_staleness_minutes,
             )
             if trained is not None:
                 self._trained = trained
@@ -1708,6 +1736,7 @@ def _train_model_job(
     battery_events: list[tuple[datetime, float]],
     grid_events: list[tuple[datetime, float]],
     solar_events: list[tuple[datetime, float]],
+    max_staleness_minutes: float | None = None,
 ) -> TrainedModel | None:
     """Plain function (not a bound method) so it's cleanly picklable/callable
     from hass.async_add_executor_job without capturing `self`.
@@ -1726,6 +1755,7 @@ def _train_model_job(
         battery_events=battery_events,
         grid_events=grid_events,
         solar_events=solar_events,
+        max_staleness_minutes=max_staleness_minutes,
     )
 
 
