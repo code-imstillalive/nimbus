@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.115] — 2026-09-05
+
+### Fixed
+- **#363 finding 4: `fetch_price_history()` and `fetch_entity_history_range()` de-duplicated** ([#363](https://github.com/code-imstillalive/nimbus/issues/363), thanks @purcell-lab). These two functions were ~90% identical -- the same REST/native dual-mode recorder bridge, the same point-building loop, differing only in "last N days from now" vs an explicit window plus a couple of cosmetic details (a bare `float()`-and-catch vs an explicit unknown/unavailable check beforehand) that produced identical outcomes either way. `fetch_price_history()` is now a thin wrapper delegating to `fetch_entity_history_range()`, the one real implementation -- ~70 fewer lines of hand-kept-in-sync duplication.
+  9 new regression tests cover the REST-mode behavior both entry points now share (valid/unknown/unavailable/unparseable states, HTTP failure, empty history, a non-UTC input window) plus `fetch_price_history()`'s own window computation and genuine delegation (not a parallel implementation that happens to agree). Native mode's own recorder bridge is unchanged by this refactor (copied verbatim) and isn't independently covered -- reliably mocking `asyncio.run_coroutine_threadsafe`'s cross-thread scheduling under this project's pytest setup proved too fragile to trust for code this fix doesn't touch. Mutation-tested: a wrong window computation was confirmed to fail the delegation tests first.
+  Finding 5 (splitting the 1,788-line `main()`) remains open as its own separate, larger structural effort.
+
 ## [0.94.114] — 2026-09-05
 
 ### Fixed
