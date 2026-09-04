@@ -72,6 +72,7 @@ down the rest of the integration.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 import urllib.error
@@ -102,6 +103,24 @@ _LOGGER = logging.getLogger(__name__)
 # docstring makes) rather than a dict keyed by entry_id.
 _last_solve_completed_monotonic: float | None = None
 _price_latency_sensor = None
+
+# nimbus issue #365 (Mark Purcell, codebase review), item 4 -- the harder
+# half. `hass.async_add_executor_job(_run_one_cycle, hass)` returns a
+# genuine asyncio Future backed by a worker thread; cancelling whichever
+# Task happens to be AWAITING that future (as async_unload_entry already
+# does for the startup-retry task) does NOT stop the underlying thread
+# once it has actually started running -- sw.main() keeps executing,
+# including its own ha_post_state() calls, regardless. This module-level
+# reference to the CURRENTLY in-flight executor future -- set by every
+# call to async_run_solve() below, the single funnel point every solve
+# trigger (periodic cron, price-watcher debounce, startup-retry) already
+# goes through -- lets async_unload_entry() await it directly via
+# wait_for_in_flight_solve(), independent of whichever caller originally
+# started it or whether that caller's own Task gets cancelled in the
+# meantime. A plain asyncio.Future supports more than one simultaneous
+# awaiter with no interference, so this adds a second, harmless awaiter
+# rather than disturbing the original one.
+_in_flight_future: asyncio.Future[bool] | None = None
 
 # nimbus issue #315 (Mark Purcell, 2026-08-31) -- "freshness watchdog trips
 # every ~44 min after reload, main-loop cadence degraded". Real, measured
@@ -260,6 +279,11 @@ def reset_module_state() -> None:
     `_solver_writer` to `None` is cheap and always safe regardless --
     `_ensure_ready()` just re-imports/re-binds on the next call, exactly
     as it already does on every process's own first call.
+
+    `_in_flight_future` deliberately isn't touched here -- by the time
+    __init__.py calls this, it has already `await`ed wait_for_in_flight_
+    solve() (item 4's harder half), so async_run_solve()'s own `finally`
+    has already reset it to None on its own.
     """
     global _solver_writer, _last_solve_completed_monotonic, _import_error_notified
     global _price_latency_sensor, _consecutive_lock_skips
@@ -638,6 +662,57 @@ async def async_run_solve(hass: HomeAssistant) -> bool:
 
     Thin wrapper around _run_one_cycle() -- see that function's own
     docstring for why the actual body lives there, as a plain module-level
-    function, rather than inline here.
+    function, rather than inline here. Also records the dispatched future
+    in _in_flight_future (see its own comment above) so async_unload_
+    entry() can wait for a genuinely-running cycle to finish before
+    tearing down platforms, regardless of which caller started it.
     """
-    return await hass.async_add_executor_job(_run_one_cycle, hass)
+    global _in_flight_future
+    future = hass.async_add_executor_job(_run_one_cycle, hass)
+    _in_flight_future = future
+    try:
+        return await future
+    finally:
+        if _in_flight_future is future:
+            _in_flight_future = None
+
+
+async def wait_for_in_flight_solve(timeout: float = _SLOW_CYCLE_THRESHOLD_S) -> None:
+    """Called from async_unload_entry(), after every solve TRIGGER (timer,
+    price-watcher, startup-retry task) has already been cancelled/unsubbed
+    but BEFORE platforms are torn down -- so a cycle that was already
+    genuinely running on its worker thread gets to finish (including its
+    own ha_post_state() calls, which still succeed normally since nothing
+    has been torn down yet) instead of racing teardown with an
+    uninterruptible executor job. A no-op when nothing is in flight.
+
+    Bounded by `timeout` (defaults to the same 120s _SLOW_CYCLE_THRESHOLD_S
+    already used to flag a suspiciously slow cycle elsewhere in this file)
+    rather than waiting indefinitely -- an unload/reload that never
+    completes is a worse outcome than the rare late write this whole
+    mechanism exists to prevent. Logs a warning and returns (does not
+    raise) on timeout or any other failure of the in-flight solve itself;
+    either way, reset_module_state() right after this call still gives a
+    clean slate for whatever comes next.
+    """
+    future = _in_flight_future
+    if future is None:
+        return
+    try:
+        await asyncio.wait_for(asyncio.shield(future), timeout=timeout)
+    except TimeoutError:
+        _LOGGER.warning(
+            "Nimbus Solver: a solve cycle was still running %.0fs into unload -- "
+            "proceeding with teardown anyway rather than blocking indefinitely",
+            timeout,
+        )
+    except Exception:
+        # The in-flight cycle's own failure (if any) was already logged by
+        # _run_one_cycle()'s own except clauses -- this is purely about
+        # waiting for it to finish, not re-reporting its outcome. Debug
+        # only (not warning) since this is expected to be unreachable in
+        # practice: _run_one_cycle() never raises (see async_run_solve()'s
+        # own "never raises" contract), this is defense in depth only.
+        _LOGGER.debug(
+            "Nimbus Solver: wait_for_in_flight_solve's own await raised", exc_info=True
+        )

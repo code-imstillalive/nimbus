@@ -908,6 +908,17 @@ async def async_unload_entry(hass: HomeAssistant, entry: NimbusConfigEntry) -> b
     if old_startup_task is not None:
         old_startup_task.cancel()
 
+    # nimbus issue #365 (Mark Purcell, codebase review), item 4 -- the
+    # harder half. Every solve TRIGGER above is now cancelled/unsubbed, so
+    # no NEW cycle can start, but a cycle already running on its worker
+    # thread at this exact moment is not interruptible (cancelling
+    # old_startup_task above only cancels whichever Task was AWAITING it,
+    # not the thread itself) -- it would otherwise keep calling
+    # ha_post_state() after platforms below are torn down. Waiting here,
+    # before teardown, means an already-in-flight cycle finishes cleanly
+    # against a still-fully-set-up entry instead of racing it.
+    await solver_runtime.wait_for_in_flight_solve()
+
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
     if unload_ok:
         for coordinator in entry.runtime_data.values():

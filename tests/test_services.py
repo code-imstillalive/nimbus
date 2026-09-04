@@ -13,7 +13,7 @@ import asyncio
 import sys
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import voluptuous as vol
@@ -305,13 +305,22 @@ def test_async_unregister_services_is_a_safe_no_op_when_nothing_registered():
 def test_solve_now_calls_async_run_solve():
     """The whole point of #232's own suggestion -- reuses the exact same
     solve path the periodic timer calls, not a separate implementation.
+
+    Uses patch.object (auto-restoring) rather than a raw attribute
+    assignment -- solver_runtime is a shared module object, and a plain
+    `services.solver_runtime.async_run_solve = ...` with no cleanup
+    permanently replaces the REAL async_run_solve for the rest of the
+    pytest process, silently breaking any later test (in this file or
+    any other) that relies on the genuine implementation. Found live via
+    exactly that: a new solver_runtime test elsewhere failed only when
+    run after this file, never in isolation.
     """
     hass = MagicMock()
     call = _fake_call({})
     fake_run_solve = AsyncMock(return_value=True)
-    services.solver_runtime.async_run_solve = fake_run_solve
 
-    asyncio.run(services._async_handle_solve_now(hass, call))
+    with patch.object(services.solver_runtime, "async_run_solve", fake_run_solve):
+        asyncio.run(services._async_handle_solve_now(hass, call))
 
     fake_run_solve.assert_called_once_with(hass)
 
@@ -332,9 +341,13 @@ def test_solve_now_logs_a_warning_on_a_failed_solve_but_does_not_raise(caplog):
     """
     hass = MagicMock()
     call = _fake_call({})
-    services.solver_runtime.async_run_solve = AsyncMock(return_value=False)
 
-    with caplog.at_level("WARNING"):
+    with (
+        patch.object(
+            services.solver_runtime, "async_run_solve", AsyncMock(return_value=False)
+        ),
+        caplog.at_level("WARNING"),
+    ):
         asyncio.run(services._async_handle_solve_now(hass, call))  # must not raise
     assert "did not produce a successful solve" in caplog.text
 
