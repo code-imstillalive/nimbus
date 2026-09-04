@@ -69,6 +69,7 @@ from .const import (
     CONF_SOLVER_DISCHARGE_COST,
     CONF_SOLVER_EFFICIENCY_PERCENT,
     CONF_SOLVER_EXPORT_PRICE_RISK_AVERSION,
+    CONF_SOLVER_FIXED_DAILY_CHARGE,
     CONF_SOLVER_FLAT_FEE_RATE,
     CONF_SOLVER_GRID_MAX_EXPORT_KW,
     CONF_SOLVER_GRID_MAX_IMPORT_KW,
@@ -97,6 +98,7 @@ from .const import (
     CONF_SOLVER_P2P_BLOCK_3_START_HOUR,
     CONF_SOLVER_P2P_BONUS_PRICE,
     CONF_SOLVER_P2P_BONUS_VOLUME_KWH,
+    CONF_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS,
     CONF_SOLVER_RISK_AVERSION,
     CONF_SOLVER_SALVAGE_VALUE,
     DEFAULT_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
@@ -105,6 +107,7 @@ from .const import (
     DEFAULT_SOLVER_DISCHARGE_COST,
     DEFAULT_SOLVER_EFFICIENCY_PERCENT,
     DEFAULT_SOLVER_EXPORT_PRICE_RISK_AVERSION,
+    DEFAULT_SOLVER_FIXED_DAILY_CHARGE,
     DEFAULT_SOLVER_FLAT_FEE_RATE,
     DEFAULT_SOLVER_IMPORT_PRICE_RISK_AVERSION,
     DEFAULT_SOLVER_INVERTER_SELF_CONSUMPTION_KW,
@@ -118,6 +121,7 @@ from .const import (
     DEFAULT_SOLVER_P2P_BLOCK_START_HOUR,
     DEFAULT_SOLVER_P2P_BONUS_PRICE,
     DEFAULT_SOLVER_P2P_BONUS_VOLUME_KWH,
+    DEFAULT_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS,
     DEFAULT_SOLVER_RISK_AVERSION,
     DEFAULT_SOLVER_SALVAGE_VALUE,
     DEFAULT_SOLVER_SOH_PERCENT,
@@ -365,6 +369,37 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         10,
         0.001,
         "$/kWh",
+    ),
+    # nimbus issue #348 (Mark Purcell): this used to be a hardcoded module
+    # constant in solver_writer.py, applied to every install with no way
+    # to change it. Default (1.95) is this repo's own reference
+    # household's real, already-live value -- byte-identical behaviour
+    # for every existing install until this field is explicitly changed.
+    _SolverNumberDescription(
+        CONF_SOLVER_FIXED_DAILY_CHARGE,
+        "Fixed Daily Charge",
+        DEFAULT_SOLVER_FIXED_DAILY_CHARGE,
+        0,
+        50,
+        0.01,
+        "$/day",
+    ),
+    # Same story as Fixed Daily Charge above -- was SELF_CONSUME_HOURS_
+    # AFTER_MIDNIGHT_CLOSE, a hardcoded solver_writer.py constant. Only
+    # takes effect for a P2P block whose own end_hour reaches 24 (runs
+    # through midnight) -- see fetch_p2p_fixed_export_kw()'s own
+    # docstring for the full "why a hard pin, not just a soft nudge"
+    # reasoning. Default (4) matches this household's real, already-live
+    # value.
+    _SolverNumberDescription(
+        CONF_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS,
+        "Post-Window Self-Consume Hours",
+        DEFAULT_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS,
+        0,
+        24,
+        1,
+        "h",
+        device_class=NumberDeviceClass.DURATION,
     ),
     # Real economic cycle-wear cost (2026-08-22, Track B2). See const.py's
     # own CONF_SOLVER_DEGRADATION_COST_PER_KWH comment for the full

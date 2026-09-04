@@ -382,7 +382,10 @@ def install_ha_stubs() -> None:
     module(
         "homeassistant.components.number",
         NumberDeviceClass=types.SimpleNamespace(
-            POWER="power", ENERGY="energy", ENERGY_STORAGE="energy_storage"
+            POWER="power",
+            ENERGY="energy",
+            ENERGY_STORAGE="energy_storage",
+            DURATION="duration",
         ),
         NumberEntity=_generic_stub_class("NumberEntity"),
         NumberMode=types.SimpleNamespace(BOX="box"),

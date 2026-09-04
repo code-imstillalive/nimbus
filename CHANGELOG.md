@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.88] — 2026-09-04
+
+### Added
+- **Two household-specific hardcoded constants are now real wizard fields** ([#348](https://github.com/code-imstillalive/nimbus/issues/348), thanks @purcell-lab, 2 of 4 findings). `FIXED_DAILY_CHARGES` (a flat $/day charge folded into `total_cost_with_fixed_costs`) and `SELF_CONSUME_HOURS_AFTER_MIDNIGHT_CLOSE` (how many hours after a P2P block ending at midnight grid export stays hard-pinned to 0kW) used to be plain Python module constants in `solver_writer.py`, applied to every install regardless of that install's own real retailer's daily supply charge or automation timing. Both are now real Solver-settings number entities (`number.nimbus_solver_fixed_daily_charge`, `number.nimbus_solver_post_window_self_consume_hours`), defaulting to this repo's own reference household's real, already-live values (1.95, 4) — byte-identical behaviour for every existing install until either field is explicitly changed. The interim startup-WARNING that used to name these two as silent overrides has been removed (they're visible, user-adjustable wizard fields now, nothing to warn about); the warning for the two genuinely still-hardcoded overrides in the same issue (the day/night discharge-cost schedule, LocalVolts-specific `costsflexup`/`earningsflexup` price-array parsing) is unchanged. Those two are deliberately left alone this pass — a past session already flagged the discharge-cost schedule specifically as carrying real financial/dispatch risk if rushed, and that caution still holds. 10 new/rewritten regression tests, the 2 covering the post-midnight self-consume behaviour confirmed via mutation testing.
+
 ## [0.94.87] — 2026-09-04
 
 ### Changed

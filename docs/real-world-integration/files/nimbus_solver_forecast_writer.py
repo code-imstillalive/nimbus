@@ -342,11 +342,16 @@ TIER2_PERIOD_HOURS = (
 # retailer sets their OWN real tariff on their OWN dashboard, nothing
 # to hand-edit in this file.
 
-# Real fixed daily charges (Network Access $0.85 + LV Fee $1.10),
-# independent of dispatch -- reported honestly alongside total_cost, not
-# fed into the LP (a flat cost can't change an optimal LP decision, only
-# shift the objective by a constant).
-FIXED_DAILY_CHARGES = 1.95  # $/day, real bill-confirmed
+# nimbus issue #348 (Mark Purcell, fixed 2026-09-04): the real fixed
+# daily charge (Network Access + LV Fee) is now a wizard field
+# (number.nimbus_solver_fixed_daily_charge), read via cfg near its own
+# usage site below -- not a module constant applied to every install
+# regardless of their own real retailer's actual daily supply charge.
+# 1.95 stays here only as the literal default for an install that
+# hasn't set the field -- byte-identical behaviour for every existing
+# install. Reported honestly alongside total_cost, not fed into the LP
+# itself (a flat cost can't change an optimal LP decision, only shift
+# the objective by a constant).
 
 # Real empirical fallback if the live confirmed-history sensor is
 # unavailable for some reason -- roughly the 13-day all-time average
@@ -1791,7 +1796,13 @@ P2P_BLOCK_KEYS = (
 # outbid if the real export price is still positive enough to look
 # marginally profitable. A hard, deterministic real-world rule needs a
 # hard LP constraint to match it, not a stronger nudge.
-SELF_CONSUME_HOURS_AFTER_MIDNIGHT_CLOSE = 4
+#
+# nimbus issue #348 (Mark Purcell, fixed 2026-09-04): the real hour
+# count itself is now a wizard field (number.nimbus_solver_post_window_
+# self_consume_hours), read via cfg inside fetch_p2p_fixed_export_kw()
+# below, not a module constant. 4 stays here only as the literal
+# default for an install that hasn't set the field -- byte-identical
+# behaviour for every existing install.
 
 
 def fetch_p2p_fixed_export_kw(
@@ -1846,6 +1857,7 @@ def fetch_p2p_fixed_export_kw(
     runs_through_midnight = any(
         end_hour == 24 for _rate_kw, _start_hour, end_hour in blocks
     )
+    self_consume_hours = _cfg_int(cfg, "solver_post_window_self_consume_hours", 4)
 
     result: list[float] = []
     for gt in grid_times:
@@ -1854,7 +1866,7 @@ def fetch_p2p_fixed_export_kw(
             if start_hour <= gt.hour < end_hour:
                 matched_rate = rate_kw
                 break
-        if runs_through_midnight and gt.hour < SELF_CONSUME_HOURS_AFTER_MIDNIGHT_CLOSE:
+        if runs_through_midnight and gt.hour < self_consume_hours:
             matched_rate = 0.0
         result.append(matched_rate)
     return result
@@ -3811,9 +3823,10 @@ def main() -> None:
     # -- the tiered grid has two different period widths) / 24, not just
     # added flat.
     horizon_days = sum(period_hours_arr) / 24.0
+    fixed_daily_charge = _cfg_num(cfg, "solver_fixed_daily_charge", 1.95)
     total_cost_with_fixed_costs = (
         plan.total_cost or 0.0
-    ) + horizon_days * FIXED_DAILY_CHARGES
+    ) + horizon_days * fixed_daily_charge
 
     # Real battery throughput/cycling exposure (2026-08-21, direct Mark
     # Purcell finding, relayed via the household: "degradation isn't in

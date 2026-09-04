@@ -759,6 +759,20 @@ DEFAULT_SOLVER_INVERTER_SELF_CONSUMPTION_KW: Final = 0.0
 CONF_SOLVER_CHARGE_COST: Final = "solver_charge_cost"
 CONF_SOLVER_DISCHARGE_COST: Final = "solver_discharge_cost"
 CONF_SOLVER_SALVAGE_VALUE: Final = "solver_salvage_value"
+# nimbus issue #348 (Mark Purcell, codebase review): these used to be
+# plain module-level constants in solver_writer.py (FIXED_DAILY_CHARGES,
+# SELF_CONSUME_HOURS_AFTER_MIDNIGHT_CLOSE) -- silently applied to every
+# install with zero visibility or way to change them, regardless of
+# that install's own real retailer/tariff or P2P program shape. Real
+# wizard fields now. Defaults (1.95, 4) are this repo's own reference
+# household's real, already-live values -- preserving byte-identical
+# behaviour for every existing install (this one included) the moment
+# this ships; only an install that explicitly changes the wizard value
+# sees anything different.
+CONF_SOLVER_FIXED_DAILY_CHARGE: Final = "solver_fixed_daily_charge"
+CONF_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS: Final = (
+    "solver_post_window_self_consume_hours"
+)
 # Real economic cycle-wear cost (2026-08-22, Track B2). $/kWh, applied
 # per kWh of THROUGHPUT in EITHER direction (charge OR discharge) --
 # see BatteryConfig's own degradation_cost_per_kwh docstring (solver/
@@ -863,6 +877,8 @@ DEFAULT_SOLVER_EFFICIENCY_PERCENT: Final = 95.0
 DEFAULT_SOLVER_CHARGE_COST: Final = 0.01
 DEFAULT_SOLVER_DISCHARGE_COST: Final = 0.01
 DEFAULT_SOLVER_SALVAGE_VALUE: Final = 0.15
+DEFAULT_SOLVER_FIXED_DAILY_CHARGE: Final = 1.95
+DEFAULT_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS: Final = 4
 DEFAULT_SOLVER_P2P_BONUS_PRICE: Final = 0.0
 DEFAULT_SOLVER_P2P_BONUS_VOLUME_KWH: Final = 0.0
 # Every block defaults OFF (rate_kw=0) regardless of which block number --

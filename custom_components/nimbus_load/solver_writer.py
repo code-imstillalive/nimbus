@@ -381,29 +381,26 @@ TIER2_PERIOD_HOURS = (
 # retailer sets their OWN real tariff on their OWN dashboard, nothing
 # to hand-edit in this file.
 
-# Real fixed daily charges (Network Access $0.85 + LV Fee $1.10),
-# independent of dispatch -- reported honestly alongside total_cost, not
-# fed into the LP (a flat cost can't change an optimal LP decision, only
-# shift the objective by a constant).
-FIXED_DAILY_CHARGES = 1.95  # $/day, real bill-confirmed
-
 # nimbus issue #348 (Mark Purcell, 2026-09-03 codebase review): several
 # real, deliberate household-specific tuning choices in this file
-# (documented individually at each of their own definitions --
-# FIXED_DAILY_CHARGES above, SELF_CONSUME_HOURS_AFTER_MIDNIGHT_CLOSE
-# below, battery_discharge_cost_rate()/battery_salvage_value_rate()'s
-# own day/night schedule, and the "generic" price-forecast-array field's
-# LocalVolts-specific costsflexup/earningsflexup key parsing) silently
-# override or ignore an install's own wizard-configured values with zero
-# visibility into that happening. Each one is a genuine, considered
-# tradeoff (see its own definition's comment for why it was kept rather
-# than generalised under time pressure), not an oversight -- but "silent"
-# is the real, fixable problem the review correctly flagged, independent
-# of whether each one is eventually made a real wizard field. This
-# module-level flag + _log_active_household_specific_overrides_once()
-# (called once near the top of main(), see that function's own call
-# site) makes every currently-active one visible in the log at startup,
-# by name, instead of only discoverable by reading this file's source.
+# silently override or ignore an install's own wizard-configured values
+# with zero visibility into that happening. Two of them (the fixed daily
+# charge, the post-midnight self-consume window -- see number.py's own
+# CONF_SOLVER_FIXED_DAILY_CHARGE/CONF_SOLVER_POST_WINDOW_SELF_CONSUME_
+# HOURS comments) are now real, wizard-configurable fields, fixed
+# 2026-09-04 -- removed from the list this function warns about below.
+# The remaining two (battery_discharge_cost_rate()/battery_salvage_
+# value_rate()'s own day/night schedule, and the "generic" price-
+# forecast-array field's LocalVolts-specific costsflexup/earningsflexup
+# key parsing) are each a genuine, considered tradeoff (see their own
+# definitions' comments for why they were kept rather than generalised
+# under time pressure), not an oversight -- but "silent" is the real,
+# fixable problem the review correctly flagged, independent of whether
+# each is eventually made a real wizard field too. This module-level
+# flag + _log_active_household_specific_overrides_once() (called once
+# near the top of main(), see that function's own call site) makes
+# every currently-active one visible in the log at startup, by name,
+# instead of only discoverable by reading this file's source.
 _household_specific_overrides_logged = False
 
 
@@ -431,24 +428,6 @@ def _log_active_household_specific_overrides_once(cfg: dict) -> None:
                 "IGNORED in favour of a hardcoded day/night schedule"
             )
     except Exception:  # noqa: BLE001, S110 -- diagnostic-only, never block the real solve
-        pass
-    active.append(
-        f"a fixed daily charge of ${FIXED_DAILY_CHARGES}/day is always added to "
-        "total_cost_with_fixed_costs, regardless of your own real retailer's "
-        "actual daily supply charge"
-    )
-    try:
-        for rate_key, start_key, end_key in P2P_BLOCK_KEYS:
-            if _cfg_num(cfg, end_key, 0.0) >= 24.0 and _cfg_num(cfg, rate_key, 0.0) > 0:
-                active.append(
-                    f"{end_key} reaches 24 (a P2P block runs through midnight) -- "
-                    f"grid export is hard-pinned to 0kW for the following "
-                    f"{SELF_CONSUME_HOURS_AFTER_MIDNIGHT_CLOSE} hours after "
-                    "midnight regardless of price, a fixed constant not "
-                    "exposed as a wizard field"
-                )
-                break
-    except Exception:  # noqa: BLE001, S110 -- diagnostic-only
         pass
     if cfg.get("solver_p2p_matched_rate_forecast_sensor"):
         active.append(
@@ -2653,7 +2632,16 @@ P2P_BLOCK_KEYS = (
 # outbid if the real export price is still positive enough to look
 # marginally profitable. A hard, deterministic real-world rule needs a
 # hard LP constraint to match it, not a stronger nudge.
-SELF_CONSUME_HOURS_AFTER_MIDNIGHT_CLOSE = 4
+#
+# nimbus issue #348 (Mark Purcell, fixed 2026-09-04): the real hour
+# count itself is now a wizard field (number.nimbus_solver_post_window_
+# self_consume_hours, const.py's CONF_SOLVER_POST_WINDOW_SELF_CONSUME_
+# HOURS) -- read via cfg inside fetch_p2p_fixed_export_kw() below, not a
+# module constant, so another install's own real self-consume-switch
+# timing can be genuinely different from this household's 4h. 4 stays
+# here only as the literal default for an install that hasn't set the
+# field, matching const.py's own DEFAULT_SOLVER_POST_WINDOW_SELF_
+# CONSUME_HOURS -- byte-identical behaviour for every existing install.
 
 
 def fetch_p2p_fixed_export_kw(
@@ -2708,6 +2696,7 @@ def fetch_p2p_fixed_export_kw(
     runs_through_midnight = any(
         end_hour == 24 for _rate_kw, _start_hour, end_hour in blocks
     )
+    self_consume_hours = _cfg_int(cfg, "solver_post_window_self_consume_hours", 4)
 
     result: list[float] = []
     for gt in grid_times:
@@ -2716,7 +2705,7 @@ def fetch_p2p_fixed_export_kw(
             if start_hour <= gt.hour < end_hour:
                 matched_rate = rate_kw
                 break
-        if runs_through_midnight and gt.hour < SELF_CONSUME_HOURS_AFTER_MIDNIGHT_CLOSE:
+        if runs_through_midnight and gt.hour < self_consume_hours:
             matched_rate = 0.0
         result.append(matched_rate)
     return result
@@ -6771,10 +6760,19 @@ def main() -> None:
     # own real span (sum of period_hours_arr, NOT n_periods*a-fixed-width
     # -- the tiered grid has two different period widths) / 24, not just
     # added flat.
+    #
+    # nimbus issue #348 (Mark Purcell, fixed 2026-09-04): a real wizard
+    # field now (number.nimbus_solver_fixed_daily_charge), not a module
+    # constant applied to every install regardless of their own real
+    # retailer's actual daily supply charge. 1.95 as the literal default
+    # matches const.py's own DEFAULT_SOLVER_FIXED_DAILY_CHARGE -- byte-
+    # identical behaviour for every existing install until this field is
+    # explicitly changed.
     horizon_days = sum(period_hours_arr) / 24.0
+    fixed_daily_charge = _cfg_num(cfg, "solver_fixed_daily_charge", 1.95)
     total_cost_with_fixed_costs = (
         plan.total_cost or 0.0
-    ) + horizon_days * FIXED_DAILY_CHARGES
+    ) + horizon_days * fixed_daily_charge
 
     # Real battery throughput/cycling exposure (2026-08-21, direct Mark
     # Purcell finding, relayed via the household: "degradation isn't in

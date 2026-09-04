@@ -6,14 +6,18 @@ post-midnight self-consume window, and a hardcoded P2P matched-rate hour
 window) silently override or ignore an install's own wizard-configured
 values with zero log visibility into that happening.
 
-Each one is a genuine, considered tradeoff (documented individually at
-its own definition, kept rather than generalised under time pressure to
-avoid risking a real, revenue-affecting change to core LP cost logic) --
-this fix is deliberately scoped to the issue's own suggested INTERIM step
-only: make every currently-active override visible in the log, once per
-process, by name. Making each one a real, generic wizard field (the
-issue's own longer-term suggested fix) is a materially larger, riskier
-change to core dispatch/cost math, left for a dedicated follow-up.
+Two of these (the fixed daily charge, the post-midnight self-consume
+window) were made real wizard fields on 2026-09-04 -- see
+test_solver_writer_fixed_daily_charge_and_self_consume_hours.py for
+their own regression coverage. This file now covers the remaining two
+genuinely still-hardcoded overrides (the day/night discharge-cost
+schedule, LocalVolts-specific costsflexup/earningsflexup parsing) plus
+the P2P matched-rate hour window, each a genuine, considered tradeoff
+(documented individually at its own definition, kept rather than
+generalised under time pressure to avoid risking a real, revenue-
+affecting change to core LP cost logic) -- the interim fix for these
+three is exactly what this test file exercises: make every currently-
+active override visible in the log, once per process, by name.
 
 Imports and exercises the REAL _log_active_household_specific_overrides_
 once() (not a reimplementation), same "import solver_writer directly"
@@ -37,20 +41,17 @@ class TestHouseholdOverrideVisibility(unittest.TestCase):
         solver_writer._household_specific_overrides_logged = False
 
     def test_logs_nothing_active_for_a_fully_generic_install(self):
-        """A fresh install with no price-forecast-array sensor, no P2P
-        matched-rate sensor, and no P2P block running through midnight
-        still gets ONE warning for the always-on fixed daily charge --
-        the other three overrides are genuinely config-gated and absent
-        here."""
+        """A fresh install with no price-forecast-array sensor and no P2P
+        matched-rate sensor logs nothing at all -- both remaining
+        overrides in this function are genuinely config-gated (the fixed
+        daily charge and post-midnight self-consume hours are real
+        wizard fields now, not unconditional overrides -- see
+        test_solver_writer_fixed_daily_charge_and_self_consume_hours.py)."""
         cfg = {}
         with patch.object(solver_writer, "_LOGGER") as mock_logger:
             solver_writer._log_active_household_specific_overrides_once(cfg)
 
-        mock_logger.warning.assert_called_once()
-        message = mock_logger.warning.call_args[0][-1]
-        self.assertIn("fixed daily charge", message)
-        self.assertNotIn("costsflexup", message)
-        self.assertNotIn("matched rate", message)
+        mock_logger.warning.assert_not_called()
 
     def test_logs_price_forecast_array_override_when_configured_and_live(self):
         cfg = {"solver_price_forecast_array_sensor": "sensor.my_price_array"}
@@ -73,8 +74,7 @@ class TestHouseholdOverrideVisibility(unittest.TestCase):
         ):
             solver_writer._log_active_household_specific_overrides_once(cfg)
 
-        message = mock_logger.warning.call_args[0][-1]
-        self.assertNotIn("costsflexup", message)
+        mock_logger.warning.assert_not_called()
 
     def test_logs_p2p_matched_rate_override_when_sensor_configured(self):
         cfg = {"solver_p2p_matched_rate_forecast_sensor": "sensor.my_p2p_matched"}
@@ -83,35 +83,6 @@ class TestHouseholdOverrideVisibility(unittest.TestCase):
 
         message = mock_logger.warning.call_args[0][-1]
         self.assertIn("matched rate is forced to 0", message)
-
-    def test_logs_midnight_self_consume_override_when_a_p2p_block_runs_through_midnight(
-        self,
-    ):
-        cfg = {
-            "solver_p2p_block_1_rate_kw": 11.5,
-            "solver_p2p_block_1_start_hour": 17.0,
-            "solver_p2p_block_1_end_hour": 24.0,
-        }
-        with patch.object(solver_writer, "_LOGGER") as mock_logger:
-            solver_writer._log_active_household_specific_overrides_once(cfg)
-
-        message = mock_logger.warning.call_args[0][-1]
-        self.assertIn("runs through midnight", message)
-        self.assertIn(
-            str(solver_writer.SELF_CONSUME_HOURS_AFTER_MIDNIGHT_CLOSE), message
-        )
-
-    def test_does_not_log_midnight_override_when_no_p2p_block_reaches_24(self):
-        cfg = {
-            "solver_p2p_block_1_rate_kw": 11.5,
-            "solver_p2p_block_1_start_hour": 17.0,
-            "solver_p2p_block_1_end_hour": 23.0,
-        }
-        with patch.object(solver_writer, "_LOGGER") as mock_logger:
-            solver_writer._log_active_household_specific_overrides_once(cfg)
-
-        message = mock_logger.warning.call_args[0][-1]
-        self.assertNotIn("runs through midnight", message)
 
     def test_only_logs_once_per_process_not_once_per_cycle(self):
         cfg = {"solver_p2p_matched_rate_forecast_sensor": "sensor.my_p2p_matched"}
