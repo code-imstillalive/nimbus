@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.92] — 2026-09-04
+
+### Added
+- **Locked in the structural fix for issue #357's own root cause: the standalone/cron deployment example can never bundle its own drifting copy of `solver/`/`ml/` again** ([#357](https://github.com/code-imstillalive/nimbus/issues/357), thanks @purcell-lab). The `nimbus_solver_app` Supervisor add-on's own bundled `solver/` copy (the actual third source of truth the issue's evidence table documented drifting out of sync — missing #328's soft-SoC relaxation, #238's MIP groundwork, #297/#310's row-major refactor) was already deleted in v0.94.85. This adds 3 regression tests confirming that fix is genuinely structural, not just a one-time cleanup: `nimbus_solver_app/` staying deleted, no directory literally named `solver`/`ml` ever reappearing anywhere under `docs/real-world-integration/` (the one remaining non-integration writer script, which has never bundled either package — it always resolves both via its own `NIMBUS_SOLVER_PATH` `sys.path` shim, pointing at a real external clone), and the docs-copy script's own `solver.network` module object being confirmed identical (not merely byte-identical source re-imported as a second, distinct module) to the one the integration copy uses. The second regression test was mutation-verified — a real bundled `solver/` directory simulated under `docs/real-world-integration/files/` was confirmed to fail the test before being removed. The writer *scripts* themselves (not the `solver/` package) still have real, itemized content differences from each other — see the issue's own follow-up comment for the full breakdown and why each one was confirmed to be a deliberate, execution-context-specific difference (native-HA-only reporting features vs. a standalone-cron-only timing fix) rather than a missed bug fix, left open for a maintainer's own ongoing judgment rather than asserted here.
+
 ## [0.94.91] — 2026-09-04
 
 ### Fixed
