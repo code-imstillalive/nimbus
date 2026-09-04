@@ -413,23 +413,34 @@ TIER2_PERIOD_HOURS = (
 # nimbus issue #348 (Mark Purcell, 2026-09-03 codebase review): several
 # real, deliberate household-specific tuning choices in this file
 # silently override or ignore an install's own wizard-configured values
-# with zero visibility into that happening. Two of them (the fixed daily
-# charge, the post-midnight self-consume window -- see number.py's own
-# CONF_SOLVER_FIXED_DAILY_CHARGE/CONF_SOLVER_POST_WINDOW_SELF_CONSUME_
-# HOURS comments) are now real, wizard-configurable fields, fixed
-# 2026-09-04 -- removed from the list this function warns about below.
-# The remaining two (battery_discharge_cost_rate()/battery_salvage_
-# value_rate()'s own day/night schedule, and the "generic" price-
-# forecast-array field's LocalVolts-specific costsflexup/earningsflexup
-# key parsing) are each a genuine, considered tradeoff (see their own
-# definitions' comments for why they were kept rather than generalised
-# under time pressure), not an oversight -- but "silent" is the real,
-# fixable problem the review correctly flagged, independent of whether
-# each is eventually made a real wizard field too. This module-level
-# flag + _log_active_household_specific_overrides_once() (called once
-# near the top of main(), see that function's own call site) makes
-# every currently-active one visible in the log at startup, by name,
-# instead of only discoverable by reading this file's source.
+# with zero visibility into that happening.
+#
+# Three of the four findings are now real, wizard-configurable fields,
+# removed from the list this function warns about below as each was
+# fixed: the fixed daily charge and the post-midnight self-consume
+# window (see number.py's own CONF_SOLVER_FIXED_DAILY_CHARGE/
+# CONF_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS comments, fixed 2026-09-04);
+# the battery_discharge_cost_rate()/battery_salvage_value_rate() day/
+# night schedule (see scheduled_discharge_cost_rate()'s own docstring,
+# near DISCHARGE_COST_SCHEDULE_BLOCK_KEYS, fixed 2026-09-04); and the
+# "generic" price-forecast-array field's LocalVolts-specific
+# costsflexup/earningsflexup key parsing (now solver_price_forecast_
+# array_import_key/export_key, fixed 2026-09-04). None of these are
+# "silent" anymore -- each is a real, visible, wizard-editable field,
+# even though the discharge-cost/salvage-value schedule and the
+# costsflexup/earningsflexup keys both still only APPLY on the
+# has_price_forecast_array branch (a deliberate, unchanged scope, not a
+# new gap -- a generic install without that sensor was never affected by
+# either).
+#
+# The one remaining finding (the P2P matched-rate sensor's own fixed
+# 17:00-24:00 window, independent of the household's own configured P2P
+# block hours) is still a genuine, considered tradeoff not yet
+# generalised -- this module-level flag + _log_active_household_
+# specific_overrides_once() (called once near the top of main(), see
+# that function's own call site) keeps it visible in the log at
+# startup, by name, instead of only discoverable by reading this file's
+# source.
 _household_specific_overrides_logged = False
 
 
@@ -446,18 +457,6 @@ def _log_active_household_specific_overrides_once(cfg: dict) -> None:
         return
     _household_specific_overrides_logged = True
     active: list[str] = []
-    try:
-        price_forecast_sensor = cfg.get("solver_price_forecast_array_sensor")
-        if price_forecast_sensor and entity_exists(price_forecast_sensor):
-            active.append(
-                f"solver_price_forecast_array_sensor ({price_forecast_sensor!r}) is "
-                "configured -- its forecast is parsed with LocalVolts-specific "
-                "'costsflexup'/'earningsflexup' attribute keys, and your own "
-                "solver_discharge_cost/solver_salvage_value wizard values are "
-                "IGNORED in favour of a hardcoded day/night schedule"
-            )
-    except Exception:  # noqa: BLE001, S110 -- diagnostic-only, never block the real solve
-        pass
     if cfg.get("solver_p2p_matched_rate_forecast_sensor"):
         active.append(
             "solver_p2p_matched_rate_forecast_sensor is configured -- its real "
@@ -1175,26 +1174,151 @@ def import_fee_rate(cfg: dict, hour: int) -> float:
 # accept a real per-period array, not just a scalar (see the separate
 # nimbus repo commit "BatteryConfig.charge_cost/discharge_cost: allow a
 # real per-period array").
+#
+# nimbus issue #348 (Mark Purcell, codebase review, fixed 2026-09-04):
+# these used to be hardcoded Python constants -- a real, tuned economic
+# schedule with zero way for THIS household (let alone anyone else) to
+# retune it short of editing source. Now the SCHEMA DEFAULTS for a real,
+# optional, wizard-configurable schedule (mirroring the already-
+# established solver_network_fee_1/2/3_rate/start_hour/end_hour and
+# solver_p2p_block_1/2/3 pattern in this same file) -- every existing
+# install (including this one) gets BYTE-IDENTICAL behaviour, since none
+# of the new config keys below have ever been set, and `_cfg_num`/
+# `_cfg_int` fall back to exactly these same literals whenever a key is
+# absent. Kept as named constants (not inlined) so the schema-default
+# call sites below read as "the historical schedule," not magic numbers.
 BATTERY_DISCHARGE_COST_NIGHT = 0.01  # 5pm-7am (P2P window + midnight-7am)
 BATTERY_DISCHARGE_COST_DAY = 0.09  # 7am-5pm
 BATTERY_SALVAGE_VALUE_NIGHT = 0.3  # 5pm-midnight (P2P window only)
 BATTERY_SALVAGE_VALUE_OTHER = 0.15  # midnight-5pm
 
+# Block 1 alone reproduces the real historical schedule (a single
+# overnight window); blocks 2/3 default OFF (rate=0.0, the same "rate<=0
+# = not configured" convention NETWORK_FEE_BLOCK_KEYS already uses) --
+# provided for the same reason that pattern offers 3 slots everywhere
+# else in this file: a more complex real-world tariff (e.g. a genuine
+# 3-tier day/shoulder/night schedule) can express itself without a code
+# change, not because this household's own schedule needs more than one.
+DISCHARGE_COST_SCHEDULE_BLOCK_KEYS = (
+    (
+        "solver_discharge_cost_schedule_block_1_rate",
+        "solver_discharge_cost_schedule_block_1_start_hour",
+        "solver_discharge_cost_schedule_block_1_end_hour",
+    ),
+    (
+        "solver_discharge_cost_schedule_block_2_rate",
+        "solver_discharge_cost_schedule_block_2_start_hour",
+        "solver_discharge_cost_schedule_block_2_end_hour",
+    ),
+    (
+        "solver_discharge_cost_schedule_block_3_rate",
+        "solver_discharge_cost_schedule_block_3_start_hour",
+        "solver_discharge_cost_schedule_block_3_end_hour",
+    ),
+)
+SALVAGE_VALUE_SCHEDULE_BLOCK_KEYS = (
+    (
+        "solver_salvage_value_schedule_block_1_rate",
+        "solver_salvage_value_schedule_block_1_start_hour",
+        "solver_salvage_value_schedule_block_1_end_hour",
+    ),
+    (
+        "solver_salvage_value_schedule_block_2_rate",
+        "solver_salvage_value_schedule_block_2_start_hour",
+        "solver_salvage_value_schedule_block_2_end_hour",
+    ),
+    (
+        "solver_salvage_value_schedule_block_3_rate",
+        "solver_salvage_value_schedule_block_3_start_hour",
+        "solver_salvage_value_schedule_block_3_end_hour",
+    ),
+)
+# Per-block schema-default fallbacks: block 1 defaults to the real
+# historical schedule (ON by construction); blocks 2/3 default OFF.
+# Keyed by the same tuples above so the lookup functions below can stay
+# a single, non-repetitive loop instead of one hardcoded branch per slot.
+_DISCHARGE_COST_BLOCK_DEFAULTS = (
+    (BATTERY_DISCHARGE_COST_NIGHT, 17, 7),  # wraps past midnight
+    (0.0, 0, 0),
+    (0.0, 0, 0),
+)
+_SALVAGE_VALUE_BLOCK_DEFAULTS = (
+    (BATTERY_SALVAGE_VALUE_NIGHT, 17, 24),
+    (0.0, 0, 0),
+    (0.0, 0, 0),
+)
 
-def battery_discharge_cost_rate(hour: int) -> float:
-    return (
-        BATTERY_DISCHARGE_COST_NIGHT
-        if (hour >= 17 or hour < 7)
-        else BATTERY_DISCHARGE_COST_DAY
+
+def _hour_in_schedule_block(hour: int, start_hour: int, end_hour: int) -> bool:
+    """True if `hour` (0-23) falls in [start_hour, end_hour). Handles a
+    block that wraps past midnight (end_hour <= start_hour, e.g. 17->7
+    meaning 17,18,...,23,0,...,6) -- unlike NETWORK_FEE_BLOCK_KEYS'/
+    P2P_BLOCK_KEYS' own plain `start <= hour < end` check, which has
+    never needed to express an overnight-spanning block until this real
+    schedule (5pm-7am) needed one. `start_hour == end_hour` is a
+    zero-width block, never matches -- same "not configured" meaning as
+    end_hour<=start_hour in the non-wrapping helpers elsewhere.
+    """
+    if start_hour == end_hour:
+        return False
+    if start_hour < end_hour:
+        return start_hour <= hour < end_hour
+    return hour >= start_hour or hour < end_hour
+
+
+def scheduled_discharge_cost_rate(cfg: dict, hour: int) -> float:
+    """Real, wizard-configurable replacement for the old hardcoded
+    battery_discharge_cost_rate() -- see this section's own module-level
+    comment for the full nimbus issue #348 story. Only used on the
+    has_price_forecast_array branch (see that branch's own call site);
+    a generic install without that sensor configured is completely
+    unaffected, still reading the flat solver_discharge_cost field.
+    """
+    default_rate = _cfg_num(
+        cfg, "solver_discharge_cost_schedule_default_rate", BATTERY_DISCHARGE_COST_DAY
     )
+    for (rate_key, start_key, end_key), (
+        rate_default,
+        start_default,
+        end_default,
+    ) in zip(
+        DISCHARGE_COST_SCHEDULE_BLOCK_KEYS, _DISCHARGE_COST_BLOCK_DEFAULTS, strict=True
+    ):
+        rate = _cfg_num(cfg, rate_key, rate_default)
+        if rate <= 0:
+            continue
+        start_hour = _cfg_int(cfg, start_key, start_default)
+        end_hour = _cfg_int(cfg, end_key, end_default)
+        if _hour_in_schedule_block(hour, start_hour, end_hour):
+            return rate
+    return default_rate
 
 
-def battery_salvage_value_rate(hour: int) -> float:
-    """Salvage value only applies ONCE, to the horizon's own FINAL
-    period, so this doesn't need a full per-period array -- just needs
-    to reflect what the real schedule would set at whatever real hour
-    the horizon happens to end at, not whatever's live right now."""
-    return BATTERY_SALVAGE_VALUE_NIGHT if hour >= 17 else BATTERY_SALVAGE_VALUE_OTHER
+def scheduled_salvage_value_rate(cfg: dict, hour: int) -> float:
+    """Real, wizard-configurable replacement for the old hardcoded
+    battery_salvage_value_rate(). Salvage value only applies ONCE, to
+    the horizon's own FINAL period, so this doesn't need a full
+    per-period array -- just needs to reflect what the real schedule
+    would set at whatever real hour the horizon happens to end at, not
+    whatever's live right now."""
+    default_rate = _cfg_num(
+        cfg, "solver_salvage_value_schedule_default_rate", BATTERY_SALVAGE_VALUE_OTHER
+    )
+    for (rate_key, start_key, end_key), (
+        rate_default,
+        start_default,
+        end_default,
+    ) in zip(
+        SALVAGE_VALUE_SCHEDULE_BLOCK_KEYS, _SALVAGE_VALUE_BLOCK_DEFAULTS, strict=True
+    ):
+        rate = _cfg_num(cfg, rate_key, rate_default)
+        if rate <= 0:
+            continue
+        start_hour = _cfg_int(cfg, start_key, start_default)
+        end_hour = _cfg_int(cfg, end_key, end_default)
+        if _hour_in_schedule_block(hour, start_hour, end_hour):
+            return rate
+    return default_rate
 
 
 def midnight_boundary_period_indices(grid_times: list[datetime]) -> list[int]:
@@ -6252,12 +6376,29 @@ def main() -> None:
         export_price_lower_band = compute_price_percentile_band(
             fetch_price_history(cfg["solver_export_price_sensor"], days=14), 10.0
         )
+        # nimbus issue #348 (Mark Purcell, codebase review): the "generic"
+        # solver_price_forecast_array_sensor field was parsed with these
+        # two attribute-key literals hardcoded, even though
+        # resample_price_with_extrapolation() itself already takes
+        # `value_key` as a genuinely generic parameter -- the hardcoding
+        # was purely at this call site. A non-LocalVolts array sensor with
+        # a different attribute-key shape would silently find zero points
+        # (see that function's own `if not pts: return zero-filled` guard)
+        # rather than erroring, giving no hint the real problem was these
+        # two literal names. Now two real, optional wizard fields, each
+        # defaulting to the exact literal this call has always used --
+        # byte-identical behaviour for this install (or any other genuine
+        # LocalVolts install) until either is explicitly changed.
+        import_key = cfg.get("solver_price_forecast_array_import_key") or "costsflexup"
+        export_key = (
+            cfg.get("solver_price_forecast_array_export_key") or "earningsflexup"
+        )
         spot_import_raw, import_real_mask = resample_price_with_extrapolation(
-            lv_price_fc, "costsflexup", grid_times, aemo_forecast, import_offset_by_5min
+            lv_price_fc, import_key, grid_times, aemo_forecast, import_offset_by_5min
         )
         spot_export, export_real_mask = resample_price_with_extrapolation(
             lv_price_fc,
-            "earningsflexup",
+            export_key,
             grid_times,
             aemo_forecast,
             export_offset_by_5min,
@@ -6518,36 +6659,27 @@ def main() -> None:
         cfg, "solver_charge_cost", 0.01
     )  # not scheduled -- real automations never touch this, manual control
 
-    # NOT FIXED by the 2026-09-02 hardcoded-entity audit -- a genuinely
-    # SEPARATE, larger issue (BATTERY_DISCHARGE_COST_NIGHT/DAY and
-    # BATTERY_SALVAGE_VALUE_NIGHT/OTHER, module-level Python constants
-    # with hardcoded hour boundaries, near battery_discharge_cost_rate()'s
-    # own definition) than the entity-name hardcoding fixed everywhere
-    # else in this pass: this is a household-specific ECONOMIC POLICY
-    # schedule, not a foreign sensor reference. Deliberately left gated
-    # on has_price_forecast_array (preserves this household's exact
-    # existing behaviour, since they still have that field configured)
-    # rather than silently redesigned under the same time pressure as
-    # the entity fixes above -- getting a real, revenue-affecting cost
-    # schedule wrong carries more risk than an entity-reference swap
-    # with an already-proven fallback. Real fix (not yet built): a
-    # genuinely portable multi-block day/night cost-schedule config
-    # field, mirroring the already-established solver_p2p_block_1/2/3_
-    # rate_kw/start_hour/end_hour pattern.
+    # nimbus issue #348 (Mark Purcell, codebase review, fixed 2026-09-04):
+    # this used to call battery_discharge_cost_rate()/battery_salvage_
+    # value_rate(), hardcoded Python-constant functions with zero way to
+    # retune the schedule short of editing source -- see
+    # scheduled_discharge_cost_rate()'s/scheduled_salvage_value_rate()'s
+    # own docstrings (near DISCHARGE_COST_SCHEDULE_BLOCK_KEYS, above) for
+    # the full story. Byte-identical output for this household (and any
+    # other has_price_forecast_array install that has never touched the
+    # new fields) -- every new config key's own schema default reproduces
+    # the exact historical 5pm/midnight/7am schedule. Still deliberately
+    # gated on has_price_forecast_array, same as before this fix: a
+    # generic install without that sensor configured is unaffected,
+    # still reading the flat solver_discharge_cost/solver_salvage_value
+    # fields in the `else` branch below -- silently applying ANY day/
+    # night schedule (even a wizard-configurable one) to an install that
+    # never asked for one would be a real, unrequested behaviour change.
     if has_price_forecast_array:
-        # This household's own real, tuned day/night discharge-cost
-        # schedule (built around the SAME 5pm/midnight/7am P2P-window
-        # boundaries as the pricing block above) -- deliberately KEPT
-        # exactly as before 2026-08-20's config-flow wiring. This is
-        # real, currently-live, revenue-affecting tuning for tonight's
-        # actual P2P dispatch; silently replacing it with a flat config
-        # value just to look more "generic" would be a real regression
-        # to money this household actually earns, not a genuine
-        # improvement for anyone.
         discharge_cost_arr = np.array(
-            [battery_discharge_cost_rate(t.hour) for t in grid_times]
+            [scheduled_discharge_cost_rate(cfg, t.hour) for t in grid_times]
         )
-        salvage_value = battery_salvage_value_rate(grid_times[-1].hour)
+        salvage_value = scheduled_salvage_value_rate(cfg, grid_times[-1].hour)
     else:
         # FALLBACK (2026-08-20, for anyone else): flat values straight
         # from the config-flow's own Economic Policy step -- no day/night
