@@ -2405,6 +2405,35 @@ def _validate_and_parse_load_forecast_attrs(
     # yet." These are genuinely different operator actions (fix your sensor
     # vs. just wait) and need genuinely different messages.
     if isinstance(raw_fc, list) and not raw_fc:
+        # nimbus issue #374 (Mark Purcell, codebase review, #370 residual):
+        # this branch used to return the identical message regardless of
+        # WHY the forecast is empty -- confirmed live, that message never
+        # matched _is_transient_startup_load_forecast_error()'s narrow
+        # patterns, so main() treated it as a genuine, persistent
+        # misconfiguration and substituted a flat 0.0kW load, publishing a
+        # confidently "optimal" plan (idle battery, zero-width cost band)
+        # for as long as the forecast stayed empty -- hours, for a
+        # subentry whose model was discarded or never trained, not the
+        # few-minutes startup race #370 fixed. Only a genuine nimbus
+        # forecast sensor publishes `model_trained_at`/`training_points`
+        # at all (checked via key presence, not just a falsy value, so a
+        # third-party sensor that doesn't publish these keys keeps the
+        # ORIGINAL "genuine misconfiguration" behaviour below unchanged --
+        # this distinction only ever applies to nimbus's own sensors).
+        if "model_trained_at" in attrs and (
+            attrs.get("model_trained_at") is None or not attrs.get("training_points")
+        ):
+            return (
+                None,
+                False,
+                (
+                    f"{entity_id}'s 'forecast' attribute is present but empty "
+                    f"(0 points) and it has never completed a training cycle "
+                    f"yet (model_trained_at is unset) -- genuinely new, or its "
+                    f"model was discarded/a retrain hasn't succeeded yet. Not "
+                    f"a malformed sensor; check back once training completes."
+                ),
+            )
         return (
             None,
             False,
@@ -2635,22 +2664,24 @@ def _is_transient_startup_load_forecast_error(error: str) -> bool:
     published its first real point yet is a completely different case
     and should never be treated as "confirmed zero load."
 
-    Deliberately narrow: only matches the two shapes that specifically
-    mean "no real data reached us at all" (a raw fetch failure, or an
-    entity with LITERALLY NO list-valued attributes -- the exact
-    signature of a third-party entity restored into the state machine
-    as unavailable with its attributes wiped). Does NOT match a
-    present-but-empty forecast (explicitly a different, multi-day
-    "hasn't trained yet" case elsewhere in this file), a shape/key
-    mismatch (a real, persistent misconfiguration worth surfacing via
-    the persistent_notification below, not silently retrying forever),
-    or the 90%-zeros circular-reference message (explicitly, already, a
-    real misconfiguration diagnosis) -- all three keep the existing
-    zero-fallback + notification behaviour unchanged.
+    Deliberately narrow: only matches the shapes that specifically mean
+    "no real data reached us at all" (a raw fetch failure, an entity
+    with LITERALLY NO list-valued attributes -- the exact signature of a
+    third-party entity restored into the state machine as unavailable
+    with its attributes wiped -- or, nimbus issue #374, a nimbus forecast
+    sensor whose model has genuinely never completed a training cycle).
+    Does NOT match a present-but-empty forecast from an ALREADY-trained
+    model (a real, ongoing misconfiguration -- e.g. a scheduling window
+    excluding every current period -- worth surfacing via the
+    persistent_notification below, not silently retrying forever), a
+    shape/key mismatch, or the 90%-zeros circular-reference message
+    (explicitly, already, a real misconfiguration diagnosis) -- all three
+    keep the existing zero-fallback + notification behaviour unchanged.
     """
     return (
         "could not be read (" in error
         or "list-valued attributes present: none)" in error
+        or "never completed a training cycle yet" in error
     )
 
 

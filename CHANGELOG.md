@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.119] — 2026-09-05
+
+### Fixed
+- **#374 (High): a present-but-empty load forecast from a never-trained model still published a confidently-wrong zero-load "optimal" plan** ([#374](https://github.com/code-imstillalive/nimbus/issues/374), thanks @purcell-lab -- filed as an explicit #370 residual: the transient-startup fix in v0.94.114 correctly stopped treating "sensor has no attributes at all" as confirmed zero load, but a nimbus forecast sensor whose `forecast` attribute is present-but-genuinely-empty (0 points) because its own model has never completed a training cycle hit the exact same bug through a different classification branch). `_validate_and_parse_load_forecast_attrs()` now checks `model_trained_at`/`training_points` (only present on genuine nimbus forecast sensors -- checked via key presence, not a falsy value, so a third-party sensor lacking these keys keeps the original "genuine misconfiguration" behaviour unchanged) and classifies "never trained yet" as the same transient, not-ready-yet case #370 already handles: `main()` raises and self-heals next cycle instead of substituting a flat 0.0kW load. A subentry with a real trained model whose forecast still comes back empty (e.g. a scheduling window excluding every current period) is unaffected -- that stays a genuine, ongoing misconfiguration with the existing zero-fallback + notification behaviour.
+  New regression test matches the issue's own suggested shape exactly: `main()` driven with a load-forecast entity carrying `forecast: []` and `model_trained_at: None`, asserting no `optimal` plan is published; a second test confirms the counterpart (a real trained model, still empty) does *not* take the new raise path. Mutation-tested: reverting the classification reproduces the identical live symptom (`status=optimal ... summed_18_loads_now=0.00kW`).
+  #375's own changelog entry speculated this might resolve as a side effect of restoring LTS/hybrid training data -- this ships the direct fix regardless, since a subentry can still be freshly created (genuinely 0 training points) independent of any LTS/hybrid staleness-cap issue.
+
 ## [0.94.118] — 2026-09-05
 
 ### Fixed

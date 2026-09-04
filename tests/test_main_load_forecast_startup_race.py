@@ -9,6 +9,22 @@ matching the review's own suggested test shape: "drive main() with
 ha_get returning an unavailable load-forecast entity and assert that
 nothing is pushed via ha_post_state (or that a not-ready exception
 propagates)."
+
+Also covers nimbus issue #374 (Mark Purcell, an explicit #370 residual
+found the same week #370 shipped): a nimbus forecast sensor whose
+`forecast` attribute is present but genuinely EMPTY (0 points) -- not
+missing, not wrong-shape -- because its own model has never completed a
+training cycle (`model_trained_at` unset) hit the exact same confidently-
+wrong "optimal" zero-load plan #370 fixed for the "no attributes at all"
+shape, just reached through a different classification branch that
+_is_transient_startup_load_forecast_error() didn't cover yet. Fixed by
+having _validate_and_parse_load_forecast_attrs() distinguish "never
+trained yet" (transient, matches the review's own suggested regression
+test: "drive main() with a load-forecast entity that has forecast: []
+and model_trained_at: null; assert no optimal plan is pushed") from "has
+a real trained model but is still empty" (a genuine, ongoing
+misconfiguration -- keeps the existing zero-fallback + notification
+behaviour unchanged).
 """
 
 from __future__ import annotations
@@ -122,4 +138,66 @@ class TestStartupRaceLoadForecastNeverPublishesAZeroLoadPlan:
                 # minimal fixture doesn't fully cover) is out of scope
                 # for this test -- it only asserts the NEW raise path
                 # specifically didn't fire on healthy data.
+                assert "not ready" not in str(e)
+
+
+class TestNeverTrainedLoadForecastNeverPublishesAZeroLoadPlan:
+    """nimbus issue #374 -- the review's own suggested regression test."""
+
+    def test_empty_forecast_from_a_never_trained_model_raises_instead_of_publishing(
+        self,
+    ):
+        never_trained_state = {
+            "state": "unknown",
+            "attributes": {
+                "forecast": [],
+                "model_trained_at": None,
+                "training_points": 0,
+            },
+        }
+        ha_get_mock = _make_ha_get(never_trained_state)
+
+        with (
+            patch.object(solver_writer, "ha_get", side_effect=ha_get_mock),
+            patch.object(solver_writer, "ha_post_state") as mock_post_state,
+            patch.object(solver_writer, "acquire_lock", return_value=True),
+            patch.object(solver_writer, "release_lock"),
+        ):
+            with pytest.raises(RuntimeError, match="not ready"):
+                solver_writer.main()
+
+            # The real #374 regression: nothing gets published this cycle
+            # -- no confidently-wrong zero-load "optimal" plan, for as
+            # long as this subentry's model stays untrained.
+            mock_post_state.assert_not_called()
+
+    def test_empty_forecast_from_an_already_trained_model_does_not_take_the_new_raise_path(
+        self,
+    ):
+        # The counterpart the fix must NOT regress: a subentry with a
+        # REAL trained model (real model_trained_at, real training_points)
+        # whose forecast is still empty is a genuine, ongoing
+        # misconfiguration (e.g. a scheduling window excluding every
+        # current period) -- must keep the existing zero-fallback +
+        # notification behaviour, not the new #374 raise path.
+        trained_but_empty_state = {
+            "state": "unknown",
+            "attributes": {
+                "forecast": [],
+                "model_trained_at": "2026-09-01T03:00:00+10:00",
+                "training_points": 1200,
+            },
+        }
+        ha_get_mock = _make_ha_get(trained_but_empty_state)
+
+        with (
+            patch.object(solver_writer, "ha_get", side_effect=ha_get_mock),
+            patch.object(solver_writer, "acquire_lock", return_value=True),
+            patch.object(solver_writer, "release_lock"),
+        ):
+            try:
+                solver_writer.main()
+            except RuntimeError as e:
+                assert "not ready" not in str(e)
+            except Exception as e:  # noqa: BLE001
                 assert "not ready" not in str(e)
