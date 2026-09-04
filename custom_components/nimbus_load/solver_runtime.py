@@ -74,6 +74,7 @@ from __future__ import annotations
 
 import logging
 import time
+import urllib.error
 from datetime import datetime
 
 from homeassistant.core import HomeAssistant
@@ -236,6 +237,37 @@ _solver_writer = None
 # dependency problem. Reset to False on every fresh import of this
 # module, i.e. every HA start/reload.
 _import_error_notified = False
+
+
+def reset_module_state() -> None:
+    """Clears every module-level global this file caches, for
+    `__init__.py`'s own `async_unload_entry()` to call on a genuine
+    unload.
+
+    nimbus issue #365 (Mark Purcell, codebase review), item 4: `_solver_
+    writer`/`_last_solve_completed_monotonic`/`_import_error_notified`
+    used to live for the lifetime of the PROCESS, not the config entry --
+    since this integration is `single_config_entry: true` (nimbus issue
+    #359), the only way a "different" entry ever exists is a genuine
+    remove-then-re-add, but even that rare case deserves a clean slate
+    rather than silently inheriting the previous entry's own state:
+    `_last_solve_completed_monotonic` reporting a stale "solved N seconds
+    ago" from an entry that no longer exists (feeding issue #295's own
+    cron-suppression window with the wrong entry's history), and
+    `_import_error_notified` permanently suppressing a fresh missing-
+    dependency notification for a new entry even after the underlying
+    problem was actually fixed and recurred differently. Resetting
+    `_solver_writer` to `None` is cheap and always safe regardless --
+    `_ensure_ready()` just re-imports/re-binds on the next call, exactly
+    as it already does on every process's own first call.
+    """
+    global _solver_writer, _last_solve_completed_monotonic, _import_error_notified
+    global _price_latency_sensor, _consecutive_lock_skips
+    _solver_writer = None
+    _last_solve_completed_monotonic = None
+    _import_error_notified = False
+    _price_latency_sensor = None
+    _consecutive_lock_skips = 0
 
 
 def set_default_env_vars(hass: HomeAssistant) -> None:
@@ -546,6 +578,31 @@ def _run_one_cycle(hass: HomeAssistant) -> bool:
         # yet" message -- expected on a fresh install before the
         # wizard's been run, not a real error.
         _LOGGER.warning("Nimbus Solver: %s", e)
+        return False
+    except urllib.error.HTTPError as e:
+        # nimbus issue #365 (Mark Purcell, codebase review), item 6: a
+        # genuine, EXPECTED race on startup -- the startup-solve task
+        # (__init__.py) can fire before the `sensor` platform's own
+        # async_setup_entry has finished adding NimbusSolverConfigSensor.
+        # ha_get()'s native branch (solver_writer.py's own
+        # _native_http_error()) correctly raises exactly this shaped
+        # 404 when hass.states.get() finds nothing yet -- this is NOT
+        # evidence _NATIVE_HASS itself failed to register (confirmed by
+        # reading the code: _ensure_ready() always calls set_native_hass()
+        # before sw.main() runs, on every attempt including the first).
+        # Previously fell through to the generic `except Exception`
+        # below, dumping a full traceback on every startup-retry attempt
+        # until the sensor platform caught up. Recognized by name here
+        # instead: one clean line, self-recovers via the existing
+        # bounded startup-retry loop exactly as before, zero behaviour
+        # change beyond the log line itself.
+        if e.code == 404 and e.url == "native://sensor.nimbus_solver_config":
+            _LOGGER.warning(
+                "Nimbus Solver: sensor.nimbus_solver_config not registered yet "
+                "(startup race with the sensor platform) -- will retry"
+            )
+            return False
+        _LOGGER.exception("Nimbus Solver: solve cycle failed")
         return False
     except Exception:
         _LOGGER.exception("Nimbus Solver: solve cycle failed")

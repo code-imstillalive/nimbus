@@ -104,18 +104,28 @@ live DEBUG-level log capture separated them:**
    Cause 1 above (the real code race) is the one that could still affect his install or
    production NUC1/NUC2 directly.
 
-**Known residual, found live during this same verification, NOT investigated further this
-session (separate from #312, out of scope for tonight's mandate) — worth a look next time.**
-Immediately after the fixed restart, `_async_run_solve_with_startup_retries()`'s first several
-attempts (20:50:30 through at least 20:52:23) failed with `urllib.error.HTTPError: HTTP Error
-404: Entity sensor.nimbus_solver_config not found` -- odd, since `_NATIVE_HASS` should route
-`ha_get()` through a direct `hass.states.get()` read, not a real HTTP round-trip, once native
-mode is registered. `sensor.nimbus_solver_config` itself was confirmed to exist and read
-`configured` by 20:51:32, mid-way through these failures -- suggesting `_NATIVE_HASS` genuinely
-isn't registered yet when the earliest startup-retry attempts fire, a plain startup-ordering
-gap. Self-recovers via the existing bounded retry loop (or the periodic 5-min cron as a last
-resort) with zero user-visible impact confirmed this session -- not the bug that was asked to
-be fixed tonight, flagging here so it isn't lost.
+**Known residual, found live during this same verification session (separate from #312) —
+theory below corrected 2026-09-05 (nimbus issue #365, Mark Purcell, codebase review, item 6):
+the original write-up's guess was wrong, verified against the real current code, not just
+re-guessed.** Immediately after the fixed restart, `_async_run_solve_with_startup_retries()`'s
+first several attempts (20:50:30 through at least 20:52:23) failed with `urllib.error.
+HTTPError: HTTP Error 404: Entity sensor.nimbus_solver_config not found`. The ORIGINAL theory
+here ("`_NATIVE_HASS` genuinely isn't registered yet") is **not what the code does** —
+`_run_one_cycle()` always calls `_ensure_ready()` (which calls `set_native_hass()`) before
+`sw.main()` runs at all (`solver_runtime.py`), so native mode is registered on every single
+attempt, including the very first. `ha_get()`'s native branch *deliberately* raises this exact
+shaped `urllib.error.HTTPError(404)` (see `solver_writer.py`'s own `_native_http_error()`)
+whenever `hass.states.get(entity_id)` returns `None` for that specific entity — i.e. the 404
+is real and correctly reported, it just means "this one entity doesn't exist YET," not "native
+mode isn't wired up." The real gap is a genuine race between the startup-solve task
+(`__init__.py`) firing and the `sensor` PLATFORM's own `async_setup_entry` actually finishing
+and adding `NimbusSolverConfigSensor` — two independent async setup steps with no ordering
+guarantee between them, not a native-mode registration problem. Still self-recovers via the
+existing bounded retry loop (or the periodic 5-min cron as a last resort) with zero real
+user-visible impact — the suggested, not-yet-built fix (per #365) is either catching this
+specific 404 by name and logging one clean line instead of a full traceback, or having the
+startup task explicitly wait for `sensor.nimbus_solver_config` to exist before its first
+attempt.
 
 **Still not picked back up this session, per the household's own explicit "don't push it aside
 until we forget" instruction (separate from #312, about the 116KAT-HA-AI repo's NUC2 status

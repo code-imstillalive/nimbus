@@ -912,4 +912,23 @@ async def async_unload_entry(hass: HomeAssistant, entry: NimbusConfigEntry) -> b
     if unload_ok:
         for coordinator in entry.runtime_data.values():
             coordinator.async_unload()
+        # nimbus issue #365 (Mark Purcell, codebase review), item 4: a
+        # genuine unload used to leave solver_runtime's own module
+        # globals (_solver_writer's set_native_hass() binding, the last-
+        # solve timestamp, the missing-dependency notification flag)
+        # alive for the rest of the PROCESS, not scoped to this entry --
+        # since this integration is single_config_entry, the only way a
+        # "different" entry ever exists is a genuine remove-then-re-add,
+        # but even that rare case deserves a clean slate. See reset_
+        # module_state()'s own docstring for the full reasoning.
+        solver_runtime.reset_module_state()
+        # nimbus issue #365 (Mark Purcell, codebase review), item 1: this
+        # integration only ever has at most one entry (single_config_
+        # entry: true), so a successful unload always means no surviving
+        # sibling entry still needs these services -- see async_
+        # unregister_services()'s own docstring for the full reasoning,
+        # including why this is also safe to do unconditionally on a
+        # plain reload (async_setup_entry()'s own registration call is
+        # idempotent, re-adding them immediately after).
+        services.async_unregister_services(hass)
     return unload_ok

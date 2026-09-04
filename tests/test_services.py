@@ -274,6 +274,34 @@ def test_async_register_services_is_idempotent_on_reload():
     hass.services.async_register.assert_not_called()
 
 
+def test_async_unregister_services_removes_all_three():
+    """nimbus issue #365 (Mark Purcell, codebase review), item 1: removing
+    the (only, single_config_entry) hub used to leave all three services
+    registered and callable forever."""
+    hass = MagicMock()
+    hass.services.has_service.return_value = True
+
+    services.async_unregister_services(hass)
+
+    removed = {call.args[1] for call in hass.services.async_remove.call_args_list}
+    assert removed == {
+        services.SERVICE_RETRAIN,
+        services.SERVICE_SOLVE_NOW,
+        services.SERVICE_COMPUTE_QUALITY_REPORT,
+    }
+    for call in hass.services.async_remove.call_args_list:
+        assert call.args[0] == services.DOMAIN
+
+
+def test_async_unregister_services_is_a_safe_no_op_when_nothing_registered():
+    hass = MagicMock()
+    hass.services.has_service.return_value = False
+
+    services.async_unregister_services(hass)
+
+    hass.services.async_remove.assert_not_called()
+
+
 def test_solve_now_calls_async_run_solve():
     """The whole point of #232's own suggestion -- reuses the exact same
     solve path the periodic timer calls, not a separate implementation.

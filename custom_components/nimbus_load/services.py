@@ -337,3 +337,31 @@ def async_register_services(hass: HomeAssistant) -> None:
             schema=SERVICE_COMPUTE_QUALITY_REPORT_SCHEMA,
             supports_response=True,
         )
+
+
+def async_unregister_services(hass: HomeAssistant) -> None:
+    """Removes all three Nimbus services -- the counterpart to
+    `async_register_services()` above, called from `__init__.py`'s own
+    `async_unload_entry()` on a successful unload.
+
+    nimbus issue #365 (Mark Purcell, codebase review), item 1: before
+    this existed, removing the (only, `single_config_entry: true`) hub
+    left `nimbus_load.solve_now`/`retrain`/`compute_quality_report`
+    registered and callable forever, with `solver_runtime.async_run_
+    solve()` still bound via a stale `set_native_hass()` call from the
+    now-removed entry -- a solve with no entities, hitting `ha_post_
+    state()`'s raw-state fallback. Safe to call unconditionally on every
+    unload (including a plain reload, not just a genuine removal): this
+    integration only ever has at most one entry, so there is never a
+    surviving sibling entry that still needs these services, and
+    `async_register_services()`'s own `has_service()` guard makes the
+    brief unregister-then-immediately-re-register within a reload a
+    complete no-op from a caller's point of view.
+    """
+    for service in (
+        SERVICE_RETRAIN,
+        SERVICE_SOLVE_NOW,
+        SERVICE_COMPUTE_QUALITY_REPORT,
+    ):
+        if hass.services.has_service(DOMAIN, service):
+            hass.services.async_remove(DOMAIN, service)
