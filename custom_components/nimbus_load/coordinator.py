@@ -1271,28 +1271,42 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return None
         try:
             trained = pickle.loads(self._model_path.read_bytes())
+            # A persisted model's feature count is frozen at whatever
+            # FEATURE_NAMES looked like the day it was trained. Confirmed
+            # live 2026-08-15: loading an incompatible model straight into
+            # predict() raises a raw numpy broadcast ValueError deep
+            # inside an executor thread, which HA surfaces as an opaque
+            # "Config entry not ready yet" retry loop with no obvious fix
+            # -- every retry hits the same crash since the stale pickle
+            # never gets replaced on its own. Discarding it here instead
+            # means a future feature-set change self-heals with one fresh
+            # retrain, not a stuck integration.
+            #
+            # nimbus issue #366 (Mark Purcell): this check used to sit
+            # OUTSIDE the try block below -- `trained.x_mean` itself
+            # raises a bare, uncaught AttributeError if a pickle
+            # deserializes into something that doesn't even HAVE that
+            # attribute (an even older/more broken schema than a mere
+            # feature-count mismatch), propagating out of this method and
+            # crashing async_setup() the same "Config entry not ready"
+            # way the comment above already describes -- for exactly the
+            # class of stale-pickle problem this whole check exists to
+            # protect against. Moved inside the try so ANY shape of
+            # persisted-model incompatibility degrades to "discard and
+            # retrain fresh," never a crash.
+            if trained.x_mean.shape[0] != len(FEATURE_NAMES):
+                _LOGGER.warning(
+                    "Persisted model for %s has %d feature(s) but the current "
+                    "code expects %d (trained under an older version) -- "
+                    "discarding and retraining fresh instead of crashing.",
+                    self.subentry.subentry_id,
+                    trained.x_mean.shape[0],
+                    len(FEATURE_NAMES),
+                )
+                return None
         except Exception:
             _LOGGER.warning(
                 "Could not load persisted model, will retrain.", exc_info=True
-            )
-            return None
-        # A persisted model's feature count is frozen at whatever
-        # FEATURE_NAMES looked like the day it was trained. Confirmed live
-        # 2026-08-15: loading an incompatible model straight into predict()
-        # raises a raw numpy broadcast ValueError deep inside an executor
-        # thread, which HA surfaces as an opaque "Config entry not ready
-        # yet" retry loop with no obvious fix -- every retry hits the same
-        # crash since the stale pickle never gets replaced on its own.
-        # Discarding it here instead means a future feature-set change
-        # self-heals with one fresh retrain, not a stuck integration.
-        if trained.x_mean.shape[0] != len(FEATURE_NAMES):
-            _LOGGER.warning(
-                "Persisted model for %s has %d feature(s) but the current code "
-                "expects %d (trained under an older version) -- discarding and "
-                "retraining fresh instead of crashing.",
-                self.subentry.subentry_id,
-                trained.x_mean.shape[0],
-                len(FEATURE_NAMES),
             )
             return None
         return trained

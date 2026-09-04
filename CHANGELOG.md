@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.80] — 2026-09-04
+
+### Fixed
+- **A more broken persisted model than a mere feature-count mismatch could crash `async_setup()`** ([#366](https://github.com/code-imstillalive/nimbus/issues/366), thanks @purcell-lab, 1 of 3 findings). `_load_model_from_disk()`'s own compatibility check (`trained.x_mean.shape[0] != len(FEATURE_NAMES)`) sat *outside* the `try`/`except` wrapping `pickle.loads()` — so a persisted model deserializing into something without an `x_mean` attribute at all (an older/more broken schema than a wrong feature count) raised a bare, uncaught `AttributeError` straight out of the method, crashing setup the exact "Config entry not ready" way the method's own comment already describes for the case it *was* handling. Moved the check inside the `try` block so any shape of persisted-model incompatibility degrades to "discard and retrain fresh," never a crash. The other 2 findings in the same issue (vectorizing GBRT's pure-Python split search for a claimed 10–50× speedup, and a full `schema_version` field for the pickle format) are larger changes — the first needs very careful correctness verification against the existing tree-building logic, the second touches every `TrainedModel` construction site — left for a dedicated pass. 5 new regression tests.
+
 ## [0.94.79] — 2026-09-04
 
 ### Fixed
