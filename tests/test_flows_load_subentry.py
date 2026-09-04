@@ -44,6 +44,12 @@ def _make_flow(source: str = "user") -> NimbusLoadSubentryFlowHandler:
     flow = NimbusLoadSubentryFlowHandler.__new__(NimbusLoadSubentryFlowHandler)
     flow.source = source
     flow.hass = MagicMock()
+    # nimbus issue #362 finding 4d: _async_step() now calls self._get_entry()
+    # on every real submission (the duplicate-source-sensor collision check)
+    # -- defaults to a real, empty subentries dict (no collision) so every
+    # existing test not specifically exercising that check keeps working
+    # unchanged. A test that DOES want to exercise it overrides this.
+    flow._get_entry = MagicMock(return_value=MagicMock(subentries={}))
     return flow
 
 
@@ -184,7 +190,7 @@ def test_reconfigure_source_calls_get_reconfigure_subentry_not_treated_as_new():
     flow = _make_flow(source="reconfigure")
     fake_subentry = MagicMock(data={CONF_LOAD_SENSOR: "sensor.existing"})
     flow._get_reconfigure_subentry = MagicMock(return_value=fake_subentry)
-    flow._get_entry = MagicMock(return_value=MagicMock())
+    flow._get_entry = MagicMock(return_value=MagicMock(subentries={}))
     flow.hass.states.get.return_value = None
     result = asyncio.run(flow.async_step_user(user_input))
     flow._get_reconfigure_subentry.assert_called_once()
@@ -207,7 +213,7 @@ def test_step_reconfigure_alias_delegates_to_step_user():
     flow = _make_flow(source="reconfigure")
     fake_subentry = MagicMock(data={CONF_LOAD_SENSOR: "sensor.existing"})
     flow._get_reconfigure_subentry = MagicMock(return_value=fake_subentry)
-    flow._get_entry = MagicMock(return_value=MagicMock())
+    flow._get_entry = MagicMock(return_value=MagicMock(subentries={}))
     flow.hass.states.get.return_value = None
     result = asyncio.run(
         flow.async_step_reconfigure({CONF_LOAD_SENSOR: "sensor.existing"})

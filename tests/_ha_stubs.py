@@ -141,8 +141,13 @@ class _StubFlowBase:
     def async_update_and_abort(self, entry, subentry, *, title: str, data: dict):
         return {"type": "update_and_abort", "title": title, "data": data}
 
-    def async_show_form(self, *, step_id: str, data_schema):
-        return {"type": "form", "step_id": step_id, "data_schema": data_schema}
+    def async_show_form(self, *, step_id: str, data_schema, errors: dict | None = None):
+        return {
+            "type": "form",
+            "step_id": step_id,
+            "data_schema": data_schema,
+            "errors": errors,
+        }
 
     def async_show_menu(self, *, step_id: str, menu_options: list):
         return {"type": "menu", "step_id": step_id, "menu_options": menu_options}

@@ -31,6 +31,7 @@ from ..const import (
     CONF_SCHEDULE_END_HOUR,
     CONF_SCHEDULE_START_HOUR,
 )
+from . import find_subentry_sharing_source_sensor
 
 # REVERTED from a real HH:MM TimeSelector back to a plain 24-hour decimal
 # number box. Confirmed live 2026-08-15: HA's TimeSelector renders in
@@ -166,6 +167,26 @@ class NimbusLoadSubentryFlowHandler(ConfigSubentryFlow):
         current_data = dict(subentry.data) if subentry is not None else {}
 
         if user_input is not None:
+            # nimbus issue #362 finding 4d (Mark Purcell, codebase
+            # review): a Load and/or Power Signal subentry pointed at
+            # the SAME source sensor as an existing one collides in
+            # sensor.py's object_id_from_source() entity_id namespace --
+            # see flows/__init__.py's own docstring for the full
+            # mechanism. Blocked here, at the source, rather than trying
+            # to retrofit disambiguation into entity_id generation
+            # itself (which would risk renaming already-live entities
+            # for the overwhelmingly common single-source case).
+            conflict = find_subentry_sharing_source_sensor(
+                self._get_entry(),
+                user_input[CONF_LOAD_SENSOR],
+                exclude_subentry_id=subentry.subentry_id if subentry else None,
+            )
+            if conflict is not None:
+                return self.async_show_form(
+                    step_id="user",
+                    data_schema=_schema(user_input),
+                    errors={"load_sensor": "duplicate_source_sensor"},
+                )
             title = self._derive_title(user_input[CONF_LOAD_SENSOR])
             if subentry is not None:
                 return self.async_update_and_abort(

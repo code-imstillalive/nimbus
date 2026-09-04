@@ -49,6 +49,7 @@ from ..const import (
     SIGNAL_ROLE_SOLAR,
     SIGNAL_ROLE_TEMPERATURE,
 )
+from . import find_subentry_sharing_source_sensor
 
 
 # nimbus issue #360 (Mark Purcell, codebase review): extracted from
@@ -128,6 +129,23 @@ class NimbusSignalSubentryFlowHandler(ConfigSubentryFlow):
         current_data = dict(subentry.data) if subentry is not None else {}
 
         if user_input is not None:
+            # nimbus issue #362 finding 4d (Mark Purcell, codebase
+            # review): see load_subentry.py's own identical check and
+            # flows/__init__.py's docstring for the full mechanism --
+            # a Load and/or Power Signal subentry pointed at the SAME
+            # source sensor as an existing one collides in sensor.py's
+            # object_id_from_source() entity_id namespace.
+            conflict = find_subentry_sharing_source_sensor(
+                self._get_entry(),
+                user_input[CONF_LOAD_SENSOR],
+                exclude_subentry_id=subentry.subentry_id if subentry else None,
+            )
+            if conflict is not None:
+                return self.async_show_form(
+                    step_id="user",
+                    data_schema=_schema(user_input),
+                    errors={"load_sensor": "duplicate_source_sensor"},
+                )
             title = self._derive_title(user_input[CONF_LOAD_SENSOR])
             if subentry is not None:
                 return self.async_update_and_abort(

@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.112] — 2026-09-05
+
+### Fixed
+- **#362 finding 4d: a Load or Power Signal subentry can no longer silently collide with another one on the same source sensor** ([#362](https://github.com/code-imstillalive/nimbus/issues/362), thanks @purcell-lab). `sensor.py`'s `object_id_from_source()` derives a forecast's entity_id purely from its own source sensor, with no subentry-scoping at all -- `_attr_unique_id` is already subentry-scoped and safe, but the entity_id itself is not: if a second Load and/or Power Signal subentry (both share the SAME entity_id namespace) pointed at the identical source sensor as an existing one, HA's entity registry would silently suffix the second one's real entity_id with `_2`, so any code path re-deriving the expected entity_id a second time (or a user/automation assuming the predictable name) would silently target whichever subentry happened to register first.
+  Fixed at the source rather than retrofitting disambiguation into entity_id generation (which would risk renaming already-live entities for the overwhelmingly common single-source case): a new shared helper, `flows.find_subentry_sharing_source_sensor()`, is called from both `load_subentry.py` and `signal_subentry.py`'s own `_async_step()` before creating/updating a subentry, rejecting the submission with a real, translated form error (`duplicate_source_sensor`) if another Load/Power Signal subentry already uses that sensor. Reconfiguring a subentry with its own unchanged sensor correctly does not flag itself.
+  13 new regression tests covering the shared helper directly plus both flows' real `_async_step()` behavior (rejects a collision across either subentry type, allows a genuinely new sensor, doesn't self-collide on reconfigure). Mutation-tested: removing the check was confirmed to fail the new tests first. Also fixed a real, pre-existing drift this session's own edits would otherwise have widened: `translations/en.json` had fallen out of sync with `strings.json` (this repo's own documented "keep byte-identical" rule) -- resynced in full, not just for the new strings.
+  This closes out every actionable finding in #362 -- the review's own "ideally via a shared `_NimbusStalePushMixin`" suggestion (extracting the push/staleness pattern out of `sensor.py`/`number.py`/`switch.py`/`sensor_flattened.py` entirely) remains open as its own separate, larger structural refactor.
+
 ## [0.94.111] — 2026-09-05
 
 ### Fixed

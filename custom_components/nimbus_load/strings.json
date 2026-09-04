@@ -173,6 +173,9 @@
             "expected_load_kw": "Optional, only meaningful alongside the schedule window above -- roughly how much power this load draws while actually running (e.g. 3.7 for a typical HWS element). Gives the model a sensible starting point for what 'on' looks like, refined further from real history as it retrains."
           }
         }
+      },
+      "error": {
+        "duplicate_source_sensor": "Another Load or Power Signal already uses this sensor. Pick a different one, or edit the existing entry instead of creating a duplicate."
       }
     },
     "power_signal": {
@@ -195,6 +198,9 @@
             "signal_role": "Battery/Solar/Grid are purely a labelling hint for the Topology dashboard card's auto-detection -- no effect on forecasting itself. Temperature/Humidity are different: they tell Nimbus this signal is NOT a power quantity, so the forecast entity gets a real °C/% unit instead of kW, and the coordinator skips a power-unit conversion that would otherwise fail every cycle. Leave as Other for anything else."
           }
         }
+      },
+      "error": {
+        "duplicate_source_sensor": "Another Load or Power Signal already uses this sensor. Pick a different one, or edit the existing entry instead of creating a duplicate."
       }
     },
     "power_source": {
