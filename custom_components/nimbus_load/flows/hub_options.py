@@ -997,7 +997,29 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
         # that was actually shown. Filtered to this wizard's own keys
         # only -- Forecaster/Switchboard/dashboard number.nimbus_solver_*
         # values are a completely separate concern, untouched by this.
-        self._solver_data: dict[str, Any] = {
+        #
+        # Seeding deferred out of __init__ (2026-09-04, live production
+        # crash on NUC1 immediately after upgrading to HA core 2026.9.0):
+        # `self.config_entry` is a property that HA core's own OptionsFlow
+        # deliberately raises ValueError("The config entry is not
+        # available during initialisation") on until the flow manager
+        # finishes attaching the entry, which only happens AFTER __init__
+        # returns. Reading it here made opening this options flow at all
+        # a hard 500, every time, confirmed live via the real traceback.
+        # `None` here is a genuine "not yet seeded" sentinel, not an
+        # empty dict -- see _ensure_solver_data_seeded() below.
+        self._solver_data: dict[str, Any] | None = None
+
+    def _ensure_solver_data_seeded(self) -> None:
+        """Seed self._solver_data from self.config_entry.options on first
+        real use -- safe here (unlike __init__) because every caller is an
+        async_step_* handler, invoked well after the flow manager has
+        attached the entry. A no-op once already seeded, so a later step
+        in the same wizard run never clobbers what an earlier step's
+        _absorb_step() already accumulated."""
+        if self._solver_data is not None:
+            return
+        self._solver_data = {
             k: v
             for k, v in self.config_entry.options.items()
             if k in _SOLVER_WIZARD_SCHEMA_KEYS
@@ -1150,6 +1172,8 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
         actually shown. Every other key in self._solver_data (seeded from
         stored options for a step not yet reached this run) is untouched.
         """
+        self._ensure_solver_data_seeded()
+        assert self._solver_data is not None
         self._solver_data.update(user_input)
         for marker in schema.schema:
             key = str(marker)
@@ -1159,6 +1183,7 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
     async def async_step_solver_battery(
         self, user_input: dict[str, Any] | None = None
     ) -> Any:
+        self._ensure_solver_data_seeded()
         if user_input is not None:
             self._absorb_step(_solver_battery_schema({}), user_input)
             return await self.async_step_solver_grid()

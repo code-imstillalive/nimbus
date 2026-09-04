@@ -410,11 +410,18 @@ def _full_solver_data() -> dict:
     }
 
 
-def test_init_seeds_solver_data_from_existing_options_filtered_to_wizard_keys():
-    """nimbus issue #341: __init__ used to start self._solver_data
-    completely empty. Constructed via the REAL __init__ (not the
-    __new__()-bypass _make_flow() helper) so this actually exercises the
-    fix, not a hand-set test double."""
+def test_init_defers_solver_data_seeding_past_config_entry_property_guard():
+    """2026-09-04, live production crash on NUC1: __init__ used to seed
+    self._solver_data eagerly by reading self.config_entry.options right
+    there -- but HA core's own OptionsFlow makes config_entry a property
+    that raises ValueError("The config entry is not available during
+    initialisation") until the flow manager attaches the entry, which
+    only happens AFTER __init__ returns. This test's own MagicMock
+    doesn't reproduce that guard (a plain attribute, not a raising
+    property), which is exactly why this bug shipped without a local
+    test catching it -- so this test instead asserts the real fix's own
+    contract: __init__ must never touch self.config_entry at all, and
+    self._solver_data starts as the None sentinel, not a real dict."""
     config_entry = MagicMock(
         options={
             CONF_SOLVER_BATTERY_SOC_SENSOR: "sensor.soc",
@@ -425,15 +432,25 @@ def test_init_seeds_solver_data_from_existing_options_filtered_to_wizard_keys():
     )
     flow = NimbusHubOptionsFlow(config_entry)
 
+    assert flow._solver_data is None
+
+    flow._ensure_solver_data_seeded()
     assert flow._solver_data == {
         CONF_SOLVER_BATTERY_SOC_SENSOR: "sensor.soc",
         CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.imp",
     }
 
 
-def test_init_with_no_existing_options_seeds_an_empty_solver_data():
+def test_ensure_solver_data_seeded_is_idempotent_and_seeds_empty_dict_when_no_options():
     flow = NimbusHubOptionsFlow(MagicMock(options={}))
+    flow._ensure_solver_data_seeded()
     assert flow._solver_data == {}
+
+    # A second call must never re-seed over real accumulated wizard data
+    # from a step already submitted this run.
+    flow._solver_data["some_key"] = "real value from this run"
+    flow._ensure_solver_data_seeded()
+    assert flow._solver_data == {"some_key": "real value from this run"}
 
 
 def test_solver_wizard_step_never_reached_this_run_keeps_its_stored_value():
