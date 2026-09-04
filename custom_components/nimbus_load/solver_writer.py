@@ -1922,7 +1922,21 @@ def parse_iso(s) -> datetime:
         # the off chance it's naive, matching what a bare "...Z"-suffixed
         # string would have meant on the REST-mode path above.
         return s if s.tzinfo is not None else s.replace(tzinfo=UTC)
-    return datetime.fromisoformat(s)
+    # nimbus issue #363 (Mark Purcell): a third-party source can genuinely
+    # publish an offset-less ISO string (e.g. "2026-09-04T12:00:00", no
+    # "Z"/"+00:00" suffix) -- datetime.fromisoformat() on that produces a
+    # NAIVE datetime, which every real caller of this function (sorting
+    # against other tz-aware timestamps in resample_forecast(),
+    # .astimezone() calls, PeriodGrid arithmetic) assumes never happens.
+    # Comparing a naive result against grid_times raises TypeError deep
+    # inside resample_forecast() -- and fetch_solar_source_safe()'s own
+    # except clause only catches HTTPError/URLError/KeyError/
+    # JSONDecodeError, so this took down the ENTIRE solve cycle with a
+    # traceback instead of the one source being safely dropped. Same
+    # "assume UTC for a genuinely naive value" treatment the datetime
+    # branch above already gets.
+    parsed = datetime.fromisoformat(s)
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
 
 
 def fetch_load_forecast_safe(entity_id: str) -> tuple[list[dict] | None, str | None]:
@@ -5563,10 +5577,26 @@ def main() -> None:
             urllib.error.URLError,
             KeyError,
             json.JSONDecodeError,
+            # nimbus issue #363 (Mark Purcell): parse_iso() now normalizes
+            # a naive timestamp to UTC rather than raising, but a source
+            # publishing a genuinely unparseable (non-ISO) time string
+            # still raises ValueError from datetime.fromisoformat() --
+            # this except clause never caught that at all, so a bad
+            # third-party source took down the ENTIRE solve cycle with a
+            # traceback instead of just being dropped from the blend,
+            # same as every other real failure mode here already is.
+            TypeError,
+            ValueError,
         ) as e:
-            print(
-                f"WARN: solar source {entity_id} unavailable ({e}) -- dropped from this solve's blend",
-                file=sys.stderr,
+            # nimbus issue #363: was print(..., file=sys.stderr) -- HA
+            # does not route container stdout/stderr into its own log or
+            # error_log, so this operationally-relevant warning (a real
+            # solar source dropping out of the blend) was invisible to
+            # anyone using the HA UI or `ha_get_logs`.
+            _LOGGER.warning(
+                "Nimbus: solar source %s unavailable (%s) -- dropped from this solve's blend",
+                entity_id,
+                e,
             )
             return None
 

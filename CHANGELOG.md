@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.79] — 2026-09-04
+
+### Fixed
+- **A naive third-party timestamp could crash the entire solve cycle** ([#363](https://github.com/code-imstillalive/nimbus/issues/363), thanks @purcell-lab, 2 of 5 findings). `parse_iso()` attached UTC to a naive *datetime object* but returned `datetime.fromisoformat(s)` completely unchanged for a *string* — naive if the source's own ISO string omitted a UTC offset (e.g. `"2026-09-04T12:00:00"`, no `Z`/`+00:00` suffix). `resample_forecast()` then compared that naive value against timezone-aware grid times, raising `TypeError: can't compare offset-naive and offset-aware datetimes` — and `fetch_solar_source_safe()`'s own `except` clause only caught `HTTPError`/`URLError`/`KeyError`/`JSONDecodeError`, so a real third-party source publishing offset-less timestamps took down the *entire* solve cycle with a traceback instead of that one source being safely dropped from the blend. Fixed by giving the string branch the exact same "assume UTC for a genuinely naive value" treatment the datetime-object branch already had, and adding `TypeError`/`ValueError` to `fetch_solar_source_safe()`'s own except clause as defense-in-depth for a genuinely unparseable (non-ISO) string, which still raises `ValueError` even after the `parse_iso()` fix. Also replaced that function's `print(..., file=sys.stderr)` with `_LOGGER.warning()` — HA doesn't route container stdout/stderr into its own log, so this operationally-relevant warning (a real solar source dropping out of the blend) was invisible to anyone using the HA UI or `ha_get_logs`. The other 3 findings in the same issue (23 more `print()`/silent-except sites, duplicated history-fetcher functions, and splitting the 1,788-line `main()`) are left for a dedicated pass. 7 new regression tests.
+
 ## [0.94.78] — 2026-09-04
 
 ### Fixed
