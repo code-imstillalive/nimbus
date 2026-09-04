@@ -19,6 +19,7 @@ reimplementation of it.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import sys
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -119,6 +120,46 @@ class TestWaitForInFlightSolveDirectly:
             # resolve normally afterwards.
             result = await future
             assert result is True
+
+        asyncio.run(_run())
+
+    def test_swallows_cancellederror_from_the_futures_own_original_awaiter(self):
+        """Reproduces a real CI failure (2026-09-05): async_unload_entry()
+        calls old_startup_task.cancel() on a Task that may be suspended
+        awaiting the SAME shared future this function also awaits.
+        Cancelling that Task propagates the cancellation into the future
+        itself (asyncio.shield() only protects against the OUTER wait
+        being cancelled, not the wrapped future being cancelled by some
+        other means) -- and CancelledError is not a subclass of
+        Exception, so it must be caught explicitly or it escapes this
+        function entirely, aborting whatever called it (in production,
+        async_unload_entry() mid-teardown, leaving platforms/timers
+        uncancelled -- confirmed live via a genuine "Lingering timer"
+        CI failure in a reload-loop test)."""
+
+        async def _run():
+            loop = asyncio.get_event_loop()
+            future: asyncio.Future = loop.create_future()
+            solver_runtime._in_flight_future = future
+            started = asyncio.Event()
+
+            async def _await_future_like_async_run_solve():
+                started.set()
+                return await future
+
+            original_awaiter = asyncio.ensure_future(
+                _await_future_like_async_run_solve()
+            )
+            await started.wait()
+            # Matches async_unload_entry()'s own old_startup_task.cancel()
+            # -- propagates into `future` since the task is suspended on it.
+            original_awaiter.cancel()
+
+            # The real regression: this must NOT raise.
+            await solver_runtime.wait_for_in_flight_solve(timeout=5.0)
+
+            with contextlib.suppress(asyncio.CancelledError):
+                await original_awaiter
 
         asyncio.run(_run())
 

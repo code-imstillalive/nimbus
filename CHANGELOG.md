@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.109] — 2026-09-05
+
+### Fixed
+- **Real CI-only regression from v0.94.108, caught same-day**: v0.94.108's new `wait_for_in_flight_solve()` didn't handle `asyncio.CancelledError` from its own shielded `await`, and CI's real `hass_integration` reload-loop test (`test_exactly_one_instance_survives_many_reloads`) failed deterministically (confirmed via `gh run rerun --failed`) with exactly that exception plus a "Lingering timer" error.
+  Root cause: `async_unload_entry()` calls `old_startup_task.cancel()` on the startup-retry task immediately before `wait_for_in_flight_solve()` runs. If that task was suspended awaiting the SAME shared future `wait_for_in_flight_solve()` also awaits (a real, expected timing window -- the startup-retry task genuinely reaches `await future` before `async_unload_entry` ever runs), asyncio's own Task machinery propagates the cancellation into the future itself. `asyncio.shield()` only protects against the *outer* wait being cancelled, not the wrapped future being cancelled by some other means, so that `CancelledError` legitimately escaped `asyncio.wait_for()`. Since `CancelledError` is not a subclass of `Exception` (Python 3.8+), the existing broad `except Exception:` never caught it -- it escaped `wait_for_in_flight_solve()` entirely, aborting `async_unload_entry()` mid-teardown and leaving platforms/timers uncancelled.
+  Fixed with an explicit `except asyncio.CancelledError:` handler: a cancelled future never ran at all, so there's nothing to wait for -- safe to log at debug and let teardown proceed. New regression test reproduces the exact mechanism (a real Task genuinely suspended on the shared future, then cancelled) and confirms `wait_for_in_flight_solve()` no longer raises; mutation-tested by removing the new handler and confirming the test fails with the identical `CancelledError` symptom seen on real CI.
+  Could not reproduce the original failure locally (this dev environment's Python/HA versions predate what the pinned `pytest-homeassistant-custom-component` dev extra now requires) -- root-caused entirely by reading the real CI traceback and reasoning through the exact `asyncio.shield()`/Task-cancellation interaction, then verified via a differential mutation test rather than an empirical local repro.
+
 ## [0.94.108] — 2026-09-05
 
 ### Fixed

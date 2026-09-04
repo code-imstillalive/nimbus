@@ -706,6 +706,29 @@ async def wait_for_in_flight_solve(timeout: float = _SLOW_CYCLE_THRESHOLD_S) -> 
             "proceeding with teardown anyway rather than blocking indefinitely",
             timeout,
         )
+    except asyncio.CancelledError:
+        # Real bug found live in CI (2026-09-05): async_unload_entry()
+        # calls old_startup_task.cancel() on the startup-retry task
+        # immediately before this function runs. If that task was
+        # suspended awaiting THIS SAME shared `future` (e.g. the
+        # executor job hadn't started running yet), asyncio's own Task
+        # machinery propagates the cancel into `future` itself --
+        # asyncio.shield() only protects against the OUTER wait being
+        # cancelled, not the wrapped future being cancelled by some
+        # other means, so that CancelledError legitimately propagates
+        # out of asyncio.wait_for() here. CancelledError is not a
+        # subclass of Exception (Python 3.8+), so the broader except
+        # below never caught it -- it was escaping this function
+        # entirely, aborting async_unload_entry() mid-teardown and
+        # leaving platforms/timers uncancelled (confirmed live: a real
+        # CI failure, "Lingering timer after job ..." +
+        # asyncio.exceptions.CancelledError, in a reload-loop test).
+        # A cancelled future never ran at all -- nothing to wait for,
+        # safe to just proceed with teardown.
+        _LOGGER.debug(
+            "Nimbus Solver: in-flight solve future was cancelled before "
+            "it started running -- nothing to wait for"
+        )
     except Exception:
         # The in-flight cycle's own failure (if any) was already logged by
         # _run_one_cycle()'s own except clauses -- this is purely about
