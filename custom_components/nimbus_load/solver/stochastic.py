@@ -90,6 +90,7 @@ from numpy.typing import NDArray
 from . import p2p_export
 from .elements import BatteryConfig, GridConfig, PeriodGrid
 from .lp import LPProblem
+from .network import DEFAULT_SOFT_SOC_PENALTY_MULTIPLIER
 
 
 @dataclass(frozen=True)
@@ -144,6 +145,7 @@ def build_stochastic_plan(
     scenario_weights: list[float],
     stochastic_start_period: int,
     load_kw: NDArray[np.float64] | None = None,
+    soft_soc_penalty_per_kwh: float | None = None,
 ) -> StochasticPlan:
     """Build and solve one genuine two-stage stochastic LP. Pure
     function, same discipline as build_plan() -- no I/O, no HA
@@ -162,6 +164,30 @@ def build_stochastic_plan(
     confidence-band data this household's own A0/A1 work already earns
     (see elements.py's own SolarConfig docstring). Defaults to zero
     (battery+grid+solar only, no load) if not given.
+
+    `soft_soc_penalty_per_kwh` (nimbus issue #354, Mark Purcell, defect
+    2): same soft-preference mechanism network.py's own build_plan() uses
+    (see its docstring for the full reasoning) -- min_soc_kwh/max_soc_kwh
+    are SCHEDULING PREFERENCES this LP tries to respect and recover
+    toward, not physical invariants. `battery.initial_soc_kwh` may
+    legitimately arrive below min_soc_kwh (BatteryConfig.__post_init__
+    was relaxed for #328 to allow this); before this fix, `soc{suffix}_t`
+    was hard-bounded to `[min_soc_kwh, max_soc_kwh]`, so a below-floor
+    start that couldn't recover within one period made the whole solve
+    infeasible -- the caller got `expected_total_cost=nan` and empty
+    arrays with no explanation why. `soc{suffix}_t` is now only ever
+    hard-bounded to the true physical range `[0, capacity_kwh]`; going
+    outside `[min_soc_kwh, max_soc_kwh]` costs a real penalty (this
+    parameter, $/kWh per period) via `underfill{suffix}_t`/
+    `overfill{suffix}_t` slack instead of being impossible. `None` (the
+    default) auto-derives the same way build_plan() does -- the max
+    across real import price, export price, and `battery.salvage_value`
+    (this module's own v1 terminal-value simplification -- see the
+    module docstring -- doesn't have terminal_value_breakpoints rates to
+    also consider the way build_plan() does). When `initial_soc_kwh`
+    starts inside `[min_soc_kwh, max_soc_kwh]` and every scenario's own
+    solar/load stays recoverable within it, this mechanism is a complete
+    no-op -- the plan is numerically identical to before this existed.
     """
     n = periods.n_periods
     hours = periods.hours
@@ -207,6 +233,21 @@ def build_stochastic_plan(
         msg = f"load_kw has {len(load)} periods, expected {n}"
         raise ValueError(msg)
 
+    if soft_soc_penalty_per_kwh is None:
+        # Same DEFAULT_SOFT_SOC_PENALTY_MULTIPLIER build_plan() uses, same
+        # "floor of 0.01 so a degenerate all-zero-price test still gets a
+        # genuine nonzero penalty" reasoning -- see that function's own
+        # comment. salvage_value stands in for terminal_value_breakpoints'
+        # own rate here (this module's v1 doesn't have breakpoints -- see
+        # module docstring), since it's the other real $/kWh-at-the-margin
+        # signal this LP has for "how much is a marginal kWh of SoC worth."
+        soft_soc_penalty_per_kwh = DEFAULT_SOFT_SOC_PENALTY_MULTIPLIER * max(
+            float(np.max(grid.import_price)) if len(grid.import_price) else 0.0,
+            float(np.max(grid.export_price)) if len(grid.export_price) else 0.0,
+            battery.salvage_value,
+            0.01,
+        )
+
     p = LPProblem()
     charge_cost_arr = np.broadcast_to(
         np.asarray(battery.charge_cost, dtype=np.float64), (n,)
@@ -222,6 +263,7 @@ def build_stochastic_plan(
         weight: float,
         prev_soc_ref: str | float,
         apply_terminal_value: bool,
+        prev_underfill_ref: str | None = None,
     ) -> tuple[
         list[str],
         list[str],
@@ -230,6 +272,7 @@ def build_stochastic_plan(
         list[str],
         list[str],
         dict[int, str],
+        list[str],
     ]:
         """Shared helper -- builds one family of charge/discharge/soc/
         grid_import/grid_export variables + their SoC-dynamics/balance/
@@ -242,6 +285,11 @@ def build_stochastic_plan(
         -- either the previous period in this same family, or, for
         stage 2's own first period, the SHARED stage-1 variable name --
         this is the real linking mechanism, no extra constraint needed.
+        `prev_underfill_ref` is the matching underfill{...}_t VARIABLE
+        NAME for whichever period `prev_soc_ref` (as a string) refers to
+        -- only meaningful when `prev_soc_ref` is a string; unused (may
+        be None) when it's a float, since a known constant needs no soft-
+        SoC slack of its own (see the discharge draw-cap section below).
 
         `apply_terminal_value`: real bug found and fixed while verifying
         this module against a hand-designed hedging scenario -- salvage_
@@ -276,9 +324,35 @@ def build_stochastic_plan(
             )
             for t in t_range
         }
+        # nimbus issue #354 (Mark Purcell, defect 2): soc{suffix}_t's only
+        # HARD bound is now the true physical range [0, capacity_kwh] --
+        # min_soc_kwh/max_soc_kwh are enforced as a SOFT preference via
+        # underfill/overfill below, exactly matching network.py's own
+        # #328 fix (see build_stochastic_plan()'s own docstring for the
+        # full "scheduling preference, not physical invariant" reasoning).
         soc = {
+            t: p.add_variable(f"soc{suffix}_{t}", lb=0.0, ub=battery.capacity_kwh)
+            for t in t_range
+        }
+        # underfill{suffix}_t = max(0, min_soc_kwh - soc{suffix}_t),
+        # overfill{suffix}_t = max(0, soc{suffix}_t - max_soc_kwh) -- both
+        # genuinely PINNED to their exact max(0, ...) value (not just
+        # upper-bounded) because they're COSTED below: minimizing total
+        # cost always drives a costed, otherwise-unconstrained-from-above
+        # slack down to the smallest value its own constraint permits.
+        # Same technique, same reuse-inside-the-discharge-draw-cap
+        # pattern, as network.py's own build_plan() -- see that
+        # function's own comment for why a naive re-relaxation there
+        # would otherwise reopen a real gaming vector.
+        underfill = {
+            t: p.add_variable(f"underfill{suffix}_{t}", lb=0.0, ub=battery.min_soc_kwh)
+            for t in t_range
+        }
+        overfill = {
             t: p.add_variable(
-                f"soc{suffix}_{t}", lb=battery.min_soc_kwh, ub=battery.max_soc_kwh
+                f"overfill{suffix}_{t}",
+                lb=0.0,
+                ub=battery.capacity_kwh - battery.max_soc_kwh,
             )
             for t in t_range
         }
@@ -336,6 +410,17 @@ def build_stochastic_plan(
                 p2p_export.set_export_bonus_cost(
                     p, export_bonus[t], t, grid, hours, weight=weight
                 )
+            # nimbus issue #354 (Mark Purcell, defect 2): a bare $/kWh
+            # per period on the STATE violation, deliberately NOT scaled
+            # by hours[t] -- same "a state penalty is the right physics,
+            # scaling only this side by period length breaks dominance on
+            # a sub-hour grid" reasoning as network.py's own #338 fix.
+            # Weighted by this family's own `weight` for the same reason
+            # every other cost term in this function is: stage 1's
+            # (certain) violation must outweigh a single scenario's own
+            # (probabilistic) violation in the shared objective.
+            p.set_cost(underfill[t], weight * soft_soc_penalty_per_kwh)
+            p.set_cost(overfill[t], weight * soft_soc_penalty_per_kwh)
 
         for t in t_range:
             terms = {
@@ -374,21 +459,77 @@ def build_stochastic_plan(
                 p2p_export.add_export_bonus_le_export_constraint(
                     p, export_bonus[t], grid_export[t]
                 )
+            # nimbus issue #354 (Mark Purcell, defect 2): soc{suffix}_t +
+            # underfill{suffix}_t >= min_soc_kwh; soc{suffix}_t -
+            # overfill{suffix}_t <= max_soc_kwh -- pins both slacks to
+            # their exact true violation amount (see this function's own
+            # underfill/overfill construction comment above).
+            p.add_ub_constraint(
+                {soc[t]: -1.0, underfill[t]: -1.0}, -battery.min_soc_kwh
+            )
+            p.add_ub_constraint({soc[t]: 1.0, overfill[t]: -1.0}, battery.max_soc_kwh)
             draw_coeff = hours[t] / battery.discharge_efficiency
             if t == t_range.start:
                 if isinstance(prev_soc_ref, str):
+                    # nimbus issue #354 (Mark Purcell, defect 2): as
+                    # originally written this implicitly forced
+                    # prev_soc_ref >= min_soc_kwh even at discharge[t]=0
+                    # (its own lb) -- silently reintroducing the hard
+                    # floor the soc/underfill/overfill relaxation above
+                    # exists to remove, exactly network.py's own #328
+                    # finding on this identical constraint shape. Folding
+                    # in prev_underfill_ref (pinned to exactly max(0,
+                    # min_soc_kwh - <that period's own soc>) by its own
+                    # cost) fixes it the same way: unchanged when that
+                    # period is at/above the floor, correctly forces
+                    # discharge[t]=0 when it's genuinely below.
                     p.add_ub_constraint(
-                        {discharge[t]: draw_coeff, prev_soc_ref: -1.0},
+                        {
+                            discharge[t]: draw_coeff,
+                            prev_soc_ref: -1.0,
+                            prev_underfill_ref: -1.0,
+                        },
                         -battery.min_soc_kwh,
                     )
                 else:
+                    # A known numeric constant (battery.initial_soc_kwh)
+                    # needs no underfill variable -- the true max(0, ...)
+                    # violation is already computable directly, same as
+                    # network.py's own t==0 case.
                     p.add_ub_constraint(
-                        {discharge[t]: draw_coeff}, prev_soc_ref - battery.min_soc_kwh
+                        {discharge[t]: draw_coeff},
+                        max(0.0, prev_soc_ref - battery.min_soc_kwh),
                     )
             else:
                 p.add_ub_constraint(
-                    {discharge[t]: draw_coeff, soc[t - 1]: -1.0}, -battery.min_soc_kwh
+                    {
+                        discharge[t]: draw_coeff,
+                        soc[t - 1]: -1.0,
+                        underfill[t - 1]: -1.0,
+                    },
+                    -battery.min_soc_kwh,
                 )
+            # nimbus issue #354 (Mark Purcell, defect 3): combined-
+            # direction caps, replicated verbatim from network.py's own
+            # #245/#266 fixes -- neither is closed by the wash-trade
+            # constraints above (those close SAME-PERIOD funding
+            # pathways; these close the physical "one DC current
+            # direction, one grid connection direction at a time" limit,
+            # which a same-period funding check alone doesn't reach --
+            # see network.py's own comment for the full real-household
+            # evidence). Bounds the combined magnitude (a true
+            # complementarity needs a MILP binary -- issue #238, tracked
+            # separately); on any normal row only one side is ever
+            # meaningfully nonzero, so this sits above both individual
+            # ub's already in force and changes nothing there.
+            p.add_ub_constraint(
+                {charge[t]: 1.0, discharge[t]: 1.0},
+                max(battery.max_charge_kw, battery.max_discharge_kw),
+            )
+            p.add_ub_constraint(
+                {grid_import[t]: 1.0, grid_export[t]: 1.0},
+                max(grid.import_limit_kw, grid.export_limit_kw),
+            )
 
         # Two-tier export bonus cumulative cap + tie-breaker (see
         # p2p_export.py's own module docstring) -- one call per family,
@@ -452,6 +593,13 @@ def build_stochastic_plan(
             # each variable's own real, absolute period index to group
             # correctly by real calendar day alongside stage 1's own.
             dict(export_bonus) if has_bonus else {},
+            # nimbus issue #354 (defect 2): this family's own underfill
+            # var names, in period order -- needed so the NEXT family
+            # (stage 2, linking back to stage 1's final period) can fold
+            # this family's own final underfill into ITS OWN first
+            # period's discharge draw-cap (see prev_underfill_ref's own
+            # docstring above).
+            [underfill[t] for t in t_range],
         )
 
     stage1_range = range(stochastic_start_period)
@@ -475,14 +623,17 @@ def build_stochastic_plan(
             list[str],
             list[str],
             dict[int, str],
+            list[str],
         ]
     ] = []
     stage2_range = range(stochastic_start_period, n)
     for s in range(n_scenarios):
+        prev_underfill: str | None = None
         if stochastic_start_period > 0:
             prev_ref: str | float = stage1_names[2][
                 -1
             ]  # shared stage-1 final soc variable name
+            prev_underfill = stage1_names[7][-1]  # shared stage-1 final underfill name
         else:
             prev_ref = battery.initial_soc_kwh
         names = _add_period_vars_and_constraints(
@@ -492,6 +643,7 @@ def build_stochastic_plan(
             weight=scenario_weights[s],
             prev_soc_ref=prev_ref,
             apply_terminal_value=True,
+            prev_underfill_ref=prev_underfill,
         )
         stage2_names.append(names)
 
@@ -575,9 +727,16 @@ def build_stochastic_plan(
     stage2_grid_export_all: list[NDArray[np.float64]] = []
     stage2_export_bonus_all: list[NDArray[np.float64]] = []
     for s in range(n_scenarios):
-        c_names, d_names, soc_names, gi_names, ge_names, bonus_names, _bonus_dict = (
-            stage2_names[s]
-        )
+        (
+            c_names,
+            d_names,
+            soc_names,
+            gi_names,
+            ge_names,
+            bonus_names,
+            _bonus_dict,
+            _underfill_names,
+        ) = stage2_names[s]
         stage2_charge_all.append(_extract(c_names))
         stage2_discharge_all.append(_extract(d_names))
         stage2_soc_all.append(_extract(soc_names))
