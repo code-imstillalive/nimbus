@@ -174,6 +174,16 @@ MIN_RESIDUALS_FOR_CALIBRATION = 10
 # confident zero-width band -- matches the source repo's own
 # "Calibrating..." cold-start concept.
 COLD_START_BAND_FRACTION = 0.3
+# nimbus issue #352 (Mark Purcell): a negative point_value (a real,
+# expected shape for a power-signal prediction under allow_negative --
+# e.g. "charging at 20kW") multiplied by COLD_START_BAND_FRACTION alone
+# produces a NEGATIVE half-width, silently inverting lower/upper at the
+# caller (coordinator.py) for the first ~10 update cycles after install
+# or a residual-file reset. A half-width is a magnitude, never signed --
+# abs() here, plus a small absolute floor so a genuinely-zero point_value
+# (e.g. a load never yet observed running) still gets a real, nonzero
+# cold-start band instead of a falsely-confident zero-width one.
+COLD_START_BAND_MIN_KW = 0.1
 MAX_RESIDUALS_STORED = 200
 
 # Genuine model-derived quantile bounds (2026-08-15) -- distinct from
@@ -794,13 +804,13 @@ def calibrated_band(
     ahead absolute residuals (coordinator.py owns collecting/persisting
     these -- this function is a pure calculation, no I/O, no state).
 
-    Returns 0.0 for a genuinely zero point_value with no residual data
-    at all (e.g. a load that's never been observed running) -- a
-    fraction-of-point-value fallback would also be zero in that case,
-    which is honest: there's nothing to base a band on yet.
+    Always a nonnegative magnitude, never signed -- callers add/subtract
+    this from point_value to get upper/lower, and a negative half-width
+    would silently invert that pair for a negative point_value (see
+    nimbus issue #352).
     """
     if len(residuals) < MIN_RESIDUALS_FOR_CALIBRATION:
-        return point_value * COLD_START_BAND_FRACTION
+        return max(abs(point_value) * COLD_START_BAND_FRACTION, COLD_START_BAND_MIN_KW)
     near_term_half_width = float(np.percentile(residuals, CONFORMAL_COVERAGE * 100))
     return near_term_half_width * float(np.sqrt(1 + max(0.0, lead_hours)))
 

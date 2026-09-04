@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.68] — 2026-09-04
+
+### Fixed
+- **A cold-start confidence band could invert `lower`/`upper` for a negative prediction** ([#352](https://github.com/code-imstillalive/nimbus/issues/352), thanks @purcell-lab). Before `MIN_RESIDUALS_FOR_CALIBRATION` real residuals exist (the first ~10 update cycles after install or a residual-file reset — and, more generally, any k-NN/naive-model signal, which always uses this residual-based fallback), `calibrated_band()` returned `point_value * COLD_START_BAND_FRACTION` directly. For a genuine negative prediction (e.g. a -20kW "charging" battery forecast under `allow_negative`), this produced a negative half-width — the coordinator's own `lower = v - band`/`upper = v + band` then silently published `lower > upper`, and the floor/ceiling clamp downstream never repairs an already-inverted pair. Now returns `max(abs(point_value) * COLD_START_BAND_FRACTION, COLD_START_BAND_MIN_KW)` — always a nonnegative magnitude, with a small absolute floor (0.1kW) so a genuinely-zero prediction still gets a real, nonzero band instead of a falsely-confident zero-width one. 6 new regression tests.
+
 ## [0.94.67] — 2026-09-04
 
 ### Fixed
