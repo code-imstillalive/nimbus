@@ -76,3 +76,12 @@ Legend: ✅ confirmed · ☑️ confirmed at code/test level only (not observabl
 ## Suggested immediate workaround for affected installs
 
 Until #372 ships, an install with `training_source: hybrid` or `lts` will not train. Switching the hub option to `recorder` and calling `nimbus_load.retrain` restores forecasts within a few minutes (recorder retention permitting). Not applied here — left for the operator.
+
+## Follow-up — v0.94.116 (08:08–08:20 AEST)
+
+v0.94.116 shipped the #372 fix while this report was being discussed. Upgraded the same install (HACS → restart 08:08) and re-ran the retrain checks:
+
+- **#372 confirmed fixed live.** No `AttributeError: 'float' object has no attribute 'tzinfo'` on the boot retrain or on two explicit `nimbus_load.retrain` calls (08:14, 08:18).
+- **Forecasts still absent.** Every retrain now stops at `Only 464–478 usable training points (need >= 500)`. LTS exists back to 2026-05-31 for all three sensors, so the hybrid path is fetching ~1 300 hourly rows and producing zero training rows from them: an hourly bucket on the 15-minute grid, the 45-minute staleness cap (#353) and the #350 observed-mask together leave every LTS-derived row without a `lag_short` value, and the row loop drops it. Filed as **#375**; the chain is now #372 (done) → #375 → #373 → #374.
+- **#374 reproduced again** at 08:15:04 and 08:15:27 on v0.94.116 once the coordinator published `forecast: []`.
+- Log level for `custom_components.nimbus_load` was raised to debug for one retrain and restored to warning afterwards. No hub options were changed.
