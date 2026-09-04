@@ -83,6 +83,7 @@ from .ml.model import (
     PredictionResult,
     TrainedModel,
     calibrated_band,
+    calibration_half_width,
     predict,
     train_model,
 )
@@ -1513,6 +1514,16 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         bound_floor = y_min - margin
         bound_ceiling = y_max + margin
 
+        # calibrated_band()'s np.percentile() call only depends on
+        # self._residuals, not on any single horizon point -- computed
+        # once here rather than once per horizon point (~385/tick,
+        # nimbus issue #366 finding 2) and reused below. None when there
+        # isn't enough residual history yet; calibrated_band() falls back
+        # to its own cold-start path in that case regardless.
+        half_width = (
+            None if has_model_bounds else calibration_half_width(self._residuals)
+        )
+
         points = []
         for i, (ts, v) in enumerate(zip(timestamps, preds, strict=True)):
             if has_model_bounds:
@@ -1523,7 +1534,9 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 lower, upper = result.model_lower[i], result.model_upper[i]
             else:
                 lead_hours = (ts - now_utc).total_seconds() / 3600
-                band = calibrated_band(self._residuals, v, lead_hours)
+                band = calibrated_band(
+                    self._residuals, v, lead_hours, near_term_half_width=half_width
+                )
                 lower = (v - band) if self._allow_negative else max(0.0, v - band)
                 upper = v + band
             lower = max(lower, bound_floor)

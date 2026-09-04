@@ -52,3 +52,39 @@ class TestCalibratedBandColdStartSign(unittest.TestCase):
         lower = point_value - band
         upper = point_value + band
         self.assertLessEqual(lower, upper)
+
+
+class TestCalibrationHalfWidthPrecomputation(unittest.TestCase):
+    """Regression test for nimbus issue #366 finding 2: coordinator.py's
+    per-horizon-point loop (~385 points/tick) used to call calibrated_band()
+    with no way to avoid recomputing np.percentile(residuals, ...) on every
+    single point even though residuals never changes within one cycle.
+    calibration_half_width() lets a caller compute that once and pass it
+    back in via calibrated_band()'s near_term_half_width override.
+    """
+
+    def test_returns_none_below_the_calibration_threshold(self):
+        residuals = [1.0] * (ml_model.MIN_RESIDUALS_FOR_CALIBRATION - 1)
+        self.assertIsNone(ml_model.calibration_half_width(residuals))
+
+    def test_matches_calibrated_bands_own_internal_computation(self):
+        residuals = [float(i % 7 + 1) for i in range(50)]
+        precomputed = ml_model.calibration_half_width(residuals)
+        self.assertIsNotNone(precomputed)
+
+        for lead_hours in (0.0, 1.5, 24.0):
+            band_internal = ml_model.calibrated_band(residuals, 10.0, lead_hours)
+            band_precomputed = ml_model.calibrated_band(
+                residuals, 10.0, lead_hours, near_term_half_width=precomputed
+            )
+            self.assertAlmostEqual(band_internal, band_precomputed, places=9)
+
+    def test_override_is_ignored_below_the_calibration_threshold(self):
+        # A caller that (incorrectly) passes a precomputed half-width
+        # alongside too-few residuals still gets the cold-start path,
+        # not a use of the (meaningless, in this case) override value.
+        band_with_bogus_override = ml_model.calibrated_band(
+            [], -20.0, 0.0, near_term_half_width=999.0
+        )
+        band_without_override = ml_model.calibrated_band([], -20.0, 0.0)
+        self.assertAlmostEqual(band_with_bogus_override, band_without_override)

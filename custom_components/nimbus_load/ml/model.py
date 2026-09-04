@@ -1231,8 +1231,32 @@ def train_model(
     )
 
 
+def calibration_half_width(residuals: list[float]) -> float | None:
+    """The percentile-based half-width calibrated_band() derives from
+    `residuals` alone (independent of any single point_value/lead_hours
+    pair) -- exposed separately so a caller invoking calibrated_band()
+    many times per cycle over the SAME residuals buffer (coordinator.py's
+    per-horizon-point loop, ~385 points/tick, nimbus issue #366 finding 2)
+    can compute this once and pass it back in via calibrated_band()'s
+    `near_term_half_width` override, instead of paying np.percentile()'s
+    cost again for every horizon point even though `residuals` never
+    changes within a single cycle.
+
+    Returns None when there isn't enough history yet -- calibrated_band()'s
+    cold-start path doesn't use this value at all (it scales off
+    point_value instead, which does vary per call).
+    """
+    if len(residuals) < MIN_RESIDUALS_FOR_CALIBRATION:
+        return None
+    return float(np.percentile(residuals, CONFORMAL_COVERAGE * 100))
+
+
 def calibrated_band(
-    residuals: list[float], point_value: float, lead_hours: float
+    residuals: list[float],
+    point_value: float,
+    lead_hours: float,
+    *,
+    near_term_half_width: float | None = None,
 ) -> float:
     """Half-width of the confidence band around `point_value` at
     `lead_hours` ahead, given a rolling buffer of real one-update-cycle-
@@ -1243,10 +1267,18 @@ def calibrated_band(
     this from point_value to get upper/lower, and a negative half-width
     would silently invert that pair for a negative point_value (see
     nimbus issue #352).
+
+    `near_term_half_width`, if given, is used instead of recomputing
+    np.percentile(residuals, ...) internally -- pass the result of
+    calibration_half_width() above when calling this in a loop over many
+    lead_hours/point_value pairs against the SAME residuals buffer.
+    Ignored (recomputed as before) when residuals is too short for
+    calibration at all, since the cold-start path never used it.
     """
     if len(residuals) < MIN_RESIDUALS_FOR_CALIBRATION:
         return max(abs(point_value) * COLD_START_BAND_FRACTION, COLD_START_BAND_MIN_KW)
-    near_term_half_width = float(np.percentile(residuals, CONFORMAL_COVERAGE * 100))
+    if near_term_half_width is None:
+        near_term_half_width = float(np.percentile(residuals, CONFORMAL_COVERAGE * 100))
     return near_term_half_width * float(np.sqrt(1 + max(0.0, lead_hours)))
 
 
@@ -1456,6 +1488,15 @@ def predict(
 
     raw_preds: list[float] = []
     raw_half_widths: list[float] = []
+    # gbrt_lower/gbrt_upper predictions don't feed the recursive lag chain
+    # (unlike the main model's own `pred`, which future steps' lag_at()
+    # calls depend on) -- collected here and batched into ONE predict()
+    # call after the loop instead of one call per step (nimbus issue #366
+    # finding 2: ~1.6s/cycle in the executor from 385 steps x 2 quantile
+    # models). GBRT.predict() is already vectorized across rows with no
+    # cross-row state, so batching is bit-identical to the old per-step
+    # calls, just without ~770 redundant Python/numpy call overheads.
+    x_rows_std: list[np.ndarray] = []
     # See the DAMPING_ALPHA-skip comment below, right before this list is
     # used -- tracked per-step here (not recomputed there) so it reflects
     # EXACTLY the same condition lag_at() itself used for this step's
@@ -1553,16 +1594,22 @@ def predict(
             pred = max(0.0, pred)
 
         if has_quantile_models:
-            lower_raw = float(trained.gbrt_lower.predict(x_row_std)[0])
-            upper_raw = float(trained.gbrt_upper.predict(x_row_std)[0])
-            # A quantile GBRT has no ordering constraint between separately
-            # fit lower/upper models -- clamp to a real non-negative band
-            # around the point estimate rather than trust the raw pair.
-            raw_half_widths.append(max(0.0, upper_raw - lower_raw) / 2.0)
+            x_rows_std.append(x_row_std[0])
 
         raw_preds.append(pred)
         buffer_times_utc.append(_dst_safe_key(ts))
         buffer_vals.append(pred)
+
+    if has_quantile_models and x_rows_std:
+        x_all_std = np.vstack(x_rows_std)
+        lower_raw_arr = trained.gbrt_lower.predict(x_all_std)
+        upper_raw_arr = trained.gbrt_upper.predict(x_all_std)
+        # A quantile GBRT has no ordering constraint between separately
+        # fit lower/upper models -- clamp to a real non-negative band
+        # around the point estimate rather than trust the raw pair.
+        raw_half_widths = [
+            float(hw) for hw in np.maximum(0.0, upper_raw_arr - lower_raw_arr) / 2.0
+        ]
 
     smoothed: list[float] = []
     prev = raw_preds[0] if raw_preds else 0.0

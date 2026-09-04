@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.106] — 2026-09-05
+
+### Fixed
+- **#366 finding 2: per-cycle event-loop percentile/quantile inference work reduced** ([#366](https://github.com/code-imstillalive/nimbus/issues/366), thanks @purcell-lab). Two independent per-cycle costs, both fixed the same way the review suggested ("compute q80 once per cycle and pass the scalar; batch quantile inference post-loop"):
+  - `coordinator.py`'s per-horizon-point loop (~385 points/tick) called `calibrated_band()`, which recomputed `np.percentile(self._residuals, ...)` from scratch on every single point even though `self._residuals` never changes within a cycle. `ml/model.py` gained `calibration_half_width(residuals)`, computed once per cycle before the loop; `calibrated_band()` gained an optional `near_term_half_width` keyword to skip its internal `np.percentile()` call when given a precomputed value (default `None` preserves the exact original behavior and signature for existing callers/tests).
+  - `ml/model.py`'s `predict()` called `trained.gbrt_lower.predict()`/`trained.gbrt_upper.predict()` once per horizon step (~385 times/tick, ~1.6s in the executor) even though neither quantile model feeds the recursive lag chain the way the main model's own prediction does. Each step's standardized feature row is now collected during the loop and both quantile models are called exactly once, in a single batch, after it — `GBRT.predict()` is already fully row-independent (see #366 finding 1's own equivalence test), so this is bit-identical to the old per-step calls, just without ~770 redundant per-call overheads.
+  Both changes verified with a call-count/shape assertion proving the batching genuinely happened (not just a cosmetic refactor) plus a numeric check against the old per-row/per-point calling convention on the same real inputs (`tests/test_predict_quantile_batching.py`, `tests/test_calibrated_band_cold_start_sign.py`). Mutation-tested: reverting either change back to its old per-step form was confirmed to fail the new tests before being trusted.
+  Finding 3 (pickle schema versioning) remains open.
+
 ## [0.94.105] — 2026-09-05
 
 ### Fixed
