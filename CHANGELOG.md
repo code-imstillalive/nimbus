@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.123] — 2026-09-05
+
+### Fixed
+- **`docs/real-world-integration/files/nimbus_solver_forecast_writer.py` (standalone/cron deployment) was missing the #370/#374 zero-load-fallback startup-race guard (#357).** Found live by Mark Purcell's own health-check on his independent install: a real HA restart followed by this script running via cron reproduced the exact confidently-wrong `status: optimal` plan #370/#374 already fixed on the native runtime weeks earlier. Ported `_is_transient_startup_load_forecast_error()` and `compute_forecast_coverage_hours()` (the #112 coverage metric, threaded through both `read_load_forecast_sensor()` and `sum_load_forecasts()`, surfaced on both sensor pushes and the per-cycle status line).
+
+### Added
+- **`tests/test_docs_writer_function_set_drift.py` (#357).** Diffs the integration copy's and standalone copy's top-level function sets against three explicit lists — permanent native-only, permanent cron-only, and a dated, real `KNOWN_OPEN_DRIFT` list of shared logic not yet ported. Any new, unlisted drift now fails CI instead of waiting for someone to notice a live chart.
+
 ## [0.94.122] — 2026-09-05
 
 ### Added
