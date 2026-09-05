@@ -37,6 +37,7 @@ Windows PowerShell Out-File):
   docker exec opt_homeassistant_1 python3 /tmp/lovelace_add_nimbus_solver_quality_card.py
   docker restart opt_homeassistant_1
 """
+
 import json
 
 CANDIDATE_FILES = [
@@ -97,13 +98,28 @@ QUALITY_MD_CARD = {
 
 QUALITY_TREND_CHART_CARD = {
     "type": "custom:apexcharts-card",
-    "header": {"show": True, "title": "Nimbus Solver Quality Trend", "show_states": False},
+    "header": {
+        "show": True,
+        "title": "Nimbus Solver Quality Trend",
+        "show_states": False,
+    },
     # Matches QUALITY_MD_CARD's own grid_options.rows -- see its comment.
     "grid_options": {"rows": 22},
     "graph_span": "30d",
     "yaxis": [
-        {"id": "epr", "min": 0, "max": 100, "decimals": 0, "apex_config": {"title": {"text": "EPR %"}}},
-        {"id": "regret", "opposite": True, "decimals": 0, "apex_config": {"title": {"text": "Regret $"}}},
+        {
+            "id": "epr",
+            "min": 0,
+            "max": 100,
+            "decimals": 0,
+            "apex_config": {"title": {"text": "EPR %"}},
+        },
+        {
+            "id": "regret",
+            "opposite": True,
+            "decimals": 0,
+            "apex_config": {"title": {"text": "Regret $"}},
+        },
     ],
     "series": [
         {
@@ -192,17 +208,23 @@ def main():
         if view is not None:
             target_path = path
             data = candidate
-            print(f"Found {ANCHOR_ENTITY} in {path}, view '{view.get('title', view.get('path'))}'")
+            print(
+                f"Found {ANCHOR_ENTITY} in {path}, view '{view.get('title', view.get('path'))}'"
+            )
             if section is not None:
                 section_cards = section.setdefault("cards", [])
                 r1 = _replace_or_append(section_cards, QUALITY_MD_CARD)
                 r2 = _replace_or_append(section_cards, QUALITY_TREND_CHART_CARD)
-                print(f"  {r1} quality card, {r2} trend chart card in that view's section ({len(section_cards)} cards total).")
+                print(
+                    f"  {r1} quality card, {r2} trend chart card in that view's section ({len(section_cards)} cards total)."
+                )
             else:
                 view_cards = view.setdefault("cards", [])
                 r1 = _replace_or_append(view_cards, QUALITY_MD_CARD)
                 r2 = _replace_or_append(view_cards, QUALITY_TREND_CHART_CARD)
-                print(f"  {r1} quality card, {r2} trend chart card in that view's card list ({len(view_cards)} cards total).")
+                print(
+                    f"  {r1} quality card, {r2} trend chart card in that view's card list ({len(view_cards)} cards total)."
+                )
             break
 
     if target_path is None:
@@ -212,14 +234,24 @@ def main():
             data = json.load(f)
         views = data["data"]["config"]["views"]
         if not views:
-            raise RuntimeError(f"{path} has no views at all -- cannot add a fallback section")
+            raise RuntimeError(
+                f"{path} has no views at all -- cannot add a fallback section"
+            )
         view = views[0]
         if "sections" in view:
-            view["sections"].append({"type": "grid", "cards": [QUALITY_MD_CARD, QUALITY_TREND_CHART_CARD]})
-            print(f"{ANCHOR_ENTITY} not found anywhere -- added a NEW section to {path}'s first view instead.")
+            view["sections"].append(
+                {"type": "grid", "cards": [QUALITY_MD_CARD, QUALITY_TREND_CHART_CARD]}
+            )
+            print(
+                f"{ANCHOR_ENTITY} not found anywhere -- added a NEW section to {path}'s first view instead."
+            )
         else:
-            view.setdefault("cards", []).extend([QUALITY_MD_CARD, QUALITY_TREND_CHART_CARD])
-            print(f"{ANCHOR_ENTITY} not found anywhere -- appended cards to {path}'s first view's card list instead.")
+            view.setdefault("cards", []).extend(
+                [QUALITY_MD_CARD, QUALITY_TREND_CHART_CARD]
+            )
+            print(
+                f"{ANCHOR_ENTITY} not found anywhere -- appended cards to {path}'s first view's card list instead."
+            )
         target_path = path
 
     with open(target_path, "w", encoding="utf-8") as f:

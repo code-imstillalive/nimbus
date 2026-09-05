@@ -158,7 +158,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 # Real, confirmed-live bug (2026-08-17): this script's own docstrings
@@ -207,9 +207,9 @@ sys.path.insert(
 # default) -- doesn't need to be inside an HA config tree at all, this
 # script never touches HA's filesystem, only imports the pure-Python
 # solver/ package from wherever it's checked out.
-from solver import elements, network  # noqa: E402
-from ml.blend import blend_forecast_array, cross_source_spread  # noqa: E402
-import numpy as np  # noqa: E402
+import numpy as np
+from ml.blend import blend_forecast_array, cross_source_spread
+from solver import elements, network
 
 if os.environ.get("SUPERVISOR_TOKEN") and not os.environ.get("HA_BASE"):
     # Running inside a real HA Supervisor app/add-on container with
@@ -1187,7 +1187,7 @@ def parse_iso(s) -> datetime:
         # (almost certainly true here), but fall back to explicit UTC on
         # the off chance it's naive, matching what a bare "...Z"-suffixed
         # string would have meant on the REST-mode path above.
-        return s if s.tzinfo is not None else s.replace(tzinfo=timezone.utc)
+        return s if s.tzinfo is not None else s.replace(tzinfo=UTC)
     return datetime.fromisoformat(s)
 
 
@@ -1878,7 +1878,7 @@ def fetch_price_history(entity_id: str, days: int = 5) -> list[tuple[datetime, f
     compute_5min_offset() below. Returns [] (callers fall back further)
     if history is genuinely unavailable -- must never crash the writer.
     """
-    end = datetime.now(timezone.utc)
+    end = datetime.now(UTC)
     start = end - timedelta(days=days)
     if _NATIVE_HASS is not None:
         # Real recorder history, in-process -- no HTTP round-trip at all.
@@ -1907,6 +1907,7 @@ def fetch_price_history(entity_id: str, days: int = 5) -> list[tuple[datetime, f
         # enrichment.
         try:
             import asyncio
+
             from homeassistant.components.recorder import (
                 get_instance as _recorder_get_instance,
             )
@@ -2876,12 +2877,10 @@ def main() -> None:
     # the wait too: a concurrent tick firing mid-wait sees the lock held
     # and exits cleanly, exactly the same overlap-guard behavior this
     # script already relies on elsewhere.
-    _wait_s = seconds_to_settlement_capture(
-        datetime.now(timezone.utc).astimezone(BRISBANE_TZ)
-    )
+    _wait_s = seconds_to_settlement_capture(datetime.now(UTC).astimezone(BRISBANE_TZ))
     if _wait_s > 0:
         print(
-            f"[{datetime.now(timezone.utc).astimezone(BRISBANE_TZ).isoformat()}] "
+            f"[{datetime.now(UTC).astimezone(BRISBANE_TZ).isoformat()}] "
             f"near a NEM settlement boundary -- waiting {_wait_s:.1f}s to catch the settled tick",
             flush=True,
         )
@@ -2892,11 +2891,7 @@ def main() -> None:
     # for the full "installable by anyone" context this closes.
     cfg = fetch_solver_config()
 
-    now = (
-        datetime.now(timezone.utc)
-        .astimezone(BRISBANE_TZ)
-        .replace(second=0, microsecond=0)
-    )
+    now = datetime.now(UTC).astimezone(BRISBANE_TZ).replace(second=0, microsecond=0)
     grid_times, period_hours_arr = build_tiered_grid(now)
     n_periods = len(grid_times)
 
@@ -4121,7 +4116,7 @@ def main() -> None:
 if __name__ == "__main__":
     if not acquire_lock():
         print(
-            f"[{datetime.now(timezone.utc).astimezone(BRISBANE_TZ).isoformat()}] previous run still in progress -- skipping this tick",
+            f"[{datetime.now(UTC).astimezone(BRISBANE_TZ).isoformat()}] previous run still in progress -- skipping this tick",
             flush=True,
         )
         sys.exit(0)

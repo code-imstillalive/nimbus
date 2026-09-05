@@ -89,11 +89,12 @@ values, not universal defaults):
   docker exec opt_homeassistant_1 python3 /tmp/lovelace_build_merged_forecast_chart.py
   docker restart opt_homeassistant_1
 """
+
 import colorsys
 import json
 import time
-import urllib.request
 import urllib.error
+import urllib.request
 
 LOVELACE_PATH = "/config/.storage/lovelace.dashboard_nimbus"
 TOKEN_PATH = "/tmp/.ha_token"
@@ -111,7 +112,9 @@ CARD_TITLE = "Nimbus Power Signals and Loads Forecasts"
 # block further down for the full history/reasoning behind this one
 # specific entity, including why it's deliberately NOT part of either
 # generic discovery loop below.
-WHOLE_HOUSE_FORECAST_ENTITY = "sensor.nimbus_cb_total_combined_power_adjusted_kw_forecast"
+WHOLE_HOUSE_FORECAST_ENTITY = (
+    "sensor.nimbus_cb_total_combined_power_adjusted_kw_forecast"
+)
 
 # Per-signal styling (2026-08-15, explicit ask), matched by keyword in
 # the entity_id rather than an exact 3-entity hardcoded list -- stays
@@ -122,9 +125,23 @@ WHOLE_HOUSE_FORECAST_ENTITY = "sensor.nimbus_cb_total_combined_power_adjusted_kw
 # three signals that's never negative, so a solid area fill would
 # otherwise look identical to a load's own "deterministic mode" shading;
 # dashed keeps it visually distinct at a glance.
-_STYLE_BATTERY = {"color": "#8BC34A", "type": "area", "opacity": 0.2, "stroke_width": 2}  # light green, 20% fill
-_STYLE_GRID = {"color": "#64B5F6", "type": "area", "opacity": 0.2, "stroke_width": 2}  # light blue, 20% fill
-_STYLE_SOLAR = {"color": "#FF9800", "stroke_dash": 6, "stroke_width": 3}  # amber/orange, dashed, thicker
+_STYLE_BATTERY = {
+    "color": "#8BC34A",
+    "type": "area",
+    "opacity": 0.2,
+    "stroke_width": 2,
+}  # light green, 20% fill
+_STYLE_GRID = {
+    "color": "#64B5F6",
+    "type": "area",
+    "opacity": 0.2,
+    "stroke_width": 2,
+}  # light blue, 20% fill
+_STYLE_SOLAR = {
+    "color": "#FF9800",
+    "stroke_dash": 6,
+    "stroke_width": 3,
+}  # amber/orange, dashed, thicker
 
 
 def _style_for(entity_id: str) -> dict:
@@ -164,7 +181,7 @@ _LOAD_SUFFIXES = (" Power Forecast", " Power")
 
 
 def _short_load_name(friendly_name: str) -> str:
-    """"CB-PW HWS L1 Power Forecast" -> "CB-PW HWS L1" -- strips only the
+    """ "CB-PW HWS L1 Power Forecast" -> "CB-PW HWS L1" -- strips only the
     trailing " Power"/" Power Forecast", which is genuinely redundant on
     a chart where every single series already is a power forecast.
     Nothing else gets touched.
@@ -179,8 +196,7 @@ def _short_load_name(friendly_name: str) -> str:
     """
     name = friendly_name
     for suffix in _LOAD_SUFFIXES:
-        if name.endswith(suffix):
-            name = name[: -len(suffix)]
+        name = name.removesuffix(suffix)
     return name.strip()
 
 
@@ -199,7 +215,7 @@ def _hash_color_for(entity_id: str) -> str:
         h = (h * 31 + ord(ch)) & 0xFFFFFFFF
     hue = (h % 360) / 360.0
     r, g, b = colorsys.hls_to_rgb(hue, 0.55, 0.55)
-    return "#{:02X}{:02X}{:02X}".format(int(r * 255), int(g * 255), int(b * 255))
+    return f"#{int(r * 255):02X}{int(g * 255):02X}{int(b * 255):02X}"
 
 
 # Real, confirmed-necessary overrides on top of the hash default -- see
@@ -274,7 +290,9 @@ all_states = _fetch_states()
 for _attempt in range(6):
     if any(s["entity_id"] == WHOLE_HOUSE_FORECAST_ENTITY for s in all_states):
         break
-    print(f"WHOLE_HOUSE_FORECAST_ENTITY not found yet (attempt {_attempt + 1}/6) -- retrying in 3s...")
+    print(
+        f"WHOLE_HOUSE_FORECAST_ENTITY not found yet (attempt {_attempt + 1}/6) -- retrying in 3s..."
+    )
     time.sleep(3)
     all_states = _fetch_states()
 
@@ -285,7 +303,8 @@ for _attempt in range(6):
 # has to be pulled in as its own explicit cross-reference instead --
 # confirmed live 2026-08-22, not a bug, a deliberate/necessary design).
 signal_forecasts = [
-    s for s in all_states
+    s
+    for s in all_states
     if s["entity_id"].startswith("sensor.nimbus_")
     and s["entity_id"].endswith("_power_forecast")
     and s.get("attributes", {}).get("subentry_type") == "power_signal"
@@ -297,7 +316,8 @@ assert signal_forecasts, (
 )
 
 load_forecasts = [
-    s for s in all_states
+    s
+    for s in all_states
     if s["entity_id"].startswith("sensor.nimbus_")
     and s["entity_id"].endswith("_power_forecast")
     and s.get("attributes", {}).get("subentry_type") == "load"
@@ -405,18 +425,20 @@ for s in sorted(signal_forecasts, key=lambda s: s["entity_id"]):
     # for why "(lower bound)"/"(upper bound)" replaced an earlier,
     # genuinely misleading "(min)"/"(max)" label.
     for label, gen in (("lower bound", lower_gen), ("upper bound", upper_gen)):
-        series.append({
-            "entity": s["entity_id"],
-            "name": f"{name} ({label})",
-            "extend_to": False,
-            "data_generator": gen,
-            "color": band_color,
-            "opacity": 0.85,
-            "stroke_width": 2,
-            "stroke_dash": 4,
-            "yaxis_id": "power",
-            "show": {"in_header": False, "in_legend": True},
-        })
+        series.append(
+            {
+                "entity": s["entity_id"],
+                "name": f"{name} ({label})",
+                "extend_to": False,
+                "data_generator": gen,
+                "color": band_color,
+                "opacity": 0.85,
+                "stroke_width": 2,
+                "stroke_dash": 4,
+                "yaxis_id": "power",
+                "show": {"in_header": False, "in_legend": True},
+            }
+        )
 
 # Temp/Humidity (2026-08-15, explicit ask), on hidden overlay axes --
 # same established pattern as this project's own LV-GRAPH chart. Real
@@ -424,15 +446,17 @@ for s in sorted(signal_forecasts, key=lambda s: s["entity_id"]):
 # Temp/Humidity sensors: sensor.archerfield_temp (degC),
 # sensor.archerfield_humidity (%). Kept in the HEADER group
 # (2026-08-22 swap) alongside the power signals.
-series.append({
-    "entity": "sensor.archerfield_temp",
-    "name": "Temp",
-    "extend_to": False,
-    "color": "red",
-    "stroke_width": 1.5,
-    "yaxis_id": "temp",
-    "show": {"in_header": True, "in_legend": True},
-})
+series.append(
+    {
+        "entity": "sensor.archerfield_temp",
+        "name": "Temp",
+        "extend_to": False,
+        "color": "red",
+        "stroke_width": 1.5,
+        "yaxis_id": "temp",
+        "show": {"in_header": True, "in_legend": True},
+    }
+)
 # Forecast extension (2026-08-15, explicit ask: "can it show forecasted
 # as well?") -- sensor.pirateweather_hourly_forecast's own forecast
 # array carries BOTH temperature and humidity, so one real forecast
@@ -440,37 +464,43 @@ series.append({
 # series already carries that) to avoid a duplicate-looking entry.
 temp_fc_gen = "return entity.attributes.forecast.map(p => [new Date(p.datetime).getTime(), p.temperature]);\n"
 humidity_fc_gen = "return entity.attributes.forecast.map(p => [new Date(p.datetime).getTime(), p.humidity]);\n"
-series.append({
-    "entity": "sensor.pirateweather_hourly_forecast",
-    "name": "Temp (forecast)",
-    "extend_to": False,
-    "data_generator": temp_fc_gen,
-    "color": "red",
-    "stroke_width": 1.5,
-    "stroke_dash": 3,
-    "yaxis_id": "temp",
-    "show": {"in_header": False, "in_legend": False},
-})
-series.append({
-    "entity": "sensor.archerfield_humidity",
-    "name": "Humidity",
-    "extend_to": False,
-    "color": "#26C6DA",
-    "stroke_width": 1.5,
-    "yaxis_id": "humidity",
-    "show": {"in_header": True, "in_legend": True},
-})
-series.append({
-    "entity": "sensor.pirateweather_hourly_forecast",
-    "name": "Humidity (forecast)",
-    "extend_to": False,
-    "data_generator": humidity_fc_gen,
-    "color": "#26C6DA",
-    "stroke_width": 1.5,
-    "stroke_dash": 3,
-    "yaxis_id": "humidity",
-    "show": {"in_header": False, "in_legend": False},
-})
+series.append(
+    {
+        "entity": "sensor.pirateweather_hourly_forecast",
+        "name": "Temp (forecast)",
+        "extend_to": False,
+        "data_generator": temp_fc_gen,
+        "color": "red",
+        "stroke_width": 1.5,
+        "stroke_dash": 3,
+        "yaxis_id": "temp",
+        "show": {"in_header": False, "in_legend": False},
+    }
+)
+series.append(
+    {
+        "entity": "sensor.archerfield_humidity",
+        "name": "Humidity",
+        "extend_to": False,
+        "color": "#26C6DA",
+        "stroke_width": 1.5,
+        "yaxis_id": "humidity",
+        "show": {"in_header": True, "in_legend": True},
+    }
+)
+series.append(
+    {
+        "entity": "sensor.pirateweather_hourly_forecast",
+        "name": "Humidity (forecast)",
+        "extend_to": False,
+        "data_generator": humidity_fc_gen,
+        "color": "#26C6DA",
+        "stroke_width": 1.5,
+        "stroke_dash": 3,
+        "yaxis_id": "humidity",
+        "show": {"in_header": False, "in_legend": False},
+    }
+)
 
 # Whole House Load (2026-08-16, real ask: "during the day i cannot see
 # load either") -- NOT part of either generic discovery loop above by
@@ -483,28 +513,34 @@ series.append({
 # header-vs-legend placement.
 _load_fc_gen = "return entity.attributes.forecast.map(p => [new Date(p.time).getTime(), p.value]);\n"
 if any(s["entity_id"] == WHOLE_HOUSE_FORECAST_ENTITY for s in all_states):
-    series.append({
-        "entity": _real_entity_for(WHOLE_HOUSE_FORECAST_ENTITY),
-        "name": "Whole House Load (history)",
-        "extend_to": False,
-        "color": "#E0E0E0",
-        "stroke_width": 3,
-        "yaxis_id": "load",
-        "show": {"in_header": False, "in_legend": False},
-    })
-    series.append({
-        "entity": WHOLE_HOUSE_FORECAST_ENTITY,
-        "name": "Whole House Load",
-        "extend_to": False,
-        "data_generator": _load_fc_gen,
-        "color": "#E0E0E0",
-        "stroke_width": 3,
-        "yaxis_id": "load",
-        "show": {"in_header": False, "in_legend": True, "legend_value": True},
-    })
+    series.append(
+        {
+            "entity": _real_entity_for(WHOLE_HOUSE_FORECAST_ENTITY),
+            "name": "Whole House Load (history)",
+            "extend_to": False,
+            "color": "#E0E0E0",
+            "stroke_width": 3,
+            "yaxis_id": "load",
+            "show": {"in_header": False, "in_legend": False},
+        }
+    )
+    series.append(
+        {
+            "entity": WHOLE_HOUSE_FORECAST_ENTITY,
+            "name": "Whole House Load",
+            "extend_to": False,
+            "data_generator": _load_fc_gen,
+            "color": "#E0E0E0",
+            "stroke_width": 3,
+            "yaxis_id": "load",
+            "show": {"in_header": False, "in_legend": True, "legend_value": True},
+        }
+    )
 else:
-    print(f"WARNING: WHOLE_HOUSE_FORECAST_ENTITY ({WHOLE_HOUSE_FORECAST_ENTITY}) not found live -- "
-          f"chart will have no 'Whole House Load' series this run.")
+    print(
+        f"WARNING: WHOLE_HOUSE_FORECAST_ENTITY ({WHOLE_HOUSE_FORECAST_ENTITY}) not found live -- "
+        f"chart will have no 'Whole House Load' series this run."
+    )
 
 # Nimbus SOLVER's own proposed 24h plan (2026-08-16, direct ask). A real
 # optimizer decision -- NOT a Forecaster prediction, hence "(proposed)"
@@ -518,52 +554,60 @@ _solver_battery_gen = "return entity.attributes.forecast.map(p => [new Date(p.ti
 _solver_soc_gen = "return entity.attributes.forecast.map(p => [new Date(p.time).getTime(), p.soc_pct]);\n"
 _solver_grid_import_gen = "return entity.attributes.forecast.map(p => [new Date(p.time).getTime(), p.grid_import_kw]);\n"
 _solver_grid_export_gen = "return entity.attributes.forecast.map(p => [new Date(p.time).getTime(), -p.grid_export_kw]);\n"
-series.append({
-    "entity": "sensor.nimbus_solver_battery_forecast",
-    "name": "Solver Battery (proposed)",
-    "extend_to": False,
-    "data_generator": _solver_battery_gen,
-    "yaxis_id": "power",
-    "color": "#AB47BC",
-    "type": "area",
-    "opacity": 0.2,
-    "stroke_width": 2.5,
-    "stroke_dash": 2,
-    "show": {"in_header": True, "in_legend": True},
-})
-series.append({
-    "entity": "sensor.nimbus_solver_battery_forecast",
-    "name": "Solver Grid import (proposed)",
-    "extend_to": False,
-    "data_generator": _solver_grid_import_gen,
-    "yaxis_id": "power",
-    "color": "#9575CD",
-    "stroke_width": 1.5,
-    "stroke_dash": 2,
-    "show": {"in_header": False, "in_legend": True},
-})
-series.append({
-    "entity": "sensor.nimbus_solver_battery_forecast",
-    "name": "Solver Grid export (proposed)",
-    "extend_to": False,
-    "data_generator": _solver_grid_export_gen,
-    "yaxis_id": "power",
-    "color": "#4DB6AC",
-    "stroke_width": 1.5,
-    "stroke_dash": 2,
-    "show": {"in_header": False, "in_legend": True},
-})
-series.append({
-    "entity": "sensor.nimbus_solver_battery_forecast",
-    "name": "Solver SoC % (proposed)",
-    "extend_to": False,
-    "data_generator": _solver_soc_gen,
-    "yaxis_id": "soc",
-    "color": "#C2185B",
-    "stroke_width": 4,
-    "stroke_dash": 8,
-    "show": {"in_header": True, "in_legend": True},
-})
+series.append(
+    {
+        "entity": "sensor.nimbus_solver_battery_forecast",
+        "name": "Solver Battery (proposed)",
+        "extend_to": False,
+        "data_generator": _solver_battery_gen,
+        "yaxis_id": "power",
+        "color": "#AB47BC",
+        "type": "area",
+        "opacity": 0.2,
+        "stroke_width": 2.5,
+        "stroke_dash": 2,
+        "show": {"in_header": True, "in_legend": True},
+    }
+)
+series.append(
+    {
+        "entity": "sensor.nimbus_solver_battery_forecast",
+        "name": "Solver Grid import (proposed)",
+        "extend_to": False,
+        "data_generator": _solver_grid_import_gen,
+        "yaxis_id": "power",
+        "color": "#9575CD",
+        "stroke_width": 1.5,
+        "stroke_dash": 2,
+        "show": {"in_header": False, "in_legend": True},
+    }
+)
+series.append(
+    {
+        "entity": "sensor.nimbus_solver_battery_forecast",
+        "name": "Solver Grid export (proposed)",
+        "extend_to": False,
+        "data_generator": _solver_grid_export_gen,
+        "yaxis_id": "power",
+        "color": "#4DB6AC",
+        "stroke_width": 1.5,
+        "stroke_dash": 2,
+        "show": {"in_header": False, "in_legend": True},
+    }
+)
+series.append(
+    {
+        "entity": "sensor.nimbus_solver_battery_forecast",
+        "name": "Solver SoC % (proposed)",
+        "extend_to": False,
+        "data_generator": _solver_soc_gen,
+        "yaxis_id": "soc",
+        "color": "#C2185B",
+        "stroke_width": 4,
+        "stroke_dash": 8,
+        "show": {"in_header": True, "in_legend": True},
+    }
+)
 
 card = {
     "type": "custom:apexcharts-card",
@@ -586,14 +630,25 @@ card = {
         # (positive/negative means something different per series:
         # import vs export, discharge vs charge).
         "annotations": {
-            "yaxis": [{
-                "y": 0, "borderColor": "#FFFFFF", "strokeDashArray": 0,
-                "borderWidth": 1.5, "opacity": 0.5,
-            }]
+            "yaxis": [
+                {
+                    "y": 0,
+                    "borderColor": "#FFFFFF",
+                    "strokeDashArray": 0,
+                    "borderWidth": 1.5,
+                    "opacity": 0.5,
+                }
+            ]
         },
     },
     "yaxis": [
-        {"id": "power", "min": -40, "max": 40, "decimals": 0, "apex_config": {"tickAmount": 16, "title": {"text": "kW"}}},
+        {
+            "id": "power",
+            "min": -40,
+            "max": 40,
+            "decimals": 0,
+            "apex_config": {"tickAmount": 16, "title": {"text": "kW"}},
+        },
         {"id": "temp", "show": False, "min": -40, "max": 40},
         {"id": "humidity", "show": False, "min": 0, "max": 100},
         # "load" -- min/max matches "power" EXACTLY (2026-08-22 fix,
@@ -604,7 +659,14 @@ card = {
         # power's own visible gridlines, so it must match exactly, not
         # just share the same zero-alignment.
         {"id": "load", "show": False, "min": -40, "max": 40},
-        {"id": "soc", "show": True, "opposite": True, "min": -100, "max": 100, "apex_config": {"title": {"text": "SoC %"}}},
+        {
+            "id": "soc",
+            "show": True,
+            "opposite": True,
+            "min": -100,
+            "max": 100,
+            "apex_config": {"title": {"text": "SoC %"}},
+        },
     ],
     "series": series,
 }
@@ -626,7 +688,10 @@ def _find_card(title: str):
         for section in view.get("sections", []):
             cards = section.get("cards", [])
             for i, c in enumerate(cards):
-                if c.get("type") == "custom:apexcharts-card" and c.get("header", {}).get("title") == title:
+                if (
+                    c.get("type") == "custom:apexcharts-card"
+                    and c.get("header", {}).get("title") == title
+                ):
                     return cards, i
     return None
 
@@ -646,8 +711,10 @@ else:
 with open(LOVELACE_PATH, "w", encoding="utf-8") as f:
     json.dump(data, f)
 
-print(f"{action} '{CARD_TITLE}' card with {len(series)} series ({len(load_forecasts)} loads, "
-      f"{len(signal_forecasts)} power signals + Whole House + Solver + Temp/Humidity). Saved.")
+print(
+    f"{action} '{CARD_TITLE}' card with {len(series)} series ({len(load_forecasts)} loads, "
+    f"{len(signal_forecasts)} power signals + Whole House + Solver + Temp/Humidity). Saved."
+)
 for e in series:
     tag = " [standout]" if e.get("opacity") == 0.5 else ""
     print(f"  {e['name']}{tag}  <-  {e['entity']}")

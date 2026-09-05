@@ -56,7 +56,7 @@ HA instance isn't reachable at its default mDNS hostname) before running
 import json
 import os
 import urllib.request
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -161,7 +161,7 @@ def capture_load() -> dict:
 
 
 def main() -> None:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     now_bris = now.astimezone(BRISBANE_TZ)
 
     snapshot = {

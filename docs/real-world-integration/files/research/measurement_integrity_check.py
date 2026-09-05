@@ -58,7 +58,7 @@ import json
 import os
 import urllib.error
 import urllib.request
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 BRISBANE_TZ = ZoneInfo("Australia/Brisbane")
@@ -75,9 +75,9 @@ with open(TOKEN_PATH, encoding="utf-8") as f:
 
 def fetch_history_range(entity_id: str, start: datetime, end: datetime) -> list[tuple[datetime, float]]:
     url = (
-        f"{HA_BASE}/api/history/period/{start.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')}Z"
+        f"{HA_BASE}/api/history/period/{start.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z"
         f"?filter_entity_id={entity_id}"
-        f"&end_time={end.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')}Z&minimal_response"
+        f"&end_time={end.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z&minimal_response"
     )
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {TOKEN}"})
     try:
@@ -129,7 +129,7 @@ def fetch_confirmed(day_str: str) -> dict | None:
 def main() -> None:
     dates = [datetime(2026, 8, 16).date(), datetime(2026, 8, 17).date(), datetime(2026, 8, 18).date()]
 
-    print(f"Measurement integrity check -- real export volume vs LocalVolts' own settled meter")
+    print("Measurement integrity check -- real export volume vs LocalVolts' own settled meter")
     print(f"Strict tolerance (Mark Purcell's own stated bar): {STRICT_TOLERANCE_PCT}%\n")
     print(f"{'Date':<12} {'Our recon (kWh)':>17} {'LV confirmed (kWh)':>20} {'Deviation':>12} {'Within 1%?':>12}")
     print("=" * 78)

@@ -18,6 +18,7 @@ Run inside the HA container:
 Then:
   docker restart opt_homeassistant_1
 """
+
 import json
 
 import yaml
@@ -31,6 +32,7 @@ LOVELACE_PATH = "/config/.storage/lovelace.dashboard_nimbus"
 # -- HA only loads what configuration.yaml's own include directives name,
 # and nothing references this file.
 TOPOLOGY_PATH = "/config/topology_map.yaml"
+
 
 def load_topology():
     with open(TOPOLOGY_PATH) as f:
@@ -97,8 +99,10 @@ def main():
     with open(LOVELACE_PATH, "w") as f:
         json.dump(data, f)
 
-    print(f"Topology view generated: 1 diagram card "
-          f"({len(topo['inverters'])} inverters, loads auto-discovered live).")
+    print(
+        f"Topology view generated: 1 diagram card "
+        f"({len(topo['inverters'])} inverters, loads auto-discovered live)."
+    )
 
 
 if __name__ == "__main__":

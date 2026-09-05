@@ -97,9 +97,14 @@ jobs:
         # family findings ruff's expanded default ruleset now surfaces).
         run: pip install "ruff==0.16.4"
       - name: Ruff format check
-        run: ruff format --check custom_components/ tests/
+        # docs/real-world-integration/files/ added per Mark Purcell's own
+        # #358-closing scope recommendation (2026-09-05): these are the
+        # deployment scripts a real cron/standalone install actually runs
+        # -- research/ stays excluded deliberately, it's one-off analysis
+        # code, same lower-priority hygiene category as #364.
+        run: ruff format --check custom_components/ tests/ docs/real-world-integration/files/ --exclude research
       - name: Ruff lint
-        run: ruff check custom_components/ tests/
+        run: ruff check custom_components/ tests/ docs/real-world-integration/files/ --exclude research
 
   # ---------------------------------------------------------------------------
   # ADVISORY: Type Check (mypy).
