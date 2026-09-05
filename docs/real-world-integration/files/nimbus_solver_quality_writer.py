@@ -69,7 +69,11 @@ project):
   # against lv_p2p_daily_recalibrate.py's own 06:00 run needed, a missed
   # early tick just retries a minute later.
 
-Token: /home/homehub/.ha_token (same file every other writer script uses)
+Token: /home/homehub/.ha_token (same file every other writer script uses;
+override via HA_TOKEN_PATH, override HA_BASE if HA isn't reachable at
+localhost:8123 from wherever this runs, override NIMBUS_SOLVER_PATH if
+your own solver/ clone lives somewhere other than this exact NUC path --
+see nimbus_solver_forecast_writer.py's own equivalent comment for why).
 State file (per-day rolling quality history, same /opt-root-owned
 gotcha as every other new file in this project -- pre-`sudo touch` +
 `chown` on first deploy): /opt/nimbus_solver_quality_history.json
@@ -78,6 +82,7 @@ Solver source: /opt/homeassistant/config/nimbus_repo/custom_components/nimbus_lo
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import urllib.error
@@ -90,16 +95,37 @@ from zoneinfo import ZoneInfo
 # system-local timezone resolution.
 BRISBANE_TZ = ZoneInfo("Australia/Brisbane")
 
-sys.path.insert(0, "/opt/homeassistant/config/nimbus_repo/custom_components/nimbus_load")
+# Env-var-overridable (2026-09-05, nimbus issue #364 finding 4, same
+# "installable by anyone" reasoning already applied to
+# nimbus_solver_forecast_writer.py's own HA_BASE/TOKEN_PATH/
+# NIMBUS_SOLVER_PATH on 2026-08-22) -- this file previously hardcoded all
+# three to this one reference household's own NUC path/hostname/username
+# with zero indirection at all, unlike its sibling writer script. The
+# defaults below are kept identical to what this household's own NUC
+# already runs, so this is a pure portability fix, zero behavior change
+# for the existing deployment.
+sys.path.insert(
+    0,
+    os.environ.get(
+        "NIMBUS_SOLVER_PATH",
+        "/opt/homeassistant/config/nimbus_repo/custom_components/nimbus_load",
+    ),
+)
 from solver import elements  # noqa: E402
 from solver.quality_report import compute_quality_report  # noqa: E402
 from solver.tracking import compute_tracking_fidelity, tracking_error_cost  # noqa: E402
 import numpy as np  # noqa: E402
 
-HA_BASE = "http://localhost:8123"
-TOKEN_PATH = "/home/homehub/.ha_token"
+HA_BASE = os.environ.get("HA_BASE", "http://localhost:8123")
+# ^ "localhost" only works if this script runs on the same machine as HA
+# itself. Set the HA_BASE env var to HA's real LAN IP/hostname otherwise
+# (e.g. "http://192.168.1.50:8123") -- see nimbus_solver_forecast_writer.py's
+# own HA_BASE comment for the full reasoning, unchanged here.
+TOKEN_PATH = os.environ.get("HA_TOKEN_PATH", "/home/homehub/.ha_token")
 ENTITY_ID = "sensor.nimbus_solver_quality_report"
-QUALITY_HISTORY_PATH = "/opt/nimbus_solver_quality_history.json"
+QUALITY_HISTORY_PATH = os.environ.get(
+    "NIMBUS_SOLVER_QUALITY_HISTORY_PATH", "/opt/nimbus_solver_quality_history.json"
+)
 
 # 15-min resolution across a real 24h day -> 96 periods. Genuinely was
 # NOT fine enough to catch the real inv1/inv2 handoff-style dips this

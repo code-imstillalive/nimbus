@@ -80,8 +80,11 @@ series therefore carries a `transform: x / 1000` except Whole House's
 own, same convention this file's own power-signal history series
 already use for Solar's own W-vs-kW mismatch.
 
-Run via docker exec on whichever NUC currently holds the VIP:
-  docker cp /home/homehub/.ha_token opt_homeassistant_1:/tmp/.ha_token
+Run via docker exec on whichever host currently runs your HA container
+(substitute your own long-lived access token's real path and your own
+container name -- both below are this one reference household's own
+values, not universal defaults):
+  docker cp /path/to/your/.ha_token opt_homeassistant_1:/tmp/.ha_token
   docker cp lovelace_build_merged_forecast_chart.py opt_homeassistant_1:/tmp/
   docker exec opt_homeassistant_1 python3 /tmp/lovelace_build_merged_forecast_chart.py
   docker restart opt_homeassistant_1
