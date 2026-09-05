@@ -287,5 +287,80 @@ class TestDampingSkipForSeasonalAnchoredSteps(unittest.TestCase):
         )
 
 
+class TestSeasonalLookupBucketGranularity(unittest.TestCase):
+    """Bug #7 (v0.20.0): seasonal_lookup used to bucket by (weekday, hour)
+    alone, giving every 15-min grid point within the same hour an IDENTICAL
+    lag input -- combined with bug #4's damping-skip, this produced a hard
+    stair-step (a flat, repeated value for up to 4 consecutive grid points,
+    then an instant jump at the hour boundary) instead of a smoothly-varying
+    curve. Real live example (see CLAUDE.md): Whole House held exactly
+    1.399 for 2.5 hours straight. Fixed by bucketing by
+    (weekday, hour, 15-min-of-hour) instead. nimbus issue #360 finding 7
+    (Mark Purcell): "train on a synthetic series with real within-hour
+    variation, then assert that four consecutive 15-minute forecast points
+    inside one seasonally-anchored hour are not identical."
+    """
+
+    def test_four_consecutive_anchored_quarter_hour_points_are_not_identical(self):
+        # A genuine, repeating within-hour ramp (10/12/14/16 at
+        # minute 0/15/30/45), identical every hour of every day -- if the
+        # bucket granularity fix is working, each quarter's own real
+        # seasonal value survives (shrunk toward the hour mean, but never
+        # collapsed to one shared value); if it regresses to (weekday, hour)
+        # bucketing, all four quarters within any given hour collapse to
+        # the same shrinkage target and the assertion below fails.
+        days = 60.0
+        n_points = int(days * 24 * 4)  # 15-min grid
+        events = []
+        for i in range(n_points):
+            t = START_OF_TIME + timedelta(minutes=15 * i)
+            quarter = (t.minute // 15) % 4
+            value = 10.0 + 2.0 * quarter
+            events.append((t, value))
+        trained = ml_model.train_model(
+            load_events=events,
+            temp_events=[],
+            humidity_events=[],
+            curtailment_events=[],
+            start=START_OF_TIME,
+            end=START_OF_TIME + timedelta(days=days),
+            resample_minutes=15,
+            min_training_points=50,
+        )
+        self.assertIsNotNone(trained)
+
+        # Forecast starts well past training data ends; only ONE recent
+        # lag value is supplied, so by step index LAG_LONG_STEPS (4) --
+        # one hour in -- every subsequent step is fully seasonal-anchored
+        # (no real lag data left at all). n_steps=12 (3 hours) puts the
+        # third hour (indices 8-11) deep in fully-anchored territory.
+        forecast_start = START_OF_TIME + timedelta(days=days)
+        n_steps = 12
+        timestamps = [
+            forecast_start + timedelta(minutes=15 * i) for i in range(n_steps)
+        ]
+        recent_load_values = [(forecast_start - timedelta(minutes=15), 10.0)]
+
+        result = ml_model.predict(
+            trained=trained,
+            timestamps=timestamps,
+            temps=[20.0] * n_steps,
+            humidities=[50.0] * n_steps,
+            recent_load_values=recent_load_values,
+            resample_minutes=15,
+            seasonal_anchor=True,
+        )
+
+        anchored_values = result.values[8:12]
+        distinct = {round(v, 6) for v in anchored_values}
+        self.assertGreater(
+            len(distinct),
+            1,
+            f"expected 4 consecutive seasonally-anchored quarter-hour points "
+            f"to differ (real within-hour variation trained in), got a flat "
+            f"stair-step: {anchored_values}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
