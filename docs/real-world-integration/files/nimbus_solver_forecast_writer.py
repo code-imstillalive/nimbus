@@ -1260,7 +1260,10 @@ def sum_load_forecasts(
     entity_ids: list[str],
     grid_times: list[datetime],
     inverter_self_consumption_kw: float = 0.0,
-) -> tuple[list[float], list[float], list[float], list[str], dict[str, str]]:
+    now: datetime | None = None,
+) -> tuple[
+    list[float], list[float], list[float], list[str], dict[str, str], float | None
+]:
     """Real household demand, summed from a household's own individually-
     forecasted circuits -- see load_forecast_entities in main() (the
     comment right above the module-level "Real per-load demand" block
@@ -1304,12 +1307,21 @@ def sum_load_forecasts(
     just "unavailable", the real shape/unit-mismatch diagnostic
     fetch_load_forecast_safe() now surfaces). Genuinely additive --
     every existing caller destructuring the first 4 values still works.
+
+    NEW (2026-09-05, issue #357, ported from the integration copy): a
+    sixth return value, `coverage_hours` -- the REAL forecast coverage
+    of this sum, in hours ahead of `now` (defaults to grid_times[0]).
+    Computed as the MINIMUM per-entity coverage across every entity
+    that fetched successfully: the sum is only as trustworthy as its
+    shortest-covered circuit. None if no entity fetched successfully.
     """
     total_kw = [0.0] * len(grid_times)
     total_lower_kw = [0.0] * len(grid_times)
     total_upper_kw = [0.0] * len(grid_times)
     failed_entities: list[str] = []
     warnings: dict[str, str] = {}
+    coverage_hours_per_entity: list[float] = []
+    anchor = now if now is not None else (grid_times[0] if grid_times else None)
     for entity_id in entity_ids:
         fc, error = fetch_load_forecast_safe(entity_id)
         if fc is None:
@@ -1317,7 +1329,10 @@ def sum_load_forecasts(
             if error is not None:
                 warnings[entity_id] = error
             continue  # this load contributes 0.0 for every period
-            continue
+        if anchor is not None:
+            entity_coverage = compute_forecast_coverage_hours(fc, anchor)
+            if entity_coverage is not None:
+                coverage_hours_per_entity.append(entity_coverage)
         pt_kw = resample_forecast(fc, "value", grid_times)
         pt_lower = resample_forecast(fc, "lower", grid_times)
         pt_upper = resample_forecast(fc, "upper", grid_times)
@@ -1344,7 +1359,50 @@ def sum_load_forecasts(
     total_upper_kw = [
         max(total_upper_kw[i], total_kw[i]) for i in range(len(grid_times))
     ]
-    return total_kw, total_lower_kw, total_upper_kw, failed_entities, warnings
+    coverage_hours = (
+        min(coverage_hours_per_entity) if coverage_hours_per_entity else None
+    )
+    return (
+        total_kw,
+        total_lower_kw,
+        total_upper_kw,
+        failed_entities,
+        warnings,
+        coverage_hours,
+    )
+
+
+def compute_forecast_coverage_hours(
+    fc_dicts: list[dict], anchor: datetime
+) -> float | None:
+    """Real coverage of a RAW (pre-resample) forecast list, in hours
+    ahead of `anchor` -- nimbus repo issue #112 ("solver horizon 96.3h
+    exceeds subentry forecast horizon 48h").
+
+    resample_forecast()'s own nearest-at-or-before lookup has no upper
+    bound: once grid_times runs past a source's real last timestamp,
+    every remaining grid point silently reuses that same last real
+    value forever. That's a genuine, load-bearing behavior (a flat
+    hold beats a crash or a 0.0 cliff), but it also destroys the one
+    piece of information that would let anyone SEE the gap -- by the
+    time main() has resampled arrays in hand, "real point" and
+    "padded-flat point" look identical. This function is called on the
+    raw fc_dicts, before resampling, specifically to capture that real
+    coverage span while it still exists.
+
+    Returns None for an empty/unparseable list -- nothing to report.
+
+    Ported from the integration copy (custom_components/nimbus_load/
+    solver_writer.py) 2026-09-05, nimbus issue #357 (Mark Purcell): this
+    standalone/cron copy had drifted without it, meaning a cron install
+    could never report load_forecast_coverage_hours at all -- exactly
+    the attribute that made the #370/#374 startup-race bug visible on
+    the native runtime in the first place.
+    """
+    times = [parse_iso(p["time"]) for p in fc_dicts if p.get("time") is not None]
+    if not times:
+        return None
+    return max(0.0, (max(times) - anchor).total_seconds() / 3600.0)
 
 
 def resample_forecast(
@@ -1489,8 +1547,14 @@ def _validate_and_parse_load_forecast_attrs(
 
 
 def read_load_forecast_sensor(
-    entity_id: str, grid_times: list[datetime]
-) -> tuple[list[float] | None, list[float] | None, list[float] | None, str | None]:
+    entity_id: str, grid_times: list[datetime], now: datetime | None = None
+) -> tuple[
+    list[float] | None,
+    list[float] | None,
+    list[float] | None,
+    str | None,
+    float | None,
+]:
     """Validated read of the single-sensor load-forecast fallback (the
     solver_load_forecast_sensor wizard field -- used when a household
     hasn't configured individual Nimbus Load subentries). Shape/unit
@@ -1499,26 +1563,39 @@ def read_load_forecast_sensor(
     this function's own job is just the fetch and the resample/clamp
     into a grid-aligned (value, lower, upper) triple.
 
-    Returns (load_kw, load_lower_kw, load_upper_kw, error) -- error is
-    None on success. The three arrays are None together with error on
-    failure -- callers must check error, not just truthiness. A
+    Returns (load_kw, load_lower_kw, load_upper_kw, error, coverage_hours)
+    -- error is None on success. The three arrays are None together with
+    error on failure -- callers must check error, not just truthiness. A
     STRUCTURALLY valid but near-all-zero series (real timestamps, real
     parseable values, just <10% of points meaningfully nonzero) is
     treated as a failure, not "a valid, if unusual, success" -- see
     the real #118 incident this specific check exists for, right
     before the final return below.
+
+    coverage_hours (2026-09-05, issue #357, ported from the integration
+    copy): the source's own real forecast coverage, in hours ahead of
+    `now` (defaults to grid_times[0]) -- computed on the RAW fc_dicts,
+    before resample_forecast() pads flat past it. None on failure or an
+    unparseable list.
     """
     try:
         state = ha_get(entity_id)
     except (urllib.error.HTTPError, urllib.error.URLError) as e:
-        return None, None, None, f"{entity_id} could not be read ({e})"
+        return None, None, None, f"{entity_id} could not be read ({e})", None
 
     attrs = state.get("attributes", {}) if isinstance(state, dict) else {}
     fc_dicts, has_bands, error = _validate_and_parse_load_forecast_attrs(
         entity_id, attrs
     )
     if error is not None:
-        return None, None, None, error
+        return None, None, None, error, None
+
+    anchor = now if now is not None else (grid_times[0] if grid_times else None)
+    coverage_hours = (
+        compute_forecast_coverage_hours(fc_dicts, anchor)
+        if anchor is not None
+        else None
+    )
 
     load_kw = [max(0.0, v) for v in resample_forecast(fc_dicts, "value", grid_times)]
     if has_bands:
@@ -1587,9 +1664,58 @@ def read_load_forecast_sensor(
                 f"real per-signal forecast entity instead (e.g. "
                 f"sensor.nimbus_<your_load_signal>_forecast)."
             ),
+            None,
         )
 
-    return load_kw, load_lower_kw, load_upper_kw, None
+    return load_kw, load_lower_kw, load_upper_kw, None, coverage_hours
+
+
+def _is_transient_startup_load_forecast_error(error: str) -> bool:
+    """True for the specific shape of load_forecast_error that means
+    "this entity genuinely exists but hasn't published real data yet"
+    (a startup race -- RestoreEntity/coordinator not caught up, or a
+    real fetch failure while HA itself is still starting), as opposed
+    to a genuine, persistent misconfiguration.
+
+    nimbus issue #370 (Mark Purcell, codebase review): confirmed live,
+    a HA restart left sensor.nimbus_sigen_plant_total_load_power_forecast
+    briefly `unavailable` with zero attributes -- read_load_forecast_
+    sensor() correctly reported "no usable 'forecast' attribute (list-
+    valued attributes present: none)", but main() substituted a flat
+    0.0 kW load and published a confidently "optimal" plan (idle
+    battery, exactly zero-width cost band) for the ~3 minutes until the
+    sensor caught up. The zero-load fallback exists for a genuinely
+    MISCONFIGURED sensor (see the 90%-zeros circular-reference check in
+    read_load_forecast_sensor() above) -- a sensor that just hasn't
+    published its first real point yet is a completely different case
+    and should never be treated as "confirmed zero load."
+
+    Deliberately narrow: only matches the shapes that specifically mean
+    "no real data reached us at all" (a raw fetch failure, an entity
+    with LITERALLY NO list-valued attributes -- the exact signature of a
+    third-party entity restored into the state machine as unavailable
+    with its attributes wiped -- or, nimbus issue #374, a nimbus forecast
+    sensor whose model has genuinely never completed a training cycle).
+    Does NOT match a present-but-empty forecast from an ALREADY-trained
+    model (a real, ongoing misconfiguration -- e.g. a scheduling window
+    excluding every current period -- worth surfacing via the
+    persistent_notification below, not silently retrying forever), a
+    shape/key mismatch, or the 90%-zeros circular-reference message
+    (explicitly, already, a real misconfiguration diagnosis) -- all three
+    keep the existing zero-fallback + notification behaviour unchanged.
+
+    Ported from the integration copy 2026-09-05 (nimbus issue #357, Mark
+    Purcell): this standalone/cron copy had drifted without this guard
+    at all, so a restarting HA install running this script via cron got
+    exactly the confident-zero-load bug #370/#374 already fixed on the
+    native runtime weeks earlier -- the same real class of bug, just
+    still live on this deployment path.
+    """
+    return (
+        "could not be read (" in error
+        or "list-valued attributes present: none)" in error
+        or "never completed a training cycle yet" in error
+    )
 
 
 def _notify_load_forecast_error_once(error: str) -> None:
@@ -3252,10 +3378,12 @@ def main() -> None:
             load_upper_kw,
             failed_load_entities,
             load_forecast_warnings,
+            load_forecast_coverage_hours,
         ) = sum_load_forecasts(
             load_forecast_entities,
             grid_times,
             _cfg_num(cfg, "solver_inverter_self_consumption_kw", 0.0),
+            now,
         )
     else:
         # Validated read (2026-08-23, real fix for nimbus repo issue
@@ -3267,10 +3395,29 @@ def main() -> None:
         # of the plan are still real and worth publishing even with load
         # wrong) plus a loud stderr WARN and a one-time persistent
         # notification, both naming the exact real reason.
-        load_kw, load_lower_kw, load_upper_kw, load_forecast_error = (
-            read_load_forecast_sensor(cfg["solver_load_forecast_sensor"], grid_times)
+        (
+            load_kw,
+            load_lower_kw,
+            load_upper_kw,
+            load_forecast_error,
+            load_forecast_coverage_hours,
+        ) = read_load_forecast_sensor(
+            cfg["solver_load_forecast_sensor"], grid_times, now
         )
         if load_forecast_error is not None:
+            # nimbus issue #370 (Mark Purcell, codebase review), ported
+            # here 2026-09-05 per issue #357: a transient startup-race
+            # error (the entity exists but hasn't published real data
+            # yet) must never be silently treated as "confirmed zero
+            # load" -- raising here instead means this cycle publishes
+            # nothing, and the next cron tick simply tries again once
+            # the source has real data. A genuine misconfiguration still
+            # falls through to the zero-fallback + notification below,
+            # unchanged.
+            if _is_transient_startup_load_forecast_error(load_forecast_error):
+                raise RuntimeError(
+                    f"Load forecast not ready yet: {load_forecast_error}"
+                )
             print(f"WARN: {load_forecast_error}", file=sys.stderr)
             load_kw = [0.0] * n_periods
             load_lower_kw = [0.0] * n_periods
@@ -3395,6 +3542,16 @@ def main() -> None:
                 for i in range(n_periods)
             ],
             "source_entities": load_forecast_entities,
+            # nimbus issue #112 ("solver horizon 96.3h exceeds subentry
+            # forecast horizon 48h"), ported here 2026-09-05 per #357 --
+            # the REAL forecast coverage this run's load_kw is backed
+            # by, in hours ahead of `now`. None if it couldn't be
+            # determined. Whenever this is smaller than the solve
+            # horizon, every period beyond it is resample_forecast()'s
+            # own flat-hold padding, not a real forecast.
+            "load_forecast_coverage_hours": round(load_forecast_coverage_hours, 1)
+            if load_forecast_coverage_hours is not None
+            else None,
             "failed_load_entities": failed_load_entities,
             "load_forecast_warnings": load_forecast_warnings,
             "whole_house_cross_check_now_kw": round(whole_house_now_kw, 3)
@@ -4074,6 +4231,11 @@ def main() -> None:
             "load_whole_house_cross_check_now_kw": round(whole_house_now_kw, 3)
             if whole_house_now_kw is not None
             else None,
+            # nimbus issue #112, ported here 2026-09-05 per #357 -- see
+            # this same field's own comment on the other push site above.
+            "load_forecast_coverage_hours": round(load_forecast_coverage_hours, 1)
+            if load_forecast_coverage_hours is not None
+            else None,
             "failed_load_entities": failed_load_entities,
             "load_forecast_warnings": load_forecast_warnings,
             # None on success -- real fix for nimbus repo issue #66
@@ -4101,9 +4263,19 @@ def main() -> None:
         if whole_house_now_kw is not None
         else "unavailable"
     )
+    # nimbus issue #112, ported here 2026-09-05 per #357: this is
+    # literally the attribute that made the #370/#374 startup-race bug
+    # visible on the native runtime -- a cron install deserves the same
+    # diagnosability in its own log, not just on the pushed sensor.
+    coverage_str = (
+        f"{load_forecast_coverage_hours:.1f}h"
+        if load_forecast_coverage_hours is not None
+        else "unknown"
+    )
     print(
         f"[{now.isoformat()}] pushed {ENTITY_ID}: status={plan.status} "
-        f"n_periods={n_periods} horizon={horizon_days * 24:.1f}h solve_time={solve_seconds:.2f}s "
+        f"n_periods={n_periods} horizon={horizon_days * 24:.1f}h "
+        f"load_forecast_coverage={coverage_str} solve_time={solve_seconds:.2f}s "
         f"total_cost={plan.total_cost:.2f} total_cost_with_fixed={total_cost_with_fixed_costs:.2f} "
         f"p2p_match_fraction={match_fraction:.3f} net_battery_now={net_battery[0]:.2f}kW "
         f"summed_18_loads_now={summed_18_now_kw:.2f}kW whole_house_cross_check={cross_check_str} "
