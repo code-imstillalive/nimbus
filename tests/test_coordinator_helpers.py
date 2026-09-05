@@ -27,7 +27,13 @@ from _ha_stubs import install_ha_stubs
 install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from custom_components.nimbus_load.const import CONF_HUMIDITY_SENSOR
+from custom_components.nimbus_load.const import (
+    CONF_HUMIDITY_SENSOR,
+    CONF_LOAD_SENSOR,
+    CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR,
+    SUBENTRY_TYPE_LOAD,
+    SUBENTRY_TYPE_SIGNAL,
+)
 from custom_components.nimbus_load.coordinator import (
     DEFAULT_FALLBACK_HUMIDITY_PCT,
     NimbusCoordinator,
@@ -272,3 +278,70 @@ def test_current_measured_power_unconvertible_unit_falls_back_to_raw_value():
         state="42", attributes={"unit_of_measurement": "furlongs"}
     )
     assert coord._current_measured_power("sensor.weird") == 42.0
+
+
+# -- _seasonal_anchor (nimbus issue #360, finding 7, Mark Purcell) -----------
+#
+# The one decision in the "bug #6 Whole House eligibility" family that lives
+# in coordinator.py, per Mark's own #360 comment: "a coordinator-level test
+# that a load subentry whose source sensor is the whole-house meter gets
+# seasonal_anchor=True and any other load gets False." No test exercised
+# this property directly before now -- see _seasonal_anchor's own docstring
+# for the full 2026-08-15/2026-09-02 bug history this property fixes.
+
+
+def _make_load_coordinator(
+    load_sensor: str, whole_house_sensor: str | None
+) -> NimbusCoordinator:
+    coord = _make_bare_coordinator()
+    coord.subentry = MagicMock(
+        subentry_type=SUBENTRY_TYPE_LOAD, data={CONF_LOAD_SENSOR: load_sensor}
+    )
+    options = {}
+    if whole_house_sensor is not None:
+        options[CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR] = whole_house_sensor
+    coord.entry = MagicMock(options=options)
+    return coord
+
+
+def test_seasonal_anchor_true_for_power_signal_subentry_regardless_of_sensor():
+    coord = _make_bare_coordinator()
+    coord.subentry = MagicMock(
+        subentry_type=SUBENTRY_TYPE_SIGNAL, data={CONF_LOAD_SENSOR: "sensor.battery"}
+    )
+    coord.entry = MagicMock(options={})
+    assert coord._seasonal_anchor is True
+
+
+def test_seasonal_anchor_true_for_load_matching_wizard_configured_whole_house_sensor():
+    coord = _make_load_coordinator(
+        load_sensor="sensor.cb_total_combined_power_adjusted_kw",
+        whole_house_sensor="sensor.cb_total_combined_power_adjusted_kw",
+    )
+    assert coord._seasonal_anchor is True
+
+
+def test_seasonal_anchor_false_for_a_load_that_is_not_the_whole_house_meter():
+    coord = _make_load_coordinator(
+        load_sensor="sensor.pool_pump_power",
+        whole_house_sensor="sensor.cb_total_combined_power_adjusted_kw",
+    )
+    assert coord._seasonal_anchor is False
+
+
+def test_seasonal_anchor_falls_back_to_legacy_literal_when_wizard_field_unset():
+    # 2026-09-02 fix: an install upgrading from an older version that never
+    # configured CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR must not
+    # silently regress -- the legacy hardcoded sensor.logger_load_power
+    # literal is still checked as a fallback.
+    coord = _make_load_coordinator(
+        load_sensor="sensor.logger_load_power", whole_house_sensor=None
+    )
+    assert coord._seasonal_anchor is True
+
+
+def test_seasonal_anchor_false_for_other_load_when_wizard_field_unset():
+    coord = _make_load_coordinator(
+        load_sensor="sensor.ac_zone_1", whole_house_sensor=None
+    )
+    assert coord._seasonal_anchor is False
