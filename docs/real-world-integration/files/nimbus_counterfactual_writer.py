@@ -130,17 +130,20 @@ HA instance isn't reachable at its default mDNS hostname) before running
 lv_p2p_daily_recalibrate.py's own 06:00 AEST run, so yesterday's real P2P
 settlement/SoC data is already fully recorded by the time this runs.)
 """
+
 from __future__ import annotations
 
 import json
 import os
 import subprocess
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 
-sys.path.insert(0, "/opt/homeassistant/config/nimbus_repo/custom_components/nimbus_load")
-import numpy as np  # noqa: E402
-from solver import elements, network  # noqa: E402
+sys.path.insert(
+    0, "/opt/homeassistant/config/nimbus_repo/custom_components/nimbus_load"
+)
+import numpy as np
+from solver import elements, network
 
 # nimbus issue #364 finding 4 (Mark Purcell, codebase review): these
 # three used to be hardcoded to one household's own real IP/paths.
@@ -160,14 +163,16 @@ CAPACITY_KWH = 122.2
 MAX_CHARGE_KW = 40.0
 MAX_DISCHARGE_KW = 40.0
 ROUND_TRIP_EFF = 0.858
-LEG_EFF = ROUND_TRIP_EFF ** 0.5
+LEG_EFF = ROUND_TRIP_EFF**0.5
 MIN_SOC_PCT = 2.0
 MAX_SOC_PCT = 100.0
 CHARGE_COST = 0.005
 IMPORT_LIMIT_KW = 42.0
 EXPORT_LIMIT_KW = 40.0
-P2P_BONUS_VOLUME_KWH = 61.61  # fallback only now -- see fetch_real_p2p_rate_and_volume()
-P2P_FLAT_RATE = 0.50          # fallback only now -- see fetch_real_p2p_rate_and_volume()
+P2P_BONUS_VOLUME_KWH = (
+    61.61  # fallback only now -- see fetch_real_p2p_rate_and_volume()
+)
+P2P_FLAT_RATE = 0.50  # fallback only now -- see fetch_real_p2p_rate_and_volume()
 STEP_MINUTES = 15
 # Real household P2P block config -- matches this household's real, live
 # input_number.p2p_grid_export_target_kw (11.5kW) / the real automation's
@@ -187,42 +192,87 @@ VIABLE_SOC_PCT = 55.0
 
 
 def ts() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def ha_get(entity_id: str) -> dict:
-    token = open(TOKEN_FILE).read().strip()
+    with open(TOKEN_FILE) as _f:
+        token = _f.read().strip()
     r = subprocess.run(
-        ["curl", "-s", "--max-time", "10", "-H", f"Authorization: Bearer {token}",
-         f"{HA_BASE}/api/states/{entity_id}"],
-        capture_output=True, text=True, timeout=15, check=False,
+        [
+            "curl",
+            "-s",
+            "--max-time",
+            "10",
+            "-H",
+            f"Authorization: Bearer {token}",
+            f"{HA_BASE}/api/states/{entity_id}",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
     )
     return json.loads(r.stdout)
 
 
-def ha_history(entity_ids: list[str], start: datetime, end: datetime) -> list[list[dict]]:
-    token = open(TOKEN_FILE).read().strip()
+def ha_history(
+    entity_ids: list[str], start: datetime, end: datetime
+) -> list[list[dict]]:
+    with open(TOKEN_FILE) as _f:
+        token = _f.read().strip()
     filter_arg = ",".join(entity_ids)
     r = subprocess.run(
-        ["curl", "-s", "-G", "--max-time", "30", "-H", f"Authorization: Bearer {token}",
-         f"{HA_BASE}/api/history/period/{start.isoformat()}",
-         "--data-urlencode", f"filter_entity_id={filter_arg}",
-         "--data-urlencode", f"end_time={end.isoformat()}",
-         "--data-urlencode", "minimal_response=true",
-         "--data-urlencode", "significant_changes_only=false"],
-        capture_output=True, text=True, timeout=35, check=False,
+        [
+            "curl",
+            "-s",
+            "-G",
+            "--max-time",
+            "30",
+            "-H",
+            f"Authorization: Bearer {token}",
+            f"{HA_BASE}/api/history/period/{start.isoformat()}",
+            "--data-urlencode",
+            f"filter_entity_id={filter_arg}",
+            "--data-urlencode",
+            f"end_time={end.isoformat()}",
+            "--data-urlencode",
+            "minimal_response=true",
+            "--data-urlencode",
+            "significant_changes_only=false",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=35,
+        check=False,
     )
     return json.loads(r.stdout)
 
 
 def push_sensor(entity_id: str, state, attributes: dict) -> None:
-    token = open(TOKEN_FILE).read().strip()
+    with open(TOKEN_FILE) as _f:
+        token = _f.read().strip()
     body = json.dumps({"state": state, "attributes": attributes})
     subprocess.run(
-        ["curl", "-s", "--max-time", "10", "-X", "POST",
-         "-H", f"Authorization: Bearer {token}", "-H", "Content-Type: application/json",
-         "-d", body, f"{HA_BASE}/api/states/{entity_id}"],
-        capture_output=True, text=True, timeout=15, check=False,
+        [
+            "curl",
+            "-s",
+            "--max-time",
+            "10",
+            "-X",
+            "POST",
+            "-H",
+            f"Authorization: Bearer {token}",
+            "-H",
+            "Content-Type: application/json",
+            "-d",
+            body,
+            f"{HA_BASE}/api/states/{entity_id}",
+        ],
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
     )
 
 
@@ -234,7 +284,9 @@ def salvage_value_rate(hour: int) -> float:
     return 0.3 if 17 <= hour < 24 else 0.15
 
 
-def terminal_value_breakpoints_for(base_rate: float, min_soc_kwh: float, max_soc_kwh: float) -> list:
+def terminal_value_breakpoints_for(
+    base_rate: float, min_soc_kwh: float, max_soc_kwh: float
+) -> list:
     """Copied verbatim from production's nimbus_solver_forecast_writer.py
     (same function, same reasoning) -- concave piecewise terminal value,
     REPLACES the flat salvage_value_rate() mechanism above. Real, direct
@@ -315,14 +367,17 @@ def run_counterfactual(day: datetime) -> dict:
             "sensor.earningsflexup",
             "sensor.logger_battery_level_soc",
         ],
-        anchor_time - timedelta(minutes=10), end_of_day + timedelta(minutes=10),
+        anchor_time - timedelta(minutes=10),
+        end_of_day + timedelta(minutes=10),
     )
     labels = ["solar", "load", "import_price", "export_price", "soc"]
     series = {label: parse_series(pts) for label, pts in zip(labels, raw)}
 
     real_soc_anchor = value_at_or_before(series["soc"], anchor_time)
     if real_soc_anchor == 0.0 and not series["soc"]:
-        raise RuntimeError(f"no real SoC history found for {anchor_time.date()} -- cannot anchor")
+        raise RuntimeError(
+            f"no real SoC history found for {anchor_time.date()} -- cannot anchor"
+        )
 
     sim_soc_kwh = real_soc_anchor / 100.0 * CAPACITY_KWH
     min_soc_kwh = CAPACITY_KWH * MIN_SOC_PCT / 100.0
@@ -349,16 +404,31 @@ def run_counterfactual(day: datetime) -> dict:
         n = len(grid_times)
         hours_arr = np.full(n, STEP_MINUTES / 60.0)
 
-        solar_kw = np.array([max(0.0, value_at_or_before(series["solar"], gt) / 1000.0) for gt in grid_times])
-        load_kw = np.array([max(0.1, value_at_or_before(series["load"], gt)) for gt in grid_times])
-        export_price = np.array([value_at_or_before(series["export_price"], gt) for gt in grid_times])
-        import_price = np.array([value_at_or_before(series["import_price"], gt) + 0.03 for gt in grid_times])
+        solar_kw = np.array(
+            [
+                max(0.0, value_at_or_before(series["solar"], gt) / 1000.0)
+                for gt in grid_times
+            ]
+        )
+        load_kw = np.array(
+            [max(0.1, value_at_or_before(series["load"], gt)) for gt in grid_times]
+        )
+        export_price = np.array(
+            [value_at_or_before(series["export_price"], gt) for gt in grid_times]
+        )
+        import_price = np.array(
+            [value_at_or_before(series["import_price"], gt) + 0.03 for gt in grid_times]
+        )
         # Real fix: real per-night settled rate (not the stale flat
         # P2P_FLAT_RATE guess) -- see fetch_real_p2p_rate_and_volume().
-        bonus_price = np.array([
-            max(0.0, real_p2p_rate - export_price[i]) if P2P_WINDOW_START_HOUR <= gt.hour < P2P_WINDOW_END_HOUR else 0.0
-            for i, gt in enumerate(grid_times)
-        ])
+        bonus_price = np.array(
+            [
+                max(0.0, real_p2p_rate - export_price[i])
+                if P2P_WINDOW_START_HOUR <= gt.hour < P2P_WINDOW_END_HOUR
+                else 0.0
+                for i, gt in enumerate(grid_times)
+            ]
+        )
         # Real fix: this household's own P2P automation forces a CONSTANT
         # export rate through the whole window (a pre-committed matching
         # arrangement, not a price-chased spot market) -- see
@@ -367,11 +437,17 @@ def run_counterfactual(day: datetime) -> dict:
         # this mirrors. Without this, the replay let the LP freely
         # price-optimize export, holding back during lower-priced
         # sub-periods -- not what the real automation actually does.
-        fixed_export_kw = np.array([
-            P2P_TARGET_KW if P2P_WINDOW_START_HOUR <= gt.hour < P2P_WINDOW_END_HOUR else float("nan")
-            for gt in grid_times
-        ])
-        discharge_cost_arr = np.array([discharge_cost_rate(gt.hour) for gt in grid_times])
+        fixed_export_kw = np.array(
+            [
+                P2P_TARGET_KW
+                if P2P_WINDOW_START_HOUR <= gt.hour < P2P_WINDOW_END_HOUR
+                else float("nan")
+                for gt in grid_times
+            ]
+        )
+        discharge_cost_arr = np.array(
+            [discharge_cost_rate(gt.hour) for gt in grid_times]
+        )
         # Real fix (2026-08-21, second pass -- the first pass above, keeping
         # a full-strength concave terminal reward through the P2P window,
         # still gave 71.0% vs a real 19.0% -- a genuine, correctly-flagged
@@ -401,28 +477,42 @@ def run_counterfactual(day: datetime) -> dict:
 
         periods = elements.PeriodGrid(hours=hours_arr, start=t)
         grid = elements.GridConfig(
-            import_price=import_price, export_price=export_price,
-            import_limit_kw=IMPORT_LIMIT_KW, export_limit_kw=EXPORT_LIMIT_KW,
-            export_bonus_price=bonus_price, export_bonus_volume_kwh=remaining_bonus_kwh,
+            import_price=import_price,
+            export_price=export_price,
+            import_limit_kw=IMPORT_LIMIT_KW,
+            export_limit_kw=EXPORT_LIMIT_KW,
+            export_bonus_price=bonus_price,
+            export_bonus_volume_kwh=remaining_bonus_kwh,
             fixed_export_kw=fixed_export_kw,
         )
         battery = elements.BatteryConfig(
             capacity_kwh=CAPACITY_KWH,
             initial_soc_kwh=min(max(sim_soc_kwh, min_soc_kwh), max_soc_kwh),
-            min_soc_kwh=min_soc_kwh, max_soc_kwh=max_soc_kwh,
-            max_charge_kw=MAX_CHARGE_KW, max_discharge_kw=MAX_DISCHARGE_KW,
-            charge_efficiency=LEG_EFF, discharge_efficiency=LEG_EFF,
-            charge_cost=CHARGE_COST, discharge_cost=discharge_cost_arr, salvage_value=salvage,
+            min_soc_kwh=min_soc_kwh,
+            max_soc_kwh=max_soc_kwh,
+            max_charge_kw=MAX_CHARGE_KW,
+            max_discharge_kw=MAX_DISCHARGE_KW,
+            charge_efficiency=LEG_EFF,
+            discharge_efficiency=LEG_EFF,
+            charge_cost=CHARGE_COST,
+            discharge_cost=discharge_cost_arr,
+            salvage_value=salvage,
             # Real fix: concave terminal value replaces the flat
             # salvage_value above -- see terminal_value_breakpoints_for()'s
             # own docstring for the exact pathology this closes.
-            terminal_value_breakpoints=terminal_value_breakpoints_for(salvage, min_soc_kwh, max_soc_kwh),
+            terminal_value_breakpoints=terminal_value_breakpoints_for(
+                salvage, min_soc_kwh, max_soc_kwh
+            ),
         )
         solar = elements.SolarConfig(forecast_kw=solar_kw)
         loads = [elements.LoadConfig(name="load", forecast_kw=load_kw)]
 
         plan = network.build_plan(
-            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads,
+            periods=periods,
+            grid=grid,
+            battery=battery,
+            solar=solar,
+            loads=loads,
             smoothness_weight=network.DEFAULT_SMOOTHNESS_WEIGHT_KW,
         )
         if plan.status == "optimal":
@@ -433,7 +523,9 @@ def run_counterfactual(day: datetime) -> dict:
                 sim_soc_kwh += (-net0) * LEG_EFF * STEP_MINUTES / 60.0
             sim_soc_kwh = min(max(sim_soc_kwh, min_soc_kwh), max_soc_kwh)
             if plan.export_bonus_kw is not None:
-                bonus_used_kwh_today += float(plan.export_bonus_kw[0]) * STEP_MINUTES / 60.0
+                bonus_used_kwh_today += (
+                    float(plan.export_bonus_kw[0]) * STEP_MINUTES / 60.0
+                )
         # A non-optimal solve (rare -- e.g. a genuinely infeasible reconstructed
         # window) holds SoC unchanged rather than crashing the whole day's replay.
 
@@ -443,12 +535,16 @@ def run_counterfactual(day: datetime) -> dict:
 
     soc_at_midnight_close = sim_soc_kwh / CAPACITY_KWH * 100.0
     real_soc_5pm = value_at_or_before(series["soc"], day.replace(hour=17, minute=0))
-    real_soc_close = value_at_or_before(series["soc"], end_of_day - timedelta(minutes=1))
+    real_soc_close = value_at_or_before(
+        series["soc"], end_of_day - timedelta(minutes=1)
+    )
 
     return {
         "date": day.date().isoformat(),
         "real_soc_anchor_pct": round(real_soc_anchor, 1),
-        "nimbus_only_soc_5pm_pct": round(soc_at_5pm, 1) if soc_at_5pm is not None else None,
+        "nimbus_only_soc_5pm_pct": round(soc_at_5pm, 1)
+        if soc_at_5pm is not None
+        else None,
         "real_soc_5pm_pct": round(real_soc_5pm, 1),
         "nimbus_only_soc_close_pct": round(soc_at_midnight_close, 1),
         "real_soc_close_pct": round(real_soc_close, 1),
@@ -465,7 +561,10 @@ def load_history() -> dict:
     except FileNotFoundError:
         return {}
     except (json.JSONDecodeError, OSError) as e:
-        print(f"[{ts()}] WARN: could not read {HISTORY_FILE} ({e}), starting fresh", flush=True)
+        print(
+            f"[{ts()}] WARN: could not read {HISTORY_FILE} ({e}), starting fresh",
+            flush=True,
+        )
         return {}
 
 
@@ -478,11 +577,16 @@ def save_history(history: dict) -> None:
 
 
 def main() -> None:
-    yesterday = (datetime.now(AEST) - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    yesterday = (datetime.now(AEST) - timedelta(days=1)).replace(
+        hour=0, minute=0, second=0, microsecond=0
+    )
     try:
         result = run_counterfactual(yesterday)
     except Exception as e:  # noqa: BLE001 -- broad top-level guard around a full day's run: logs the real exception (not swallowed) and returns cleanly so one bad/missing day can't crash the whole scheduled run
-        print(f"[{ts()}] ERROR: counterfactual run failed for {yesterday.date()}: {e}", flush=True)
+        print(
+            f"[{ts()}] ERROR: counterfactual run failed for {yesterday.date()}: {e}",
+            flush=True,
+        )
         return
 
     history = load_history()
@@ -491,7 +595,9 @@ def main() -> None:
 
     push_sensor(
         "sensor.nimbus_counterfactual_soc_5pm",
-        result["nimbus_only_soc_5pm_pct"] if result["nimbus_only_soc_5pm_pct"] is not None else "unknown",
+        result["nimbus_only_soc_5pm_pct"]
+        if result["nimbus_only_soc_5pm_pct"] is not None
+        else "unknown",
         {
             "unit_of_measurement": "%",
             "friendly_name": "Nimbus-only Counterfactual SoC at 5pm",
@@ -504,8 +610,11 @@ def main() -> None:
             "history": history,
         },
     )
-    print(f"[{ts()}] {result['date']}: nimbus_only_soc_5pm={result['nimbus_only_soc_5pm_pct']}% "
-          f"real_soc_5pm={result['real_soc_5pm_pct']}% viable={result['viable']}", flush=True)
+    print(
+        f"[{ts()}] {result['date']}: nimbus_only_soc_5pm={result['nimbus_only_soc_5pm_pct']}% "
+        f"real_soc_5pm={result['real_soc_5pm_pct']}% viable={result['viable']}",
+        flush=True,
+    )
 
 
 if __name__ == "__main__":

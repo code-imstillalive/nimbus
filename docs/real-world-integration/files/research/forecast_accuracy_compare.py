@@ -38,7 +38,7 @@ import json
 import os
 import urllib.error
 import urllib.request
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -61,9 +61,9 @@ with open(TOKEN_PATH, encoding="utf-8") as f:
 
 def fetch_history_range(entity_id: str, start: datetime, end: datetime) -> list[tuple[datetime, float]]:
     url = (
-        f"{HA_BASE}/api/history/period/{start.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')}Z"
+        f"{HA_BASE}/api/history/period/{start.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z"
         f"?filter_entity_id={entity_id}"
-        f"&end_time={end.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')}Z&minimal_response"
+        f"&end_time={end.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z&minimal_response"
     )
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {TOKEN}"})
     try:
@@ -122,13 +122,13 @@ def compare_source(source_key: str, value_field: str, actual_entity: str, actual
     just an aggregate across the whole day -- exactly what's needed to
     check the 17:00 window specifically once enough data has matured.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     all_points = []
     for snap in snapshots:
         for p in snap[source_key]["points"]:
             t = datetime.fromisoformat(p["time"])
-            if t.astimezone(timezone.utc) < now:
+            if t.astimezone(UTC) < now:
                 val = p[value_field]
                 if val is not None:
                     all_points.append((t, val))

@@ -79,6 +79,7 @@ gotcha as every other new file in this project -- pre-`sudo touch` +
 `chown` on first deploy): /opt/nimbus_solver_quality_history.json
 Solver source: /opt/homeassistant/config/nimbus_repo/custom_components/nimbus_load/solver/
 """
+
 from __future__ import annotations
 
 import json
@@ -87,7 +88,7 @@ import subprocess
 import sys
 import urllib.error
 import urllib.request
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 # Same real, confirmed-live fix as nimbus_solver_forecast_writer.py's own
@@ -111,10 +112,10 @@ sys.path.insert(
         "/opt/homeassistant/config/nimbus_repo/custom_components/nimbus_load",
     ),
 )
-from solver import elements  # noqa: E402
-from solver.quality_report import compute_quality_report  # noqa: E402
-from solver.tracking import compute_tracking_fidelity, tracking_error_cost  # noqa: E402
-import numpy as np  # noqa: E402
+import numpy as np
+from solver import elements
+from solver.quality_report import compute_quality_report
+from solver.tracking import compute_tracking_fidelity, tracking_error_cost
 
 HA_BASE = os.environ.get("HA_BASE", "http://localhost:8123")
 # ^ "localhost" only works if this script runs on the same machine as HA
@@ -224,7 +225,9 @@ def get_secret(key: str) -> str:
     raise SystemExit(f"{key} not found in {SECRETS_FILE}")
 
 
-def fetch_real_p2p_rates_for_day(target_date, grid_times: list[datetime]) -> list[float] | None:
+def fetch_real_p2p_rates_for_day(
+    target_date, grid_times: list[datetime]
+) -> list[float] | None:
     """Real, per-interval SETTLED P2P export rate ($/kWh) for one specific,
     already-elapsed calendar day -- the retrospective sibling of
     nimbus_solver_forecast_writer.py's resample_real_p2p_rate() (same
@@ -246,7 +249,10 @@ def fetch_real_p2p_rates_for_day(target_date, grid_times: list[datetime]) -> lis
         key = get_secret("localvolts_v2_api_key_header")
         partner = get_secret("localvolts_v2_partner")
     except SystemExit as e:
-        print(f"could not read LocalVolts credentials ({e}) -- skipping P2P rate fetch", file=sys.stderr)
+        print(
+            f"could not read LocalVolts credentials ({e}) -- skipping P2P rate fetch",
+            file=sys.stderr,
+        )
         return None
 
     frm = (target_date - timedelta(days=1)).isoformat()
@@ -254,20 +260,37 @@ def fetch_real_p2p_rates_for_day(target_date, grid_times: list[datetime]) -> lis
     url = f"{LV_API}?NMI=*&from={frm}&to={to}"
     try:
         r = subprocess.run(
-            ["curl", "-s", "-H", f"Authorization: {key}", "-H", f"partner: {partner}",
-             "-H", "User-Agent: Home Assistant", url],
+            [
+                "curl",
+                "-s",
+                "-H",
+                f"Authorization: {key}",
+                "-H",
+                f"partner: {partner}",
+                "-H",
+                "User-Agent: Home Assistant",
+                url,
+            ],
             # check=True: the except clause right below already explicitly
             # names subprocess.SubprocessError -- without check=True that
             # branch was dead code, a failed curl would silently succeed
             # with empty/garbage stdout instead of being caught here.
-            capture_output=True, text=True, timeout=30, check=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=True,
         )
         raw = json.loads(r.stdout)
     except (subprocess.SubprocessError, json.JSONDecodeError, OSError) as e:
-        print(f"LocalVolts API fetch/parse failed ({e}) -- skipping P2P rate fetch", file=sys.stderr)
+        print(
+            f"LocalVolts API fetch/parse failed ({e}) -- skipping P2P rate fetch",
+            file=sys.stderr,
+        )
         return None
     if isinstance(raw, dict) and raw.get("error"):
-        print(f"LocalVolts API error: {raw} -- skipping P2P rate fetch", file=sys.stderr)
+        print(
+            f"LocalVolts API error: {raw} -- skipping P2P rate fetch", file=sys.stderr
+        )
         return None
 
     pts = []
@@ -300,7 +323,10 @@ def fetch_real_p2p_rates_for_day(target_date, grid_times: list[datetime]) -> lis
             continue
     pts.sort(key=lambda x: x[0])
     if not pts:
-        print(f"no real settled Sell/Act P2P records found for {target_date.isoformat()} -- skipping", file=sys.stderr)
+        print(
+            f"no real settled Sell/Act P2P records found for {target_date.isoformat()} -- skipping",
+            file=sys.stderr,
+        )
         return None
 
     out = []
@@ -337,7 +363,10 @@ def ha_post_state(entity_id: str, state, attributes: dict) -> None:
         f"{HA_BASE}/api/states/{entity_id}",
         data=body,
         method="POST",
-        headers={"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"},
+        headers={
+            "Authorization": f"Bearer {TOKEN}",
+            "Content-Type": "application/json",
+        },
     )
     with urllib.request.urlopen(req, timeout=15) as resp:
         resp.read()
@@ -360,7 +389,11 @@ def network_energy_rate(hour: int) -> float:
 
 
 def battery_discharge_cost_rate(hour: int) -> float:
-    return BATTERY_DISCHARGE_COST_NIGHT if (hour >= 17 or hour < 7) else BATTERY_DISCHARGE_COST_DAY
+    return (
+        BATTERY_DISCHARGE_COST_NIGHT
+        if (hour >= 17 or hour < 7)
+        else BATTERY_DISCHARGE_COST_DAY
+    )
 
 
 # Real, live-reported bug (2026-08-29/30, issue tracked in 116KAT-HA-AI's own
@@ -403,7 +436,9 @@ def battery_discharge_cost_rate(hour: int) -> float:
 # EPR, +$8.94 regret -- both valid).
 
 
-def fetch_history_range(entity_id: str, start: datetime, end: datetime) -> list[tuple[datetime, str]]:
+def fetch_history_range(
+    entity_id: str, start: datetime, end: datetime
+) -> list[tuple[datetime, str]]:
     """Real recorded history for a single entity's raw state string, as
     (local BRISBANE_TZ time, raw state) points, for an EXPLICIT
     [start, end) window -- unlike nimbus_solver_forecast_writer.py's own
@@ -414,9 +449,9 @@ def fetch_history_range(entity_id: str, start: datetime, end: datetime) -> list[
     must never crash the writer.
     """
     url = (
-        f"{HA_BASE}/api/history/period/{start.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')}Z"
+        f"{HA_BASE}/api/history/period/{start.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z"
         f"?filter_entity_id={entity_id}"
-        f"&end_time={end.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')}Z&minimal_response"
+        f"&end_time={end.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z&minimal_response"
     )
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {TOKEN}"})
     try:
@@ -435,7 +470,9 @@ def fetch_history_range(entity_id: str, start: datetime, end: datetime) -> list[
     return sorted(out, key=lambda x: x[0])
 
 
-def resample_nearest_float(pts: list[tuple[datetime, str]], grid_times: list[datetime], default: float = 0.0) -> list[float]:
+def resample_nearest_float(
+    pts: list[tuple[datetime, str]], grid_times: list[datetime], default: float = 0.0
+) -> list[float]:
     """Nearest-at-or-before lookup against a real, explicit-window
     history fetch, parsed to float -- same convention as
     nimbus_solver_forecast_writer.py's own resample_forecast(), just
@@ -462,7 +499,9 @@ def resample_nearest_float(pts: list[tuple[datetime, str]], grid_times: list[dat
     return out
 
 
-def resample_nearest_str(pts: list[tuple[datetime, str]], grid_times: list[datetime], default: str = "") -> list[str]:
+def resample_nearest_str(
+    pts: list[tuple[datetime, str]], grid_times: list[datetime], default: str = ""
+) -> list[str]:
     out = []
     for gt in grid_times:
         val = pts[0][1] if pts else default
@@ -475,7 +514,9 @@ def resample_nearest_str(pts: list[tuple[datetime, str]], grid_times: list[datet
     return out
 
 
-def value_at_or_before(pts: list[tuple[datetime, str]], t: datetime, default: float) -> float:
+def value_at_or_before(
+    pts: list[tuple[datetime, str]], t: datetime, default: float
+) -> float:
     """Single-point nearest-before lookup (not a whole grid) -- used for
     the battery's own real start-of-day / end-of-day SoC%, which only
     needs two real values, not a full 96-point resample."""
@@ -492,7 +533,10 @@ def value_at_or_before(pts: list[tuple[datetime, str]], t: datetime, default: fl
 
 
 def robust_value_near(
-    pts: list[tuple[datetime, str]], t: datetime, window_seconds: float = 300.0, default: float | None = None
+    pts: list[tuple[datetime, str]],
+    t: datetime,
+    window_seconds: float = 300.0,
+    default: float | None = None,
 ) -> float:
     """Time-weighted "what was really true" lookup, for a value that must
     hold steady across a window (e.g. a real committed P2P target) but
@@ -544,10 +588,14 @@ def robust_value_near(
         except ValueError:
             continue
         if cur_val is not None:
-            totals[cur_val] = totals.get(cur_val, 0.0) + (pt_t - cur_start).total_seconds()
+            totals[cur_val] = (
+                totals.get(cur_val, 0.0) + (pt_t - cur_start).total_seconds()
+            )
         cur_val, cur_start = v, pt_t
     if cur_val is not None:
-        totals[cur_val] = totals.get(cur_val, 0.0) + (window_end - cur_start).total_seconds()
+        totals[cur_val] = (
+            totals.get(cur_val, 0.0) + (window_end - cur_start).total_seconds()
+        )
 
     if not totals:
         return baseline if baseline is not None else default
@@ -571,9 +619,11 @@ def save_quality_history(history: dict) -> None:
 
 
 def main() -> None:
-    now = datetime.now(timezone.utc).astimezone(BRISBANE_TZ)
+    now = datetime.now(UTC).astimezone(BRISBANE_TZ)
     yesterday = (now - timedelta(days=1)).date()
-    day_start = datetime(yesterday.year, yesterday.month, yesterday.day, 0, 0, 0, tzinfo=BRISBANE_TZ)
+    day_start = datetime(
+        yesterday.year, yesterday.month, yesterday.day, 0, 0, 0, tzinfo=BRISBANE_TZ
+    )
     day_end = day_start + timedelta(days=1)
     day_key = yesterday.isoformat()
 
@@ -606,7 +656,9 @@ def main() -> None:
     quality_history = load_quality_history()
     if day_key in quality_history:
         day_entry = quality_history[day_key]
-        print(f"[{now.isoformat()}] {day_key} already scored (epr={day_entry.get('epr')}) -- re-pushing sensor (may have been wiped by a restart)")
+        print(
+            f"[{now.isoformat()}] {day_key} already scored (epr={day_entry.get('epr')}) -- re-pushing sensor (may have been wiped by a restart)"
+        )
         ha_post_state(
             ENTITY_ID,
             day_entry["epr"],
@@ -624,33 +676,48 @@ def main() -> None:
     # Real settled P2P ground truth (see module docstring) -- the whole
     # reason this runs a day BEHIND, not for today.
     try:
-        confirmed_hist = ha_get("sensor.lv_v2_p2p_confirmed_history")["attributes"]["history"]
+        confirmed_hist = ha_get("sensor.lv_v2_p2p_confirmed_history")["attributes"][
+            "history"
+        ]
     except (urllib.error.HTTPError, KeyError, json.JSONDecodeError) as e:
-        print(f"[{now.isoformat()}] could not read confirmed P2P history ({e}) -- skipping, will retry next run", file=sys.stderr)
+        print(
+            f"[{now.isoformat()}] could not read confirmed P2P history ({e}) -- skipping, will retry next run",
+            file=sys.stderr,
+        )
         return
     day_data = confirmed_hist.get(day_key)
     if not day_data:
-        print(f"[{now.isoformat()}] {day_key} not yet present in sensor.lv_v2_p2p_confirmed_history -- skipping, will retry next run")
+        print(
+            f"[{now.isoformat()}] {day_key} not yet present in sensor.lv_v2_p2p_confirmed_history -- skipping, will retry next run"
+        )
         return
     real_p2p_dollars = float(day_data.get("export_cost", 0.0))
     real_p2p_volume_kwh = float(day_data.get("export_volume", 0.0))
 
-    grid_times = [day_start + timedelta(hours=i * PERIOD_HOURS) for i in range(N_PERIODS)]
+    grid_times = [
+        day_start + timedelta(hours=i * PERIOD_HOURS) for i in range(N_PERIODS)
+    ]
     period_hours_arr = [PERIOD_HOURS] * N_PERIODS
 
     # Real measured yesterday, not a forecast -- see module docstring for
     # why this must be real recorded history, never sensor.nimbus_*_
     # forecast (this score has nothing to do with forecast accuracy).
-    solar_hist = fetch_history_range("sensor.combined_total_dc_power", day_start, day_end)
+    solar_hist = fetch_history_range(
+        "sensor.combined_total_dc_power", day_start, day_end
+    )
     # Same real, cleaner whole-house load signal this project switched
     # both the live P2P automation AND Nimbus's own Whole House power
     # signal to (2026-08-16, see the sibling repo's own CLAUDE.md session
     # "Real P2P-window grid spikes root-caused...") -- NOT the noisy raw
     # sensor.logger_load_power this same investigation moved away from.
-    load_hist = fetch_history_range("sensor.cb_total_combined_power_adjusted_kw", day_start, day_end)
+    load_hist = fetch_history_range(
+        "sensor.cb_total_combined_power_adjusted_kw", day_start, day_end
+    )
     # Real, signed net battery power (positive=discharge, this project's
     # own established convention) -- the ACTUAL trajectory.
-    battery_actual_hist = fetch_history_range("sensor.logger_battery_power", day_start, day_end)
+    battery_actual_hist = fetch_history_range(
+        "sensor.logger_battery_power", day_start, day_end
+    )
     # Real COMMANDED setpoint -- the magnitude the live P2P automation
     # actually wrote to the inverter, reconstructed from the real
     # setpoint magnitude + real CMD direction (Charge/Discharge/Stop),
@@ -658,14 +725,24 @@ def main() -> None:
     # magnitude (see this project's own documented "stale setpoint" HA
     # YAML gotcha -- CMD, not the setpoint value alone, decides what the
     # inverter actually does).
-    setpoint_hist = fetch_history_range("number.logger_charging_discharging_power_kw", day_start, day_end)
-    cmd_hist = fetch_history_range("sensor.logger_charging_discharging_command", day_start, day_end)
+    setpoint_hist = fetch_history_range(
+        "number.logger_charging_discharging_power_kw", day_start, day_end
+    )
+    cmd_hist = fetch_history_range(
+        "sensor.logger_charging_discharging_command", day_start, day_end
+    )
     # 2026-08-20: migrated off guerrier onto our own project-owned
     # equivalents (see nimbus_solver_forecast_writer.py's matching change
     # and CLAUDE.md's Aug 20 session log for the full investigation).
-    import_price_hist = fetch_history_range("sensor.localvolts_costs_flex_up", day_start, day_end)
-    export_price_hist = fetch_history_range("sensor.localvolts_earnings_flex_up", day_start, day_end)
-    soc_hist = fetch_history_range("sensor.logger_battery_level_soc", day_start - timedelta(hours=6), day_end)
+    import_price_hist = fetch_history_range(
+        "sensor.localvolts_costs_flex_up", day_start, day_end
+    )
+    export_price_hist = fetch_history_range(
+        "sensor.localvolts_earnings_flex_up", day_start, day_end
+    )
+    soc_hist = fetch_history_range(
+        "sensor.logger_battery_level_soc", day_start - timedelta(hours=6), day_end
+    )
 
     # Real, already-documented unit bug (this project's own Nimbus
     # Solver CLAUDE.md, "Real units bug"): sensor.combined_total_dc_power
@@ -676,7 +753,9 @@ def main() -> None:
     # on this script's own first real diagnostic run against live NUC1
     # data. Divided by 1000 here, matching the same real fix already
     # applied in the sibling reconciliation script.
-    solar_kw = [max(0.0, v / 1000.0) for v in resample_nearest_float(solar_hist, grid_times)]
+    solar_kw = [
+        max(0.0, v / 1000.0) for v in resample_nearest_float(solar_hist, grid_times)
+    ]
     load_kw = [max(0.0, v) for v in resample_nearest_float(load_hist, grid_times)]
 
     # Real fix (2026-08-22, direct Mark Purcell finding): the oracle
@@ -701,14 +780,18 @@ def main() -> None:
     # day's own P2P window (not today's current value, in case it was
     # ever changed) -- same real, honest "ground truth from history, not
     # assumption" discipline as every other input in this script.
-    p2p_target_hist = fetch_history_range("input_number.p2p_grid_export_target_kw", day_start, day_end)
+    p2p_target_hist = fetch_history_range(
+        "input_number.p2p_grid_export_target_kw", day_start, day_end
+    )
     p2p_window_start = day_start.replace(hour=17, minute=0, second=0, microsecond=0)
     # robust_value_near, not value_at_or_before: a plain point-in-time
     # lookup at exactly the window's own start is fragile against a
     # real, brief, self-correcting transient in this input_number
     # landing on that exact instant -- see robust_value_near()'s own
     # docstring for the full incident this was found from.
-    real_p2p_target_kw = robust_value_near(p2p_target_hist, p2p_window_start, window_seconds=300.0, default=11.5)
+    real_p2p_target_kw = robust_value_near(
+        p2p_target_hist, p2p_window_start, window_seconds=300.0, default=11.5
+    )
     # Second real structural mismatch, same class as the P2P-window fix
     # above -- found chasing the remaining $11.23 regret after the first
     # fix (tracking_cost was confirmed tiny, $0.04, ruling out execution
@@ -727,8 +810,13 @@ def main() -> None:
     # day after") is the correct, real mapping.
     SELF_CONSUME_HOURS_AFTER_MIDNIGHT_CLOSE = 4
     oracle_fixed_export_kw = [
-        real_p2p_target_kw if 17 <= grid_times[i].hour < 24
-        else (0.0 if grid_times[i].hour < SELF_CONSUME_HOURS_AFTER_MIDNIGHT_CLOSE else float("nan"))
+        real_p2p_target_kw
+        if 17 <= grid_times[i].hour < 24
+        else (
+            0.0
+            if grid_times[i].hour < SELF_CONSUME_HOURS_AFTER_MIDNIGHT_CLOSE
+            else float("nan")
+        )
         for i in range(N_PERIODS)
     ]
 
@@ -739,13 +827,17 @@ def main() -> None:
     setpoint_kw = resample_nearest_float(setpoint_hist, grid_times)
     cmd = resample_nearest_str(cmd_hist, grid_times, default=CMD_CODE_STOP_DEFAULT)
     commanded_net_kw = [
-        setpoint_kw[i] if cmd[i] == CMD_CODE_DISCHARGE else (-setpoint_kw[i] if cmd[i] == CMD_CODE_CHARGE else 0.0)
+        setpoint_kw[i]
+        if cmd[i] == CMD_CODE_DISCHARGE
+        else (-setpoint_kw[i] if cmd[i] == CMD_CODE_CHARGE else 0.0)
         for i in range(N_PERIODS)
     ]
     commanded_charge_kw = np.array([max(0.0, -v) for v in commanded_net_kw])
     commanded_discharge_kw = np.array([max(0.0, v) for v in commanded_net_kw])
 
-    spot_import_raw = resample_nearest_float(import_price_hist, grid_times, default=0.20)
+    spot_import_raw = resample_nearest_float(
+        import_price_hist, grid_times, default=0.20
+    )
     spot_export = resample_nearest_float(export_price_hist, grid_times, default=0.05)
     import_price = [
         spot_import_raw[i] + network_energy_rate(grid_times[i].hour) + CERTIFICATES_RATE
@@ -753,7 +845,10 @@ def main() -> None:
     ]
     bonus_price = fetch_real_p2p_rates_for_day(yesterday, grid_times)
     if bonus_price is None:
-        print(f"[{now.isoformat()}] {day_key} real P2P rate unavailable -- skipping, will retry next run", file=sys.stderr)
+        print(
+            f"[{now.isoformat()}] {day_key} real P2P rate unavailable -- skipping, will retry next run",
+            file=sys.stderr,
+        )
         return
 
     # Fine-grid tracking fidelity/cost (2026-08-18, see FINE_PERIOD_HOURS'
@@ -765,22 +860,39 @@ def main() -> None:
     # path below) still uses the coarse grid_times/period_hours_arr --
     # only this one, LP-solve-free computation benefits from going
     # finer, so only this one does.
-    fine_grid_times = [day_start + timedelta(hours=i * FINE_PERIOD_HOURS) for i in range(N_FINE_PERIODS)]
+    fine_grid_times = [
+        day_start + timedelta(hours=i * FINE_PERIOD_HOURS)
+        for i in range(N_FINE_PERIODS)
+    ]
     fine_hours_arr = np.full(N_FINE_PERIODS, FINE_PERIOD_HOURS)
     fine_setpoint_kw = resample_nearest_float(setpoint_hist, fine_grid_times)
-    fine_cmd = resample_nearest_str(cmd_hist, fine_grid_times, default=CMD_CODE_STOP_DEFAULT)
-    fine_commanded_net_kw = np.array([
-        fine_setpoint_kw[i] if fine_cmd[i] == CMD_CODE_DISCHARGE else (-fine_setpoint_kw[i] if fine_cmd[i] == CMD_CODE_CHARGE else 0.0)
-        for i in range(N_FINE_PERIODS)
-    ])
-    fine_actual_net_kw = np.array(resample_nearest_float(battery_actual_hist, fine_grid_times))
-    fine_export_price = np.array(resample_nearest_float(export_price_hist, fine_grid_times, default=0.05))
+    fine_cmd = resample_nearest_str(
+        cmd_hist, fine_grid_times, default=CMD_CODE_STOP_DEFAULT
+    )
+    fine_commanded_net_kw = np.array(
+        [
+            fine_setpoint_kw[i]
+            if fine_cmd[i] == CMD_CODE_DISCHARGE
+            else (-fine_setpoint_kw[i] if fine_cmd[i] == CMD_CODE_CHARGE else 0.0)
+            for i in range(N_FINE_PERIODS)
+        ]
+    )
+    fine_actual_net_kw = np.array(
+        resample_nearest_float(battery_actual_hist, fine_grid_times)
+    )
+    fine_export_price = np.array(
+        resample_nearest_float(export_price_hist, fine_grid_times, default=0.05)
+    )
 
     fine_tracking = compute_tracking_fidelity(
-        hours=fine_hours_arr, commanded_kw=fine_commanded_net_kw, actual_kw=fine_actual_net_kw,
+        hours=fine_hours_arr,
+        commanded_kw=fine_commanded_net_kw,
+        actual_kw=fine_actual_net_kw,
     )
     fine_tracking_cost = tracking_error_cost(
-        hours=fine_hours_arr, commanded_kw=fine_commanded_net_kw, actual_kw=fine_actual_net_kw,
+        hours=fine_hours_arr,
+        commanded_kw=fine_commanded_net_kw,
+        actual_kw=fine_actual_net_kw,
         export_price=fine_export_price,
     )
 
@@ -795,9 +907,13 @@ def main() -> None:
     # the full incident.
     capacity_kwh = num("input_number.nimbus_solver_battery_capacity_kwh")
     max_charge_kw = num("input_number.nimbus_solver_battery_max_charge_kw")
-    max_discharge_kw = ha_get("number.logger_charging_discharging_power_kw")["attributes"]["max"]  # not HAEO -- plain Modbus-backed template number, no owning integration
+    max_discharge_kw = ha_get("number.logger_charging_discharging_power_kw")[
+        "attributes"
+    ]["max"]  # not HAEO -- plain Modbus-backed template number, no owning integration
     charge_cost = num("input_number.nimbus_solver_battery_charge_cost")
-    discharge_cost_arr = np.array([battery_discharge_cost_rate(t.hour) for t in grid_times])
+    discharge_cost_arr = np.array(
+        [battery_discharge_cost_rate(t.hour) for t in grid_times]
+    )
     # Zero, not BATTERY_SALVAGE_VALUE_NIGHT/OTHER -- see the real, verified
     # "invalid EPR (>100%, negative regret)" fix documented above this
     # function's own battery_cfg construction.
@@ -808,7 +924,9 @@ def main() -> None:
     min_pct = num("input_number.nimbus_solver_battery_min_soc_pct")
     max_pct = num("input_number.nimbus_solver_battery_max_soc_pct")
     initial_pct = value_at_or_before(soc_hist, day_start, default=50.0)
-    final_pct = value_at_or_before(soc_hist, day_end - timedelta(seconds=1), default=initial_pct)
+    final_pct = value_at_or_before(
+        soc_hist, day_end - timedelta(seconds=1), default=initial_pct
+    )
     initial_soc_kwh = capacity_kwh * initial_pct / 100.0
     final_soc_kwh_actual = capacity_kwh * final_pct / 100.0
 
@@ -826,8 +944,10 @@ def main() -> None:
         salvage_value=salvage_value,
     )
     grid_residual = elements.GridConfig(
-        import_price=np.array(import_price), export_price=np.array(spot_export),
-        import_limit_kw=import_limit_kw, export_limit_kw=export_limit_kw,
+        import_price=np.array(import_price),
+        export_price=np.array(spot_export),
+        import_limit_kw=import_limit_kw,
+        export_limit_kw=export_limit_kw,
     )
     # Real fix (see the real_p2p_target_kw/oracle_fixed_export_kw
     # comment above): the oracle now honours the SAME flat, pre-
@@ -835,9 +955,12 @@ def main() -> None:
     # bound by, instead of being free to retime the settled volume
     # to whichever periods looked best in hindsight.
     grid_oracle = elements.GridConfig(
-        import_price=np.array(import_price), export_price=np.array(spot_export),
-        import_limit_kw=import_limit_kw, export_limit_kw=export_limit_kw,
-        export_bonus_price=np.array(bonus_price), export_bonus_volume_kwh=real_p2p_volume_kwh,
+        import_price=np.array(import_price),
+        export_price=np.array(spot_export),
+        import_limit_kw=import_limit_kw,
+        export_limit_kw=export_limit_kw,
+        export_bonus_price=np.array(bonus_price),
+        export_bonus_volume_kwh=real_p2p_volume_kwh,
         fixed_export_kw=np.array(oracle_fixed_export_kw),
     )
     solar_cfg = elements.SolarConfig(forecast_kw=np.array(solar_kw))
@@ -855,30 +978,49 @@ def main() -> None:
     # inefficiency -- exactly the distinction Mark's own question was
     # getting at.
     grid_oracle_unfixed = elements.GridConfig(
-        import_price=np.array(import_price), export_price=np.array(spot_export),
-        import_limit_kw=import_limit_kw, export_limit_kw=export_limit_kw,
-        export_bonus_price=np.array(bonus_price), export_bonus_volume_kwh=real_p2p_volume_kwh,
+        import_price=np.array(import_price),
+        export_price=np.array(spot_export),
+        import_limit_kw=import_limit_kw,
+        export_limit_kw=export_limit_kw,
+        export_bonus_price=np.array(bonus_price),
+        export_bonus_volume_kwh=real_p2p_volume_kwh,
     )
     report_unfixed = compute_quality_report(
-        periods=periods, grid_residual=grid_residual, grid_oracle=grid_oracle_unfixed,
-        battery=battery_cfg, solar=solar_cfg, load=load_cfg, timestamps=grid_times,
+        periods=periods,
+        grid_residual=grid_residual,
+        grid_oracle=grid_oracle_unfixed,
+        battery=battery_cfg,
+        solar=solar_cfg,
+        load=load_cfg,
+        timestamps=grid_times,
         real_p2p_dollars_earned=real_p2p_dollars,
-        commanded_charge_kw=commanded_charge_kw, commanded_discharge_kw=commanded_discharge_kw,
-        actual_charge_kw=actual_charge_kw, actual_discharge_kw=actual_discharge_kw,
+        commanded_charge_kw=commanded_charge_kw,
+        commanded_discharge_kw=commanded_discharge_kw,
+        actual_charge_kw=actual_charge_kw,
+        actual_discharge_kw=actual_discharge_kw,
         final_soc_kwh_actual=final_soc_kwh_actual,
     )
     regret_dollars_unfixed = report_unfixed.j_ach - report_unfixed.j_star
 
     report = compute_quality_report(
-        periods=periods, grid_residual=grid_residual, grid_oracle=grid_oracle,
-        battery=battery_cfg, solar=solar_cfg, load=load_cfg, timestamps=grid_times,
+        periods=periods,
+        grid_residual=grid_residual,
+        grid_oracle=grid_oracle,
+        battery=battery_cfg,
+        solar=solar_cfg,
+        load=load_cfg,
+        timestamps=grid_times,
         real_p2p_dollars_earned=real_p2p_dollars,
-        commanded_charge_kw=commanded_charge_kw, commanded_discharge_kw=commanded_discharge_kw,
-        actual_charge_kw=actual_charge_kw, actual_discharge_kw=actual_discharge_kw,
+        commanded_charge_kw=commanded_charge_kw,
+        commanded_discharge_kw=commanded_discharge_kw,
+        actual_charge_kw=actual_charge_kw,
+        actual_discharge_kw=actual_discharge_kw,
         final_soc_kwh_actual=final_soc_kwh_actual,
     )
 
-    regret_dollars = report.j_ach - report.j_star  # positive = actual cost MORE than perfect foresight, i.e. real $ left on the table
+    regret_dollars = (
+        report.j_ach - report.j_star
+    )  # positive = actual cost MORE than perfect foresight, i.e. real $ left on the table
     day_entry = {
         "epr": round(report.epr.epr, 4),
         "theoretical_maximum_yield": round(report.epr.theoretical_maximum_yield, 4),
@@ -900,7 +1042,9 @@ def main() -> None:
         "tracking_fidelity": round(fine_tracking.tracking_fidelity, 4),
         "tracking_cost": round(fine_tracking_cost, 4),
         "worst_gap_index": fine_tracking.worst_gap_index,  # now a 1-min-grid index (0-1439), not the old 15-min one (0-95)
-        "worst_gap_at_local": fine_grid_times[fine_tracking.worst_gap_index].isoformat() if fine_tracking.n_samples > 0 else None,
+        "worst_gap_at_local": fine_grid_times[fine_tracking.worst_gap_index].isoformat()
+        if fine_tracking.n_samples > 0
+        else None,
         "worst_gap_kw": round(fine_tracking.worst_gap_kw, 3),
         "mean_absolute_error_kw": round(fine_tracking.mean_absolute_error_kw, 3),
         "energy_shortfall_kwh": round(fine_tracking.energy_shortfall_kwh, 3),
@@ -910,7 +1054,9 @@ def main() -> None:
     quality_history[day_key] = day_entry
     save_quality_history(quality_history)
 
-    hourly_regret_rounded = {str(k): round(v, 4) for k, v in report.hourly_regret.items()}
+    hourly_regret_rounded = {
+        str(k): round(v, 4) for k, v in report.hourly_regret.items()
+    }
     ha_post_state(
         ENTITY_ID,
         day_entry["epr"],
@@ -939,5 +1085,8 @@ if __name__ == "__main__":
     try:
         main()
     except urllib.error.HTTPError as e:
-        print(f"HTTP error: {e.code} {e.read().decode('utf-8', errors='replace')}", file=sys.stderr)
+        print(
+            f"HTTP error: {e.code} {e.read().decode('utf-8', errors='replace')}",
+            file=sys.stderr,
+        )
         raise

@@ -47,7 +47,7 @@ import os
 import sys
 import urllib.error
 import urllib.request
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -58,9 +58,9 @@ from zoneinfo import ZoneInfo
 sys.path.insert(
     0, str(Path(__file__).resolve().parents[4] / "custom_components" / "nimbus_load")
 )
-from solver import elements  # noqa: E402
-from solver.network import build_plan  # noqa: E402
-import numpy as np  # noqa: E402
+import numpy as np
+from solver import elements
+from solver.network import build_plan
 
 BRISBANE_TZ = ZoneInfo("Australia/Brisbane")
 # Same finding -- HA_BASE/TOKEN_PATH used to be one household's own real
@@ -112,9 +112,9 @@ def battery_discharge_cost_rate(hour: int) -> float:
 
 def fetch_history_range(entity_id: str, start: datetime, end: datetime) -> list[tuple[datetime, str]]:
     url = (
-        f"{HA_BASE}/api/history/period/{start.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')}Z"
+        f"{HA_BASE}/api/history/period/{start.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z"
         f"?filter_entity_id={entity_id}"
-        f"&end_time={end.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')}Z&minimal_response"
+        f"&end_time={end.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z&minimal_response"
     )
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {TOKEN}"})
     try:

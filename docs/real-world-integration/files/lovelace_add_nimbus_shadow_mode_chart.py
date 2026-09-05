@@ -39,6 +39,7 @@ PowerShell-BOM-corruption rule):
   docker exec opt_homeassistant_1 python3 /tmp/lovelace_add_nimbus_shadow_mode_chart.py
   docker restart opt_homeassistant_1
 """
+
 import json
 
 CANDIDATE_FILES = [
@@ -47,7 +48,104 @@ CANDIDATE_FILES = [
 ]
 ANCHOR_ENTITY = "sensor.nimbus_solver_battery_forecast"
 
-SHADOW_MODE_CHART_CARD = {'type': 'custom:apexcharts-card', 'header': {'title': 'Nimbus vs HAEO vs Real — Battery (Shadow Mode)', 'show': True, 'show_states': True, 'colorize_states': True}, 'graph_span': '30h', 'span': {'offset': '+24h'}, 'apex_config': {'chart': {'height': 300}, 'legend': {'show': True}, 'annotations': {'yaxis': [{'y': 0, 'strokeDashArray': 4, 'borderColor': '#666666', 'label': {'text': '0 kW', 'style': {'color': '#999999', 'background': 'transparent'}}}]}}, 'yaxis': [{'id': 'power', 'decimals': 1, 'apex_config': {'title': {'text': 'kW'}}}], 'series': [{'entity': 'sensor.logger_battery_power', 'name': 'Real (measured)', 'yaxis_id': 'power', 'color': '#ff9800', 'extend_to': False, 'group_by': {'func': 'last', 'duration': '1m'}, 'stroke_width': 2}, {'entity': 'sensor.nimbus_solver_battery_forecast', 'name': 'Nimbus plan', 'yaxis_id': 'power', 'color': '#00e5ff', 'curve': 'stepline', 'data_generator': 'const fc = entity.attributes.forecast || []; return fc.map(p => [new Date(p.time).getTime(), p.battery_kw]);', 'stroke_width': 4, 'stroke_dash': 8, 'show': {'in_header': False}}, {'entity': 'sensor.nimbus_solver_battery_forecast', 'name': 'Nimbus plan', 'yaxis_id': 'power', 'color': '#00e5ff', 'show': {'in_chart': False, 'in_header': True}}, {'entity': 'sensor.battery_active_power', 'name': 'HAEO plan', 'yaxis_id': 'power', 'color': '#e91e63', 'curve': 'stepline', 'stroke_width': 4, 'stroke_dash': 2, 'data_generator': 'const fc = entity.attributes.forecast || []; return fc.map(p => [new Date(p.time).getTime(), p.value]);', 'show': {'in_header': False}}, {'entity': 'sensor.battery_active_power', 'name': 'HAEO plan', 'yaxis_id': 'power', 'color': '#e91e63', 'show': {'in_chart': False, 'in_header': True}}, {'entity': 'sensor.nimbus_solver_battery_forecast', 'name': 'Nimbus plan (history)', 'yaxis_id': 'power', 'color': '#00e5ff', 'stroke_width': 2, 'extend_to': False, 'group_by': {'func': 'last', 'duration': '1m'}, 'show': {'in_header': False}}, {'entity': 'sensor.battery_active_power', 'name': 'HAEO plan (history)', 'yaxis_id': 'power', 'color': '#e91e63', 'stroke_width': 2, 'extend_to': False, 'group_by': {'func': 'last', 'duration': '1m'}, 'show': {'in_header': False}}], 'now': {'show': True, 'color': '#ffffff', 'label': 'Now'}, 'grid_options': {'columns': 'full'}}
+SHADOW_MODE_CHART_CARD = {
+    "type": "custom:apexcharts-card",
+    "header": {
+        "title": "Nimbus vs HAEO vs Real — Battery (Shadow Mode)",
+        "show": True,
+        "show_states": True,
+        "colorize_states": True,
+    },
+    "graph_span": "30h",
+    "span": {"offset": "+24h"},
+    "apex_config": {
+        "chart": {"height": 300},
+        "legend": {"show": True},
+        "annotations": {
+            "yaxis": [
+                {
+                    "y": 0,
+                    "strokeDashArray": 4,
+                    "borderColor": "#666666",
+                    "label": {
+                        "text": "0 kW",
+                        "style": {"color": "#999999", "background": "transparent"},
+                    },
+                }
+            ]
+        },
+    },
+    "yaxis": [{"id": "power", "decimals": 1, "apex_config": {"title": {"text": "kW"}}}],
+    "series": [
+        {
+            "entity": "sensor.logger_battery_power",
+            "name": "Real (measured)",
+            "yaxis_id": "power",
+            "color": "#ff9800",
+            "extend_to": False,
+            "group_by": {"func": "last", "duration": "1m"},
+            "stroke_width": 2,
+        },
+        {
+            "entity": "sensor.nimbus_solver_battery_forecast",
+            "name": "Nimbus plan",
+            "yaxis_id": "power",
+            "color": "#00e5ff",
+            "curve": "stepline",
+            "data_generator": "const fc = entity.attributes.forecast || []; return fc.map(p => [new Date(p.time).getTime(), p.battery_kw]);",
+            "stroke_width": 4,
+            "stroke_dash": 8,
+            "show": {"in_header": False},
+        },
+        {
+            "entity": "sensor.nimbus_solver_battery_forecast",
+            "name": "Nimbus plan",
+            "yaxis_id": "power",
+            "color": "#00e5ff",
+            "show": {"in_chart": False, "in_header": True},
+        },
+        {
+            "entity": "sensor.battery_active_power",
+            "name": "HAEO plan",
+            "yaxis_id": "power",
+            "color": "#e91e63",
+            "curve": "stepline",
+            "stroke_width": 4,
+            "stroke_dash": 2,
+            "data_generator": "const fc = entity.attributes.forecast || []; return fc.map(p => [new Date(p.time).getTime(), p.value]);",
+            "show": {"in_header": False},
+        },
+        {
+            "entity": "sensor.battery_active_power",
+            "name": "HAEO plan",
+            "yaxis_id": "power",
+            "color": "#e91e63",
+            "show": {"in_chart": False, "in_header": True},
+        },
+        {
+            "entity": "sensor.nimbus_solver_battery_forecast",
+            "name": "Nimbus plan (history)",
+            "yaxis_id": "power",
+            "color": "#00e5ff",
+            "stroke_width": 2,
+            "extend_to": False,
+            "group_by": {"func": "last", "duration": "1m"},
+            "show": {"in_header": False},
+        },
+        {
+            "entity": "sensor.battery_active_power",
+            "name": "HAEO plan (history)",
+            "yaxis_id": "power",
+            "color": "#e91e63",
+            "stroke_width": 2,
+            "extend_to": False,
+            "group_by": {"func": "last", "duration": "1m"},
+            "show": {"in_header": False},
+        },
+    ],
+    "now": {"show": True, "color": "#ffffff", "label": "Now"},
+    "grid_options": {"columns": "full"},
+}
 
 
 def find_view_with_entity(views, entity_id):
@@ -92,10 +190,18 @@ def main():
         if view is not None:
             target_path = path
             data = candidate
-            print(f"Found {ANCHOR_ENTITY} in {path}, view '{view.get('title', view.get('path'))}'")
-            target_cards = section.setdefault("cards", []) if section is not None else view.setdefault("cards", [])
+            print(
+                f"Found {ANCHOR_ENTITY} in {path}, view '{view.get('title', view.get('path'))}'"
+            )
+            target_cards = (
+                section.setdefault("cards", [])
+                if section is not None
+                else view.setdefault("cards", [])
+            )
             r = _replace_or_append(target_cards, SHADOW_MODE_CHART_CARD)
-            print(f"  {r} shadow-mode chart ({len(target_cards)} cards total in target).")
+            print(
+                f"  {r} shadow-mode chart ({len(target_cards)} cards total in target)."
+            )
             break
 
     if target_path is None:
@@ -104,14 +210,20 @@ def main():
             data = json.load(f)
         views = data["data"]["config"]["views"]
         if not views:
-            raise RuntimeError(f"{path} has no views at all -- cannot add a fallback section")
+            raise RuntimeError(
+                f"{path} has no views at all -- cannot add a fallback section"
+            )
         view = views[0]
         if "sections" in view:
             view["sections"].append({"type": "grid", "cards": [SHADOW_MODE_CHART_CARD]})
-            print(f"{ANCHOR_ENTITY} not found anywhere -- added a NEW section to {path}'s first view instead.")
+            print(
+                f"{ANCHOR_ENTITY} not found anywhere -- added a NEW section to {path}'s first view instead."
+            )
         else:
             view.setdefault("cards", []).append(SHADOW_MODE_CHART_CARD)
-            print(f"{ANCHOR_ENTITY} not found anywhere -- appended card to {path}'s first view's card list instead.")
+            print(
+                f"{ANCHOR_ENTITY} not found anywhere -- appended card to {path}'s first view's card list instead."
+            )
         target_path = path
 
     with open(target_path, "w", encoding="utf-8") as f:

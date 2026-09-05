@@ -240,6 +240,12 @@ filterwarnings = [
 # without also confirming every real local dev environment is already
 # on the same interpreter version. Left at py312 deliberately until
 # local dev environments are confirmed on 3.14 too.
+#
+# Mark Purcell, closing #358: `requires-python` above describes the HA
+# runtime this integration actually ships against; `target-version` here
+# describes the lowest interpreter a CONTRIBUTOR may run locally to edit
+# this code. The mismatch is intentional, not an oversight -- see the
+# comment block above for why raising it breaks a 3.12 checkout.
 target-version = "py312"
 extend-exclude = [
     "__pycache__",

@@ -49,6 +49,7 @@ stop opt_homeassistant_1`, apply the edit directly against the HOST path
 container isn't running to resolve that mount) with `sudo` if a plain
 write hits a permission error, then `docker start opt_homeassistant_1`.
 """
+
 import json
 
 LOVELACE_PATH = "/config/.storage/lovelace.dashboard_nimbus"
@@ -68,18 +69,36 @@ HERO_CARD = {
 {% set qr = states.sensor.nimbus_solver_quality_report %}
 {% if fc is not none and fc.state not in ('unavailable','unknown') %}
 {% set status = fc.attributes.get('status','?') %}
-{% set status_color = '""" + GREEN + """' if status == 'optimal' else '""" + RED + """' %}
+{% set status_color = '"""
+    + GREEN
+    + """' if status == 'optimal' else '"""
+    + RED
+    + """' %}
 {% set solve_s = fc.attributes.get('solve_seconds', 0)|float %}
 {% set epr = (qr.state|float * 100) if qr is not none and qr.state not in ('unavailable','unknown') else none %}
-{% set epr_color = '""" + GREEN + """' if epr is not none and epr >= 80 else ('""" + AMBER + """' if epr is not none and epr >= 60 else '""" + RED + """') %}
+{% set epr_color = '"""
+    + GREEN
+    + """' if epr is not none and epr >= 80 else ('"""
+    + AMBER
+    + """' if epr is not none and epr >= 60 else '"""
+    + RED
+    + """') %}
 ## ⚡ Nimbus Solver
 
-<font color="{{ status_color }}" size="5">**{{ status|upper }}**</font>&nbsp;&nbsp;&nbsp; solved in <font color="{{ '""" + GREEN + """' if solve_s < 5 else '""" + AMBER + """' }}" size="5">**{{ '%.2f'|format(solve_s) }}s**</font>&nbsp;&nbsp;&nbsp; EPR <font color="{{ epr_color }}" size="5">**{{ '%.1f'|format(epr) if epr is not none else '—' }}%**</font>
+<font color="{{ status_color }}" size="5">**{{ status|upper }}**</font>&nbsp;&nbsp;&nbsp; solved in <font color="{{ '"""
+    + GREEN
+    + """' if solve_s < 5 else '"""
+    + AMBER
+    + """' }}" size="5">**{{ '%.2f'|format(solve_s) }}s**</font>&nbsp;&nbsp;&nbsp; EPR <font color="{{ epr_color }}" size="5">**{{ '%.1f'|format(epr) if epr is not none else '—' }}%**</font>
 
-<font color="{{ '""" + MUTED + """' }}">{{ fc.attributes.get('n_periods','?') }} periods · {{ fc.attributes.get('horizon_hours','?') }}h horizon · last solved {{ as_timestamp(fc.attributes.get('generated_at')) | timestamp_custom('%-I:%M:%S %p') if fc.attributes.get('generated_at') else '?' }}</font>
+<font color="{{ '"""
+    + MUTED
+    + """' }}">{{ fc.attributes.get('n_periods','?') }} periods · {{ fc.attributes.get('horizon_hours','?') }}h horizon · last solved {{ as_timestamp(fc.attributes.get('generated_at')) | timestamp_custom('%-I:%M:%S %p') if fc.attributes.get('generated_at') else '?' }}</font>
 {% else %}
 ## ⚡ Nimbus Solver
-<font color="{{ '""" + MUTED + """' }}">_Not yet available._</font>
+<font color="{{ '"""
+    + MUTED
+    + """' }}">_Not yet available._</font>
 {% endif %}
 """,
 }
@@ -99,7 +118,9 @@ PERFORMANCE_CARD = {
 | Clamped periods | {{ fc.attributes.get('n_clamped_periods','?') }} |
 | Last solved | {{ as_timestamp(fc.attributes.get('generated_at')) | timestamp_custom('%-I:%M:%S %p') if fc.attributes.get('generated_at') else '?' }} |
 {% else %}
-<font color=\"""" + MUTED + """\">_Not yet available._</font>
+<font color=\""""
+    + MUTED
+    + """\">_Not yet available._</font>
 {% endif %}
 """,
 }
@@ -117,7 +138,9 @@ ECONOMICS_CARD = {
 | P2P match fraction | {{ '%.1f'|format(fc.attributes.get('p2p_match_fraction',0)|float * 100) }}% |
 | Recent avg P2P volume | {{ '%.2f'|format(fc.attributes.get('p2p_recent_avg_volume_kwh',0)|float) }} kWh |
 {% else %}
-<font color=\"""" + MUTED + """\">_Not yet available._</font>
+<font color=\""""
+    + MUTED
+    + """\">_Not yet available._</font>
 {% endif %}
 """,
 }
@@ -129,7 +152,13 @@ QUALITY_CARD = {
     "content": """{% set qr = states.sensor.nimbus_solver_quality_report %}
 {% if qr is not none and qr.state not in ('unavailable','unknown') %}
 {% set epr = qr.state|float * 100 %}
-{% set epr_color = '""" + GREEN + """' if epr >= 80 else ('""" + AMBER + """' if epr >= 60 else '""" + RED + """') %}
+{% set epr_color = '"""
+    + GREEN
+    + """' if epr >= 80 else ('"""
+    + AMBER
+    + """' if epr >= 60 else '"""
+    + RED
+    + """') %}
 _{{ qr.attributes.get('latest_date','?') }}_
 
 | | |
@@ -137,11 +166,15 @@ _{{ qr.attributes.get('latest_date','?') }}_
 | EPR | <font color="{{ epr_color }}">**{{ '%.1f'|format(epr) }}%**</font> |
 | Theoretical max yield | **${{ '%.2f'|format(qr.attributes.get('theoretical_maximum_yield',0)|float) }}** |
 | Value captured | ${{ '%.2f'|format(qr.attributes.get('value_captured',0)|float) }} |
-| Uplift available (regret) | <font color=\"""" + AMBER + """\">${{ '%.2f'|format(qr.attributes.get('uplift_available',0)|float) }}</font> |
+| Uplift available (regret) | <font color=\""""
+    + AMBER
+    + """\">${{ '%.2f'|format(qr.attributes.get('uplift_available',0)|float) }}</font> |
 | Real P2P earned | ${{ '%.2f'|format(qr.attributes.get('real_p2p_dollars',0)|float) }} / {{ '%.1f'|format(qr.attributes.get('real_p2p_volume_kwh',0)|float) }}kWh |
 | Tracking fidelity | {{ '%.0f'|format(qr.attributes.get('tracking_fidelity',0)|float * 100) }}% |
 {% else %}
-<font color=\"""" + MUTED + """\">_Not yet available._</font>
+<font color=\""""
+    + MUTED
+    + """\">_Not yet available._</font>
 {% endif %}
 """,
 }
@@ -153,7 +186,11 @@ THRESHOLD_CARD = {
     "content": """{% set th = states.sensor.p2p_nightly_volume_threshold_kwh %}
 {% if th is not none and th.state not in ('unavailable','unknown') %}
 {% set driver = th.attributes.get('driver','?') %}
-{% set driver_color = '""" + BLUE + """' if driver == 'model' else '""" + MUTED + """' %}
+{% set driver_color = '"""
+    + BLUE
+    + """' if driver == 'model' else '"""
+    + MUTED
+    + """' %}
 | | |
 |:---|---:|
 | Threshold | **{{ '%.2f'|format(th.state|float) }} kWh** |
@@ -162,7 +199,9 @@ THRESHOLD_CARD = {
 | Driving factor | <font color="{{ driver_color }}">**{{ driver }}**</font> |
 | Training days | {{ th.attributes.get('training_days','?') }} |
 {% else %}
-<font color=\"""" + MUTED + """\">_Not yet available._</font>
+<font color=\""""
+    + MUTED
+    + """\">_Not yet available._</font>
 {% endif %}
 """,
 }
@@ -173,13 +212,31 @@ JOB_HEALTH_CARD = {
     "state_color": True,
     "grid_options": {"columns": 6, "rows": 5},
     "entities": [
-        {"entity": "sensor.job_health_nuc1_nimbus_solver_forecast_writer", "name": "NUC1 Forecast Writer"},
-        {"entity": "sensor.job_health_nuc1_nimbus_solver_quality_writer", "name": "NUC1 Quality Writer"},
-        {"entity": "sensor.job_health_nuc1_p2p_nightly_volume_writer", "name": "NUC1 P2P Volume Writer"},
+        {
+            "entity": "sensor.job_health_nuc1_nimbus_solver_forecast_writer",
+            "name": "NUC1 Forecast Writer",
+        },
+        {
+            "entity": "sensor.job_health_nuc1_nimbus_solver_quality_writer",
+            "name": "NUC1 Quality Writer",
+        },
+        {
+            "entity": "sensor.job_health_nuc1_p2p_nightly_volume_writer",
+            "name": "NUC1 P2P Volume Writer",
+        },
         {"type": "divider"},
-        {"entity": "sensor.job_health_nuc2_nimbus_solver_forecast_writer", "name": "NUC2 Forecast Writer"},
-        {"entity": "sensor.job_health_nuc2_nimbus_solver_quality_writer", "name": "NUC2 Quality Writer"},
-        {"entity": "sensor.job_health_nuc2_p2p_nightly_volume_writer", "name": "NUC2 P2P Volume Writer"},
+        {
+            "entity": "sensor.job_health_nuc2_nimbus_solver_forecast_writer",
+            "name": "NUC2 Forecast Writer",
+        },
+        {
+            "entity": "sensor.job_health_nuc2_nimbus_solver_quality_writer",
+            "name": "NUC2 Quality Writer",
+        },
+        {
+            "entity": "sensor.job_health_nuc2_p2p_nightly_volume_writer",
+            "name": "NUC2 P2P Volume Writer",
+        },
     ],
 }
 
@@ -192,7 +249,13 @@ SOLVER_VIEW = {
         {"type": "grid", "cards": [HERO_CARD]},
         {
             "type": "grid",
-            "cards": [PERFORMANCE_CARD, ECONOMICS_CARD, QUALITY_CARD, THRESHOLD_CARD, JOB_HEALTH_CARD],
+            "cards": [
+                PERFORMANCE_CARD,
+                ECONOMICS_CARD,
+                QUALITY_CARD,
+                THRESHOLD_CARD,
+                JOB_HEALTH_CARD,
+            ],
         },
     ],
 }
@@ -203,7 +266,9 @@ def main() -> None:
         data = json.load(f)
 
     views = data["data"]["config"]["views"]
-    existing_idx = next((i for i, v in enumerate(views) if v.get("path") == "solver"), None)
+    existing_idx = next(
+        (i for i, v in enumerate(views) if v.get("path") == "solver"), None
+    )
     if existing_idx is not None:
         views[existing_idx] = SOLVER_VIEW
         print("Replaced existing 'solver' view.")

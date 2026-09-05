@@ -35,6 +35,7 @@ PowerShell-BOM-corruption rule):
   docker exec opt_homeassistant_1 python3 /tmp/lovelace_add_nimbus_solver_forecast_table.py
   docker restart opt_homeassistant_1
 """
+
 import json
 
 CANDIDATE_FILES = [
@@ -124,7 +125,7 @@ FORECAST_TABLE_CARD = {
         "{% if day_ns.date is not none and p_date != day_ns.date %}"
         "| **— {{ day_ns.date }} TOTAL (shown rows) —** |  |  |  | "
         "<font color='gold'>**+${{ day_ns.p2p | round(2) }}**</font> |  |  |  |  | "
-        "<font color='{{ \"lightgreen\" if day_ns.net < 0 else \"orange\" }}'>**${{ day_ns.net | round(2) }}**</font> |\n"
+        '<font color=\'{{ "lightgreen" if day_ns.net < 0 else "orange" }}\'>**${{ day_ns.net | round(2) }}**</font> |\n'
         "{% set day_ns.net = 0 %}{% set day_ns.p2p = 0 %}"
         "{% endif %}"
         "{% set day_ns.date = p_date %}"
@@ -150,9 +151,9 @@ FORECAST_TABLE_CARD = {
         "| {{ '<b><font color=\"gold\">' + ((p.bonus_price * 100) | round(1) | string) + '</font></b>' if p.bonus_price > 0.01 else '—' }} "
         "| {{ p.load_kw | round(1) }} "
         "| {{ p.solar_kw | round(1) }} "
-        "| <font color='{{ \"lightgreen\" if p.battery_kw > 0.05 else (\"orange\" if p.battery_kw < -0.05 else \"gray\") }}'>{{ p.battery_kw | round(1) }}{{ \"⚡\" if p.export_bonus_kw > 0.05 else \"\" }}</font> "
+        '| <font color=\'{{ "lightgreen" if p.battery_kw > 0.05 else ("orange" if p.battery_kw < -0.05 else "gray") }}\'>{{ p.battery_kw | round(1) }}{{ "⚡" if p.export_bonus_kw > 0.05 else "" }}</font> '
         "| {{ p.soc_pct | round(0) | int }}% "
-        "| <font color='{{ \"lightgreen\" if p.net_cost < 0 else \"orange\" }}'>{{ p.net_cost | round(2) }}</font> |\n"
+        '| <font color=\'{{ "lightgreen" if p.net_cost < 0 else "orange" }}\'>{{ p.net_cost | round(2) }}</font> |\n'
         "{% endfor %}\n"
         "*Buy¢ = raw commodity price (matches sensor.localvolts_costs_flex_up directly). "
         "Fees¢ = network TOU + certificates added on top — Buy¢ + Fees¢ = what's actually paid. "
@@ -224,14 +225,14 @@ DAILY_SUMMARY_CARD = {
         "| Spot Export Earnings | <font color='lightgreen'>+${{ spot_earn.v | round(2) }}</font> ({{ exp_kwh.v | round(1) }} kWh) |\n"
         "| P2P Bonus Earnings | <font color='gold'>+${{ p2p_earn.v | round(2) }}</font> ({{ bonus_kwh.v | round(1) }} kWh) |\n"
         "| **Total Export Earnings** | <font color='lightgreen'>**+${{ total_earn | round(2) }}**</font> |\n"
-        "| **Net $ (forecast)** | <font color='{{ \"lightgreen\" if net < 0 else \"orange\" }}'>**${{ net | round(2) }}**</font> |\n"
+        '| **Net $ (forecast)** | <font color=\'{{ "lightgreen" if net < 0 else "orange" }}\'>**${{ net | round(2) }}**</font> |\n'
         "| SoC Range | {{ socs | min | round(0) | int }}% – {{ socs | max | round(0) | int }}% |\n"
         "| Peak Charge / Discharge | {{ batt_min | round(1) }} / {{ batt_max | round(1) }} kW |\n"
         "{% endmacro %}"
         "**Today ({{ today_date }})**\n\n{{ summary_rows(ns.today) }}\n"
         "**Tomorrow ({{ tomorrow_date }})**\n\n{{ summary_rows(ns.tomorrow) }}\n"
         "*Forecast-only — the Solver doesn't drive real dispatch yet, so there is no "
-        "\"actual so far today\" figure to reconcile against (unlike the HAEO/LV daily summaries).*"
+        '"actual so far today" figure to reconcile against (unlike the HAEO/LV daily summaries).*'
         "{% else %}"
         "*No Solver forecast yet.*"
         "{% endif %}"
@@ -287,16 +288,24 @@ def main():
         if view is not None:
             target_path = path
             data = candidate
-            print(f"Found {ANCHOR_ENTITY} in {path}, view '{view.get('title', view.get('path'))}'")
+            print(
+                f"Found {ANCHOR_ENTITY} in {path}, view '{view.get('title', view.get('path'))}'"
+            )
             if section is not None:
-                r1 = _replace_or_append(section.setdefault("cards", []), FORECAST_TABLE_CARD)
+                r1 = _replace_or_append(
+                    section.setdefault("cards", []), FORECAST_TABLE_CARD
+                )
                 r2 = _replace_or_append(section["cards"], DAILY_SUMMARY_CARD)
-                print(f"  {r1} forecast table card, {r2} daily summary card in that view's section ({len(section['cards'])} cards total).")
+                print(
+                    f"  {r1} forecast table card, {r2} daily summary card in that view's section ({len(section['cards'])} cards total)."
+                )
             else:
                 view_cards = view.setdefault("cards", [])
                 r1 = _replace_or_append(view_cards, FORECAST_TABLE_CARD)
                 r2 = _replace_or_append(view_cards, DAILY_SUMMARY_CARD)
-                print(f"  {r1} forecast table card, {r2} daily summary card in that view's card list ({len(view_cards)} cards total).")
+                print(
+                    f"  {r1} forecast table card, {r2} daily summary card in that view's card list ({len(view_cards)} cards total)."
+                )
             break
 
     if target_path is None:
@@ -305,14 +314,24 @@ def main():
             data = json.load(f)
         views = data["data"]["config"]["views"]
         if not views:
-            raise RuntimeError(f"{path} has no views at all -- cannot add a fallback section")
+            raise RuntimeError(
+                f"{path} has no views at all -- cannot add a fallback section"
+            )
         view = views[0]
         if "sections" in view:
-            view["sections"].append({"type": "grid", "cards": [FORECAST_TABLE_CARD, DAILY_SUMMARY_CARD]})
-            print(f"{ANCHOR_ENTITY} not found anywhere -- added a NEW section to {path}'s first view instead.")
+            view["sections"].append(
+                {"type": "grid", "cards": [FORECAST_TABLE_CARD, DAILY_SUMMARY_CARD]}
+            )
+            print(
+                f"{ANCHOR_ENTITY} not found anywhere -- added a NEW section to {path}'s first view instead."
+            )
         else:
-            view.setdefault("cards", []).extend([FORECAST_TABLE_CARD, DAILY_SUMMARY_CARD])
-            print(f"{ANCHOR_ENTITY} not found anywhere -- appended cards to {path}'s first view's card list instead.")
+            view.setdefault("cards", []).extend(
+                [FORECAST_TABLE_CARD, DAILY_SUMMARY_CARD]
+            )
+            print(
+                f"{ANCHOR_ENTITY} not found anywhere -- appended cards to {path}'s first view's card list instead."
+            )
         target_path = path
 
     with open(target_path, "w", encoding="utf-8") as f:
