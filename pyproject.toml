@@ -191,6 +191,25 @@ filterwarnings = [
     # dropped by pytest's own per-test filter re-application, since it's
     # a real ini entry again, not a conftest-level side effect).
     "ignore:It is recommended to use web.AppKey instances for keys:",
+    # Found live in CI (2026-09-06, #364's dashboard-cards PR) -- a SECOND,
+    # differently-worded instance of the exact same warning class as the
+    # entry directly above, from a different HA core file this time:
+    # `homeassistant/components/http/ban.py`'s `ban_middleware` calls
+    # `is_supervisor_unix_socket_request(request)`, which does
+    # `request[KEY_SUPERVISOR_UNIX_SOCKET] = result` -- a plain (non-
+    # `web.RequestKey`) dict key on the per-request mapping, unrelated to
+    # the per-APP `app["hass"]` key the entry above covers. aiohttp's
+    # warning text differs accordingly ("web.RequestKey instances" not
+    # "web.AppKey instances"), so the existing message-regex doesn't
+    # match it and "error" above promoted it to a hard 500 the first time
+    # any test in this suite made a real HTTP request through the FULL
+    # middleware stack (`ban_middleware` only runs for a genuine incoming
+    # request -- nothing before tests/hass_integration/test_frontend_
+    # cards_registered.py's own `hass_client()` calls ever exercised it).
+    # Same fix, same reasoning as above -- filter by message, not
+    # category, for the same fresh-clone-collection and per-test-
+    # re-application reasons documented in that entry's own comment.
+    "ignore:It is recommended to use web.RequestKey instances for keys:",
     # Found live in CI (2026-09-05, v0.94.101), reproduced deterministically
     # on a rerun -- NOT a flake, and not owned by this repo's own code.
     # `tests/test_solver_soft_min_soc_constraint.py` (a plain solver LP

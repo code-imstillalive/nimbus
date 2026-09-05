@@ -1,0 +1,807 @@
+
+class NimbusDispatchCardV4 extends HTMLElement {
+  setConfig(config) {
+    this.config = config || {};
+    // Nimbus issue #364 (Mark Purcell): this card shipped with 8 real
+    // household-specific entity_ids hardcoded directly in the source --
+    // works only on this exact devhub install, unusable by any other
+    // Nimbus HACS install. Resolved from card config instead, same "no
+    // hardcoding" convention the rest of this project follows -- every
+    // household (including this one) now configures these explicitly in
+    // the dashboard YAML `config:` block (see docs/dashboards.md).
+    // CORE fields: the card degrades gracefully (idle/zero/unknown) if
+    // left unset, but is only meaningfully USEFUL once these are real.
+    this._modeEntity = this.config.mode_select_entity || "";
+    this._armedEntity = this.config.armed_entity || "";
+    this._battEntity = this.config.battery_power_entity || "";
+    this._socEntity = this.config.battery_soc_entity || "";
+    this._gridEntity = this.config.grid_power_entity || "";
+    this._solarEntity = this.config.solar_power_entity || "";
+    // OPTIONAL fields: no default at all -- an unset optional entity
+    // hides its own UI element entirely rather than showing a
+    // permanently-red/unknown chip for something the household never
+    // had in the first place (e.g. an EV charger, or a second node's
+    // own job-health monitor).
+    this._evEntity = this.config.ev_charger_power_entity || null;
+    this._p2pThresholdEntity = this.config.p2p_threshold_entity || null;
+    // Arbitrary-length list of {entity, label} health/status chips shown
+    // in the footer -- generalizes what used to be two hardcoded
+    // "NUC1 writer"/"NUC2 writer" chips (a two-node-failover concept
+    // specific to this one household's own architecture) into something
+    // any install can configure zero, one, or several of.
+    this._healthChecks = Array.isArray(this.config.health_checks)
+      ? this.config.health_checks.filter((h) => h && h.entity)
+      : [];
+  }
+  getCardSize() { return 12; }
+
+  set hass(hass) {
+    this._hass = hass;
+    this._maybeFetchHistory();
+    this._render();
+  }
+
+  // Clears the render throttle so the very next hass update (arriving once
+  // this service call actually lands) renders immediately instead of
+  // waiting out the background-churn throttle window -- keeps direct user
+  // actions feeling instant while still throttling unrelated hass ticks.
+  _clearRenderThrottle() {
+    if (this._pendingRenderTimer) { clearTimeout(this._pendingRenderTimer); this._pendingRenderTimer = null; }
+    this._lastRenderAt = 0;
+  }
+
+  _setMode(mode) {
+    this._clearRenderThrottle();
+    if (!this._modeEntity) return;
+    this._hass.callService('input_select', 'select_option', {entity_id: this._modeEntity, option: mode});
+  }
+
+  _toggleArmed() {
+    this._clearRenderThrottle();
+    if (!this._armedEntity) return;
+    const armed = this._hass.states[this._armedEntity];
+    const isOn = armed && armed.state === 'on';
+    this._hass.callService('input_boolean', isOn ? 'turn_off' : 'turn_on', {entity_id: this._armedEntity});
+  }
+
+  _setRisk(entityId, value) {
+    this._clearRenderThrottle();
+    this._hass.callService('number', 'set_value', {entity_id: entityId, value});
+  }
+
+  _maybeFetchHistory() {
+    const now = Date.now();
+    if (this._historyFetchedAt && now - this._historyFetchedAt < 5 * 60 * 1000) return;
+    this._historyFetchedAt = now;
+    const start = new Date(now - 18 * 3600 * 1000).toISOString();
+    if (!this._battEntity) return;
+    this._hass.callApi('GET', 'history/period/' + start + '?filter_entity_id=' + this._battEntity + '&minimal_response')
+      .then(data => {
+        const series = (data && data[0]) || [];
+        this._actualHistory = series
+          .map(pt => [new Date(pt.last_changed || pt.lu * 1000).getTime(), parseFloat(pt.state)])
+          .filter(pt => !isNaN(pt[1]));
+        this._render();
+      })
+      .catch(() => { this._actualHistory = this._actualHistory || []; });
+  }
+
+  _num(entityId, fallback) {
+    const e = this._hass.states[entityId];
+    const v = e ? parseFloat(e.state) : NaN;
+    return isNaN(v) ? fallback : v;
+  }
+
+  // Real entities on this project can be natively W or kW depending on
+  // which sensor -- read the entity's own unit_of_measurement rather than
+  // assume, and convert to kW consistently (already-documented, real gotcha
+  // for sensor.combined_total_dc_power specifically, which is native W).
+  _numAsKw(entityId, fallback) {
+    const e = this._hass.states[entityId];
+    if (!e) return fallback;
+    const v = parseFloat(e.state);
+    if (isNaN(v)) return fallback;
+    const unit = ((e.attributes && e.attributes.unit_of_measurement) || '').toLowerCase();
+    return unit === 'w' ? v / 1000 : v;
+  }
+
+  _fmtNum(v, decimals, suffix) {
+    return (isNaN(v) ? '—' : v.toFixed(decimals)) + (suffix || '');
+  }
+
+  // Real absolute sell rate = spot + P2P premium (bonus_price is deliberately
+  // just the incremental premium, per nimbus's own field-semantics convention
+  // -- never show it bare, always spot+bonus). Distinguishes "spot only" from
+  // a genuine active P2P period so the reasoning text never implies P2P
+  // revenue when there isn't any.
+  _fmtSell(p) {
+    if (!p) return '—';
+    const spot = parseFloat(p.export_price) || 0;
+    const bonus = parseFloat(p.bonus_price) || 0;
+    const total = (spot + bonus) * 100;
+    if (bonus > 0.01) {
+      return total.toFixed(1) + 'c/kWh (spot ' + (spot * 100).toFixed(1) + 'c + P2P ' + (bonus * 100).toFixed(1) + 'c)';
+    }
+    return total.toFixed(1) + 'c/kWh (spot only, no P2P this period)';
+  }
+
+  _render(force) {
+    const hass = this._hass;
+    if (!hass) return;
+    // Real root cause of "scroll takes a million clicks to move a line"
+    // (2026-09-05): the scroll-position restore alone didn't fix this --
+    // `set hass()` fires on essentially every state change anywhere in HA,
+    // which for a live dashboard can be several times a SECOND. Restoring
+    // scrollTop after each rebuild is correct but each rebuild still tears
+    // out and recreates the actual scrollable DOM node, which resets the
+    // browser's own scroll/momentum physics every single time -- so a
+    // mouse-wheel notch or scrollbar click barely gets a chance to move
+    // before the next rebuild interrupts it. Real fix: throttle full
+    // rebuilds to at most once every 3s. A direct user action (mode click,
+    // kill switch, slider release) still re-renders immediately via
+    // force=true, so the card never feels unresponsive to something the
+    // user actually did -- only background hass churn gets throttled.
+    if (this._sliderDragging) return;
+    const now = Date.now();
+    if (!force && this._lastRenderAt && now - this._lastRenderAt < 3000) {
+      if (!this._pendingRenderTimer) {
+        const wait = 3000 - (now - this._lastRenderAt);
+        this._pendingRenderTimer = setTimeout(() => {
+          this._pendingRenderTimer = null;
+          this._render(true);
+        }, wait);
+      }
+      return;
+    }
+    this._lastRenderAt = now;
+    const prevWrap = this._built ? this.shadowRoot.querySelector('.ftable-wrap') : null;
+    const prevScrollTop = prevWrap ? prevWrap.scrollTop : 0;
+
+    const modeEnt = this._modeEntity ? hass.states[this._modeEntity] : undefined;
+    const mode = modeEnt ? modeEnt.state : 'Self-Consume';
+    const armedEnt = this._armedEntity ? hass.states[this._armedEntity] : undefined;
+    const armed = armedEnt ? armedEnt.state === 'on' : false;
+    const socEnt = this._socEntity ? hass.states[this._socEntity] : undefined;
+    const soc = socEnt ? parseFloat(socEnt.state) : 0;
+    const minSoc = this._num('number.nimbus_solver_battery_min_soc_percent', 2);
+    const maxSoc = this._num('number.nimbus_solver_battery_max_soc_percent', 100);
+    const fcEnt = hass.states['sensor.nimbus_solver_battery_forecast'];
+    const fc = (fcEnt && fcEnt.attributes && fcEnt.attributes.forecast) || [];
+    const p0 = fc[0];
+    const solverStatus = fcEnt ? (fcEnt.attributes.status || '?') : '?';
+    const clamped = fcEnt ? fcEnt.attributes.n_clamped_periods : undefined;
+    const solveSecs = fcEnt ? fcEnt.attributes.solve_seconds : undefined;
+    const generatedAt = fcEnt ? fcEnt.attributes.generated_at : undefined;
+    const healthChips = this._healthChecks.map((h) => ({label: h.label || h.entity, ent: hass.states[h.entity]}));
+
+    let dir = 'NO PLAN YET', dirColor = '#9aa0ac', reasoning = 'No Solver plan yet.', bkw = 0, isIdle = true;
+    // Direct household correction (2026-09-05): a single bare "5.7 kW" next
+    // to the status heading was ambiguous -- "no one knows" what it means.
+    // When set (real/disarmed branch only, where the number is genuinely
+    // measured rather than a clearly-labeled plan like "PLANNED DISCHARGE"),
+    // this replaces the single value with real grid/solar/battery shown
+    // together so the number is never ambiguous again.
+    let kwTriple = null;
+
+    // Real dichotomy (2026-09-05, direct household design): ARMED is the
+    // master kill switch -- disarmed means nothing below is followed at
+    // all, exactly matching HAEO's own single on/off automation toggle.
+    // Once armed, "Automatic" mode blindly follows the Nimbus Solver's own
+    // plan (labeled PLANNED, same computation as before this change) --
+    // any other mode is a genuine MANUAL override and must never claim to
+    // be following the plan, even though the gauge/chart above still show
+    // what the plan IS for reference. This card's own kill switch is a
+    // LOCAL, devhub-only rehearsal (input_boolean.devhub_nimbus_dispatch_
+    // armed_rehearsal) -- devhub has no inverter, so arming it here can
+    // never move anything real. The real switch is NUC1's own
+    // input_boolean.nimbus_live_dispatch_armed, gating the already-built
+    // automation.nimbus_live_dispatch, unchanged and untouched by this
+    // card -- deploying "for real" means reusing that automation exactly
+    // as it already exists, not building a new one.
+    if (!armed) {
+      // Second direct household correction (2026-09-05): the big status
+      // heading shouldn't say "DISARMED" at all -- that's already shown by
+      // the small ARMED/DISARMED pill next to the kill switch. This
+      // heading's job is to describe what the real house is ACTUALLY doing
+      // right now, same as it does for every other mode -- CHARGING (SOLAR),
+      // CHARGING (GRID), DISCHARGING, or SELF-CONSUME, read from real, live
+      // measured sensors (never the Solver's plan, since dispatch is off).
+      const realBatt = this._num(this._battEntity, 0);
+      const realGrid = this._num(this._gridEntity, 0);
+      const realSolarKw = this._numAsKw(this._solarEntity, 0);
+      const realEv = this._evEntity ? this._num(this._evEntity, 0) : 0;
+      bkw = realBatt;
+      kwTriple = {grid: realGrid, solar: realSolarKw, batt: realBatt};
+      const evActive = realEv > 0.05;
+      isIdle = Math.abs(realBatt) <= 0.05 && !evActive;
+      if (realBatt > 0.05) {
+        dir = 'DISCHARGING' + (evActive ? ' + EV CHARGING' : ''); dirColor = '#3ddc84';
+      } else if (realBatt < -0.05) {
+        const fromGrid = realGrid > 0.05;
+        dir = (fromGrid ? 'CHARGING (GRID)' : 'CHARGING (SOLAR)') + (evActive ? ' + EV' : '');
+        dirColor = fromGrid ? '#4fa3ff' : '#ffb340';
+      } else if (evActive) {
+        // Battery itself idle, but the EV charger drawing power on its own
+        // is still real, genuine "charging" activity -- direct household
+        // ask: this must never collapse into a plain SELF-CONSUME label.
+        dir = 'CHARGING (EV)'; dirColor = '#4fa3ff';
+      } else {
+        dir = 'SELF-CONSUME'; dirColor = '#9aa0ac';
+      }
+      const battNote = realBatt > 0.05
+        ? ('the battery is discharging ' + realBatt.toFixed(1) + ' kW')
+        : (realBatt < -0.05 ? ('the battery is charging ' + Math.abs(realBatt).toFixed(1) + ' kW') : 'the battery is idle');
+      const evNote = realEv > 0.05 ? (', and the EV charger is drawing ' + realEv.toFixed(1) + ' kW') : '';
+      // Direct household correction: drop the meta-commentary about
+      // rehearsal/devhub entirely -- just say what's actually happening.
+      reasoning = 'Dispatch is off: ' + battNote + evNote + '.';
+    } else if (mode === 'Automatic') {
+      if (p0) {
+      bkw = parseFloat(p0.battery_kw) || 0;
+      const sellLabel = this._fmtSell(p0);
+      const imp = p0.import_price_raw * 100;
+      const solarKw = parseFloat(p0.solar_kw) || 0;
+      const loadKw = parseFloat(p0.load_kw) || 0;
+      const dischargeKw = bkw > 0 ? bkw : 0;
+      const chargeKw = bkw < 0 ? -bkw : 0;
+      // Energy balance across all three sources: grid + solar + battery-discharge = load + battery-charge + export.
+      const netGrid = loadKw + chargeKw - solarKw - dischargeKw; // >0 => importing, <0 => exporting
+      const gridImportKw = Math.max(0, netGrid);
+      const gridExportKw = Math.max(0, -netGrid);
+
+      if (bkw > 0.05) {
+        dir = 'PLANNED DISCHARGE'; dirColor = '#3ddc84'; isIdle = false;
+        if (gridExportKw > 0.05) {
+          reasoning = 'Battery discharging ' + dischargeKw.toFixed(1) + ' kW plus ' + solarKw.toFixed(1) + ' kW solar covers the ' + loadKw.toFixed(1) + ' kW load with ' + gridExportKw.toFixed(1) + ' kW left to export at ' + sellLabel + ' - worth more now than buying it back later at ' + imp.toFixed(1) + 'c/kWh.';
+        } else if (gridImportKw > 0.05) {
+          reasoning = 'Battery discharging ' + dischargeKw.toFixed(1) + ' kW plus ' + solarKw.toFixed(1) + ' kW solar still leaves ' + gridImportKw.toFixed(1) + ' kW of the ' + loadKw.toFixed(1) + ' kW load coming from the grid at ' + imp.toFixed(1) + 'c/kWh - the plan still prefers discharging over holding charge here.';
+        } else {
+          reasoning = 'Battery discharging ' + dischargeKw.toFixed(1) + ' kW plus ' + solarKw.toFixed(1) + ' kW solar exactly covers the ' + loadKw.toFixed(1) + ' kW load - no grid import or export needed.';
+        }
+      } else if (bkw < -0.05) {
+        isIdle = false;
+        if (gridImportKw < 0.05) {
+          dir = 'PLANNED CHARGE (SOLAR)'; dirColor = '#ffb340';
+          reasoning = 'Solar (' + solarKw.toFixed(1) + ' kW) covers the ' + loadKw.toFixed(1) + ' kW load with ' + chargeKw.toFixed(1) + ' kW spare charging the battery for free' + (gridExportKw > 0.05 ? (' and ' + gridExportKw.toFixed(1) + ' kW still exported') : '') + ' - no grid import involved.';
+        } else {
+          let bestSell = -Infinity, bestIdx = -1;
+          for (let i = 1; i < fc.length; i++) {
+            const v = (parseFloat(fc[i].export_price) || 0) + (parseFloat(fc[i].bonus_price) || 0);
+            if (v > bestSell) { bestSell = v; bestIdx = i; }
+          }
+          const bestSellLabel = bestIdx >= 0 ? this._fmtSell(fc[bestIdx]) : null;
+          const bestSellC = bestSell > -Infinity ? bestSell * 100 : null;
+          const solarInvolved = solarKw > 0.05;
+          dir = solarInvolved ? 'PLANNED CHARGE (SOLAR + GRID)' : 'PLANNED CHARGE (GRID)';
+          dirColor = solarInvolved ? '#a78bfa' : '#4fa3ff';
+          const solarNote = solarInvolved ? (solarKw.toFixed(1) + ' kW solar plus ') : '';
+          if (bestSellC !== null && bestSellC > imp) {
+            const hoursAhead = (bestIdx >= 0 && fc[bestIdx].time) ? Math.round((new Date(fc[bestIdx].time).getTime() - new Date(p0.time).getTime()) / 3600000) : null;
+            reasoning = solarNote + gridImportKw.toFixed(1) + ' kW of grid import at ' + imp.toFixed(1) + 'c/kWh is charging the battery to store energy the plan expects to sell for up to ' + bestSellLabel + (hoursAhead !== null ? ' around +' + hoursAhead + 'h' : '') + ' - the spread covers the round trip.';
+          } else {
+            reasoning = solarNote + gridImportKw.toFixed(1) + ' kW of grid import at ' + imp.toFixed(1) + 'c/kWh is charging the battery - current export value (' + sellLabel + ') doesn\'t justify this on price alone, so the solver is likely holding reserve rather than chasing an arbitrage.';
+          }
+        }
+      } else {
+        dir = 'PLANNED SELF-CONSUME'; dirColor = '#9aa0ac'; isIdle = true;
+        if (gridImportKw > 0.05) {
+          reasoning = 'Solar (' + solarKw.toFixed(1) + ' kW) covers part of the ' + loadKw.toFixed(1) + ' kW load, with ' + gridImportKw.toFixed(1) + ' kW topped up from the grid at ' + imp.toFixed(1) + 'c/kWh - battery is idle, neither charging nor discharging.';
+        } else if (gridExportKw > 0.05) {
+          reasoning = 'Solar (' + solarKw.toFixed(1) + ' kW) exceeds the ' + loadKw.toFixed(1) + ' kW load with ' + gridExportKw.toFixed(1) + ' kW exported at ' + sellLabel + ' - battery is idle, neither charging nor discharging.';
+        } else {
+          reasoning = 'Solar (' + solarKw.toFixed(1) + ' kW) matches the ' + loadKw.toFixed(1) + ' kW load directly - no grid import/export, battery idle.';
+        }
+      }
+      }
+    } else {
+      // A genuine manual override -- armed, but explicitly NOT following
+      // the Solver's plan. Never borrow the PLANNED reasoning text here,
+      // or this silently implies the plan is being followed when it isn't.
+      isIdle = (mode === 'Self-Consume' || mode === 'Preserve');
+      const manualColors = {'Self-Consume': '#9aa0ac', 'Charge': '#4fa3ff', 'Discharge': '#3ddc84', 'Preserve': '#ffb340'};
+      dir = 'MANUAL: ' + mode.toUpperCase();
+      dirColor = manualColors[mode] || '#e8eaf0';
+      reasoning = 'Manual override selected (' + mode + ') -- this does NOT follow the Nimbus plan shown in the gauge/timeline below. Switch mode back to Automatic to resume following the Solver blindly.';
+    }
+
+    const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    const gaugePct = clamp((soc - minSoc) / Math.max(1, (maxSoc - minSoc)), 0, 1);
+    const gAngle = 180 - gaugePct * 180;
+    const gRad = gAngle * Math.PI / 180;
+    const gcx = 125, gcy = 125, gr = 95;
+    const needleX = gcx + gr * Math.cos(gRad);
+    const needleY = gcy - gr * Math.sin(gRad);
+    // Colour by position in the real min-max range (not absolute SoC%) so a
+    // household with a high min-SoC floor still sees red near ITS OWN empty,
+    // not literal 0% -- red near empty, yellow through the middle, green
+    // near full (2026-09-05, direct household ask).
+    const gaugeColor = gaugePct < 0.15 ? '#ff5a5a' : (gaugePct > 0.85 ? '#3ddc84' : '#ffd54f');
+    const gArcLen = Math.PI * gr;
+
+    // Real, always-visible tri-colour gauge track (2026-09-05, direct
+    // household correction: "tri coloured as it goes down" -- a single
+    // dynamic-colour fill that only ever showed ONE colour at a time was
+    // not what was asked for. Same severity-band convention already
+    // established elsewhere in this project's gauges (red/yellow/green
+    // bands + a needle) -- three fixed arcs spanning the whole track,
+    // always rendered regardless of current SoC, with the needle (drawn
+    // separately, unchanged) showing where the real value sits among them.
+    const gaugeBandDef = [[0, 0.15, '#ff5a5a'], [0.15, 0.85, '#ffd54f'], [0.85, 1, '#3ddc84']];
+    const gaugeBands = gaugeBandDef.map(([from, to, color]) => {
+      const segLen = (to - from) * gArcLen;
+      const offset = -(from * gArcLen);
+      return '<path d="M 30 125 A ' + gr + ' ' + gr + ' 0 0 1 220 125" fill="none" stroke="' + color + '" stroke-width="14" stroke-linecap="butt"' +
+        ' stroke-dasharray="' + segLen + ' ' + gArcLen + '" stroke-dashoffset="' + offset + '" opacity="0.9"/>';
+    }).join('');
+
+    const TW = 1000, TH = 220, padL = 46, padR = 20, padT = 16, padB = 34;
+    const plotW = TW - padL - padR, plotH = TH - padT - padB;
+    const nowMs = Date.now();
+    const actual = this._actualHistory || [];
+    const times = fc.map(p => new Date(p.time).getTime());
+    const tMin = actual.length ? Math.min(actual[0][0], times[0] || nowMs) : (times[0] || nowMs - 3600000);
+    const tMax = times.length ? times[times.length - 1] : nowMs + 96 * 3600000;
+    const xOf = t => padL + ((t - tMin) / Math.max(1, (tMax - tMin))) * plotW;
+    const maxAbsKw = Math.max(1, ...fc.map(p => Math.abs(p.battery_kw || 0)), ...actual.map(a => Math.abs(a[1] || 0)));
+    const yZero = padT + plotH * 0.55;
+    const yScale = (plotH * 0.42) / maxAbsKw;
+    const yOfKw = kw => yZero - kw * yScale;
+    const yOfSoc = s => padT + plotH - (s / 100) * plotH;
+
+    let areaPath = '';
+    if (fc.length) {
+      areaPath = 'M ' + xOf(times[0]) + ' ' + yZero;
+      fc.forEach((p, i) => { areaPath += ' L ' + xOf(times[i]) + ' ' + yOfKw(p.battery_kw || 0); });
+      areaPath += ' L ' + xOf(times[times.length - 1]) + ' ' + yZero + ' Z';
+    }
+    let socPath = '';
+    fc.forEach((p, i) => { socPath += (i === 0 ? 'M ' : ' L ') + xOf(times[i]) + ' ' + yOfSoc(p.soc_pct || 0); });
+    let actualPath = '';
+    actual.forEach((a, i) => { actualPath += (i === 0 ? 'M ' : ' L ') + xOf(a[0]) + ' ' + yOfKw(a[1]); });
+
+    // P2P highlight bands (2026-09-05, direct household ask): shade every
+    // period where bonus_price is genuinely active (the incremental P2P
+    // premium over spot -- see _fmtSell()'s own comment on this field's
+    // semantics), so the P2P window is visible directly on this timeline
+    // without cross-referencing the Solver tab. One rect per period rather
+    // than merging runs -- adjacent active periods render as one
+    // continuous band anyway, and this stays correct even if the P2P
+    // window is ever non-contiguous (multiple blocks) in the future.
+    let p2pBands = '';
+    for (let i = 0; i < fc.length; i++) {
+      const bonus = parseFloat(fc[i].bonus_price) || 0;
+      if (bonus <= 0.01) continue;
+      const x1 = xOf(times[i]);
+      const x2 = xOf(times[i + 1] !== undefined ? times[i + 1] : times[i] + 5 * 60000);
+      if (x2 <= x1) continue;
+      p2pBands += '<rect x="' + x1 + '" y="' + padT + '" width="' + (x2 - x1) + '" height="' + plotH + '" fill="#ffd54f" opacity="0.14"/>';
+    }
+
+    const nowX = xOf(nowMs);
+    const hourMarks = [];
+    for (let h = 0; h <= 96; h += 3) {
+      const t = nowMs + h * 3600000;
+      if (t <= tMax) hourMarks.push({x: xOf(t), label: h === 0 ? 'now' : '+' + h + 'h'});
+    }
+
+    // Compact top-bar mode selector (2026-09-05, direct household correction,
+    // stated repeatedly and finally landed here): the old tall stacked-icon
+    // button row (with its own section-label) duplicated exactly what the
+    // ARMED/DISARMED pill text already said ("having Self-Consume near the
+    // button when Self-Consume has another button nearby is redundant") and
+    // cost real vertical space the forecast table below needed. Now a single
+    // small inline row of abbreviated chips, living in the top bar itself
+    // next to the pill/kill-switch -- the chip's own highlight IS the mode
+    // indicator, so the pill no longer repeats the mode name (see below).
+    // Order matters here, per direct household correction: Automatic on the
+    // LEFT, Self-Consume on the RIGHT -- deliberately so SC (the chip) never
+    // sits immediately next to anything else already implying self-consume
+    // (e.g. the DISARMED reasoning text), which read as a visual duplicate.
+    const modes = ['Automatic', 'Charge', 'Discharge', 'Preserve', 'Self-Consume'];
+    const modeAbbr = {'Self-Consume': 'SC', 'Charge': 'CH', 'Discharge': 'DIS', 'Preserve': 'PRE', 'Automatic': 'AUTO'};
+    const modeButtons = modes.map(m => (
+      '<button class="mode-chip ' + (m === mode ? 'active' : '') + '" data-mode="' + m + '" title="' + m + '">' + modeAbbr[m] + '</button>'
+    )).join('');
+
+    const okColor = e => (e && e.state === 'ok') ? '#3ddc84' : '#ff5a5a';
+    const statusColor = solverStatus === 'optimal' ? '#3ddc84' : '#ff5a5a';
+    const lastSolvedStr = generatedAt ? new Date(generatedAt).toLocaleTimeString([], {hour: 'numeric', minute: '2-digit'}) : '?';
+
+    // Risk aversion sliders (2026-09-05, direct household ask, second time --
+    // real, live number.nimbus_solver_* entities on THIS devhub instance,
+    // confirmed via ha_search before wiring, never the remote_homeassistant
+    // mirror_* copies of the same entities. min/max/step (0-1, step 0.05)
+    // confirmed live too, not guessed.
+    const riskSliders = [
+      ['number.nimbus_solver_risk_aversion', 'Load / Solar Risk Aversion'],
+      ['number.nimbus_solver_import_price_risk_aversion', 'Import Price Risk Aversion'],
+      ['number.nimbus_solver_export_price_risk_aversion', 'Export Price Risk Aversion']
+    ].map(([eid, label]) => {
+      const ent = hass.states[eid];
+      const val = ent ? parseFloat(ent.state) : NaN;
+      const known = !isNaN(val);
+      const pct = known ? clamp(val, 0, 1) * 100 : 0;
+      return '<div class="risk-item' + (known ? '' : ' risk-item-unknown') + '">' +
+        '<div class="risk-item-head"><span class="label">' + label + '</span><span class="value" data-risk-value="' + eid + '">' + (known ? val.toFixed(2) : '—') + '</span></div>' +
+        '<input class="risk-slider" type="range" min="0" max="1" step="0.05" value="' + (known ? val : 0) + '" data-entity="' + eid + '" ' + (known ? '' : 'disabled') + ' style="--risk-pct:' + pct + '%">' +
+      '</div>';
+    }).join('');
+
+    const tuningStats = [
+      ['Min SoC', this._fmtNum(this._num('number.nimbus_solver_battery_min_soc_percent', NaN), 0, '%')],
+      ['Max SoC', this._fmtNum(this._num('number.nimbus_solver_battery_max_soc_percent', NaN), 0, '%')],
+      ['Capacity', this._fmtNum(this._num('number.nimbus_solver_battery_capacity_kwh', NaN), 1, ' kWh')],
+      ['Efficiency', this._fmtNum(this._num('number.nimbus_solver_efficiency_percent', NaN), 0, '%')],
+      ['Max Charge', this._fmtNum(this._num('number.nimbus_solver_max_charge_kw', NaN), 1, ' kW')],
+      ['Max Discharge', this._fmtNum(this._num('number.nimbus_solver_max_discharge_kw', NaN), 1, ' kW')],
+      ['Charge Cost', this._fmtNum(this._num('number.nimbus_solver_charge_cost', NaN), 3, '/kWh')],
+      ['Discharge Cost', this._fmtNum(this._num('number.nimbus_solver_discharge_cost', NaN), 3, '/kWh')],
+      ['Salvage', this._fmtNum(this._num('number.nimbus_solver_salvage_value', NaN), 2, '/kWh')]
+    ];
+    const tuningItems = tuningStats.map(([label, value]) =>
+      '<div class="tuning-item"><span class="label">' + label + '</span><span class="value">' + value + '</span></div>'
+    ).join('');
+
+    // Economics & Quality (2026-09-05, direct household ask: "we cannot
+    // see the solver table otherwise without swapping to another view").
+    // Pulled from the same sensors the Solver tab's own markdown card
+    // reads (sensor.nimbus_solver_battery_forecast's own attributes,
+    // sensor.nimbus_solver_quality_report, sensor.p2p_nightly_volume_
+    // threshold_kwh) but rendered in this card's own dark tuning-item
+    // style, not a bolted-on plain table -- EPR is yesterday's real
+    // retrospective score, the P2P threshold is tonight's forward
+    // estimate; kept clearly labeled as such rather than implied to be
+    // the same kind of number.
+    const qrEnt = hass.states['sensor.nimbus_solver_quality_report'];
+    const thEnt = this._p2pThresholdEntity ? hass.states[this._p2pThresholdEntity] : undefined;
+    const qrOk = qrEnt && !['unavailable', 'unknown', ''].includes(qrEnt.state);
+    const thOk = thEnt && !['unavailable', 'unknown', ''].includes(thEnt.state);
+    const totalCost = fcEnt ? fcEnt.attributes.total_cost : undefined;
+    const p2pMatchFrac = fcEnt ? fcEnt.attributes.p2p_match_fraction : undefined;
+    const econStats = [
+      ['Plan Cost (horizon)', totalCost !== undefined ? '$' + parseFloat(totalCost).toFixed(2) : '—'],
+      ['P2P Match', p2pMatchFrac !== undefined ? (parseFloat(p2pMatchFrac) * 100).toFixed(0) + '%' : '—'],
+      ['EPR (yesterday)', qrOk ? (parseFloat(qrEnt.state) * 100).toFixed(0) + '%' : '—'],
+      ['Real P2P (yesterday)', qrOk ? '$' + parseFloat(qrEnt.attributes.real_p2p_dollars || 0).toFixed(2) + ' / ' + parseFloat(qrEnt.attributes.real_p2p_volume_kwh || 0).toFixed(1) + 'kWh' : '—'],
+      ['Tracking Fidelity', qrOk ? (parseFloat(qrEnt.attributes.tracking_fidelity || 0) * 100).toFixed(0) + '%' : '—']
+    ];
+    if (this._p2pThresholdEntity) {
+      econStats.push(["Tonight's P2P Threshold", thOk ? parseFloat(thEnt.state).toFixed(1) + ' kWh' : '—']);
+    }
+    const econItems = econStats.map(([label, value]) =>
+      '<div class="tuning-item"><span class="label">' + label + '</span><span class="value">' + value + '</span></div>'
+    ).join('');
+
+    // Forecast interval table (2026-09-05). Direct household correction:
+    // "make sure the table in control panel has the same slots as
+    // markdown table with the same match and breakdowns... just applying
+    // your new styling" + "it has to have cost, fees, fit, p2p etc." --
+    // this now mirrors devhub's own real "Solver Forecast" markdown card
+    // (nimbus-devhub, Forecaster view) EXACTLY: same 10 columns, same
+    // math, same TOTAL-row-then-stop-at-midnight behaviour, same P2P
+    // field semantics -- only the rendering is this card's own dark
+    // styling. Column math, verbatim from that markdown card's own Jinja:
+    //   Buy¢  = import_price_raw * 100         (raw commodity price only)
+    //   Fees¢ = (import_price - import_price_raw) * 100   (TOU/certs on top)
+    //   Sell¢ = export_price * 100             (plain spot, on its own)
+    //   P2P¢  = (export_price + bonus_price) * 100 when bonus_price > 0.01,
+    //           else 0 -- the real, standalone P2P settlement rate, never
+    //           bonus_price bare and never blended into Sell¢.
+    //   Batt  = battery_kw, plus a lightning-bolt suffix when
+    //           export_bonus_kw > 0 (this period is genuinely counting
+    //           toward the P2P-matched volume).
+    //   Grid  = energy balance across the same three sources used
+    //           everywhere on this card (grid + solar + discharge = load +
+    //           charge + export) -- positive imports, negative exports.
+    // Runs from "now" until the forecast's own date rolls over, then
+    // renders one bold TOTAL row (today's real P2P $ + Net$ across every
+    // period shown) and stops -- identical scope to the markdown card,
+    // not an arbitrary row cap.
+    const ftFmtTime = (t) => {
+      const d = new Date(t);
+      return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+    };
+    const ftDateKey = (t) => {
+      const d = new Date(t);
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    };
+    let ftDate = null, ftDone = false, ftDayNet = 0, ftDayP2p = 0, ftPeriodCount = 0;
+    const ftRows = [];
+    // Real, live grid reading -- used to prefer measured data over the
+    // forecast estimate specifically on the "now" row (direct household
+    // ask: "maybe at current time period row?"). Every other row keeps the
+    // Solver's own forecast-derived figure, since nothing measured exists
+    // for a future period.
+    const realGridNow = this._num(this._gridEntity, NaN);
+    for (let idx = 0; idx < fc.length && !ftDone; idx++) {
+      const p = fc[idx];
+      const pDate = ftDateKey(p.time);
+      if (ftDate !== null && pDate !== ftDate) {
+        const totalNetClass = ftDayNet < -0.001 ? 'net-pos' : (ftDayNet > 0.001 ? 'net-neg' : '');
+        ftRows.push(
+          '<tr class="total-row">' +
+            '<td style="font-weight:700;">&mdash; ' + ftDate + ' TOTAL (shown rows) &mdash;</td>' +
+            '<td></td>' +
+            '<td class="num"></td><td class="num"></td><td class="num"></td>' +
+            '<td class="num"><span class="p2p-pill">+$' + ftDayP2p.toFixed(2) + '</span></td>' +
+            '<td class="num"></td><td class="num"></td><td class="num"></td><td class="num"></td><td class="num"></td>' +
+            '<td class="num ' + totalNetClass + '" style="font-weight:700;">$' + ftDayNet.toFixed(2) + '</td>' +
+          '</tr>'
+        );
+        ftDone = true;
+        break;
+      }
+      ftDate = pDate;
+      ftPeriodCount++;
+      ftDayNet += parseFloat(p.net_cost) || 0;
+      ftDayP2p += (parseFloat(p.bonus_price) || 0) * (parseFloat(p.export_bonus_kw) || 0) * (parseFloat(p.hours) || 0);
+
+      const buyC = (parseFloat(p.import_price_raw) || 0) * 100;
+      const feesC = ((parseFloat(p.import_price) || 0) * 100) - buyC;
+      const spotC = (parseFloat(p.export_price) || 0) * 100;
+      const bonusRaw = parseFloat(p.bonus_price) || 0;
+      const p2pActive = bonusRaw > 0.01;
+      const p2pFullC = p2pActive ? spotC + bonusRaw * 100 : 0;
+      const bkwRow = parseFloat(p.battery_kw) || 0;
+      const battColor = bkwRow > 0.05 ? '#3ddc84' : (bkwRow < -0.05 ? '#4fa3ff' : '#5a6070');
+      const bonusKwActive = (parseFloat(p.export_bonus_kw) || 0) > 0;
+      const net = parseFloat(p.net_cost) || 0;
+      const netClass = net < -0.001 ? 'net-pos' : (net > 0.001 ? 'net-neg' : '');
+      const p2pCell = p2pActive
+        ? '<span class="p2p-pill">' + p2pFullC.toFixed(1) + '</span>'
+        : '<span style="opacity:0.35;">0.0</span>';
+      // Source split (Solar vs Grid share of this period's dispatch) --
+      // direct household ask to bring this back: "i loved the small bar
+      // with yellow and blue percentages... place it between Time and
+      // Buy". Real per-period fields already published by the Solver
+      // (dispatch_source_a/b_label/_pct) -- not invented, same fields
+      // this card used before the markdown-table-parity pass removed it.
+      const srcAPct = parseFloat(p.dispatch_source_a_pct);
+      const srcBPct = parseFloat(p.dispatch_source_b_pct);
+      const hasSource = !isNaN(srcAPct) && !isNaN(srcBPct) && (srcAPct + srcBPct) > 0;
+      const sourceBar = hasSource
+        ? '<div class="source-bar" title="' + (p.dispatch_source_a_label || 'Solar') + ' ' + srcAPct.toFixed(0) + '% / ' + (p.dispatch_source_b_label || 'Grid') + ' ' + srcBPct.toFixed(0) + '%">' +
+            '<span class="seg seg-a" style="width:' + srcAPct + '%"></span>' +
+            '<span class="seg seg-b" style="width:' + srcBPct + '%"></span>' +
+          '</div>'
+        : '<span style="opacity:0.3;">—</span>';
+      // Grid column (direct household ask): energy balance across the same
+      // three sources used everywhere else on this card -- grid + solar +
+      // discharge = load + charge + export, rearranged to isolate grid.
+      // Positive = importing from the grid, negative = exporting to it.
+      // On the "now" row specifically, prefer the real measured meter
+      // reading over this forecast-derived figure when it's available.
+      const loadKwRow = parseFloat(p.load_kw) || 0;
+      const solarKwRow = parseFloat(p.solar_kw) || 0;
+      const dischargeKwRow = bkwRow > 0 ? bkwRow : 0;
+      const chargeKwRow = bkwRow < 0 ? -bkwRow : 0;
+      let gridKwRow = loadKwRow + chargeKwRow - solarKwRow - dischargeKwRow;
+      if (idx === 0 && !isNaN(realGridNow)) gridKwRow = realGridNow;
+      const gridColor = gridKwRow > 0.05 ? '#ffb340' : (gridKwRow < -0.05 ? '#3ddc84' : '#5a6070');
+      ftRows.push(
+        '<tr class="' + (idx === 0 ? 'now-row' : '') + '">' +
+          '<td>' + ftFmtTime(p.time) + (idx === 0 ? ' <span class="now-tag">now</span>' : '') + '</td>' +
+          '<td>' + sourceBar + '</td>' +
+          '<td class="num">' + buyC.toFixed(1) + '</td>' +
+          '<td class="num">' + feesC.toFixed(1) + '</td>' +
+          '<td class="num">' + spotC.toFixed(1) + '</td>' +
+          '<td class="num">' + p2pCell + '</td>' +
+          '<td class="num">' + (parseFloat(p.load_kw) || 0).toFixed(1) + '</td>' +
+          '<td class="num">' + (parseFloat(p.solar_kw) || 0).toFixed(1) + '</td>' +
+          '<td class="num" style="color:' + battColor + '; font-weight:600;">' + bkwRow.toFixed(1) + (bonusKwActive ? ' &#9889;' : '') + '</td>' +
+          '<td class="num" style="color:' + gridColor + ';">' + gridKwRow.toFixed(1) + '</td>' +
+          '<td class="num">' + (parseFloat(p.soc_pct) || 0).toFixed(0) + '%</td>' +
+          '<td class="num ' + netClass + '">$' + net.toFixed(2) + '</td>' +
+        '</tr>'
+      );
+    }
+    const forecastRows = ftRows.join('');
+    const FT_ROWS = ftPeriodCount;
+
+    if (!this._built) { this.attachShadow({mode: 'open'}); this._built = true; }
+
+    this.shadowRoot.innerHTML =
+      '<style>' +
+        ':host { display:block; }' +
+        '.card { background: radial-gradient(circle at 15% 0%, #1c2433 0%, #0f131b 60%), linear-gradient(160deg, #14181f 0%, #0d1016 100%);' +
+          ' border: 1px solid rgba(255,255,255,0.06); border-radius: 20px; padding: 26px 30px 24px; color: #e8eaf0;' +
+          ' font-family: var(--paper-font-body1_-_font-family, sans-serif); box-shadow: 0 8px 32px rgba(0,0,0,0.45);}' +
+        '.top-row { display:flex; align-items:flex-start; justify-content:space-between; gap: 24px; flex-wrap: wrap; }' +
+        '.title-row { display:flex; align-items:center; gap: 18px; flex-wrap: wrap; }' +
+        '.title { font-size: 1.5em; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; opacity: 0.95; }' +
+        '.subtitle { font-size: 1.15em; opacity: 0.5; margin-top: 4px; }' +
+        '.mode-pill { font-size: 1.0em; padding: 6px 14px; border-radius: 20px; font-weight:700; letter-spacing:0.06em;' +
+          ' background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.1); white-space: nowrap; }' +
+        '.mode-chip-row { display:flex; gap: 6px; flex-wrap: wrap; }' +
+        '.mode-chip { background: rgba(255,255,255,0.03); border: 1.5px solid rgba(255,255,255,0.1); border-radius: 10px;' +
+          ' padding: 6px 11px; color: #cfd3dc; font-size: 0.95em; font-weight: 700; letter-spacing: 0.03em;' +
+          ' cursor: pointer; transition: all 0.2s ease; }' +
+        '.mode-chip:hover { background: rgba(255,255,255,0.08); border-color: rgba(255,255,255,0.22); }' +
+        '.mode-chip.active { background: rgba(79,163,255,0.18); border-color: #4fa3ff; color: #fff; box-shadow: 0 0 10px rgba(79,163,255,0.3); }' +
+        '.mode-chip[data-mode="Automatic"].active { background: rgba(61,220,132,0.18); border-color: #3ddc84; box-shadow: 0 0 10px rgba(61,220,132,0.35); }' +
+        '.kill-switch { display:flex; align-items:center; gap: 10px; cursor: pointer; user-select: none; flex-shrink: 0; }' +
+        '.kill-switch .label { font-size: 1.1em; font-weight: 700; letter-spacing: 0.05em; }' +
+        '.kill-switch .track { width: 56px; height: 30px; border-radius: 15px; position: relative; transition: background 0.2s ease;' +
+          ' border: 1.5px solid rgba(255,255,255,0.15); }' +
+        '.kill-switch .knob { width: 24px; height: 24px; border-radius: 50%; background: #fff; position: absolute; top: 2px; transition: left 0.2s ease;' +
+          ' box-shadow: 0 1px 4px rgba(0,0,0,0.4); }' +
+        '.hero { display:flex; align-items:center; gap: 40px; margin: 16px 0 8px; flex-wrap: wrap; width: 100%; }' +
+        '.hero svg { width: 100%; max-width: 300px; height: auto; flex-shrink: 0; }' +
+        '.gauge-status { text-align:left; flex-shrink: 0; max-width: 260px; }' +
+        '.gauge-status .dir { font-size: 1.7em; font-weight: 800; letter-spacing: 0.02em; line-height: 1.15; }' +
+        '.gauge-status .kw { font-size: 1.5em; opacity: 0.75; font-weight: 500; margin-top: 2px; }' +
+        '.kw-triple { display:flex; flex-direction:column; gap: 2px; font-size: 1.05em; opacity: 0.85; margin-top: 4px; }' +
+        '.kw-triple b { opacity: 0.55; font-weight: 600; margin-right: 4px; }' +
+        '.reasoning { font-size: 1.35em; line-height: 1.5; opacity: 0.85; flex: 1 1 300px; min-width: 260px; }' +
+        '.range-labels { display:flex; justify-content:space-between; font-size: 1.05em; opacity: 0.5; width: 250px; margin-top: 4px; }' +
+        '.section-label { font-size: 1.05em; text-transform: uppercase; letter-spacing: 0.09em; opacity: 0.5; margin: 22px 0 8px; }' +
+        '.timeline-wrap { width: 100%; overflow-x: auto; }' +
+        '.timeline-wrap svg { width: 100%; height: auto; display: block; min-width: 480px; }' +
+        '.legend { display:flex; gap: 20px; font-size: 1.05em; opacity: 0.65; margin-top: 8px; flex-wrap: wrap; }' +
+        '.legend span { display:inline-flex; align-items:center; gap:6px; }' +
+        '.legend .dot { width:10px; height:10px; border-radius:50%; display:inline-block; }' +
+        '.footer { display:flex; gap: 24px; flex-wrap: wrap; margin-top: 20px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.06);' +
+          ' font-size: 1.15em; opacity: 0.78; align-items: center; }' +
+        '.chip { display:inline-flex; align-items:center; gap:7px; }' +
+        '.chip .dot { width:9px; height:9px; border-radius:50%; display:inline-block; }' +
+        '.tuning-row { display:flex; gap: 28px; flex-wrap: wrap; margin-top: 18px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.06); align-items: center; }' +
+        '.tuning-item { display:flex; flex-direction:column; gap: 3px; }' +
+        '.tuning-item .label { font-size: 1.0em; text-transform: uppercase; letter-spacing: 0.07em; opacity: 0.45; }' +
+        '.tuning-item .value { font-size: 1.4em; font-weight: 600; }' +
+        '.tuning-link { margin-left: auto; font-size: 1.15em; color: #4fa3ff; text-decoration: none; align-self: center; }' +
+        '.tuning-link:hover { text-decoration: underline; }' +
+        '.risk-row { display:flex; gap: 28px; flex-wrap: wrap; margin: 4px 0 18px; }' +
+        '.risk-item { display:flex; flex-direction:column; gap: 6px; min-width: 200px; flex: 1 1 220px; }' +
+        '.risk-item-unknown { opacity: 0.4; }' +
+        '.risk-item-head { display:flex; justify-content:space-between; align-items:baseline; font-size: 1.1em; }' +
+        '.risk-item-head .label { text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.82em; opacity: 0.55; }' +
+        '.risk-item-head .value { font-weight: 700; font-size: 1.15em; color: #4fa3ff; }' +
+        '.risk-slider { -webkit-appearance: none; appearance: none; width: 100%; height: 6px; border-radius: 3px; cursor: pointer;' +
+          ' background: linear-gradient(90deg, #4fa3ff var(--risk-pct, 0%), rgba(255,255,255,0.08) var(--risk-pct, 0%)); outline: none; }' +
+        '.risk-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 18px; height: 18px; border-radius: 50%; background: #fff;' +
+          ' border: 3px solid #4fa3ff; cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,0.5); }' +
+        '.risk-slider::-moz-range-thumb { width: 18px; height: 18px; border-radius: 50%; background: #fff; border: 3px solid #4fa3ff; cursor: pointer; }' +
+        '.risk-slider:disabled { cursor: not-allowed; }' +
+        '.ftable-wrap { width: 100%; overflow-x: auto; overflow-y: auto; max-height: 480px; margin-top: 4px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); }' +
+        '.ftable-note { font-size: 1.0em; opacity: 0.45; margin: 0 0 6px; }' +
+        'table.ftable { width: 100%; border-collapse: collapse; font-size: 1.08em; min-width: 640px; }' +
+        'table.ftable thead th { text-align: left; text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.85em; opacity: 0.5;' +
+          ' font-weight: 600; padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.1); position: sticky; top: 0; background: #14181f; }' +
+        'table.ftable thead th.num { text-align: right; }' +
+        'table.ftable td { padding: 7px 12px; border-bottom: 1px solid rgba(255,255,255,0.04); white-space: nowrap; }' +
+        'table.ftable td.num { text-align: right; font-variant-numeric: tabular-nums; }' +
+        'table.ftable tbody tr:nth-child(even) { background: rgba(255,255,255,0.02); }' +
+        'table.ftable tbody tr:hover { background: rgba(79,163,255,0.08); }' +
+        'table.ftable td.net-pos { color: #3ddc84; }' +
+        'table.ftable td.net-neg { color: #ff7a7a; }' +
+        'table.ftable tr.now-row td { background: rgba(255,77,141,0.07); border-bottom-color: rgba(255,77,141,0.15); }' +
+        'table.ftable tr.now-row td:first-child { border-left: 2px solid #ff4d8d; }' +
+        'table.ftable tr.total-row td { background: rgba(255,213,79,0.06); border-top: 1px solid rgba(255,213,79,0.25); border-bottom: 1px solid rgba(255,213,79,0.25); }' +
+        '.now-tag { font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.06em; color: #ff4d8d; opacity: 0.85; margin-left: 4px; }' +
+        '.p2p-pill { display: inline-block; background: rgba(255,213,79,0.16); color: #ffd54f; border: 1px solid rgba(255,213,79,0.35);' +
+          ' border-radius: 10px; padding: 1px 9px; font-weight: 700; font-size: 0.92em; }' +
+        '.source-bar { display: flex; width: 56px; height: 8px; border-radius: 4px; overflow: hidden; background: rgba(255,255,255,0.06); }' +
+        '.source-bar .seg-a { background: #ffb340; }' +
+        '.source-bar .seg-b { background: #4fa3ff; }' +
+      '</style>' +
+      '<div class="card">' +
+        '<div class="top-row">' +
+          '<div class="title-row">' +
+            '<div><div class="title">Nimbus Dispatch</div></div>' +
+          '</div>' +
+          '<div style="display:flex; align-items:center; gap:16px; flex-wrap: wrap;">' +
+            '<div class="mode-chip-row">' + modeButtons + '</div>' +
+            '<div class="mode-pill" style="color:' + dirColor + '">' + (armed ? 'ARMED' : 'DISARMED') + '</div>' +
+            '<div class="kill-switch" id="kill-switch">' +
+              '<span class="label" style="color:' + (armed ? '#5a6070' : '#e8eaf0') + '">OFF</span>' +
+              '<div class="track" style="background:' + (armed ? 'rgba(61,220,132,0.35)' : 'rgba(255,255,255,0.08)') + '; border-color:' + (armed ? '#3ddc84' : 'rgba(255,255,255,0.15)') + '">' +
+                '<div class="knob" style="left:' + (armed ? '28px' : '3px') + '; background:' + (armed ? '#3ddc84' : '#fff') + '"></div>' +
+              '</div>' +
+              '<span class="label" style="color:' + (armed ? '#3ddc84' : '#5a6070') + '">ON</span>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="hero">' +
+          '<svg viewBox="0 0 250 145" preserveAspectRatio="xMidYMid meet">' +
+            gaugeBands +
+            '<circle cx="' + needleX + '" cy="' + needleY + '" r="8" fill="#fff" stroke="' + gaugeColor + '" stroke-width="3"/>' +
+            '<text x="125" y="118" text-anchor="middle" fill="#e8eaf0" font-size="26" font-weight="700">' + soc.toFixed(0) + '%</text>' +
+          '</svg>' +
+          '<div class="gauge-status">' +
+            '<div class="dir" style="color:' + dirColor + '">' + dir + '</div>' +
+            (kwTriple
+              ? '<div class="kw-triple">' +
+                  '<span><b>Grid</b> ' + kwTriple.grid.toFixed(1) + ' kW</span>' +
+                  '<span><b>Solar</b> ' + kwTriple.solar.toFixed(1) + ' kW</span>' +
+                  '<span><b>Battery</b> ' + kwTriple.batt.toFixed(1) + ' kW</span>' +
+                '</div>'
+              : '<div class="kw">' + (isIdle ? 'Idle' : Math.abs(bkw).toFixed(1) + ' kW') + '</div>') +
+            '<div class="range-labels"><span>' + minSoc + '% floor</span><span>' + maxSoc + '% ceiling</span></div>' +
+          '</div>' +
+          '<div class="reasoning">' + reasoning + '</div>' +
+        '</div>' +
+        '<div class="section-label" style="margin:8px 0 6px;">Risk Sliders -- how much the plan hedges against forecast being wrong</div>' +
+        '<div class="risk-row">' + riskSliders + '</div>' +
+        '<div class="section-label">Dispatch Plan - next 96h (plan vs. actual)</div>' +
+        '<div class="timeline-wrap"><svg viewBox="0 0 ' + TW + ' ' + TH + '" preserveAspectRatio="xMidYMid meet">' +
+          '<defs>' +
+            '<linearGradient id="fillGradV4" x1="0" y1="0" x2="0" y2="1">' +
+              '<stop offset="0%" stop-color="#3ddc84" stop-opacity="0.55"/>' +
+              '<stop offset="45%" stop-color="#3ddc84" stop-opacity="0.08"/>' +
+              '<stop offset="55%" stop-color="#4fa3ff" stop-opacity="0.08"/>' +
+              '<stop offset="100%" stop-color="#4fa3ff" stop-opacity="0.55"/>' +
+            '</linearGradient>' +
+          '</defs>' +
+          '<line x1="' + padL + '" y1="' + yZero + '" x2="' + (TW - padR) + '" y2="' + yZero + '" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>' +
+          p2pBands +
+          (areaPath ? '<path d="' + areaPath + '" fill="url(#fillGradV4)" stroke="none"/>' : '') +
+          hourMarks.map(m => '<line x1="' + m.x + '" y1="' + padT + '" x2="' + m.x + '" y2="' + (padT + plotH) + '" stroke="rgba(255,255,255,0.05)" stroke-width="1"/>' +
+            '<text x="' + m.x + '" y="' + (TH - 12) + '" fill="#e8eaf0" opacity="0.5" font-size="6" text-anchor="middle">' + m.label + '</text>').join('') +
+          (actualPath ? '<path d="' + actualPath + '" fill="none" stroke="#ffffff" stroke-width="1.1" stroke-opacity="0.8"/>' : '') +
+          (socPath ? '<path d="' + socPath + '" fill="none" stroke="#ffb340" stroke-width="1.6" stroke-dasharray="3 3" stroke-opacity="0.8"/>' : '') +
+          '<line x1="' + nowX + '" y1="' + padT + '" x2="' + nowX + '" y2="' + (padT + plotH) + '" stroke="#ff4d8d" stroke-width="1.5"/>' +
+          '<circle cx="' + nowX + '" cy="' + padT + '" r="3" fill="#ff4d8d"/>' +
+        '</svg></div>' +
+        '<div class="legend">' +
+          '<span><span class="dot" style="background:#3ddc84"></span>Planned discharge</span>' +
+          '<span><span class="dot" style="background:#4fa3ff"></span>Planned charge</span>' +
+          '<span><span class="dot" style="background:#ffffff"></span>Actual (measured, last 18h)</span>' +
+          '<span><span class="dot" style="background:#ffb340"></span>Planned SoC %</span>' +
+          '<span><span class="dot" style="background:#ff4d8d"></span>Now</span>' +
+          '<span><span class="dot" style="background:#ffd54f"></span>P2P active</span>' +
+        '</div>' +
+        '<div class="section-label" style="margin:22px 0 4px;">Forecast Intervals -- now until midnight (' + FT_ROWS + ' periods shown)</div>' +
+        '<div class="ftable-note">' +
+          '<span class="source-bar" style="display:inline-flex; vertical-align:middle;"><span class="seg seg-a" style="width:60%"></span><span class="seg seg-b" style="width:40%"></span></span> Source = Solar (orange) / Grid (blue) share &middot; ' +
+          'Buy&cent; = raw commodity price &middot; Fees&cent; = network TOU/certificates on top &middot; P2P&cent; = real total P2P rate (Sell&cent; + bonus, gold when active, 0 otherwise) &middot; &#9889; = period counts toward tonight\'s matched P2P volume' +
+        '</div>' +
+        '<div class="ftable-wrap"><table class="ftable">' +
+          '<thead><tr>' +
+            '<th>Time</th><th>Source</th><th class="num">Buy&cent;</th><th class="num">Fees&cent;</th><th class="num">Sell&cent;</th><th class="num">P2P&cent;</th><th class="num">Load</th><th class="num">Solar</th><th class="num">Batt</th><th class="num">Grid</th><th class="num">SoC%</th><th class="num">Net$</th>' +
+          '</tr></thead>' +
+          '<tbody>' + forecastRows + '</tbody>' +
+        '</table></div>' +
+        '<div class="footer">' +
+          '<span class="chip"><span class="dot" style="background:' + statusColor + '"></span>Solver: ' + solverStatus + (clamped !== undefined ? ' (' + clamped + ' clamped)' : '') + '</span>' +
+          '<span class="chip">Solved in ' + (solveSecs !== undefined ? solveSecs + 's' : '?') + ' at ' + lastSolvedStr + '</span>' +
+          healthChips.map((h) => '<span class="chip"><span class="dot" style="background:' + okColor(h.ent) + '"></span>' + h.label + '</span>').join('') +
+        '</div>' +
+        '<div class="tuning-row">' + tuningItems +
+          '<a class="tuning-link" href="/nimbus-devhub/solver">Full Solver tuning &rarr;</a>' +
+        '</div>' +
+        '<div class="section-label" style="margin:18px 0 8px;">Economics &amp; Quality</div>' +
+        '<div class="tuning-row" style="border-top:none; padding-top:0; margin-top:0;">' + econItems + '</div>' +
+      '</div>';
+
+    // Restore the forecast table's own scroll position immediately -- see
+    // the comment at the top of _render() for why this is needed at all.
+    const newWrap = this.shadowRoot.querySelector('.ftable-wrap');
+    if (newWrap && prevScrollTop) newWrap.scrollTop = prevScrollTop;
+
+    this.shadowRoot.querySelectorAll('.mode-chip').forEach(btn => {
+      btn.addEventListener('click', () => this._setMode(btn.dataset.mode));
+    });
+    const killSwitch = this.shadowRoot.getElementById('kill-switch');
+    if (killSwitch) killSwitch.addEventListener('click', () => this._toggleArmed());
+    this.shadowRoot.querySelectorAll('.risk-slider').forEach(el => {
+      const valueLabel = this.shadowRoot.querySelector('[data-risk-value="' + el.dataset.entity + '"]');
+      const startDrag = () => { this._sliderDragging = true; };
+      const endDrag = () => {
+        this._sliderDragging = false;
+        this._setRisk(el.dataset.entity, parseFloat(el.value));
+      };
+      el.addEventListener('pointerdown', startDrag);
+      el.addEventListener('input', () => {
+        if (valueLabel) valueLabel.textContent = parseFloat(el.value).toFixed(2);
+        el.style.setProperty('--risk-pct', (parseFloat(el.value) * 100) + '%');
+      });
+      el.addEventListener('change', endDrag);
+      // Safety net: if pointerup/change never fires for some reason (e.g. a
+      // keyboard-driven change), don't leave the card permanently frozen.
+      el.addEventListener('pointerup', () => { setTimeout(() => { this._sliderDragging = false; }, 0); });
+    });
+  }
+}
+customElements.define('nimbus-dispatch-card-v4', NimbusDispatchCardV4);
+window.customCards = window.customCards || [];
+window.customCards.push({ type: 'nimbus-dispatch-card-v4', name: 'Nimbus Dispatch Card v4', description: 'Unified Nimbus mode control, live decision gauge, dispatch timeline, and tuning stats' });

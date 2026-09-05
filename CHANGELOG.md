@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.124] — 2026-09-06
+
+### Added
+- **The "Control Panel" (`nimbus-dispatch-card-v4`) and "Regret" (`nimbus-regret-card`) Lovelace cards now ship with the integration itself (#364)**, the same way `switchboard-topology-card` already did — served over HTTP at a stable `/nimbus_load/<file>.js` URL and auto-registered as an extra JS module on setup, no `www/` file copy or manual dashboard-resource step needed. `frontend.py` generalized from one hardcoded card registration into a small table of (filename, card type) pairs.
+- **The dispatch card's 8 previously-hardcoded, household-specific entity_ids (battery/grid/solar power, battery SoC, mode selector, kill switch, EV charger, a NUC1/NUC2 job-health pair, a P2P threshold sensor) are now real config fields** (`battery_power_entity`, `grid_power_entity`, `solar_power_entity`, `battery_soc_entity`, `mode_select_entity`, `armed_entity`, `ev_charger_power_entity`, `p2p_threshold_entity`, and an arbitrary-length `health_checks: [{entity, label}]` list) — same "no hardcoding" convention the rest of this project follows. The card degrades gracefully (idle/zero/hidden) when a field is left unset rather than crashing or showing another household's data. See `docs/dashboards.md` for the full field reference and example view YAML.
+- New `docs/dashboards.md` — setup and config-field reference for both cards, plus a migration note for anyone who previously hand-copied either card into `www/`.
+
+### Fixed
+- **A real end-to-end gap**: nothing previously exercised `frontend.async_register_frontend()` against a genuine `hass.http`/`frontend` component — every existing test mocked it out entirely. New `tests/hass_integration/test_frontend_cards_registered.py` runs a full `async_setup_entry` and asserts each shipped card is both registered as an extra JS module and actually served over HTTP with the right content.
+
 ## [0.94.123] — 2026-09-05
 
 ### Fixed
