@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.122] — 2026-09-05
+
+### Added
+- **Regression tests for `predict()`'s `allow_negative`/`seasonal_anchor`/damping-skip paths (#360 finding 7, partial).** CLAUDE.md bugs #1/#3/#4 — each originally found and fixed by a human reading a live chart — had never had a dedicated automated test. All three mutation-tested against the real bug mechanism before being trusted. See #360's own comments for what remains (bug #6/#7's own coverage, finding 5's duplicate-test consolidation).
+
 ## [0.94.121] — 2026-09-05
 
 ### Fixed
