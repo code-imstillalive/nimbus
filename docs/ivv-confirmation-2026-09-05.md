@@ -102,3 +102,15 @@ Upgraded the same install v0.94.116 → v0.94.118 (carries #373 in v0.94.117 and
 **#374 not reproduced** on this boot: #373 removed the empty-forecast window, so the "present but empty" branch was never reached. The branch is unchanged in code and remains reachable for a subentry with no model at all; left open for the owner's decision.
 
 Final status of the chain: #372 ✅ · #373 ✅ · #375 ✅ verified live · #374 mitigated, open.
+
+## Follow-up — v0.94.120 (10:59–11:06 AEST): #374 closed, report complete
+
+v0.94.119 carried the #374 fix (a load-forecast sensor whose `model_trained_at` is unset is now classified as "not ready" rather than "confirmed zero load"); v0.94.120 added an unrelated `export_bonus_price` fix. Upgraded the same install to v0.94.120 and restarted at 10:59.
+
+- Six `Load forecast not ready yet` cycles during the startup retries (11:01:13–11:02:08) published nothing.
+- Forecast sensors populated at 11:02:41 from the models trained at 09:24.
+- First periodic plan at 11:06: coverage 96.0 h, cost band width $23.46, peak load 8.9 kW, no `load_forecast_source_error`, `bonus_price` 0 throughout (no P2P configured here).
+- No `nimbus_load` errors in the log.
+- The never-trained branch added in v0.94.119 was not exercised live (all three subentries already had models); its unit test is the evidence for that branch.
+
+Final status: #372 ✅ v0.94.116 · #373 ✅ v0.94.117 · #375 ✅ v0.94.118 · #374 ✅ v0.94.119. All verified on the live install. Nothing remains open from this report.
