@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.121] — 2026-09-05
+
+### Fixed
+- **Hardcoded household paths in `nimbus_solver_quality_writer.py` (#364 finding 4).** `HA_BASE`/`TOKEN_PATH`/the `solver/` `sys.path.insert` target were all hardcoded with zero env-var override, unlike the sibling `nimbus_solver_forecast_writer.py` (fixed 2026-08-22). Now overridable via `HA_BASE`/`HA_TOKEN_PATH`/`NIMBUS_SOLVER_PATH`/`NIMBUS_SOLVER_QUALITY_HISTORY_PATH`, all defaulting to the existing values — zero behavior change for the reference deployment.
+- **`lovelace_build_merged_forecast_chart.py`'s illustrative docstring example** genericized (was a literal `docker cp /home/homehub/.ha_token ...`).
+
 ## [0.94.120] — 2026-09-05
 
 ### Fixed
