@@ -50,7 +50,16 @@ async def test_every_shipped_card_is_registered_as_an_extra_js_module(
     empty _CARDS would make every assertion below vacuously pass."""
     assert len(_CARDS) >= 3
 
-    registered_urls = hass.data.get(DATA_EXTRA_MODULE_URL, frozenset())
+    # HA core stores this as a `frontend.UrlManager` instance (its own
+    # `.urls` frozenset attribute), not a bare frozenset directly --
+    # confirmed live in CI, not assumed: this module's own docstring on
+    # add_extra_js_url() says "stores URLs in a frozenset", which is true
+    # of UrlManager.urls but not of hass.data[DATA_EXTRA_MODULE_URL]
+    # itself, which is the manager object. `getattr(..., "urls", ...)`
+    # falls back to treating the raw value as already-iterable, in case
+    # a future/older HA version ever stores a bare frozenset directly.
+    url_container = hass.data.get(DATA_EXTRA_MODULE_URL, frozenset())
+    registered_urls = getattr(url_container, "urls", url_container)
     for card in _CARDS:
         matches = [
             url
