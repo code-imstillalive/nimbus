@@ -6551,8 +6551,22 @@ def main() -> None:
         p2p_recent_volume_kwh = p2p_recent_avg_volume_kwh(
             settlement_sensor=p2p_settlement_sensor
         )
+        # Fix 2026-09-05 (mirrors the identical fix in the sibling
+        # 116KAT-HA-AI/scripts/nimbus_solver_forecast_writer.py -- the
+        # standalone cron writer's own copy of this exact logic). Direct
+        # household catch, live, via a Solver Forecast table screenshot
+        # showing gold "P2P active" coloring at 0.0 c/kWh for genuine
+        # midday hours, well outside any configured P2P block. Confirmed
+        # live: whenever real spot_export goes negative outside the P2P
+        # window (a real midday high-solar effect) while p2p_export is
+        # correctly 0 (no block active), max(0.0, 0 - negative) produces
+        # a small POSITIVE bonus_price purely by construction, with zero
+        # real P2P activity behind it -- feeding the LP a spurious, if
+        # tiny, P2P-shaped incentive it should never see outside a real
+        # block. Explicitly zeroed whenever p2p_export[i] itself is 0.
         export_bonus_price = [
-            max(0.0, p2p_export[i] - spot_export[i]) for i in range(n_periods)
+            max(0.0, p2p_export[i] - spot_export[i]) if p2p_export[i] > 0 else 0.0
+            for i in range(n_periods)
         ]
     else:
         # FALLBACK (2026-08-20, for anyone else): PREFERS a real, live

@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.120] — 2026-09-05
+
+### Fixed
+- **`export_bonus_price` falsely nonzero outside the real, configured P2P window.** Direct household catch, live, via a Solver Forecast table screenshot showing gold "P2P active" coloring at `0.0 c/kWh` during genuine midday hours, well outside any configured P2P block. Confirmed live: outside the window `p2p_export[i]` is correctly `0`, but whenever the real configured export price sensor goes negative (a real midday high-solar effect), `max(0.0, p2p_export[i] - spot_export[i])` reduces to `max(0.0, 0 - negative)` — a small positive number purely by construction, with zero real P2P activity behind it — exactly cancelling `spot_export` in `export_price + bonus_price` (hence the misleading `0.0` display) while still feeding the LP's own objective a genuine, if tiny, spurious P2P-shaped incentive. `export_bonus_price` is now explicitly `0.0` whenever `p2p_export[i]` itself is `0` — the bonus concept only has meaning when a real P2P rate is genuinely present for that period.
+  Same fix mirrored into the sibling `116KAT-HA-AI/scripts/nimbus_solver_forecast_writer.py` (the standalone cron writer's own separate copy of this logic).
+
 ## [0.94.119] — 2026-09-05
 
 ### Fixed
