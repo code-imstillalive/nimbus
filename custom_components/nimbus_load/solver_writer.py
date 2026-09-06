@@ -4019,6 +4019,56 @@ def resample_history_nearest(
     return out
 
 
+def resample_history_mean(
+    pts: list[tuple[datetime, float]],
+    grid_times: list[datetime],
+    period_hours: float,
+    default: float = 0.0,
+) -> list[float]:
+    """Period-mean lookup against real recorded history points -- averages
+    every real sample falling within [grid_time, grid_time + period_hours)
+    for each grid point, instead of resample_history_nearest()'s single
+    nearest-at-or-before instant.
+
+    nimbus issue #428 (Mark Purcell): confirmed live that a brief, real,
+    isolated telemetry spike right at a period boundary (a genuine
+    +20.9kW battery sample, seconds wide, against that hour's real mean
+    of -2.66kW) gets picked up WHOLE by resample_history_nearest() --
+    treated as representative of the entire 15-minute period, flipping
+    that period's reconstructed grid direction relative to what a real
+    energy-weighted average of the period would show (traced end to end
+    against Mark's own real recorder data: the spike alone reconstructs
+    to a large positive/importing grid figure, while the real hourly
+    mean reconstructs to negative/exporting -- matching the real meter).
+    compute_daily_quality_report()'s achieved (J_ach) trajectory
+    reconstructs real energy flow (solar/load/battery power) from
+    history -- an energy-weighted mean over the period is the physically
+    correct way to do that (matches how a real meter integrates power
+    into energy over that quarter-hour), not an instantaneous point
+    sample of whatever the sensor happened to read at the exact grid
+    instant.
+
+    Falls back to resample_history_nearest()'s own nearest-at-or-before
+    pick when a period genuinely has zero real samples inside its own
+    window (sparse/low-frequency history) -- never fabricates a gap.
+
+    Deliberately scoped to the three power-FLOW signals (solar/load/
+    battery) feeding compute_daily_quality_report()'s achieved
+    reconstruction -- SoC and price are real STATE values (sample-and-
+    hold is the physically correct model for those, not an average),
+    and every other caller of resample_history_nearest() is unchanged.
+    """
+    out = []
+    for gt in grid_times:
+        window_end = gt + timedelta(hours=period_hours)
+        vals = [v for t, v in pts if gt <= t < window_end]
+        if vals:
+            out.append(sum(vals) / len(vals))
+        else:
+            out.append(resample_history_nearest(pts, [gt], default=default)[0])
+    return out
+
+
 def _kw_scale_factor(entity_id: str) -> float:
     """Real bug found live on devhub 2026-08-28: compute_daily_quality_
     report() and compute_efficiency_backtest_report() both take a
@@ -4250,22 +4300,25 @@ def _compute_report_for_window(
     # complete no-op for every install that never sets the flag.
     battery_sign = -1.0 if cfg.get("solver_battery_power_positive_is_charge") else 1.0
 
+    # nimbus issue #428 (Mark Purcell): period-mean, not point-sample --
+    # see resample_history_mean()'s own docstring for the real spike this
+    # was confirmed to fix.
     solar_kw = np.array(
         [
             max(0.0, v * solar_scale)
-            for v in resample_history_nearest(solar_hist, grid_times)
+            for v in resample_history_mean(solar_hist, grid_times, period_hours)
         ]
     )
     load_kw = np.array(
         [
             max(0.0, v * load_scale)
-            for v in resample_history_nearest(load_hist, grid_times)
+            for v in resample_history_mean(load_hist, grid_times, period_hours)
         ]
     )
     actual_net_kw = np.array(
         [
             v * battery_scale * battery_sign
-            for v in resample_history_nearest(battery_hist, grid_times)
+            for v in resample_history_mean(battery_hist, grid_times, period_hours)
         ]
     )
     actual_charge_kw = np.array([max(0.0, -v) for v in actual_net_kw])

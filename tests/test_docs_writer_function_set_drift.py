@@ -91,6 +91,10 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # compute_daily_quality_report itself (already listed above) --
         # same native-only reasoning applies, not a separate gap.
         "_soc_discrepancy_stats",
+        # nimbus issue #428: only called from compute_daily_quality_
+        # report's own solar/load/battery resampling (already listed
+        # above) -- same native-only reasoning, not a separate gap.
+        "resample_history_mean",
         "compute_efficiency_backtest_report",
         "compute_nimbus_only_soc_counterfactual",
         "publish_daily_quality_report",
