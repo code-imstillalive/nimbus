@@ -4721,7 +4721,7 @@ def _compute_report_for_window(
 
 def _soc_discrepancy_stats(
     soc_hist: list[tuple[datetime, float]], j_ach_hourly: dict[str, dict[str, float]]
-) -> dict[str, float | None]:
+) -> dict[str, float | bool | None]:
     """nimbus issue #427 (Mark Purcell): the achieved trajectory's own
     SoC is *integrated* from real battery-power history through the
     efficiency model (see compute_quality_report()'s own j_ach_soc_kwh
@@ -4745,22 +4745,60 @@ def _soc_discrepancy_stats(
     configured, or no history at all for the window) -- an honest
     absence, not a fabricated 0.0 that would misleadingly read as
     "perfect agreement".
+
+    nimbus issue #445 (Mark Purcell), same day as #427 shipped: j_ach's
+    own soc_pct is a pure, unclamped cumulative integration of real
+    battery-power history (quality_report.py's j_ach_soc_kwh = initial +
+    cumsum(delta)) -- correct and self-consistent when that history is
+    genuinely complete for the whole scored window, but if a signal's
+    real recorder history only covers part of the 24h (e.g. the sensor
+    was only just configured, or an outage truncated it -- both real,
+    observed, self-resolving-with-time conditions, not a bug in the
+    integration itself), the missing hours' delta is effectively
+    fabricated and the integrated soc_pct can drift far outside the
+    physically real [0, 100] range. Two independently-bounded [0, 100]
+    percentages can never legitimately disagree by more than 100 points
+    -- a raw gap exceeding that is proof one side (usually j_ach, but
+    checked on both sides below since a resampled real_pct could in
+    principle carry the same kind of glitch) was out of range, not a
+    real >100pp disagreement. Clamping each side to [0, 100] before
+    differencing keeps the reported number itself physically meaningful
+    (never removes the *signal* that a real, large discrepancy exists --
+    it just stops that signal from reading as an impossible value), and
+    the new soc_discrepancy_reliable flag names the out-of-range
+    condition explicitly so a caller doesn't have to infer "this looks
+    like a data-continuity gap, not a real dispatch problem" from the
+    number's own magnitude.
     """
     if not soc_hist or not j_ach_hourly:
-        return {"soc_discrepancy_max_pct": None, "soc_discrepancy_mean_pct": None}
+        return {
+            "soc_discrepancy_max_pct": None,
+            "soc_discrepancy_mean_pct": None,
+            "soc_discrepancy_reliable": None,
+        }
     gaps: list[float] = []
+    any_out_of_range = False
     for key_str, row in j_ach_hourly.items():
         ach_pct = row.get("soc_pct")
         if ach_pct is None:
             continue
         hour_dt = datetime.fromisoformat(key_str)
         real_pct = resample_history_nearest(soc_hist, [hour_dt])[0]
-        gaps.append(abs(real_pct - ach_pct))
+        if not (0.0 <= ach_pct <= 100.0) or not (0.0 <= real_pct <= 100.0):
+            any_out_of_range = True
+        clamped_ach = min(100.0, max(0.0, ach_pct))
+        clamped_real = min(100.0, max(0.0, real_pct))
+        gaps.append(abs(clamped_real - clamped_ach))
     if not gaps:
-        return {"soc_discrepancy_max_pct": None, "soc_discrepancy_mean_pct": None}
+        return {
+            "soc_discrepancy_max_pct": None,
+            "soc_discrepancy_mean_pct": None,
+            "soc_discrepancy_reliable": None,
+        }
     return {
         "soc_discrepancy_max_pct": round(max(gaps), 2),
         "soc_discrepancy_mean_pct": round(sum(gaps) / len(gaps), 2),
+        "soc_discrepancy_reliable": not any_out_of_range,
     }
 
 

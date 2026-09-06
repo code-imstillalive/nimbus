@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.142] — 2026-09-07
+
+### Fixed
+- **`soc_discrepancy_max_pct`/`soc_discrepancy_mean_pct` had no sanity bound and could publish a physically-impossible value (327.67% observed live).** Closes [#445](https://github.com/code-imstillalive/nimbus/issues/445) (Mark Purcell — sub-issue of #444's 24h verification pass). Two independently-bounded `[0, 100]` percentages can never legitimately disagree by more than 100 points; a raw gap exceeding that is proof one side (usually the achieved trajectory's own unclamped power-integration when its source sensor's real recorder history is incomplete for the scored window — a real, self-resolving data-continuity condition, not a dispatch bug) was itself out of range. Both sides are now clamped to `[0, 100]` before differencing, and a new `soc_discrepancy_reliable` field (`true`/`false`/`None`) names the out-of-range condition explicitly, so a caller can distinguish "the trajectories genuinely disagree" from "the input data is known-incomplete" without inferring it from the number's own magnitude.
+
 ## [0.94.141] — 2026-09-07
 
 ### Changed
