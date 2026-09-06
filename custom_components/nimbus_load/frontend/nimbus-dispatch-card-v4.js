@@ -24,6 +24,25 @@ class NimbusDispatchCardV4 extends HTMLElement {
     // own job-health monitor).
     this._evEntity = this.config.ev_charger_power_entity || null;
     this._p2pThresholdEntity = this.config.p2p_threshold_entity || null;
+    // nimbus issue #388 (Mark Purcell): docs/dashboards.md documents
+    // battery_power_entity as "positive = discharging", but a SigEnergy-
+    // style install's own real sensor is the opposite convention -- the
+    // exact reason the Solver has its own solver_battery_power_positive_
+    // is_charge flag (#299/#307). Without this, every charging period
+    // renders as DISCHARGING (and the 18h "Actual" history line mirrors
+    // against the plan) on any install using that convention, with no
+    // way to fix it short of a manual template-sensor workaround.
+    // Explicit override, undefined by default (no hardcoded true/false
+    // here) -- only set when a household's own sensor config entity is
+    // unavailable/stale for some reason. The normal path (no override
+    // configured) auto-detects from the Solver's own
+    // sensor.nimbus_solver_config attributes in _battSign() below, so the
+    // card agrees with the plan it overlays by construction, with zero
+    // extra config for the common case.
+    this._battPositiveIsChargeOverride =
+      typeof this.config.battery_power_positive_is_charge === 'boolean'
+        ? this.config.battery_power_positive_is_charge
+        : null;
     // Arbitrary-length list of {entity, label} health/status chips shown
     // in the footer -- generalizes what used to be two hardcoded
     // "NUC1 writer"/"NUC2 writer" chips (a two-node-failover concept
@@ -78,8 +97,14 @@ class NimbusDispatchCardV4 extends HTMLElement {
     this._hass.callApi('GET', 'history/period/' + start + '?filter_entity_id=' + this._battEntity + '&minimal_response')
       .then(data => {
         const series = (data && data[0]) || [];
+        // nimbus issue #388: the raw history API always returns the
+        // sensor's own native sign -- apply the same flip as the live
+        // reading (_battSign()) so the "Actual" line overlaid on the
+        // timeline matches the plan's own convention instead of being
+        // mirrored against it on a positive-is-charge install.
+        const sign = this._battSign();
         this._actualHistory = series
-          .map(pt => [new Date(pt.last_changed || pt.lu * 1000).getTime(), parseFloat(pt.state)])
+          .map(pt => [new Date(pt.last_changed || pt.lu * 1000).getTime(), parseFloat(pt.state) * sign])
           .filter(pt => !isNaN(pt[1]));
         this._render();
       })
@@ -107,6 +132,28 @@ class NimbusDispatchCardV4 extends HTMLElement {
 
   _fmtNum(v, decimals, suffix) {
     return (isNaN(v) ? '—' : v.toFixed(decimals)) + (suffix || '');
+  }
+
+  // nimbus issue #388: the sign multiplier to apply to whatever
+  // battery_power_entity's raw sensor reports, so this card's own
+  // "positive = discharging" convention (docs/dashboards.md) holds
+  // regardless of which way the household's own hardware reports it.
+  // The explicit card-config override (set in setConfig()) always wins
+  // when present; otherwise this reads the Solver's own
+  // solver_battery_power_positive_is_charge flag straight off
+  // sensor.nimbus_solver_config's attributes -- the same hub, the same
+  // flag the Solver itself already uses to normalize this exact sensor
+  // (#299/#307), so the card agrees with the plan it overlays by
+  // construction rather than guessing independently. Missing/unavailable
+  // sensor.nimbus_solver_config (e.g. mid-restart) defaults to `false`
+  // (no sign flip), matching every install's behaviour before this fix.
+  _battSign() {
+    if (this._battPositiveIsChargeOverride !== null) {
+      return this._battPositiveIsChargeOverride ? -1 : 1;
+    }
+    const cfg = this._hass && this._hass.states['sensor.nimbus_solver_config'];
+    const positiveIsCharge = !!(cfg && cfg.attributes && cfg.attributes.solver_battery_power_positive_is_charge);
+    return positiveIsCharge ? -1 : 1;
   }
 
   // Real absolute sell rate = spot + P2P premium (bonus_price is deliberately
@@ -206,7 +253,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
       // right now, same as it does for every other mode -- CHARGING (SOLAR),
       // CHARGING (GRID), DISCHARGING, or SELF-CONSUME, read from real, live
       // measured sensors (never the Solver's plan, since dispatch is off).
-      const realBatt = this._num(this._battEntity, 0);
+      const realBatt = this._num(this._battEntity, 0) * this._battSign();
       const realGrid = this._num(this._gridEntity, 0);
       const realSolarKw = this._numAsKw(this._solarEntity, 0);
       const realEv = this._evEntity ? this._num(this._evEntity, 0) : 0;
