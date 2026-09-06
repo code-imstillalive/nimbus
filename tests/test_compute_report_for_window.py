@@ -119,6 +119,64 @@ class TestComputeReportForWindowShape(unittest.TestCase):
         fetch.assert_not_called()
 
 
+class TestGridResolutionMatchesTier1(unittest.TestCase):
+    """nimbus issue #438 (Mark Purcell): a window that fits entirely
+    within the live dispatch grid's own tier-1 span (TIER1_HOURS=24h)
+    must be scored at tier-1's own resolution (TIER1_PERIOD_HOURS, 5
+    min -- 288 periods for a 24h window), not the previous flat 15-min
+    hardcode (96 periods) that didn't match what it was grading. A
+    window longer than 24h keeps the previous 15-min granularity.
+    """
+
+    def _periods_used(self, day_start, day_end, allow_partial):
+        with (
+            patch.object(
+                solver_writer, "fetch_entity_history_range", side_effect=_fetch
+            ),
+            patch.object(
+                solver_writer.elements,
+                "PeriodGrid",
+                wraps=solver_writer.elements.PeriodGrid,
+            ) as period_grid_spy,
+        ):
+            result = solver_writer._compute_report_for_window(
+                _cfg(), day_start, day_end, allow_partial=allow_partial
+            )
+        self.assertIsNotNone(result)
+        period_grid_spy.assert_called_once()
+        hours_arr = period_grid_spy.call_args.kwargs["hours"]
+        return len(hours_arr), float(hours_arr[0])
+
+    def test_24h_window_uses_5_minute_periods(self):
+        n_periods, period_hours = self._periods_used(
+            DAY_START, DAY_END, allow_partial=False
+        )
+        self.assertEqual(n_periods, 288)
+        self.assertAlmostEqual(period_hours, 5.0 / 60.0, places=6)
+
+    def test_short_partial_window_uses_5_minute_periods(self):
+        # A 6h diagnostic sub-window still fits within tier1's own 24h
+        # span -- must get the same fine resolution, not fall back to
+        # 15-min just because it's a partial window.
+        short_end = DAY_START + timedelta(hours=6)
+        n_periods, period_hours = self._periods_used(
+            DAY_START, short_end, allow_partial=True
+        )
+        self.assertEqual(n_periods, 72)
+        self.assertAlmostEqual(period_hours, 5.0 / 60.0, places=6)
+
+    def test_window_longer_than_24h_keeps_15_minute_periods(self):
+        # A 48h backfill/A-B-comparison window exceeds tier1's own real
+        # span -- flat 5-min resolution here would make the oracle LP
+        # solve unnecessarily large for a case tier1 doesn't cover.
+        long_end = DAY_START + timedelta(hours=48)
+        n_periods, period_hours = self._periods_used(
+            DAY_START, long_end, allow_partial=True
+        )
+        self.assertEqual(n_periods, 192)
+        self.assertAlmostEqual(period_hours, 0.25, places=6)
+
+
 class TestAllowPartialGating(unittest.TestCase):
     def test_short_window_with_allow_partial_false_returns_none(self):
         """A six-hour window (< 24 h) must be rejected when the caller

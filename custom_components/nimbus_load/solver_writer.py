@@ -4184,7 +4184,9 @@ def _compute_report_for_window(
       caller), returns None for windows shorter than 24 h. Real
       calendar-day scoring is what every existing caller has always
       relied on. When True, scores any real window with at least one
-      full 15-minute period of data. Partial-window scores are honest
+      full period of data (5-min resolution for a window of 24h or
+      less, matching the live dispatch grid's own tier-1 resolution --
+      see #438; 15-min for anything longer). Partial-window scores are honest
       (they score exactly what is in the window) but the EPR / regret
       numbers are NOT directly comparable to a full-day score, because
       the oracle's own optimisation horizon is shorter.
@@ -4232,7 +4234,23 @@ def _compute_report_for_window(
         )
         return None
 
-    period_hours = 0.25
+    # nimbus issue #438 (Mark Purcell): this used to hardcode 0.25h (15
+    # min) regardless of window length -- coarser than both the live
+    # dispatch grid it's grading (build_tiered_grid()'s own TIER1_
+    # PERIOD_HOURS, 5 min, for its first TIER1_HOURS=24h) and the real
+    # settlement interval (NEM, 5 min since Oct 2021). A window that
+    # fits entirely within tier1's own 24h span -- true for every
+    # existing caller: the daily "yesterday" wrapper is always exactly
+    # 24h, and any on-demand allow_partial=True window this short is a
+    # genuine diagnostic sub-window, not a multi-day backfill -- now
+    # matches tier1's own real 5-min resolution instead of falling back
+    # to a coarser, independently-hardcoded number. A window longer
+    # than 24h (multi-day backfill/A-B comparison) keeps the previous
+    # 15-min granularity, since the live dispatch itself coarsens to
+    # TIER2_PERIOD_HOURS (hourly) beyond tier1 too -- flat 5-min
+    # resolution across several real days would make the oracle LP
+    # solve unnecessarily large for a case tier1 doesn't even cover.
+    period_hours = TIER1_PERIOD_HOURS if window_hours <= TIER1_HOURS else 0.25
     n_periods = round(window_hours / period_hours)
     if n_periods < 1:
         _LOGGER.debug(
