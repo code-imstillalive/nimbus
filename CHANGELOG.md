@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.128] — 2026-09-06
+
+### Fixed
+- **`solver_writer.main()` crashed with `TypeError` every solve cycle whenever the LP came back infeasible, formatting `plan.total_cost=None` with `.2f` on the trailing status-summary print.** Closes [#389](https://github.com/code-imstillalive/nimbus/issues/389) (Mark Purcell — 37 consecutive crashed cycles over 41 minutes on a live install). The plan itself was already correctly pushed with `status="infeasible"`; the crash was purely in the log line, but since it wasn't caught, it also skipped every subsequent step in `main()` (quality report / counterfactual / efficiency backtest sensor updates) for the whole infeasible window. Fixed with the same guarded-string pattern already used for `cross_check_str`/`coverage_str` two lines above.
+
 ## [0.94.127] — 2026-09-06
 
 ### Fixed
