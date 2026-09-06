@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.138] — 2026-09-06
+
+### Added
+- **New `soc_discrepancy_max_pct`/`soc_discrepancy_mean_pct` fields on the daily quality report** (`sensor.nimbus_solver_quality_report`), closing [#427](https://github.com/code-imstillalive/nimbus/issues/427) (Mark Purcell). The quality report's achieved (J_ach) trajectory SoC is *integrated* from real battery-power history through the round-trip efficiency model, never read from the real SoC sensor directly — a real, sometimes large, source of divergence (drift, calibration error, sensor faults) that was previously invisible. `compute_daily_quality_report()` already fetches the full real SoC history for its own initial/final-SoC lookups; this resamples it at each of the report's own hourly reconstruction keys and reports the absolute percentage-point gap against the achieved trajectory, hour by hour. Both fields are `None` (not a fabricated `0.0`) when no SoC sensor is configured.
+
 ## [0.94.137] — 2026-09-06
 
 ### Added
