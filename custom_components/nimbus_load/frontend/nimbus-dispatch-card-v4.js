@@ -671,9 +671,26 @@ class NimbusDispatchCardV4 extends HTMLElement {
            currency formatting) can never again silently reintroduce this
            exact mismatch in only one of the two places. */
         ':host { display:block; container-type: inline-size; --ftable-min-width: 640px; }' +
+        // nimbus issue #400 follow-up: a screenshot from Mark's real
+        // Sections-view dashboard showed forecast-table content stopping
+        // hard at the card's own right edge with no visible scrollbar --
+        // not what .ftable-wrap's own overflow-x:auto should produce if
+        // it were genuinely containing the overflow. .card itself had no
+        // overflow containment of its own, meaning IF anything upstream
+        // (grid track sizing, an unusual Sections-view width computation)
+        // ever renders a descendant wider than intended, that overflow
+        // has nothing stopping it from visually bleeding past the card's
+        // own rounded border into the surrounding dashboard, instead of
+        // being contained and left to whichever inner element's own
+        // overflow-x:auto SHOULD be handling it. This is a real, always-
+        // worth-having defensive backstop regardless of whether it's the
+        // exact mechanism in Mark's case (still being confirmed against
+        // his real rendered width) -- converts "content bleeds past the
+        // card into the dashboard" into, at worst, "content is clipped at
+        // the card's own edge," never a broken-looking layout escape.
         '.card { background: radial-gradient(circle at 15% 0%, #1c2433 0%, #0f131b 60%), linear-gradient(160deg, #14181f 0%, #0d1016 100%);' +
           ' border: 1px solid rgba(255,255,255,0.06); border-radius: 20px; padding: 26px 30px 24px; color: #e8eaf0;' +
-          ' font-family: var(--paper-font-body1_-_font-family, sans-serif); box-shadow: 0 8px 32px rgba(0,0,0,0.45);}' +
+          ' font-family: var(--paper-font-body1_-_font-family, sans-serif); box-shadow: 0 8px 32px rgba(0,0,0,0.45); overflow-x: hidden;}' +
         '.top-row { display:flex; align-items:flex-start; justify-content:space-between; gap: 24px; flex-wrap: wrap; }' +
         '.title-row { display:flex; align-items:center; gap: 18px; flex-wrap: wrap; }' +
         '.title { font-size: 1.5em; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; opacity: 0.95; }' +
