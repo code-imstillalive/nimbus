@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.140] — 2026-09-07
+
+### Changed
+- **Daily quality-report scoring now runs at the same 5-minute resolution as the live dispatch grid's own tier-1 span, instead of a flat 15-minute grid.** Closes [#438](https://github.com/code-imstillalive/nimbus/issues/438) (Mark Purcell — the report's own grid was coarser than both `build_tiered_grid()`'s real 5-minute tier-1 resolution and the NEM's real 5-minute settlement interval, making it impossible to tell a genuine LP dispatch decision from a single coarse-period artifact). A window that fits within the live dispatch's own 24h tier-1 span (every existing caller — the daily report is always exactly 24h) now scores at 5-minute resolution (288 periods); a window longer than 24h keeps the previous 15-minute granularity. This changes the EPR/regret numbers the report produces going forward (a genuine scoring-accuracy improvement, not a bug fix to a wrong number) — measured a real 24h solve at 12.54s vs 12.42s previously, no meaningful performance cost.
+
 ## [0.94.139] — 2026-09-06
 
 ### Fixed
