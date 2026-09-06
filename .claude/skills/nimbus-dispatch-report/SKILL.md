@@ -131,7 +131,8 @@ Sections whose data is absent are simply not rendered, so a day-ahead-only repor
 ## Time zone rule (standing, per Mark, 2026-09-06)
 
 Every timestamp shown to the reader — in the chat reply, the report page, and any GitHub
-issue or comment — is local time for the install (Australia/Brisbane, AEST, UTC+10, no
-daylight saving; read it from the diagnostics `home_assistant.timezone` rather than
-assuming). Never lead with UTC. When quoting raw machine output that carries UTC
-timestamps, keep it verbatim and put the AEST equivalent beside it.
+issue or comment — is local time for the install (read the zone from the diagnostics
+`home_assistant.timezone`; Mark's is Australia/Brisbane, UTC+10, no daylight saving),
+written plainly with no zone label. Never lead with UTC. When quoting raw machine output
+that carries UTC timestamps, keep it verbatim and put the local equivalent beside it; that
+is the only place a zone label appears.
