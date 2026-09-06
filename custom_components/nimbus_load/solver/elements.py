@@ -1023,3 +1023,62 @@ class AdequacyLoadConfig:
         if self.earliest_period < 0:
             msg = f"Adequacy load '{self.name}' earliest_period must be >= 0"
             raise ValueError(msg)
+
+
+@dataclass(frozen=True)
+class SharedCircuitConfig:
+    """A real, physical circuit-headroom cap shared by two or more
+    AdequacyLoadConfig instances -- direct response to a real household's
+    own hot-water setup (two heaters, each individually rated 3.7kW, that
+    must never draw simultaneously because 2x3.7kW leaves too little
+    headroom for the rest of the house on that circuit).
+
+    AdequacyLoadConfig on its own gives the LP complete per-load freedom
+    to run ANY level of power ANYWHERE within its own [earliest_period,
+    deadline_period] window -- correct and useful in isolation, but if
+    two such loads' windows overlap, nothing stops the LP from running
+    both at once (there is no cost or preference against it; running
+    concurrently is neither cheaper nor more expensive to the LP than
+    running sequentially, since AdequacyLoadConfig charges zero for
+    timing itself). This is exactly what makes widening an adequacy
+    load's window past a single load's own worst-case slot economically
+    valuable in the first place (the LP can move it to whichever hours
+    are genuinely cheapest) -- but that same freedom is unsafe the
+    moment two loads share one real circuit's headroom, unless something
+    explicitly bounds their COMBINED draw.
+
+    member_names must reference `name`s already present in the
+    `adequacy_loads` list passed to the same build_plan() call --
+    referencing an unconfigured name is a real caller mistake, and
+    build_plan() raises a clear ValueError for it rather than silently
+    ignoring the missing member (see build_plan()'s own docstring).
+
+    Deliberately NOT limited to adequacy loads only in principle (a
+    shared circuit could in theory also involve a plain LoadConfig or
+    SheddableLoadConfig), but scoped to AdequacyLoadConfig members only
+    for now -- that is the real, motivating use case, and extending the
+    member type is a genuinely separate, larger change (plain/sheddable
+    loads don't have their own per-period decision variable the way an
+    adequacy load does) that can be done later if a real need for it
+    ever comes up.
+    """
+
+    name: str
+    member_names: tuple[str, ...]
+    max_combined_power_kw: float
+
+    def __post_init__(self) -> None:
+        if len(self.member_names) < 2:
+            msg = (
+                f"Shared circuit '{self.name}' must list at least 2 "
+                "member_names -- a single-member 'shared' cap is just "
+                "that member's own max_power_kw, already enforced by its "
+                "own AdequacyLoadConfig"
+            )
+            raise ValueError(msg)
+        if len(set(self.member_names)) != len(self.member_names):
+            msg = f"Shared circuit '{self.name}' lists a duplicate member name in {self.member_names!r}"
+            raise ValueError(msg)
+        if self.max_combined_power_kw <= 0.0:
+            msg = f"Shared circuit '{self.name}' max_combined_power_kw must be > 0"
+            raise ValueError(msg)

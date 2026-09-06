@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.143] — 2026-09-07
+
+### Added
+- **New `SharedCircuitConfig` Solver element** — caps the COMBINED power of two or more `AdequacyLoadConfig` loads sharing one real circuit's headroom, at every period. Direct motivation: a real household's own two hot-water heaters (HWS L1/L3, each individually rated 3.7kW) that must never draw simultaneously — `AdequacyLoadConfig` on its own gives each load complete freedom to run anywhere in its own window, which is exactly what makes widening that window past a single fixed slot economically valuable, but also means nothing stops two such loads' windows from overlapping and drawing concurrently unless something explicitly bounds their combined power. `member_names` must reference already-configured `AdequacyLoadConfig.name`s; a mismatch raises `ValueError` immediately. `None` (the default) is a complete no-op. Reproduced the real collision under a genuine economic incentive (a cheap-then-expensive price signal) before proving the fix, matching this project's own established testing discipline.
+
 ## [0.94.142] — 2026-09-07
 
 ### Fixed

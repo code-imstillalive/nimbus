@@ -280,6 +280,7 @@ from .elements import (
     GridConfig,
     LoadConfig,
     PeriodGrid,
+    SharedCircuitConfig,
     SheddableLoadConfig,
     SolarConfig,
 )
@@ -705,6 +706,7 @@ def build_plan(
     loads: list[LoadConfig] | None = None,
     sheddable_loads: list[SheddableLoadConfig] | None = None,
     adequacy_loads: list[AdequacyLoadConfig] | None = None,
+    shared_circuits: list[SharedCircuitConfig] | None = None,
     previous_plan: Plan | None = None,
     proximal_weight: float = DEFAULT_PROXIMAL_WEIGHT_KW,
     max_rate_kw: float | None = None,
@@ -722,6 +724,15 @@ def build_plan(
     the three cross-solve stability mechanisms -- see this module's own
     docstring for the full design. All default to "off" (a bare, single-
     solve LP, unchanged from before these existed).
+
+    `shared_circuits` (SharedCircuitConfig, see its own docstring): caps
+    the COMBINED power of two or more `adequacy_loads` sharing one real
+    circuit's headroom, at every period -- e.g. two hot-water heaters
+    that must never draw simultaneously. Each `member_names` entry must
+    match a `name` already present in `adequacy_loads`; a mismatch raises
+    ValueError immediately rather than silently doing nothing. `None`
+    (the default) is a complete no-op -- every adequacy load keeps its
+    own existing, independent freedom to run anywhere in its own window.
 
     `import_price_risk_aversion`/`export_price_risk_aversion` (2026-08-21,
     split from a single `price_risk_aversion` scalar per direct Mark
@@ -780,6 +791,7 @@ def build_plan(
     loads = loads or []
     sheddable_loads = sheddable_loads or []
     adequacy_loads = adequacy_loads or []
+    shared_circuits = shared_circuits or []
     n = periods.n_periods
     hours = periods.hours
 
@@ -1070,6 +1082,32 @@ def build_plan(
             )
             for t in range(n)
         ]
+
+    # ---- Shared-circuit caps (SharedCircuitConfig, see its own
+    # docstring) -- a real, physical headroom limit on the COMBINED power
+    # of two or more adequacy loads at every single period, independent
+    # of each member's own already-enforced individual max_power_kw. A
+    # member_names entry not present in adequacy_vars is a real caller
+    # mistake (a shared circuit referencing a load that was never passed
+    # in adequacy_loads) -- raised here, loud and immediate, rather than
+    # silently skipped or treated as a zero-power member.
+    for sc in shared_circuits:
+        missing = [name for name in sc.member_names if name not in adequacy_vars]
+        if missing:
+            msg = (
+                f"Shared circuit '{sc.name}' references adequacy load(s) "
+                f"{missing!r} that were not found in adequacy_loads -- "
+                "every member_names entry must match a configured "
+                "AdequacyLoadConfig's own name"
+            )
+            raise ValueError(msg)
+        for t in range(n):
+            terms = {adequacy_vars[name][t]: 1.0 for name in sc.member_names}
+            p.add_ub_constraint(
+                terms,
+                sc.max_combined_power_kw,
+                name=f"shared_circuit_{sc.name}_t{t}",
+            )
 
     # ---- Cost terms ----
     # battery.charge_cost/discharge_cost may be a plain scalar (applied
