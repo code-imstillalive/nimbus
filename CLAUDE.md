@@ -12,6 +12,71 @@ Instructions for any Claude instance working on this repo. Read this before touc
 
 ---
 
+## ⚠️ CURRENT STATE (2026-09-06/07 overnight IV&V session) — read this first
+
+**#427/#428/#429 all fixed and shipped same night (v0.94.137/138/139); #430 root-caused and
+closed by mutual agreement; #363's `main()` split reached step 2 (`publish_plan()` extracted,
+PR #437).** All from the 2026-09-06 automated day-ahead report (head issue #426, now closed).
+#428 in particular was resolved from real recorder data Mark pulled on request: a genuine
++20.939kW battery telemetry spike landing at exactly the 04:00 grid boundary was being picked
+up whole by `resample_history_nearest()`'s point-sample lookup; fixed with a new
+`resample_history_mean()` (period-averaging, `solver_writer.py`) scoped to the three power-
+flow signals feeding `compute_daily_quality_report()`'s achieved reconstruction only.
+
+**A real, non-code, self-inflicted gotcha found live the same night, worth remembering
+before ever repointing a `solver_*_power_sensor` config field at a brand-new helper
+entity.** Earlier the same day, this session created `sensor.combined_battery_power` (a
+`min_max` "sum" helper combining `sensor.sigen_inverter_dc_charger_output_power` +
+`sensor.sigen_plant_battery_power`) and repointed `solver_battery_power_sensor` at it, to fix
+a real double-inversion bug on the dashboard (#421). That fix was correct and is still
+correct for the LP/dashboard's own live use of that sensor. But the automated 2026-09-07
+06:00 day-ahead report scored `compute_daily_quality_report()`'s "achieved" trajectory for
+the FULL preceding day (2026-09-06 00:00-24:00 local) and found a physically-impossible
+achieved SoC monotonically diverging to **-273%** by end of day (`soc_discrepancy_max: 312.4`
+percentage points) — a wildly worse number than any prior day.
+
+Root-caused precisely, not guessed: `sensor.combined_battery_power`'s own recorder statistics
+show only **3** hourly entries (vs 24 for every other sensor this report reads), with its
+first real sample landing at **21:00** local that same day — i.e. the entity genuinely did
+not exist before this session created it, mid-afternoon. `resample_history_nearest()`
+(`solver_writer.py:3719`) seeds its per-`gt` lookup as `val = pts[0][1] if pts else default`
+and only updates `val` once it sees a real point at-or-before `gt` — meaning for every grid
+period BEFORE an entity's very first real sample, it returns that first sample's value, held
+flat backward. `resample_history_mean()` (the #428 fix above) falls back to this exact
+function whenever a period's own window has zero real samples — which is every single period
+before 21:00 for a same-day-created sensor. So roughly 21 of the day's 24 hours fed the
+achieved-SoC integration the same repeated, essentially arbitrary flat battery-power value,
+which compounds into the observed runaway.
+
+**Not a Nimbus code defect — this is a live-install config-timing artifact from this
+session's own earlier reconfiguration, self-resolving as of the very next full day.** No
+GitHub issue was filed for it (filing it as a project bug would have been misleading — the
+maintainer can't "fix" a brand-new sensor's lack of backfilled history). Reported directly to
+Mark in chat instead, with the exact evidence above. **Lesson for next time**: repointing any
+`solver_*_sensor` config field at a freshly-created helper entity will corrupt
+`compute_daily_quality_report()`'s retrospective scoring for every day up to and including the
+switchover day itself (though NOT the forward-looking day-ahead plan, which only reads the
+sensor's current live state, never its history) — the quality-report/EPR numbers only become
+trustworthy again starting the first FULL calendar day after the new sensor existed for its
+entire span. Worth checking the sensor's own recorder statistics count (should equal the
+full window's expected point count) before trusting a quality-report run against a
+recently-changed `solver_*_sensor` config value.
+
+**Also fixed this session, orthogonal to Nimbus itself: the day-ahead-report and hourly-
+monitor Routines' own `HA_MCP_URL` handling.** Both are scheduled triggers bound to a
+persistent Claude Code Remote session; `export`ed shell environment variables do not survive
+between separate Bash tool invocations at all (confirmed directly — not just container
+reclamation across firings, a per-call reset), and neither `create_trigger`/`update_trigger`
+nor `create_session` expose a way to inject a persistent environment variable from inside a
+session. Fixed by having both Routines self-retrieve the webhook URL each firing by grepping
+the session's own transcript file (`/root/.claude/projects/.../*.jsonl`) for the
+`export HA_MCP_URL=...` line the household pasted once, then chaining the retrieval and the
+actual ha-mcp call inline in one Bash invocation — never persisted to a file, `~/.bashrc`,
+commit, issue, or artifact. Verified working end-to-end across both the hourly monitor and
+the first live 06:00 automated day-ahead report firing after the fix.
+
+---
+
 ## ⚠️ CURRENT STATE (2026-09-02) — read this first
 
 **`solver_p2p_settlement_history_sensor` confirmed working end-to-end for the first time, on a real install (devhub) — and the Solver settings wizard's real, live field-wiping mechanics confirmed directly, not just theorized.**
