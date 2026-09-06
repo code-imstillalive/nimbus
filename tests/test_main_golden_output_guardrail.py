@@ -126,6 +126,10 @@ _EXPECTED_ATTRS = {
     "load_forecast_coverage_hours": 1.0,
     "load_summed_18_now_kw": 1.5,
     "load_whole_house_cross_check_now_kw": None,
+    # nimbus issue #429: new field, this fixture has no
+    # solver_whole_house_cross_check_sensor configured so it's None,
+    # same honest-absence shape as the sibling field above.
+    "load_whole_house_live_now_kw": None,
     "failed_load_entities": [],
     "solar_delivery_ratio": None,
     "solar_delivery_sample_count": 0,

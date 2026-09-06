@@ -6281,6 +6281,22 @@ def main() -> None:
     # as solar; every other period stays a genuine forecast. Zero-width
     # band at this point -- no forecast uncertainty in something already
     # measured. Graceful no-op if unconfigured or on any read failure.
+    # nimbus issue #429 (Mark Purcell): live_load_kw itself (the one real,
+    # actually-measured value this whole block reads) used to be computed
+    # here and immediately discarded -- only ever used to overwrite
+    # load_kw[0] for the solve, never published anywhere on its own. Both
+    # load_summed_18_now_kw and load_whole_house_cross_check_now_kw below
+    # are DELIBERATELY forecast-vs-forecast (see the comment above and at
+    # each publish site) -- genuinely useful for catching a missing/
+    # misconfigured circuit, but neither is what its own name/a
+    # reasonable reader (confirmed live: Mark's own report read
+    # load_whole_house_cross_check_now_kw AS "the real whole-house meter
+    # cross-check", which is a real, understandable misreading given the
+    # name) would assume: an actual live meter reading. There was no way
+    # to do a genuine forecast-vs-reality check at all without this fix --
+    # published below as load_whole_house_live_now_kw, additive only,
+    # doesn't change either existing field's own value or meaning.
+    live_load_kw = None
     if whole_house_cross_check_sensor and entity_exists(whole_house_cross_check_sensor):
         try:
             live_load_kw = float(ha_get(whole_house_cross_check_sensor)["state"])
@@ -6288,7 +6304,7 @@ def main() -> None:
             load_lower_kw[0] = load_kw[0]
             load_upper_kw[0] = load_kw[0]
         except (ValueError, KeyError, TypeError):
-            pass
+            live_load_kw = None
 
     # Real, standalone Nimbus entity for the summed 18-load total
     # (2026-08-17, direct ask: "like haeo concept nimbus should sum up
@@ -6388,6 +6404,15 @@ def main() -> None:
             "load_forecast_warnings": load_forecast_warnings,
             "whole_house_cross_check_now_kw": round(whole_house_now_kw, 3)
             if whole_house_now_kw is not None
+            else None,
+            # nimbus issue #429: the genuine live meter reading, distinct
+            # from whole_house_cross_check_now_kw above (that field is
+            # the meter's own FORECAST model, not a live reading -- see
+            # this block's own comment further up). None when
+            # unconfigured or the read failed, same honest-absence
+            # convention as every other optional diagnostic here.
+            "whole_house_live_now_kw": round(live_load_kw, 3)
+            if live_load_kw is not None
             else None,
             "inverter_self_consumption_kw": _cfg_num(
                 cfg, "solver_inverter_self_consumption_kw", 0.0
@@ -7573,6 +7598,20 @@ def main() -> None:
             "load_summed_18_now_kw": round(summed_18_now_kw, 3),
             "load_whole_house_cross_check_now_kw": round(whole_house_now_kw, 3)
             if whole_house_now_kw is not None
+            else None,
+            # nimbus issue #429 (Mark Purcell): the two fields above are
+            # DELIBERATELY forecast-vs-forecast (sum of 18 circuit models
+            # vs the whole-house meter's own separate forecast model) --
+            # genuinely useful for catching a missing/misconfigured
+            # circuit, but neither is a live meter reading despite what
+            # "cross_check" suggests (confirmed live: Mark's own report
+            # read load_whole_house_cross_check_now_kw as "the real
+            # whole-house meter", a real, understandable misreading given
+            # the name). This is the genuine live reading, so a real
+            # forecast-vs-reality check is finally possible; additive
+            # only, doesn't change either existing field's own value.
+            "load_whole_house_live_now_kw": round(live_load_kw, 3)
+            if live_load_kw is not None
             else None,
             "failed_load_entities": failed_load_entities,
             # NEW (2026-08-24, issue #105) -- same dual-publication
