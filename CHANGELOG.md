@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.137] — 2026-09-06
+
+### Added
+- **New `load_whole_house_live_now_kw` diagnostic attribute** (`sensor.nimbus_solver_battery_forecast` and `sensor.nimbus_household_load_total_forecast`), closing [#429](https://github.com/code-imstillalive/nimbus/issues/429) (Mark Purcell). The existing `load_summed_18_now_kw`/`load_whole_house_cross_check_now_kw` pair is deliberately forecast-vs-forecast by design (catches a missing/misconfigured circuit) — neither is an actual live meter reading, despite what "cross_check" implies. This new field exposes the genuine live reading (already computed internally, previously unpublished), making a real forecast-vs-reality comparison possible for the first time. Purely additive — neither existing field's value or meaning changes.
+
 ## [0.94.136] — 2026-09-06
 
 ### Fixed
