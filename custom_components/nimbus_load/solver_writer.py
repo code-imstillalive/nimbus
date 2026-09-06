@@ -7560,11 +7560,22 @@ def main() -> None:
         if load_forecast_coverage_hours is not None
         else "unknown"
     )
+    # Issue #389 (Mark Purcell, live install, v0.94.125): _infeasible_plan()
+    # returns total_cost=None, and this status line crashed every cycle for
+    # 41 minutes formatting it with .2f (TypeError: unsupported format
+    # string passed to NoneType.__format__) -- the plan itself had already
+    # been correctly pushed with status="infeasible" by this point, so the
+    # ONLY thing failing was this trailing log line, but it took down the
+    # rest of main() (quality report / counterfactual / efficiency backtest
+    # sensor updates) with it every single cycle. total_cost_with_fixed_costs
+    # is already None-safe (built via `plan.total_cost or 0.0` above), it's
+    # plan.total_cost itself on this line that wasn't guarded.
+    total_cost_str = f"{plan.total_cost:.2f}" if plan.total_cost is not None else "n/a"
     print(
         f"[{now.isoformat()}] pushed {ENTITY_ID}: status={plan.status} "
         f"n_periods={n_periods} horizon={horizon_days * 24:.1f}h "
         f"load_forecast_coverage={coverage_str} solve_time={solve_seconds:.2f}s "
-        f"total_cost={plan.total_cost:.2f} total_cost_with_fixed={total_cost_with_fixed_costs:.2f} "
+        f"total_cost={total_cost_str} total_cost_with_fixed={total_cost_with_fixed_costs:.2f} "
         f"p2p_match_fraction={match_fraction:.3f} net_battery_now={net_battery[0]:.2f}kW "
         f"summed_18_loads_now={summed_18_now_kw:.2f}kW whole_house_cross_check={cross_check_str} "
         f"previous_plan_found={previous_plan is not None} "
