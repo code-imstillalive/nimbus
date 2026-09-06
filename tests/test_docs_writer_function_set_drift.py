@@ -83,6 +83,14 @@ _DOCS_PATH = os.path.join(
 INTENTIONAL_NATIVE_ONLY = frozenset(
     {
         "_compute_report_for_window",
+        # nimbus issue #363 step 2 (Mark Purcell's own approved staged-
+        # extraction plan): a pure code-organization move out of main()
+        # in the integration copy only -- the docs/cron copy's own
+        # main() still has the equivalent forecast-dict/attrs-building
+        # logic inline, unrefactored. Not a missing bug fix; porting
+        # this exact split to the standalone script is a separate,
+        # not-yet-scoped follow-up.
+        "publish_plan",
         "register_entity_handler",
         "unregister_entity_handler",
         "ha_call_service_with_response",
