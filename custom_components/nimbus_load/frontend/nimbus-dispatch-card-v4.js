@@ -516,9 +516,21 @@ class NimbusDispatchCardV4 extends HTMLElement {
     const totalCost = fcEnt ? fcEnt.attributes.total_cost : undefined;
     const p2pMatchFrac = fcEnt ? fcEnt.attributes.p2p_match_fraction : undefined;
     const econStats = [
-      ['Plan Cost (horizon)', totalCost !== undefined ? '$' + parseFloat(totalCost).toFixed(2) : '—'],
+      // nimbus issue #411 (Mark Purcell): `totalCost !== undefined` only
+      // catches the undefined case -- a genuinely infeasible plan's real
+      // `total_cost: null` (see #390) passed this guard (`null !==
+      // undefined` is true), then parseFloat(null) is NaN and
+      // NaN.toFixed(2) renders the literal string "$NaN". `!= null`
+      // (loose equality) catches both null and undefined in one check.
+      ['Plan Cost (horizon)', totalCost != null ? '$' + parseFloat(totalCost).toFixed(2) : '—'],
       ['P2P Match', p2pMatchFrac !== undefined ? (parseFloat(p2pMatchFrac) * 100).toFixed(0) + '%' : '—'],
-      ['EPR (yesterday)', qrOk ? (parseFloat(qrEnt.state) * 100).toFixed(0) + '%' : '—'],
+      // nimbus issue #411 (Mark Purcell): sensor.nimbus_solver_quality_
+      // report's own `state` is already expressed as a percent (e.g.
+      // "-5.76" meaning -5.76%, matching the Regret card's own "Yesterday"
+      // tile) -- the `* 100` here was a real double-conversion bug,
+      // rendering -576% instead of -5.8%. toFixed(1) (not toFixed(0))
+      // to keep the same one-decimal precision the Regret card shows.
+      ['EPR (yesterday)', qrOk ? parseFloat(qrEnt.state).toFixed(1) + '%' : '—'],
       ['Real P2P (yesterday)', qrOk ? '$' + parseFloat(qrEnt.attributes.real_p2p_dollars || 0).toFixed(2) + ' / ' + parseFloat(qrEnt.attributes.real_p2p_volume_kwh || 0).toFixed(1) + 'kWh' : '—'],
       ['Tracking Fidelity', qrOk ? (parseFloat(qrEnt.attributes.tracking_fidelity || 0) * 100).toFixed(0) + '%' : '—']
     ];
