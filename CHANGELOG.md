@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.125] — 2026-09-06
+
+### Fixed
+- **`nimbus-dispatch-card-v4`'s disarmed-branch status label could mislabel a solar-charging period as "CHARGING (GRID)".** Found live: 8.7kW real solar generation, 4.7kW real battery charging, and a 0.2kW real grid reading (a household's own measurement noise/rounding at that scale) — the card's flat `> 0.05kW` grid threshold called this "GRID" while the identical mirrored sensors on the household's own primary dashboard correctly showed "SOLAR". The threshold now also requires grid draw to be a real fraction of whatever solar is producing (`realGrid > realSolarKw * 0.05`), not just above the absolute noise floor — a genuine nighttime grid-charge (solar = 0) is completely unaffected, since the fraction term is zero either way.
+
 ## [0.94.124] — 2026-09-06
 
 ### Added
