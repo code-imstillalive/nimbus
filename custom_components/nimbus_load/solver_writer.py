@@ -7570,9 +7570,7 @@ def main() -> None:
     # sensor updates) with it every single cycle. total_cost_with_fixed_costs
     # is already None-safe (built via `plan.total_cost or 0.0` above), it's
     # plan.total_cost itself on this line that wasn't guarded.
-    total_cost_str = (
-        f"{plan.total_cost:.2f}" if plan.total_cost is not None else "n/a"
-    )
+    total_cost_str = f"{plan.total_cost:.2f}" if plan.total_cost is not None else "n/a"
     print(
         f"[{now.isoformat()}] pushed {ENTITY_ID}: status={plan.status} "
         f"n_periods={n_periods} horizon={horizon_days * 24:.1f}h "

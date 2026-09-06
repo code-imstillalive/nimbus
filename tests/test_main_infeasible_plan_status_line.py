@@ -112,13 +112,14 @@ class TestInfeasiblePlanStatusLineDoesNotCrash:
             try:
                 solver_writer.main()
             except TypeError as e:
-                assert "NoneType" not in str(e), (
-                    f"#389 regressed: {e!r}"
-                )
-            except Exception:  # noqa: BLE001
+                assert "NoneType" not in str(e), f"#389 regressed: {e!r}"
+            except Exception:  # noqa: BLE001, S110
                 # Any other exception means this fixture didn't get far
                 # enough into main() to exercise the fixed line at all
                 # (e.g. a config/setup gap unrelated to #389) -- out of
                 # scope for this test, which only guards the specific
-                # TypeError already confirmed live.
+                # TypeError already confirmed live. Deliberately not
+                # logged (S110): this is an expected, silent "test scope
+                # boundary reached" outcome, not a real failure to
+                # investigate.
                 pass
