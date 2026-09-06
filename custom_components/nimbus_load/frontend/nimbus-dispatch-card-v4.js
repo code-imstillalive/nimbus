@@ -693,8 +693,24 @@ class NimbusDispatchCardV4 extends HTMLElement {
         '.source-bar { display: flex; width: 56px; height: 8px; border-radius: 4px; overflow: hidden; background: rgba(255,255,255,0.06); }' +
         '.source-bar .seg-a { background: #ffb340; }' +
         '.source-bar .seg-b { background: #4fa3ff; }' +
+        /* Landscape/desktop layout (nimbus issue #391, Mark Purcell): below
+           this breakpoint the card stays a single vertical column (the
+           original, unchanged mobile/narrow layout). At/above it, the header
+           + hero gauge + risk sliders move into a left column alongside the
+           timeline + forecast table in a right column, so a wide desktop
+           panel view uses the available horizontal space instead of one
+           long scroll. Footer/tuning/economics stay full-width below both
+           columns either way -- they're already horizontal chip rows, not
+           something that benefits from a second column. */
+        '.layout-grid { display:block; }' +
+        '@media (min-width: 900px) {' +
+          '.layout-grid { display:grid; grid-template-columns: minmax(320px, 1fr) minmax(460px, 1.65fr); gap: 0 36px; align-items:start; }' +
+          '.col-left, .col-right { min-width: 0; }' +
+        '}' +
       '</style>' +
       '<div class="card">' +
+      '<div class="layout-grid">' +
+      '<div class="col-left">' +
         '<div class="top-row">' +
           '<div class="title-row">' +
             '<div><div class="title">Nimbus Dispatch</div></div>' +
@@ -732,7 +748,9 @@ class NimbusDispatchCardV4 extends HTMLElement {
         '</div>' +
         '<div class="section-label" style="margin:8px 0 6px;">Risk Sliders -- how much the plan hedges against forecast being wrong</div>' +
         '<div class="risk-row">' + riskSliders + '</div>' +
-        '<div class="section-label">Dispatch Plan - next 96h (plan vs. actual)</div>' +
+      '</div>' + // .col-left
+      '<div class="col-right">' +
+        '<div class="section-label" style="margin-top:0;">Dispatch Plan - next 96h (plan vs. actual)</div>' +
         '<div class="timeline-wrap"><svg viewBox="0 0 ' + TW + ' ' + TH + '" preserveAspectRatio="xMidYMid meet">' +
           '<defs>' +
             '<linearGradient id="fillGradV4" x1="0" y1="0" x2="0" y2="1">' +
@@ -771,6 +789,8 @@ class NimbusDispatchCardV4 extends HTMLElement {
           '</tr></thead>' +
           '<tbody>' + forecastRows + '</tbody>' +
         '</table></div>' +
+      '</div>' + // .col-right
+      '</div>' + // .layout-grid
         '<div class="footer">' +
           '<span class="chip"><span class="dot" style="background:' + statusColor + '"></span>Solver: ' + solverStatus + (clamped !== undefined ? ' (' + clamped + ' clamped)' : '') + '</span>' +
           '<span class="chip">Solved in ' + (solveSecs !== undefined ? solveSecs + 's' : '?') + ' at ' + lastSolvedStr + '</span>' +
