@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 574" width="900" height="574">
+<style>
+text{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;fill:#1b1f24}
+.ttl{font-size:13px;font-weight:600}
+.tick{font-size:10px;fill:#57606a}
+.gl{stroke:#e8ebef;stroke-width:1}
+.hl{stroke:#d1226b;stroke-width:1;opacity:.7}
+</style>
+<rect x="0" y="0" width="900" height="574" fill="#ffffff"/>
+<text x="50" y="16" style="font-size:15px;font-weight:700">Yesterday's scorecard</text>
+<g transform="translate(0,26)"><g transform="translate(0,0)">
+<text x="50" y="14" class="ttl">SoC: real vs scored (achieved) vs oracle (%)</text>
+<line x1="50" x2="880" y1="214.0" y2="214.0" class="gl"/>
+<text x="44" y="218.0" text-anchor="end" class="tick">0</text>
+<line x1="50" x2="880" y1="166.5" y2="166.5" class="gl"/>
+<text x="44" y="170.5" text-anchor="end" class="tick">25</text>
+<line x1="50" x2="880" y1="119.0" y2="119.0" class="gl"/>
+<text x="44" y="123.0" text-anchor="end" class="tick">50</text>
+<line x1="50" x2="880" y1="71.5" y2="71.5" class="gl"/>
+<text x="44" y="75.5" text-anchor="end" class="tick">75</text>
+<line x1="50" x2="880" y1="24.0" y2="24.0" class="gl"/>
+<text x="44" y="28.0" text-anchor="end" class="tick">100</text>
+<path d="M 50.0 171.1 L 86.1 174.3 L 122.2 180.2 L 158.3 185.9 L 194.3 187.8 L 230.4 192.9 L 266.5 196.5 L 302.6 165.7 L 338.7 169.0 L 374.8 168.6 L 410.9 181.5 L 447.0 173.7 L 483.0 152.1 L 519.1 132.5 L 555.2 98.9 L 591.3 120.0 L 627.4 110.8 L 663.5 89.4 L 699.6 101.3 L 735.7 125.1 L 771.7 133.2 L 807.8 136.1 L 843.9 138.6 L 880.0 140.5" fill="none" stroke="#1b1f24" stroke-width="2" stroke-linejoin="round"/>
+<path d="M 50.0 171.1 L 86.1 173.7 L 122.2 181.9 L 158.3 190.1 L 194.3 182.7 L 230.4 185.3 L 266.5 188.2 L 302.6 191.8 L 338.7 193.5 L 374.8 193.1 L 410.9 184.2 L 447.0 170.7 L 483.0 150.5 L 519.1 129.8 L 555.2 120.0 L 591.3 117.9 L 627.4 124.7 L 663.5 132.1 L 699.6 136.5 L 735.7 148.6 L 771.7 151.3 L 807.8 152.4 L 843.9 154.0 L 880.0 155.5" fill="none" stroke="#0969da" stroke-width="2" stroke-linejoin="round"/>
+<path d="M 50.0 170.5 L 86.1 172.6 L 122.2 174.5 L 158.3 176.6 L 194.3 178.7 L 230.4 180.8 L 266.5 182.7 L 302.6 187.6 L 338.7 193.3 L 374.8 195.2 L 410.9 195.2 L 447.0 195.2 L 483.0 195.2 L 519.1 195.2 L 555.2 195.2 L 591.3 195.0 L 627.4 195.8 L 663.5 196.3 L 699.6 197.8 L 735.7 199.4 L 771.7 200.9 L 807.8 202.2 L 843.9 203.4 L 880.0 204.3" fill="none" stroke="#8250df" stroke-width="2" stroke-linejoin="round"/>
+<text x="50.0" y="228" text-anchor="middle" class="tick">00:00</text>
+<text x="158.3" y="228" text-anchor="middle" class="tick">03:00</text>
+<text x="266.5" y="228" text-anchor="middle" class="tick">06:00</text>
+<text x="374.8" y="228" text-anchor="middle" class="tick">09:00</text>
+<text x="483.0" y="228" text-anchor="middle" class="tick">12:00</text>
+<text x="591.3" y="228" text-anchor="middle" class="tick">15:00</text>
+<text x="699.6" y="228" text-anchor="middle" class="tick">18:00</text>
+<text x="807.8" y="228" text-anchor="middle" class="tick">21:00</text>
+<rect x="50" y="244" width="10" height="10" fill="#1b1f24"/>
+<text x="64" y="253" class="tick">real</text>
+<rect x="102.8" y="244" width="10" height="10" fill="#0969da"/>
+<text x="116.8" y="253" class="tick">achieved</text>
+<rect x="180.39999999999998" y="244" width="10" height="10" fill="#8250df"/>
+<text x="194.39999999999998" y="253" class="tick">oracle</text>
+</g></g>
+<g transform="translate(0,300)"><g transform="translate(0,0)">
+<text x="50" y="14" class="ttl">Hourly regret ($, achieved-oracle; negative = oracle spent to earn later)</text>
+<line x1="50" x2="880" y1="214.0" y2="214.0" class="gl"/>
+<text x="44" y="218.0" text-anchor="end" class="tick">-0</text>
+<line x1="50" x2="880" y1="166.5" y2="166.5" class="gl"/>
+<text x="44" y="170.5" text-anchor="end" class="tick">0</text>
+<line x1="50" x2="880" y1="119.0" y2="119.0" class="gl"/>
+<text x="44" y="123.0" text-anchor="end" class="tick">0</text>
+<line x1="50" x2="880" y1="71.5" y2="71.5" class="gl"/>
+<text x="44" y="75.5" text-anchor="end" class="tick">1</text>
+<line x1="50" x2="880" y1="24.0" y2="24.0" class="gl"/>
+<text x="44" y="28.0" text-anchor="end" class="tick">1</text>
+<line x1="50" x2="880" y1="185.1" y2="185.1" class="hl" stroke-dasharray="2,2"/>
+<rect x="39.6" y="182.4" width="20.8" height="2.7" fill="#c0392b"/>
+<rect x="75.7" y="182.4" width="20.8" height="2.7" fill="#c0392b"/>
+<rect x="111.8" y="185.1" width="20.8" height="9.1" fill="#1a7f37"/>
+<rect x="147.9" y="181.9" width="20.8" height="3.3" fill="#c0392b"/>
+<rect x="184.0" y="37.1" width="20.8" height="148.0" fill="#c0392b"/>
+<rect x="220.1" y="181.7" width="20.8" height="3.4" fill="#c0392b"/>
+<rect x="256.1" y="181.7" width="20.8" height="3.4" fill="#c0392b"/>
+<rect x="292.2" y="158.2" width="20.8" height="26.9" fill="#c0392b"/>
+<rect x="328.3" y="164.2" width="20.8" height="20.9" fill="#c0392b"/>
+<rect x="364.4" y="177.7" width="20.8" height="7.5" fill="#c0392b"/>
+<rect x="400.5" y="153.2" width="20.8" height="31.9" fill="#c0392b"/>
+<rect x="436.6" y="152.2" width="20.8" height="32.9" fill="#c0392b"/>
+<rect x="472.7" y="94.2" width="20.8" height="90.9" fill="#c0392b"/>
+<rect x="508.8" y="159.0" width="20.8" height="26.1" fill="#c0392b"/>
+<rect x="544.8" y="159.7" width="20.8" height="25.4" fill="#c0392b"/>
+<rect x="580.9" y="184.4" width="20.8" height="0.7" fill="#c0392b"/>
+<rect x="617.0" y="185.1" width="20.8" height="15.8" fill="#1a7f37"/>
+<rect x="653.1" y="185.1" width="20.8" height="2.2" fill="#1a7f37"/>
+<rect x="689.2" y="185.1" width="20.8" height="9.9" fill="#1a7f37"/>
+<rect x="725.3" y="185.1" width="20.8" height="10.1" fill="#1a7f37"/>
+<rect x="761.4" y="175.6" width="20.8" height="9.5" fill="#c0392b"/>
+<rect x="797.5" y="178.7" width="20.8" height="6.4" fill="#c0392b"/>
+<rect x="833.5" y="183.9" width="20.8" height="1.2" fill="#c0392b"/>
+<rect x="869.6" y="184.7" width="20.8" height="0.5" fill="#c0392b"/>
+<text x="50.0" y="228" text-anchor="middle" class="tick">00:00</text>
+<text x="158.3" y="228" text-anchor="middle" class="tick">03:00</text>
+<text x="266.5" y="228" text-anchor="middle" class="tick">06:00</text>
+<text x="374.8" y="228" text-anchor="middle" class="tick">09:00</text>
+<text x="483.0" y="228" text-anchor="middle" class="tick">12:00</text>
+<text x="591.3" y="228" text-anchor="middle" class="tick">15:00</text>
+<text x="699.6" y="228" text-anchor="middle" class="tick">18:00</text>
+<text x="807.8" y="228" text-anchor="middle" class="tick">21:00</text>
+<rect x="50" y="244" width="10" height="10" fill="#888"/>
+<text x="64" y="253" class="tick">regret</text>
+</g></g>
+</svg>
