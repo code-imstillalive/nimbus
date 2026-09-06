@@ -308,6 +308,11 @@ def compute_quality_report(
     if not oracle_plan.is_optimal:
         msg = f"Oracle solve failed (status={oracle_plan.status}) -- should not happen with real, already-realized data unless genuinely infeasible"
         raise RuntimeError(msg)
+    # mypy issue #384: Plan.total_cost is only ever None for a non-
+    # optimal plan (network.py's own build_plan() only sets it from a
+    # real result.objective on the optimal path) -- already guaranteed
+    # by the is_optimal check just above, mypy just can't see through it.
+    assert oracle_plan.total_cost is not None
     j_star = float(oracle_plan.total_cost)
 
     # Oracle's own per-period cost, for the hourly breakdown -- evaluated
@@ -354,7 +359,8 @@ def compute_quality_report(
     # SoC is only meaningfully defined for j_ach (measured) and j_star
     # (oracle plan). For j_ref (idle) it stays flat at the initial value.
     j_ref_battery_net_kw = zero  # idle trajectory: battery does nothing
-    j_ach_battery_net_kw = actual_charge_kw - actual_discharge_kw
+    # mypy issue #384: same numpy-stub dtype-widening note as above.
+    j_ach_battery_net_kw = (actual_charge_kw - actual_discharge_kw).astype(np.float64)
     j_star_battery_net_kw = np.asarray(
         oracle_plan.battery_charge_kw - oracle_plan.battery_discharge_kw,
         dtype=np.float64,
@@ -370,7 +376,13 @@ def compute_quality_report(
         actual_charge_kw * battery.charge_efficiency * dt
         - actual_discharge_kw * dt / battery.discharge_efficiency
     )
-    j_ach_soc_kwh = initial_soc_kwh + np.cumsum(ach_delta)
+    # mypy issue #384: numpy widens a python-float + ndarray[float64] sum
+    # to floating[Any] in its own stubs -- a real stub-precision gap, not
+    # a real bug (this project's own CLAUDE.md GBRT-vs-k-NN finding
+    # documents the general pattern). Explicit dtype keeps this array
+    # (and everything downstream that reads it) at the real, narrower
+    # float64 contract the rest of this module declares.
+    j_ach_soc_kwh = (initial_soc_kwh + np.cumsum(ach_delta)).astype(np.float64)
     j_star_soc_kwh = np.asarray(oracle_plan.battery_soc_kwh, dtype=np.float64)
 
     # SoC arrays as % (0..100) for consumer readability. Capacity 0 =>
@@ -378,7 +390,9 @@ def compute_quality_report(
     def _soc_pct(soc_kwh: NDArray[np.float64]) -> NDArray[np.float64]:
         if capacity_kwh <= 0.0:
             return np.zeros(n)
-        return soc_kwh / capacity_kwh * 100.0
+        # mypy issue #384: same numpy-stub dtype-widening note as
+        # j_ach_soc_kwh above.
+        return (soc_kwh / capacity_kwh * 100.0).astype(np.float64)
 
     j_ref_soc_pct = np.full(n, _soc_pct(np.array([initial_soc_kwh]))[0])
     j_ach_soc_pct = _soc_pct(j_ach_soc_kwh)
@@ -389,9 +403,20 @@ def compute_quality_report(
     # compute_daily_quality_report()'s calling site both are set from
     # yesterday's REAL measured history, but callers who pass a genuine
     # forecast for j_star will get the LP's own view of grid_kw.
-    j_ref_grid_kw = load.forecast_kw - solar.forecast_kw + zero  # idle battery
-    j_ach_grid_kw = load.forecast_kw - solar.forecast_kw + j_ach_battery_net_kw
-    j_star_grid_kw = load.forecast_kw - solar.forecast_kw + j_star_battery_net_kw
+    # mypy issue #384: same numpy-stub dtype-widening note as
+    # j_ach_soc_kwh above -- chained float64 +/- ops widen to
+    # floating[Any] in numpy's own stubs.
+    j_ref_grid_kw = (
+        load.forecast_kw - solar.forecast_kw + zero
+    ).astype(  # idle battery
+        np.float64
+    )
+    j_ach_grid_kw = (
+        load.forecast_kw - solar.forecast_kw + j_ach_battery_net_kw
+    ).astype(np.float64)
+    j_star_grid_kw = (
+        load.forecast_kw - solar.forecast_kw + j_star_battery_net_kw
+    ).astype(np.float64)
     # `timestamps[0]` is period 0's tz-aware datetime, always the
     # day-start anchor for the daily-quality run (see
     # compute_daily_quality_report()). Passed through to
@@ -440,15 +465,18 @@ def compute_quality_report(
 
     epr_result = compute_epr(j_ref=j_ref, j_ach=j_ach, j_star=j_star)
 
+    # mypy issue #384: same numpy-stub dtype-widening note as above.
+    commanded_net_kw = (commanded_discharge_kw - commanded_charge_kw).astype(np.float64)
+    actual_net_kw = (actual_discharge_kw - actual_charge_kw).astype(np.float64)
     tracking_result = compute_tracking_fidelity(
         hours=hours,
-        commanded_kw=commanded_discharge_kw - commanded_charge_kw,
-        actual_kw=actual_discharge_kw - actual_charge_kw,
+        commanded_kw=commanded_net_kw,
+        actual_kw=actual_net_kw,
     )
     tracking_cost = tracking_error_cost(
         hours=hours,
-        commanded_kw=commanded_discharge_kw - commanded_charge_kw,
-        actual_kw=actual_discharge_kw - actual_charge_kw,
+        commanded_kw=commanded_net_kw,
+        actual_kw=actual_net_kw,
         export_price=grid_residual.export_price,
     )
 

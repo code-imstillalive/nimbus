@@ -83,6 +83,7 @@ scenario, not just the one the deterministic solver happened to assume.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
 
 import numpy as np
 from numpy.typing import NDArray
@@ -471,6 +472,13 @@ def build_stochastic_plan(
             draw_coeff = hours[t] / battery.discharge_efficiency
             if t == t_range.start:
                 if isinstance(prev_soc_ref, str):
+                    # mypy issue #384: prev_underfill_ref is always given
+                    # as a real string alongside a string prev_soc_ref by
+                    # every real caller (the float-initial_soc_kwh call
+                    # site never reaches this branch at all -- it takes
+                    # the `else` below) -- mypy can't see that cross-
+                    # parameter correlation, so this asserts it directly.
+                    assert prev_underfill_ref is not None
                     # nimbus issue #354 (Mark Purcell, defect 2): as
                     # originally written this implicitly forced
                     # prev_soc_ref >= min_soc_kwh even at discharge[t]=0
@@ -630,6 +638,11 @@ def build_stochastic_plan(
     for s in range(n_scenarios):
         prev_underfill: str | None = None
         if stochastic_start_period > 0:
+            # mypy issue #384: stage1_names was set (never left None) by
+            # the identical `if stochastic_start_period > 0:` check
+            # above, before this loop -- mypy can't connect the two
+            # separate if-blocks across the loop in between.
+            assert stage1_names is not None
             prev_ref: str | float = stage1_names[2][
                 -1
             ]  # shared stage-1 final soc variable name
@@ -670,19 +683,26 @@ def build_stochastic_plan(
     # of just adding a redundant-but-harmless extra volume constraint.
     has_bonus = p2p_export.has_export_bonus(grid)
     if has_bonus and stage1_names is not None:
+        # mypy issue #384: has_bonus doesn't narrow
+        # grid.export_bonus_volume_kwh at its later use below -- same
+        # reasoning as p2p_export.py's own identical asserts.
+        assert grid.export_bonus_volume_kwh is not None
         stage1_bonus_dict = stage1_names[6]
 
-        def _day_key(t: int) -> object:
+        def _day_key(t: int) -> date | None:
+            # mypy issue #384: was `-> object` -- the real return type is
+            # always date | None, and `object` had no .isoformat() at the
+            # call site below even after narrowing out None.
             starts = periods.period_starts
             return starts[t].date() if starts is not None else None
 
-        stage1_days: dict[object, list[int]] = {}
+        stage1_days: dict[date | None, list[int]] = {}
         for t in stage1_bonus_dict:
             stage1_days.setdefault(_day_key(t), []).append(t)
 
         for s in range(n_scenarios):
             stage2_bonus_dict = stage2_names[s][6]
-            stage2_days: dict[object, list[int]] = {}
+            stage2_days: dict[date | None, list[int]] = {}
             for t in stage2_bonus_dict:
                 stage2_days.setdefault(_day_key(t), []).append(t)
 
@@ -711,6 +731,11 @@ def build_stochastic_plan(
             stage1_discharge_kw=np.array([]),
             stage1_soc_kwh=np.array([]),
         )
+    # mypy issue #384: LPResult's own docstring guarantees `objective` is
+    # meaningful (i.e. real, non-None) whenever status == "optimal" --
+    # already true here given the early-return just above, but mypy
+    # itself can't read a docstring; this asserts the real invariant.
+    assert result.objective is not None
 
     def _extract(names: list[str]) -> NDArray[np.float64]:
         return p.values_of(result, names) if names else np.array([])

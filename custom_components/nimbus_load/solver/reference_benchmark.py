@@ -226,8 +226,12 @@ def _reference_persistence_curves(
     matching the existing test_solver_forecast_regret.py fixture's own
     "yesterday, flat-shifted" reasoning.
     """
-    solar_persistence_kw = np.roll(solar_real_kw, 2) * 0.85
-    load_persistence_kw = np.roll(load_real_kw, 1) * 1.10
+    # mypy issue #384: numpy widens ndarray[float64] * python-float to
+    # floating[Any] in its own stubs -- a real stub-precision gap, not a
+    # real bug (see this project's own CLAUDE.md GBRT-vs-k-NN finding for
+    # the general pattern).
+    solar_persistence_kw = (np.roll(solar_real_kw, 2) * 0.85).astype(np.float64)
+    load_persistence_kw = (np.roll(load_real_kw, 1) * 1.10).astype(np.float64)
     return solar_persistence_kw, load_persistence_kw
 
 

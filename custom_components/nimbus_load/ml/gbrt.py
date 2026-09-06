@@ -148,15 +148,26 @@ def _predict_tree(node: _TreeNode, x: np.ndarray) -> np.ndarray:
 def _predict_tree_rec(
     node: _TreeNode, x: np.ndarray, idx: np.ndarray, out: np.ndarray
 ) -> None:
-    if node.is_leaf():
-        out[idx] = node.value
+    # mypy issue #384: is_leaf() (a `self.value is not None` check inside
+    # a method) doesn't narrow node.value's type at the call site the way
+    # a direct `if node.value is not None:` does -- switched to that
+    # directly. By _build_tree()'s own construction, a node is either a
+    # leaf (value set, feature/threshold/left/right all None) or internal
+    # (the reverse) -- never mixed, so the assert below documents a real
+    # invariant rather than working around a genuine possibility.
+    if (leaf_value := node.value) is not None:
+        out[idx] = leaf_value
         return
     col = x[idx, node.feature]
     left_mask = col <= node.threshold
+    left, right = node.left, node.right
+    assert left is not None and right is not None, (
+        "a non-leaf _TreeNode must have both children"
+    )
     if np.any(left_mask):
-        _predict_tree_rec(node.left, x, idx[left_mask], out)
+        _predict_tree_rec(left, x, idx[left_mask], out)
     if np.any(~left_mask):
-        _predict_tree_rec(node.right, x, idx[~left_mask], out)
+        _predict_tree_rec(right, x, idx[~left_mask], out)
 
 
 @dataclass
@@ -218,6 +229,11 @@ class GBRT:
             and y_val is not None
         )
         if use_early_stopping:
+            # mypy issue #384: use_early_stopping (a plain bool) doesn't
+            # carry the `early_stopping_rounds is not None` check forward
+            # to its later use below -- this is always true whenever
+            # use_early_stopping is, by the very condition just above.
+            assert early_stopping_rounds is not None
             x_val_arr = np.asarray(x_val, dtype=np.float64)
             y_val_arr = np.asarray(y_val, dtype=np.float64)
             val_pred = np.full(y_val_arr.shape, self.init_value)
@@ -238,6 +254,7 @@ class GBRT:
             self.trees.append(tree)
 
             if use_early_stopping:
+                assert early_stopping_rounds is not None
                 val_pred = val_pred + self.learning_rate * _predict_tree(
                     tree, x_val_arr
                 )
