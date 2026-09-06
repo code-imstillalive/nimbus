@@ -62,12 +62,23 @@ def main() -> int:
     rows = []
     keys = sorted(ref)
     for k in keys:
-        h = k[11:13]
-        r = by_hour.get(h, {})
+        # nimbus-dispatch-report bug found 2026-09-07: hourly_regret's own key
+        # convention always matches k's raw substring (both UTC for a service-
+        # response window, both local for the sensor's own daily attributes --
+        # see the checklist's "Key labels" note), so raw_h keeps indexing reg
+        # correctly either way. But joining against by_hour (built from real
+        # recorder statistics, always local) needs the ACTUAL local hour --
+        # using the raw substring silently produced zero matches (every "real"
+        # /meter column went to None) whenever k's own ISO keys are UTC, i.e.
+        # any time this script scores a compute_quality_report service
+        # response directly instead of the sensor's own daily attributes.
+        raw_h = k[11:13]
+        local_h = dt.datetime.fromisoformat(k.replace("Z", "+00:00")).astimezone(tz).strftime("%H")
+        r = by_hour.get(local_h, {})
         real = r.get(sensors.get("soc"))
-        rows.append([f"{h}:00", round(ref[k]["import_price_aud_per_kwh"] * 100, 1), round(ref[k]["export_price_aud_per_kwh"] * 100, 1),
+        rows.append([f"{local_h}:00", round(ref[k]["import_price_aud_per_kwh"] * 100, 1), round(ref[k]["export_price_aud_per_kwh"] * 100, 1),
                      round(real, 1) if isinstance(real, (int, float)) else None, round(ach[k]["soc_pct"], 1), round(star[k]["soc_pct"], 1),
-                     round(reg[str(int(h))], 3), round(ach[k]["battery_kw"], 2), round(star[k]["battery_kw"], 2),
+                     round(reg[str(int(raw_h))], 3), round(ach[k]["battery_kw"], 2), round(star[k]["battery_kw"], 2),
                      round(ref[k]["load_kw"], 1), round(ref[k]["solar_kw"], 1), round(ach[k]["grid_kw"], 2), round(star[k]["grid_kw"], 2),
                      r.get(sensors.get("grid")), r.get(sensors.get("battery"))])
 
