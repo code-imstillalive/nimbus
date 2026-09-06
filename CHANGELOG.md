@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.135] — 2026-09-06
+
+### Fixed
+- **The "Nimbus Solver: load forecast misconfigured" persistent notification could fire from a genuine startup-timing race and then sit there indefinitely even after the underlying condition recovered.** Closes [#416](https://github.com/code-imstillalive/nimbus/issues/416) (Mark Purcell — confirmed live his load signal was never actually misconfigured; the notification was triggered by the forecast coordinator not having produced its first fresh refresh yet right after a restart). The Solver now actively clears an outstanding notification once a later solve cycle sees a healthy forecast again, and de-dupes repeat firings of the same underlying condition by a stable key instead of the exact message text (which embeds live point counts that change cycle to cycle).
+
 ## [0.94.134] — 2026-09-06
 
 ### Fixed
