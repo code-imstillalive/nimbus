@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.141] — 2026-09-07
+
+### Changed
+- **The efficiency-backtest report (`sensor.nimbus_efficiency_backtest`) now runs at the same 5-minute resolution as the live dispatch grid, instead of its own independent 15-minute hardcode.** Closes [#441](https://github.com/code-imstillalive/nimbus/issues/441) (Mark Purcell — a direct follow-up to #438, same mismatch found in a sibling function). `compute_efficiency_backtest_report()` always scores a fixed 24h "yesterday" window; that window now always resolves to the live dispatch's own `TIER1_PERIOD_HOURS` (288 periods).
+
 ## [0.94.140] — 2026-09-07
 
 ### Changed
