@@ -84,6 +84,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from .elements import (
+    AdequacyLoadConfig,
     BatteryConfig,
     GridConfig,
     LoadConfig,
@@ -111,6 +112,15 @@ class RollingInputs:
     solar: SolarConfig
     loads: list[LoadConfig] | None = None
     sheddable_loads: list[SheddableLoadConfig] | None = None
+    # nimbus issue #390: added alongside the grid_import_excess penalized
+    # slack -- with that slack in place, a plain LoadConfig can no longer
+    # make a tick genuinely infeasible (any shortfall is now served, at a
+    # real cost, rather than discarding the whole horizon). A hard,
+    # physically-impossible AdequacyLoadConfig deadline target remains the
+    # one real way to construct genuine infeasibility, so this loop needs
+    # to be able to pass one through to keep exercising its own
+    # solve-failure fallback path.
+    adequacy_loads: list[AdequacyLoadConfig] | None = None
 
 
 InputProvider = Callable[[datetime], RollingInputs]
@@ -238,6 +248,7 @@ def run_rolling_refinement(
             solar=inputs.solar,
             loads=inputs.loads,
             sheddable_loads=inputs.sheddable_loads,
+            adequacy_loads=inputs.adequacy_loads,
             previous_plan=previous_plan,
             proximal_weight=config.proximal_weight,
             max_rate_kw=config.max_rate_kw,

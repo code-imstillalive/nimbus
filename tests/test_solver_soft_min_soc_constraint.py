@@ -153,14 +153,31 @@ class TestAboveFloorBackwardCompatibility(unittest.TestCase):
         )
         self.assertEqual(plan_default.status, "optimal")
         self.assertEqual(plan_explicit_tiny.status, "optimal")
-        np.testing.assert_allclose(
-            plan_default.battery_soc_kwh, plan_explicit_tiny.battery_soc_kwh, atol=1e-6
+        # nimbus issue #390: adding the (here, always-inert -- confirmed
+        # both grid_import_excess_kw sums are exactly 0.0) excess-import
+        # slack variable to the LP gave HiGHS one more variable to choose
+        # a vertex over. This scenario's own flat, untiered discharge cost
+        # makes "touch the floor at period 17 vs. 18" a genuine tie in
+        # total cost -- confirmed directly (both plans price out to the
+        # identical 1.488 objective) -- so asserting the exact per-period
+        # SoC trajectory is bit-identical is not a safe invariant here; the
+        # real "no-op" claim this test exists to prove is that total cost
+        # and the real energy-served numbers are unaffected, not that
+        # HiGHS picks the same one of several equally-optimal vertices.
+        self.assertAlmostEqual(
+            plan_default.total_cost, plan_explicit_tiny.total_cost, places=6
         )
+        self.assertEqual(plan_default.import_cap_breach_kwh, 0.0)
+        self.assertEqual(plan_explicit_tiny.import_cap_breach_kwh, 0.0)
         np.testing.assert_allclose(
-            plan_default.grid_import_kw, plan_explicit_tiny.grid_import_kw, atol=1e-6
+            np.sum(plan_default.grid_import_kw),
+            np.sum(plan_explicit_tiny.grid_import_kw),
+            atol=1e-6,
         )
         self.assertTrue(np.all(plan_default.battery_soc_kwh >= MIN_SOC - 1e-6))
         self.assertTrue(np.all(plan_default.battery_soc_kwh <= MAX_SOC + 1e-6))
+        self.assertTrue(np.all(plan_explicit_tiny.battery_soc_kwh >= MIN_SOC - 1e-6))
+        self.assertTrue(np.all(plan_explicit_tiny.battery_soc_kwh <= MAX_SOC + 1e-6))
 
 
 class TestUnderfillNotGameable(unittest.TestCase):

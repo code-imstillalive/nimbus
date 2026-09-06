@@ -292,11 +292,22 @@ def test_soc_carried_forward_is_clamped_into_the_new_ticks_own_bounds():
 
 
 def test_infeasible_solve_freezes_the_last_known_good_dispatch():
-    """A genuinely impossible tick (import_limit_kw forced to 0 with no
-    solar and a battery too weak to cover load) must not crash the loop
-    or invent a plan -- it carries the prior tick's real dispatch
-    forward unchanged, and n_infeasible counts it."""
-    from solver.elements import LoadConfig
+    """A genuinely impossible tick must not crash the loop or invent a
+    plan -- it carries the prior tick's real dispatch forward unchanged,
+    and n_infeasible counts it.
+
+    nimbus issue #390: a plain oversized LoadConfig against a zero
+    import_limit_kw (this test's original scenario) is no longer a real
+    infeasibility -- the new grid_import_excess penalized slack (added
+    directly in response to that issue) now serves ANY plain load, at a
+    real cost, rather than discarding the whole horizon. A genuinely
+    physically-impossible AdequacyLoadConfig deadline target (a fixed
+    energy amount that MUST be delivered inside a fixed window, no
+    exceptions -- see AdequacyLoadConfig's own docstring) is the one hard
+    constraint that fix doesn't touch, so it's the new genuine-
+    infeasibility vector for this test.
+    """
+    from solver.elements import AdequacyLoadConfig
 
     call_count = {"n": 0}
 
@@ -304,29 +315,31 @@ def test_infeasible_solve_freezes_the_last_known_good_dispatch():
         call_count["n"] += 1
         n = 2
         if call_count["n"] == 2:
-            # Tick 2: genuinely infeasible -- a real, hard, non-sheddable
-            # LoadConfig (10kW, must be served every period, "no
-            # exceptions" per its own docstring) with zero import limit,
-            # zero solar, and a battery that's empty AND physically
-            # unable to discharge. Nothing can possibly serve this load.
-            grid = _grid(n, import_limit_kw=0.0, export_limit_kw=0.0)
-            battery = _battery(
-                initial_soc_kwh=2.0,
-                min_soc_kwh=2.0,
-                max_soc_kwh=20.0,
-                max_discharge_kw=0.0,
-            )
-            loads = [LoadConfig(name="impossible", forecast_kw=np.full(n, 10.0))]
+            # Tick 2: genuinely infeasible -- 100kWh demanded from a
+            # 3.7kW-max adequacy load inside a single 1h period. Nothing
+            # can possibly deliver that regardless of price or grid/
+            # battery state.
+            grid = _grid(n)
+            battery = _battery()
+            adequacy_loads = [
+                AdequacyLoadConfig(
+                    name="impossible",
+                    max_power_kw=3.7,
+                    target_kwh=100.0,
+                    earliest_period=0,
+                    deadline_period=0,
+                )
+            ]
         else:
             grid = _grid(n)
             battery = _battery()
-            loads = None
+            adequacy_loads = None
         return RollingInputs(
             periods=_flat_grid(n, start=now),
             grid=grid,
             battery=battery,
             solar=SolarConfig(forecast_kw=np.zeros(n)),
-            loads=loads,
+            adequacy_loads=adequacy_loads,
         )
 
     config = RollingRefinementConfig(
