@@ -20,6 +20,11 @@ Dated work-in-progress notes live in `docs/worklog/`, one file per date — this
 the "CURRENT STATE" journal that used to live directly in this file now lives. Each
 file is not re-summarized here; read it directly for the full detail. Most recent 5:
 
+- [2026-09-06](docs/worklog/2026-09-06.md) — #391/regression/#400 dispatch-card layout
+  (three passes, root-caused with a shared CSS variable); #389 solver crash and #390
+  whole-horizon infeasibility (penalized grid_import_excess slack); EPR-consistency fix
+  in compute_quality_report(); #388 battery sign-convention auto-detect. Version reaches
+  v0.94.131, seven releases.
 - [2026-09-05](docs/worklog/2026-09-05.md) — Long run through Mark Purcell's #336 codebase
   review (#355 through #368, #372-375); version reaches v0.94.118; a real self-correction
   on a false "independently confirmed on devhub" claim for #375.
@@ -33,11 +38,9 @@ file is not re-summarized here; read it directly for the full detail. Most recen
 - [2026-08-31](docs/worklog/2026-08-31.md) — #307 SigEnergy sign-convention wizard-schema
   bug fixed; the `number.py` restore-on-restart bug found and left open; the stochastic-P2P
   solver extension shipped (v0.94.39).
-- [2026-08-27](docs/worklog/2026-08-27.md) — #245/#244/#238 solver fixes (wash-trade cap,
-  NEM settlement-boundary phase alignment, MILP binary-variable groundwork); the
-  standalone writer's own phase-alignment fix (#251).
 
-Earlier history: `docs/worklog/2026-08-26.md`, `docs/worklog/2026-08-17.md`.
+Earlier history: `docs/worklog/2026-08-27.md`, `docs/worklog/2026-08-26.md`,
+`docs/worklog/2026-08-17.md`.
 
 ---
 
