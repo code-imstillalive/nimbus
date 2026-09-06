@@ -154,6 +154,49 @@ class TestComputeEfficiencyBacktestReportRealSweep(unittest.TestCase):
         self.assertGreater(report["spread_dollars"], 0.0)
 
 
+class TestGridResolutionMatchesTier1(unittest.TestCase):
+    """nimbus issue #441 (Mark Purcell), same fix as #438: this function
+    hardcoded its own independent period_hours=0.25 (15 min), separate
+    from _compute_report_for_window() -- coarser than both the live
+    dispatch grid's own 5-min tier-1 resolution and the real NEM
+    settlement interval. Confirms this function's own fixed 24h
+    "yesterday" window now scores at TIER1_PERIOD_HOURS (288 periods),
+    matching #438's fix for the sibling function.
+    """
+
+    def _fetch_side_effect(self, entity_id, start, end):
+        if entity_id == "sensor.real_solar":
+            return _flat_history(0.0, YESTERDAY_START, YESTERDAY_END)
+        if entity_id == "sensor.real_load":
+            return _flat_history(2.0, YESTERDAY_START, YESTERDAY_END)
+        if entity_id == "sensor.import_price":
+            return _price_history(YESTERDAY_START)
+        if entity_id == "sensor.export_price":
+            return _price_history(YESTERDAY_START, cheap=0.02, expensive=0.10)
+        return []
+
+    def test_24h_window_uses_5_minute_periods(self):
+        cfg = _cfg()
+        with (
+            patch.object(
+                solver_writer,
+                "fetch_entity_history_range",
+                side_effect=self._fetch_side_effect,
+            ),
+            patch.object(
+                solver_writer.elements,
+                "PeriodGrid",
+                wraps=solver_writer.elements.PeriodGrid,
+            ) as period_grid_spy,
+        ):
+            report = solver_writer.compute_efficiency_backtest_report(cfg, NOW)
+        self.assertIsNotNone(report)
+        period_grid_spy.assert_called_once()
+        hours_arr = period_grid_spy.call_args.kwargs["hours"]
+        self.assertEqual(len(hours_arr), 288)
+        self.assertAlmostEqual(float(hours_arr[0]), 5.0 / 60.0, places=6)
+
+
 class TestPublishEfficiencyBacktestReportIdempotency(unittest.TestCase):
     def _fetch_side_effect(self, entity_id, start, end):
         if entity_id == "sensor.real_solar":

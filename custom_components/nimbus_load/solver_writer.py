@@ -4924,8 +4924,16 @@ def compute_efficiency_backtest_report(cfg: dict, now: datetime) -> dict | None:
     )
     day_end = day_start + timedelta(days=1)
 
-    period_hours = 0.25
-    n_periods = 96
+    # nimbus issue #441 (Mark Purcell), same fix/reasoning as #438 --
+    # see _compute_report_for_window()'s own matching comment. This
+    # function always scores a fixed 24h "yesterday" window (window_hours
+    # is always exactly TIER1_HOURS by construction above), so this
+    # always resolves to TIER1_PERIOD_HOURS -- computed explicitly rather
+    # than hardcoding 5/60 directly, so this stays correct if the window
+    # this function scores is ever widened later.
+    window_hours = (day_end - day_start).total_seconds() / 3600.0
+    period_hours = TIER1_PERIOD_HOURS if window_hours <= TIER1_HOURS else 0.25
+    n_periods = round(window_hours / period_hours)
     grid_times = [
         day_start + timedelta(hours=i * period_hours) for i in range(n_periods)
     ]
