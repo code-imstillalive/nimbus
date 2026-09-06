@@ -397,6 +397,74 @@ class TestSocDiscrepancyStats(unittest.TestCase):
         self.assertIsNotNone(report)
         self.assertIsNone(report["soc_discrepancy_max_pct"])
         self.assertIsNone(report["soc_discrepancy_mean_pct"])
+        self.assertIsNone(report["soc_discrepancy_reliable"])
+
+    def test_in_range_divergence_is_reported_reliable(self):
+        """The already-existing real_soc_divergence test above never
+        leaves [0, 100] on either side (50%/flat vs 50-96%/real) -- adding
+        the reliability field must not disturb that already-correct,
+        genuinely-large (46pp) discrepancy report."""
+        cfg = _cfg(solver_battery_soc_sensor="sensor.real_soc")
+        with patch.object(
+            solver_writer,
+            "fetch_entity_history_range",
+            side_effect=self._fetch_side_effect,
+        ):
+            report = solver_writer.compute_daily_quality_report(cfg, NOW)
+        self.assertIsNotNone(report)
+        self.assertTrue(report["soc_discrepancy_reliable"])
+        self.assertAlmostEqual(report["soc_discrepancy_max_pct"], 46.0, places=2)
+
+
+class TestSocDiscrepancyOutOfRangeClampAndReliableFlag(unittest.TestCase):
+    """nimbus issue #445 (Mark Purcell): a live install with a battery-
+    power sensor whose real recorder history only covers the last few
+    hours of the scored 24h window (a newly-configured sensor, or an
+    outage) integrates a fabricated delta for every hour before that --
+    confirmed live, this produced a physically-impossible
+    soc_discrepancy_max_pct of 327.67%. Two independently-bounded
+    [0, 100] percentages can never legitimately disagree by more than
+    100 points, so _soc_discrepancy_stats() itself (unit-tested directly
+    here, not through the full pipeline -- precedent already established
+    elsewhere in this test suite for solver_writer's other private
+    functions) must both (a) clamp the reported gap to something
+    physically meaningful and (b) flag the out-of-range condition
+    explicitly rather than let a caller infer it from the magnitude
+    alone.
+    """
+
+    def test_ach_pct_above_100_is_clamped_and_flagged_unreliable(self):
+        # A real out-of-range achieved SoC (327% -- the exact live figure
+        # from the issue) against an in-range real reading (60%): the raw
+        # gap would be 267pp (impossible); clamped, it's exactly 40pp
+        # (327 clamped to 100, minus 60).
+        soc_hist = [(YESTERDAY_START, 60.0)]
+        j_ach_hourly = {YESTERDAY_START.isoformat(): {"soc_pct": 327.67}}
+        result = solver_writer._soc_discrepancy_stats(soc_hist, j_ach_hourly)
+        self.assertEqual(result["soc_discrepancy_max_pct"], 40.0)
+        self.assertFalse(result["soc_discrepancy_reliable"])
+
+    def test_ach_pct_below_zero_is_clamped_and_flagged_unreliable(self):
+        soc_hist = [(YESTERDAY_START, 20.0)]
+        j_ach_hourly = {YESTERDAY_START.isoformat(): {"soc_pct": -85.0}}
+        result = solver_writer._soc_discrepancy_stats(soc_hist, j_ach_hourly)
+        # -85 clamped to 0, minus the real 20 -> 20pp, never 105pp.
+        self.assertEqual(result["soc_discrepancy_max_pct"], 20.0)
+        self.assertFalse(result["soc_discrepancy_reliable"])
+
+    def test_result_never_exceeds_100_even_with_both_sides_out_of_range(self):
+        soc_hist = [(YESTERDAY_START, -40.0)]
+        j_ach_hourly = {YESTERDAY_START.isoformat(): {"soc_pct": 500.0}}
+        result = solver_writer._soc_discrepancy_stats(soc_hist, j_ach_hourly)
+        self.assertLessEqual(result["soc_discrepancy_max_pct"], 100.0)
+        self.assertFalse(result["soc_discrepancy_reliable"])
+
+    def test_all_in_range_values_stay_reliable_true(self):
+        soc_hist = [(YESTERDAY_START, 55.0)]
+        j_ach_hourly = {YESTERDAY_START.isoformat(): {"soc_pct": 50.0}}
+        result = solver_writer._soc_discrepancy_stats(soc_hist, j_ach_hourly)
+        self.assertEqual(result["soc_discrepancy_max_pct"], 5.0)
+        self.assertTrue(result["soc_discrepancy_reliable"])
 
 
 class TestSettlementHook(unittest.TestCase):
