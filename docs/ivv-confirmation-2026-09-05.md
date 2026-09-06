@@ -114,3 +114,7 @@ v0.94.119 carried the #374 fix (a load-forecast sensor whose `model_trained_at` 
 - The never-trained branch added in v0.94.119 was not exercised live (all three subentries already had models); its unit test is the evidence for that branch.
 
 Final status: #372 ✅ v0.94.116 · #373 ✅ v0.94.117 · #375 ✅ v0.94.118 · #374 ✅ v0.94.119. All verified on the live install. Nothing remains open from this report.
+
+## Follow-up — v0.94.125 (6 Sep, 10:21–10:26 AEST)
+
+v0.94.124 split `CLAUDE.md` into durable rules plus `docs/worklog/` (#364 finding 3) and shipped the dispatch and regret cards with the integration; v0.94.125 fixed a card label. Verified the split was verbatim (647 removed lines, all present in the worklog files, one intentional rewrite of the standing directive). Upgraded the install and restarted at 10:21: entry loaded, no frontend-registration errors, the 03:00 scheduled retrain had succeeded unattended overnight (1 666 / 1 666 / 1 654 points), forecasts populated at 10:24:31, first plan at 10:26 with 96 h coverage and a $90.79 band.
