@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.130] — 2026-09-06
+
+### Fixed
+- **A load forecast extrapolated above the configured grid-import cap for longer than the battery could cover made the WHOLE 96h plan `status: infeasible`.** Closes [#390](https://github.com/code-imstillalive/nimbus/issues/390) (Mark Purcell — a 40-minute real EV-charging transient extrapolated flat overnight left the Solver with no usable plan at all for 46 minutes, discarding every other, perfectly feasible period along with it). `grid_import[t]`'s hard upper bound had no slack; a new, heavily-penalized `grid_import_excess[t]` variable now lets the LP serve a genuine, unavoidable shortfall at a real cost instead of discarding the entire horizon — visible as a new `import_cap_breach_kwh` plan attribute, and exactly 0 on every normal solve. This fixes the Solver-side half of #390; the Forecaster-side half (capping the recursive lag input so a transient spike can't propagate as a flat plateau) is a separate, not-yet-attempted fix.
+- **`nimbus-dispatch-card-v4`'s landscape layout (v0.94.127+) fired correctly but still didn't fit some real desktop widths.** Closes [#400](https://github.com/code-imstillalive/nimbus/issues/400) (Mark Purcell). The right column's grid-track minimum (460px) and its actual content's real minimum (the forecast table, 640px) were two independently hardcoded numbers that had silently drifted apart — a card between ~900-1020px wide fired two columns with too little room for the table, showing an unwanted horizontal scroll. Both numbers now come from one shared `--ftable-min-width` CSS variable so they can't disagree again, and the breakpoint moved to 1020px (derived from the same real minimums) so two columns only ever appear once there's genuinely enough room for both.
+
 ## [0.94.129] — 2026-09-06
 
 ### Fixed
