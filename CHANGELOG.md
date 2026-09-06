@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.126] — 2026-09-06
+
+### Added
+- **`nimbus-dispatch-card-v4` now renders a landscape/multi-column layout at wide viewports.** Closes [#391](https://github.com/code-imstillalive/nimbus/issues/391) (Mark Purcell) — the card previously always rendered as one tall single column regardless of available width, requiring a lot of scrolling on a desktop Panel view. A `@media (min-width: 900px)` breakpoint now splits the header/hero-gauge/risk-sliders into a left column alongside the 96h timeline/forecast table in a right column; below that width the layout is unchanged.
+
 ## [0.94.125] — 2026-09-06
 
 ### Fixed
