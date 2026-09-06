@@ -102,6 +102,8 @@ constraints already were.
 
 from __future__ import annotations
 
+from datetime import date
+
 import numpy as np
 from numpy.typing import NDArray
 
@@ -187,6 +189,15 @@ def set_export_bonus_cost(
     caller like stochastic.py can scale each scenario's own bonus revenue
     by its real probability weight, exactly like every other cost term in
     that scenario already is."""
+    # mypy issue #384: every real call site only reaches this function
+    # after has_export_bonus(grid) is already True, but that's an
+    # external guard mypy can't see from in here -- asserting it directly
+    # narrows export_bonus_price AND catches a genuine caller mistake
+    # (calling this without checking has_export_bonus first) rather than
+    # crashing on a less obvious TypeError two lines down.
+    assert grid.export_bonus_price is not None, (
+        "set_export_bonus_cost() called without has_export_bonus(grid) being true"
+    )
     p.set_cost(export_bonus_var, -weight * float(grid.export_bonus_price[t]) * hours[t])
 
 
@@ -240,6 +251,13 @@ def add_export_bonus_cumulative_caps(
     """
     if not export_bonus_vars:
         return
+    # mypy issue #384: every real call site only reaches this function
+    # after has_export_bonus(grid) is already True -- same reasoning as
+    # set_export_bonus_cost()'s own identical assert above.
+    assert grid.export_bonus_volume_kwh is not None, (
+        "add_export_bonus_cumulative_caps() called without "
+        "has_export_bonus(grid) being true"
+    )
     starts = periods.period_starts
     if starts is None:
         ordered = sorted(export_bonus_vars)
@@ -253,7 +271,11 @@ def add_export_bonus_cumulative_caps(
             p.set_cost(export_bonus_vars[t], -TIE_BREAK_EPSILON * (rank + 1))
         return
 
-    by_day: dict[object, list[int]] = {}
+    # mypy issue #384: was dict[object, list[int]] -- `object` has no
+    # .isoformat(), but the real key type (from starts[t].date()) is
+    # datetime.date, which does. A real, precise annotation, not a
+    # suppression.
+    by_day: dict[date, list[int]] = {}
     for t in export_bonus_vars:
         by_day.setdefault(starts[t].date(), []).append(t)
 

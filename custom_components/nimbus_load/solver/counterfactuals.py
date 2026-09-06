@@ -153,4 +153,14 @@ def tune_two_threshold(
             cost = evaluate_fn(dispatch)
             if best is None or cost < best[3]:
                 best = (float(low), float(high), dispatch, cost)
+    if best is None:
+        # mypy issue #384: genuinely possible, not just stub noise -- a
+        # constant price_kwh (min == max) makes every candidate pair
+        # identical, so `high <= low` is true for every combination and
+        # the grid search never finds a single valid pair. Raising here
+        # (rather than returning None past this function's own declared
+        # non-Optional return type) is the same "represent honestly,
+        # don't paper over" convention the rest of this package follows.
+        msg = "tune_two_threshold: no valid (threshold_low, threshold_high) pair found -- price_kwh may be constant"
+        raise ValueError(msg)
     return best

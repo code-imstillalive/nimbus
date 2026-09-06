@@ -1130,6 +1130,10 @@ def build_plan(
     # grid_export[t]'s coefficient, so this is a plain new cost, not an
     # accumulation.
     if has_export_bonus:
+        # mypy issue #384: export_bonus is list[str] | None, set together
+        # with has_export_bonus at declaration -- mypy can't connect the
+        # two, so this asserts what's already structurally guaranteed.
+        assert export_bonus is not None
         for t in range(n):
             p2p_export.set_export_bonus_cost(p, export_bonus[t], t, grid, hours)
     if battery.terminal_value_breakpoints is not None:
@@ -1416,6 +1420,7 @@ def build_plan(
         # that never actually happened -- export_bonus[t] - grid_export[t]
         # <= 0.
         if has_export_bonus:
+            assert export_bonus is not None  # mypy issue #384, see above
             p2p_export.add_export_bonus_le_export_constraint(
                 p, export_bonus[t], grid_export[t]
             )
@@ -1550,6 +1555,7 @@ def build_plan(
     # timestamps, so a single conservative cap is the only honest option
     # in that case, not a silent behaviour change.
     if has_export_bonus:
+        assert export_bonus is not None  # mypy issue #384, see above
         # Per-real-calendar-day cumulative cap + latest-preferred
         # tie-breaker -- extracted to p2p_export.py (nimbus issue #355),
         # see that module's own add_export_bonus_cumulative_caps()
@@ -1572,7 +1578,13 @@ def build_plan(
     plan_sheddable = [
         SheddableLoadPlan(
             name=sl.name,
-            served_kw=sl.forecast_kw - _get(shed_vars[sl.name]),
+            # mypy issue #384: numpy's own stubs widen a float64 array
+            # arithmetic result to floating[Any] -- a real stub-precision
+            # gap, not a real bug (see this project's own CLAUDE.md GBRT-
+            # vs-k-NN finding for the general pattern); explicit dtype
+            # keeps the real, narrower float64 contract Plan/
+            # SheddableLoadPlan both declare.
+            served_kw=(sl.forecast_kw - _get(shed_vars[sl.name])).astype(np.float64),
             shed_kw=_get(shed_vars[sl.name]),
         )
         for sl in sheddable_loads
@@ -1593,6 +1605,15 @@ def build_plan(
 
     solar_used_arr = _get(solar_used)
     grid_import_excess_arr = _get(grid_import_excess)
+    # mypy issue #384: export_bonus is list[str] | None -- restructured
+    # out of the return statement's own inline ternary (which doesn't
+    # narrow) into an explicit if/else on a local, same fix pattern as
+    # the earlier has_export_bonus blocks above.
+    if has_export_bonus:
+        assert export_bonus is not None
+        export_bonus_arr = _get(export_bonus)
+    else:
+        export_bonus_arr = np.zeros(n)
     return Plan(
         status="optimal",
         periods=periods,
@@ -1600,11 +1621,13 @@ def build_plan(
         battery_discharge_kw=_get(discharge),
         battery_soc_kwh=_get(soc),
         # Total real draw -- see this field's own docstring on Plan.
-        grid_import_kw=_get(grid_import) + grid_import_excess_arr,
+        # astype(float64): same numpy-stub dtype-widening note as
+        # SheddableLoadPlan.served_kw above.
+        grid_import_kw=(_get(grid_import) + grid_import_excess_arr).astype(np.float64),
         grid_export_kw=_get(grid_export),
-        export_bonus_kw=_get(export_bonus) if has_export_bonus else np.zeros(n),
+        export_bonus_kw=export_bonus_arr,
         solar_used_kw=solar_used_arr,
-        solar_curtailed_kw=solar.forecast_kw - solar_used_arr,
+        solar_curtailed_kw=(solar.forecast_kw - solar_used_arr).astype(np.float64),
         sheddable_loads=plan_sheddable,
         adequacy_loads=plan_adequacy,
         total_cost=result.objective,

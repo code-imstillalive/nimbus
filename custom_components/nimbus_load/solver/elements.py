@@ -843,7 +843,11 @@ def _validate_confidence_band(
     if (lower_kw is None) != (upper_kw is None):
         msg = f"{label}: lower_kw and upper_kw must both be given, or neither (got one without the other)"
         raise ValueError(msg)
-    if lower_kw is None:
+    # mypy issue #384: the XOR check above already guarantees lower_kw
+    # and upper_kw are both None or both set, but mypy can't carry a
+    # cross-variable invariant like that forward -- checking upper_kw
+    # here too (redundant at runtime, real for mypy) narrows both.
+    if lower_kw is None or upper_kw is None:
         return
     n = len(forecast_kw)
     if len(lower_kw) != n or len(upper_kw) != n:

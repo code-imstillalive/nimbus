@@ -107,10 +107,20 @@ jobs:
         run: ruff check custom_components/ tests/ docs/real-world-integration/files/ --exclude research
 
   # ---------------------------------------------------------------------------
-  # ADVISORY: Type Check (mypy).
-  # 33 findings on current tree, mostly "Optional not handled" patterns in
-  # solver/network.py, ml/model.py, and ml/gbrt.py. Real work, tracked as
-  # part of #40 (Platinum quality-scale strict-typing).
+  # ADVISORY: Type Check (mypy), whole-package.
+  # Findings on the current tree, mostly "Optional not handled" patterns
+  # against homeassistant.* type-stub ambiguity outside solver/+ml/. Real
+  # work, tracked as part of #40 (Platinum quality-scale strict-typing).
+  #
+  # STRICT: Type Check (mypy), solver/+ml/ only (#384, split out of #358
+  # per Mark Purcell's own suggestion). solver/ and ml/ are pure numpy,
+  # zero HA imports -- no type-stub ambiguity, unlike the rest of the
+  # integration. `--follow-imports=silent` is required to correctly scope
+  # this: a bare directory path otherwise pulls the whole nimbus_load
+  # package in via __init__.py's own imports, which is what produced the
+  # misleadingly large finding count in earlier whole-package passes.
+  # Zero errors, no baseline file -- the correctly-scoped count was small
+  # and real (63 findings, 2026-09-05), not noise requiring one.
   # ---------------------------------------------------------------------------
 
   typecheck:
@@ -125,8 +135,25 @@ jobs:
           python-version: "3.14"
       - name: Install mypy
         run: pip install mypy numpy
-      - name: Run mypy (advisory)
+      - name: Run mypy (advisory, whole package)
         run: mypy custom_components/nimbus_load --ignore-missing-imports || true
+
+  typecheck-solver-ml:
+    name: Type Check (mypy, solver+ml)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+      - name: Set up Python
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.14"
+      - name: Install mypy
+        run: pip install mypy numpy
+      - name: Run mypy (strict, solver/ + ml/ only)
+        run: |
+          mypy custom_components/nimbus_load/solver custom_components/nimbus_load/ml \
+            --ignore-missing-imports --follow-imports=silent
 
   # ---------------------------------------------------------------------------
   # STRICT: Unit Tests (pytest).

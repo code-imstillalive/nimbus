@@ -884,12 +884,24 @@ def train_model(
         # the row is manufactured, not observed.
         if not load_observed[i]:
             continue
-        tv = temp_vals[i] if temp_vals[i] is not None else 22.0
-        hv = humidity_vals[i] if humidity_vals[i] is not None else 50.0
-        cv = curtailment_vals[i] if curtailment_vals[i] is not None else 0.0
-        bv = battery_vals[i] if battery_vals[i] is not None else 0.0
-        gv = grid_vals[i] if grid_vals[i] is not None else 0.0
-        sv = solar_vals[i] if solar_vals[i] is not None else 0.0
+        # mypy issue #384: narrowing a repeated subscript expression
+        # (`temp_vals[i]`) doesn't work -- mypy can't assume two accesses
+        # return the same value, so `temp_vals[i] if temp_vals[i] is not
+        # None else ...` still infers `float | None` for the true branch.
+        # Assigning the raw subscript to a local first makes the ternary
+        # narrow correctly.
+        _tv_raw = temp_vals[i]
+        _hv_raw = humidity_vals[i]
+        _cv_raw = curtailment_vals[i]
+        _bv_raw = battery_vals[i]
+        _gv_raw = grid_vals[i]
+        _sv_raw = solar_vals[i]
+        tv = _tv_raw if _tv_raw is not None else 22.0
+        hv = _hv_raw if _hv_raw is not None else 50.0
+        cv = _cv_raw if _cv_raw is not None else 0.0
+        bv = _bv_raw if _bv_raw is not None else 0.0
+        gv = _gv_raw if _gv_raw is not None else 0.0
+        sv = _sv_raw if _sv_raw is not None else 0.0
         x_rows.append(
             build_features(
                 grid[i],
@@ -1076,12 +1088,21 @@ def train_model(
             default_lag_val = float(np.mean(y_tr)) if len(y_tr) else 0.0
 
             def _knn_predict_at(i: int, lag_short_v: float, lag_long_v: float) -> float:
-                tv = temp_vals[i] if temp_vals[i] is not None else 22.0
-                hv = humidity_vals[i] if humidity_vals[i] is not None else 50.0
-                cv = curtailment_vals[i] if curtailment_vals[i] is not None else 0.0
-                bv = battery_vals[i] if battery_vals[i] is not None else 0.0
-                gv = grid_vals[i] if grid_vals[i] is not None else 0.0
-                sv = solar_vals[i] if solar_vals[i] is not None else 0.0
+                # mypy issue #384: see the identical local-var-first note
+                # on the training-row construction above -- narrowing a
+                # repeated subscript expression doesn't work in mypy.
+                _tv_raw = temp_vals[i]
+                _hv_raw = humidity_vals[i]
+                _cv_raw = curtailment_vals[i]
+                _bv_raw = battery_vals[i]
+                _gv_raw = grid_vals[i]
+                _sv_raw = solar_vals[i]
+                tv = _tv_raw if _tv_raw is not None else 22.0
+                hv = _hv_raw if _hv_raw is not None else 50.0
+                cv = _cv_raw if _cv_raw is not None else 0.0
+                bv = _bv_raw if _bv_raw is not None else 0.0
+                gv = _gv_raw if _gv_raw is not None else 0.0
+                sv = _sv_raw if _sv_raw is not None else 0.0
                 row = np.array(
                     [
                         build_features(
@@ -1105,12 +1126,21 @@ def train_model(
             def _gbrt_predict_at(
                 i: int, lag_short_v: float, lag_long_v: float
             ) -> float:
-                tv = temp_vals[i] if temp_vals[i] is not None else 22.0
-                hv = humidity_vals[i] if humidity_vals[i] is not None else 50.0
-                cv = curtailment_vals[i] if curtailment_vals[i] is not None else 0.0
-                bv = battery_vals[i] if battery_vals[i] is not None else 0.0
-                gv = grid_vals[i] if grid_vals[i] is not None else 0.0
-                sv = solar_vals[i] if solar_vals[i] is not None else 0.0
+                # mypy issue #384: see the identical local-var-first note
+                # on the training-row construction above -- narrowing a
+                # repeated subscript expression doesn't work in mypy.
+                _tv_raw = temp_vals[i]
+                _hv_raw = humidity_vals[i]
+                _cv_raw = curtailment_vals[i]
+                _bv_raw = battery_vals[i]
+                _gv_raw = grid_vals[i]
+                _sv_raw = solar_vals[i]
+                tv = _tv_raw if _tv_raw is not None else 22.0
+                hv = _hv_raw if _hv_raw is not None else 50.0
+                cv = _cv_raw if _cv_raw is not None else 0.0
+                bv = _bv_raw if _bv_raw is not None else 0.0
+                gv = _gv_raw if _gv_raw is not None else 0.0
+                sv = _sv_raw if _sv_raw is not None else 0.0
                 row = np.array(
                     [
                         build_features(
@@ -1159,7 +1189,11 @@ def train_model(
                     recursive_mae[name] = mae_val
 
         if len(recursive_mae) == len(candidate_mae):
-            model_type = min(recursive_mae, key=recursive_mae.get)
+            # mypy issue #384: dict.get (no default) types as
+            # Callable[[K], V | None], which min()'s key= can't accept --
+            # __getitem__ never returns None (KeyError instead), and is
+            # always safe here since we're iterating the dict's own keys.
+            model_type = min(recursive_mae, key=recursive_mae.__getitem__)
             _LOGGER.info(
                 "Model validation (recursive, %d origins x %d steps): "
                 "knn_mae=%.4f gbrt_mae=%.4f naive_mae=%.4f -> using %s",
@@ -1171,7 +1205,7 @@ def train_model(
                 model_type,
             )
         else:
-            model_type = min(candidate_mae, key=candidate_mae.get)
+            model_type = min(candidate_mae, key=candidate_mae.__getitem__)
             _LOGGER.info(
                 "Too few origins for recursive validation -- falling back "
                 "to one-step selection -> using %s",
@@ -1187,7 +1221,14 @@ def train_model(
         # meant to characterise the load's own inherent week-to-week
         # variability, not this particular validation split.
         mase_diffs: list[float] = []
-        for idx, y_true in zip(grid_idx_tr.tolist(), y_tr.tolist(), strict=True):
+        # mypy issue #384: ndarray.tolist()'s stub return type is a
+        # recursive union covering every possible array rank, since numpy
+        # can't know statically these are 1-D -- iterating the arrays
+        # directly (same pattern already used for grid_idx_val above)
+        # and casting each element explicitly avoids that ambiguity.
+        for idx_raw, y_true_raw in zip(grid_idx_tr, y_tr, strict=True):
+            idx = int(idx_raw)
+            y_true = float(y_true_raw)
             week_ago_idx = idx - week_steps
             week_val = load_vals[week_ago_idx] if week_ago_idx >= 0 else None
             if week_val is not None:
@@ -1585,8 +1626,10 @@ def predict(
         # self-generated (past real_data_cutoff_utc) -- see this
         # function's own clamp-bound comment above for the full
         # reasoning. A real observed value is never touched.
-        if _lag_clamp_floor is not None and (
-            real_data_cutoff_utc is None or target_utc > real_data_cutoff_utc
+        if (
+            _lag_clamp_floor is not None
+            and _lag_clamp_ceiling is not None
+            and (real_data_cutoff_utc is None or target_utc > real_data_cutoff_utc)
         ):
             v = min(max(v, _lag_clamp_floor), _lag_clamp_ceiling)
         return v
@@ -1689,8 +1732,11 @@ def predict(
             # philosophy as the validation-time naive baseline above.
             seasonal_v = seasonal_at(ts)
             pred = seasonal_v if seasonal_v is not None else lag_long_v
-        elif trained.model_type == "gbrt" and trained.gbrt is not None:
-            pred = float(trained.gbrt.predict(x_row_std)[0])
+        elif trained.model_type == "gbrt" and (_gbrt := trained.gbrt) is not None:
+            # mypy issue #384: narrowing `trained.gbrt is not None` doesn't
+            # carry through to a later `trained.gbrt.predict(...)` access --
+            # the walrus binds a local mypy CAN narrow.
+            pred = float(_gbrt.predict(x_row_std)[0])
         else:
             pred = float(
                 _knn_predict_batch(
@@ -1728,10 +1774,19 @@ def predict(
         buffer_times_utc.append(_dst_safe_key(ts))
         buffer_vals.append(pred)
 
-    if has_quantile_models and x_rows_std:
+    if (
+        has_quantile_models
+        and x_rows_std
+        and (_gbrt_lower := trained.gbrt_lower) is not None
+        and (_gbrt_upper := trained.gbrt_upper) is not None
+    ):
+        # mypy issue #384: has_quantile_models (a plain bool computed
+        # earlier from the same None-checks) doesn't carry narrowing
+        # information forward to trained.gbrt_lower/gbrt_upper here --
+        # re-narrowing via the walrus operator is what mypy can track.
         x_all_std = np.vstack(x_rows_std)
-        lower_raw_arr = trained.gbrt_lower.predict(x_all_std)
-        upper_raw_arr = trained.gbrt_upper.predict(x_all_std)
+        lower_raw_arr = _gbrt_lower.predict(x_all_std)
+        upper_raw_arr = _gbrt_upper.predict(x_all_std)
         # A quantile GBRT has no ordering constraint between separately
         # fit lower/upper models -- clamp to a real non-negative band
         # around the point estimate rather than trust the raw pair.
