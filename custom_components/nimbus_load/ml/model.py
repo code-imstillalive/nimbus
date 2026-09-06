@@ -1511,6 +1511,47 @@ def predict(
     # seasonal_lookup's own docstring for why this matters.
     real_data_cutoff_utc = buffer_times_utc[-1] if buffer_times_utc else None
 
+    # nimbus issue #390 (Mark Purcell), Forecaster-side half: a real
+    # transient (his own case, a 43kW EV-charging spike) that legitimately
+    # dominates the first few real-data-informed lag lookups can then get
+    # PERPETUATED indefinitely once recursion crosses real_data_cutoff_utc
+    # and starts feeding purely its own prior predictions back in as lag
+    # input -- confirmed live: the load forecast rose to track the real
+    # spike (13.9 -> 33.3 -> 39.3kW, correct so far) and then HELD at
+    # ~39-40kW for 26 minutes straight instead of ever reverting, because
+    # nothing in the self-referential buffer_vals feedback loop pulls a
+    # runaway value back toward what this signal has ever actually done.
+    # This is the same class of exposure-bias bug already fixed once
+    # (CLAUDE.md bug #3, seasonal_lookup anchoring) -- but that fix only
+    # covers seasonal-anchored subentries (Power Signals, plus one
+    # hardcoded whole-house sensor name), leaving every plain per-circuit
+    # Load subentry (Mark's own `sensor.nimbus_sigen_plant_total_load_
+    # power_forecast` among them) fully exposed to unbounded recursive
+    # drift with no seasonal fallback at all.
+    #
+    # Fix: clamp a lag lookup to this signal's own real observed range
+    # (+/- a 20% margin) -- the EXACT SAME bound coordinator.py's own
+    # confidence-band clamp already uses (bug #5, 2026-08-15) -- but ONLY
+    # once the lookup target is past real_data_cutoff_utc, i.e. only for
+    # values this recursion generated itself. A genuine real reading
+    # (even a genuine extreme like a real 43kW spike) is never touched --
+    # the model should still legitimately track a real spike for as long
+    # as real data actually informs it; the bug is purely in what happens
+    # once nothing but the model's own prior guess is left to lean on.
+    if len(trained.y_train):
+        _lag_y_min = float(np.min(trained.y_train))
+        _lag_y_max = float(np.max(trained.y_train))
+        _lag_margin = (
+            (_lag_y_max - _lag_y_min) * 0.2
+            if _lag_y_max > _lag_y_min + 1e-9
+            else max(abs(_lag_y_max), 1.0) * 0.2
+        )
+        _lag_clamp_floor = _lag_y_min - _lag_margin
+        _lag_clamp_ceiling = _lag_y_max + _lag_margin
+    else:
+        _lag_clamp_floor = None
+        _lag_clamp_ceiling = None
+
     def lag_at(target: datetime) -> float:
         target_utc = _dst_safe_key(target)
         if seasonal_anchor and (
@@ -1539,7 +1580,16 @@ def predict(
             # worse approximation than "whatever the chain currently
             # believes" for a single missing bucket.
         idx = bisect_right(buffer_times_utc, target_utc) - 1
-        return buffer_vals[idx] if idx >= 0 else default_lag
+        v = buffer_vals[idx] if idx >= 0 else default_lag
+        # nimbus issue #390: only clamp a lookup that's necessarily
+        # self-generated (past real_data_cutoff_utc) -- see this
+        # function's own clamp-bound comment above for the full
+        # reasoning. A real observed value is never touched.
+        if _lag_clamp_floor is not None and (
+            real_data_cutoff_utc is None or target_utc > real_data_cutoff_utc
+        ):
+            v = min(max(v, _lag_clamp_floor), _lag_clamp_ceiling)
+        return v
 
     def seasonal_at(ts: datetime) -> float | None:
         """Same table, but keyed at TS ITSELF -- not lag-shifted like
