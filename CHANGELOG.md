@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.131] — 2026-09-06
+
+### Fixed
+- **`nimbus-dispatch-card-v4` hardcoded battery power as positive = discharging, mislabeling every charging period as DISCHARGING (and mirroring the timeline's "Actual" history line) on a positive-is-charge install.** Closes [#388](https://github.com/code-imstillalive/nimbus/issues/388) (Mark Purcell — a real SigEnergy install using `solver_battery_power_positive_is_charge = true`). The card now auto-detects the sign from that same Solver flag on `sensor.nimbus_solver_config`, so it agrees with the plan it overlays by construction — no config or template-sensor workaround needed. An explicit `battery_power_positive_is_charge` card-config override is also available for the rare case that sensor is unavailable.
+
 ## [0.94.130] — 2026-09-06
 
 ### Fixed
