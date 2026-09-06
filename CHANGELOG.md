@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.136] — 2026-09-06
+
+### Fixed
+- **`nimbus-dispatch-card-v4`'s forecast table showed a genuinely different battery reading on its own "now" row than the status heading above it — different direction and different magnitude for the same instant.** Closes [#421](https://github.com/code-imstillalive/nimbus/issues/421) (Mark Purcell — heading showed "CHARGING (SOLAR)" / -7.0kW while the table's now row showed +1.7kW discharging). The table's BATT column always read the Solver's own *planned* battery power, even for the current period, while the heading reads the real, live, sign-corrected measured reading. The GRID column already preferred real data on the now row for exactly this reason; the BATT column now gets the identical treatment. Every other (future) row is unchanged — still the Solver's own plan, as intended.
+
 ## [0.94.135] — 2026-09-06
 
 ### Fixed
