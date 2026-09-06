@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.127] — 2026-09-06
+
+### Fixed
+- **`nimbus-dispatch-card-v4`'s v0.94.126 landscape layout regressed back to single-column for Mark Purcell after appearing to work.** Root cause: `@media (min-width: 900px)` measures the browser viewport, not the card's own rendered width — behind HA's sidebar/dashboard chrome the card's actual available space can be well under the viewport even on a wide screen, so the media query could silently never fire. Switched to a CSS container query (`container-type: inline-size` + `@container`), which measures the card's own rendered width directly.
+
 ## [0.94.126] — 2026-09-06
 
 ### Added
