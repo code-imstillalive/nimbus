@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.132] — 2026-09-06
+
+### Fixed
+- **`nimbus-dispatch-card-v4`'s `.card` had no overflow containment, so a wrongly-sized descendant could visually bleed past the card's own rounded border into the surrounding dashboard instead of degrading to a scrollbar.** Follow-up to [#400](https://github.com/code-imstillalive/nimbus/issues/400) — a screenshot showed the forecast table stopping hard at the card's right edge with no visible scrollbar. `overflow-x: hidden` on `.card` is a defensive backstop (not a claimed root-cause fix — still being confirmed against Mark's real Sections-view dashboard layout, which uses `column_span`/`grid_options` semantics this card's container query was never validated against).
+
 ## [0.94.131] — 2026-09-06
 
 ### Fixed
