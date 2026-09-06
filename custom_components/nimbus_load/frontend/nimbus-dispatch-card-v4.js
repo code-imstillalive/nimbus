@@ -217,7 +217,17 @@ class NimbusDispatchCardV4 extends HTMLElement {
       if (realBatt > 0.05) {
         dir = 'DISCHARGING' + (evActive ? ' + EV CHARGING' : ''); dirColor = '#3ddc84';
       } else if (realBatt < -0.05) {
-        const fromGrid = realGrid > 0.05;
+        // Real bug, 2026-09-06 (household live report): a flat 0.05kW
+        // grid threshold correctly detects genuine nighttime grid-charge
+        // (solar=0) but mislabels a high-solar day's own measurement
+        // noise/rounding as "CHARGING (GRID)" -- confirmed live: 8.7kW
+        // solar, 4.7kW charging, 0.2kW grid (>0.05 threshold) labeled
+        // GRID when NUC1's own card correctly showed SOLAR for the
+        // identical real, mirrored sensors. Grid must now also be a real
+        // fraction of whatever solar is producing, not just above the
+        // absolute noise floor -- at solar=0 this reduces to the exact
+        // same nighttime behaviour as before (realSolarKw*0.05 = 0).
+        const fromGrid = realGrid > 0.05 && realGrid > realSolarKw * 0.05;
         dir = (fromGrid ? 'CHARGING (GRID)' : 'CHARGING (SOLAR)') + (evActive ? ' + EV' : '');
         dirColor = fromGrid ? '#4fa3ff' : '#ffb340';
       } else if (evActive) {
