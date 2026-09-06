@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.133] — 2026-09-06
+
+### Fixed
+- **A real transient the recursive load forecaster correctly tracked could then get perpetuated indefinitely instead of ever reverting.** Closes the Forecaster-side half of [#390](https://github.com/code-imstillalive/nimbus/issues/390) (Mark Purcell — a real ~43kW EV-charging spike held the forecast at ~39-40kW for 26 minutes straight). `lag_at()` now clamps a lag lookup to the signal's own real observed range (the same bound the confidence-band clamp already uses) once the lookup is necessarily self-generated (past real recent history) — a genuine real reading, even a genuine extreme, is never touched. Together with the Solver-side fix in v0.94.130, this fully closes #390.
+
 ## [0.94.132] — 2026-09-06
 
 ### Fixed
