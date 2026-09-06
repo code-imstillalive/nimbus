@@ -582,6 +582,19 @@ class NimbusDispatchCardV4 extends HTMLElement {
     // Solver's own forecast-derived figure, since nothing measured exists
     // for a future period.
     const realGridNow = this._num(this._gridEntity, NaN);
+    // nimbus issue #421 (Mark Purcell): the identical real-data-on-the-
+    // NOW-row treatment above was never applied to the BATT column --
+    // it always showed the Solver's own PLANNED battery_kw, even for
+    // the current period, while the big status heading above (and the
+    // reasoning text) show the REAL measured, sign-corrected reading.
+    // With dispatch disarmed, the plan is a genuine hypothetical that
+    // can legitimately disagree with reality in both direction and
+    // magnitude -- confirmed live: heading showed "CHARGING (SOLAR)"/
+    // -7.0kW while this same row's own BATT cell showed +1.7kW
+    // (discharging, by this card's own sign convention) for the exact
+    // same instant. Same fix as realGridNow: prefer the real, sign-
+    // corrected measured value on the now row only.
+    const realBattNow = this._num(this._battEntity, NaN) * this._battSign();
     for (let idx = 0; idx < fc.length && !ftDone; idx++) {
       const p = fc[idx];
       const pDate = ftDateKey(p.time);
@@ -611,7 +624,8 @@ class NimbusDispatchCardV4 extends HTMLElement {
       const bonusRaw = parseFloat(p.bonus_price) || 0;
       const p2pActive = bonusRaw > 0.01;
       const p2pFullC = p2pActive ? spotC + bonusRaw * 100 : 0;
-      const bkwRow = parseFloat(p.battery_kw) || 0;
+      let bkwRow = parseFloat(p.battery_kw) || 0;
+      if (idx === 0 && !isNaN(realBattNow)) bkwRow = realBattNow;
       const battColor = bkwRow > 0.05 ? '#3ddc84' : (bkwRow < -0.05 ? '#4fa3ff' : '#5a6070');
       const bonusKwActive = (parseFloat(p.export_bonus_kw) || 0) > 0;
       const net = parseFloat(p.net_cost) || 0;
