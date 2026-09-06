@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.139] — 2026-09-06
+
+### Fixed
+- **Quality report's achieved-trajectory reconstruction could get thrown off by a single brief, real telemetry spike landing exactly at a 15-minute grid boundary.** Closes [#428](https://github.com/code-imstillalive/nimbus/issues/428) (Mark Purcell — traced a real +20.939kW battery spike at exactly 04:00:00 against a real hourly mean of -2.66kW to the dominant regret hour, 04:00, disagreeing on grid direction with the real meter). `compute_daily_quality_report()`'s solar/load/battery reconstruction now averages every real recorder sample inside each 15-minute period (`resample_history_mean()`) instead of picking a single nearest-at-or-before instant, so a brief unrepresentative spike no longer gets treated as the whole period's value. Falls back to the previous nearest-at-or-before pick when a period has zero real samples. Scoped to the three power-flow signals only — SoC and price still use sample-and-hold, the physically correct model for real state values.
+
 ## [0.94.138] — 2026-09-06
 
 ### Added
