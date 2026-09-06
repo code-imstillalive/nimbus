@@ -374,6 +374,10 @@ class Plan:
     battery_charge_kw: NDArray[np.float64]
     battery_discharge_kw: NDArray[np.float64]
     battery_soc_kwh: NDArray[np.float64]
+    # nimbus issue #390: the TOTAL real draw (the within-cap portion plus
+    # whatever grid_import_excess_kw below had to cover) -- a caller reading
+    # this field alone still sees the real, physically-accurate import
+    # number even without knowing the excess mechanism exists at all.
     grid_import_kw: NDArray[np.float64]
     grid_export_kw: NDArray[np.float64]
     # How much of grid_export_kw[t] earned the two-tier export bonus (see
@@ -406,10 +410,32 @@ class Plan:
     # genuine "infeasible"/"unbounded" outcomes, which already have their
     # own unambiguous meaning and don't need a raw string to explain them.
     raw_status: str | None = None
+    # nimbus issue #390: how much of grid_import_kw above came from the
+    # penalized excess-import slack, i.e. real draw the configured
+    # `import_limit_kw` couldn't cover on its own. Zero at every period on
+    # any normal solve -- a nonzero value here is itself the health signal:
+    # the LP had to blow the configured cap for real to keep the plan
+    # feasible at all, worth surfacing on a dashboard even when the plan
+    # still came back optimal overall. Defaulted (unlike the arrays above)
+    # so the handful of tests constructing a Plan directly don't all need
+    # updating for a field that's purely diagnostic.
+    grid_import_excess_kw: NDArray[np.float64] = field(
+        default_factory=lambda: np.zeros(0)
+    )
 
     @property
     def is_optimal(self) -> bool:
         return self.status == "optimal"
+
+    @property
+    def import_cap_breach_kwh(self) -> float:
+        """Total real energy this plan drew above `import_limit_kw`, summed
+        across the whole horizon. 0.0 whenever grid_import_excess_kw is
+        empty (a Plan built before this field existed) or all-zero (the
+        normal case)."""
+        if self.grid_import_excess_kw.size == 0:
+            return 0.0
+        return float(np.sum(self.grid_import_excess_kw * self.periods.hours))
 
 
 def _align_previous_periods(
@@ -666,6 +692,7 @@ def _infeasible_plan(
         duals={},
         reduced_costs={},
         raw_status=raw_status,
+        grid_import_excess_kw=np.zeros(n),
     )
 
 
@@ -904,6 +931,30 @@ def build_plan(
         p.add_variable(f"grid_import_{t}", lb=0.0, ub=grid.import_limit_kw)
         for t in range(n)
     ]
+    # nimbus issue #390 (Mark Purcell): grid_import[t]'s hard ub above has no
+    # slack -- a load the forecaster extrapolated above `import_limit_kw +
+    # max_discharge_kw + solar_kw` for longer than the battery's own energy
+    # can cover makes the WHOLE horizon infeasible, discarding every other,
+    # perfectly feasible period along with it. Confirmed live: a 40-minute
+    # EV-charging transient extrapolated flat overnight by the recursive
+    # load forecaster (a separate, real forecaster bug, tracked and fixed
+    # independently) needed ~90 kWh of battery support the pack didn't have
+    # -- 46 minutes with no usable plan at all, including every solve cycle
+    # for the next few genuinely-feasible hours.
+    #
+    # `grid_import_excess[t]` is a real, unbounded release valve: energy the
+    # LP can draw above the configured cap, at a real cost (its own price
+    # below, set once `effective_import_price` exists) plus a heavy penalty
+    # -- so a genuine, unavoidable spike costs a lot and shows up as a real
+    # number (`Plan.import_cap_breach_kwh`) rather than discarding the whole
+    # plan. The LP will only ever reach for this when `grid_import[t]` is
+    # already pinned at its own ub AND the battery/solar combination can't
+    # cover the rest -- during any normal period it stays at 0 for free,
+    # since using it always costs strictly more than staying within the
+    # configured cap.
+    grid_import_excess = [
+        p.add_variable(f"grid_import_excess_{t}", lb=0.0) for t in range(n)
+    ]
     # fixed_export_kw (see elements.py's own GridConfig docstring for the
     # full "P2P needs a constant, pre-committed rate, not a price-chased
     # one" finding) -- a period with a real (non-NaN) fixed value gets
@@ -1041,8 +1092,24 @@ def build_plan(
     # own docstring), so this simply layers on top of whatever TOU-
     # driven charge_cost/discharge_cost already priced -- 0.0 (the
     # default) is a genuine no-op, adds nothing to either cost.
+    # nimbus issue #390: grid_import_excess[t]'s own penalty rate -- 10x the
+    # single highest import price anywhere in this horizon, with a $5/kWh
+    # floor for the degenerate case of an all-zero/near-zero price array (a
+    # synthetic test grid, or a genuine data gap) where 10x a near-zero
+    # price would be too cheap to actually deter reaching for this before
+    # exhausting every real, cheaper option first.
+    import_excess_penalty_rate = max(10.0 * float(np.max(effective_import_price)), 5.0)
     for t in range(n):
         p.set_cost(grid_import[t], effective_import_price[t] * hours[t])
+        # Real energy at the real import price, PLUS the deterrent penalty
+        # -- this is still genuinely-consumed grid energy, not a free
+        # accounting fiction, so it keeps paying the real per-kWh rate on
+        # top of what makes the LP avoid it whenever any cheaper option
+        # (battery, a smaller shed, waiting) exists instead.
+        p.set_cost(
+            grid_import_excess[t],
+            (effective_import_price[t] + import_excess_penalty_rate) * hours[t],
+        )
         p.set_cost(grid_export[t], -effective_export_price[t] * hours[t])
         p.set_cost(
             charge[t],
@@ -1242,6 +1309,7 @@ def build_plan(
             solar_used[t]: 1.0,
             discharge[t]: 1.0,
             grid_import[t]: 1.0,
+            grid_import_excess[t]: 1.0,
             charge[t]: -1.0,
             grid_export[t]: -1.0,
         }
@@ -1524,13 +1592,15 @@ def build_plan(
     ]
 
     solar_used_arr = _get(solar_used)
+    grid_import_excess_arr = _get(grid_import_excess)
     return Plan(
         status="optimal",
         periods=periods,
         battery_charge_kw=_get(charge),
         battery_discharge_kw=_get(discharge),
         battery_soc_kwh=_get(soc),
-        grid_import_kw=_get(grid_import),
+        # Total real draw -- see this field's own docstring on Plan.
+        grid_import_kw=_get(grid_import) + grid_import_excess_arr,
         grid_export_kw=_get(grid_export),
         export_bonus_kw=_get(export_bonus) if has_export_bonus else np.zeros(n),
         solar_used_kw=solar_used_arr,
@@ -1541,4 +1611,5 @@ def build_plan(
         iterations=result.iterations,
         duals=result.duals,
         reduced_costs=result.reduced_costs,
+        grid_import_excess_kw=grid_import_excess_arr,
     )
