@@ -87,6 +87,10 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         "unregister_entity_handler",
         "ha_call_service_with_response",
         "compute_daily_quality_report",
+        # nimbus issue #427: a private helper called only by
+        # compute_daily_quality_report itself (already listed above) --
+        # same native-only reasoning applies, not a separate gap.
+        "_soc_discrepancy_stats",
         "compute_efficiency_backtest_report",
         "compute_nimbus_only_soc_counterfactual",
         "publish_daily_quality_report",
