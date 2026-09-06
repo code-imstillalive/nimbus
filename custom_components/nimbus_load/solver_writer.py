@@ -5857,6 +5857,619 @@ def _compute_flow_economics(
     return results
 
 
+def publish_plan(
+    *,
+    cfg,
+    now,
+    plan,
+    previous_plan,
+    solve_started,
+    period_hours_arr,
+    grid_times,
+    n_periods,
+    capacity_kwh,
+    charge_discharge_efficiency,
+    grid,
+    import_limit_kw,
+    export_limit_kw,
+    max_charge_kw,
+    max_discharge_kw,
+    charge_cost,
+    discharge_cost_arr,
+    salvage_value,
+    risk_aversion,
+    import_price_risk_aversion,
+    export_price_risk_aversion,
+    import_price,
+    export_price,
+    spot_import_source,
+    spot_export_source,
+    export_bonus_price,
+    load_kw,
+    solar_kw,
+    load_lower_kw,
+    load_upper_kw,
+    initial_soc_kwh,
+    match_fraction,
+    summed_18_now_kw,
+    whole_house_now_kw,
+    live_load_kw,
+    load_forecast_coverage_hours,
+    load_forecast_error,
+    load_forecast_source_used,
+    load_forecast_warnings,
+    failed_load_entities,
+    n_clamped,
+    solar_delivery,
+    p2p_recent_volume_kwh,
+) -> None:
+    """Extracted from main() (nimbus issue #363 step 2, Mark Purcell's
+    own approved staged-extraction plan -- "please go ahead with step 2,
+    publish_plan() extraction, per your own outermost-first ordering").
+    Pure move, zero behavior change -- guarded by the #363 step-1
+    golden-output test (tests/test_main_golden_output_guardrail.py),
+    which asserts byte-identical published output for a real solve.
+
+    Takes the already-solved `plan` (network.build_plan()'s own return
+    value) plus every real input the LP itself was fed, computes every
+    derived/diagnostic value (cost breakdown, cost band, binding
+    constraint, per-period flow decomposition, etc.), and publishes
+    both sensor.nimbus_household_load_total_forecast and this
+    project's own flagship sensor.nimbus_solver_battery_forecast.
+    """
+    solve_seconds = time.monotonic() - solve_started
+    if plan.status == "optimal":
+        save_plan_state(plan, period_hours_arr, grid_times[0])
+    elif plan.status == "error":
+        # nimbus issue #356 (Mark Purcell): this is genuinely NOT the same
+        # thing as a real infeasible model -- HiGHS gave up/hit a limit
+        # without ever determining feasibility either way (see network.py's
+        # own Plan.raw_status docstring). Named explicitly here so an
+        # operator sees "the solver failed, here's HiGHS's own reason"
+        # rather than being sent hunting for a modeling/config problem that
+        # doesn't exist.
+        _LOGGER.warning(
+            "Nimbus: solve did not complete -- HiGHS solver failure (%s), "
+            "not a genuinely infeasible model",
+            plan.raw_status or "unknown reason",
+        )
+
+    # Real fixed daily charges (Network Access + LV Fee), reported
+    # honestly alongside the LP's own total_cost -- NOT fed into the LP
+    # itself (a flat, dispatch-independent cost can't change an optimal
+    # LP decision, only shift the objective by a constant, so there's
+    # nothing for the solver to do with it). Prorated to this horizon's
+    # own real span (sum of period_hours_arr, NOT n_periods*a-fixed-width
+    # -- the tiered grid has two different period widths) / 24, not just
+    # added flat.
+    #
+    # nimbus issue #348 (Mark Purcell, fixed 2026-09-04): a real wizard
+    # field now (number.nimbus_solver_fixed_daily_charge), not a module
+    # constant applied to every install regardless of their own real
+    # retailer's actual daily supply charge. 1.95 as the literal default
+    # matches const.py's own DEFAULT_SOLVER_FIXED_DAILY_CHARGE -- byte-
+    # identical behaviour for every existing install until this field is
+    # explicitly changed.
+    horizon_days = sum(period_hours_arr) / 24.0
+    fixed_daily_charge = _cfg_num(cfg, "solver_fixed_daily_charge", 1.95)
+    total_cost_with_fixed_costs = (
+        plan.total_cost or 0.0
+    ) + horizon_days * fixed_daily_charge
+
+    # Real battery throughput/cycling exposure (2026-08-21, direct Mark
+    # Purcell finding, relayed via the household: "degradation isn't in
+    # the objective, so 1.0 will look free when it isn't" -- risk_aversion/
+    # price_risk_aversion both tend to bias toward MORE defensive
+    # charge/discharge activity, and the LP's own $ total_cost has no way
+    # to reflect the real wear that causes, since BatteryConfig has no
+    # genuine degradation cost term (charge_cost/discharge_cost are small,
+    # flat $/kWh throughput costs, not a cycle-depth-aware wear model).
+    # Reported honestly alongside the dollar figures rather than hidden --
+    # a household turning either risk dial up should be able to SEE the
+    # real cycling cost of that choice, not just the (incomplete) $ total.
+    hours_arr_np = np.array(period_hours_arr)
+    total_charge_kwh = float(np.sum(plan.battery_charge_kw * hours_arr_np))
+    total_discharge_kwh = float(np.sum(plan.battery_discharge_kw * hours_arr_np))
+    total_throughput_kwh = total_charge_kwh + total_discharge_kwh
+    # A "full cycle" = one full charge + one full discharge = 2x capacity
+    # of throughput -- the standard, real-world battery-degradation unit
+    # (manufacturer cycle-life ratings are quoted in full-equivalent-
+    # cycles, not raw kWh moved), so this is directly comparable to a
+    # real spec sheet, not an invented metric.
+    equivalent_full_cycles = (
+        total_throughput_kwh / (2.0 * capacity_kwh) if capacity_kwh > 0 else 0.0
+    )
+
+    net_battery = plan.battery_discharge_kw - plan.battery_charge_kw
+    # Pre-collapse per-direction arrays for battery_kw_after_efficiency
+    # below (2026-08-27, nimbus issue #229) -- kept separate from net_battery
+    # rather than reconstructed from its sign, because a period can have LP
+    # degeneracy noise on BOTH plan.battery_charge_kw[i] and
+    # plan.battery_discharge_kw[i] simultaneously; collapsing to net first
+    # and branching on its sign silently drops whichever direction's real
+    # efficiency loss the sign discarded. Applying each direction's own
+    # efficiency BEFORE summing (same approach Mark Purcell verified in
+    # PR #231 against the sibling nimbus_solver_app writer -- 0.013%
+    # residual vs 3.65% reconstructing from the post-collapse net value)
+    # is what actually closes tightly against Δ(soc_pct·capacity).
+    corrected_battery_charge_kw = plan.battery_charge_kw
+    corrected_battery_discharge_kw = plan.battery_discharge_kw
+    corrected_grid_import = plan.grid_import_kw
+
+    # DEFENSIVE SAFETY NET (2026-08-22) -- this file's own real, found
+    # root cause. THIS module IS the native in-process solve path
+    # (solver_runtime.py imports it exactly once, at container startup,
+    # via a lazy module-level singleton that's never re-imported for the
+    # life of the process) -- see the sibling standalone script's own
+    # matching comment (116KAT-HA-AI repo, scripts/
+    # nimbus_solver_forecast_writer.py) for the full incident writeup.
+    # Short version: this container's most recent restart (2026-08-22
+    # ~15:25 AEST, to deploy the native runtime itself) happened nearly 2
+    # hours BEFORE the real network.py fix landed (commit 3f90c1f,
+    # 17:20:03) -- so THIS path, specifically, has been the one silently
+    # running the old, unfixed battery_charge bound every minute since,
+    # racing the standalone cron writer's own always-current code. This
+    # clamp stays in place permanently regardless of cause, as a genuine
+    # backstop -- see the sibling file's own comment for exactly what it
+    # corrects and why. A future container restart flushes this module's
+    # own stale in-memory code (there's no other way to force a re-import
+    # here); until then, disabling the Nimbus integration was used as an
+    # immediate same-night mitigation, since that correctly cancels this
+    # module's own timer (entry.async_on_unload, __init__.py) without a
+    # restart.
+    if grid.fixed_export_kw is not None:
+        _fixed_mask = ~np.isnan(grid.fixed_export_kw)
+        _violation_mask = _fixed_mask & (plan.battery_charge_kw > 0.05)
+        _n_violations = int(np.sum(_violation_mask))
+        if _n_violations > 0:
+            _LOGGER.warning(
+                "Nimbus Solver: solver returned %d period(s) with "
+                "battery_charge_kw>0 during a committed fixed_export_kw "
+                "period -- mathematically should be impossible, applying "
+                "defensive clamp before push.",
+                _n_violations,
+            )
+            net_battery = np.where(
+                _violation_mask, plan.battery_discharge_kw, net_battery
+            )
+            corrected_battery_charge_kw = np.where(
+                _violation_mask, 0.0, plan.battery_charge_kw
+            )
+            corrected_grid_import = np.where(
+                _violation_mask,
+                np.maximum(0.0, plan.grid_import_kw - plan.battery_charge_kw),
+                plan.grid_import_kw,
+            )
+
+    # Physical, post-efficiency energy rate at the battery terminals
+    # (2026-08-27, nimbus issue #229, Mark Purcell) -- battery_kw above is
+    # the LP's own pre-efficiency decision variable, which can't be
+    # reconciled against soc_pct without knowing the applied efficiency
+    # curve. Built from the (possibly defensively-corrected, see above)
+    # per-direction arrays rather than net_battery's sign -- see that
+    # variable's own comment for why.
+    battery_kw_after_efficiency = (
+        corrected_battery_discharge_kw / charge_discharge_efficiency
+        - corrected_battery_charge_kw * charge_discharge_efficiency
+    )
+
+    # Real per-period source/destination breakdown (2026-08-28) -- see
+    # _dispatch_source_breakdown()'s own module-level docstring for the
+    # full rationale.
+    dispatch_breakdown = [
+        _dispatch_source_breakdown(net_battery[i], solar_kw[i], load_kw[i])
+        for i in range(n_periods)
+    ]
+
+    # Real per-period seven-flow decomposition + shadow prices + PV/
+    # Battery/Combined savings model (2026-08-28, nimbus issue #264, Mark
+    # Purcell) -- see _flow_decomposition()'s and _compute_flow_economics()'s
+    # own module-level docstrings for the full rationale, including why
+    # this deliberately extends the issue's own sketch (separate pre-net
+    # charge/discharge arrays instead of a single net_battery_kw, and a
+    # real cross-period WACOG cost basis instead of a same-period lookup).
+    # Byte-identical, additive to the existing dispatch_source_a/b fields
+    # above -- nothing already published changes shape or value.
+    flow_decomp = [
+        _flow_decomposition(
+            solar_kw[i],
+            load_kw[i],
+            float(corrected_battery_charge_kw[i]),
+            float(corrected_battery_discharge_kw[i]),
+        )
+        for i in range(n_periods)
+    ]
+    flow_econ = _compute_flow_economics(
+        flow_decomp,
+        import_price,
+        export_price,
+        period_hours_arr,
+        round_trip_efficiency=charge_discharge_efficiency**2,
+        initial_soc_kwh=initial_soc_kwh,
+    )
+
+    # Real per-period price/load/solar/net-cost fields added (2026-08-17,
+    # direct ask: "still waiting for haeo like markdown table where I
+    # can see forecasted costs fit load solar and soc% and period net")
+    # -- previously ONLY battery/SoC/grid kW were pushed; a real forecast
+    # TABLE needs the same real inputs the LP itself actually solved
+    # against, not just its output. import_price/export_price/
+    # export_bonus_price are all already computed above (this writer's
+    # own real inputs, not re-derived); load_kw/solar_kw are the same
+    # real per-period arrays already fed to LoadConfig/SolarConfig.
+    # net_cost is the real grid-side cash flow for that period (import
+    # cost minus base export revenue minus P2P bonus revenue) --
+    # deliberately NOT including battery charge/discharge wear cost,
+    # matching this project's own established "Net $" convention from
+    # the HAEO forecast table this mirrors.
+    forecast = [
+        {
+            "time": grid_times[i].isoformat(),
+            "battery_kw": round(float(net_battery[i]), 3),
+            # See battery_kw_after_efficiency's own definition above (nimbus
+            # issue #229) for why this is built from the per-direction
+            # arrays rather than net_battery[i] directly.
+            "battery_kw_after_efficiency": round(
+                float(battery_kw_after_efficiency[i]), 3
+            ),
+            "soc_pct": round(float(plan.battery_soc_kwh[i] / capacity_kwh * 100), 2),
+            # import side uses corrected_grid_import (see the defensive
+            # clamp above) -- keeps this consistent with battery_kw
+            # rather than silently reflecting the RAW, uncorrected import
+            # on any period the clamp touched.
+            "grid_import_kw": round(float(corrected_grid_import[i]), 3),
+            "grid_export_kw": round(float(plan.grid_export_kw[i]), 3),
+            # How much of grid_export_kw[i] earned the real, undiluted
+            # P2P premium (vs the base/spot rate) -- exposed directly so
+            # a real dashboard can show WHERE the real committed volume
+            # landed, not just infer it (see nimbus's own network.py
+            # Plan.export_bonus_kw docstring).
+            "export_bonus_kw": round(float(plan.export_bonus_kw[i]), 3),
+            "import_price": round(import_price[i], 4),
+            # The raw commodity/spot price ALONE, before network TOU +
+            # certificates are added on (2026-08-22, direct household
+            # ask, after the real 8.4 vs 7.1c investigation: "normal
+            # dumb folk user would look for buy price ot be what
+            # localvolts_cost_flexup is... they would not get why you
+            # added up costs to it... so maybe the table needs fees
+            # column next ot cost?"). import_price above is UNCHANGED --
+            # still the full landed cost, still what net_cost/the LP
+            # itself actually uses -- this is purely an additional,
+            # honest field so a dashboard can show Buy¢ = this (matches
+            # what LocalVolts' own app shows) and Fees¢ = import_price
+            # minus this, instead of one opaque combined number nobody
+            # outside this codebase could verify against anything real.
+            # True pre-blend source pass-through (2026-08-27, nimbus repo
+            # issue #216, Mark Purcell) -- what the configured
+            # solver_import_price_sensor itself said, before
+            # blend_price_with_secondary_sources() folds in any
+            # configured _sensor_2/_sensor_3. Previously this read
+            # spot_import_raw AFTER blending, so on any install with a
+            # secondary source configured, import_price_raw silently
+            # stopped being a real "before any transformation" probe --
+            # exactly Mark's own found-live gap ("on Config B... import_
+            # price and import_price_raw are byte-identical... isn't
+            # currently serving as a before-any-transformation
+            # diagnostic"). On a single-source install (no _sensor_2/_3
+            # configured) this is unchanged, byte-identical to before.
+            "import_price_raw": round(spot_import_source[i], 4),
+            "export_price": round(export_price[i], 4),
+            # Same true pre-blend pass-through as import_price_raw above,
+            # for the export side -- new field (2026-08-27, nimbus repo
+            # issue #216, Mark Purcell's refined ask #1: "Publish
+            # export_price_raw (same shape as the existing
+            # import_price_raw attribute)").
+            "export_price_raw": round(spot_export_source[i], 4),
+            "bonus_price": round(export_bonus_price[i], 4),
+            "load_kw": round(load_kw[i], 3),
+            "solar_kw": round(solar_kw[i], 3),
+            "dispatch_direction": dispatch_breakdown[i][0],
+            "dispatch_source_a_label": dispatch_breakdown[i][1],
+            "dispatch_source_a_pct": dispatch_breakdown[i][2],
+            "dispatch_source_b_label": dispatch_breakdown[i][3],
+            "dispatch_source_b_pct": dispatch_breakdown[i][4],
+            # Seven-flow decomposition + shadow prices + savings (nimbus
+            # issue #264) -- see flow_decomp/flow_econ's own construction
+            # above for the full rationale.
+            "flow_pv_to_load_kw": round(flow_decomp[i]["pv_to_load"], 3),
+            "flow_pv_to_battery_kw": round(flow_decomp[i]["pv_to_battery"], 3),
+            "flow_pv_to_grid_kw": round(flow_decomp[i]["pv_to_grid"], 3),
+            "flow_battery_to_load_kw": round(flow_decomp[i]["battery_to_load"], 3),
+            "flow_battery_to_grid_kw": round(flow_decomp[i]["battery_to_grid"], 3),
+            "flow_grid_to_load_kw": round(flow_decomp[i]["grid_to_load"], 3),
+            "flow_grid_to_battery_kw": round(flow_decomp[i]["grid_to_battery"], 3),
+            **flow_econ[i],
+            # Real per-period duration (2026-08-17, found while fixing a
+            # real bug this same session: the daily-summary dashboard
+            # card was hardcoding a flat 0.25h multiplier for every
+            # period's own kWh contribution -- correct for the first 24h
+            # (TIER1_PERIOD_HOURS=0.25) but WRONG for anything beyond it
+            # (TIER2_PERIOD_HOURS=1.0), silently under-counting a coarse-
+            # tier period's real kWh by 4x. "Today" is entirely inside
+            # the fine tier so was unaffected, but "Tomorrow" spans BOTH
+            # tiers -- exposing this field lets any consumer compute real
+            # kWh sums correctly regardless of which tier a period falls
+            # in, instead of assuming a fixed width.
+            "hours": round(period_hours_arr[i], 4),
+            "net_cost": round(
+                import_price[i] * float(corrected_grid_import[i]) * period_hours_arr[i]
+                - export_price[i] * float(plan.grid_export_kw[i]) * period_hours_arr[i]
+                - export_bonus_price[i]
+                * float(plan.export_bonus_kw[i])
+                * period_hours_arr[i],
+                4,
+            ),
+        }
+        for i in range(n_periods)
+    ]
+
+    # Named cost-component breakdown (2026-08-25, nimbus issue #149) --
+    # see compute_cost_breakdown()'s own docstring for the full reasoning.
+    cost_breakdown = compute_cost_breakdown(
+        net_costs=[period["net_cost"] for period in forecast],
+        total_cost=plan.total_cost,
+        degradation_cost_per_kwh=_cfg_num(cfg, "solver_degradation_cost_per_kwh", 0.0),
+        total_throughput_kwh=total_throughput_kwh,
+        charge_cost=charge_cost,
+        total_charge_kwh=total_charge_kwh,
+        discharge_cost_arr=discharge_cost_arr,
+        battery_discharge_kw=plan.battery_discharge_kw,
+        period_hours=period_hours_arr,
+    )
+
+    # Cost-band diagnostic (2026-08-25, nimbus issue #147) -- see
+    # compute_cost_band()'s own docstring for the full reasoning.
+    cost_band = compute_cost_band(
+        period_hours=period_hours_arr,
+        load_lower_kw=np.array(load_lower_kw),
+        load_upper_kw=np.array(load_upper_kw),
+        solar_kw=np.array(solar_kw),
+        import_price=np.array(import_price),
+        export_price=np.array(export_price),
+        charge_committed_kw=plan.battery_charge_kw,
+        discharge_committed_kw=plan.battery_discharge_kw,
+        charge_cost=charge_cost,
+        discharge_cost_arr=discharge_cost_arr,
+        final_soc_kwh=float(plan.battery_soc_kwh[-1]),
+        salvage_value=salvage_value,
+        import_limit_kw=import_limit_kw,
+        export_limit_kw=export_limit_kw,
+    )
+
+    # Binding-constraint diagnostics (2026-08-18, Mark Purcell's audit
+    # item #3; relabelled 2026-08-24, see compute_binding_constraint_
+    # label()'s own docstring near resolve_max_discharge_kw for the
+    # full "pinned at zero vs pinned at the real ceiling" story).
+    binding_now, binding_now_value_per_kwh = compute_binding_constraint_label(
+        plan, export_limit_kw, import_limit_kw, max_charge_kw, max_discharge_kw
+    )
+    # Earliest export_bonus_cap_<date> entry (ISO date strings sort
+    # correctly as plain strings) is always tonight's/the current cap --
+    # None when the two-tier export bonus mechanism isn't active at all.
+    _p2p_cap_keys = sorted(
+        k
+        for k in plan.duals
+        if k.startswith("export_bonus_cap_") and k != "export_bonus_cap_global"
+    )
+    p2p_volume_cap_shadow_price = (
+        round(plan.duals[_p2p_cap_keys[0]], 4) if _p2p_cap_keys else None
+    )
+
+    ha_post_state(
+        ENTITY_ID,
+        round(float(net_battery[0]), 3),
+        {
+            "unit_of_measurement": "kW",
+            "device_class": "power",
+            "state_class": "measurement",
+            "friendly_name": "Nimbus Solver Battery Forecast",
+            # 2026-08-25, nimbus issue #189 (Mark Purcell, real-install
+            # reproducer -- the follow-up to #187): this is the
+            # "flagship diagnostic sensor" a Nimbus dashboard is most
+            # likely to be built against, and it's a genuinely different
+            # class again from both NimbusForecastSensor (fixed in
+            # v0.89.1) and _NimbusSolverPushSensor's OTHER instance
+            # (household load total, fixed in v0.92.1) -- this is the
+            # Solver's own LP-derived dispatch plan, not a mirror or a
+            # sum of upstream forecasts. "battery" (SIGNAL_ROLE_BATTERY's
+            # own string value) is definitionally this entity's role.
+            # source_sensor is the one real, measured entity this whole
+            # plan is actually built around -- the live SoC reading the
+            # LP solves forward from -- since there's no single upstream
+            # "battery forecast" sensor the way load has
+            # solver_load_forecast_sensor.
+            "signal_role": "battery",
+            "source_sensor": cfg["solver_battery_soc_sensor"],
+            "forecast": forecast,
+            "status": plan.status,
+            "total_cost": plan.total_cost,
+            "total_cost_with_fixed_costs": round(total_cost_with_fixed_costs, 4),
+            "cost_breakdown": cost_breakdown,
+            "cost_band": cost_band,
+            "p2p_match_fraction": round(match_fraction, 4),
+            "risk_aversion": risk_aversion,
+            "import_price_risk_aversion": import_price_risk_aversion,
+            "export_price_risk_aversion": export_price_risk_aversion,
+            # Nimbus issue #205 (Mark Purcell, 2026-08-26): asked for an
+            # entity exposing the terminal-value stack so overnight
+            # reserve size can be regressed against price data without
+            # pulling the full diagnostic each session. salvage_value is
+            # the configured $/kWh rate terminal_value_breakpoints_for()
+            # derives its curve from (see solver/elements.py's own
+            # BatteryConfig docstring); degradation_cost_per_kwh is the
+            # other half of the marginal-discharge economics driving the
+            # same reserve decision. Both are the flat, currently-active
+            # per-solve values, not a historical series.
+            "salvage_value": salvage_value,
+            "degradation_cost_per_kwh": _cfg_num(
+                cfg, "solver_degradation_cost_per_kwh", 0.0
+            ),
+            "total_charge_kwh": round(total_charge_kwh, 2),
+            "total_discharge_kwh": round(total_discharge_kwh, 2),
+            "total_throughput_kwh": round(total_throughput_kwh, 2),
+            "equivalent_full_cycles": round(equivalent_full_cycles, 3),
+            # Nimbus issue #168 (Mark Purcell, 2026-08-25): "a user reading
+            # solver_efficiency_percent = 95 would reasonably interpret it
+            # as one-way... and get the arithmetic wrong." These four
+            # fields pin down the exact convention this entity's own
+            # forecast[].battery_kw and totals above already use, verified
+            # against real live data (residual < 0.5 kWh over 100+ kWh
+            # throughput on Mark's own atomic snapshot):
+            # battery_kw is AC-side (grid-side of the inverter), and
+            # solver_efficiency_percent is a ROUND-TRIP figure applied as
+            # sqrt(round_trip) to each direction independently -- see
+            # charge_discharge_efficiency's own comment above.
+            "battery_kw_side": "AC",
+            # Nimbus issue #197 (Mark Purcell, 2026-08-26): battery_kw's own
+            # sign wasn't documented anywhere, and its convention here is
+            # the opposite of what a reader would naturally assume --
+            # net_battery = discharge_kw - charge_kw above, so POSITIVE
+            # means discharging and NEGATIVE means charging. Mark had to
+            # reverse-derive this from his own SoC data before he could
+            # trust an external analysis built on this field.
+            "battery_kw_sign_convention": "positive_discharge_negative_charge",
+            "efficiency_convention": "round_trip_symmetric_sqrt",
+            # Nimbus issue #237 (Mark Purcell, 2026-08-27): "confirm and
+            # expose the price-blend algorithm". Originally an unweighted
+            # np.mean() across every source with real coverage at a
+            # period, primary included -- confirmed live against Mark's
+            # #236 repro (a genuinely-real Amber Express value averaged
+            # 50/50 against a genuinely-real but far larger QLD1 PD7DAY
+            # wholesale forecast, inverting the import/export price
+            # relationship and causing an unphysical simultaneous-
+            # import-and-export LP plan). Fixed same-day in #239
+            # (primary-preferring): the primary now wins UNBLENDED
+            # whenever it has real coverage, full stop -- a secondary
+            # only ever fills a period where the primary itself lacks
+            # real coverage yet (its one legitimate job, extending the
+            # horizon past Amber's own ~24h reach). See
+            # blend_price_with_secondary_sources()'s own docstring for
+            # the full market-structure argument (import/export both
+            # derive from the SAME underlying AEMO spot price for a
+            # given region+interval -- they're not independent
+            # estimators that can legitimately disagree while both are
+            # live).
+            "price_blend_algorithm": "primary_preferring_fallback_to_secondary_mean",
+            "charge_efficiency": round(charge_discharge_efficiency, 4),
+            "discharge_efficiency": round(charge_discharge_efficiency, 4),
+            # $ value of the AC-bus losses these efficiencies imply over
+            # this horizon's own total_charge_kwh/total_discharge_kwh --
+            # matches Mark's own Kirchhoff reconciliation formula
+            # (tc*(1-eff) + td*(1/eff-1)), the expected gap between
+            # AC-side source/sink sums once real inverter losses are
+            # accounted for.
+            "ac_bus_losses_kwh": round(
+                total_charge_kwh * (1 - charge_discharge_efficiency)
+                + total_discharge_kwh * (1 / charge_discharge_efficiency - 1),
+                3,
+            ),
+            "p2p_recent_avg_volume_kwh": round(p2p_recent_volume_kwh, 2),
+            # Nimbus issue #128 (Mark Purcell): rolling actual-vs-forecast
+            # solar ratio, catches implicit inverter AC-side clipping
+            # #114's own curtailment switch can't see. None when
+            # solver_solar_power_sensor isn't configured, or when no
+            # prediction has resolved yet -- both honest no-ops, never
+            # a fabricated 1.0.
+            "solar_delivery_ratio": (solar_delivery or {}).get("solar_delivery_ratio"),
+            "solar_delivery_sample_count": (solar_delivery or {}).get(
+                "solar_delivery_sample_count", 0
+            ),
+            "solar_delivery_underperforming": (solar_delivery or {}).get(
+                "solar_delivery_underperforming", False
+            ),
+            "load_summed_18_now_kw": round(summed_18_now_kw, 3),
+            "load_whole_house_cross_check_now_kw": round(whole_house_now_kw, 3)
+            if whole_house_now_kw is not None
+            else None,
+            # nimbus issue #429 (Mark Purcell): the two fields above are
+            # DELIBERATELY forecast-vs-forecast (sum of 18 circuit models
+            # vs the whole-house meter's own separate forecast model) --
+            # genuinely useful for catching a missing/misconfigured
+            # circuit, but neither is a live meter reading despite what
+            # "cross_check" suggests (confirmed live: Mark's own report
+            # read load_whole_house_cross_check_now_kw as "the real
+            # whole-house meter", a real, understandable misreading given
+            # the name). This is the genuine live reading, so a real
+            # forecast-vs-reality check is finally possible; additive
+            # only, doesn't change either existing field's own value.
+            "load_whole_house_live_now_kw": round(live_load_kw, 3)
+            if live_load_kw is not None
+            else None,
+            "failed_load_entities": failed_load_entities,
+            # NEW (2026-08-24, issue #105) -- same dual-publication
+            # convention as failed_load_entities/load_forecast_source_
+            # error immediately below: present here AND on sensor.
+            # nimbus_household_load_total_forecast.
+            "load_forecast_warnings": load_forecast_warnings,
+            # None on success -- real fix for nimbus repo issue #66
+            # ("no attribute on sensor.nimbus_solver_battery_forecast
+            # telling the operator the sensor shape they wired in was
+            # rejected"). Present here (this entity) AND on sensor.
+            # nimbus_household_load_total_forecast above -- the issue
+            # named both.
+            "load_forecast_source_error": load_forecast_error,
+            # NEW (2026-08-25, nimbus issues #148/#116) -- present here AND
+            # on sensor.nimbus_household_load_total_forecast above, same
+            # dual-publication convention as the two fields immediately
+            # above. See this field's own construction site (near
+            # solver_load_forecast_entities, above) for the full reasoning.
+            "load_forecast_source_used": load_forecast_source_used,
+            # NEW (2026-08-25, issue #112) -- present here AND on sensor.
+            # nimbus_household_load_total_forecast above (see that
+            # field's own comment for the full reasoning). Directly
+            # comparable to horizon_hours below: a smaller coverage
+            # means part of this plan's own load input is
+            # resample_forecast()'s flat-hold padding, not real.
+            "load_forecast_coverage_hours": round(load_forecast_coverage_hours, 1)
+            if load_forecast_coverage_hours is not None
+            else None,
+            "n_clamped_periods": n_clamped,
+            "n_periods": n_periods,
+            "horizon_hours": round(horizon_days * 24, 1),
+            "solve_seconds": round(solve_seconds, 2),
+            "generated_at": now.isoformat(),
+            "binding_constraint_now": binding_now,
+            "binding_constraint_shadow_price": binding_now_value_per_kwh,
+            "energy_shadow_price_now": round(
+                plan.duals.get("power_balance_t0", 0.0), 4
+            ),
+            "p2p_volume_cap_shadow_price": p2p_volume_cap_shadow_price,
+        },
+    )
+    cross_check_str = (
+        f"{whole_house_now_kw:.2f}kW"
+        if whole_house_now_kw is not None
+        else "unavailable"
+    )
+    coverage_str = (
+        f"{load_forecast_coverage_hours:.1f}h"
+        if load_forecast_coverage_hours is not None
+        else "unknown"
+    )
+    # Issue #389 (Mark Purcell, live install, v0.94.125): _infeasible_plan()
+    # returns total_cost=None, and this status line crashed every cycle for
+    # 41 minutes formatting it with .2f (TypeError: unsupported format
+    # string passed to NoneType.__format__) -- the plan itself had already
+    # been correctly pushed with status="infeasible" by this point, so the
+    # ONLY thing failing was this trailing log line, but it took down the
+    # rest of main() (quality report / counterfactual / efficiency backtest
+    # sensor updates) with it every single cycle. total_cost_with_fixed_costs
+    # is already None-safe (built via `plan.total_cost or 0.0` above), it's
+    # plan.total_cost itself on this line that wasn't guarded.
+    total_cost_str = f"{plan.total_cost:.2f}" if plan.total_cost is not None else "n/a"
+    print(
+        f"[{now.isoformat()}] pushed {ENTITY_ID}: status={plan.status} "
+        f"n_periods={n_periods} horizon={horizon_days * 24:.1f}h "
+        f"load_forecast_coverage={coverage_str} solve_time={solve_seconds:.2f}s "
+        f"total_cost={total_cost_str} total_cost_with_fixed={total_cost_with_fixed_costs:.2f} "
+        f"p2p_match_fraction={match_fraction:.3f} net_battery_now={net_battery[0]:.2f}kW "
+        f"summed_18_loads_now={summed_18_now_kw:.2f}kW whole_house_cross_check={cross_check_str} "
+        f"previous_plan_found={previous_plan is not None} "
+        f"binding_now={binding_now!r} energy_shadow_price_now={plan.duals.get('power_balance_t0', 0.0):.4f} "
+        f"p2p_volume_cap_shadow_price={p2p_volume_cap_shadow_price}"
+    )
+
+
 def main() -> None:
     # Fail fast, with a real, actionable message, if the Solver hasn't
     # been configured yet -- see fetch_solver_config()'s own docstring
@@ -7234,556 +7847,50 @@ def main() -> None:
         export_price_risk_aversion=export_price_risk_aversion,
         smoothness_weight=network.DEFAULT_SMOOTHNESS_WEIGHT_KW,
     )
-    solve_seconds = time.monotonic() - solve_started
-    if plan.status == "optimal":
-        save_plan_state(plan, period_hours_arr, grid_times[0])
-    elif plan.status == "error":
-        # nimbus issue #356 (Mark Purcell): this is genuinely NOT the same
-        # thing as a real infeasible model -- HiGHS gave up/hit a limit
-        # without ever determining feasibility either way (see network.py's
-        # own Plan.raw_status docstring). Named explicitly here so an
-        # operator sees "the solver failed, here's HiGHS's own reason"
-        # rather than being sent hunting for a modeling/config problem that
-        # doesn't exist.
-        _LOGGER.warning(
-            "Nimbus: solve did not complete -- HiGHS solver failure (%s), "
-            "not a genuinely infeasible model",
-            plan.raw_status or "unknown reason",
-        )
-
-    # Real fixed daily charges (Network Access + LV Fee), reported
-    # honestly alongside the LP's own total_cost -- NOT fed into the LP
-    # itself (a flat, dispatch-independent cost can't change an optimal
-    # LP decision, only shift the objective by a constant, so there's
-    # nothing for the solver to do with it). Prorated to this horizon's
-    # own real span (sum of period_hours_arr, NOT n_periods*a-fixed-width
-    # -- the tiered grid has two different period widths) / 24, not just
-    # added flat.
-    #
-    # nimbus issue #348 (Mark Purcell, fixed 2026-09-04): a real wizard
-    # field now (number.nimbus_solver_fixed_daily_charge), not a module
-    # constant applied to every install regardless of their own real
-    # retailer's actual daily supply charge. 1.95 as the literal default
-    # matches const.py's own DEFAULT_SOLVER_FIXED_DAILY_CHARGE -- byte-
-    # identical behaviour for every existing install until this field is
-    # explicitly changed.
-    horizon_days = sum(period_hours_arr) / 24.0
-    fixed_daily_charge = _cfg_num(cfg, "solver_fixed_daily_charge", 1.95)
-    total_cost_with_fixed_costs = (
-        plan.total_cost or 0.0
-    ) + horizon_days * fixed_daily_charge
-
-    # Real battery throughput/cycling exposure (2026-08-21, direct Mark
-    # Purcell finding, relayed via the household: "degradation isn't in
-    # the objective, so 1.0 will look free when it isn't" -- risk_aversion/
-    # price_risk_aversion both tend to bias toward MORE defensive
-    # charge/discharge activity, and the LP's own $ total_cost has no way
-    # to reflect the real wear that causes, since BatteryConfig has no
-    # genuine degradation cost term (charge_cost/discharge_cost are small,
-    # flat $/kWh throughput costs, not a cycle-depth-aware wear model).
-    # Reported honestly alongside the dollar figures rather than hidden --
-    # a household turning either risk dial up should be able to SEE the
-    # real cycling cost of that choice, not just the (incomplete) $ total.
-    hours_arr_np = np.array(period_hours_arr)
-    total_charge_kwh = float(np.sum(plan.battery_charge_kw * hours_arr_np))
-    total_discharge_kwh = float(np.sum(plan.battery_discharge_kw * hours_arr_np))
-    total_throughput_kwh = total_charge_kwh + total_discharge_kwh
-    # A "full cycle" = one full charge + one full discharge = 2x capacity
-    # of throughput -- the standard, real-world battery-degradation unit
-    # (manufacturer cycle-life ratings are quoted in full-equivalent-
-    # cycles, not raw kWh moved), so this is directly comparable to a
-    # real spec sheet, not an invented metric.
-    equivalent_full_cycles = (
-        total_throughput_kwh / (2.0 * capacity_kwh) if capacity_kwh > 0 else 0.0
-    )
-
-    net_battery = plan.battery_discharge_kw - plan.battery_charge_kw
-    # Pre-collapse per-direction arrays for battery_kw_after_efficiency
-    # below (2026-08-27, nimbus issue #229) -- kept separate from net_battery
-    # rather than reconstructed from its sign, because a period can have LP
-    # degeneracy noise on BOTH plan.battery_charge_kw[i] and
-    # plan.battery_discharge_kw[i] simultaneously; collapsing to net first
-    # and branching on its sign silently drops whichever direction's real
-    # efficiency loss the sign discarded. Applying each direction's own
-    # efficiency BEFORE summing (same approach Mark Purcell verified in
-    # PR #231 against the sibling nimbus_solver_app writer -- 0.013%
-    # residual vs 3.65% reconstructing from the post-collapse net value)
-    # is what actually closes tightly against Δ(soc_pct·capacity).
-    corrected_battery_charge_kw = plan.battery_charge_kw
-    corrected_battery_discharge_kw = plan.battery_discharge_kw
-    corrected_grid_import = plan.grid_import_kw
-
-    # DEFENSIVE SAFETY NET (2026-08-22) -- this file's own real, found
-    # root cause. THIS module IS the native in-process solve path
-    # (solver_runtime.py imports it exactly once, at container startup,
-    # via a lazy module-level singleton that's never re-imported for the
-    # life of the process) -- see the sibling standalone script's own
-    # matching comment (116KAT-HA-AI repo, scripts/
-    # nimbus_solver_forecast_writer.py) for the full incident writeup.
-    # Short version: this container's most recent restart (2026-08-22
-    # ~15:25 AEST, to deploy the native runtime itself) happened nearly 2
-    # hours BEFORE the real network.py fix landed (commit 3f90c1f,
-    # 17:20:03) -- so THIS path, specifically, has been the one silently
-    # running the old, unfixed battery_charge bound every minute since,
-    # racing the standalone cron writer's own always-current code. This
-    # clamp stays in place permanently regardless of cause, as a genuine
-    # backstop -- see the sibling file's own comment for exactly what it
-    # corrects and why. A future container restart flushes this module's
-    # own stale in-memory code (there's no other way to force a re-import
-    # here); until then, disabling the Nimbus integration was used as an
-    # immediate same-night mitigation, since that correctly cancels this
-    # module's own timer (entry.async_on_unload, __init__.py) without a
-    # restart.
-    if grid.fixed_export_kw is not None:
-        _fixed_mask = ~np.isnan(grid.fixed_export_kw)
-        _violation_mask = _fixed_mask & (plan.battery_charge_kw > 0.05)
-        _n_violations = int(np.sum(_violation_mask))
-        if _n_violations > 0:
-            _LOGGER.warning(
-                "Nimbus Solver: solver returned %d period(s) with "
-                "battery_charge_kw>0 during a committed fixed_export_kw "
-                "period -- mathematically should be impossible, applying "
-                "defensive clamp before push.",
-                _n_violations,
-            )
-            net_battery = np.where(
-                _violation_mask, plan.battery_discharge_kw, net_battery
-            )
-            corrected_battery_charge_kw = np.where(
-                _violation_mask, 0.0, plan.battery_charge_kw
-            )
-            corrected_grid_import = np.where(
-                _violation_mask,
-                np.maximum(0.0, plan.grid_import_kw - plan.battery_charge_kw),
-                plan.grid_import_kw,
-            )
-
-    # Physical, post-efficiency energy rate at the battery terminals
-    # (2026-08-27, nimbus issue #229, Mark Purcell) -- battery_kw above is
-    # the LP's own pre-efficiency decision variable, which can't be
-    # reconciled against soc_pct without knowing the applied efficiency
-    # curve. Built from the (possibly defensively-corrected, see above)
-    # per-direction arrays rather than net_battery's sign -- see that
-    # variable's own comment for why.
-    battery_kw_after_efficiency = (
-        corrected_battery_discharge_kw / charge_discharge_efficiency
-        - corrected_battery_charge_kw * charge_discharge_efficiency
-    )
-
-    # Real per-period source/destination breakdown (2026-08-28) -- see
-    # _dispatch_source_breakdown()'s own module-level docstring for the
-    # full rationale.
-    dispatch_breakdown = [
-        _dispatch_source_breakdown(net_battery[i], solar_kw[i], load_kw[i])
-        for i in range(n_periods)
-    ]
-
-    # Real per-period seven-flow decomposition + shadow prices + PV/
-    # Battery/Combined savings model (2026-08-28, nimbus issue #264, Mark
-    # Purcell) -- see _flow_decomposition()'s and _compute_flow_economics()'s
-    # own module-level docstrings for the full rationale, including why
-    # this deliberately extends the issue's own sketch (separate pre-net
-    # charge/discharge arrays instead of a single net_battery_kw, and a
-    # real cross-period WACOG cost basis instead of a same-period lookup).
-    # Byte-identical, additive to the existing dispatch_source_a/b fields
-    # above -- nothing already published changes shape or value.
-    flow_decomp = [
-        _flow_decomposition(
-            solar_kw[i],
-            load_kw[i],
-            float(corrected_battery_charge_kw[i]),
-            float(corrected_battery_discharge_kw[i]),
-        )
-        for i in range(n_periods)
-    ]
-    flow_econ = _compute_flow_economics(
-        flow_decomp,
-        import_price,
-        export_price,
-        period_hours_arr,
-        round_trip_efficiency=charge_discharge_efficiency**2,
-        initial_soc_kwh=initial_soc_kwh,
-    )
-
-    # Real per-period price/load/solar/net-cost fields added (2026-08-17,
-    # direct ask: "still waiting for haeo like markdown table where I
-    # can see forecasted costs fit load solar and soc% and period net")
-    # -- previously ONLY battery/SoC/grid kW were pushed; a real forecast
-    # TABLE needs the same real inputs the LP itself actually solved
-    # against, not just its output. import_price/export_price/
-    # export_bonus_price are all already computed above (this writer's
-    # own real inputs, not re-derived); load_kw/solar_kw are the same
-    # real per-period arrays already fed to LoadConfig/SolarConfig.
-    # net_cost is the real grid-side cash flow for that period (import
-    # cost minus base export revenue minus P2P bonus revenue) --
-    # deliberately NOT including battery charge/discharge wear cost,
-    # matching this project's own established "Net $" convention from
-    # the HAEO forecast table this mirrors.
-    forecast = [
-        {
-            "time": grid_times[i].isoformat(),
-            "battery_kw": round(float(net_battery[i]), 3),
-            # See battery_kw_after_efficiency's own definition above (nimbus
-            # issue #229) for why this is built from the per-direction
-            # arrays rather than net_battery[i] directly.
-            "battery_kw_after_efficiency": round(
-                float(battery_kw_after_efficiency[i]), 3
-            ),
-            "soc_pct": round(float(plan.battery_soc_kwh[i] / capacity_kwh * 100), 2),
-            # import side uses corrected_grid_import (see the defensive
-            # clamp above) -- keeps this consistent with battery_kw
-            # rather than silently reflecting the RAW, uncorrected import
-            # on any period the clamp touched.
-            "grid_import_kw": round(float(corrected_grid_import[i]), 3),
-            "grid_export_kw": round(float(plan.grid_export_kw[i]), 3),
-            # How much of grid_export_kw[i] earned the real, undiluted
-            # P2P premium (vs the base/spot rate) -- exposed directly so
-            # a real dashboard can show WHERE the real committed volume
-            # landed, not just infer it (see nimbus's own network.py
-            # Plan.export_bonus_kw docstring).
-            "export_bonus_kw": round(float(plan.export_bonus_kw[i]), 3),
-            "import_price": round(import_price[i], 4),
-            # The raw commodity/spot price ALONE, before network TOU +
-            # certificates are added on (2026-08-22, direct household
-            # ask, after the real 8.4 vs 7.1c investigation: "normal
-            # dumb folk user would look for buy price ot be what
-            # localvolts_cost_flexup is... they would not get why you
-            # added up costs to it... so maybe the table needs fees
-            # column next ot cost?"). import_price above is UNCHANGED --
-            # still the full landed cost, still what net_cost/the LP
-            # itself actually uses -- this is purely an additional,
-            # honest field so a dashboard can show Buy¢ = this (matches
-            # what LocalVolts' own app shows) and Fees¢ = import_price
-            # minus this, instead of one opaque combined number nobody
-            # outside this codebase could verify against anything real.
-            # True pre-blend source pass-through (2026-08-27, nimbus repo
-            # issue #216, Mark Purcell) -- what the configured
-            # solver_import_price_sensor itself said, before
-            # blend_price_with_secondary_sources() folds in any
-            # configured _sensor_2/_sensor_3. Previously this read
-            # spot_import_raw AFTER blending, so on any install with a
-            # secondary source configured, import_price_raw silently
-            # stopped being a real "before any transformation" probe --
-            # exactly Mark's own found-live gap ("on Config B... import_
-            # price and import_price_raw are byte-identical... isn't
-            # currently serving as a before-any-transformation
-            # diagnostic"). On a single-source install (no _sensor_2/_3
-            # configured) this is unchanged, byte-identical to before.
-            "import_price_raw": round(spot_import_source[i], 4),
-            "export_price": round(export_price[i], 4),
-            # Same true pre-blend pass-through as import_price_raw above,
-            # for the export side -- new field (2026-08-27, nimbus repo
-            # issue #216, Mark Purcell's refined ask #1: "Publish
-            # export_price_raw (same shape as the existing
-            # import_price_raw attribute)").
-            "export_price_raw": round(spot_export_source[i], 4),
-            "bonus_price": round(export_bonus_price[i], 4),
-            "load_kw": round(load_kw[i], 3),
-            "solar_kw": round(solar_kw[i], 3),
-            "dispatch_direction": dispatch_breakdown[i][0],
-            "dispatch_source_a_label": dispatch_breakdown[i][1],
-            "dispatch_source_a_pct": dispatch_breakdown[i][2],
-            "dispatch_source_b_label": dispatch_breakdown[i][3],
-            "dispatch_source_b_pct": dispatch_breakdown[i][4],
-            # Seven-flow decomposition + shadow prices + savings (nimbus
-            # issue #264) -- see flow_decomp/flow_econ's own construction
-            # above for the full rationale.
-            "flow_pv_to_load_kw": round(flow_decomp[i]["pv_to_load"], 3),
-            "flow_pv_to_battery_kw": round(flow_decomp[i]["pv_to_battery"], 3),
-            "flow_pv_to_grid_kw": round(flow_decomp[i]["pv_to_grid"], 3),
-            "flow_battery_to_load_kw": round(flow_decomp[i]["battery_to_load"], 3),
-            "flow_battery_to_grid_kw": round(flow_decomp[i]["battery_to_grid"], 3),
-            "flow_grid_to_load_kw": round(flow_decomp[i]["grid_to_load"], 3),
-            "flow_grid_to_battery_kw": round(flow_decomp[i]["grid_to_battery"], 3),
-            **flow_econ[i],
-            # Real per-period duration (2026-08-17, found while fixing a
-            # real bug this same session: the daily-summary dashboard
-            # card was hardcoding a flat 0.25h multiplier for every
-            # period's own kWh contribution -- correct for the first 24h
-            # (TIER1_PERIOD_HOURS=0.25) but WRONG for anything beyond it
-            # (TIER2_PERIOD_HOURS=1.0), silently under-counting a coarse-
-            # tier period's real kWh by 4x. "Today" is entirely inside
-            # the fine tier so was unaffected, but "Tomorrow" spans BOTH
-            # tiers -- exposing this field lets any consumer compute real
-            # kWh sums correctly regardless of which tier a period falls
-            # in, instead of assuming a fixed width.
-            "hours": round(period_hours_arr[i], 4),
-            "net_cost": round(
-                import_price[i] * float(corrected_grid_import[i]) * period_hours_arr[i]
-                - export_price[i] * float(plan.grid_export_kw[i]) * period_hours_arr[i]
-                - export_bonus_price[i]
-                * float(plan.export_bonus_kw[i])
-                * period_hours_arr[i],
-                4,
-            ),
-        }
-        for i in range(n_periods)
-    ]
-
-    # Named cost-component breakdown (2026-08-25, nimbus issue #149) --
-    # see compute_cost_breakdown()'s own docstring for the full reasoning.
-    cost_breakdown = compute_cost_breakdown(
-        net_costs=[period["net_cost"] for period in forecast],
-        total_cost=plan.total_cost,
-        degradation_cost_per_kwh=_cfg_num(cfg, "solver_degradation_cost_per_kwh", 0.0),
-        total_throughput_kwh=total_throughput_kwh,
-        charge_cost=charge_cost,
-        total_charge_kwh=total_charge_kwh,
-        discharge_cost_arr=discharge_cost_arr,
-        battery_discharge_kw=plan.battery_discharge_kw,
-        period_hours=period_hours_arr,
-    )
-
-    # Cost-band diagnostic (2026-08-25, nimbus issue #147) -- see
-    # compute_cost_band()'s own docstring for the full reasoning.
-    cost_band = compute_cost_band(
-        period_hours=period_hours_arr,
-        load_lower_kw=np.array(load_lower_kw),
-        load_upper_kw=np.array(load_upper_kw),
-        solar_kw=np.array(solar_kw),
-        import_price=np.array(import_price),
-        export_price=np.array(export_price),
-        charge_committed_kw=plan.battery_charge_kw,
-        discharge_committed_kw=plan.battery_discharge_kw,
-        charge_cost=charge_cost,
-        discharge_cost_arr=discharge_cost_arr,
-        final_soc_kwh=float(plan.battery_soc_kwh[-1]),
-        salvage_value=salvage_value,
+    publish_plan(
+        cfg=cfg,
+        now=now,
+        plan=plan,
+        previous_plan=previous_plan,
+        solve_started=solve_started,
+        period_hours_arr=period_hours_arr,
+        grid_times=grid_times,
+        n_periods=n_periods,
+        capacity_kwh=capacity_kwh,
+        charge_discharge_efficiency=charge_discharge_efficiency,
+        grid=grid,
         import_limit_kw=import_limit_kw,
         export_limit_kw=export_limit_kw,
-    )
-
-    # Binding-constraint diagnostics (2026-08-18, Mark Purcell's audit
-    # item #3; relabelled 2026-08-24, see compute_binding_constraint_
-    # label()'s own docstring near resolve_max_discharge_kw for the
-    # full "pinned at zero vs pinned at the real ceiling" story).
-    binding_now, binding_now_value_per_kwh = compute_binding_constraint_label(
-        plan, export_limit_kw, import_limit_kw, max_charge_kw, max_discharge_kw
-    )
-    # Earliest export_bonus_cap_<date> entry (ISO date strings sort
-    # correctly as plain strings) is always tonight's/the current cap --
-    # None when the two-tier export bonus mechanism isn't active at all.
-    _p2p_cap_keys = sorted(
-        k
-        for k in plan.duals
-        if k.startswith("export_bonus_cap_") and k != "export_bonus_cap_global"
-    )
-    p2p_volume_cap_shadow_price = (
-        round(plan.duals[_p2p_cap_keys[0]], 4) if _p2p_cap_keys else None
-    )
-
-    ha_post_state(
-        ENTITY_ID,
-        round(float(net_battery[0]), 3),
-        {
-            "unit_of_measurement": "kW",
-            "device_class": "power",
-            "state_class": "measurement",
-            "friendly_name": "Nimbus Solver Battery Forecast",
-            # 2026-08-25, nimbus issue #189 (Mark Purcell, real-install
-            # reproducer -- the follow-up to #187): this is the
-            # "flagship diagnostic sensor" a Nimbus dashboard is most
-            # likely to be built against, and it's a genuinely different
-            # class again from both NimbusForecastSensor (fixed in
-            # v0.89.1) and _NimbusSolverPushSensor's OTHER instance
-            # (household load total, fixed in v0.92.1) -- this is the
-            # Solver's own LP-derived dispatch plan, not a mirror or a
-            # sum of upstream forecasts. "battery" (SIGNAL_ROLE_BATTERY's
-            # own string value) is definitionally this entity's role.
-            # source_sensor is the one real, measured entity this whole
-            # plan is actually built around -- the live SoC reading the
-            # LP solves forward from -- since there's no single upstream
-            # "battery forecast" sensor the way load has
-            # solver_load_forecast_sensor.
-            "signal_role": "battery",
-            "source_sensor": cfg["solver_battery_soc_sensor"],
-            "forecast": forecast,
-            "status": plan.status,
-            "total_cost": plan.total_cost,
-            "total_cost_with_fixed_costs": round(total_cost_with_fixed_costs, 4),
-            "cost_breakdown": cost_breakdown,
-            "cost_band": cost_band,
-            "p2p_match_fraction": round(match_fraction, 4),
-            "risk_aversion": risk_aversion,
-            "import_price_risk_aversion": import_price_risk_aversion,
-            "export_price_risk_aversion": export_price_risk_aversion,
-            # Nimbus issue #205 (Mark Purcell, 2026-08-26): asked for an
-            # entity exposing the terminal-value stack so overnight
-            # reserve size can be regressed against price data without
-            # pulling the full diagnostic each session. salvage_value is
-            # the configured $/kWh rate terminal_value_breakpoints_for()
-            # derives its curve from (see solver/elements.py's own
-            # BatteryConfig docstring); degradation_cost_per_kwh is the
-            # other half of the marginal-discharge economics driving the
-            # same reserve decision. Both are the flat, currently-active
-            # per-solve values, not a historical series.
-            "salvage_value": salvage_value,
-            "degradation_cost_per_kwh": _cfg_num(
-                cfg, "solver_degradation_cost_per_kwh", 0.0
-            ),
-            "total_charge_kwh": round(total_charge_kwh, 2),
-            "total_discharge_kwh": round(total_discharge_kwh, 2),
-            "total_throughput_kwh": round(total_throughput_kwh, 2),
-            "equivalent_full_cycles": round(equivalent_full_cycles, 3),
-            # Nimbus issue #168 (Mark Purcell, 2026-08-25): "a user reading
-            # solver_efficiency_percent = 95 would reasonably interpret it
-            # as one-way... and get the arithmetic wrong." These four
-            # fields pin down the exact convention this entity's own
-            # forecast[].battery_kw and totals above already use, verified
-            # against real live data (residual < 0.5 kWh over 100+ kWh
-            # throughput on Mark's own atomic snapshot):
-            # battery_kw is AC-side (grid-side of the inverter), and
-            # solver_efficiency_percent is a ROUND-TRIP figure applied as
-            # sqrt(round_trip) to each direction independently -- see
-            # charge_discharge_efficiency's own comment above.
-            "battery_kw_side": "AC",
-            # Nimbus issue #197 (Mark Purcell, 2026-08-26): battery_kw's own
-            # sign wasn't documented anywhere, and its convention here is
-            # the opposite of what a reader would naturally assume --
-            # net_battery = discharge_kw - charge_kw above, so POSITIVE
-            # means discharging and NEGATIVE means charging. Mark had to
-            # reverse-derive this from his own SoC data before he could
-            # trust an external analysis built on this field.
-            "battery_kw_sign_convention": "positive_discharge_negative_charge",
-            "efficiency_convention": "round_trip_symmetric_sqrt",
-            # Nimbus issue #237 (Mark Purcell, 2026-08-27): "confirm and
-            # expose the price-blend algorithm". Originally an unweighted
-            # np.mean() across every source with real coverage at a
-            # period, primary included -- confirmed live against Mark's
-            # #236 repro (a genuinely-real Amber Express value averaged
-            # 50/50 against a genuinely-real but far larger QLD1 PD7DAY
-            # wholesale forecast, inverting the import/export price
-            # relationship and causing an unphysical simultaneous-
-            # import-and-export LP plan). Fixed same-day in #239
-            # (primary-preferring): the primary now wins UNBLENDED
-            # whenever it has real coverage, full stop -- a secondary
-            # only ever fills a period where the primary itself lacks
-            # real coverage yet (its one legitimate job, extending the
-            # horizon past Amber's own ~24h reach). See
-            # blend_price_with_secondary_sources()'s own docstring for
-            # the full market-structure argument (import/export both
-            # derive from the SAME underlying AEMO spot price for a
-            # given region+interval -- they're not independent
-            # estimators that can legitimately disagree while both are
-            # live).
-            "price_blend_algorithm": "primary_preferring_fallback_to_secondary_mean",
-            "charge_efficiency": round(charge_discharge_efficiency, 4),
-            "discharge_efficiency": round(charge_discharge_efficiency, 4),
-            # $ value of the AC-bus losses these efficiencies imply over
-            # this horizon's own total_charge_kwh/total_discharge_kwh --
-            # matches Mark's own Kirchhoff reconciliation formula
-            # (tc*(1-eff) + td*(1/eff-1)), the expected gap between
-            # AC-side source/sink sums once real inverter losses are
-            # accounted for.
-            "ac_bus_losses_kwh": round(
-                total_charge_kwh * (1 - charge_discharge_efficiency)
-                + total_discharge_kwh * (1 / charge_discharge_efficiency - 1),
-                3,
-            ),
-            "p2p_recent_avg_volume_kwh": round(p2p_recent_volume_kwh, 2),
-            # Nimbus issue #128 (Mark Purcell): rolling actual-vs-forecast
-            # solar ratio, catches implicit inverter AC-side clipping
-            # #114's own curtailment switch can't see. None when
-            # solver_solar_power_sensor isn't configured, or when no
-            # prediction has resolved yet -- both honest no-ops, never
-            # a fabricated 1.0.
-            "solar_delivery_ratio": (solar_delivery or {}).get("solar_delivery_ratio"),
-            "solar_delivery_sample_count": (solar_delivery or {}).get(
-                "solar_delivery_sample_count", 0
-            ),
-            "solar_delivery_underperforming": (solar_delivery or {}).get(
-                "solar_delivery_underperforming", False
-            ),
-            "load_summed_18_now_kw": round(summed_18_now_kw, 3),
-            "load_whole_house_cross_check_now_kw": round(whole_house_now_kw, 3)
-            if whole_house_now_kw is not None
-            else None,
-            # nimbus issue #429 (Mark Purcell): the two fields above are
-            # DELIBERATELY forecast-vs-forecast (sum of 18 circuit models
-            # vs the whole-house meter's own separate forecast model) --
-            # genuinely useful for catching a missing/misconfigured
-            # circuit, but neither is a live meter reading despite what
-            # "cross_check" suggests (confirmed live: Mark's own report
-            # read load_whole_house_cross_check_now_kw as "the real
-            # whole-house meter", a real, understandable misreading given
-            # the name). This is the genuine live reading, so a real
-            # forecast-vs-reality check is finally possible; additive
-            # only, doesn't change either existing field's own value.
-            "load_whole_house_live_now_kw": round(live_load_kw, 3)
-            if live_load_kw is not None
-            else None,
-            "failed_load_entities": failed_load_entities,
-            # NEW (2026-08-24, issue #105) -- same dual-publication
-            # convention as failed_load_entities/load_forecast_source_
-            # error immediately below: present here AND on sensor.
-            # nimbus_household_load_total_forecast.
-            "load_forecast_warnings": load_forecast_warnings,
-            # None on success -- real fix for nimbus repo issue #66
-            # ("no attribute on sensor.nimbus_solver_battery_forecast
-            # telling the operator the sensor shape they wired in was
-            # rejected"). Present here (this entity) AND on sensor.
-            # nimbus_household_load_total_forecast above -- the issue
-            # named both.
-            "load_forecast_source_error": load_forecast_error,
-            # NEW (2026-08-25, nimbus issues #148/#116) -- present here AND
-            # on sensor.nimbus_household_load_total_forecast above, same
-            # dual-publication convention as the two fields immediately
-            # above. See this field's own construction site (near
-            # solver_load_forecast_entities, above) for the full reasoning.
-            "load_forecast_source_used": load_forecast_source_used,
-            # NEW (2026-08-25, issue #112) -- present here AND on sensor.
-            # nimbus_household_load_total_forecast above (see that
-            # field's own comment for the full reasoning). Directly
-            # comparable to horizon_hours below: a smaller coverage
-            # means part of this plan's own load input is
-            # resample_forecast()'s flat-hold padding, not real.
-            "load_forecast_coverage_hours": round(load_forecast_coverage_hours, 1)
-            if load_forecast_coverage_hours is not None
-            else None,
-            "n_clamped_periods": n_clamped,
-            "n_periods": n_periods,
-            "horizon_hours": round(horizon_days * 24, 1),
-            "solve_seconds": round(solve_seconds, 2),
-            "generated_at": now.isoformat(),
-            "binding_constraint_now": binding_now,
-            "binding_constraint_shadow_price": binding_now_value_per_kwh,
-            "energy_shadow_price_now": round(
-                plan.duals.get("power_balance_t0", 0.0), 4
-            ),
-            "p2p_volume_cap_shadow_price": p2p_volume_cap_shadow_price,
-        },
-    )
-    cross_check_str = (
-        f"{whole_house_now_kw:.2f}kW"
-        if whole_house_now_kw is not None
-        else "unavailable"
-    )
-    coverage_str = (
-        f"{load_forecast_coverage_hours:.1f}h"
-        if load_forecast_coverage_hours is not None
-        else "unknown"
-    )
-    # Issue #389 (Mark Purcell, live install, v0.94.125): _infeasible_plan()
-    # returns total_cost=None, and this status line crashed every cycle for
-    # 41 minutes formatting it with .2f (TypeError: unsupported format
-    # string passed to NoneType.__format__) -- the plan itself had already
-    # been correctly pushed with status="infeasible" by this point, so the
-    # ONLY thing failing was this trailing log line, but it took down the
-    # rest of main() (quality report / counterfactual / efficiency backtest
-    # sensor updates) with it every single cycle. total_cost_with_fixed_costs
-    # is already None-safe (built via `plan.total_cost or 0.0` above), it's
-    # plan.total_cost itself on this line that wasn't guarded.
-    total_cost_str = f"{plan.total_cost:.2f}" if plan.total_cost is not None else "n/a"
-    print(
-        f"[{now.isoformat()}] pushed {ENTITY_ID}: status={plan.status} "
-        f"n_periods={n_periods} horizon={horizon_days * 24:.1f}h "
-        f"load_forecast_coverage={coverage_str} solve_time={solve_seconds:.2f}s "
-        f"total_cost={total_cost_str} total_cost_with_fixed={total_cost_with_fixed_costs:.2f} "
-        f"p2p_match_fraction={match_fraction:.3f} net_battery_now={net_battery[0]:.2f}kW "
-        f"summed_18_loads_now={summed_18_now_kw:.2f}kW whole_house_cross_check={cross_check_str} "
-        f"previous_plan_found={previous_plan is not None} "
-        f"binding_now={binding_now!r} energy_shadow_price_now={plan.duals.get('power_balance_t0', 0.0):.4f} "
-        f"p2p_volume_cap_shadow_price={p2p_volume_cap_shadow_price}"
+        max_charge_kw=max_charge_kw,
+        max_discharge_kw=max_discharge_kw,
+        charge_cost=charge_cost,
+        discharge_cost_arr=discharge_cost_arr,
+        salvage_value=salvage_value,
+        risk_aversion=risk_aversion,
+        import_price_risk_aversion=import_price_risk_aversion,
+        export_price_risk_aversion=export_price_risk_aversion,
+        import_price=import_price,
+        export_price=export_price,
+        spot_import_source=spot_import_source,
+        spot_export_source=spot_export_source,
+        export_bonus_price=export_bonus_price,
+        load_kw=load_kw,
+        solar_kw=solar_kw,
+        load_lower_kw=load_lower_kw,
+        load_upper_kw=load_upper_kw,
+        initial_soc_kwh=initial_soc_kwh,
+        match_fraction=match_fraction,
+        summed_18_now_kw=summed_18_now_kw,
+        whole_house_now_kw=whole_house_now_kw,
+        live_load_kw=live_load_kw,
+        load_forecast_coverage_hours=load_forecast_coverage_hours,
+        load_forecast_error=load_forecast_error,
+        load_forecast_source_used=load_forecast_source_used,
+        load_forecast_warnings=load_forecast_warnings,
+        failed_load_entities=failed_load_entities,
+        n_clamped=n_clamped,
+        solar_delivery=solar_delivery,
+        p2p_recent_volume_kwh=p2p_recent_volume_kwh,
     )
 
 
