@@ -41,6 +41,24 @@ health_checks:
     label: Writer 2
 ```
 
+**Sections-view width gotcha (issue #400, Mark Purcell):** if this card sits inside a Home Assistant **Sections** view (`type: sections`) with `grid_options: {columns: full, rows: auto}`, the view's own `max_columns` setting — not anything in the card's own CSS — controls how much real width the card's section ever gets. HA's own default/common choice is `max_columns: 2`, which silently caps a single `column_span: 4` section too narrow for this card's landscape (two-column) layout to ever reach a genuinely comfortable width, regardless of container-query breakpoints. Confirmed live: raising the view's `max_columns` from 2 to 4 (nothing else changed) took this card from a cramped, columns-cut-off forecast table to all 12 columns rendering cleanly with no scrolling needed. If the landscape layout looks cramped or the forecast table seems to be missing columns, check this setting before assuming it's a card bug:
+
+```yaml
+title: Control Panel
+path: control
+type: sections
+max_columns: 4  # not the HA default of 2 -- see above
+sections:
+  - type: grid
+    column_span: 4
+    cards:
+      - type: custom:nimbus-dispatch-card-v4
+        # ... your fields here ...
+        grid_options:
+          columns: full
+          rows: auto
+```
+
 **Core fields:**
 
 | Field | What it needs |
