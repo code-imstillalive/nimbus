@@ -153,6 +153,7 @@ import functools
 import io
 import json
 import os
+import re
 import statistics
 import sys
 import time
@@ -1718,7 +1719,9 @@ def _is_transient_startup_load_forecast_error(error: str) -> bool:
     )
 
 
-def _notify_load_forecast_error_once(error: str) -> None:
+def _notify_load_forecast_error_once(
+    error: str, *, error_key: str | None = None
+) -> None:
     """Fires a real HA persistent_notification, but only once per
     genuinely NEW error message -- an unchanging misconfiguration
     shouldn't re-notify every single cron cycle, but a DIFFERENT new
@@ -1728,13 +1731,25 @@ def _notify_load_forecast_error_once(error: str) -> None:
     last-notified message. Any failure here (can't write the sentinel,
     can't reach HA's service-call endpoint) is deliberately swallowed --
     a notification is a courtesy, never allowed to break the real solve.
+
+    nimbus issue #416 (Mark Purcell): `error_key` (defaults to `error`
+    itself for backward compatibility) is a STABLE de-dupe key, separate
+    from the full message shown to the household. The 90%-zeros
+    circular-reference message (read_load_forecast_sensor(), above)
+    embeds the live `{nonzero_points}/{len(load_kw)}` counts -- comparing
+    the FULL message meant a later cycle hitting the exact same
+    underlying condition, but with a different point count, counted as a
+    "new" error and re-notified, defeating the intended de-dupe. Callers
+    with a message that varies cycle to cycle should pass a fixed
+    `error_key` (e.g. just the entity_id + which check failed) instead.
     """
     try:
         already = ""
         if os.path.exists(LOAD_FORECAST_ERROR_NOTIFIED_PATH):
             with open(LOAD_FORECAST_ERROR_NOTIFIED_PATH, "r", encoding="utf-8") as f:
                 already = f.read()
-        if already == error:
+        key = error_key if error_key is not None else error
+        if already == key:
             return
         ha_call_service(
             "persistent_notification",
@@ -1753,8 +1768,37 @@ def _notify_load_forecast_error_once(error: str) -> None:
             },
         )
         with open(LOAD_FORECAST_ERROR_NOTIFIED_PATH, "w", encoding="utf-8") as f:
-            f.write(error)
+            f.write(key)
     except Exception:  # noqa: BLE001, S110 -- a failed notification/sentinel-file write must never break the solve; nothing to log or react to beyond that
+        pass
+
+
+def _clear_load_forecast_error_notification_if_needed() -> None:
+    """nimbus issue #416 (Mark Purcell): a notification fired by a
+    genuinely transient condition (a startup-timing race producing a
+    still-empty/placeholder forecast on the very first post-restart solve
+    cycle -- see read_load_forecast_sensor()'s own 90%-zeros check) used
+    to sit there indefinitely once the real forecast populated a few
+    cycles later, since nothing ever cleared it -- a stale, wrong,
+    scary-looking notification left behind with no way for the household
+    to know it was already stale. Called once per cycle on the healthy
+    path (load_forecast_error is None): if a notification is currently
+    outstanding (the sentinel file exists), actively dismiss it and clear
+    the sentinel so a genuinely NEW future error notifies again rather
+    than being silently swallowed by a stale de-dupe key. Same "courtesy
+    only, never breaks the real solve" swallow as
+    _notify_load_forecast_error_once() above.
+    """
+    try:
+        if not os.path.exists(LOAD_FORECAST_ERROR_NOTIFIED_PATH):
+            return
+        ha_call_service(
+            "persistent_notification",
+            "dismiss",
+            {"notification_id": "nimbus_solver_load_forecast_error"},
+        )
+        os.remove(LOAD_FORECAST_ERROR_NOTIFIED_PATH)
+    except Exception:  # noqa: BLE001, S110 -- a failed dismiss/sentinel-file removal must never break the solve; nothing to log or react to beyond that
         pass
 
 
@@ -3422,7 +3466,25 @@ def main() -> None:
             load_kw = [0.0] * n_periods
             load_lower_kw = [0.0] * n_periods
             load_upper_kw = [0.0] * n_periods
-            _notify_load_forecast_error_once(load_forecast_error)
+            # nimbus issue #416 (Mark Purcell): the 90%-zeros circular-
+            # reference message (and any other error shape that embeds a
+            # live count) bakes in numbers that change cycle to cycle --
+            # normalizing them out here before de-dupe means the SAME
+            # underlying condition, seen again on a later cycle with
+            # different counts, is correctly recognized as unchanged
+            # rather than re-notified as if it were new.
+            _notify_load_forecast_error_once(
+                load_forecast_error,
+                error_key=re.sub(r"\d+/\d+", "N/N", load_forecast_error),
+            )
+        else:
+            # nimbus issue #416: healthy this cycle -- if a notification
+            # is still outstanding from an earlier cycle (including one
+            # that was itself a transient startup-timing false positive,
+            # not a real misconfiguration), clear it now rather than
+            # leaving a stale, wrong, scary notification sitting there
+            # indefinitely once the real forecast has recovered.
+            _clear_load_forecast_error_notification_if_needed()
         failed_load_entities = []
         load_forecast_warnings = {}
 
