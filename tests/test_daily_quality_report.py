@@ -468,6 +468,126 @@ class TestResampleHistoryNearest(unittest.TestCase):
         )
 
 
+class TestResampleHistoryMean(unittest.TestCase):
+    """nimbus issue #428 (Mark Purcell): resample_history_mean() averages
+    every real sample inside [grid_time, grid_time + period_hours),
+    instead of resample_history_nearest()'s single nearest-at-or-before
+    instant -- proves a brief spike gets diluted by the rest of the real
+    period's samples, matching Mark's own real recorder finding (a
+    +20.939kW spike at exactly a period boundary against a real hourly
+    mean of -2.66kW).
+    """
+
+    def test_uniform_points_average_within_the_window(self):
+        anchor = YESTERDAY_START
+        pts = [
+            (anchor, 1.0),
+            (anchor + timedelta(minutes=5), 2.0),
+            (anchor + timedelta(minutes=10), 3.0),
+            # Outside this period's own [anchor, anchor+15min) window --
+            # must not be pulled in.
+            (anchor + timedelta(minutes=20), 100.0),
+        ]
+        self.assertEqual(
+            solver_writer.resample_history_mean(pts, [anchor], period_hours=0.25),
+            [2.0],
+        )
+
+    def test_brief_spike_is_diluted_not_treated_as_representative(self):
+        # Mark's own real shape: one brief spike sample right at the top
+        # of the period, followed by a real, stable, opposite-sign
+        # reading for the rest of the period -- resample_history_nearest
+        # would return the spike alone (whatever the FIRST sample at/
+        # before the grid instant is); the mean must instead land close
+        # to the stable reading, not the spike.
+        anchor = YESTERDAY_START + timedelta(hours=4)  # the real 04:00 case
+        pts = [
+            (anchor, 20.939),  # the real, brief, unrepresentative spike
+            (anchor + timedelta(minutes=1), -2.6),
+            (anchor + timedelta(minutes=5), -2.7),
+            (anchor + timedelta(minutes=10), -2.6),
+        ]
+        mean = solver_writer.resample_history_mean(pts, [anchor], period_hours=0.25)[0]
+        nearest = solver_writer.resample_history_nearest(pts, [anchor])[0]
+        self.assertEqual(nearest, 20.939)  # confirms the bug mechanism itself
+        self.assertLess(mean, 5.0)  # the mean is nowhere near the spike
+        self.assertAlmostEqual(mean, (20.939 - 2.6 - 2.7 - 2.6) / 4, places=6)
+
+    def test_falls_back_to_nearest_when_period_has_no_real_samples(self):
+        # Sparse/low-frequency history -- e.g. a sensor that only reports
+        # on real change, and didn't change at all during this period.
+        anchor = YESTERDAY_START
+        pts = [(anchor - timedelta(hours=2), 7.0)]
+        self.assertEqual(
+            solver_writer.resample_history_mean(pts, [anchor], period_hours=0.25),
+            [7.0],
+        )
+
+    def test_empty_history_returns_default(self):
+        grid = [YESTERDAY_START]
+        self.assertEqual(
+            solver_writer.resample_history_mean(
+                [], grid, period_hours=0.25, default=0.42
+            ),
+            [0.42],
+        )
+
+
+class TestAchievedTrajectoryUsesPeriodMeanNotSpike(unittest.TestCase):
+    """End-to-end version of the #428 fix: reconstructs Mark's own real
+    04:00 scenario through compute_daily_quality_report() itself and
+    proves the achieved trajectory's grid direction for that hour follows
+    the real period mean (net export, matching the real meter), not the
+    single unrepresentative spike sample (which would reconstruct to net
+    import) resample_history_nearest() used to pick up.
+    """
+
+    def _fetch_side_effect(self, entity_id, start, end):
+        if entity_id == "sensor.real_solar":
+            return _flat_history(0.0, YESTERDAY_START, YESTERDAY_END)
+        if entity_id == "sensor.real_load":
+            return _flat_history(1.058, YESTERDAY_START, YESTERDAY_END)
+        if entity_id == "sensor.real_battery":
+            # 1-minute-resolution flat -2.66kW (raw convention, positive=
+            # discharge, this project's default) all day -- real enough
+            # sample density that a single brief spike can't dominate a
+            # period's mean -- except a brief spike to +20.939 right at
+            # 04:00:00, Mark's own real shape.
+            out = _flat_history(-2.66, YESTERDAY_START, YESTERDAY_END, step_minutes=1)
+            spike_time = YESTERDAY_START + timedelta(hours=4)
+            out = [(t, v) for t, v in out if t != spike_time]
+            out.append((spike_time, 20.939))
+            return sorted(out, key=lambda x: x[0])
+        if entity_id == "sensor.import_price":
+            return _price_history(YESTERDAY_START)
+        if entity_id == "sensor.export_price":
+            return _price_history(YESTERDAY_START, cheap=0.02, expensive=0.10)
+        return []
+
+    def test_hour_04_grid_direction_matches_the_real_mean_not_the_spike(self):
+        # Matches Mark's own real install convention (issue #299/#388):
+        # raw sensor reports positive=charge, so the +20.939 spike is a
+        # charge event and the flat -2.66 baseline is a real discharge --
+        # same literal numbers he reported.
+        cfg = _cfg(solver_battery_power_positive_is_charge=True)
+        with patch.object(
+            solver_writer,
+            "fetch_entity_history_range",
+            side_effect=self._fetch_side_effect,
+        ):
+            report = solver_writer.compute_daily_quality_report(cfg, NOW)
+        self.assertIsNotNone(report)
+        row = report["j_ach_hourly"][(YESTERDAY_START + timedelta(hours=4)).isoformat()]
+        # grid_kw sign convention: + = import, - = export (see
+        # _hourly_reconstruction_dicts_are_row_major_by_iso_timestamp's
+        # own docstring). Real meter/period-mean direction is export
+        # (negative) -- load 1.058 - solar 0 + battery_net(mean, positive
+        # =charge) should stay close to the flat -2.66 discharge case,
+        # not swing to a large positive import the raw spike alone would
+        # produce.
+        self.assertLess(row["grid_kw"], 0.0)
+
+
 class TestPublishDailyQualityReport(unittest.TestCase):
     def test_already_scored_yesterday_skips_recompute_but_still_repushes(self):
         """Real fix (2026-08-30, issues #289/#292): the fast path must
