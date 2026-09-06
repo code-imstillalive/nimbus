@@ -612,7 +612,18 @@ class NimbusDispatchCardV4 extends HTMLElement {
 
     this.shadowRoot.innerHTML =
       '<style>' +
-        ':host { display:block; container-type: inline-size; }' +
+        /* nimbus issue #400 (Mark Purcell): the right column's grid-track
+           minimum (below) and table.ftable's own real min-width used to be
+           two independently-hardcoded numbers (460px vs 640px) that
+           silently drifted apart -- the actual root cause of #400, not
+           just "the wrong number." A single custom property is now the
+           one real source of truth for "how wide the forecast table
+           actually needs to be"; both the table's own min-width and the
+           grid track that has to make room for it reference this SAME
+           value, so a future change to the table (an added column, wider
+           currency formatting) can never again silently reintroduce this
+           exact mismatch in only one of the two places. */
+        ':host { display:block; container-type: inline-size; --ftable-min-width: 640px; }' +
         '.card { background: radial-gradient(circle at 15% 0%, #1c2433 0%, #0f131b 60%), linear-gradient(160deg, #14181f 0%, #0d1016 100%);' +
           ' border: 1px solid rgba(255,255,255,0.06); border-radius: 20px; padding: 26px 30px 24px; color: #e8eaf0;' +
           ' font-family: var(--paper-font-body1_-_font-family, sans-serif); box-shadow: 0 8px 32px rgba(0,0,0,0.45);}' +
@@ -674,7 +685,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
         '.risk-slider:disabled { cursor: not-allowed; }' +
         '.ftable-wrap { width: 100%; overflow-x: auto; overflow-y: auto; max-height: 480px; margin-top: 4px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); }' +
         '.ftable-note { font-size: 1.0em; opacity: 0.45; margin: 0 0 6px; }' +
-        'table.ftable { width: 100%; border-collapse: collapse; font-size: 1.08em; min-width: 640px; }' +
+        'table.ftable { width: 100%; border-collapse: collapse; font-size: 1.08em; min-width: var(--ftable-min-width); }' +
         'table.ftable thead th { text-align: left; text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.85em; opacity: 0.5;' +
           ' font-weight: 600; padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.1); position: sticky; top: 0; background: #14181f; }' +
         'table.ftable thead th.num { text-align: right; }' +
@@ -718,10 +729,57 @@ class NimbusDispatchCardV4 extends HTMLElement {
            width directly, so the two-column layout applies exactly when
            there's genuinely enough room for it, independent of viewport
            size, sidebar, or how any specific dashboard chooses to size this
-           card's own container. */
+           card's own container.
+
+           FIXED 2026-09-06 (issue #400, Mark Purcell): the container
+           query fired correctly (confirmed live, this fix's own
+           container-type/@container are what's being served), but its
+           900px breakpoint and the right column's 460px track minimum
+           were never reconciled against what that column's own children
+           actually need -- `.timeline-wrap svg` and `table.ftable` below
+           both carry a real `min-width` of their own (480px/640px), and
+           `.col-right { min-width: 0 }` (needed so the grid TRACK itself
+           can't force the whole card wider, the mechanism that fixed
+           #391) means once the track ends up narrower than 640px, the
+           table just overflows/scrolls inside its own `.ftable-wrap`
+           instead. Two columns firing on a card that's, say, 950px wide
+           gives the right column roughly 460-500px -- comfortably over
+           the OLD 460px floor, comfortably under the table's real 640px
+           need -- so Mark saw exactly the "fires, but doesn't fit"
+           overflow his own issue described, not #391's original
+           "never fires at all" failure.
+
+           Fixed at the root, not just with new numbers: two independently
+           hardcoded numbers drifting apart is exactly what caused this,
+           so patching in another pair of literals that happen to agree
+           TODAY would only set up the identical bug for whenever
+           table.ftable's own real min-width next changes (an added
+           column, wider currency formatting). Instead, the right
+           column's grid-track minimum below now reads
+           `var(--ftable-min-width)` -- the SAME custom property
+           `table.ftable`'s own `min-width` uses (declared once on
+           `:host`, above) -- so the two values structurally cannot
+           disagree again; change the table's real minimum and the grid
+           track that has to make room for it updates automatically.
+           (The breakpoint itself has to stay a literal -- `@container`
+           size-query conditions don't reliably support `var()` across
+           every frontend HA embeds, unlike a plain property value like
+           the grid-template-columns line below -- so 1020px is derived
+           by hand: 320 (left floor) + 36 (gap) + 640 (--ftable-min-width,
+           kept in sync by eye since a query condition can't reference it
+           directly) + a 24px safety margin for scrollbar/border
+           rounding. If --ftable-min-width above is ever changed, this
+           breakpoint needs the same arithmetic redone by hand.)
+           Two columns now only ever appear once there's genuinely enough
+           real room for both at their own true minimum widths, with zero
+           gap between "fires" and "fits". `1.65fr` is unchanged, so on
+           any screen wider than the breakpoint the right column still
+           grows well past its floor, taking its normal proportional
+           share of whatever space is left over -- the floor is only
+           ever a minimum, never a ceiling. */
         '.layout-grid { display:block; }' +
-        '@container (min-width: 900px) {' +
-          '.layout-grid { display:grid; grid-template-columns: minmax(320px, 1fr) minmax(460px, 1.65fr); gap: 0 36px; align-items:start; }' +
+        '@container (min-width: 1020px) {' +
+          '.layout-grid { display:grid; grid-template-columns: minmax(320px, 1fr) minmax(var(--ftable-min-width), 1.65fr); gap: 0 36px; align-items:start; }' +
           '.col-left, .col-right { min-width: 0; }' +
         '}' +
       '</style>' +
