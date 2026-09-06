@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.134] — 2026-09-06
+
+### Fixed
+- **`nimbus-dispatch-card-v4`'s "EPR (yesterday)" stat was off by a factor of 100** (e.g. showing `-576%` instead of `-5.8%`). Closes [#411](https://github.com/code-imstillalive/nimbus/issues/411) (Mark Purcell). `sensor.nimbus_solver_quality_report`'s own `state` is already expressed as a percent; the card was multiplying it by 100 a second time.
+- **"Plan Cost (horizon)" rendered the literal string `$NaN` instead of `n/a` whenever the plan was infeasible.** Also #411 — a genuinely infeasible plan's real `total_cost: null` passed the card's `!== undefined` guard, then `parseFloat(null)` produced `NaN`. Now uses `!= null`, which catches both `null` and `undefined`.
+
+### Docs
+- `docs/dashboards.md` now documents a Sections-view `max_columns` gotcha found while resolving [#400](https://github.com/code-imstillalive/nimbus/issues/400) — HA's own common `max_columns: 2` default can silently cap this card's landscape layout too narrow to ever look right, independent of anything in the card's own CSS.
+
 ## [0.94.133] — 2026-09-06
 
 ### Fixed
