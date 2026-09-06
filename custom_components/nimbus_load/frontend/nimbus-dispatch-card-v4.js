@@ -612,7 +612,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
 
     this.shadowRoot.innerHTML =
       '<style>' +
-        ':host { display:block; }' +
+        ':host { display:block; container-type: inline-size; }' +
         '.card { background: radial-gradient(circle at 15% 0%, #1c2433 0%, #0f131b 60%), linear-gradient(160deg, #14181f 0%, #0d1016 100%);' +
           ' border: 1px solid rgba(255,255,255,0.06); border-radius: 20px; padding: 26px 30px 24px; color: #e8eaf0;' +
           ' font-family: var(--paper-font-body1_-_font-family, sans-serif); box-shadow: 0 8px 32px rgba(0,0,0,0.45);}' +
@@ -701,9 +701,26 @@ class NimbusDispatchCardV4 extends HTMLElement {
            panel view uses the available horizontal space instead of one
            long scroll. Footer/tuning/economics stay full-width below both
            columns either way -- they're already horizontal chip rows, not
-           something that benefits from a second column. */
+           something that benefits from a second column.
+
+           FIXED 2026-09-06 (regression, Mark Purcell): the first version of
+           this used `@media (min-width: 900px)`, which measures the BROWSER
+           VIEWPORT width, not the card's own rendered width. In a real HA
+           dashboard the card sits behind the sidebar/header chrome and any
+           dashboard-level column/section sizing -- its own actual available
+           width can be well under the full viewport even when the viewport
+           itself is plenty wide, so the media query can silently never fire
+           depending on window size, sidebar state, or how the dashboard
+           view lays this card out, with zero connection to whether the CARD
+           ITSELF has room for two columns. Switched to a CSS container
+           query instead (`container-type: inline-size` on :host, `@container`
+           instead of `@media`) -- this measures the card's own rendered
+           width directly, so the two-column layout applies exactly when
+           there's genuinely enough room for it, independent of viewport
+           size, sidebar, or how any specific dashboard chooses to size this
+           card's own container. */
         '.layout-grid { display:block; }' +
-        '@media (min-width: 900px) {' +
+        '@container (min-width: 900px) {' +
           '.layout-grid { display:grid; grid-template-columns: minmax(320px, 1fr) minmax(460px, 1.65fr); gap: 0 36px; align-items:start; }' +
           '.col-left, .col-right { min-width: 0; }' +
         '}' +
