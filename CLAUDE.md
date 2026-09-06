@@ -75,6 +75,39 @@ actual ha-mcp call inline in one Bash invocation — never persisted to a file, 
 commit, issue, or artifact. Verified working end-to-end across both the hourly monitor and
 the first live 06:00 automated day-ahead report firing after the fix.
 
+**Same session, later that morning — #428's fix deployed and confirmed live with a real
+controlled before/after, and a new finding filed (#438) about the report's own grid
+resolution.** Scored the one window `sensor.combined_battery_power` had complete real
+history for (21:00 6 Sep → 06:27 7 Sep) while still on v0.94.136: EPR -5.0%, $3.41 regret,
+with an ambiguous $1.20-regret hour (03:00-04:00) coinciding with a real raw-sensor swing
+(-24kW to +21kW within the hour) that couldn't be attributed to either genuine dispatch
+volatility or a #428-style point-sample artifact from the report's own hourly rows alone.
+Deployed v0.94.139 via HACS (`ha_manage_hacs` download) + a full `ha_restart` — the restart
+call itself got cut off mid-response (expected: the restart kills the very HTTP connection
+carrying its own reply) but confirmed via a background poll and a fresh diagnostics pull
+that the entry came back `loaded` cleanly on `0.94.139` with `solver_battery_power_sensor`
+still correctly pointed at `sensor.combined_battery_power`. Rescored the IDENTICAL window
+again, same real data, only the code changed: EPR flipped to +46.7%, regret dropped to
+$1.70, SoC discrepancy fell from 14.6pt/4.7pt to 2.0pt/1.0pt max/mean, and the ambiguous
+03:00-04:00 hour's regret fell from $1.20 to $0.29 — settling the question directly rather
+than leaving it as a hedge: that hour's regret really was the #428 point-sample artifact,
+not household battery volatility, confirmed on real data outside the original bug report.
+The one hour that did NOT improve (21:00, $1.65 regret, unchanged) is exactly what's
+expected if that's genuine settling-in noise at the sensor's own creation moment, since
+the fix only changes within-period averaging and can't help a period sitting right next to
+a brand-new sensor's very first real reading — a second, independent point of evidence for
+the "self-inflicted config-timing artifact, not a Nimbus defect" read of the 2026-09-06
+`sensor.combined_battery_power` incident described above.
+
+**Filed #438, a distinct and more general finding surfaced by this same investigation**:
+`_compute_report_for_window()` (both call sites, `solver_writer.py:3901` and `:4505`)
+hardcodes `period_hours = 0.25` (15 minutes) for the retrospective quality-report scorer —
+coarser than both Nimbus's own live dispatch grid (`build_tiered_grid()`'s
+`TIER1_PERIOD_HOURS = 5/60`, i.e. 5-minute periods for the first 24h of every real solve)
+and the real NEM's own 5-minute settlement interval (since Oct 2021) that a household on
+a real-time-exposed tariff (Amber, LocalVolts) is actually paid/charged against. Scoped
+purely to the scoring path, same as #428 — `build_tiered_grid()` itself is untouched.
+
 ---
 
 ## ⚠️ CURRENT STATE (2026-09-02) — read this first
