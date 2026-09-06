@@ -52,7 +52,7 @@ the MOST ACCURATE source available for each:
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 
 import numpy as np
@@ -226,6 +226,38 @@ def compute_quality_report(
     n = len(hours)
     zero = np.zeros(n)
 
+    # Score J_ref/J_ach/J_star with NO terminal-value credit for leftover
+    # battery energy (2026-09-06, Mark Purcell: "EPR is inconsistent
+    # between charts and isn't being calculated correctly" -- his live
+    # install showed a negative EPR that traced back to exactly this).
+    #
+    # This is the SAME distortion already found and fixed once before, in
+    # the sibling 116KAT-HA-AI repo's own separate daily quality-writer
+    # script (2026-08-29): crediting SoC left in the battery at the close
+    # of an ALREADY-ELAPSED day with a forward-looking $/kWh value is a
+    # guess about tomorrow's own prices this report has no honest basis
+    # for making -- tomorrow's own report prices whatever actually carries
+    # forward, using tomorrow's own real initial_soc_kwh. That fix zeroed
+    # salvage_value/terminal_value_breakpoints for its own three
+    # trajectories; this function -- the canonical, live-service-exposed
+    # scorer the "Dispatch Regret" card calls into -- never received the
+    # same fix, so it kept crediting terminal value on all three of
+    # J_ref/J_ach/J_star (via evaluate_realized_cost() AND via J_star's own
+    # oracle build_plan() call, whose LP objective includes it too). Both
+    # scorers were internally self-consistent on their own, just
+    # inconsistent WITH EACH OTHER for the identical real day -- exactly
+    # matching "EPR is inconsistent between charts."
+    #
+    # Using dataclasses.replace() rather than mutating `battery` itself:
+    # only the three terminal-value fields are stripped for the scoring
+    # calls below; every other field (efficiencies, capacity, min_soc_kwh,
+    # charge/discharge cost, degradation cost) stays the real, live
+    # config, since those describe real physical/economic properties of
+    # the battery, not a forward-looking valuation choice.
+    battery_scoring = replace(
+        battery, salvage_value=0.0, headroom_value=0.0, terminal_value_breakpoints=None
+    )
+
     j_ref_result = evaluate_realized_cost(
         hours=hours,
         load_real_kw=load.forecast_kw,
@@ -234,15 +266,15 @@ def compute_quality_report(
         export_price_real=grid_residual.export_price,
         charge_committed_kw=zero,
         discharge_committed_kw=zero,
-        charge_cost=battery.charge_cost,
-        discharge_cost=battery.discharge_cost,
-        final_soc_kwh=battery.initial_soc_kwh,
-        salvage_value=battery.salvage_value,
+        charge_cost=battery_scoring.charge_cost,
+        discharge_cost=battery_scoring.discharge_cost,
+        final_soc_kwh=battery_scoring.initial_soc_kwh,
+        salvage_value=battery_scoring.salvage_value,
         grid_import_limit_kw=grid_residual.import_limit_kw,
         grid_export_limit_kw=grid_residual.export_limit_kw,
-        terminal_value_breakpoints=battery.terminal_value_breakpoints,
-        battery_min_soc_kwh=battery.min_soc_kwh,
-        degradation_cost_per_kwh=battery.degradation_cost_per_kwh,
+        terminal_value_breakpoints=battery_scoring.terminal_value_breakpoints,
+        battery_min_soc_kwh=battery_scoring.min_soc_kwh,
+        degradation_cost_per_kwh=battery_scoring.degradation_cost_per_kwh,
     )
     j_ref = j_ref_result.total_cost
 
@@ -254,20 +286,24 @@ def compute_quality_report(
         export_price_real=grid_residual.export_price,
         charge_committed_kw=actual_charge_kw,
         discharge_committed_kw=actual_discharge_kw,
-        charge_cost=battery.charge_cost,
-        discharge_cost=battery.discharge_cost,
+        charge_cost=battery_scoring.charge_cost,
+        discharge_cost=battery_scoring.discharge_cost,
         final_soc_kwh=final_soc_kwh_actual,
-        salvage_value=battery.salvage_value,
+        salvage_value=battery_scoring.salvage_value,
         grid_import_limit_kw=grid_residual.import_limit_kw,
         grid_export_limit_kw=grid_residual.export_limit_kw,
-        terminal_value_breakpoints=battery.terminal_value_breakpoints,
-        battery_min_soc_kwh=battery.min_soc_kwh,
-        degradation_cost_per_kwh=battery.degradation_cost_per_kwh,
+        terminal_value_breakpoints=battery_scoring.terminal_value_breakpoints,
+        battery_min_soc_kwh=battery_scoring.min_soc_kwh,
+        degradation_cost_per_kwh=battery_scoring.degradation_cost_per_kwh,
     )
     j_ach = j_ach_residual.total_cost - real_p2p_dollars_earned
 
     oracle_plan = build_plan(
-        periods=periods, grid=grid_oracle, battery=battery, solar=solar, loads=[load]
+        periods=periods,
+        grid=grid_oracle,
+        battery=battery_scoring,
+        solar=solar,
+        loads=[load],
     )
     if not oracle_plan.is_optimal:
         msg = f"Oracle solve failed (status={oracle_plan.status}) -- should not happen with real, already-realized data unless genuinely infeasible"
@@ -291,14 +327,14 @@ def compute_quality_report(
         export_price_real=grid_residual.export_price,
         charge_committed_kw=oracle_plan.battery_charge_kw,
         discharge_committed_kw=oracle_plan.battery_discharge_kw,
-        charge_cost=battery.charge_cost,
-        discharge_cost=battery.discharge_cost,
+        charge_cost=battery_scoring.charge_cost,
+        discharge_cost=battery_scoring.discharge_cost,
         final_soc_kwh=float(oracle_plan.battery_soc_kwh[-1]),
-        salvage_value=battery.salvage_value,
+        salvage_value=battery_scoring.salvage_value,
         grid_import_limit_kw=grid_residual.import_limit_kw,
         grid_export_limit_kw=grid_residual.export_limit_kw,
-        terminal_value_breakpoints=battery.terminal_value_breakpoints,
-        battery_min_soc_kwh=battery.min_soc_kwh,
+        terminal_value_breakpoints=battery_scoring.terminal_value_breakpoints,
+        battery_min_soc_kwh=battery_scoring.min_soc_kwh,
     )
     hourly_regret = hourly_regret_breakdown(
         timestamps=timestamps,
