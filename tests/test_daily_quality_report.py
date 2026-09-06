@@ -328,6 +328,77 @@ class TestComputeDailyQualityReportRealScore(unittest.TestCase):
             self.assertIsNone(solver_writer.compute_daily_quality_report(cfg, NOW))
 
 
+class TestSocDiscrepancyStats(unittest.TestCase):
+    """nimbus issue #427 (Mark Purcell): the achieved (J_ach) trajectory's
+    SoC is *integrated* from real battery-power history through the
+    round-trip efficiency model, never read from the real SoC sensor --
+    a real, sometimes large, source of divergence from ground truth that
+    compounds over a scored day (drift, calibration error, sensor faults
+    all show up here but nowhere else, since j_ach_hourly's own soc_pct
+    is the integrated value, not a measurement). Proves
+    soc_discrepancy_max_pct/soc_discrepancy_mean_pct genuinely reflect a
+    real, hand-computable divergence between the two -- not just always
+    None or 0.
+    """
+
+    def _fetch_side_effect(self, entity_id, start, end):
+        if entity_id == "sensor.real_solar":
+            return _flat_history(0.0, YESTERDAY_START, YESTERDAY_END)
+        if entity_id == "sensor.real_load":
+            return _flat_history(2.0, YESTERDAY_START, YESTERDAY_END)
+        if entity_id == "sensor.real_battery":
+            # Battery never touched -- the achieved trajectory's own
+            # integrated SoC stays exactly flat at its initial value
+            # (50%) for the whole day, a known, exact baseline to
+            # diverge the real sensor reading away from below.
+            return _flat_history(0.0, YESTERDAY_START, YESTERDAY_END)
+        if entity_id == "sensor.import_price":
+            return _price_history(YESTERDAY_START)
+        if entity_id == "sensor.export_price":
+            return _price_history(YESTERDAY_START, cheap=0.02, expensive=0.10)
+        if entity_id == "sensor.real_soc":
+            # Real recorder SoC drifting away from the flat 50% the
+            # achieved trajectory stays pinned to (h=0 -> 50%, +2 real
+            # percentage points per hour) -- a deliberate, exactly
+            # hand-computable divergence: max gap 46.0pp at h=23, mean
+            # gap 23.0pp across the 24 hourly buckets (mean of the
+            # arithmetic sequence 0, 2, 4, ..., 46).
+            return [
+                (YESTERDAY_START + timedelta(hours=h), 50.0 + 2.0 * h)
+                for h in range(24)
+            ]
+        return []
+
+    def test_real_soc_divergence_is_captured(self):
+        cfg = _cfg(solver_battery_soc_sensor="sensor.real_soc")
+        with patch.object(
+            solver_writer,
+            "fetch_entity_history_range",
+            side_effect=self._fetch_side_effect,
+        ):
+            report = solver_writer.compute_daily_quality_report(cfg, NOW)
+        self.assertIsNotNone(report)
+        self.assertIn("soc_discrepancy_max_pct", report)
+        self.assertIn("soc_discrepancy_mean_pct", report)
+        self.assertAlmostEqual(report["soc_discrepancy_max_pct"], 46.0, places=2)
+        self.assertAlmostEqual(report["soc_discrepancy_mean_pct"], 23.0, places=2)
+
+    def test_no_soc_sensor_configured_returns_none_not_zero(self):
+        # cfg's solver_battery_soc_sensor is unset (matches every other
+        # test in this file) -- soc_hist is genuinely empty, so both new
+        # fields must honestly report None, never a fabricated 0.0.
+        cfg = _cfg()
+        with patch.object(
+            solver_writer,
+            "fetch_entity_history_range",
+            side_effect=self._fetch_side_effect,
+        ):
+            report = solver_writer.compute_daily_quality_report(cfg, NOW)
+        self.assertIsNotNone(report)
+        self.assertIsNone(report["soc_discrepancy_max_pct"])
+        self.assertIsNone(report["soc_discrepancy_mean_pct"])
+
+
 class TestSettlementHook(unittest.TestCase):
     def _fetch_side_effect(self, entity_id, start, end):
         if entity_id == "sensor.real_solar":

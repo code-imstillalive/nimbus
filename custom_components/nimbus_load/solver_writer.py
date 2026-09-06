@@ -4644,6 +4644,52 @@ def _compute_report_for_window(
         "j_ref_hourly": report.j_ref_hourly,
         "j_ach_hourly": report.j_ach_hourly,
         "j_star_hourly": report.j_star_hourly,
+        **_soc_discrepancy_stats(soc_hist, report.j_ach_hourly),
+    }
+
+
+def _soc_discrepancy_stats(
+    soc_hist: list[tuple[datetime, float]], j_ach_hourly: dict[str, dict[str, float]]
+) -> dict[str, float | None]:
+    """nimbus issue #427 (Mark Purcell): the achieved trajectory's own
+    SoC is *integrated* from real battery-power history through the
+    efficiency model (see compute_quality_report()'s own j_ach_soc_kwh
+    construction), not read directly from the real SoC sensor -- any
+    sensor gap, sampling drop, or efficiency-model mismatch compounds
+    over the scored window. Mark's own report measured this directly on
+    a real day (max 22.5 points, mean 6.9 points) and suggested exposing
+    it as a real diagnostic rather than something only visible via a
+    manual report run.
+
+    soc_hist (the real recorder history, already fetched by this
+    function's own caller for initial_pct/final_pct above -- reused
+    here, not re-fetched) is resampled at the SAME hourly timestamps
+    j_ach_hourly is already keyed by (report.j_ach_hourly's own keys,
+    'day_start + h hours' ISO strings -- see quality_report.py's
+    _hourly_means_by_key() docstring), so every comparison point is
+    genuinely the same real hour on both sides, not a separate
+    resampling with its own chance to disagree on alignment.
+
+    Returns None for both stats when soc_hist is empty (no SoC sensor
+    configured, or no history at all for the window) -- an honest
+    absence, not a fabricated 0.0 that would misleadingly read as
+    "perfect agreement".
+    """
+    if not soc_hist or not j_ach_hourly:
+        return {"soc_discrepancy_max_pct": None, "soc_discrepancy_mean_pct": None}
+    gaps: list[float] = []
+    for key_str, row in j_ach_hourly.items():
+        ach_pct = row.get("soc_pct")
+        if ach_pct is None:
+            continue
+        hour_dt = datetime.fromisoformat(key_str)
+        real_pct = resample_history_nearest(soc_hist, [hour_dt])[0]
+        gaps.append(abs(real_pct - ach_pct))
+    if not gaps:
+        return {"soc_discrepancy_max_pct": None, "soc_discrepancy_mean_pct": None}
+    return {
+        "soc_discrepancy_max_pct": round(max(gaps), 2),
+        "soc_discrepancy_mean_pct": round(sum(gaps) / len(gaps), 2),
     }
 
 
