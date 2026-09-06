@@ -127,3 +127,11 @@ Sections whose data is absent are simply not rendered, so a day-ahead-only repor
   trajectory is integrated from the battery-power sensor rather than read from the SoC sensor.
   Both can make the regret look larger, or land in the wrong hours. Check the recorder before
   attributing regret to a decision.
+
+## Time zone rule (standing, per Mark, 2026-09-06)
+
+Every timestamp shown to the reader — in the chat reply, the report page, and any GitHub
+issue or comment — is local time for the install (Australia/Brisbane, AEST, UTC+10, no
+daylight saving; read it from the diagnostics `home_assistant.timezone` rather than
+assuming). Never lead with UTC. When quoting raw machine output that carries UTC
+timestamps, keep it verbatim and put the AEST equivalent beside it.
