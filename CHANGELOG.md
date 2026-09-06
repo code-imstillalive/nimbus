@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.129] — 2026-09-06
+
+### Fixed
+- **EPR/regret scoring was inconsistent between different views of the same day.** Closes the EPR-consistency issue raised by Mark Purcell ("EPR is inconsistent between charts and isn't being calculated correctly" — his install showed a genuinely negative EPR). Root cause: `compute_quality_report()` credited leftover end-of-day battery SoC using a forward-looking $/kWh valuation (`salvage_value`/`headroom_value`/`terminal_value_breakpoints`) when scoring the reference/achieved/oracle trajectories used for EPR and regret — a forward guess about tomorrow's own prices this scorer has no honest basis for making, since tomorrow's own report already values that same carried-over energy using tomorrow's own real starting SoC. This exact distortion was already found and fixed once (2026-08-29) in a sibling standalone script's own local battery config, but never in this shared `compute_quality_report()` that every dashboard card and the built-in daily writer both call into — so the two could legitimately disagree on the same real day. Fixed at the root: terminal-value credit is now zeroed for every trajectory scored inside `compute_quality_report()` itself, so every caller (built-in daily writer, on-demand service, any dashboard card) now agrees.
+
 ## [0.94.128] — 2026-09-06
 
 ### Fixed
