@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 350" width="900" height="350">
+<style>
+text{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;fill:#1b1f24}
+.h{font-size:15px;font-weight:700}
+.ttl{font-size:13px;font-weight:600}
+.lbl{font-size:11px}
+.sm{font-size:10px;fill:#57606a}
+.tick{font-size:10px;fill:#57606a}
+.gl{stroke:#e8ebef;stroke-width:1}
+.box{fill:#f6f8fa;stroke:#8c959f;stroke-width:1;rx:6}
+.box2{fill:#ffffff;stroke:#8c959f;stroke-width:1;rx:6}
+.arr{stroke:#57606a;stroke-width:1.4;fill:none;marker-end:url(#m)}
+.arr2{stroke:#d1226b;stroke-width:1.4;fill:none;marker-end:url(#m2);stroke-dasharray:4 3}
+</style>
+<defs>
+<marker id="m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#57606a"/></marker>
+<marker id="m2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#d1226b"/></marker>
+</defs>
+<rect x="0" y="0" width="900" height="350" fill="#ffffff"/><text x="16" y="22" class="h">Use case: run only when it is actually cheap at the switchboard (miner, pool pump, any price-gated load)</text><text x="60" y="44" class="ttl">Grid import price vs the switchboard shadow price λ(t) (¢/kWh)</text>
+<line x1="60" x2="880" y1="202.0" y2="202.0" class="gl"/>
+<text x="54" y="206.0" text-anchor="end" class="tick">0¢</text>
+<line x1="60" x2="880" y1="164.5" y2="164.5" class="gl"/>
+<text x="54" y="168.5" text-anchor="end" class="tick">10¢</text>
+<line x1="60" x2="880" y1="127.0" y2="127.0" class="gl"/>
+<text x="54" y="131.0" text-anchor="end" class="tick">20¢</text>
+<line x1="60" x2="880" y1="89.5" y2="89.5" class="gl"/>
+<text x="54" y="93.5" text-anchor="end" class="tick">30¢</text>
+<line x1="60" x2="880" y1="52.0" y2="52.0" class="gl"/>
+<text x="54" y="56.0" text-anchor="end" class="tick">40¢</text>
+<rect x="291.7" y="52" width="35.7" height="150" fill="#d1226b" opacity="0.08"/>
+<rect x="327.4" y="52" width="35.7" height="150" fill="#d1226b" opacity="0.08"/>
+<rect x="363.0" y="52" width="35.7" height="150" fill="#d1226b" opacity="0.08"/>
+<rect x="398.7" y="52" width="35.7" height="150" fill="#d1226b" opacity="0.08"/>
+<rect x="434.3" y="52" width="35.7" height="150" fill="#d1226b" opacity="0.08"/>
+<rect x="470.0" y="52" width="35.7" height="150" fill="#d1226b" opacity="0.08"/>
+<rect x="505.7" y="52" width="35.7" height="150" fill="#d1226b" opacity="0.08"/>
+<rect x="541.3" y="52" width="35.7" height="150" fill="#d1226b" opacity="0.08"/>
+<rect x="577.0" y="52" width="35.7" height="150" fill="#d1226b" opacity="0.08"/>
+<path d="M 60.0 134.5 L 95.7 138.2 L 131.3 142.0 L 167.0 142.0 L 202.6 138.2 L 238.3 130.8 L 273.9 123.2 L 309.6 149.5 L 345.2 164.5 L 380.9 168.2 L 416.5 172.0 L 452.2 179.5 L 487.8 183.2 L 523.5 183.2 L 559.1 179.5 L 594.8 172.0 L 630.4 97.0 L 666.1 67.0 L 701.7 67.0 L 737.4 70.8 L 773.0 78.2 L 808.7 104.5 L 844.3 123.2 L 880.0 130.8" fill="none" stroke="#e8890c" stroke-width="2"/>
+<path d="M 60.0 172.0 L 95.7 172.0 L 131.3 172.0 L 167.0 172.0 L 202.6 172.0 L 238.3 168.2 L 273.9 164.5 L 309.6 179.5 L 345.2 194.5 L 380.9 200.1 L 416.5 201.2 L 452.2 201.2 L 487.8 201.2 L 523.5 201.2 L 559.1 200.9 L 594.8 194.5 L 630.4 168.2 L 666.1 168.2 L 701.7 168.2 L 737.4 168.2 L 773.0 168.2 L 808.7 172.0 L 844.3 172.0 L 880.0 172.0" fill="none" stroke="#2f6fdb" stroke-width="2.4"/>
+<line x1="60" x2="880" y1="175.8" y2="175.8" stroke="#d1226b" stroke-width="1.2" stroke-dasharray="5 3"/>
+<text x="66" y="188.8" text-anchor="start" class="sm" fill="#d1226b">miner value_per_kwh = 7¢ (from a hashprice entity)</text>
+<rect x="60" y="58" width="10" height="10" fill="#e8890c"/><text x="74" y="67" class="tick">grid import price</text>
+<rect x="180" y="58" width="10" height="10" fill="#2f6fdb"/><text x="194" y="67" class="tick">switchboard λ(t) = dual of power_balance_t</text>
+<text x="452.2" y="89.5" text-anchor="middle" class="lbl" fill="#2f6fdb">λ≈0: PV surplus would be curtailed — free at the switchboard</text>
+<text x="452.2" y="102.5" text-anchor="middle" class="lbl" fill="#2f6fdb">even though the grid says 5–8¢</text>
+<path d="M 452.2 107.5 L 452.2 195.2" class="arr"/>
+<text x="876.0" y="146.2" text-anchor="end" class="lbl" fill="#2f6fdb">λ≈9¢ overnight: battery discharge value, not the 36¢ grid price</text>
+<text x="60" y="226" class="ttl">Miner runs exactly where λ(t) ≤ value_per_kwh — an LP optimality condition, not a threshold rule</text>
+<line x1="60" x2="880" y1="284.0" y2="284.0" class="gl"/>
+<text x="54" y="288.0" text-anchor="end" class="tick">0 kW</text>
+<line x1="60" x2="880" y1="234.0" y2="234.0" class="gl"/>
+<text x="54" y="238.0" text-anchor="end" class="tick">2 kW</text>
+<rect x="297.1" y="234.0" width="25.0" height="50" fill="#d1226b"/>
+<rect x="332.7" y="234.0" width="25.0" height="50" fill="#d1226b"/>
+<rect x="368.4" y="234.0" width="25.0" height="50" fill="#d1226b"/>
+<rect x="404.0" y="234.0" width="25.0" height="50" fill="#d1226b"/>
+<rect x="439.7" y="234.0" width="25.0" height="50" fill="#d1226b"/>
+<rect x="475.3" y="234.0" width="25.0" height="50" fill="#d1226b"/>
+<rect x="511.0" y="234.0" width="25.0" height="50" fill="#d1226b"/>
+<rect x="546.7" y="234.0" width="25.0" height="50" fill="#d1226b"/>
+<rect x="582.3" y="234.0" width="25.0" height="50" fill="#d1226b"/>
+<text x="60.0" y="302" text-anchor="middle" class="tick">00:00</text>
+<text x="167.0" y="302" text-anchor="middle" class="tick">03:00</text>
+<text x="273.9" y="302" text-anchor="middle" class="tick">06:00</text>
+<text x="380.9" y="302" text-anchor="middle" class="tick">09:00</text>
+<text x="487.8" y="302" text-anchor="middle" class="tick">12:00</text>
+<text x="594.8" y="302" text-anchor="middle" class="tick">15:00</text>
+<text x="701.7" y="302" text-anchor="middle" class="tick">18:00</text>
+<text x="808.7" y="302" text-anchor="middle" class="tick">21:00</text>
+<text x="60" y="324" class="sm">A grid-price rule (run when import &lt; 7¢) would run 11:00–15:00 only. The shadow-price rule also runs 07:00–10:00, when PV would otherwise be curtailed —</text>
+<text x="60" y="337" class="sm">and it would run at night if a full battery had nothing better to do with its energy. Same knob, no rule to maintain: the LP decides from λ(t).</text></svg>

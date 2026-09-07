@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 426" width="900" height="426">
+<style>
+text{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;fill:#1b1f24}
+.h{font-size:15px;font-weight:700}
+.ttl{font-size:13px;font-weight:600}
+.lbl{font-size:11px}
+.sm{font-size:10px;fill:#57606a}
+.tick{font-size:10px;fill:#57606a}
+.gl{stroke:#e8ebef;stroke-width:1}
+.box{fill:#f6f8fa;stroke:#8c959f;stroke-width:1;rx:6}
+.box2{fill:#ffffff;stroke:#8c959f;stroke-width:1;rx:6}
+.arr{stroke:#57606a;stroke-width:1.4;fill:none;marker-end:url(#m)}
+.arr2{stroke:#d1226b;stroke-width:1.4;fill:none;marker-end:url(#m2);stroke-dasharray:4 3}
+</style>
+<defs>
+<marker id="m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#57606a"/></marker>
+<marker id="m2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#d1226b"/></marker>
+</defs>
+<rect x="0" y="0" width="900" height="426" fill="#ffffff"/><text x="16" y="22" class="h">Controllable loads in Nimbus — classes, the LP, and what comes back out</text><rect x="16" y="44" width="166" height="100" class="box"/>
+<text x="26" y="62" class="ttl" fill="#8c959f">Fixed load</text>
+<text x="26" y="78" class="sm">forecast_kw (must serve)</text>
+<text x="26" y="91" class="sm">already: LoadConfig</text>
+<text x="26" y="104" class="sm">no decisions</text>
+<path d="M99 144 L99 178" class="arr"/>
+<rect x="190" y="44" width="166" height="100" class="box"/>
+<text x="200" y="62" class="ttl" fill="#e8890c">Sheddable</text>
+<text x="200" y="78" class="sm">forecast_kw, shed_cost $/kWh</text>
+<text x="200" y="91" class="sm">min_fraction</text>
+<text x="200" y="104" class="sm">already: SheddableLoadConfig</text>
+<path d="M273 144 L273 178" class="arr"/>
+<rect x="364" y="44" width="166" height="100" class="box"/>
+<text x="374" y="62" class="ttl" fill="#2f6fdb">Deferrable / quota</text>
+<text x="374" y="78" class="sm">target_kwh by deadline</text>
+<text x="374" y="91" class="sm">window, min_run, max_gap</text>
+<text x="374" y="104" class="sm">quota + rollover (pool pump)</text>
+<text x="374" y="117" class="sm">already: AdequacyLoadConfig</text>
+<text x="374" y="130" class="sm">(hard today → soft shortfall)</text>
+<path d="M447 144 L447 178" class="arr"/>
+<rect x="538" y="44" width="166" height="100" class="box"/>
+<text x="548" y="62" class="ttl" fill="#2a9d5c">Thermal-state</text>
+<text x="548" y="78" class="sm">temp state + loss/gain model</text>
+<text x="548" y="91" class="sm">comfort windows (2pm swim)</text>
+<text x="548" y="104" class="sm">pre-cool on hot days</text>
+<text x="548" y="117" class="sm">done-sensor early release</text>
+<text x="548" y="130" class="sm">new</text>
+<path d="M621 144 L621 178" class="arr"/>
+<rect x="712" y="44" width="166" height="100" class="box"/>
+<text x="722" y="62" class="ttl" fill="#d1226b">Price-gated</text>
+<text x="722" y="78" class="sm">value_per_kwh (fixed or entity)</text>
+<text x="722" y="91" class="sm">runs iff switchboard λ ≤ value</text>
+<text x="722" y="104" class="sm">miner: hashprice → $/kWh</text>
+<text x="722" y="117" class="sm">new</text>
+<path d="M795 144 L795 178" class="arr"/>
+<rect x="16" y="180" width="868" height="84" class="box"/>
+<text x="26" y="198" class="ttl" fill="#1b1f24">Solver LP (network.py build_plan) — one power balance per period</text>
+<text x="26" y="214" class="sm">solar_used + Σ discharge + grid_import  =  load_fixed + Σ served_sheddable + Σ deferrable_kw + Σ thermal_kw + Σ gated_kw + Σ charge + grid_export</text>
+<text x="26" y="227" class="sm">each load class adds its own variables + constraints; opt-in binaries (min-run / contiguity) via lp.py's existing MIP path, off by default</text>
+<text x="26" y="240" class="sm">dual of power_balance_t  =  λ(t), the real switchboard marginal price  (already published: energy_shadow_price_now)</text>
+<path d="M116 264 L116 292" class="arr"/>
+<rect x="16" y="294" width="205" height="76" class="box2"/>
+<text x="26" y="312" class="ttl" fill="#2f6fdb">Per-device schedule</text>
+<text x="26" y="328" class="sm">kW per period per load</text>
+<text x="26" y="341" class="sm">→ automation / switch</text>
+<path d="M337 264 L337 292" class="arr"/>
+<rect x="237" y="294" width="205" height="76" class="box2"/>
+<text x="247" y="312" class="ttl" fill="#d1226b">Shadow costing</text>
+<text x="247" y="328" class="sm">cost(load) = Σ λ(t)·kW(t)·dt</text>
+<text x="247" y="341" class="sm">what THIS device cost, not</text>
+<text x="247" y="354" class="sm">the grid tariff</text>
+<path d="M558 264 L558 292" class="arr"/>
+<rect x="458" y="294" width="205" height="76" class="box2"/>
+<text x="468" y="312" class="ttl" fill="#2a9d5c">Monitoring</text>
+<text x="468" y="328" class="sm">actual kW vs scheduled kW</text>
+<text x="468" y="341" class="sm">tracking fidelity per device</text>
+<text x="468" y="354" class="sm">done / temp sensor feedback</text>
+<path d="M779 264 L779 292" class="arr"/>
+<rect x="679" y="294" width="205" height="76" class="box2"/>
+<text x="689" y="312" class="ttl" fill="#c9a400">Household mode</text>
+<text x="689" y="328" class="sm">home / away / guests / economy</text>
+<text x="689" y="341" class="sm">swaps windows, quotas,</text>
+<text x="689" y="354" class="sm">comfort bands, values</text>
+<path d="M 560 370 C 560 398, 300 398, 300 372" class="arr2"/>
+<text x="430" y="414" text-anchor="middle" class="sm" fill="#d1226b">feedback: early completion / measured state → next solve (5-min cadence)</text></svg>

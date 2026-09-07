@@ -1,0 +1,64 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 418" width="900" height="418">
+<style>
+text{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;fill:#1b1f24}
+.h{font-size:15px;font-weight:700}
+.ttl{font-size:13px;font-weight:600}
+.lbl{font-size:11px}
+.sm{font-size:10px;fill:#57606a}
+.tick{font-size:10px;fill:#57606a}
+.gl{stroke:#e8ebef;stroke-width:1}
+.box{fill:#f6f8fa;stroke:#8c959f;stroke-width:1;rx:6}
+.box2{fill:#ffffff;stroke:#8c959f;stroke-width:1;rx:6}
+.arr{stroke:#57606a;stroke-width:1.4;fill:none;marker-end:url(#m)}
+.arr2{stroke:#d1226b;stroke-width:1.4;fill:none;marker-end:url(#m2);stroke-dasharray:4 3}
+</style>
+<defs>
+<marker id="m" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#57606a"/></marker>
+<marker id="m2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#d1226b"/></marker>
+</defs>
+<rect x="0" y="0" width="900" height="418" fill="#ffffff"/><text x="16" y="22" class="h">Use case: hot water scheduled for 3 h, reaches temperature after 2 h</text><text x="60" y="44" class="ttl">Import price (¢/kWh) — the cheap window is 11:00–15:00</text>
+<line x1="60" x2="880" y1="142.0" y2="142.0" class="gl"/>
+<text x="54" y="146.0" text-anchor="end" class="tick">0¢</text>
+<line x1="60" x2="880" y1="97.0" y2="97.0" class="gl"/>
+<text x="54" y="101.0" text-anchor="end" class="tick">20¢</text>
+<line x1="60" x2="880" y1="52.0" y2="52.0" class="gl"/>
+<text x="54" y="56.0" text-anchor="end" class="tick">40¢</text>
+<path d="M 60.0 103.8 L 95.7 106.0 L 131.3 108.2 L 167.0 108.2 L 202.6 106.0 L 238.3 101.5 L 273.9 99.2 L 309.6 115.0 L 345.2 121.8 L 380.9 121.8 L 416.5 124.0 L 452.2 133.0 L 487.8 135.2 L 523.5 135.2 L 559.1 133.0 L 594.8 128.5 L 630.4 85.8 L 666.1 65.5 L 701.7 65.5 L 737.4 65.5 L 773.0 65.5 L 808.7 88.0 L 844.3 99.2 L 880.0 101.5" fill="none" stroke="#e8890c" stroke-width="2"/>
+<text x="60" y="172" class="ttl">Hot water element (kW): scheduled 3 h, needed 2 h</text>
+<line x1="60" x2="880" y1="260.0" y2="260.0" class="gl"/>
+<text x="54" y="264.0" text-anchor="end" class="tick">0</text>
+<line x1="60" x2="880" y1="220.0" y2="220.0" class="gl"/>
+<text x="54" y="224.0" text-anchor="end" class="tick">2</text>
+<line x1="60" x2="880" y1="180.0" y2="180.0" class="gl"/>
+<text x="54" y="184.0" text-anchor="end" class="tick">4</text>
+<rect x="439.7" y="188.0" width="25.0" height="72.0" fill="#2f6fdb" opacity="0.25" stroke="#2f6fdb" stroke-dasharray="3 2"/>
+<rect x="439.7" y="188.0" width="25.0" height="72.0" fill="#2f6fdb"/>
+<rect x="475.3" y="188.0" width="25.0" height="72.0" fill="#2f6fdb" opacity="0.25" stroke="#2f6fdb" stroke-dasharray="3 2"/>
+<rect x="475.3" y="188.0" width="25.0" height="72.0" fill="#2f6fdb"/>
+<rect x="511.0" y="188.0" width="25.0" height="72.0" fill="#2f6fdb" opacity="0.25" stroke="#2f6fdb" stroke-dasharray="3 2"/>
+<rect x="60" y="178" width="10" height="10" fill="#2f6fdb"/><text x="74" y="187" class="tick">actual</text>
+<rect x="124" y="178" width="10" height="10" fill="#2f6fdb" opacity="0.25" stroke="#2f6fdb"/><text x="138" y="187" class="tick">scheduled</text>
+<path d="M 561.1 212.0 L 539.0 212.0" class="arr2"/>
+<text x="565.1" y="196.0" class="lbl" fill="#d1226b">13:00 slot released: setpoint hit at 13:00, the done-sensor</text>
+<text x="565.1" y="209.0" class="lbl" fill="#d1226b">feeds the next 5-min solve, which drops the third hour</text>
+<text x="565.1" y="222.0" class="lbl" fill="#d1226b">(3.6 kWh at 3¢ not bought; the 17:00 deadline is still met)</text>
+<text x="60" y="292" class="ttl">Tank temperature (°C) with setpoint 60 °C and a "ready by 17:00" deadline</text>
+<line x1="60" x2="880" y1="375.0" y2="375.0" class="gl"/>
+<text x="54" y="379.0" text-anchor="end" class="tick">40°</text>
+<line x1="60" x2="880" y1="345.0" y2="345.0" class="gl"/>
+<text x="54" y="349.0" text-anchor="end" class="tick">50°</text>
+<line x1="60" x2="880" y1="315.0" y2="315.0" class="gl"/>
+<text x="54" y="319.0" text-anchor="end" class="tick">60°</text>
+<path d="M 60.0 339.0 L 95.7 342.0 L 131.3 345.0 L 167.0 348.0 L 202.6 351.0 L 238.3 354.0 L 273.9 357.0 L 309.6 360.0 L 345.2 363.0 L 380.9 366.0 L 416.5 369.0 L 452.2 372.0 L 487.8 345.0 L 523.5 315.0 L 559.1 315.0 L 594.8 318.0 L 630.4 321.0 L 666.1 324.0 L 701.7 327.0 L 737.4 330.0 L 773.0 333.0 L 808.7 336.0 L 844.3 339.0 L 880.0 342.0" fill="none" stroke="#2a9d5c" stroke-width="2"/>
+<line x1="60" x2="880" y1="315.0" y2="315.0" stroke="#d1226b" stroke-width="1" stroke-dasharray="4 3"/>
+<text x="876" y="311.0" text-anchor="end" class="sm" fill="#d1226b">setpoint</text>
+<line x1="666.1" x2="666.1" y1="300" y2="390" stroke="#8c959f" stroke-dasharray="4 3"/>
+<text x="670.1" y="312" class="sm">deadline 17:00</text>
+<text x="60.0" y="406" text-anchor="middle" class="tick">00:00</text>
+<text x="167.0" y="406" text-anchor="middle" class="tick">03:00</text>
+<text x="273.9" y="406" text-anchor="middle" class="tick">06:00</text>
+<text x="380.9" y="406" text-anchor="middle" class="tick">09:00</text>
+<text x="487.8" y="406" text-anchor="middle" class="tick">12:00</text>
+<text x="594.8" y="406" text-anchor="middle" class="tick">15:00</text>
+<text x="701.7" y="406" text-anchor="middle" class="tick">18:00</text>
+<text x="808.7" y="406" text-anchor="middle" class="tick">21:00</text></svg>
