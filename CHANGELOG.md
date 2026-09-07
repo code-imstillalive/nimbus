@@ -6,7 +6,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
-## [0.94.162] — 2026-09-07
+## [0.94.163] — 2026-09-07
 
 ### Changed
 - **Compact forecast-table format redesigned to match the trader-view target sample.** Follow-up on [#459](https://github.com/code-imstillalive/nimbus/issues/459) after Mark Purcell shared a target render. Whole-integer rounding introduced in v0.94.161 is reverted; one-decimal precision is preserved everywhere (`36.2`, `-0.1`, `3.3`). The compact `@container` block now hides four columns entirely (source, fees, p2p, net) leaving eight: TIME, BUY`¢`, SELL`¢`, LOAD kW, PV kW, BATT kW, GRID kW, SOC%. Column headers use two-line stacked spans (`.hdr-name` + `.hdr-unit`) so the name sits above the unit, matching the target sample. Table switches to `table-layout: auto` at 100% width so the browser sizes columns to their content; numerics right-align inside cells with visible vertical rules between columns. Compact-only colour: buy red (`#e04a3f`), sell green (`#3ddc84`), and a trader-convention grid colour (positive = import = green, negative = export = red) that overrides the wide-format solver-perspective colour. Wide-card rendering is unchanged.
@@ -17,6 +17,14 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ### Verified
 - Real Chromium headless render at 350px card width shows the target layout: two-line stacked headers, buy red, sell green, grid coloured by sign, NOW badge on the current-period row, no column collision. Wide render at 1900px dashboard (table-col 605px) is byte-identical to v0.94.158 output.
+
+## [0.94.162] — 2026-09-07
+
+### Changed
+- **Topology card renamed to `nimbus-topology-card`** (was `switchboard-topology-card`), picker name "Nimbus Topology" (was "Topology Card") — nimbus issue #519 (Mark Purcell): neither the old type nor the old picker name said "Nimbus", so it wasn't findable by searching the card picker for "nimbus" the way the other two shipped cards are. The old `custom:switchboard-topology-card` tag is kept registered as a back-compat alias for one or two releases, so an existing dashboard's config keeps rendering unchanged.
+- **`docs/dashboards.md` and the README now document the topology card** (type, auto-discovery, minimal example config) — previously undocumented since it shipped in #364.
+- Fixed seven stale `topology-card-v4.js` code-comment references (the household's pre-bundling `www/` copy name) to the real bundled filename.
+- Extended `tests/hass_integration/test_frontend_cards_registered.py` to assert every shipped card's picker `type` starts with `nimbus-` and its `name` mentions Nimbus, so this can't silently drift again.
 
 ## [0.94.161] — 2026-09-07
 
