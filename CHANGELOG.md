@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.156] — 2026-09-07
+
+### Removed
+- **SOURCE column removed from the dispatch-card forecast table.** Household decision after repeated layout trouble (squished, dead space, still not narrow enough after multiple tightening passes) with no visible improvement from the most recent fixes — removed rather than continue narrowing it. The underlying `dispatch_source_a/b_pct` data is still published by the Solver, just not rendered as its own column.
+
 ## [0.94.155] — 2026-09-07
 
 ### Fixed
