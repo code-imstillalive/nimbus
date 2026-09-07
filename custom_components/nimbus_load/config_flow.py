@@ -31,12 +31,16 @@ from homeassistant.core import callback
 from .const import (
     DOMAIN,
     SUBENTRY_TYPE_BATTERY_TOWER,
+    SUBENTRY_TYPE_CONTROLLABLE_LOAD,
     SUBENTRY_TYPE_LOAD,
     SUBENTRY_TYPE_POWER_SOURCE,
     SUBENTRY_TYPE_PV_STRING,
     SUBENTRY_TYPE_SIGNAL,
 )
 from .flows.battery_tower_subentry import NimbusBatteryTowerSubentryFlowHandler
+from .flows.controllable_load_subentry import (
+    NimbusControllableLoadSubentryFlowHandler,
+)
 from .flows.hub_options import NimbusHubOptionsFlow
 from .flows.load_subentry import NimbusLoadSubentryFlowHandler
 from .flows.power_source_subentry import NimbusPowerSourceSubentryFlowHandler
@@ -118,6 +122,7 @@ class NimbusConfigFlow(ConfigFlow, domain=DOMAIN):
             SUBENTRY_TYPE_POWER_SOURCE: NimbusPowerSourceSubentryFlowHandler,
             SUBENTRY_TYPE_PV_STRING: NimbusPvStringSubentryFlowHandler,
             SUBENTRY_TYPE_BATTERY_TOWER: NimbusBatteryTowerSubentryFlowHandler,
+            SUBENTRY_TYPE_CONTROLLABLE_LOAD: NimbusControllableLoadSubentryFlowHandler,
         }
 
     @staticmethod

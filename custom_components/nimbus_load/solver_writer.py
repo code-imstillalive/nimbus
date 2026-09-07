@@ -6624,6 +6624,225 @@ def publish_plan(
     )
 
 
+def _resolve_hour_to_period_index(
+    grid_times: list[datetime], now: datetime, hour: float, *, is_deadline: bool
+) -> int:
+    """nimbus issue #486: a controllable-load wizard field is a plain
+    24hr-decimal "hour of day" (e.g. 6.0 = 6am) -- AdequacyLoadConfig
+    needs a real PERIOD INDEX into this cycle's own tiered grid instead.
+    Resolves "the next real occurrence of this hour from `now`" against
+    grid_times (build_tiered_grid()'s own real, boundary-snapped period
+    start times) -- e.g. asked for 6.0 at 22:00 today resolves to 6am
+    TOMORROW, not a nonsensical negative offset into the past.
+
+    is_deadline=True (CONF_DEFERRABLE_DEADLINE_HOUR): returns the LAST
+    period index whose own start time is still <= the target instant --
+    the period containing the actual deadline moment, matching
+    AdequacyLoadConfig's own "deadline_period is inclusive, cumulative
+    energy through this period must reach target_kwh" contract.
+    is_deadline=False (CONF_DEFERRABLE_EARLIEST_HOUR): returns the FIRST
+    period index whose own start time is >= the target instant -- the
+    first period this load is allowed to draw any power at all.
+
+    Clamped to [0, len(grid_times)-1] -- a target more than 96h out (the
+    grid's own real horizon) still resolves to a real, usable index
+    rather than an out-of-range one build_plan() would reject.
+    """
+    target = now.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(
+        hours=hour
+    )
+    if target < now:
+        target += timedelta(days=1)
+    n = len(grid_times)
+    if is_deadline:
+        idx = 0
+        for i, t in enumerate(grid_times):
+            if t <= target:
+                idx = i
+            else:
+                break
+        return idx
+    for i, t in enumerate(grid_times):
+        if t >= target:
+            return i
+    return n - 1
+
+
+def build_controllable_loads(
+    now: datetime, grid_times: list[datetime], n_periods: int
+) -> tuple[list, list]:
+    """nimbus issue #486: builds SheddableLoadConfig/AdequacyLoadConfig
+    lists from this hub's own `controllable_load` subentries, for
+    build_plan()'s own sheddable_loads=/adequacy_loads= arguments --
+    before this function existed, both were always empty (hardcoded),
+    and neither LP class (despite existing since #229/#16) had ever
+    actually run on a live install.
+
+    Native/in-process mode ONLY (returns ([], []) unconditionally when
+    _NATIVE_HASS is None, i.e. the standalone/cron deployment) --
+    ConfigSubentries are a real HA config_entries object, not something
+    exposed over this module's own plain-REST ha_get()/ha_post_state()
+    seam the standalone path uses, and Mark's own #486 spec doesn't ask
+    for a standalone controllable-load config path either. Imported
+    locally (not at module top) so this module's own standalone-mode
+    import path (see this file's own top-of-file try/except) never has
+    to resolve `.const` at all -- it's only ever needed here, and only
+    ever reached once _NATIVE_HASS is already known to be set.
+    """
+    if _NATIVE_HASS is None:
+        return [], []
+    # Same relative-then-absolute fallback as this file's own top-of-file
+    # import block -- solver_writer.py can be imported either as part of
+    # the real `custom_components.nimbus_load` package (native mode,
+    # relative import resolves) or as a bare top-level module (this
+    # project's own stub-based test harness, and the standalone/cron
+    # deployment -- no parent package, relative import raises
+    # ImportError). _NATIVE_HASS being non-None only ever happens via
+    # native mode's own set_native_hass() in real deployment, but a test
+    # mocking that module-level global directly (as this function's own
+    # tests do, to exercise this path without the full HA test harness)
+    # hits the bare-module case, so both must actually work.
+    try:
+        from .const import (
+            CONF_CONTROLLABLE_LOAD_KIND,
+            CONF_CONTROLLABLE_LOAD_NAME,
+            CONF_DEFERRABLE_DEADLINE_HOUR,
+            CONF_DEFERRABLE_EARLIEST_HOUR,
+            CONF_DEFERRABLE_MAX_POWER_KW,
+            CONF_DEFERRABLE_SHORTFALL_PRICE,
+            CONF_DEFERRABLE_TARGET_KWH,
+            CONF_DEFERRABLE_VALUE_PER_KWH,
+            CONF_SHEDDABLE_MIN_FRACTION,
+            CONF_SHEDDABLE_NOMINAL_KW,
+            CONF_SHEDDABLE_SHED_COST,
+            CONTROLLABLE_LOAD_KIND_DEFERRABLE,
+            CONTROLLABLE_LOAD_KIND_SHEDDABLE,
+            DOMAIN,
+            SUBENTRY_TYPE_CONTROLLABLE_LOAD,
+        )
+    except ImportError:
+        from const import (
+            CONF_CONTROLLABLE_LOAD_KIND,
+            CONF_CONTROLLABLE_LOAD_NAME,
+            CONF_DEFERRABLE_DEADLINE_HOUR,
+            CONF_DEFERRABLE_EARLIEST_HOUR,
+            CONF_DEFERRABLE_MAX_POWER_KW,
+            CONF_DEFERRABLE_SHORTFALL_PRICE,
+            CONF_DEFERRABLE_TARGET_KWH,
+            CONF_DEFERRABLE_VALUE_PER_KWH,
+            CONF_SHEDDABLE_MIN_FRACTION,
+            CONF_SHEDDABLE_NOMINAL_KW,
+            CONF_SHEDDABLE_SHED_COST,
+            CONTROLLABLE_LOAD_KIND_DEFERRABLE,
+            CONTROLLABLE_LOAD_KIND_SHEDDABLE,
+            DOMAIN,
+            SUBENTRY_TYPE_CONTROLLABLE_LOAD,
+        )
+
+    sheddable_loads: list = []
+    adequacy_loads: list = []
+    entries = _NATIVE_HASS.config_entries.async_entries(DOMAIN)
+    if not entries:
+        return [], []
+    for subentry in entries[0].subentries.values():
+        if subentry.subentry_type != SUBENTRY_TYPE_CONTROLLABLE_LOAD:
+            continue
+        data = subentry.data
+        name = data.get(CONF_CONTROLLABLE_LOAD_NAME) or subentry.subentry_id
+        kind = data.get(CONF_CONTROLLABLE_LOAD_KIND)
+        if kind == CONTROLLABLE_LOAD_KIND_SHEDDABLE:
+            nominal_kw = float(data.get(CONF_SHEDDABLE_NOMINAL_KW) or 0.0)
+            if nominal_kw <= 0.0:
+                # Real caller mistake (wizard submitted with the one
+                # field this kind actually needs left blank) -- skip
+                # rather than let elements.SheddableLoadConfig's own
+                # >0 validation crash the whole solve cycle over one
+                # misconfigured subentry.
+                _LOGGER.warning(
+                    "Nimbus: controllable load '%s' (sheddable) has no "
+                    "nominal_kw configured -- skipping this cycle",
+                    name,
+                )
+                continue
+            sheddable_loads.append(
+                elements.SheddableLoadConfig(
+                    name=name,
+                    forecast_kw=np.full(n_periods, nominal_kw),
+                    shed_cost=float(
+                        data.get(CONF_SHEDDABLE_SHED_COST) or elements.DEFAULT_SHED_COST
+                    ),
+                    min_fraction=float(data.get(CONF_SHEDDABLE_MIN_FRACTION) or 0.0),
+                )
+            )
+        elif kind == CONTROLLABLE_LOAD_KIND_DEFERRABLE:
+            max_power_kw = float(data.get(CONF_DEFERRABLE_MAX_POWER_KW) or 0.0)
+            target_kwh = float(data.get(CONF_DEFERRABLE_TARGET_KWH) or 0.0)
+            if max_power_kw <= 0.0 or target_kwh <= 0.0:
+                _LOGGER.warning(
+                    "Nimbus: controllable load '%s' (deferrable) is missing "
+                    "max_power_kw/target_kwh -- skipping this cycle",
+                    name,
+                )
+                continue
+            earliest_hour = data.get(CONF_DEFERRABLE_EARLIEST_HOUR)
+            deadline_hour = data.get(CONF_DEFERRABLE_DEADLINE_HOUR)
+            earliest_period = (
+                _resolve_hour_to_period_index(
+                    grid_times, now, float(earliest_hour), is_deadline=False
+                )
+                if earliest_hour is not None
+                else 0
+            )
+            deadline_period = (
+                _resolve_hour_to_period_index(
+                    grid_times, now, float(deadline_hour), is_deadline=True
+                )
+                if deadline_hour is not None
+                else n_periods - 1
+            )
+            if deadline_period < earliest_period:
+                # A real, live-possible edge: e.g. earliest=22.0 (10pm),
+                # deadline=6.0 (6am) both resolve relative to `now` (see
+                # _resolve_hour_to_period_index's own docstring), and if
+                # `now` is already past today's 6am but before 10pm,
+                # earliest resolves to tonight while deadline resolves to
+                # tomorrow's 6am -- fine. But if `now` is itself between
+                # midnight and 6am, both can resolve to the same day in
+                # the wrong order. Rather than construct an
+                # AdequacyLoadConfig that fails its own __post_init__
+                # ordering check (a real crash), skip this cycle with a
+                # clear reason -- the next cycle's own `now` will very
+                # likely resolve this correctly on its own.
+                _LOGGER.warning(
+                    "Nimbus: controllable load '%s' (deferrable) resolved "
+                    "deadline_period (%d) before earliest_period (%d) for "
+                    "this cycle's own 'now' -- skipping until the window "
+                    "resolves normally",
+                    name,
+                    deadline_period,
+                    earliest_period,
+                )
+                continue
+            value_per_kwh = data.get(CONF_DEFERRABLE_VALUE_PER_KWH)
+            adequacy_loads.append(
+                elements.AdequacyLoadConfig(
+                    name=name,
+                    max_power_kw=max_power_kw,
+                    target_kwh=target_kwh,
+                    deadline_period=deadline_period,
+                    earliest_period=earliest_period,
+                    shortfall_price=float(
+                        data.get(CONF_DEFERRABLE_SHORTFALL_PRICE)
+                        or elements.DEFAULT_ADEQUACY_SHORTFALL_PRICE
+                    ),
+                    value_per_kwh=float(value_per_kwh)
+                    if value_per_kwh is not None
+                    else None,
+                )
+            )
+    return sheddable_loads, adequacy_loads
+
+
 def main() -> None:
     # Fail fast, with a real, actionable message, if the Solver hasn't
     # been configured yet -- see fetch_solver_config()'s own docstring
@@ -8004,12 +8223,22 @@ def main() -> None:
     # burst at byte-identical total_cost, and does NOT smear a genuine,
     # large, real transition (an 80kW price-step scenario, on or off,
     # within $0.07 either way).
+    # nimbus issue #486: real controllable_load subentries (sheddable/
+    # deferrable kinds only -- see build_controllable_loads()'s own
+    # docstring), replacing the two hardcoded empty lists this call used
+    # to pass. Native-mode-only, a real no-op ([], []) in standalone/cron
+    # mode -- see that function's own docstring for why.
+    sheddable_loads, adequacy_loads = build_controllable_loads(
+        now, grid_times, n_periods
+    )
     plan = network.build_plan(
         periods=periods,
         grid=grid,
         battery=battery,
         solar=solar,
         loads=loads,
+        sheddable_loads=sheddable_loads,
+        adequacy_loads=adequacy_loads,
         previous_plan=previous_plan,
         risk_aversion=risk_aversion,
         import_price_risk_aversion=import_price_risk_aversion,

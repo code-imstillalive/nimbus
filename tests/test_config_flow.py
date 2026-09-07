@@ -24,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from custom_components.nimbus_load.config_flow import NimbusConfigFlow
 from custom_components.nimbus_load.const import (
     SUBENTRY_TYPE_BATTERY_TOWER,
+    SUBENTRY_TYPE_CONTROLLABLE_LOAD,
     SUBENTRY_TYPE_LOAD,
     SUBENTRY_TYPE_POWER_SOURCE,
     SUBENTRY_TYPE_PV_STRING,
@@ -31,6 +32,9 @@ from custom_components.nimbus_load.const import (
 )
 from custom_components.nimbus_load.flows.battery_tower_subentry import (
     NimbusBatteryTowerSubentryFlowHandler,
+)
+from custom_components.nimbus_load.flows.controllable_load_subentry import (
+    NimbusControllableLoadSubentryFlowHandler,
 )
 from custom_components.nimbus_load.flows.hub_options import (
     NimbusHubOptionsFlow,
@@ -105,6 +109,7 @@ def test_supported_subentry_types_registers_every_type():
         SUBENTRY_TYPE_POWER_SOURCE: NimbusPowerSourceSubentryFlowHandler,
         SUBENTRY_TYPE_PV_STRING: NimbusPvStringSubentryFlowHandler,
         SUBENTRY_TYPE_BATTERY_TOWER: NimbusBatteryTowerSubentryFlowHandler,
+        SUBENTRY_TYPE_CONTROLLABLE_LOAD: NimbusControllableLoadSubentryFlowHandler,
     }
 
 

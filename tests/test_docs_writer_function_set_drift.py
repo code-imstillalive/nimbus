@@ -111,6 +111,19 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         "publish_weather_forecast_mirrors",
         "resolve_real_entity_id",
         "_load_token",
+        # nimbus issue #486: reads real ConfigSubentries
+        # (_NATIVE_HASS.config_entries.async_entries(...).subentries),
+        # a concept that only exists inside a real running HA instance --
+        # no standalone/cron equivalent config surface exists for
+        # controllable-load subentries, and Mark's own #486 spec doesn't
+        # ask for one. build_controllable_loads() returns ([], [])
+        # unconditionally in standalone mode already (_NATIVE_HASS is
+        # None there), so there's nothing behavioural to port even in
+        # principle.
+        "build_controllable_loads",
+        # Private helper called only by build_controllable_loads (already
+        # listed above) -- same native-only reasoning, not a separate gap.
+        "_resolve_hour_to_period_index",
     }
 )
 
