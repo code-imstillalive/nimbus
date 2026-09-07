@@ -6948,7 +6948,22 @@ def main() -> None:
     solar_power_sensor = cfg.get("solver_solar_power_sensor")
     if solar_power_sensor and entity_exists(solar_power_sensor):
         try:
-            live_solar_kw = float(ha_get(solar_power_sensor)["state"]) / 1000.0
+            # nimbus issue #453 (Mark Purcell): this used to divide by
+            # 1000.0 unconditionally, the same undocumented "must be
+            # Watts" assumption _kw_scale_factor()'s own docstring
+            # already documents as a real, confirmed-live bug elsewhere
+            # in this file (compute_daily_quality_report()/compute_
+            # efficiency_backtest_report(), 2026-08-28) -- correct for
+            # THIS household (sensor.combined_total_dc_power's own
+            # unit_of_measurement is genuinely "W", confirmed live), but
+            # silently corrupts solar_kw[0] toward ~0 for any other
+            # install whose configured sensor already reports kW. Reuses
+            # the same helper instead of a second hardcoded assumption
+            # of the identical shape -- zero behaviour change for this
+            # household (0.001 either way), real fix for a kW-native one.
+            live_solar_kw = float(
+                ha_get(solar_power_sensor)["state"]
+            ) * _kw_scale_factor(solar_power_sensor)
             solar_kw[0] = max(0.0, live_solar_kw)
             solar_lower_kw[0] = solar_kw[0]
             solar_upper_kw[0] = solar_kw[0]
