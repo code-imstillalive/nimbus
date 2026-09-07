@@ -815,42 +815,38 @@ class NimbusDispatchCardV4 extends HTMLElement {
         '.reasoning { font-size: 1.35em; line-height: 1.5; opacity: 0.85; flex: 1 1 300px; min-width: 260px; }' +
         '.range-labels { display:flex; justify-content:space-between; font-size: 1.05em; opacity: 0.5; width: 250px; margin-top: 4px; }' +
         '.section-label { font-size: 1.05em; text-transform: uppercase; letter-spacing: 0.09em; opacity: 0.5; margin: 22px 0 8px; }' +
-        // 2026-09-07: direct household ask, live on the deployed
-        // grid+minmax(max-content,1fr) layout -- chart is too small,
-        // table has dead space on its own right edge (table-col's own
-        // TRACK ends up wider than the table's real content whenever
-        // 1fr's proportional share exceeds max-content, since minmax's
-        // floor and its fr share both apply -- table.ftable itself
-        // doesn't stretch to fill that extra track width, since it has
-        // no width:100% of its own, per #459).
+        // 2026-09-07, direct household instruction after four failed
+        // content-aware formulas (fixed 2fr/1fr + breakpoint, flexbox,
+        // grid+minmax(max-content,1fr), grid+"1fr max-content"): design
+        // the CONTAINERS first, fixed at exactly 2/3 and 1/3 of the
+        // row, and place each object inside its own box -- rather than
+        // trying to make either box grow or shrink to match its
+        // content, which is what caused every prior failure (whichever
+        // box's content was estimated wrong ended up crushing the
+        // other, or overflowing the row).
         //
-        // Fixed both at once, exactly: `1fr max-content` instead of
-        // `minmax(320px,2fr) minmax(max-content,1fr)`. table-col is
-        // now sized EXACTLY to its own real content, nothing more --
-        // zero dead space by construction, no width:100% needed. chart-
-        // col gets 1fr, i.e. 100% of whatever space is left after that
-        // -- the largest the chart can possibly be while table still
-        // never needs to scroll and never has dead space. This is the
-        // mathematically maximal answer to "chart bigger + table fills
-        // to its own edge" -- there's no CSS arrangement that gives
-        // chart more room without either shrinking table below its own
-        // content (reintroducing the original scrollbar) or letting
-        // the row overflow the card. Honest caveat, stated plainly
-        // rather than promised away: the exact chart:table split still
-        // depends on how much real content is in the table right now
-        // (P2P pills, populated columns) -- it will not always land at
-        // a clean 2:1, because a literal fixed 2:1 ratio and "table
-        // never scrolls, never wastes space" are not simultaneously
-        // achievable for a table with this many real columns (confirmed
-        // twice already tonight: minmax(max-content,1fr) let table
-        // dominate the row when its content was large; flexbox's
-        // content-exact table sizing rendered ~half/half for the same
-        // reason). This formula always gives chart the most room
-        // mathematically possible under those real constraints.
+        // grid-template-columns: 2fr 1fr is a literal, content-BLIND
+        // fixed split -- chart-col is always exactly 2/3 of the row,
+        // table-col always exactly 1/3, regardless of what's inside
+        // either one. `min-width: 0` on both (overriding a CSS Grid
+        // item's own default auto-min-size, which is otherwise its
+        // content's max-content width and WOULD silently override the
+        // fr split for whichever side has more content) is what makes
+        // this actually hold: without it, table-col's real content
+        // would still force it wider than 1/3 the moment that content
+        // exceeds a third of the row, the exact failure mode from every
+        // earlier attempt tonight. With it, table-col is a true, fixed
+        // 1/3-width box; if table.ftable's real content is wider than
+        // that box, .ftable-wrap's own overflow-x:auto scrolls WITHIN
+        // that box only -- it can never crush the chart or push the
+        // page/card wider. Same real tradeoff as the very first
+        // attempt tonight (a fixed fraction can mean an internal table
+        // scrollbar on a content-heavy render), but now bounded and
+        // contained instead of distorting the whole row's geometry.
         '.chart-table-grid { display:block; }' +
-        '.chart-col { min-width: 0; }' +
+        '.chart-col, .table-col { min-width: 0; }' +
         '@container (min-width: 900px) {' +
-          '.chart-table-grid { display:grid; grid-template-columns: minmax(320px, 1fr) max-content; gap: 20px 28px; align-items:start; }' +
+          '.chart-table-grid { display:grid; grid-template-columns: 2fr 1fr; gap: 20px 28px; align-items:start; }' +
         '}' +
         '.timeline-wrap { width: 100%; overflow-x: auto; }' +
         '.timeline-wrap svg { width: 100%; height: auto; display: block; min-width: 480px; }' +
@@ -1081,9 +1077,8 @@ class NimbusDispatchCardV4 extends HTMLElement {
         '<div class="risk-row">' + riskSliders + '</div>' +
       '</div>' + // .col-left
       '<div class="col-right">' +
-      // Chart takes all space left over after the table claims exactly
-      // its own real content width -- see .chart-table-grid's own CSS
-      // comment, above, for the full "why" and prior attempts.
+      // Fixed 2/3:1/3 containers -- see .chart-table-grid's own CSS
+      // comment, above, for why content-aware sizing was abandoned.
       '<div class="chart-table-grid">' +
       '<div class="chart-col">' +
         '<div class="section-label" style="margin-top:0;">Dispatch Plan - next 3 days (plan vs. actual)</div>' +
