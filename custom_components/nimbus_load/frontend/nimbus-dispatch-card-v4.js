@@ -912,6 +912,12 @@ class NimbusDispatchCardV4 extends HTMLElement {
         // nothing else is forcing it wide.
         'table.ftable th.time-col, table.ftable td.time-col { padding-left: 8px; padding-right: 8px; }' +
         'table.ftable th.source-col, table.ftable td.source-col { padding-left: 4px; padding-right: 4px; }' +
+        // "Source" (uppercase + 0.06em letter-spacing, same as every
+        // other header) is itself wider than the 14px bar below it --
+        // dropping letter-spacing and shrinking the font specifically
+        // for this one header keeps the real word instead of
+        // abbreviating it, while still actually fitting tight.
+        'table.ftable th.source-col { letter-spacing: 0; font-size: 0.72em; }' +
         'table.ftable tbody tr:nth-child(even) { background: rgba(255,255,255,0.02); }' +
         'table.ftable tbody tr:hover { background: rgba(79,163,255,0.08); }' +
         'table.ftable td.net-pos { color: #3ddc84; }' +
@@ -1114,7 +1120,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
         '</div>' +
         '<div class="ftable-wrap"><table class="ftable">' +
           '<thead><tr>' +
-            '<th class="time-col">Time</th><th class="source-col" title="Source: Solar (orange) / Grid (blue) share">Src</th><th class="num">Buy&cent;</th><th class="num">Fees&cent;</th><th class="num">Sell&cent;</th><th class="num">P2P&cent;</th><th class="num">Load</th><th class="num">Solar</th><th class="num">Batt</th><th class="num">Grid</th><th class="num">SoC%</th><th class="num">Net$</th>' +
+            '<th class="time-col">Time</th><th class="source-col">Source</th><th class="num">Buy&cent;</th><th class="num">Fees&cent;</th><th class="num">Sell&cent;</th><th class="num">P2P&cent;</th><th class="num">Load</th><th class="num">Solar</th><th class="num">Batt</th><th class="num">Grid</th><th class="num">SoC%</th><th class="num">Net$</th>' +
           '</tr></thead>' +
           '<tbody>' + forecastRows + '</tbody>' +
         '</table></div>' +
