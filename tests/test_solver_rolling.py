@@ -300,46 +300,38 @@ def test_infeasible_solve_freezes_the_last_known_good_dispatch():
     import_limit_kw (this test's original scenario) is no longer a real
     infeasibility -- the new grid_import_excess penalized slack (added
     directly in response to that issue) now serves ANY plain load, at a
-    real cost, rather than discarding the whole horizon. A genuinely
-    physically-impossible AdequacyLoadConfig deadline target (a fixed
-    energy amount that MUST be delivered inside a fixed window, no
-    exceptions -- see AdequacyLoadConfig's own docstring) is the one hard
-    constraint that fix doesn't touch, so it's the new genuine-
-    infeasibility vector for this test.
+    real cost, rather than discarding the whole horizon. nimbus issue
+    #477 did the same for AdequacyLoadConfig's own deadline target (a
+    genuinely unreachable one now costs shortfall_price per kWh short
+    instead of making the whole plan infeasible) -- this test's original
+    "impossible AdequacyLoadConfig" scenario stopped being a real
+    infeasibility the moment #477 landed. `grid.min_export_kwh` is a
+    hard constraint neither fix touches (no slack mechanism exists for
+    it), so it's the new genuine-infeasibility vector for this test: a
+    commitment to export more energy than the grid's own export_limit_kw
+    can physically deliver in one period, regardless of price or
+    battery/solar state.
     """
-    from solver.elements import AdequacyLoadConfig
-
     call_count = {"n": 0}
 
     def provider(now):
         call_count["n"] += 1
         n = 2
         if call_count["n"] == 2:
-            # Tick 2: genuinely infeasible -- 100kWh demanded from a
-            # 3.7kW-max adequacy load inside a single 1h period. Nothing
-            # can possibly deliver that regardless of price or grid/
-            # battery state.
-            grid = _grid(n)
+            # Tick 2: genuinely infeasible -- committed to exporting
+            # 1000kWh in a single 1h period against a 20kW export limit
+            # (max deliverable: 20kWh). Nothing can possibly reach that
+            # regardless of price or grid/battery/solar state.
+            grid = _grid(n, min_export_kwh=1000.0)
             battery = _battery()
-            adequacy_loads = [
-                AdequacyLoadConfig(
-                    name="impossible",
-                    max_power_kw=3.7,
-                    target_kwh=100.0,
-                    earliest_period=0,
-                    deadline_period=0,
-                )
-            ]
         else:
             grid = _grid(n)
             battery = _battery()
-            adequacy_loads = None
         return RollingInputs(
             periods=_flat_grid(n, start=now),
             grid=grid,
             battery=battery,
             solar=SolarConfig(forecast_kw=np.zeros(n)),
-            adequacy_loads=adequacy_loads,
         )
 
     config = RollingRefinementConfig(

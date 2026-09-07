@@ -969,6 +969,20 @@ class SheddableLoadConfig:
 DEFAULT_SHED_COST: float = 2.00
 
 
+# nimbus issue #477 (Mark Purcell, sub-issue 1 of the #476 controllable-
+# load spec): a real, documented reference point for "priced high enough
+# to behave identically to the old hard constraint whenever the target
+# is genuinely reachable" -- same reasoning as DEFAULT_SHED_COST just
+# above (higher than any real-time energy price this project has ever
+# recorded), picked higher again since missing an adequacy deadline
+# (cold HWS, an EV short of range) is generally more severe than
+# shedding a load. Not a default on the dataclass itself -- shortfall_
+# price is deliberately required, no silent fallback -- this is a named
+# constant a caller (or a test standing in for "the old hard-constraint
+# behavior") can reference explicitly instead of a magic number.
+DEFAULT_ADEQUACY_SHORTFALL_PRICE: float = 10.00
+
+
 @dataclass(frozen=True)
 class AdequacyLoadConfig:
     """A load with a real DEADLINE, not a per-period demand -- direct
@@ -984,31 +998,74 @@ class AdequacyLoadConfig:
     `min_fraction` is a per-period floor, not a cumulative-by-deadline
     target). This class has no forecast at all: the LP is free to
     deliver power to it at ANY level in [0, max_power_kw] during
-    [earliest_period, deadline_period], at zero direct cost (running it
-    earlier or later than some "expected" time costs nothing physically
-    -- only failing to reach the real target by the real deadline does),
-    constrained so the CUMULATIVE energy delivered by (and including)
-    `deadline_period` is at least `target_kwh`. This is exactly the
-    real, physical shape of HWS heating (must reach a target amount of
-    stored heat by some time) and EV charging (must have enough range by
-    departure) -- matches this project's own real, already-instrumented
-    HWS/CTP telemetry Mark points to directly.
+    [earliest_period, deadline_period] (or, when `allowed` is given,
+    whichever periods it marks True -- see that field's own docstring),
+    at zero direct cost (running it earlier or later than some
+    "expected" time costs nothing physically -- only failing to reach
+    the real target by the real deadline does), constrained so the
+    CUMULATIVE energy delivered by (and including) `deadline_period` is
+    at least `target_kwh`. This is exactly the real, physical shape of
+    HWS heating (must reach a target amount of stored heat by some time)
+    and EV charging (must have enough range by departure) -- matches
+    this project's own real, already-instrumented HWS/CTP telemetry Mark
+    points to directly.
 
-    A genuinely infeasible target (more energy required than
-    `max_power_kw * (deadline_period - earliest_period + 1) * hours`
-    can physically deliver) is NOT caught here at construction time --
-    network.py doesn't know the real PeriodGrid's own `hours` until
-    build_plan() is called, so an impossible target surfaces honestly as
-    a real `status="infeasible"` Plan, same as any other genuinely
-    unsatisfiable constraint in this solver, not a silently-adjusted or
-    pre-emptively-rejected config.
+    nimbus issue #477: the deadline used to be a HARD constraint --
+    genuinely unreachable made the WHOLE 96h plan infeasible, the same
+    real failure mode this project already fixed once for a different
+    constraint (#390, grid_import_excess). `shortfall_price` replaces
+    that with a priced slack (`shortfall_kwh` on the output plan,
+    documented on `AdequacyLoadPlan` itself) -- HAEO #494's "locked-in
+    deficit" and EMHASS's relaxed-LP fallback both converge on the same
+    fix; Nimbus does it on purpose rather than as an afterthought. A
+    genuinely infeasible target now costs real money and shows up in the
+    output; it no longer makes the solver refuse to plan the other 95
+    hours over one unreachable deadline.
     """
 
     name: str
     max_power_kw: float
     target_kwh: float
     deadline_period: int  # inclusive -- cumulative delivered energy through this period must reach target_kwh
+    # $/kWh, required -- see DEFAULT_ADEQUACY_SHORTFALL_PRICE's own
+    # comment for a real reference value that behaves like the old hard
+    # constraint whenever the target is genuinely reachable.
+    shortfall_price: float
     earliest_period: int = 0  # cannot deliver any power before this period (e.g. "don't run HWS before 6am")
+    # Per-period mask, e.g. "not before 06:00, never 22:00-06:00" -- a
+    # richer alternative to earliest_period/deadline_period's own single
+    # contiguous window. When given, OVERRIDES earliest_period/
+    # deadline_period for bounding when this load may draw power at all
+    # (network.py: ub = max_power_kw if allowed[t] else 0) -- the
+    # cumulative deadline constraint itself still sums through
+    # deadline_period regardless, since "when can it run" and "by when
+    # must the target be met" are genuinely separate questions (a load
+    # masked to weekday evenings only still has a real overall deadline).
+    # None (the default) is a complete no-op -- every existing caller
+    # keeps using the simple earliest/deadline window unchanged.
+    allowed: NDArray[np.bool_] | None = None
+    # Utility credited per kWh actually served ($/kWh, a flat scalar or
+    # one value per period): cost -= value_per_kwh[t] * power[t] * hours[t].
+    # With no target_kwh consequence beyond the credit itself, a load
+    # with only value_per_kwh set (no real deadline pressure -- e.g. a
+    # very late deadline_period/high target slack) becomes a pure
+    # price-gated load (nimbus issue #482): it runs exactly where the
+    # switchboard's own shadow price lambda(t) (network.py's power_
+    # balance_t{t} dual) is <= this value -- the same mechanism HAEO's
+    # own consumption_cost uses, and the documented reason (PR #425
+    # commit message) they dropped a separate threshold-price
+    # implementation in favor of it. With a real target_kwh, this lets
+    # the LP exceed the target when energy is cheaper than the value
+    # credited for using it. None (the default) is a complete no-op.
+    value_per_kwh: float | NDArray[np.float64] | None = None
+    # EMHASS's own deferrable_load_max_cost: skip the whole requirement
+    # (shortfall left unpriced for this run) when running it would cost
+    # more than this. Reserved here, NOT implemented in this sub-issue --
+    # a real skip-or-not decision needs a binary variable, which is
+    # explicitly out of scope for #477 (see nimbus issue #478). Stored
+    # and validated (>= 0 when given) so the field exists on the config
+    # surface now; network.py does not yet read it.
+    max_cost_per_run: float | None = None
 
     def __post_init__(self) -> None:
         if self.max_power_kw <= 0.0:
@@ -1022,6 +1079,12 @@ class AdequacyLoadConfig:
             raise ValueError(msg)
         if self.earliest_period < 0:
             msg = f"Adequacy load '{self.name}' earliest_period must be >= 0"
+            raise ValueError(msg)
+        if self.shortfall_price < 0.0:
+            msg = f"Adequacy load '{self.name}' shortfall_price must be >= 0 -- a negative price would make the LP WANT to miss its own target"
+            raise ValueError(msg)
+        if self.max_cost_per_run is not None and self.max_cost_per_run < 0.0:
+            msg = f"Adequacy load '{self.name}' max_cost_per_run must be >= 0"
             raise ValueError(msg)
 
 

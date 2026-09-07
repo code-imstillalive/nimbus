@@ -348,16 +348,21 @@ class SheddableLoadPlan:
 @dataclass(frozen=True)
 class AdequacyLoadPlan:
     """One adequacy load's own real result: how much power it was
-    actually scheduled to draw each period, and the real cumulative
-    energy delivered by its own deadline (should always be >=
-    target_kwh whenever `plan.is_optimal` -- if it genuinely can't be
-    met, the WHOLE solve reports infeasible, per AdequacyLoadConfig's
-    own docstring; there is no partial/best-effort adequacy result).
+    actually scheduled to draw each period, the real cumulative energy
+    delivered by its own deadline, and (nimbus issue #477) how much of
+    `target_kwh` went unmet -- `shortfall_kwh` is 0.0 whenever the
+    target was genuinely reachable within `shortfall_price`'s own
+    economics (the common case); nonzero means the LP found it cheaper
+    to pay `shortfall_price` per kWh than to fully serve the load, which
+    is a real, priced decision now (see AdequacyLoadConfig's own
+    docstring) rather than the whole plan going infeasible the way it
+    used to before #477.
     """
 
     name: str
     power_kw: NDArray[np.float64]
     delivered_by_deadline_kwh: float
+    shortfall_kwh: float
 
 
 @dataclass(frozen=True)
@@ -1089,6 +1094,10 @@ def build_plan(
     # only to the deadline constraint added below (real cost zero unless
     # a caller explicitly costs it via a load-specific mechanism, none
     # exists yet -- see the module's own "not yet built" notes).
+    # nimbus issue #477: `allowed`, when given, replaces the plain
+    # earliest_period<=t<=deadline_period window for this bound only --
+    # see AdequacyLoadConfig's own docstring on why the deadline
+    # constraint below still sums through deadline_period regardless.
     adequacy_vars: dict[str, list[str]] = {}
     for al in adequacy_loads:
         adequacy_vars[al.name] = [
@@ -1096,11 +1105,34 @@ def build_plan(
                 f"adequacy_{al.name}_{t}",
                 lb=0.0,
                 ub=al.max_power_kw
-                if al.earliest_period <= t <= al.deadline_period
+                if (
+                    bool(al.allowed[t])
+                    if al.allowed is not None
+                    else al.earliest_period <= t <= al.deadline_period
+                )
                 else 0.0,
             )
             for t in range(n)
         ]
+    # nimbus issue #477: a soft shortfall slack per adequacy load,
+    # replacing the old hard deadline constraint -- see
+    # AdequacyLoadConfig's own docstring for the full "why" (matches
+    # #390's grid_import_excess pattern). Bounded [0, target_kwh]: the
+    # LP can never claim a shortfall larger than the target itself.
+    adequacy_shortfall_vars: dict[str, str] = {
+        al.name: p.add_variable(
+            f"adequacy_shortfall_{al.name}", lb=0.0, ub=al.target_kwh
+        )
+        for al in adequacy_loads
+    }
+    for al in adequacy_loads:
+        p.set_cost(adequacy_shortfall_vars[al.name], al.shortfall_price)
+        if al.value_per_kwh is not None:
+            value_arr = np.broadcast_to(
+                np.asarray(al.value_per_kwh, dtype=np.float64), (n,)
+            )
+            for t in range(n):
+                p.set_cost(adequacy_vars[al.name][t], -float(value_arr[t]) * hours[t])
 
     # ---- Shared-circuit caps (SharedCircuitConfig, see its own
     # docstring) -- a real, physical headroom limit on the COMBINED power
@@ -1562,14 +1594,22 @@ def build_plan(
 
     # ---- Adequacy deadline constraints -- one inequality per adequacy
     # load, NOT per period: cumulative energy delivered through the
-    # deadline must reach target_kwh. LPProblem only has <=, so this is
-    # expressed as -sum(power*hours) <= -target_kwh. Genuinely
-    # unsatisfiable within the window (see AdequacyLoadConfig's own
-    # docstring) surfaces as a real status="infeasible" Plan below, not
-    # a silently-adjusted target.
+    # deadline, PLUS the shortfall slack (nimbus issue #477), must reach
+    # target_kwh. LPProblem only has <=, so this is expressed as
+    # -sum(power*hours) - shortfall <= -target_kwh. The sum always runs
+    # 0..deadline_period (not earliest_period..deadline_period) -- when
+    # `allowed` is given, periods outside it already have their own
+    # variable bounded to 0 above, so including them here is harmless
+    # and correct; using 0 as the start avoids this constraint silently
+    # disagreeing with a real `allowed` mask that doesn't line up with
+    # earliest_period. A genuinely expensive-to-fully-serve target no
+    # longer makes the whole plan infeasible -- it costs shortfall_price
+    # per kWh short instead, a real priced tradeoff visible in the
+    # output rather than a solver-wide failure.
     for al in adequacy_loads:
-        window = range(al.earliest_period, al.deadline_period + 1)
+        window = range(al.deadline_period + 1)
         terms = {adequacy_vars[al.name][t]: -hours[t] for t in window}
+        terms[adequacy_shortfall_vars[al.name]] = -1.0
         # Named (2026-08-18) -- its dual is the marginal cost of this
         # specific deadline, e.g. "how much cheaper would the plan be if
         # this load had one more hour to finish."
@@ -1652,10 +1692,11 @@ def build_plan(
             power_kw=(power_arr := _get(adequacy_vars[al.name])),
             delivered_by_deadline_kwh=float(
                 np.sum(
-                    power_arr[al.earliest_period : al.deadline_period + 1]
-                    * hours[al.earliest_period : al.deadline_period + 1]
+                    power_arr[0 : al.deadline_period + 1]
+                    * hours[0 : al.deadline_period + 1]
                 )
             ),
+            shortfall_kwh=p.value_of(result, adequacy_shortfall_vars[al.name]),
         )
         for al in adequacy_loads
     ]
