@@ -20,6 +20,27 @@ Dated work-in-progress notes live in `docs/worklog/`, one file per date — this
 the "CURRENT STATE" journal that used to live directly in this file now lives. Each
 file is not re-summarized here; read it directly for the full detail. Most recent 5:
 
+- [2026-09-08](docs/worklog/2026-09-08.md) — Continuation of the 09-07 marathon.
+  Household re-engaged after the quiet overnight monitoring stretch; confirmed #519's
+  topology-card fix genuinely ships (Mark's install just needed a client-side cache
+  clear, not a code fix). Mark's own Claude Code posted a full day-ahead dispatch
+  report (#531) with three real findings, all fixed same day: **#535** (most severe) —
+  `_sample_load_run_state()` (#479) read a Watts power sensor as already being kW,
+  making `currently_on` permanently true and `delivered_today_kwh` ~1000× too large
+  for any Controllable Load with a plug/CT power sensor; fixed with the same
+  `unit_of_measurement` check `_kw_scale_factor()` already applies elsewhere. **#532**
+  — exposed `achieved_energy_in_kwh`/`achieved_energy_out_kwh` on the quality report
+  (Mark's real case: a combined battery-power sensor summing the home pack + a shared
+  EV DC charger fed a 100 kWh single-battery model, moving >100 kWh through it in one
+  day) — deliberately NOT an automatic cause-classifier, just the honest numbers.
+  **#533** — `epr_reliable` and the three `soc_discrepancy_*` fields flattened onto the
+  Quality sub-device (previously invisible parent-only attributes), plus a log-once-
+  per-scored-day warning. 32 new tests, zero regressions across the full pre-existing
+  quality-report suite. Released as v0.94.166 — real, immediately impactful fixes, not
+  foundation-only. Still deliberately NOT built: the #465-pattern per-load sensor
+  platform every one of #479/#480/#484/#486's own gaps still points at — same
+  verifiability reasoning as the day before (no real `hass_integration` harness
+  available locally).
 - [2026-09-07](docs/worklog/2026-09-07.md) — #445/#453/#451 real bug fixes; dispatch-card
   risk-aversion live-effect proof, Solve Now button, nimbus_status sensor. Chart/table
   layout saga ran through SEVEN CSS iterations (four content-aware formulas, then two
@@ -52,7 +73,9 @@ file is not re-summarized here; read it directly for the full detail. Most recen
   for #459's mobile-clipping regression after a CI-lint assist, filed and
   got #519's topology-card discoverability fix merged, #522 left as his own
   active follow-up, reviewed #486 and confirmed it solid). Version reaches
-  v0.94.164, twenty releases.
+  v0.94.165, twenty-one releases (v0.94.165 itself is a same-session follow-up:
+  Mark's own review caught a real log-spam gap in #480's own done_when warning,
+  fixed the same night).
 - [2026-09-06](docs/worklog/2026-09-06.md) — #391/regression/#400 dispatch-card layout
   (three passes, root-caused with a shared CSS variable); #389 solver crash and #390
   whole-horizon infeasibility (penalized grid_import_excess slack); EPR-consistency fix
@@ -64,16 +87,8 @@ file is not re-summarized here; read it directly for the full detail. Most recen
 - [2026-09-02](docs/worklog/2026-09-02.md) — `solver_p2p_settlement_history_sensor`
   confirmed working end-to-end on devhub; the Solver wizard's cross-step field-wiping
   mechanics confirmed directly by reading `flows/hub_options.py`.
-- [2026-09-01](docs/worklog/2026-09-01.md) — Two genuinely separate #312 platform-collision
-  causes found and fixed (a real unload/unregister race, and an unrelated devhub
-  `remote_homeassistant` mirror entity-id namespace clash); NUC1's v0.94.40/41
-  concurrent-`async_setup_entry` race root-caused and fixed.
-- [2026-08-31](docs/worklog/2026-08-31.md) — #307 SigEnergy sign-convention wizard-schema
-  bug fixed; the `number.py` restore-on-restart bug found and left open; the stochastic-P2P
-  solver extension shipped (v0.94.39).
-
-Earlier history: `docs/worklog/2026-08-27.md`, `docs/worklog/2026-08-26.md`,
-`docs/worklog/2026-08-17.md`.
+Earlier history: `docs/worklog/2026-09-01.md`, `docs/worklog/2026-08-31.md`,
+`docs/worklog/2026-08-27.md`, `docs/worklog/2026-08-26.md`, `docs/worklog/2026-08-17.md`.
 
 ---
 
