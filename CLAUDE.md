@@ -31,12 +31,17 @@ file is not re-summarized here; read it directly for the full detail. Most recen
   another guess. Real NUC1 incident: battery charged instead of discharging at the
   17:00 P2P boundary; root cause NOT confirmed after three theories each disproven/
   unconfirmed by live evidence; reverted to HAEO for the night, live trace planned
-  before next P2P window. #477 AND #486 (controllable-loads foundation + config
-  surface) both completed and merged — real, honestly-documented gap left open: no
-  per-load output sensor yet, next real target is #483/#484. Household went to bed
-  partway through with explicit authorization to keep working solo — everything after
-  that point in the entry happened unsupervised. Version reaches v0.94.158, fifteen
-  releases.
+  before next P2P window. #477, #486, AND #479 (controllable-loads foundation +
+  config surface + per-load run-state store) all completed and merged — real,
+  honestly-documented gap left open: no per-load output sensor yet, next real
+  target is #483/#484, now that #479's state store exists for #484's chatter-guard
+  to use. Household went to bed partway through with explicit authorization to
+  keep working solo — everything after that point in the entry happened
+  unsupervised, including Mark Purcell's own Claude Code becoming concurrently
+  active on the repo (opened/merged #516 for #459's mobile-clipping regression
+  after a CI-lint assist, filed and got #519's topology-card discoverability fix
+  merged, #522 left as his own active follow-up). Version reaches v0.94.162,
+  nineteen releases.
 - [2026-09-06](docs/worklog/2026-09-06.md) — #391/regression/#400 dispatch-card layout
   (three passes, root-caused with a shared CSS variable); #389 solver crash and #390
   whole-horizon infeasibility (penalized grid_import_excess slack); EPR-consistency fix
