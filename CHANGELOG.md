@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.147] — 2026-09-07
+
+### Added
+- **Fix [#450](https://github.com/code-imstillalive/nimbus/issues/450) (Mark Purcell): a new `sensor.nimbus_status` gives a single, plain-language "is this working?" answer in front of the 13+ jargon-carrying sensors** (EPR, regret, tracking fidelity, theoretical maximum yield...). States: "Not yet configured", "Learning" (still building initial models), "Needs attention" (real health-report errors, or a non-optimal solver plan), "Working well". Pure presentation layer — reads existing sensors' own already-published state, no new scoring logic, nothing else changes underneath.
+- **"Solve Now" button** on the dispatch card footer (direct household ask, via Mark Purcell) — calls the existing, no-argument `nimbus_load.solve_now` service directly instead of waiting for the next cron tick. Real loading-state feedback for the duration of the call.
+
+### Fixed
+- **The dispatch card's "Full Solver tuning" link pointed at a hardcoded devhub-only dashboard path** (`/nimbus-devhub/solver`) that doesn't exist on any other install, so it silently fell through to whatever dashboard loaded by default instead of erroring visibly — the exact same per-household hardcoding class as [#364](https://github.com/code-imstillalive/nimbus/issues/364), just a raw href instead of a config field. Replaced with Home Assistant's own universal integration-settings URL, which works identically on every install with zero configuration. Renamed to "Full Solver settings".
+- **Dispatch-plan chart and forecast-intervals table now sit side by side** (chart 2/3, table 1/3) on a sufficiently wide panel, falling back to the existing full-width stacked layout below a derived container-query breakpoint — direct household request. The Time column's own width problem turned out to be the table's total-row label sharing that column under the browser's table auto-layout, not the per-period time values themselves.
+
 ## [0.94.146] — 2026-09-07
 
 ### Changed
