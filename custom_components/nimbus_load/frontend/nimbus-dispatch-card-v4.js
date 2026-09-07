@@ -425,7 +425,11 @@ class NimbusDispatchCardV4 extends HTMLElement {
     const CHART_HORIZON_HOURS = 72;
     const chartCutoffMs = Date.now() + CHART_HORIZON_HOURS * 3600000;
     const fcChart = fc.filter(p => new Date(p.time).getTime() <= chartCutoffMs);
-    const TW = 1000, TH = 220, padL = 46, padR = 20, padT = 16, padB = 34;
+    // Direct household ask (2026-09-07): "timeline numbers need 25% extra
+    // height" -- the dispatch-plan chart itself (not the table). 220 -> 275
+    // (+25%) directly, simplest possible fix: more real plot height for
+    // the same width, no change to width/padding/label spacing.
+    const TW = 1000, TH = 275, padL = 46, padR = 20, padT = 16, padB = 34;
     const plotW = TW - padL - padR, plotH = TH - padT - padB;
     const nowMs = Date.now();
     const actual = this._actualHistory || [];
@@ -907,7 +911,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
         // values themselves. This padding tightens it further now that
         // nothing else is forcing it wide.
         'table.ftable th.time-col, table.ftable td.time-col { padding-left: 8px; padding-right: 8px; }' +
-        'table.ftable th.source-col, table.ftable td.source-col { padding-left: 6px; padding-right: 6px; }' +
+        'table.ftable th.source-col, table.ftable td.source-col { padding-left: 4px; padding-right: 4px; }' +
         'table.ftable tbody tr:nth-child(even) { background: rgba(255,255,255,0.02); }' +
         'table.ftable tbody tr:hover { background: rgba(79,163,255,0.08); }' +
         'table.ftable td.net-pos { color: #3ddc84; }' +
@@ -930,7 +934,10 @@ class NimbusDispatchCardV4 extends HTMLElement {
         // 6px, was the default 10px td padding) directly reduces the
         // table's real minimum content width instead of growing the
         // grid share to compensate.
-        '.source-bar { display: flex; width: 22px; height: 7px; border-radius: 4px; overflow: hidden; background: rgba(255,255,255,0.06); }' +
+        // 2026-09-07: 22px still wasn't narrow enough -- confirmed live,
+        // still scrolling. 14px, no more shrinking room without losing
+        // the two-segment bar shape entirely.
+        '.source-bar { display: flex; width: 14px; height: 7px; border-radius: 3px; overflow: hidden; background: rgba(255,255,255,0.06); }' +
         '.source-bar .seg-a { background: #ffb340; }' +
         '.source-bar .seg-b { background: #4fa3ff; }' +
         /* Landscape/desktop layout (nimbus issue #391, Mark Purcell): below
@@ -1107,7 +1114,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
         '</div>' +
         '<div class="ftable-wrap"><table class="ftable">' +
           '<thead><tr>' +
-            '<th class="time-col">Time</th><th class="source-col">Source</th><th class="num">Buy&cent;</th><th class="num">Fees&cent;</th><th class="num">Sell&cent;</th><th class="num">P2P&cent;</th><th class="num">Load</th><th class="num">Solar</th><th class="num">Batt</th><th class="num">Grid</th><th class="num">SoC%</th><th class="num">Net$</th>' +
+            '<th class="time-col">Time</th><th class="source-col" title="Source: Solar (orange) / Grid (blue) share">Src</th><th class="num">Buy&cent;</th><th class="num">Fees&cent;</th><th class="num">Sell&cent;</th><th class="num">P2P&cent;</th><th class="num">Load</th><th class="num">Solar</th><th class="num">Batt</th><th class="num">Grid</th><th class="num">SoC%</th><th class="num">Net$</th>' +
           '</tr></thead>' +
           '<tbody>' + forecastRows + '</tbody>' +
         '</table></div>' +
