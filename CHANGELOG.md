@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.150] — 2026-09-07
+
+### Fixed
+- **Dispatch-card chart/table side-by-side layout no longer shows a horizontal scrollbar on the forecast table.** The previous layout used a fixed 2fr/1fr CSS grid split gated by a hand-computed `@container` breakpoint — the same class of bug as #391/#395/#400/#407, and still scrolling after three separate padding/font tweaks. Root cause: a fixed fraction of the row caps the table column's width regardless of what the table's real content needs, so no breakpoint could stay correct as the table's own minimum width shifted. Replaced with flexbox: the table column always gets exactly its own real content width, the chart takes whatever's left (down to a 320px floor), and the two wrap onto separate lines if they genuinely don't both fit — there is no breakpoint number left to drift out of sync.
+
 ## [0.94.149] — 2026-09-07
 
 ### Changed
