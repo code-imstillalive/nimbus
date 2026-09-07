@@ -315,14 +315,15 @@ LOAD_FORECAST_ERROR_NOTIFIED_PATH = os.environ.get(
 # than ever running two solves concurrently or crashing.
 TIER0_MINUTES = 5.0  # ultra-fine tier: how far out 1-min resolution runs
 TIER0_PERIOD_MINUTES = 1.0
-TIER1_HOURS = (
-    24.0  # fine tier: how far out 5-min resolution runs (from TIER0's own end)
-)
+# nimbus issue #451: see the native integration copy's own comment on
+# these same constants (custom_components/nimbus_load/solver_writer.py)
+# for the full real finding -- tier1 is now boundary-snapped to the real
+# current + next NEM trading interval instead of a fixed 24h duration.
+TRADING_INTERVAL_MINUTES = 30
 TIER1_PERIOD_HOURS = 5.0 / 60.0
-TIER2_HOURS = 72.0  # coarse tier: additional span beyond tier 1
-TIER2_PERIOD_HOURS = (
-    1.0  # -> 24h + 72h = 96h total (plus tier0's own 5 real minutes), ~360 periods
-)
+TIER2_PERIOD_HOURS = 0.5  # was 1.0 -- matches AEMO PD7DAY's own real 30-min cadence
+TOTAL_HORIZON_HOURS = 96.0  # tier0 + tier1 + tier2 combined span from tier1_start
+MAX_TIER1_HOURS = 1.0  # real ceiling on tier1's own now-boundary-snapped span
 
 # Real, bill-confirmed TOU network rates and certificates rate (2026-08-16,
 # real ask: "it needs ot be super accurate") -- reused directly from this
@@ -2457,53 +2458,12 @@ def resample_price_with_extrapolation(
 
 
 def build_tiered_grid(now: datetime) -> tuple[list[datetime], list[float]]:
-    """Real wall-clock period boundaries for the tiered horizon (see the
-    TIER1_*/TIER2_* constants' own comment for why this exists).
-
-    Tier 0 (1-min, first 5 real minutes) needs no bridge into tier 1
-    (5-min, same 24h span tier1 has always covered): both are far finer
-    than any real TOU rate boundary (which only ever changes on the
-    hour), so there's no alignment concern the way tier1->tier2 has --
-    5-min periods stack cleanly against 5-min periods regardless of
-    exactly where tier0's own 5 minutes happened to end.
-
-    Tier 2's own periods are snapped to real HOUR boundaries (not just
-    "60 minutes after wherever tier 1 happened to end") -- `now` can be
-    any real minute, so tier 1's own 24h-later end time is essentially
-    never exactly on the hour. Snapping tier 2 to real clock hours keeps
-    every coarse period's own import_fee_rate(cfg, hour) TOU lookup
-    aligned to the REAL rate boundary (Peak/Off-peak/Shoulder switch
-    exactly on the hour) -- using an un-snapped grid would let a single
-    coarse period silently straddle a real rate change and get priced
-    at only one side of it. The one bridging period (tier1_end -> the
-    next whole hour) is genuinely shorter than a full hour and is given
-    its own real, honest duration rather than rounded away.
-
-    REAL BUG FOUND AND FIXED (2026-08-17, live report with an annotated
-    screenshot: "why start on odd number that is weird!!! ... why not
-    start with 00, 01, 02, 03, 04, 05, 10, 15, 20"). This function used to
-    start tier 0 from raw `now` -- the real wall-clock moment the writer
-    happened to run, seconds/microseconds included, no rounding at all.
-    Since tier 1 then continued directly from wherever tier 0's own 5
-    real minutes happened to land, EVERY period in the whole table
-    inherited that same arbitrary offset -- confirmed live via the
-    deployed forecast's own raw timestamps landing on :13/:28/:43/:58
-    instead of any clean clock mark. (Separately, confirmed live the SAME
-    session that this fix's own PREVIOUS version -- 5-min tier1 periods
-    at all -- had never actually made it onto the live NUC despite an
-    earlier turn's deploy claiming success: the live sensor's own
-    `hours` field read a flat 0.25 for every period, the OLD 15-min-only
-    build. Both a real code bug and a real deploy failure, found and
-    fixed together.)
-
-    Fix: round `now` UP to the next whole real MINUTE (tier 0's own
-    start) -- then run 1-min tier-0 periods only as far as the next clean
-    5-MINUTE mark (0-4 periods, whatever it actually takes to reach one;
-    zero if `now` already rounds onto a clean 5-min mark), so tier 1
-    always starts on a genuine :00/:05/:10/... boundary. This is the same
-    real "snap to clock, don't drift with whatever `now` happens to be"
-    principle already applied to tier 1->tier 2 below -- tier 0->tier 1
-    just never had it.
+    """Real wall-clock period boundaries for the tiered horizon. See the
+    native integration copy's own docstring (custom_components/
+    nimbus_load/solver_writer.py) for the full real finding behind
+    nimbus issue #451's boundary-snapped tier1 reshape -- kept in sync
+    here to satisfy this project's own #357 no-drift discipline between
+    the two copies.
     """
     times: list[datetime] = []
     hours: list[float] = []
@@ -2518,24 +2478,19 @@ def build_tiered_grid(now: datetime) -> tuple[list[datetime], list[float]]:
         times.append(t)
         hours.append(TIER0_PERIOD_MINUTES / 60.0)
         t += timedelta(minutes=TIER0_PERIOD_MINUTES)
-    tier1_end = tier1_start + timedelta(hours=TIER1_HOURS)
+    tier1_end = tier1_start.replace(second=0, microsecond=0)
+    while tier1_end <= tier1_start or (
+        tier1_end.minute % TRADING_INTERVAL_MINUTES != 0
+    ):
+        tier1_end += timedelta(minutes=1)
+    tier1_end += timedelta(minutes=TRADING_INTERVAL_MINUTES)
     t = tier1_start
     while t < tier1_end:
         times.append(t)
         hours.append(TIER1_PERIOD_HOURS)
         t += timedelta(hours=TIER1_PERIOD_HOURS)
-    # t is now >= tier1_end (the loop's own last step may overshoot
-    # tier1_end by less than one tier-1 period -- fine, tier 2 starts
-    # from the real next-hour boundary regardless, not from `t` itself).
-    tier2_start = tier1_end.replace(minute=0, second=0, microsecond=0)
-    if tier2_start <= tier1_end:
-        tier2_start += timedelta(hours=1)
-    bridge_hours = (tier2_start - tier1_end).total_seconds() / 3600.0
-    if bridge_hours > 1e-6:
-        times.append(tier1_end)
-        hours.append(bridge_hours)
-    t = tier2_start
-    horizon_end = tier1_start + timedelta(hours=TIER1_HOURS + TIER2_HOURS)
+    t = tier1_end
+    horizon_end = tier1_start + timedelta(hours=TOTAL_HORIZON_HOURS)
     while t < horizon_end:
         times.append(t)
         hours.append(TIER2_PERIOD_HOURS)

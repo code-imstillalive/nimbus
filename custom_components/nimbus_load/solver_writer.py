@@ -383,14 +383,38 @@ LOAD_FORECAST_ERROR_NOTIFIED_PATH = os.environ.get(
 # than ever running two solves concurrently or crashing.
 TIER0_MINUTES = 5.0  # ultra-fine tier: how far out 1-min resolution runs
 TIER0_PERIOD_MINUTES = 1.0
-TIER1_HOURS = (
-    24.0  # fine tier: how far out 5-min resolution runs (from TIER0's own end)
-)
+# nimbus issue #451 (Mark Purcell): TIER1_HOURS used to be a fixed 24.0 --
+# tier1's own 5-min resolution ran for a full real day regardless of what
+# the upstream price data could actually support at that resolution.
+# Real finding: Nimbus does not have a genuine 5-minute-resolution
+# forward price for 24h. LocalVolts costsFlexUp/earningsFlexUp is a
+# genuine 5-min number, but only for the CURRENT settlement interval;
+# AEMO's own PD7DAY predispatch report (the longer-horizon price source)
+# is natively 30-min. Every "5-min" period beyond the current+next real
+# NEM trading interval was really just one of those 30-min numbers
+# stamped six times with compute_5min_offset()'s own historical bump on
+# top -- fake precision, paid for in real solver load (365 periods at
+# the old shape vs ~200 now). Tier1 is now boundary-snapped to the real
+# current + next NEM trading interval (:00/:30) instead of a fixed
+# duration -- see build_tiered_grid()'s own docstring for the exact
+# mechanism. TRADING_INTERVAL_MINUTES names the real NEM settlement
+# cadence tier1's own snapping (and tier2's own resolution below) both
+# key off.
+TRADING_INTERVAL_MINUTES = 30
 TIER1_PERIOD_HOURS = 5.0 / 60.0
-TIER2_HOURS = 72.0  # coarse tier: additional span beyond tier 1
-TIER2_PERIOD_HOURS = (
-    1.0  # -> 24h + 72h = 96h total (plus tier0's own 5 real minutes), ~360 periods
-)
+TIER2_PERIOD_HOURS = 0.5  # was 1.0 -- matches AEMO PD7DAY's own real 30-min cadence
+TOTAL_HORIZON_HOURS = 96.0  # tier0 + tier1 + tier2 combined span from tier1_start
+# The real, ceiling-not-typical max span tier1 can ever be now that it's
+# boundary-snapped rather than fixed-duration -- "current + next 30-min
+# trading interval" tops out at 60 real minutes (tier1_start landing
+# exactly on a :00/:30 mark), never more. Used by the two report-scoring
+# functions below (compute_daily_quality_report/compute_efficiency_
+# backtest_report) to decide whether a scored window fits entirely
+# inside tier1's own real span -- see nimbus issues #438/#441 for why
+# this matching matters (a report scored at the wrong resolution
+# silently disagrees with what the live dispatch it's grading actually
+# did).
+MAX_TIER1_HOURS = 1.0
 
 # Real, bill-confirmed TOU network rates and certificates rate (2026-08-16,
 # real ask: "it needs ot be super accurate") -- reused directly from this
@@ -3640,23 +3664,11 @@ def build_tiered_grid(now: datetime) -> tuple[list[datetime], list[float]]:
     TIER1_*/TIER2_* constants' own comment for why this exists).
 
     Tier 0 (1-min, first 5 real minutes) needs no bridge into tier 1
-    (5-min, same 24h span tier1 has always covered): both are far finer
-    than any real TOU rate boundary (which only ever changes on the
-    hour), so there's no alignment concern the way tier1->tier2 has --
-    5-min periods stack cleanly against 5-min periods regardless of
+    (5-min): both are far finer than any real TOU rate boundary (which
+    only ever changes on the hour) or NEM trading-interval boundary
+    (:00/:30), so there's no alignment concern the way tier1->tier2 has
+    -- 5-min periods stack cleanly against 5-min periods regardless of
     exactly where tier0's own 5 minutes happened to end.
-
-    Tier 2's own periods are snapped to real HOUR boundaries (not just
-    "60 minutes after wherever tier 1 happened to end") -- `now` can be
-    any real minute, so tier 1's own 24h-later end time is essentially
-    never exactly on the hour. Snapping tier 2 to real clock hours keeps
-    every coarse period's own import_fee_rate(cfg, hour) TOU lookup
-    aligned to the REAL rate boundary (Peak/Off-peak/Shoulder switch
-    exactly on the hour) -- using an un-snapped grid would let a single
-    coarse period silently straddle a real rate change and get priced
-    at only one side of it. The one bridging period (tier1_end -> the
-    next whole hour) is genuinely shorter than a full hour and is given
-    its own real, honest duration rather than rounded away.
 
     REAL BUG FOUND AND FIXED (2026-08-17, live report with an annotated
     screenshot: "why start on odd number that is weird!!! ... why not
@@ -3681,8 +3693,24 @@ def build_tiered_grid(now: datetime) -> tuple[list[datetime], list[float]]:
     zero if `now` already rounds onto a clean 5-min mark), so tier 1
     always starts on a genuine :00/:05/:10/... boundary. This is the same
     real "snap to clock, don't drift with whatever `now` happens to be"
-    principle already applied to tier 1->tier 2 below -- tier 0->tier 1
-    just never had it.
+    principle already applied to tier 1's own end boundary below.
+
+    nimbus issue #451 (Mark Purcell): tier 1's own END used to be a
+    fixed 24h after tier1_start, then tier 2 snapped to the next real
+    HOUR boundary. Both replaced: tier1_end now snaps to the end of the
+    real NEXT NEM trading interval (:00/:30) after the one containing
+    tier1_start -- i.e. tier 1 covers exactly the CURRENT + NEXT real
+    30-min trading interval, never more, since that's the genuine limit
+    of what LocalVolts/AEMO's own 5-min-resolution price data actually
+    covers (see the TRADING_INTERVAL_MINUTES/MAX_TIER1_HOURS constants'
+    own comment). Because tier1_end is now itself always a clean :00/:30
+    mark (TIER1_PERIOD_HOURS=5min divides evenly into it), tier 2 starts
+    exactly on a real trading-interval boundary by construction -- no
+    separate bridging period is needed the way the old hour-snapped
+    tier1->tier2 boundary required one. TOU rate boundaries (real Peak/
+    Off-peak/Shoulder switches, which only ever change on the hour) stay
+    correctly aligned too, since every real hour mark is also a :00
+    trading-interval mark.
     """
     times: list[datetime] = []
     hours: list[float] = []
@@ -3697,24 +3725,25 @@ def build_tiered_grid(now: datetime) -> tuple[list[datetime], list[float]]:
         times.append(t)
         hours.append(TIER0_PERIOD_MINUTES / 60.0)
         t += timedelta(minutes=TIER0_PERIOD_MINUTES)
-    tier1_end = tier1_start + timedelta(hours=TIER1_HOURS)
+    # End of the trading interval CONTAINING tier1_start, then extended
+    # by one more full interval to cover "current + next" -- the `<=`
+    # (not `<`) on the first loop guard means a tier1_start that already
+    # sits exactly on a :00/:30 mark still advances to the FOLLOWING
+    # boundary first (it's the start of its own interval, not the end),
+    # before the same one-interval extension applies uniformly either way.
+    tier1_end = tier1_start.replace(second=0, microsecond=0)
+    while tier1_end <= tier1_start or (
+        tier1_end.minute % TRADING_INTERVAL_MINUTES != 0
+    ):
+        tier1_end += timedelta(minutes=1)
+    tier1_end += timedelta(minutes=TRADING_INTERVAL_MINUTES)
     t = tier1_start
     while t < tier1_end:
         times.append(t)
         hours.append(TIER1_PERIOD_HOURS)
         t += timedelta(hours=TIER1_PERIOD_HOURS)
-    # t is now >= tier1_end (the loop's own last step may overshoot
-    # tier1_end by less than one tier-1 period -- fine, tier 2 starts
-    # from the real next-hour boundary regardless, not from `t` itself).
-    tier2_start = tier1_end.replace(minute=0, second=0, microsecond=0)
-    if tier2_start <= tier1_end:
-        tier2_start += timedelta(hours=1)
-    bridge_hours = (tier2_start - tier1_end).total_seconds() / 3600.0
-    if bridge_hours > 1e-6:
-        times.append(tier1_end)
-        hours.append(bridge_hours)
-    t = tier2_start
-    horizon_end = tier1_start + timedelta(hours=TIER1_HOURS + TIER2_HOURS)
+    t = tier1_end
+    horizon_end = tier1_start + timedelta(hours=TOTAL_HORIZON_HOURS)
     while t < horizon_end:
         times.append(t)
         hours.append(TIER2_PERIOD_HOURS)
@@ -4285,23 +4314,27 @@ def _compute_report_for_window(
         )
         return None
 
-    # nimbus issue #438 (Mark Purcell): this used to hardcode 0.25h (15
-    # min) regardless of window length -- coarser than both the live
-    # dispatch grid it's grading (build_tiered_grid()'s own TIER1_
-    # PERIOD_HOURS, 5 min, for its first TIER1_HOURS=24h) and the real
+    # nimbus issue #438 (Mark Purcell), updated for #451: this used to
+    # hardcode 0.25h (15 min) regardless of window length -- coarser
+    # than both the live dispatch grid it's grading and the real
     # settlement interval (NEM, 5 min since Oct 2021). A window that
-    # fits entirely within tier1's own 24h span -- true for every
-    # existing caller: the daily "yesterday" wrapper is always exactly
-    # 24h, and any on-demand allow_partial=True window this short is a
-    # genuine diagnostic sub-window, not a multi-day backfill -- now
-    # matches tier1's own real 5-min resolution instead of falling back
-    # to a coarser, independently-hardcoded number. A window longer
-    # than 24h (multi-day backfill/A-B comparison) keeps the previous
-    # 15-min granularity, since the live dispatch itself coarsens to
-    # TIER2_PERIOD_HOURS (hourly) beyond tier1 too -- flat 5-min
-    # resolution across several real days would make the oracle LP
-    # solve unnecessarily large for a case tier1 doesn't even cover.
-    period_hours = TIER1_PERIOD_HOURS if window_hours <= TIER1_HOURS else 0.25
+    # fits entirely within tier1's own real span (MAX_TIER1_HOURS, now
+    # at most 60 real minutes since #451's boundary-snapped reshape --
+    # see build_tiered_grid()'s own docstring) matches tier1's own real
+    # 5-min resolution. Every existing caller's window is far longer
+    # than that (the daily "yesterday" wrapper is always exactly 24h),
+    # so this now falls through to TIER2_PERIOD_HOURS (30 min, was a
+    # separately-hardcoded 0.25/15min before #451) for the same reason
+    # #438 originally cared about: matching the live dispatch's own
+    # ACTUAL dominant resolution for the window being scored, which for
+    # any window longer than an hour is now tier 2's 30-min cadence, not
+    # tier 1's brief 5-min one. Reusing TIER2_PERIOD_HOURS directly
+    # (rather than a second independent literal) is the same "can't
+    # silently drift apart" fix already applied elsewhere in this
+    # project (see e.g. the dispatch card's own --ftable-min-width).
+    period_hours = (
+        TIER1_PERIOD_HOURS if window_hours <= MAX_TIER1_HOURS else TIER2_PERIOD_HOURS
+    )
     n_periods = round(window_hours / period_hours)
     if n_periods < 1:
         _LOGGER.debug(
@@ -5013,15 +5046,20 @@ def compute_efficiency_backtest_report(cfg: dict, now: datetime) -> dict | None:
     )
     day_end = day_start + timedelta(days=1)
 
-    # nimbus issue #441 (Mark Purcell), same fix/reasoning as #438 --
-    # see _compute_report_for_window()'s own matching comment. This
-    # function always scores a fixed 24h "yesterday" window (window_hours
-    # is always exactly TIER1_HOURS by construction above), so this
-    # always resolves to TIER1_PERIOD_HOURS -- computed explicitly rather
-    # than hardcoding 5/60 directly, so this stays correct if the window
-    # this function scores is ever widened later.
+    # nimbus issue #441 (Mark Purcell), same fix/reasoning as #438,
+    # updated for #451 -- see _compute_report_for_window()'s own
+    # matching comment for the full explanation. This function always
+    # scores a fixed 24h "yesterday" window, always far longer than
+    # MAX_TIER1_HOURS (60 real minutes post-#451), so this resolves to
+    # TIER2_PERIOD_HOURS (30 min) -- matching the live dispatch's own
+    # real dominant resolution for a window this long, computed
+    # explicitly rather than hardcoding 0.5 directly so this stays
+    # correct if either constant, or the window this function scores,
+    # ever changes later.
     window_hours = (day_end - day_start).total_seconds() / 3600.0
-    period_hours = TIER1_PERIOD_HOURS if window_hours <= TIER1_HOURS else 0.25
+    period_hours = (
+        TIER1_PERIOD_HOURS if window_hours <= MAX_TIER1_HOURS else TIER2_PERIOD_HOURS
+    )
     n_periods = round(window_hours / period_hours)
     grid_times = [
         day_start + timedelta(hours=i * period_hours) for i in range(n_periods)

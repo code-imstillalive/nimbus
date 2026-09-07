@@ -799,7 +799,19 @@ class NimbusDispatchCardV4 extends HTMLElement {
         // the fold.
         '.ftable-wrap { width: 100%; overflow-x: auto; overflow-y: auto; max-height: 640px; margin-top: 4px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); }' +
         '.ftable-note { font-size: 1.0em; opacity: 0.45; margin: 0 0 6px; }' +
-        'table.ftable { width: 100%; border-collapse: collapse; font-size: 1.08em; min-width: var(--ftable-min-width); }' +
+        // nimbus issue #459 (Mark Purcell): width:100% + min-width together
+        // meant the table always stretched to fill whatever container it
+        // sat in -- on a narrow card the 640px floor was doing real work,
+        // but on a wide (~1900px) panel the browser's own table auto-layout
+        // redistributed the leftover width as pure empty padding across
+        // every numeric column, undoing #457's own tightened cell padding.
+        // Dropping width:100% lets the table default to its own natural,
+        // content-driven width (browsers' standard table auto-layout
+        // already sizes columns to their real content otherwise) --
+        // min-width still floors it at 640px on a narrow container, and
+        // .ftable-wrap's own overflow-x:auto still handles anything
+        // narrower than that, unchanged.
+        'table.ftable { border-collapse: collapse; font-size: 1.08em; min-width: var(--ftable-min-width); }' +
         'table.ftable thead th { text-align: left; text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.85em; opacity: 0.5;' +
           ' font-weight: 600; padding: 6px 10px; border-bottom: 1px solid rgba(255,255,255,0.1); position: sticky; top: 0; background: #14181f; }' +
         'table.ftable thead th.num { text-align: right; }' +

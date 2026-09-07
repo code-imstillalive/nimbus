@@ -155,13 +155,18 @@ class TestComputeEfficiencyBacktestReportRealSweep(unittest.TestCase):
 
 
 class TestGridResolutionMatchesTier1(unittest.TestCase):
-    """nimbus issue #441 (Mark Purcell), same fix as #438: this function
-    hardcoded its own independent period_hours=0.25 (15 min), separate
-    from _compute_report_for_window() -- coarser than both the live
-    dispatch grid's own 5-min tier-1 resolution and the real NEM
-    settlement interval. Confirms this function's own fixed 24h
-    "yesterday" window now scores at TIER1_PERIOD_HOURS (288 periods),
-    matching #438's fix for the sibling function.
+    """nimbus issue #441 (Mark Purcell), same fix as #438, updated for
+    #451: this function hardcoded its own independent period_hours=0.25
+    (15 min), separate from _compute_report_for_window() -- coarser than
+    both the live dispatch grid's own resolution and the real NEM
+    settlement interval. #451 boundary-snapped tier1 to the real
+    current+next NEM trading interval (at most 60 real minutes, see
+    MAX_TIER1_HOURS), so this function's own fixed 24h "yesterday"
+    window is now far longer than tier1's real span and correctly scores
+    at TIER2_PERIOD_HOURS (30 min, 48 periods) instead -- matching what
+    the live dispatch actually does over that same real 24h span, the
+    same real goal #438/#441 originally had, just resolving to a
+    different tier now that tier1 itself is much shorter.
     """
 
     def _fetch_side_effect(self, entity_id, start, end):
@@ -175,7 +180,7 @@ class TestGridResolutionMatchesTier1(unittest.TestCase):
             return _price_history(YESTERDAY_START, cheap=0.02, expensive=0.10)
         return []
 
-    def test_24h_window_uses_5_minute_periods(self):
+    def test_24h_window_uses_30_minute_periods(self):
         cfg = _cfg()
         with (
             patch.object(
@@ -193,8 +198,8 @@ class TestGridResolutionMatchesTier1(unittest.TestCase):
         self.assertIsNotNone(report)
         period_grid_spy.assert_called_once()
         hours_arr = period_grid_spy.call_args.kwargs["hours"]
-        self.assertEqual(len(hours_arr), 288)
-        self.assertAlmostEqual(float(hours_arr[0]), 5.0 / 60.0, places=6)
+        self.assertEqual(len(hours_arr), 48)
+        self.assertAlmostEqual(float(hours_arr[0]), 0.5, places=6)
 
 
 class TestPublishEfficiencyBacktestReportIdempotency(unittest.TestCase):
