@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.151] — 2026-09-07
+
+### Fixed
+- **Dispatch-card chart:table ratio corrected back to 2/3:1/3.** v0.94.150's flexbox fix killed the horizontal scrollbar but broke the intended proportion — the table's own natural width turned out nearly as wide as the chart, so it rendered roughly half/half (confirmed live) instead of 2:1, and wrapped to fully stacked on a narrower real card width. Back to CSS Grid `2fr/1fr`, but the table's track is `minmax(max-content, 1fr)` instead of a bare `1fr` — keeps the 2:1 default split when there's room, and the table still can never be squeezed narrower than its own real content (the actual scroll-bug fix from v0.94.150, unchanged).
+
 ## [0.94.150] — 2026-09-07
 
 ### Fixed
