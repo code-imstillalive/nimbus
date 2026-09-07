@@ -40,7 +40,29 @@ file is not re-summarized here; read it directly for the full detail. Most recen
   foundation-only. Still deliberately NOT built: the #465-pattern per-load sensor
   platform every one of #479/#480/#484/#486's own gaps still points at — same
   verifiability reasoning as the day before (no real `hass_integration` harness
-  available locally).
+  available locally). **Continued same day**: #534 item 1 — a Controllable Load's Done
+  sensor now accepts a `water_heater`/`climate` entity directly (reads
+  `current_temperature` attribute, not the mode-string state; defaults an unset Done
+  condition to the entity's own live setpoint), v0.94.167, no wizard change needed.
+  Then **#538** (Mark, found the day after v0.94.166 shipped): `soc_discrepancy_
+  reliable`/`epr_reliable` used to test ONLY the [0, 100] range — his own real case
+  (raising configured capacity kept a 40.7pt/10.85pt real disagreement in-range) still
+  read "reliable". Added a second, independent agreement test via two new dashboard
+  numbers (`number.nimbus_solver_soc_discrepancy_max_threshold_pct`=15/`_mean_
+  threshold_pct`=8, never hardcoded), plus `soc_discrepancy_reason` (`"out_of_range"`
+  vs `"disagreement"`) on the report/WARNING/flattened sensor. **Auditing that same
+  bug class while wiring the two new number entities found two more real, live,
+  pre-existing instances**: `solver_fixed_daily_charge`/`solver_post_window_self_
+  consume_hours` were both missing from `sensor.py`'s own live-entity resolution list
+  — any household adjusting either from the dashboard had **zero effect on the actual
+  solve**, silently, forever; fixed alongside #538, plus a new generic regression test
+  guarding every `number.py` field against this pairing going forward. CI caught a
+  real thing local verification missed (a pre-existing test asserting the exact
+  behaviour #538 changes — this repo's own `pytest-asyncio` plugin conflict means
+  this file's pytest-style tests aren't exercised locally at all); fixed, re-pushed,
+  merged. Released as v0.94.168, deployed to devhub, verified live — the new
+  reason-aware WARNING fired for real on devhub's own data
+  (`reason=disagreement, max discrepancy 20.4 pt, mean 9.6 pt`).
 - [2026-09-07](docs/worklog/2026-09-07.md) — #445/#453/#451 real bug fixes; dispatch-card
   risk-aversion live-effect proof, Solve Now button, nimbus_status sensor. Chart/table
   layout saga ran through SEVEN CSS iterations (four content-aware formulas, then two
