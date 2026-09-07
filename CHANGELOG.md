@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.145] — 2026-09-07
+
+### Fixed
+- **Fix [#456](https://github.com/code-imstillalive/nimbus/issues/456) (Mark Purcell): forecast-intervals table showed far fewer of its 142 real periods than it could per screenful.** Row padding (7px 12px, sized for something denser than one line of 1-2 digit numbers) down to 3px 10px (6px for numeric cells specifically), the SOURCE column's bar indicator down from 56px to 34px (was noticeably wider than the numeric columns beside it), and the table's own visible height raised 480px → 640px — together, not padding alone, since either change on its own still left most of a 142-row table below the fold.
+
 ## [0.94.144] — 2026-09-07
 
 ### Fixed
