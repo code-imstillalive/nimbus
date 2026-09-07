@@ -722,12 +722,28 @@ class NimbusDispatchCardV4 extends HTMLElement {
       const srcAPct = parseFloat(p.dispatch_source_a_pct);
       const srcBPct = parseFloat(p.dispatch_source_b_pct);
       const hasSource = !isNaN(srcAPct) && !isNaN(srcBPct) && (srcAPct + srcBPct) > 0;
-      const sourceBar = hasSource
-        ? '<div class="source-bar" title="' + (p.dispatch_source_a_label || 'Solar') + ' ' + srcAPct.toFixed(0) + '% / ' + (p.dispatch_source_b_label || 'Grid') + ' ' + srcBPct.toFixed(0) + '%">' +
-            '<span class="seg seg-a" style="width:' + srcAPct + '%"></span>' +
-            '<span class="seg seg-b" style="width:' + srcBPct + '%"></span>' +
-          '</div>'
-        : '<span style="opacity:0.3;">—</span>';
+      // nimbus issue #459 (Mark Purcell): the source cell renders both
+      // formats in the DOM, and a container-query rule below shows only
+      // one at a time -- Raf's 14px split pill (.src-wide) on cards wide
+      // enough for it, a 9px split dot (.src-compact) on cards narrow
+      // enough that every extra pixel matters. Same solar/grid split-by-
+      // percent encoding, same title, just at two different physical
+      // sizes. Kept as one HTML path so future edits touch one place.
+      const srcTitle = hasSource
+        ? (p.dispatch_source_a_label || 'Solar') + ' ' + srcAPct.toFixed(0) + '% / ' + (p.dispatch_source_b_label || 'Grid') + ' ' + srcBPct.toFixed(0) + '%'
+        : 'no source data';
+      const srcSegments = hasSource
+        ? '<span class="seg seg-a" style="width:' + srcAPct + '%"></span><span class="seg seg-b" style="width:' + srcBPct + '%"></span>'
+        : '';
+      const sourceBar =
+        '<span class="src-wide">' +
+          (hasSource
+            ? '<span class="source-bar" title="' + srcTitle + '">' + srcSegments + '</span>'
+            : '<span style="opacity:0.3;">—</span>') +
+        '</span>' +
+        '<span class="src-compact">' +
+          '<span class="source-dot' + (hasSource ? '' : ' source-dot-empty') + '" title="' + srcTitle + '">' + srcSegments + '</span>' +
+        '</span>';
       // Grid column (direct household ask): energy balance across the same
       // three sources used everywhere else on this card -- grid + solar +
       // discharge = load + charge + export, rearranged to isolate grid.
@@ -743,7 +759,19 @@ class NimbusDispatchCardV4 extends HTMLElement {
       const gridColor = gridKwRow > 0.05 ? '#ffb340' : (gridKwRow < -0.05 ? '#3ddc84' : '#5a6070');
       ftRows.push(
         '<tr class="' + (idx === 0 ? 'now-row' : '') + '">' +
-          '<td class="time-col">' + ftFmtTime(p.time) + (idx === 0 ? ' <span class="now-tag">now</span>' : '') + '</td>' +
+          // nimbus issue #459: TIME cell carries three inline spans and
+          // a container-query rule below shows the right combination for
+          // the container width. Wide cards see "HH:MM <now-tag>", narrow
+          // cards see just <now-tag> on the now row (HH:MM hidden) and
+          // HH:MM on every other row. Non-now rows are the same string
+          // either way; the wide/compact difference is only on row 0.
+          '<td class="time-col">' +
+            '<span class="time-clock">' + ftFmtTime(p.time) + '</span>' +
+            (idx === 0
+              ? '<span class="time-nowtag-wide now-tag">now</span>' +
+                '<span class="time-nowtag-compact now-tag">NOW</span>'
+              : '') +
+          '</td>' +
           '<td class="source-col">' + sourceBar + '</td>' +
           '<td class="num">' + buyC.toFixed(1) + '</td>' +
           '<td class="num">' + feesC.toFixed(1) + '</td>' +
@@ -916,7 +944,20 @@ class NimbusDispatchCardV4 extends HTMLElement {
         // takes less vertical space) together, not just one or the other,
         // since either alone still leaves most of a 142-row table below
         // the fold.
-        '.ftable-wrap { width: 100%; overflow-x: auto; overflow-y: auto; max-height: 640px; margin-top: 4px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); }' +
+        // nimbus issue #459 (Mark Purcell): .ftable-wrap is itself a
+        // size container so the table swaps to a compact 5ch-TIME +
+        // 1ch-SOURCE-dot + fixed-layout format when the wrap's own
+        // available width drops below ~500px (phone-width card, the case
+        // Raf's font-size + Time-col fix in v0.94.157/.158 still leaves
+        // clipped). Wide cards keep Raf's format unchanged.
+        '.ftable-wrap { width: 100%; overflow-x: auto; overflow-y: auto; max-height: 640px; margin-top: 4px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); container-type: inline-size; container-name: ftable; }' +
+        // Default: wide format (Raf). Show the pill, hide the dot;
+        // show the inline lowercase "now" tag, hide the compact NOW.
+        '.src-wide { display: inline-flex; vertical-align: middle; }' +
+        '.src-compact { display: none; }' +
+        '.time-clock { }' +
+        '.time-nowtag-wide { display: inline; }' +
+        '.time-nowtag-compact { display: none; }' +
         '.ftable-note { font-size: 1.0em; opacity: 0.45; margin: 0 0 6px; }' +
         // nimbus issue #459 (Mark Purcell) removed width:100% here because
         // back then table.ftable's container was the WHOLE wide panel
@@ -997,6 +1038,39 @@ class NimbusDispatchCardV4 extends HTMLElement {
         '.source-bar { display: flex; width: 14px; height: 7px; border-radius: 3px; overflow: hidden; background: rgba(255,255,255,0.06); }' +
         '.source-bar .seg-a { background: #ffb340; }' +
         '.source-bar .seg-b { background: #4fa3ff; }' +
+        // nimbus #459: in-row split dot for the compact format. Same
+        // orange/blue solar/grid split as the wide pill, in a ~9px
+        // circle -- fits inside a 1ch column and stays visible with the
+        // legend colour scheme.
+        '.source-dot { display: inline-flex; width: 9px; height: 9px; border-radius: 50%; overflow: hidden; background: rgba(255,255,255,0.06); vertical-align: middle; }' +
+        '.source-dot .seg-a { background: #ffb340; height: 100%; }' +
+        '.source-dot .seg-b { background: #4fa3ff; height: 100%; }' +
+        '.source-dot-empty { background: rgba(255,255,255,0.08); }' +
+        // nimbus #459: narrow-container compact format. Fires when the
+        // ftable-wrap resolves below 500px (phone cards, ~360-412px
+        // real). Every rule inside this block only applies then;
+        // wide-card rendering is unchanged.
+        '@container ftable (max-width: 500px) {' +
+          // Fixed layout so the browser cannot redistribute leftover
+          // width as empty padding, and no min-width floor so the table
+          // fits the card instead of forcing a scroller.
+          'table.ftable { table-layout: fixed; min-width: 0; }' +
+          // Every td tight, numbers even tighter.
+          'table.ftable td, table.ftable thead th { padding: 3px 3px; }' +
+          'table.ftable td.num, table.ftable thead th.num { padding-left: 3px; padding-right: 3px; }' +
+          // TIME: exactly 5ch, centred. Clock hidden on the now row;
+          // NOW tag hidden on every other row.
+          'table.ftable th.time-col, table.ftable td.time-col { width: 5ch; min-width: 5ch; max-width: 5ch; text-align: center; padding-left: 3px; padding-right: 3px; }' +
+          'table.ftable tr.now-row td.time-col .time-clock { display: none; }' +
+          'table.ftable td.time-col .time-nowtag-wide { display: none; }' +
+          'table.ftable tr.now-row td.time-col .time-nowtag-compact { display: inline; margin-left: 0; font-size: 0.85em; }' +
+          // SOURCE: 1ch column, dot swapped in for the pill, header
+          // text visually hidden (empty label, colour swatch is legend).
+          'table.ftable th.source-col, table.ftable td.source-col { width: 1ch; min-width: 1ch; max-width: 1ch; padding-left: 2px; padding-right: 2px; text-align: center; }' +
+          'table.ftable th.source-col { font-size: 0; letter-spacing: 0; }' +
+          '.src-wide { display: none; }' +
+          '.src-compact { display: inline-flex; }' +
+        '}' +
         /* Landscape/desktop layout (nimbus issue #391, Mark Purcell): below
            this breakpoint the card stays a single vertical column (the
            original, unchanged mobile/narrow layout). At/above it, the header

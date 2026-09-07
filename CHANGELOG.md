@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.159] — 2026-09-07
+
+### Changed
+- **Dispatch-card forecast table renders in a compact format on narrow (phone-width) cards, wide format unchanged elsewhere.** Closes [#459](https://github.com/code-imstillalive/nimbus/issues/459) (Mark Purcell). When `.ftable-wrap` resolves below 500px (a container query, not a viewport breakpoint), `table.ftable` switches to `table-layout: fixed` with no `min-width` floor: TIME becomes exactly 5ch (`HH:MM`, or a compact `NOW` badge on the current-period row instead of the clock value), SOURCE becomes 1ch with a 9px orange/blue split dot in place of the pill bar (same solar/grid split-by-percent encoding as the legend), and every numeric column gets an even share of what's left. The table now fits every phone-width card without horizontal scroll or clipping. Wide cards (500px and above, e.g. the two-thirds panel on a landscape dashboard) still render Raf's format from v0.94.157/.158: pill share bar, `HH:MM` with the inline lowercase `now` tag, unchanged font. One HTML path, one CSS rule.
+
 ## [0.94.158] — 2026-09-07
 
 ### Changed
