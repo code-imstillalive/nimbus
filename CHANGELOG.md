@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.144] — 2026-09-07
+
+### Fixed
+- **Dispatch card reverted to a single-column layout.** The landscape/2-column mode added for wide containers (#391) is gone — `.layout-grid` stays `display:block` unconditionally, restoring the original stacked layout regardless of container width, per direct household request.
+- **Fix [#453](https://github.com/code-imstillalive/nimbus/issues/453) (Mark Purcell): the current-period live solar override no longer assumes Watts.** It divided by 1000 unconditionally when anchoring `solar_kw[0]` to a real live reading — correct only when the configured `solver_solar_power_sensor` reports in Watts, silently corrupting the value toward zero for any install whose sensor already reports kW. Now reuses the existing, already-tested `_kw_scale_factor()` helper (added 2026-08-28 for the same bug class elsewhere in this file) instead of a second hardcoded assumption.
+
+### Added
+- **Real, live proof that the three risk-aversion sliders (Load/Solar, Import Price, Export Price) are actually doing something.** "Moved the slider, nothing happened" was genuinely ambiguous between a broken control and a correct no-op (the underlying forecast band being zero-width at that moment) — nothing on any dashboard could tell the two apart. `Plan` now carries `effective_solar_kw`/`effective_import_price`/`effective_export_price`; `sensor.nimbus_solver_battery_forecast` publishes the raw-vs-effective gap for the current period as three new attributes; the dispatch card shows "live effect this cycle" directly under each slider — a real nonzero effect, or a genuine honest zero, always visible.
+
 ## [0.94.143] — 2026-09-07
 
 ### Added
