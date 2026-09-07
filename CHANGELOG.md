@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.155] — 2026-09-07
+
+### Fixed
+- **Dispatch-card table no longer sits with dead space beside it inside its fixed 1/3 box** — `table.ftable` gets `width:100%` back (safe now that its container is a stable, fixed box, unlike when this was removed under an unbounded full-width panel).
+- **Table's horizontal scroll position no longer resets to the left on every re-render** — the existing scroll-restore logic only ever handled vertical scroll; now handles both axes.
+
 ## [0.94.154] — 2026-09-07
 
 ### Changed
