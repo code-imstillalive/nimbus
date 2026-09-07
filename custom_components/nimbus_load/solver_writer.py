@@ -4748,6 +4748,7 @@ def _compute_report_for_window(
         return None
 
     regret_dollars = report.j_ach - report.j_star
+    soc_discrepancy = _soc_discrepancy_stats(soc_hist, report.j_ach_hourly)
     return {
         # Fractional EPR (0..1). Canonical downstream contract: the OpEd
         # hero chart, the compute_quality_report service payload, and the
@@ -4800,7 +4801,38 @@ def _compute_report_for_window(
         "j_ref_hourly": report.j_ref_hourly,
         "j_ach_hourly": report.j_ach_hourly,
         "j_star_hourly": report.j_star_hourly,
-        **_soc_discrepancy_stats(soc_hist, report.j_ach_hourly),
+        **soc_discrepancy,
+        # nimbus issue #532 (Mark Purcell, real household data, 7 Sep):
+        # the real energy that moved through actual_charge_kw/
+        # actual_discharge_kw over the whole scored window -- exposed
+        # alongside soc_discrepancy_reliable so a household can tell
+        # "history gap" from "this sensor covers more storage than
+        # capacity_kwh describes" from the sensor's own attributes,
+        # without a manual recorder pull (Mark's own case: a combined
+        # battery-power sensor summing the home pack + a shared EV DC
+        # charger, feeding a 100 kWh single-battery model -- achieved_
+        # energy_in_kwh/achieved_energy_out_kwh alone made this
+        # diagnosable by eye once he had them). Deliberately NOT an
+        # automatic cause classifier (history-gap vs model-mismatch) --
+        # that needs a real recorder-gap detector this pass doesn't
+        # build; the two raw numbers are honest and sufficient on their
+        # own for a human (or a future automated check) to draw the
+        # same conclusion.
+        "achieved_energy_in_kwh": round(
+            float(np.sum(actual_charge_kw * period_hours_arr)), 3
+        ),
+        "achieved_energy_out_kwh": round(
+            float(np.sum(actual_discharge_kw * period_hours_arr)), 3
+        ),
+        # nimbus issue #533: the EPR headline's own reliability
+        # qualifier, named for what it qualifies (today identical to
+        # soc_discrepancy_reliable -- EPR is driven directly by J_ach's
+        # own SoC-integration, so the same out-of-range condition that
+        # makes the SoC discrepancy unreliable makes EPR unreliable too
+        # -- kept as its own named field rather than asking a consumer
+        # to know that link, and so a future second EPR-reliability
+        # signal has somewhere to fold in without a rename).
+        "epr_reliable": soc_discrepancy["soc_discrepancy_reliable"],
     }
 
 
@@ -4887,6 +4919,15 @@ def _soc_discrepancy_stats(
     }
 
 
+# nimbus issue #533 (Mark Purcell's own item 3): log once per SCORED
+# DAY, not every cycle that happens to re-publish it -- same #313/#314
+# "log once, with the number" discipline already applied elsewhere this
+# session (#480's own done_when warning). Keyed by the scored date
+# string (yesterday_key) so a genuinely NEW day's own unreliable score
+# gets its own warning even if a PRIOR day's was already logged.
+_QUALITY_REPORT_UNRELIABLE_WARNED: set[str] = set()
+
+
 def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
     """Publishes sensor.nimbus_solver_quality_report -- the exact
     entity_id the devhub dashboard's own "Nimbus Solver Quality" card
@@ -4966,6 +5007,26 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
             yesterday_key,
         )
         return
+    if (
+        day_entry.get("soc_discrepancy_reliable") is False
+        and yesterday_key not in _QUALITY_REPORT_UNRELIABLE_WARNED
+    ):
+        _QUALITY_REPORT_UNRELIABLE_WARNED.add(yesterday_key)
+        _LOGGER.warning(
+            "Nimbus quality: %s scored with soc_discrepancy_reliable=False "
+            "(max discrepancy %.1f pt, mean %.1f pt) -- the achieved SoC "
+            "integration went outside the physically real [0, 100] range "
+            "for at least one hour this day. EPR and every other figure "
+            "on this day's report are unreliable until this is "
+            "understood (a real recorder history gap, or the configured "
+            "battery power/capacity sensors not matching what they "
+            "physically describe -- compare this report's own "
+            "achieved_energy_in_kwh/achieved_energy_out_kwh against "
+            "solver_battery_capacity_kwh to tell the two apart)",
+            yesterday_key,
+            day_entry.get("soc_discrepancy_max_pct") or 0.0,
+            day_entry.get("soc_discrepancy_mean_pct") or 0.0,
+        )
     ha_post_state(
         QUALITY_ENTITY_ID,
         # State channel gets the percent-scaled value (0..100) so it
@@ -6669,6 +6730,13 @@ def _resolve_hour_to_period_index(
     return n - 1
 
 
+# nimbus issue #535: log the W->kW scaling hint once per power_sensor
+# entity_id, not every solve tick -- same #313/#314 discipline as every
+# other log-once dedup this session (_DONE_CONDITION_WARNED,
+# _QUALITY_REPORT_UNRELIABLE_WARNED). Module-level, lives for the process.
+_LOAD_POWER_SENSOR_UNIT_HINT_LOGGED: set[str] = set()
+
+
 def _sample_load_run_state(
     hub_entry_id: str,
     subentry_id: str,
@@ -6696,7 +6764,32 @@ def _sample_load_run_state(
         state_obj = _NATIVE_HASS.states.get(power_sensor)
         if state_obj is None or state_obj.state in (None, "unknown", "unavailable"):
             return
-        power_kw = float(state_obj.state)
+        # nimbus issue #535 (Mark Purcell, real household finding): this
+        # used to treat state_obj.state as already being kW, with no
+        # check against what the sensor itself declares -- the same
+        # real class of bug _kw_scale_factor() (this file, near
+        # compute_daily_quality_report()) was already found and fixed
+        # for the solar/load/battery quality-report sensors. A real
+        # power/CT-clamp sensor reporting Watts (Mark's own case: a
+        # 4.6W standby reading on a heat-pump HWS) was silently read as
+        # 4.6 kW -- currently_on permanently true, delivered_today_kwh
+        # ~1000x too large. Same fix, read directly off the already-
+        # fetched state_obj's own attributes rather than a second
+        # ha_get() round-trip (native mode only here, unlike
+        # _kw_scale_factor()'s own REST-shaped caller).
+        unit = state_obj.attributes.get("unit_of_measurement")
+        scale = 0.001 if unit == "W" else 1.0
+        if scale != 1.0 and power_sensor not in _LOAD_POWER_SENSOR_UNIT_HINT_LOGGED:
+            _LOAD_POWER_SENSOR_UNIT_HINT_LOGGED.add(power_sensor)
+            _LOGGER.info(
+                "Nimbus: controllable load power sensor %s reports Watts "
+                "(unit_of_measurement=%r) -- scaling by %.3f to kW for "
+                "run-state sampling (logged once per entity)",
+                power_sensor,
+                unit,
+                scale,
+            )
+        power_kw = float(state_obj.state) * scale
 
         try:
             from . import load_run_state
