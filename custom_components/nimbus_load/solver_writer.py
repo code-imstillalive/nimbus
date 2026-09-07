@@ -813,6 +813,57 @@ def safe_num(entity_id: str, fallback: float = 0.0) -> float:
         return fallback
 
 
+def _risk_aversion_effect_now(
+    plan: network.Plan,
+    solar_kw: list[float],
+    import_price: list[float],
+    export_price: list[float],
+) -> dict[str, float | None]:
+    """Real, live proof the three risk-aversion sliders (Load/Solar,
+    Import Price, Export Price -- number.py's own _DESCRIPTIONS) are
+    actually reaching the LP, not a UI-only control. 2026-09-07, direct
+    household finding: "moved slider, nothing happened" is genuinely
+    ambiguous between "the slider/write path is broken" and "the
+    mechanism is a correct no-op right now because the underlying
+    forecast band has ~zero width this period" -- nothing on any
+    dashboard could tell those apart, so the household had no way to
+    confirm the mechanism was even wired up correctly.
+
+    Reads plan.effective_solar_kw/effective_import_price/
+    effective_export_price (network.py's own _risk_adjusted()/
+    _risk_adjusted_one_sided() output, exposed on Plan specifically for
+    this) against the raw forecast/price arrays this SAME solve was fed
+    -- period 0 only, "right now" being the only period a household
+    looking at a live dashboard actually cares about. A nonzero
+    raw-vs-effective gap is direct, physical proof the slider is having
+    an effect this cycle; a zero gap at a nonzero slider value is
+    equally real proof the band is currently zero-width, not that
+    anything is broken.
+
+    Returns every value None (not 0.0 -- a real gap of zero and "no
+    data to compare" must stay distinguishable) whenever plan wasn't
+    optimal or is a bare Plan() built without these fields (every
+    existing test that constructs Plan directly, pre-2026-09-07).
+    """
+    if not plan.is_optimal or plan.effective_solar_kw.size == 0:
+        return {
+            "solar_risk_effect_now_kw": None,
+            "import_price_risk_effect_now": None,
+            "export_price_risk_effect_now": None,
+        }
+    return {
+        "solar_risk_effect_now_kw": round(
+            float(solar_kw[0]) - float(plan.effective_solar_kw[0]), 3
+        ),
+        "import_price_risk_effect_now": round(
+            float(plan.effective_import_price[0]) - float(import_price[0]), 4
+        ),
+        "export_price_risk_effect_now": round(
+            float(export_price[0]) - float(plan.effective_export_price[0]), 4
+        ),
+    }
+
+
 def compute_binding_constraint_label(
     plan: network.Plan,
     export_limit_kw: float,
@@ -6498,6 +6549,7 @@ def publish_plan(
                 plan.duals.get("power_balance_t0", 0.0), 4
             ),
             "p2p_volume_cap_shadow_price": p2p_volume_cap_shadow_price,
+            **_risk_aversion_effect_now(plan, solar_kw, import_price, export_price),
         },
     )
     cross_check_str = (
@@ -6896,7 +6948,22 @@ def main() -> None:
     solar_power_sensor = cfg.get("solver_solar_power_sensor")
     if solar_power_sensor and entity_exists(solar_power_sensor):
         try:
-            live_solar_kw = float(ha_get(solar_power_sensor)["state"]) / 1000.0
+            # nimbus issue #453 (Mark Purcell): this used to divide by
+            # 1000.0 unconditionally, the same undocumented "must be
+            # Watts" assumption _kw_scale_factor()'s own docstring
+            # already documents as a real, confirmed-live bug elsewhere
+            # in this file (compute_daily_quality_report()/compute_
+            # efficiency_backtest_report(), 2026-08-28) -- correct for
+            # THIS household (sensor.combined_total_dc_power's own
+            # unit_of_measurement is genuinely "W", confirmed live), but
+            # silently corrupts solar_kw[0] toward ~0 for any other
+            # install whose configured sensor already reports kW. Reuses
+            # the same helper instead of a second hardcoded assumption
+            # of the identical shape -- zero behaviour change for this
+            # household (0.001 either way), real fix for a kW-native one.
+            live_solar_kw = float(
+                ha_get(solar_power_sensor)["state"]
+            ) * _kw_scale_factor(solar_power_sensor)
             solar_kw[0] = max(0.0, live_solar_kw)
             solar_lower_kw[0] = solar_kw[0]
             solar_upper_kw[0] = solar_kw[0]

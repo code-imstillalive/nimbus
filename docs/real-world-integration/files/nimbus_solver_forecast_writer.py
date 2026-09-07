@@ -689,6 +689,42 @@ def safe_num(entity_id: str, fallback: float = 0.0) -> float:
         return fallback
 
 
+def _risk_aversion_effect_now(
+    plan: network.Plan,
+    solar_kw: list[float],
+    import_price: list[float],
+    export_price: list[float],
+) -> dict[str, float | None]:
+    """Real, live proof the three risk-aversion sliders (Load/Solar,
+    Import Price, Export Price) are actually reaching the LP, not a
+    UI-only control -- see the native-integration copy's own docstring
+    (custom_components/nimbus_load/solver_writer.py) for the full
+    2026-09-07 household finding this answers. Reads plan.effective_
+    solar_kw/effective_import_price/effective_export_price (network.py's
+    own _risk_adjusted()/_risk_adjusted_one_sided() output) against the
+    raw forecast/price arrays this same solve was fed, period 0 only.
+    Every value None (not 0.0) whenever plan wasn't optimal or is a bare
+    Plan built without these fields.
+    """
+    if not plan.is_optimal or plan.effective_solar_kw.size == 0:
+        return {
+            "solar_risk_effect_now_kw": None,
+            "import_price_risk_effect_now": None,
+            "export_price_risk_effect_now": None,
+        }
+    return {
+        "solar_risk_effect_now_kw": round(
+            float(solar_kw[0]) - float(plan.effective_solar_kw[0]), 3
+        ),
+        "import_price_risk_effect_now": round(
+            float(plan.effective_import_price[0]) - float(import_price[0]), 4
+        ),
+        "export_price_risk_effect_now": round(
+            float(export_price[0]) - float(plan.effective_export_price[0]), 4
+        ),
+    }
+
+
 def compute_binding_constraint_label(
     plan: network.Plan,
     export_limit_kw: float,
@@ -4347,6 +4383,7 @@ def main() -> None:
                 plan.duals.get("power_balance_t0", 0.0), 4
             ),
             "p2p_volume_cap_shadow_price": p2p_volume_cap_shadow_price,
+            **_risk_aversion_effect_now(plan, solar_kw, import_price, export_price),
         },
     )
     cross_check_str = (

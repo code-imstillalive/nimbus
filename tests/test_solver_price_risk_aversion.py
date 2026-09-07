@@ -353,3 +353,93 @@ class TestPriceRiskAversion(unittest.TestCase):
             np.allclose(plan_imp_on.grid_import_kw, plan_imp_off.grid_import_kw),
             "import_price_risk_aversion=1.0 with a real bound had no measurable effect at all",
         )
+
+
+class TestEffectiveValuesExposedOnPlan(unittest.TestCase):
+    """2026-09-07, direct household ask: "moved slider, nothing
+    happened" -- solver_writer._risk_aversion_effect_now() (published on
+    sensor.nimbus_solver_battery_forecast) needs plan.effective_solar_kw/
+    effective_import_price/effective_export_price to actually be
+    populated by build_plan() with real, correct values -- these tests
+    confirm Plan's own new fields, not just the sensor-attribute helper
+    on top of them.
+    """
+
+    def test_effective_import_price_matches_the_risk_adjusted_formula(self):
+        n = 10
+        periods, grid, battery, solar, loads = _scenario(
+            import_price_upper=np.array([0.50] * n),
+        )
+        plan = build_plan(
+            periods=periods,
+            grid=grid,
+            battery=battery,
+            solar=solar,
+            loads=loads,
+            import_price_risk_aversion=0.4,
+        )
+        self.assertEqual(plan.status, "optimal")
+        # forecast + risk_aversion * max(0, upper - forecast), same
+        # formula _risk_adjusted_one_sided() itself implements.
+        expected = 0.10 + 0.4 * max(0.0, 0.50 - 0.10)
+        np.testing.assert_allclose(plan.effective_import_price, np.full(n, expected))
+
+    def test_effective_export_price_matches_the_risk_adjusted_formula(self):
+        n = 10
+        periods, grid, battery, solar, loads = _scenario(
+            export_price_lower=np.array([0.05] * n),
+        )
+        plan = build_plan(
+            periods=periods,
+            grid=grid,
+            battery=battery,
+            solar=solar,
+            loads=loads,
+            export_price_risk_aversion=0.5,
+        )
+        self.assertEqual(plan.status, "optimal")
+        expected = 0.30 - 0.5 * max(0.0, 0.30 - 0.05)
+        np.testing.assert_allclose(plan.effective_export_price, np.full(n, expected))
+
+    def test_effective_solar_kw_matches_the_risk_adjusted_formula(self):
+        n = 10
+        periods, grid, battery, _, loads = _scenario()
+        solar = SolarConfig(
+            forecast_kw=np.full(n, 8.0),
+            lower_kw=np.full(n, 5.0),
+            upper_kw=np.full(n, 8.0),
+        )
+        plan = build_plan(
+            periods=periods,
+            grid=grid,
+            battery=battery,
+            solar=solar,
+            loads=loads,
+            risk_aversion=0.6,
+        )
+        self.assertEqual(plan.status, "optimal")
+        expected = 8.0 - 0.6 * max(0.0, 8.0 - 5.0)
+        np.testing.assert_allclose(plan.effective_solar_kw, np.full(n, expected))
+
+    def test_zero_width_band_means_zero_effect_regardless_of_slider_value(self):
+        """The exact household-observed case: a real, nonzero risk_
+        aversion setting with a zero-width band produces zero effect --
+        this is what proves "nothing happened" can be a CORRECT outcome,
+        not evidence the slider is broken."""
+        n = 10
+        periods, grid, battery, _, loads = _scenario()
+        solar = SolarConfig(
+            forecast_kw=np.full(n, 8.0),
+            lower_kw=np.full(n, 8.0),
+            upper_kw=np.full(n, 8.0),
+        )
+        plan = build_plan(
+            periods=periods,
+            grid=grid,
+            battery=battery,
+            solar=solar,
+            loads=loads,
+            risk_aversion=0.8,
+        )
+        self.assertEqual(plan.status, "optimal")
+        np.testing.assert_allclose(plan.effective_solar_kw, np.full(n, 8.0))
