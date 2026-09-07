@@ -6,6 +6,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.161] — 2026-09-07
+
+### Changed
+- **Compact forecast-table format drops the two zero-value columns and rounds the rest to whole numbers.** Follow-up on [#459](https://github.com/code-imstillalive/nimbus/issues/459) after visual verification at a real 350px card width (browser render, not the CSS parse). At 350px, 12 numeric columns compressed into ~250px of table-col had two secondary problems the v0.94.159 rule did not solve: (a) column headers ran together (`BUYFEESELP2P...`) because 20px per column is under one glyph width for the header text, and (b) adjacent numeric values with one-decimal precision touched (`38.00.0 12.4`). The compact `@container` block now also hides the `.col-fees` and `.col-p2p` columns (both usually zero in Mark Purcell's rate cards; the wide format still shows them) and swaps each numeric cell's `.num-full` value for a `.num-round` sibling that pre-computes `Math.round(x)`, so `36.4` renders as `36`, `-0.1` renders as `0`, `$0.29` renders as `$0`. The precision loss is deliberate: a phone-width card is a scan-and-glance surface, not the wide dashboard where cents matter. Every `.num` cell now carries both spans and the container query flips their visibility; wide-card rendering shows the same precise values as before.
+
+### Testing
+- Four more assertions in `tests/frontend/test_dispatch_card_compact_layout.py` (14 total, all passing): wide-card default keeps `.num-full` visible and `.num-round` hidden; compact block adds `display: none` for both `.col-fees` and `.col-p2p` headers and cells; compact block flips `.num-full` and `.num-round` visibility. Row rendering grep-asserts the four new classes so a silent regression to single-span cells cannot pass.
+
+## [0.94.160] — 2026-09-07
+
+### Testing
+- **Acceptance test for the #459 compact layout added at `tests/frontend/test_dispatch_card_compact_layout.py`.** The test extracts the shadow-root CSS string from `nimbus-dispatch-card-v4.js`, parses it with `tinycss2`, and asserts on the rule tree: the `@container ftable (max-width: 500px)` block exists exactly once, inside it `table.ftable` is `table-layout: fixed` with `min-width: 0`, `th/td.time-col` is exactly 5ch, `th/td.source-col` is exactly 1ch, the wide/compact source spans and now-tag spans flip visibility, and the wide-format defaults (pill share bar visible, compact spans hidden, inline lowercase `now` tag) are still in place outside the block. Also grep-asserts the row rendering actually emits the classes the CSS targets, so a silently-empty-markup regression cannot pass. Pure-Python (no browser, no Node, no CI install cost beyond `tinycss2` in the `[dev]` extra); runs under the existing pytest job. Two hand-inserted regressions (breakpoint moved to 400px, source-col widened to 2ch) were both caught.
+
+## [0.94.159] — 2026-09-07
+
+### Changed
+- **Dispatch-card forecast table renders in a compact format on narrow (phone-width) cards, wide format unchanged elsewhere.** Closes [#459](https://github.com/code-imstillalive/nimbus/issues/459) (Mark Purcell). When `.ftable-wrap` resolves below 500px (a container query, not a viewport breakpoint), `table.ftable` switches to `table-layout: fixed` with no `min-width` floor: TIME becomes exactly 5ch (`HH:MM`, or a compact `NOW` badge on the current-period row instead of the clock value), SOURCE becomes 1ch with a 9px orange/blue split dot in place of the pill bar (same solar/grid split-by-percent encoding as the legend), and every numeric column gets an even share of what's left. The table now fits every phone-width card without horizontal scroll or clipping. Wide cards (500px and above, e.g. the two-thirds panel on a landscape dashboard) still render Raf's format from v0.94.157/.158: pill share bar, `HH:MM` with the inline lowercase `now` tag, unchanged font. One HTML path, one CSS rule.
+
 ## [0.94.158] — 2026-09-07
 
 ### Changed
