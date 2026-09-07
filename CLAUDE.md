@@ -22,16 +22,21 @@ file is not re-summarized here; read it directly for the full detail. Most recen
 
 - [2026-09-07](docs/worklog/2026-09-07.md) — #445/#453/#451 real bug fixes; dispatch-card
   risk-aversion live-effect proof, Solve Now button, nimbus_status sensor. Chart/table
-  layout saga ran through FOUR content-aware CSS formulas (flexbox, two grid+minmax
-  variants) each failing differently live before landing on fixed, content-blind 2/3:1/3
-  grid containers (v0.94.153) — real lesson: every failed attempt was reasoned from an
-  estimated content width, never measured. Real NUC1 incident: battery charged instead
-  of discharging at the 17:00 P2P boundary; root cause NOT confirmed after three
-  theories each disproven/unconfirmed by live evidence; reverted to HAEO for the night,
-  live trace planned before next P2P window. #477 (controllable-loads foundation)
-  completed and merged. #486 (config surface) started, not finished — solver_writer.py
-  wiring still pending, see the entry for exact resume point. Version reaches v0.94.154,
-  eleven releases.
+  layout saga ran through SEVEN CSS iterations (four content-aware formulas, then two
+  more real bugs after the fixed 2/3:1/3 containers landed — the total row's own label
+  forcing the Time column wide after a wrong SOURCE-removal detour, then a horizontal-
+  scroll-restore gap) before genuinely settling. Real lesson from the SOURCE-removal
+  detour specifically: a plausible correlation (remove X, problem persists) is not
+  causation — the real fix came from reading what was actually forcing the width, not
+  another guess. Real NUC1 incident: battery charged instead of discharging at the
+  17:00 P2P boundary; root cause NOT confirmed after three theories each disproven/
+  unconfirmed by live evidence; reverted to HAEO for the night, live trace planned
+  before next P2P window. #477 AND #486 (controllable-loads foundation + config
+  surface) both completed and merged — real, honestly-documented gap left open: no
+  per-load output sensor yet, next real target is #483/#484. Household went to bed
+  partway through with explicit authorization to keep working solo — everything after
+  that point in the entry happened unsupervised. Version reaches v0.94.158, fifteen
+  releases.
 - [2026-09-06](docs/worklog/2026-09-06.md) — #391/regression/#400 dispatch-card layout
   (three passes, root-caused with a shared CSS variable); #389 solver crash and #390
   whole-horizon infeasibility (penalized grid_import_excess slack); EPR-consistency fix
