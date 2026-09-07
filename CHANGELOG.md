@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.148] — 2026-09-07
+
+### Fixed
+- **Forecast table needed a horizontal scrollbar in the side-by-side chart/table layout.** `--ftable-min-width` (640px) was set before #457's own row-padding tightening and had gone stale, forcing the table wider than its real current content needs. SOURCE column shrunk further (34px bar → 22px, tighter cell padding), `--ftable-min-width` reduced to 560px to match — the derived side-by-side breakpoint recomputed from the same value so it can't independently drift.
+
+### Changed
+- **Dispatch-plan chart now shows 3 days (72h) instead of the full 96h forecast**, direct household request. Fewer days sharing the same horizontal space means each real day gets more width, and the y-axis scales to what's actually visible instead of a possibly-off-screen 4th-day extreme.
+
 ## [0.94.147] — 2026-09-07
 
 ### Added
