@@ -6743,6 +6743,20 @@ _DONE_WHEN_OPERATORS: dict[str, object] = {
 }
 _DONE_WHEN_OPERATOR_ORDER = (">=", "<=", "==", "!=", ">", "<")
 
+# nimbus issue #480 (Mark Purcell's own live review): the malformed-
+# done_when/non-numeric-state warning below used to fire on every solve
+# tick (~5 min) for as long as the same bad condition persisted -- the
+# #313/#314 "log once per condition" discipline this project already
+# follows elsewhere (e.g. _log_active_household_specific_overrides_once
+# above), not "every cycle". Keyed by the exact (entity, done_when,
+# state) triple so a genuinely NEW bad reading (a different malformed
+# done_when, or the entity settling on a different bad value) still
+# gets its own one-time log -- only the identical, already-reported
+# combination is suppressed. Module-level, same "lives for the process"
+# scope as _household_specific_overrides_logged; never cleared, since a
+# household fixing the misconfiguration changes the triple anyway.
+_DONE_CONDITION_WARNED: set[tuple[str, str | None, str]] = set()
+
 
 def _parse_done_when(done_when: str) -> tuple:
     """Parses done_when into (operator_fn, threshold). Raises ValueError
@@ -6786,13 +6800,17 @@ def _evaluate_done_condition(done_entity: str, done_when: str | None) -> bool | 
         op_fn, threshold = _parse_done_when(done_when)
         return bool(op_fn(float(state_obj.state), threshold))
     except (ValueError, TypeError):
-        _LOGGER.warning(
-            "Nimbus: controllable load done_entity %s / done_when %r could not "
-            "be evaluated (state %r) -- treating as not done this cycle",
-            done_entity,
-            done_when,
-            state_obj.state,
-        )
+        condition_key = (done_entity, done_when, state_obj.state)
+        if condition_key not in _DONE_CONDITION_WARNED:
+            _DONE_CONDITION_WARNED.add(condition_key)
+            _LOGGER.warning(
+                "Nimbus: controllable load done_entity %s / done_when %r could "
+                "not be evaluated (state %r) -- treating as not done until this "
+                "changes (logged once per condition, not every solve)",
+                done_entity,
+                done_when,
+                state_obj.state,
+            )
         return None
 
 

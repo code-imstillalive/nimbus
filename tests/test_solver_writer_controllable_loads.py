@@ -348,9 +348,13 @@ class TestParseDoneWhen(unittest.TestCase):
 class TestEvaluateDoneCondition(unittest.TestCase):
     def setUp(self):
         self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._orig_warned = set(solver_writer._DONE_CONDITION_WARNED)
+        solver_writer._DONE_CONDITION_WARNED.clear()
 
     def tearDown(self):
         solver_writer._NATIVE_HASS = self._orig_native_hass
+        solver_writer._DONE_CONDITION_WARNED.clear()
+        solver_writer._DONE_CONDITION_WARNED.update(self._orig_warned)
 
     def test_no_native_hass_returns_none(self):
         solver_writer._NATIVE_HASS = None
@@ -421,6 +425,42 @@ class TestEvaluateDoneCondition(unittest.TestCase):
         )
         result = solver_writer._evaluate_done_condition("sensor.tank_temp", ">= 60")
         self.assertIsNone(result)
+
+    def test_the_same_bad_condition_only_warns_once(self):
+        # nimbus issue #480, Mark Purcell's own live review: this used
+        # to warn on every single solve tick (~5 min) for as long as the
+        # same bad condition persisted -- the #313/#314 "log once per
+        # condition" discipline this project already follows elsewhere.
+        states = {"sensor.tank_temp": _fake_state("not_a_number")}
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            states=SimpleNamespace(get=lambda eid: states.get(eid))
+        )
+        with self.assertLogs(solver_writer._LOGGER, level="WARNING") as captured:
+            solver_writer._evaluate_done_condition("sensor.tank_temp", ">= 60")
+        self.assertEqual(len(captured.records), 1)
+        # Second call, same exact (entity, done_when, state) triple --
+        # must NOT log again. assertNoLogs would raise AssertionError on
+        # zero records, which is exactly what "no second warning" means.
+        with (
+            self.assertRaises(AssertionError),
+            self.assertLogs(solver_writer._LOGGER, level="WARNING"),
+        ):
+            solver_writer._evaluate_done_condition("sensor.tank_temp", ">= 60")
+
+    def test_a_genuinely_different_bad_state_warns_again(self):
+        # A DIFFERENT bad reading on the same entity/done_when is a real,
+        # new diagnostic event -- must still get its own one-time log,
+        # not be suppressed by the earlier condition's own dedup key.
+        states = {"sensor.tank_temp": _fake_state("still_not_a_number")}
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            states=SimpleNamespace(get=lambda eid: states.get(eid))
+        )
+        solver_writer._DONE_CONDITION_WARNED.add(
+            ("sensor.tank_temp", ">= 60", "not_a_number")
+        )
+        with self.assertLogs(solver_writer._LOGGER, level="WARNING") as captured:
+            solver_writer._evaluate_done_condition("sensor.tank_temp", ">= 60")
+        self.assertEqual(len(captured.records), 1)
 
 
 class TestBuildControllableLoadsEarlyCompletion(unittest.TestCase):
