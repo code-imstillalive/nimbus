@@ -710,7 +710,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
       ftRows.push(
         '<tr class="' + (idx === 0 ? 'now-row' : '') + '">' +
           '<td class="time-col">' + ftFmtTime(p.time) + (idx === 0 ? ' <span class="now-tag">now</span>' : '') + '</td>' +
-          '<td>' + sourceBar + '</td>' +
+          '<td class="source-col">' + sourceBar + '</td>' +
           '<td class="num">' + buyC.toFixed(1) + '</td>' +
           '<td class="num">' + feesC.toFixed(1) + '</td>' +
           '<td class="num">' + spotC.toFixed(1) + '</td>' +
@@ -742,7 +742,15 @@ class NimbusDispatchCardV4 extends HTMLElement {
            value, so a future change to the table (an added column, wider
            currency formatting) can never again silently reintroduce this
            exact mismatch in only one of the two places. */
-        ':host { display:block; container-type: inline-size; --ftable-min-width: 640px; }' +
+        // 2026-09-07: reduced 640px -> 560px -- 640 was set (issue #400)
+        // before #457's own row-padding tightening (7px/12px -> 3px/10px)
+        // and this session's SOURCE-column shrink (34px -> 22px bar,
+        // tighter padding); 640 had gone stale and was forcing the table
+        // wider than its real current content needs, causing an
+        // unwanted horizontal scrollbar in the new chart/table
+        // side-by-side layout below. Re-verify this value directly
+        // (not by feel) if row content changes again.
+        ':host { display:block; container-type: inline-size; --ftable-min-width: 560px; }' +
         // nimbus issue #400 follow-up: a screenshot from Mark's real
         // Sections-view dashboard showed forecast-table content stopping
         // hard at the card's own right edge with no visible scrollbar --
@@ -806,15 +814,17 @@ class NimbusDispatchCardV4 extends HTMLElement {
         // (two independently-hardcoded numbers is exactly what caused
         // that bug): the table column is 1fr of a 2fr+1fr split, so it
         // only ever gets 1/3 of (container - gap). For that 1/3 share
-        // to reach table.ftable's own real --ftable-min-width (640px)
-        // without the table needing to scroll inside its own narrower
-        // column, the container itself needs 640*3 + 28 (the gap) =
-        // 1948px. If --ftable-min-width above is ever changed, this
-        // breakpoint needs the same arithmetic redone by hand (same
-        // caveat as the old landscape breakpoint's own comment).
+        // to reach table.ftable's own real --ftable-min-width (560px,
+        // 2026-09-07: was 640px, see that variable's own comment for
+        // why it changed) without the table needing to scroll inside
+        // its own narrower column, the container itself needs
+        // 560*3 + 28 (the gap) = 1708px. If --ftable-min-width above is
+        // ever changed, this breakpoint needs the same arithmetic redone
+        // by hand (same caveat as the old landscape breakpoint's own
+        // comment).
         '.chart-table-grid { display:block; }' +
         '.chart-col, .table-col { min-width: 0; }' +
-        '@container (min-width: 1948px) {' +
+        '@container (min-width: 1708px) {' +
           '.chart-table-grid { display:grid; grid-template-columns: 2fr 1fr; gap: 0 28px; align-items:start; }' +
         '}' +
         '.timeline-wrap { width: 100%; overflow-x: auto; }' +
@@ -886,6 +896,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
         // values themselves. This padding tightens it further now that
         // nothing else is forcing it wide.
         'table.ftable th.time-col, table.ftable td.time-col { padding-left: 8px; padding-right: 8px; }' +
+        'table.ftable th.source-col, table.ftable td.source-col { padding-left: 6px; padding-right: 6px; }' +
         'table.ftable tbody tr:nth-child(even) { background: rgba(255,255,255,0.02); }' +
         'table.ftable tbody tr:hover { background: rgba(79,163,255,0.08); }' +
         'table.ftable td.net-pos { color: #3ddc84; }' +
@@ -901,7 +912,14 @@ class NimbusDispatchCardV4 extends HTMLElement {
         // still reads clearly as a two-segment bar (its own title
         // attribute carries the exact solar/grid % on hover) at a width
         // closer to what a numeric column actually needs.
-        '.source-bar { display: flex; width: 34px; height: 7px; border-radius: 4px; overflow: hidden; background: rgba(255,255,255,0.06); }' +
+        // Direct household ask (2026-09-07): table needed a horizontal
+        // scrollbar in the new 2/3+1/3 layout -- SOURCE was still sized
+        // for the old wider row padding, not #457's tightened one.
+        // 34px -> 22px plus tighter column padding (matches .num's own
+        // 6px, was the default 10px td padding) directly reduces the
+        // table's real minimum content width instead of growing the
+        // grid share to compensate.
+        '.source-bar { display: flex; width: 22px; height: 7px; border-radius: 4px; overflow: hidden; background: rgba(255,255,255,0.06); }' +
         '.source-bar .seg-a { background: #ffb340; }' +
         '.source-bar .seg-b { background: #4fa3ff; }' +
         /* Landscape/desktop layout (nimbus issue #391, Mark Purcell): below
@@ -1078,7 +1096,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
         '</div>' +
         '<div class="ftable-wrap"><table class="ftable">' +
           '<thead><tr>' +
-            '<th class="time-col">Time</th><th>Source</th><th class="num">Buy&cent;</th><th class="num">Fees&cent;</th><th class="num">Sell&cent;</th><th class="num">P2P&cent;</th><th class="num">Load</th><th class="num">Solar</th><th class="num">Batt</th><th class="num">Grid</th><th class="num">SoC%</th><th class="num">Net$</th>' +
+            '<th class="time-col">Time</th><th class="source-col">Source</th><th class="num">Buy&cent;</th><th class="num">Fees&cent;</th><th class="num">Sell&cent;</th><th class="num">P2P&cent;</th><th class="num">Load</th><th class="num">Solar</th><th class="num">Batt</th><th class="num">Grid</th><th class="num">SoC%</th><th class="num">Net$</th>' +
           '</tr></thead>' +
           '<tbody>' + forecastRows + '</tbody>' +
         '</table></div>' +
