@@ -435,9 +435,7 @@ class Plan:
     # never drift from what actually ran, unlike a caller re-deriving
     # them separately. Empty (default) on any Plan built before this
     # field existed or constructed directly by a test.
-    effective_solar_kw: NDArray[np.float64] = field(
-        default_factory=lambda: np.zeros(0)
-    )
+    effective_solar_kw: NDArray[np.float64] = field(default_factory=lambda: np.zeros(0))
     effective_import_price: NDArray[np.float64] = field(
         default_factory=lambda: np.zeros(0)
     )

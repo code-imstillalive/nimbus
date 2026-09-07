@@ -6549,9 +6549,7 @@ def publish_plan(
                 plan.duals.get("power_balance_t0", 0.0), 4
             ),
             "p2p_volume_cap_shadow_price": p2p_volume_cap_shadow_price,
-            **_risk_aversion_effect_now(
-                plan, solar_kw, import_price, export_price
-            ),
+            **_risk_aversion_effect_now(plan, solar_kw, import_price, export_price),
         },
     )
     cross_check_str = (
