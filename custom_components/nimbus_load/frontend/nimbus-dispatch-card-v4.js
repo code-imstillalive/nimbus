@@ -469,18 +469,35 @@ class NimbusDispatchCardV4 extends HTMLElement {
     // confirmed via ha_search before wiring, never the remote_homeassistant
     // mirror_* copies of the same entities. min/max/step (0-1, step 0.05)
     // confirmed live too, not guessed.
+    // 2026-09-07, direct household ask ("I need to know it works"):
+    // each slider now shows what it's ACTUALLY doing this cycle, not
+    // just its own setting -- solver_writer.py's own _risk_aversion_
+    // effect_now() (published on this same fcEnt) exposes the real
+    // raw-vs-risk-adjusted gap the LP was fed. A nonzero effect is
+    // direct proof the slider bit; a genuine 0.00 at a nonzero slider
+    // value is equally real proof the forecast band is currently
+    // zero-width (nothing to hedge against right now), not a broken
+    // control -- both states are shown explicitly rather than the
+    // dashboard staying silent on which one is true.
+    const riskEffects = (fcEnt && fcEnt.attributes) || {};
     const riskSliders = [
-      ['number.nimbus_solver_risk_aversion', 'Load / Solar Risk Aversion'],
-      ['number.nimbus_solver_import_price_risk_aversion', 'Import Price Risk Aversion'],
-      ['number.nimbus_solver_export_price_risk_aversion', 'Export Price Risk Aversion']
-    ].map(([eid, label]) => {
+      ['number.nimbus_solver_risk_aversion', 'Load / Solar Risk Aversion', riskEffects.solar_risk_effect_now_kw, 'kW'],
+      ['number.nimbus_solver_import_price_risk_aversion', 'Import Price Risk Aversion', riskEffects.import_price_risk_effect_now, '$/kWh'],
+      ['number.nimbus_solver_export_price_risk_aversion', 'Export Price Risk Aversion', riskEffects.export_price_risk_effect_now, '$/kWh']
+    ].map(([eid, label, effect, unit]) => {
       const ent = hass.states[eid];
       const val = ent ? parseFloat(ent.state) : NaN;
       const known = !isNaN(val);
       const pct = known ? clamp(val, 0, 1) * 100 : 0;
+      const hasEffect = typeof effect === 'number';
+      const effectStr = hasEffect
+        ? (unit === 'kW' ? effect.toFixed(2) + ' kW' : (effect >= 0 ? '+' : '') + (effect * 100).toFixed(2) + 'c/kWh')
+        : 'no data yet';
+      const effectColor = hasEffect && Math.abs(effect) > 1e-6 ? '#3ddc84' : '#9aa0ac';
       return '<div class="risk-item' + (known ? '' : ' risk-item-unknown') + '">' +
         '<div class="risk-item-head"><span class="label">' + label + '</span><span class="value" data-risk-value="' + eid + '">' + (known ? val.toFixed(2) : '—') + '</span></div>' +
         '<input class="risk-slider" type="range" min="0" max="1" step="0.05" value="' + (known ? val : 0) + '" data-entity="' + eid + '" ' + (known ? '' : 'disabled') + ' style="--risk-pct:' + pct + '%">' +
+        '<div class="risk-effect" style="color:' + effectColor + '">live effect this cycle: ' + effectStr + '</div>' +
       '</div>';
     }).join('');
 
@@ -773,6 +790,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
           ' border: 3px solid #4fa3ff; cursor: pointer; box-shadow: 0 1px 4px rgba(0,0,0,0.5); }' +
         '.risk-slider::-moz-range-thumb { width: 18px; height: 18px; border-radius: 50%; background: #fff; border: 3px solid #4fa3ff; cursor: pointer; }' +
         '.risk-slider:disabled { cursor: not-allowed; }' +
+        '.risk-effect { font-size: 0.85em; opacity: 0.75; font-variant-numeric: tabular-nums; }' +
         '.ftable-wrap { width: 100%; overflow-x: auto; overflow-y: auto; max-height: 480px; margin-top: 4px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); }' +
         '.ftable-note { font-size: 1.0em; opacity: 0.45; margin: 0 0 6px; }' +
         'table.ftable { width: 100%; border-collapse: collapse; font-size: 1.08em; min-width: var(--ftable-min-width); }' +
@@ -867,11 +885,15 @@ class NimbusDispatchCardV4 extends HTMLElement {
            grows well past its floor, taking its normal proportional
            share of whatever space is left over -- the floor is only
            ever a minimum, never a ceiling. */
+        // 2026-09-07 (household explicit request): the landscape/2-column
+        // mode above disliked in practice regardless of available width --
+        // reverting to the original single-column stacked layout unconditionally.
+        // Deliberately NOT deleting the @container plumbing above
+        // (container-type/--ftable-min-width) since nothing else in this
+        // file depends on removing it, and it's a smaller diff to just
+        // never trigger the grid than to unwind everything that grew
+        // around it (#391/#395/#400/#407).
         '.layout-grid { display:block; }' +
-        '@container (min-width: 1020px) {' +
-          '.layout-grid { display:grid; grid-template-columns: minmax(320px, 1fr) minmax(var(--ftable-min-width), 1.65fr); gap: 0 36px; align-items:start; }' +
-          '.col-left, .col-right { min-width: 0; }' +
-        '}' +
       '</style>' +
       '<div class="card">' +
       '<div class="layout-grid">' +

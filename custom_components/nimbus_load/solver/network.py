@@ -423,6 +423,27 @@ class Plan:
     grid_import_excess_kw: NDArray[np.float64] = field(
         default_factory=lambda: np.zeros(0)
     )
+    # 2026-09-07, direct household ask: the risk-aversion sliders
+    # (mechanism 3, this module's own docstring) had no visible way to
+    # confirm they were doing anything -- "moved slider, nothing
+    # happened" is genuinely ambiguous between "the mechanism is a
+    # no-op right now because the underlying forecast band is ~zero-width
+    # at this moment" and "the slider itself is broken", and nothing on
+    # any dashboard could tell the two apart. These three expose the
+    # values _risk_adjusted()/_risk_adjusted_one_sided() actually fed
+    # the LP, straight from the same locals the LP itself used -- can
+    # never drift from what actually ran, unlike a caller re-deriving
+    # them separately. Empty (default) on any Plan built before this
+    # field existed or constructed directly by a test.
+    effective_solar_kw: NDArray[np.float64] = field(
+        default_factory=lambda: np.zeros(0)
+    )
+    effective_import_price: NDArray[np.float64] = field(
+        default_factory=lambda: np.zeros(0)
+    )
+    effective_export_price: NDArray[np.float64] = field(
+        default_factory=lambda: np.zeros(0)
+    )
 
     @property
     def is_optimal(self) -> bool:
@@ -1673,4 +1694,7 @@ def build_plan(
         duals=result.duals,
         reduced_costs=result.reduced_costs,
         grid_import_excess_kw=grid_import_excess_arr,
+        effective_solar_kw=np.asarray(effective_solar_kw, dtype=np.float64),
+        effective_import_price=np.asarray(effective_import_price, dtype=np.float64),
+        effective_export_price=np.asarray(effective_export_price, dtype=np.float64),
     )
