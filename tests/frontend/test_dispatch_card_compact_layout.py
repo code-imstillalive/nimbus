@@ -75,12 +75,7 @@ def _extract_shadow_css(js_src: str) -> str:
             continue
         for m in lit.finditer(line):
             parts.append(m.group(1))
-    return (
-        "".join(parts)
-        .replace("\\'", "'")
-        .replace('\\"', '"')
-        .replace("\\n", "\n")
-    )
+    return "".join(parts).replace("\\'", "'").replace('\\"', '"').replace("\\n", "\n")
 
 
 @pytest.fixture(scope="module")
@@ -90,9 +85,7 @@ def css_text() -> str:
 
 @pytest.fixture(scope="module")
 def top_rules(css_text: str):
-    return tinycss2.parse_stylesheet(
-        css_text, skip_comments=True, skip_whitespace=True
-    )
+    return tinycss2.parse_stylesheet(css_text, skip_comments=True, skip_whitespace=True)
 
 
 # --------------------------------------------------------------------------- #
@@ -259,8 +252,7 @@ def test_compact_table_layout_is_fixed_with_no_min_width_floor(compact_rules):
         f"got {d.get('table-layout')!r}"
     )
     assert d.get("min-width") == "0", (
-        f"compact table.ftable should reset min-width to 0, "
-        f"got {d.get('min-width')!r}"
+        f"compact table.ftable should reset min-width to 0, got {d.get('min-width')!r}"
     )
 
 
@@ -272,7 +264,9 @@ def test_compact_time_col_is_exactly_5ch(compact_rules):
     )
     assert r is not None, "compact th/td.time-col rule missing"
     d = _decls(r)
-    assert d.get("width") == "5ch", f"time-col width should be 5ch, got {d.get('width')!r}"
+    assert d.get("width") == "5ch", (
+        f"time-col width should be 5ch, got {d.get('width')!r}"
+    )
     assert d.get("min-width") == "5ch"
     assert d.get("max-width") == "5ch"
 
