@@ -134,6 +134,16 @@ _EXPECTED_ATTRS = {
     "solar_delivery_ratio": None,
     "solar_delivery_sample_count": 0,
     "solar_delivery_underperforming": False,
+    # nimbus 2026-09-07 (direct household ask): new fields exposing the
+    # real raw-vs-risk-adjusted gap for period 0 -- see solver_writer.py's
+    # own _risk_aversion_effect_now() docstring. This fixture configures
+    # no solar/price confidence bands at all, so a genuine 0.0 (not None)
+    # is the correct, honest result -- the mechanism ran, found nothing
+    # to hedge against, same "zero is a real answer" distinction that
+    # function's own docstring documents.
+    "solar_risk_effect_now_kw": 0.0,
+    "import_price_risk_effect_now": 0.0,
+    "export_price_risk_effect_now": 0.0,
 }
 
 # Per-period forecast keys asserted at fixed indices only (0, 1, -1) --
