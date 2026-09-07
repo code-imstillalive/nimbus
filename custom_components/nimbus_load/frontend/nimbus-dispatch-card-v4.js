@@ -667,15 +667,23 @@ class NimbusDispatchCardV4 extends HTMLElement {
       if (ftDate !== null && pDate !== ftDate) {
         const totalNetClass = ftDayNet < -0.001 ? 'net-pos' : (ftDayNet > 0.001 ? 'net-neg' : '');
         ftRows.push(
-          // colspan="2" (Time+Source): without this, this row's own
-          // long label was the REAL reason the Time column read so wide
-          // in every other row too -- table auto-layout sizes a column
-          // by its widest cell across every row, so one long label here
-          // forced column 1 wide regardless of how short "14:30" is
-          // everywhere else. Spanning it across two columns instead
-          // lets Time shrink to what its own real content needs.
+          // colspan="2" (Time+Source): spreads this row's own long label
+          // across two columns instead of one, same reasoning as before.
+          // BUT this alone already broke once (2026-09-07: removing the
+          // SOURCE column also removed this colspan, collapsing the
+          // label back into Time ALONE and reintroducing the exact
+          // "column forced wide by one long cell" bug this was built to
+          // prevent -- confirmed live, directly caused a real household
+          // report of a mysterious gap after the Time column that had
+          // nothing to do with SOURCE at all). `white-space: normal`
+          // (overriding table.ftable td's own default `nowrap`) is the
+          // real, structural fix on top of the colspan: this specific
+          // cell is now allowed to WRAP its own long text across
+          // multiple lines instead of forcing ANY column wide to fit it
+          // on one line, regardless of how many columns it spans or
+          // whether a future edit changes that number again.
           '<tr class="total-row">' +
-            '<td colspan="2" style="font-weight:700;">&mdash; ' + ftDate + ' TOTAL (shown rows) &mdash;</td>' +
+            '<td colspan="2" style="font-weight:700; white-space:normal;">&mdash; ' + ftDate + ' TOTAL (shown rows) &mdash;</td>' +
             '<td class="num"></td><td class="num"></td><td class="num"></td>' +
             '<td class="num"><span class="p2p-pill">+$' + ftDayP2p.toFixed(2) + '</span></td>' +
             '<td class="num"></td><td class="num"></td><td class="num"></td><td class="num"></td><td class="num"></td>' +
