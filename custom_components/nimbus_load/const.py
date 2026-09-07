@@ -86,7 +86,7 @@ SUBENTRY_TYPE_CONTROLLABLE_LOAD: Final = "controllable_load"
 # only BMS, etc). Both sensors optional: a PV-only unit has no real
 # battery_power_sensor to give, and dc_power_sensor is a genuine bonus
 # (total PV throughput regardless of whether the battery is doing
-# anything -- see topology-card-v4.js's own real, direct household
+# anything -- see nimbus-topology-card.js's own real, direct household
 # catch: "the card's own inverter header was showing ONLY
 # battery_power, making a fully-charged, solar-producing inverter look
 # falsely idle").
@@ -107,7 +107,7 @@ CONF_PV_STRING_LABEL: Final = "pv_string_label"
 CONF_PV_STRING_POWER_SOURCE: Final = "pv_string_power_source"
 
 # Battery Tower fields -- one real physical battery pack/tower. Only
-# the 4 fields topology-card-v4.js's own _batteryBox() actually renders
+# the 4 fields nimbus-topology-card.js's own _batteryBox() actually renders
 # (confirmed by reading that function directly, 2026-08-23, rather than
 # assuming every field this household's own old hardcoded prefix
 # convention implied -- current/status/lifetime-charge/lifetime-

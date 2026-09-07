@@ -30,7 +30,7 @@
 // such in the sub-header.
 //
 // Follows the same plain-HTMLElement/shadow-DOM pattern as this
-// project's own switchboard-topology-card (topology-card-v4.js) rather
+// project's own nimbus-topology-card (nimbus-topology-card.js) rather
 // than a framework, for consistency with the household's established
 // custom-card style.
 
@@ -513,7 +513,7 @@ class NimbusRegretCard extends HTMLElement {
 
 customElements.define("nimbus-regret-card", NimbusRegretCard);
 
-// Card picker registration -- matches switchboard-topology-card's own
+// Card picker registration -- matches nimbus-topology-card's own
 // convention in this same directory.
 window.customCards = window.customCards || [];
 window.customCards.push({

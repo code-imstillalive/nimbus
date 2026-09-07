@@ -74,13 +74,20 @@
  *   sunsynk-power-flow-card / power-flow-card-plus configs -- not
  *   guessed.
  *
- * Deliberately vanilla JS + hand-laid-out SVG, no framework/build step --
- * a plain file HA serves directly from /local/. Config shape mirrors
- * config/topology_map.yaml exactly.
+ * Deliberately vanilla JS + hand-laid-out SVG, no framework/build step.
+ * Config shape mirrors config/topology_map.yaml exactly.
  *
- * Registration (one-time, manual):
- *   Settings -> Dashboards -> (three dots) -> Resources -> Add Resource
- *   URL: /local/topology-card-v4.js   Type: JavaScript Module
+ * Registration: automatic. As of nimbus issue #79, this file ships
+ * bundled with the integration and is served + registered as an extra
+ * JS module by frontend.py's own async_register_frontend() -- no
+ * manual Settings -> Dashboards -> Resources step, no /local/ copy. Add
+ * `type: custom:nimbus-topology-card` to any view; it shows up in the
+ * card picker (searchable as "Nimbus") as "Nimbus Topology" (nimbus
+ * issue #519 -- renamed from "Topology Card"/"switchboard-topology-
+ * card", which had neither "nimbus" in its type nor its picker name).
+ * The old `custom:switchboard-topology-card` tag is kept registered as
+ * an alias below for one or two releases, for any dashboard already
+ * using it.
  */
 
 const NS = "http://www.w3.org/2000/svg";
@@ -1307,11 +1314,17 @@ class TopologyCard extends HTMLElement {
   }
 }
 
-customElements.define("switchboard-topology-card", TopologyCard);
+customElements.define("nimbus-topology-card", TopologyCard);
+// nimbus issue #519: kept as a back-compat alias for one or two releases
+// -- a dashboard already using `type: custom:switchboard-topology-card`
+// (the card's original registered name) must keep rendering after this
+// rename. Custom elements can't register the same class under a second
+// tag name directly, hence the trivial subclass.
+customElements.define("switchboard-topology-card", class extends TopologyCard {});
 
 window.customCards = window.customCards || [];
 window.customCards.push({
-  type: "switchboard-topology-card",
-  name: "Topology Card",
-  description: "Real switchboard power-flow diagram — inverters, batteries, loads.",
+  type: "nimbus-topology-card",
+  name: "Nimbus Topology",
+  description: "Nimbus switchboard power-flow diagram — inverters, batteries, loads.",
 });

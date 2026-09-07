@@ -124,6 +124,13 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # Private helper called only by build_controllable_loads (already
         # listed above) -- same native-only reasoning, not a separate gap.
         "_resolve_hour_to_period_index",
+        # nimbus issue #479: samples a Controllable Load's real power
+        # sensor into custom_components/nimbus_load/load_run_state.py's
+        # own Store -- reads homeassistant.helpers.storage.Store and
+        # ConfigSubentries data, same no-standalone-equivalent reasoning
+        # as build_controllable_loads() itself, which is this function's
+        # only caller.
+        "_sample_load_run_state",
     }
 )
 

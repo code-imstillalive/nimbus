@@ -65,7 +65,16 @@ class _CardAsset(NamedTuple):
 # here is the entire "ship a new dashboard view with nimbus" step -- no
 # other wiring needed (see async_register_frontend() below).
 _CARDS: tuple[_CardAsset, ...] = (
-    _CardAsset("switchboard-topology-card.js", "switchboard-topology-card"),
+    # nimbus issue #519: renamed from switchboard-topology-card.js /
+    # "switchboard-topology-card" -- the old type had neither "nimbus" in
+    # its name nor its picker name, so a user searching the card picker
+    # for "nimbus" (having already found the other two cards that way)
+    # concluded this one wasn't deployed. The old custom-element tag is
+    # kept registered as an alias inside the JS file itself, so an
+    # existing dashboard's `type: custom:switchboard-topology-card` keeps
+    # rendering -- only the served filename and the card-picker identity
+    # change here.
+    _CardAsset("nimbus-topology-card.js", "nimbus-topology-card"),
     _CardAsset("nimbus-dispatch-card-v4.js", "nimbus-dispatch-card-v4"),
     _CardAsset("nimbus-regret-card.js", "nimbus-regret-card"),
 )
