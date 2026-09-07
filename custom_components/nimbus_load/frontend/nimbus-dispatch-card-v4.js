@@ -846,10 +846,21 @@ class NimbusDispatchCardV4 extends HTMLElement {
         '.chart-table-grid { display:block; }' +
         '.chart-col, .table-col { min-width: 0; }' +
         '@container (min-width: 900px) {' +
-          '.chart-table-grid { display:grid; grid-template-columns: 2fr 1fr; gap: 20px 28px; align-items:start; }' +
+          '.chart-table-grid { display:grid; grid-template-columns: 2fr 1fr; gap: 20px 28px; align-items:stretch; }' +
         '}' +
-        '.timeline-wrap { width: 100%; overflow-x: auto; }' +
-        '.timeline-wrap svg { width: 100%; height: auto; display: block; min-width: 480px; }' +
+        // Direct household ask (2026-09-07): chart should stretch down
+        // to fill whatever vertical space table-col's own (taller) row
+        // count gives it, not sit at a fixed aspect-ratio height with
+        // empty space below. align-items:stretch above makes chart-col
+        // itself match table-col's height; chart-col is flex-column so
+        // .timeline-wrap can flex:1 to fill THAT; the svg's own
+        // height:100% (was auto) plus preserveAspectRatio="none" (set
+        // where the svg is built, not here) is what actually stretches
+        // the drawn chart to fill the taller box instead of
+        // letterboxing at its own fixed 1000:275 ratio.
+        '.chart-col { display:flex; flex-direction:column; }' +
+        '.timeline-wrap { width: 100%; flex: 1; min-height: 0; overflow-x: auto; }' +
+        '.timeline-wrap svg { width: 100%; height: 100%; display: block; min-width: 480px; }' +
         '.legend { display:flex; gap: 20px; font-size: 1.05em; opacity: 0.65; margin-top: 8px; flex-wrap: wrap; }' +
         '.legend span { display:inline-flex; align-items:center; gap:6px; }' +
         '.legend .dot { width:10px; height:10px; border-radius:50%; display:inline-block; }' +
@@ -917,7 +928,10 @@ class NimbusDispatchCardV4 extends HTMLElement {
         // values themselves. This padding tightens it further now that
         // nothing else is forcing it wide.
         'table.ftable th.time-col, table.ftable td.time-col { padding-left: 8px; padding-right: 8px; }' +
-        'table.ftable th.source-col, table.ftable td.source-col { padding-left: 4px; padding-right: 4px; }' +
+        // Direct household ask (2026-09-07): narrower still, but bar
+        // width and font must NOT change -- padding is the only
+        // remaining knob.
+        'table.ftable th.source-col, table.ftable td.source-col { padding-left: 2px; padding-right: 2px; }' +
         // "Source" (uppercase + 0.06em letter-spacing, same as every
         // other header) is itself wider than the 14px bar below it --
         // dropping letter-spacing and shrinking the font specifically
@@ -1082,7 +1096,13 @@ class NimbusDispatchCardV4 extends HTMLElement {
       '<div class="chart-table-grid">' +
       '<div class="chart-col">' +
         '<div class="section-label" style="margin-top:0;">Dispatch Plan - next 3 days (plan vs. actual)</div>' +
-        '<div class="timeline-wrap"><svg viewBox="0 0 ' + TW + ' ' + TH + '" preserveAspectRatio="xMidYMid meet">' +
+        // preserveAspectRatio="none" (was xMidYMid meet) -- direct
+        // household ask: stretch to fill the taller box .chart-col's
+        // own align-items:stretch now gives it, rather than
+        // letterboxing at the fixed 1000:TH ratio. Deliberate stretch,
+        // not a bug -- this SVG has no circular/square elements whose
+        // aspect ratio would look wrong distorted.
+        '<div class="timeline-wrap"><svg viewBox="0 0 ' + TW + ' ' + TH + '" preserveAspectRatio="none">' +
           '<defs>' +
             '<linearGradient id="fillGradV4" x1="0" y1="0" x2="0" y2="1">' +
               '<stop offset="0%" stop-color="#3ddc84" stop-opacity="0.55"/>' +
