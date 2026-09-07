@@ -105,6 +105,15 @@ def _fake_state(value, unit=None):
     return SimpleNamespace(state=value, attributes={"unit_of_measurement": unit})
 
 
+def _fake_water_heater_state(mode="eco", current_temperature=None, temperature=None):
+    attrs = {}
+    if current_temperature is not None:
+        attrs["current_temperature"] = current_temperature
+    if temperature is not None:
+        attrs["temperature"] = temperature
+    return SimpleNamespace(state=mode, attributes=attrs)
+
+
 class TestBuildControllableLoads(unittest.TestCase):
     def setUp(self):
         self._orig_native_hass = solver_writer._NATIVE_HASS
@@ -461,6 +470,106 @@ class TestEvaluateDoneCondition(unittest.TestCase):
         with self.assertLogs(solver_writer._LOGGER, level="WARNING") as captured:
             solver_writer._evaluate_done_condition("sensor.tank_temp", ">= 60")
         self.assertEqual(len(captured.records), 1)
+
+
+class TestEvaluateDoneConditionAttributeDomains(unittest.TestCase):
+    """nimbus issue #534 (Mark Purcell, real SG-Ready heat-pump HWS
+    install): water_heater/climate's own state is a mode string ("eco"),
+    not a number -- done_when has to read current_temperature (an
+    attribute) instead, and an unset done_when falls back to the
+    entity's own temperature (setpoint) attribute rather than the
+    binary_sensor "state == on" default every other domain uses."""
+
+    def setUp(self):
+        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._orig_warned = set(solver_writer._DONE_CONDITION_WARNED)
+        solver_writer._DONE_CONDITION_WARNED.clear()
+
+    def tearDown(self):
+        solver_writer._NATIVE_HASS = self._orig_native_hass
+        solver_writer._DONE_CONDITION_WARNED.clear()
+        solver_writer._DONE_CONDITION_WARNED.update(self._orig_warned)
+
+    def _hass(self, entity_id, state_obj):
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            states=SimpleNamespace(get=lambda eid: {entity_id: state_obj}.get(eid))
+        )
+
+    def test_no_done_when_defaults_to_current_temperature_ge_temperature_attr(self):
+        # #534's own real 7 Sep case: tank at 61C, setpoint (temperature
+        # attribute) 45C in eco -- already past setpoint, so done.
+        self._hass(
+            "water_heater.hws",
+            _fake_water_heater_state(current_temperature=61.0, temperature=45.0),
+        )
+        self.assertTrue(
+            solver_writer._evaluate_done_condition("water_heater.hws", None)
+        )
+
+    def test_no_done_when_below_temperature_attr_is_not_done(self):
+        self._hass(
+            "water_heater.hws",
+            _fake_water_heater_state(current_temperature=48.0, temperature=65.0),
+        )
+        self.assertFalse(
+            solver_writer._evaluate_done_condition("water_heater.hws", None)
+        )
+
+    def test_explicit_done_when_reads_current_temperature_not_the_mode_state(self):
+        # state is "eco" (not numeric) -- must not be parsed as the
+        # comparison value; current_temperature attribute is used instead.
+        self._hass(
+            "water_heater.hws",
+            _fake_water_heater_state(mode="eco", current_temperature=62.5),
+        )
+        self.assertTrue(
+            solver_writer._evaluate_done_condition("water_heater.hws", ">= 60")
+        )
+
+    def test_climate_domain_gets_the_same_attribute_based_evaluation(self):
+        self._hass(
+            "climate.zone1",
+            _fake_water_heater_state(mode="heat", current_temperature=22.0),
+        )
+        self.assertTrue(
+            solver_writer._evaluate_done_condition("climate.zone1", ">= 21")
+        )
+
+    def test_missing_current_temperature_attribute_returns_none(self):
+        self._hass("water_heater.hws", _fake_water_heater_state(mode="eco"))
+        result = solver_writer._evaluate_done_condition("water_heater.hws", None)
+        self.assertIsNone(result)
+
+    def test_no_done_when_and_missing_temperature_attr_returns_none(self):
+        self._hass(
+            "water_heater.hws",
+            _fake_water_heater_state(current_temperature=55.0),
+        )
+        result = solver_writer._evaluate_done_condition("water_heater.hws", None)
+        self.assertIsNone(result)
+
+    def test_unavailable_water_heater_fails_open_returns_none(self):
+        # Same #480 fail-open contract -- #534's own real install
+        # republishes MQTT availability roughly hourly, blipping every
+        # entity through unavailable/unknown; must never be read as
+        # "not done, restart the schedule".
+        self._hass("water_heater.hws", _fake_state("unavailable"))
+        result = solver_writer._evaluate_done_condition("water_heater.hws", None)
+        self.assertIsNone(result)
+
+    def test_malformed_done_when_on_a_water_heater_warns_once_not_every_cycle(self):
+        self._hass(
+            "water_heater.hws",
+            _fake_water_heater_state(current_temperature=62.5),
+        )
+        with self.assertLogs(solver_writer._LOGGER, level="WARNING") as captured:
+            solver_writer._evaluate_done_condition("water_heater.hws", "hot")
+        self.assertEqual(len(captured.records), 1)
+        with (
+            self.assertRaises(AssertionError),
+            self.assertLogs(solver_writer._LOGGER, level="WARNING"),
+        ):
+            solver_writer._evaluate_done_condition("water_heater.hws", "hot")
 
 
 class TestBuildControllableLoadsEarlyCompletion(unittest.TestCase):

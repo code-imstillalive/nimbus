@@ -6850,6 +6850,18 @@ _DONE_WHEN_OPERATOR_ORDER = (">=", "<=", "==", "!=", ">", "<")
 # household fixing the misconfiguration changes the triple anyway.
 _DONE_CONDITION_WARNED: set[tuple[str, str | None, str]] = set()
 
+# nimbus issue #534 (Mark Purcell, real SG-Ready heat-pump HWS install):
+# a water_heater's/climate's own *state* is a mode string ("eco"), not a
+# number -- done_when can never be evaluated against it. Both domains
+# instead carry the live reading as the current_temperature attribute
+# and the active setpoint as the temperature attribute, so a done
+# condition on one of these entities reads current_temperature (not
+# state), and an unset done_when defaults to ">= <temperature
+# attribute>" (the household's own already-configured setpoint) rather
+# than the binary_sensor "state == on" default used for every other
+# domain.
+_ATTRIBUTE_DONE_DOMAINS = ("water_heater", "climate")
+
 
 def _parse_done_when(done_when: str) -> tuple:
     """Parses done_when into (operator_fn, threshold). Raises ValueError
@@ -6880,13 +6892,46 @@ def _evaluate_done_condition(done_entity: str, done_when: str | None) -> bool | 
     its own "on" state alone is the done condition, the same convention
     a plain HA automation trigger would use. Any other domain (a numeric
     tank-temperature sensor, say) needs done_when to say what "done"
-    means for that reading.
+    means for that reading -- except water_heater/climate (#534), whose
+    own state is a mode string: those read current_temperature instead,
+    and an unset done_when falls back to the entity's own temperature
+    (setpoint) attribute rather than the binary_sensor "on" convention.
     """
     if _NATIVE_HASS is None:
         return None
     state_obj = _NATIVE_HASS.states.get(done_entity)
     if state_obj is None or state_obj.state in (None, "unknown", "unavailable"):
         return None
+    domain = done_entity.split(".", 1)[0]
+    if domain in _ATTRIBUTE_DONE_DOMAINS:
+        current = state_obj.attributes.get("current_temperature")
+        if current is None:
+            return None
+        if done_when is None:
+            target = state_obj.attributes.get("temperature")
+            if target is None:
+                return None
+            try:
+                return float(current) >= float(target)
+            except (ValueError, TypeError):
+                return None
+        try:
+            op_fn, threshold = _parse_done_when(done_when)
+            return bool(op_fn(float(current), threshold))
+        except (ValueError, TypeError):
+            condition_key = (done_entity, done_when, str(current))
+            if condition_key not in _DONE_CONDITION_WARNED:
+                _DONE_CONDITION_WARNED.add(condition_key)
+                _LOGGER.warning(
+                    "Nimbus: controllable load done_entity %s / done_when %r "
+                    "could not be evaluated (current_temperature %r) -- "
+                    "treating as not done until this changes (logged once "
+                    "per condition, not every solve)",
+                    done_entity,
+                    done_when,
+                    current,
+                )
+            return None
     if done_when is None:
         return state_obj.state == "on"
     try:

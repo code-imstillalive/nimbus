@@ -62,8 +62,8 @@ Reached the same way as every other subentry: the Nimbus hub's device page →
 | Deadline (24hr decimal, optional) | The real deadline — cumulative energy delivered must reach the target by this time of day. Blank = the whole 96h horizon is the window. |
 | Shortfall price ($/kWh) | The real cost the Solver pays for every kWh short of the target by the deadline. Defaults to `10.00` (`DEFAULT_ADEQUACY_SHORTFALL_PRICE`) — high enough that a genuinely reachable target still gets fully met at any real price; a genuinely unreachable one costs this instead of taking the whole plan infeasible (#477). |
 | Value credit (optional, $/kWh) | A utility credit per kWh served, beyond the bare target — makes this load also run wherever the switchboard's own live shadow price is at or below this value (#482 groundwork), not just enough to hit the deadline. |
-| Done sensor (optional) | A `binary_sensor` or numeric sensor telling the Solver this load is genuinely finished — see "Early completion" below. Leave blank to always follow the target/deadline as configured. |
-| Done condition (optional) | For a numeric done sensor only, e.g. `>= 60` for a tank reaching 60°C. Leave blank when the done sensor is a `binary_sensor` (its own `on` state is the done condition). |
+| Done sensor (optional) | A `binary_sensor`, numeric sensor, or `water_heater`/`climate` entity telling the Solver this load is genuinely finished — see "Early completion" below. Leave blank to always follow the target/deadline as configured. |
+| Done condition (optional) | For a numeric done sensor, e.g. `>= 60` for a tank reaching 60°C. Leave blank when the done sensor is a `binary_sensor` (its own `on` state is the done condition) or a `water_heater`/`climate` entity (defaults to its own live setpoint — see "`water_heater`/`climate` done sensors" below). |
 
 **Earliest/deadline hour resolution, in plain terms:** both fields are a
 24-hour decimal ("hour of day"), resolved against *the next real occurrence
@@ -206,6 +206,39 @@ tracker — genuinely different from #479's own calendar-day-scoped
 doesn't necessarily align with local midnight), and the optional EMA
 run-duration learning hook (explicitly marked optional in #480's own
 spec). Both are real, deferred follow-ups, not silently dropped.
+
+### `water_heater`/`climate` done sensors (nimbus issue #534, item 1 only)
+
+A `water_heater` or `climate` entity's own *state* is a mode string
+(`eco`, `heat`) — never a number — so the fixed comparison DSL above
+can't run against it directly the way it does for a plain numeric
+sensor. When the **Done sensor** is one of these two domains, the
+Solver instead reads its **`current_temperature`** attribute as the
+value to compare, and — if **Done condition** is left blank — defaults
+it to `>= <the entity's own "temperature" attribute>` (its live
+setpoint), instead of the `binary_sensor` "state == on" default every
+other domain uses. Concretely, pointing Done sensor at
+`water_heater.hot_water_heat_pump_hot_water_sg_ready` with no Done
+condition is enough on its own: the tank counts as done the moment
+`current_temperature >= temperature`, without a separate
+`sensor.*_current_temperature` helper entity. The same
+unavailable/malformed-condition fail-open and once-per-condition
+logging above apply unchanged — real value for this specific device:
+its bridge republishes MQTT availability roughly hourly, blipping every
+entity on it through `unavailable`/`unknown`, and each blip must be
+ignored rather than read as "not done, restart the schedule".
+
+**Status: this reading/evaluation piece only.** Real and working for
+`build_controllable_loads()`'s existing done-sensor check — no wizard
+change was needed, since the Done sensor field's `EntitySelector`
+already accepts any domain. NOT built (both explicitly deferred to
+their own issues by #534 itself): seeding a thermal-kind load's own
+`min_temp`/`max_temp`/`temperature` fields from the entity (#481, not
+started), and commanding a `water_heater`/`climate` load via
+`water_heater.set_operation_mode` with a per-load minimum-hold and
+daily-activation cap once per-load output exists (#484/#486's own
+still-undelivered "what's not built yet": no controllable load is
+actually commanded by Nimbus today, on any domain).
 
 ## Diagnostics
 
