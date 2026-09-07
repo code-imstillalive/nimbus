@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.149] — 2026-09-07
+
+### Changed
+- **Dispatch-plan chart is 25% taller** (viewBox height 220 → 275), direct household request.
+- **Forecast table's SOURCE column tightened directly** — confirmed via live screenshot that the previous padding/bar-width attempts weren't enough. The "SOURCE" header text itself (uppercase + letter-spaced, same treatment as every other header) was the real remaining bottleneck; tightened just for this column (no letter-spacing, smaller font) while keeping the full word rather than abbreviating.
+
 ## [0.94.148] — 2026-09-07
 
 ### Fixed
