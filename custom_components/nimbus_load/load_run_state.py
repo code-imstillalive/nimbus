@@ -46,6 +46,12 @@ DEFAULT_ON_THRESHOLD_KW = 0.05
 # generous margin for a missed tick or two, not an invitation to guess.
 MAX_SAMPLE_GAP_HOURS = 1.0
 
+# nimbus issue #484's own default hysteresis: "at least min_on_periods
+# (sub-issue 2, #478 -- not yet built) or a default hysteresis of 2
+# periods". Always used today since #478's own per-load override doesn't
+# exist yet.
+DEFAULT_MIN_HYSTERESIS_PERIODS = 2
+
 
 @dataclass(frozen=True)
 class LoadRunState:
@@ -62,6 +68,22 @@ class LoadRunState:
     # day-key-change check, which treats "" as "no real yesterday to roll
     # from" rather than crediting a fake day-zero rollover.
     last_sample_at: float | None = None  # epoch seconds
+    # nimbus issue #484: the PUBLISHED (guarded) commanded state -- this
+    # is the load-relay-chatter guard's own persisted output, genuinely
+    # separate from currently_on/on_since/off_since above (which track
+    # what the load's REAL power sensor measured, not what the Solver
+    # last told it to do). See decide_commanded_state()'s own docstring
+    # for the hysteresis this exists to hold across 5-minute re-solves.
+    commanded_state: bool = False
+    commanded_since: float | None = None  # epoch seconds
+    # nimbus issue #484: the in-progress CHALLENGE to commanded_state --
+    # a raw_new_state that currently disagrees with commanded_state, and
+    # the epoch it FIRST started disagreeing (consecutively -- reset the
+    # moment the raw value stops matching this specific challenger). See
+    # decide_commanded_state()'s own docstring for the full debounce
+    # this pair implements.
+    pending_state: bool | None = None
+    pending_since: float | None = None  # epoch seconds
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -72,6 +94,10 @@ class LoadRunState:
             "carry_kwh": self.carry_kwh,
             "day_key": self.day_key,
             "last_sample_at": self.last_sample_at,
+            "commanded_state": self.commanded_state,
+            "commanded_since": self.commanded_since,
+            "pending_state": self.pending_state,
+            "pending_since": self.pending_since,
         }
 
     @staticmethod
@@ -84,6 +110,10 @@ class LoadRunState:
             carry_kwh=float(data.get("carry_kwh", 0.0)),
             day_key=str(data.get("day_key", "")),
             last_sample_at=data.get("last_sample_at"),
+            commanded_state=bool(data.get("commanded_state", False)),
+            commanded_since=data.get("commanded_since"),
+            pending_state=data.get("pending_state"),
+            pending_since=data.get("pending_since"),
         )
 
 
@@ -183,6 +213,79 @@ def apply_power_sample(
         delivered_today_kwh=delivered,
         last_sample_at=now_ts,
     )
+
+
+def decide_commanded_state(
+    state: LoadRunState,
+    *,
+    raw_new_state: bool,
+    now: datetime,
+    min_hysteresis_seconds: float,
+) -> LoadRunState:
+    """nimbus issue #484 (Mark's own cited HAEO incident: "a plan
+    re-solved every few seconds drove 131 spurious relay states in a
+    night"): the relay-chatter guard. `raw_new_state` is what THIS
+    solve's own plan says a load should be running right now (its own
+    period-0 scheduled power, above/below some on/off threshold) --
+    genuinely free to flip every re-solve. What this function returns is
+    the PUBLISHED `commanded_state`, which only adopts a disagreeing
+    raw_new_state once it has held CONSECUTIVELY for at least
+    `min_hysteresis_seconds` -- a debounce, not a rate limit: a raw value
+    that flips back to agreeing with the current commanded_state even
+    once resets the challenge entirely (this is what makes an
+    indifferent load's period-0 decision flipping every single re-solve
+    produce zero real published changes, not one every
+    min_hysteresis_seconds -- see this module's own tests for the exact
+    #484 acceptance scenario, "ten consecutive solves that flip an
+    indifferent load's decision produce <= 1 commanded-state change").
+
+    The very first-ever decision (commanded_since is None, i.e. this
+    load has never been guarded before) always adopts raw_new_state
+    immediately -- there is no prior commitment to protect yet, so an
+    artificial startup delay would only be arbitrary, not a real guard
+    against anything.
+
+    Returns a full new LoadRunState (only commanded_state/commanded_since/
+    pending_state/pending_since change; every other field is carried
+    through unmodified) rather than a bare tuple, so a caller can pass
+    its result straight to LoadRunStateStore.async_write() the same way
+    apply_power_sample()'s own result already does."""
+    now_ts = now.timestamp()
+
+    if state.commanded_since is None:
+        return replace(
+            state,
+            commanded_state=raw_new_state,
+            commanded_since=now_ts,
+            pending_state=None,
+            pending_since=None,
+        )
+
+    if raw_new_state == state.commanded_state:
+        # Not challenging the currently published value -- any
+        # in-progress challenge for the OTHER value is now stale.
+        if state.pending_state is not None:
+            return replace(state, pending_state=None, pending_since=None)
+        return state
+
+    if state.pending_state != raw_new_state:
+        # A new challenge (first time this specific value has disagreed
+        # with commanded_state since the last time they last agreed) --
+        # start its own clock, don't touch commanded_state yet.
+        return replace(state, pending_state=raw_new_state, pending_since=now_ts)
+
+    # The SAME challenger persisting since pending_since -- has it held
+    # consecutively long enough to actually adopt?
+    assert state.pending_since is not None  # pending_state matched above
+    if now_ts - state.pending_since >= min_hysteresis_seconds:
+        return replace(
+            state,
+            commanded_state=raw_new_state,
+            commanded_since=now_ts,
+            pending_state=None,
+            pending_since=None,
+        )
+    return state
 
 
 @dataclass

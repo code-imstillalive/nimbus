@@ -131,6 +131,13 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # as build_controllable_loads() itself, which is this function's
         # only caller.
         "_sample_load_run_state",
+        # nimbus issue #484: the relay-chatter guard -- reads real
+        # ConfigSubentries and homeassistant.helpers.storage.Store, same
+        # no-standalone-equivalent reasoning as build_controllable_loads()
+        # and _sample_load_run_state() above. A real no-op in standalone
+        # mode anyway, since sheddable_loads/adequacy_loads are always
+        # empty lists there.
+        "apply_commanded_state_guard",
     }
 )
 
