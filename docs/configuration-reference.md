@@ -58,13 +58,35 @@ instead (table below) so you can tune it without re-running this wizard.
 
 | Field | Purpose |
 |---|---|
-| Solar generation forecast sensor | Solcast, Open-Meteo Solar Forecast, or a Nimbus Power Signal on your own inverter's DC power. |
+| Solar generation forecast sensor | Solcast, Open-Meteo Solar Forecast, or a Nimbus Power Signal on your own inverter's DC power — see the shape note below for exactly what's accepted. |
 | Household load forecast sensor | The single sensor treated as "total household load" — e.g. a Nimbus Power Signal on your whole-house meter. |
 | Individual circuit forecast sensors (optional) | Sum several per-circuit forecasts instead of one whole-house sensor — leave blank to use the field above. |
 | Whole-house cross-check sensor (optional) | A real, currently-measured (not forecast) whole-house sensor the Solver compares its own first forecast period against, as a live sanity check. Has no effect on the actual dispatch plan. |
 | Solar power sensor (optional) | Real, currently-*measured* solar power (not a forecast) — feeds the built-in daily EPR/regret quality score (`sensor.nimbus_solver_quality_report`). Leave blank to skip scoring entirely. |
 | Battery power sensor (optional) | Real, currently-measured net battery power (kW, positive = discharging) — same quality-score role as the solar sensor above; both are required together for a score to be published. |
 | Battery power sign flip (optional) | Tick only if your battery sensor reports the opposite convention (positive = *charging* — confirmed on SigEnergy plants). Getting this wrong silently inverts every charge/discharge decision the quality score sees. |
+
+**Solar source shape (nimbus issue #542, Mark Purcell — found from a real household
+install):** solar generation forecast sensor / sources 2 and 3 accept any entity
+whose attributes carry one of three real shapes — the Solver tries them in this
+order and uses whichever is present:
+
+1. The generic `forecast: [{time, value, lower, upper}]` array every Nimbus-produced
+   forecast (a Nimbus Power Signal, a self-trained model) already publishes.
+2. Solcast's own native `detailedForecast: [{period_start, pv_estimate, pv_estimate10,
+   pv_estimate90}]` array — point a source directly at
+   `sensor.solcast_pv_forecast_forecast_today` (or `_tomorrow`) and it's read
+   directly, real p10/p90 confidence bounds included.
+3. Open-Meteo Solar Forecast's own native `watts: {timestamp: value}` dict — point a
+   source directly at `sensor.home_energy_production_today` (or any of its
+   `_tomorrow`/`_d2` through `_d7` siblings) and it's read directly, scaled from
+   native Watts to kW.
+
+Before this, a source pointed directly at a Solcast or Open-Meteo entity (rather than
+relying on the separate "auto-include known solar" switch below) was silently
+dropped from every solve — the Solver only understood shape 1. If you have both a
+source configured AND "auto-include known solar" on, and they resolve to the same
+underlying entity, it's counted once, not double-weighted in the blend's mean.
 
 **⚠️ Real invariant (nimbus issue #532, Mark Purcell — found from real household
 data, not a hypothetical):** the battery power sensor above and
