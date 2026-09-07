@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.154] — 2026-09-07
+
+### Changed
+- **Dispatch-card SOURCE column padding tightened further** (4px → 2px, bar/font unchanged) and **chart now stretches vertically to fill table-col's own row-driven height** instead of sitting at a fixed aspect ratio with empty space below.
+
 ## [0.94.153] — 2026-09-07
 
 ### Changed
