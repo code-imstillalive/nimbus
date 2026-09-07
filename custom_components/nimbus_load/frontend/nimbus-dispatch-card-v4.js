@@ -791,14 +791,25 @@ class NimbusDispatchCardV4 extends HTMLElement {
         '.risk-slider::-moz-range-thumb { width: 18px; height: 18px; border-radius: 50%; background: #fff; border: 3px solid #4fa3ff; cursor: pointer; }' +
         '.risk-slider:disabled { cursor: not-allowed; }' +
         '.risk-effect { font-size: 0.85em; opacity: 0.75; font-variant-numeric: tabular-nums; }' +
-        '.ftable-wrap { width: 100%; overflow-x: auto; overflow-y: auto; max-height: 480px; margin-top: 4px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); }' +
+        // nimbus issue #456 (Mark Purcell): only ~11 of 142 real periods
+        // were visible per screenful -- max-height raised (more rows fit
+        // before scrolling) and td padding tightened (each row itself
+        // takes less vertical space) together, not just one or the other,
+        // since either alone still leaves most of a 142-row table below
+        // the fold.
+        '.ftable-wrap { width: 100%; overflow-x: auto; overflow-y: auto; max-height: 640px; margin-top: 4px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); }' +
         '.ftable-note { font-size: 1.0em; opacity: 0.45; margin: 0 0 6px; }' +
         'table.ftable { width: 100%; border-collapse: collapse; font-size: 1.08em; min-width: var(--ftable-min-width); }' +
         'table.ftable thead th { text-align: left; text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.85em; opacity: 0.5;' +
-          ' font-weight: 600; padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.1); position: sticky; top: 0; background: #14181f; }' +
+          ' font-weight: 600; padding: 6px 10px; border-bottom: 1px solid rgba(255,255,255,0.1); position: sticky; top: 0; background: #14181f; }' +
         'table.ftable thead th.num { text-align: right; }' +
-        'table.ftable td { padding: 7px 12px; border-bottom: 1px solid rgba(255,255,255,0.04); white-space: nowrap; }' +
-        'table.ftable td.num { text-align: right; font-variant-numeric: tabular-nums; }' +
+        // nimbus issue #456: 7px 12px sized each row for something denser
+        // than one line of 1-2 digit numbers -- 3px 10px keeps every
+        // value comfortably legible while roughly halving row height, and
+        // .num gets an even tighter 6px horizontal since a short number
+        // needs far less side margin than a text label does.
+        'table.ftable td { padding: 3px 10px; border-bottom: 1px solid rgba(255,255,255,0.04); white-space: nowrap; }' +
+        'table.ftable td.num { text-align: right; font-variant-numeric: tabular-nums; padding-left: 6px; padding-right: 6px; }' +
         'table.ftable tbody tr:nth-child(even) { background: rgba(255,255,255,0.02); }' +
         'table.ftable tbody tr:hover { background: rgba(79,163,255,0.08); }' +
         'table.ftable td.net-pos { color: #3ddc84; }' +
@@ -809,7 +820,12 @@ class NimbusDispatchCardV4 extends HTMLElement {
         '.now-tag { font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.06em; color: #ff4d8d; opacity: 0.85; margin-left: 4px; }' +
         '.p2p-pill { display: inline-block; background: rgba(255,213,79,0.16); color: #ffd54f; border: 1px solid rgba(255,213,79,0.35);' +
           ' border-radius: 10px; padding: 1px 9px; font-weight: 700; font-size: 0.92em; }' +
-        '.source-bar { display: flex; width: 56px; height: 8px; border-radius: 4px; overflow: hidden; background: rgba(255,255,255,0.06); }' +
+        // nimbus issue #456: 56px gave the SOURCE indicator noticeably
+        // more visual weight than the numeric columns beside it -- 34px
+        // still reads clearly as a two-segment bar (its own title
+        // attribute carries the exact solar/grid % on hover) at a width
+        // closer to what a numeric column actually needs.
+        '.source-bar { display: flex; width: 34px; height: 7px; border-radius: 4px; overflow: hidden; background: rgba(255,255,255,0.06); }' +
         '.source-bar .seg-a { background: #ffb340; }' +
         '.source-bar .seg-b { background: #4fa3ff; }' +
         /* Landscape/desktop layout (nimbus issue #391, Mark Purcell): below
