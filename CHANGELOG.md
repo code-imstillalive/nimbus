@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.169] — 2026-09-08
+
+### Fixed
+- **A solar-forecast sensor configured directly at Solcast or Open-Meteo Solar Forecast's own entities is no longer silently dropped from every solve** (nimbus issue #542, Mark Purcell). Solcast's own entities publish a `detailedForecast=[...]` array and Open-Meteo's own entities publish `watts={...}`, not the generic `forecast=[...]` shape the Solver only used to recognize when a source was pointed at one directly — a healthy entity was reported "unavailable" and contributed nothing. All three solar-source readers in this file now share one reshape function that tries all three shapes. Also fixes the direct consequence of that landing: a household with the same entity both explicitly configured AND auto-included no longer double-weights it in the blend's mean. Ported to the standalone/cron deployment script too (`docs/real-world-integration/files/nimbus_solver_forecast_writer.py`) — same bug, same fix.
+- **"Solar source ... dropped from this solve's blend" now warns once per condition, not every solve** (nimbus issue #543, Mark Purcell — 205 copies in 4 hours on one real install). The three real, distinct reasons (`unavailable`, `shape not recognized`, `malformed`) each get their own one-time log; a source recovering after being down is now also logged once at INFO.
+
+### Added
+- `docs/configuration-reference.md` documents the three solar-source attribute shapes the Solver accepts directly.
+
 ## [0.94.168] — 2026-09-08
 
 ### Fixed
