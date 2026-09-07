@@ -6668,6 +6668,65 @@ def _resolve_hour_to_period_index(
     return n - 1
 
 
+def _sample_load_run_state(
+    hub_entry_id: str,
+    subentry_id: str,
+    power_sensor: str,
+    now: datetime,
+    day_key: str,
+) -> None:
+    """nimbus issue #479: reads one Controllable Load's real power sensor
+    and folds a single solve-tick sample into its persisted LoadRunState
+    (custom_components/nimbus_load/load_run_state.py). Best-effort and
+    silent on any failure (sensor unavailable, Store I/O error, HA not
+    fully started) -- this bookkeeping isn't consumed by build_plan() at
+    all yet (see #479's own scope note), so it must never be able to take
+    the actual solve cycle down. Native mode only, same reasoning as this
+    function's own caller.
+    """
+    if _NATIVE_HASS is None:
+        # Not reachable from build_controllable_loads() (guarded at its
+        # own entry), but this function has no other caller today either
+        # -- a defensive, cheap-to-keep guard rather than an assumption.
+        return
+    try:
+        from homeassistant.helpers.storage import Store as _Store
+
+        state_obj = _NATIVE_HASS.states.get(power_sensor)
+        if state_obj is None or state_obj.state in (None, "unknown", "unavailable"):
+            return
+        power_kw = float(state_obj.state)
+
+        try:
+            from . import load_run_state
+            from .const import DOMAIN
+        except ImportError:
+            import load_run_state
+            from const import DOMAIN
+
+        async def _update() -> None:
+            store = load_run_state.LoadRunStateStore(
+                store=_Store(_NATIVE_HASS, 1, f"{DOMAIN}_{hub_entry_id}_load_run_state")
+            )
+            prev = await store.async_read(subentry_id)
+            new = load_run_state.apply_power_sample(
+                prev, now=now, day_key=day_key, power_kw=power_kw
+            )
+            await store.async_write(subentry_id, new)
+
+        import asyncio as _asyncio
+
+        future = _asyncio.run_coroutine_threadsafe(_update(), _NATIVE_HASS.loop)
+        future.result(timeout=10)
+    except Exception:
+        _LOGGER.debug(
+            "Nimbus: controllable load run-state sample failed for %s (%s)",
+            subentry_id,
+            power_sensor,
+            exc_info=True,
+        )
+
+
 def build_controllable_loads(
     now: datetime, grid_times: list[datetime], n_periods: int
 ) -> tuple[list, list]:
@@ -6706,6 +6765,7 @@ def build_controllable_loads(
         from .const import (
             CONF_CONTROLLABLE_LOAD_KIND,
             CONF_CONTROLLABLE_LOAD_NAME,
+            CONF_CONTROLLABLE_LOAD_POWER_SENSOR,
             CONF_DEFERRABLE_DEADLINE_HOUR,
             CONF_DEFERRABLE_EARLIEST_HOUR,
             CONF_DEFERRABLE_MAX_POWER_KW,
@@ -6724,6 +6784,7 @@ def build_controllable_loads(
         from const import (
             CONF_CONTROLLABLE_LOAD_KIND,
             CONF_CONTROLLABLE_LOAD_NAME,
+            CONF_CONTROLLABLE_LOAD_POWER_SENSOR,
             CONF_DEFERRABLE_DEADLINE_HOUR,
             CONF_DEFERRABLE_EARLIEST_HOUR,
             CONF_DEFERRABLE_MAX_POWER_KW,
@@ -6744,12 +6805,33 @@ def build_controllable_loads(
     entries = _NATIVE_HASS.config_entries.async_entries(DOMAIN)
     if not entries:
         return [], []
+    run_state_day_key = now.strftime("%Y-%m-%d")
     for subentry in entries[0].subentries.values():
         if subentry.subentry_type != SUBENTRY_TYPE_CONTROLLABLE_LOAD:
             continue
         data = subentry.data
         name = data.get(CONF_CONTROLLABLE_LOAD_NAME) or subentry.subentry_id
         kind = data.get(CONF_CONTROLLABLE_LOAD_KIND)
+        power_sensor = data.get(CONF_CONTROLLABLE_LOAD_POWER_SENSOR)
+        if power_sensor:
+            # nimbus issue #479: every configured load's own currently_on/
+            # on_since/off_since/delivered_today_kwh gets sampled here,
+            # regardless of kind -- #484's chatter-guard needs this for
+            # any Controllable Load, not just a future quota kind. See
+            # _sample_load_run_state's own docstring for why this never
+            # raises into the rest of this function. `entries[0].entry_id`
+            # is only ever read here (not unconditionally above), so a
+            # fake/test hass object with no real entry_id -- like this
+            # file's own tests use for the sheddable/deferrable cases,
+            # neither of which sets power_sensor -- never has to carry
+            # one just to exercise the rest of this function.
+            _sample_load_run_state(
+                entries[0].entry_id,
+                subentry.subentry_id,
+                power_sensor,
+                now,
+                run_state_day_key,
+            )
         if kind == CONTROLLABLE_LOAD_KIND_SHEDDABLE:
             nominal_kw = float(data.get(CONF_SHEDDABLE_NOMINAL_KW) or 0.0)
             if nominal_kw <= 0.0:
