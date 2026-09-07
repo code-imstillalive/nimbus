@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.153] — 2026-09-07
+
+### Changed
+- **Dispatch-card chart/table layout: fixed 2/3:1/3 containers instead of content-aware sizing.** v0.94.152's "chart gets everything left over after table claims its own content" formula produced a tiny chart and a horizontal scrollbar live — the fourth content-aware formula to fail differently today. Replaced with a literal, content-blind `grid-template-columns: 2fr 1fr` plus `min-width: 0` on both columns, so chart-col is always exactly 2/3 of the row and table-col always exactly 1/3, regardless of content. If the table's real content is wider than its 1/3 box, it scrolls within that box only — never crushing the chart or widening the row.
+
 ## [0.94.152] — 2026-09-07
 
 ### Changed
