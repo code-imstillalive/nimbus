@@ -75,7 +75,17 @@ _HEALTHY_LOAD_STATE = {
 # main() pushes to sensor.nimbus_solver_battery_forecast for this exact
 # fixture -- captured directly from a real run against this same
 # fixture, frozen at the timestamp this test itself freezes to.
-_EXPECTED_STATE = -4.617
+#
+# nimbus issue #451 (Mark Purcell): regenerated 2026-09-07 after
+# reshaping build_tiered_grid() (tier1 now boundary-snapped to the real
+# current+next NEM trading interval instead of a fixed 24h/360-period
+# grid) -- a real, deliberate, understood output change, not drift.
+# n_periods 360 -> 202 (matching #451's own ~200-206 estimate) shifts
+# every cost/dispatch number that depends on the exact grid shape.
+# load_forecast_coverage_hours stays 1.0 (this fixture's own real
+# forecast points -- 20:30/20:45/21:00 -- still sit inside tier1's own
+# shorter span either way).
+_EXPECTED_STATE = -5.0
 _EXPECTED_ATTRS = {
     "unit_of_measurement": "kW",
     "device_class": "power",
@@ -84,14 +94,14 @@ _EXPECTED_ATTRS = {
     "signal_role": "battery",
     "source_sensor": "sensor.fake_soc",
     "status": "optimal",
-    "total_cost": 26.6828900813574,
-    "total_cost_with_fixed_costs": 34.4829,
+    "total_cost": 26.695680199029063,
+    "total_cost_with_fixed_costs": 34.4957,
     "cost_breakdown": {
-        "grid_net": 33.5877,
+        "grid_net": 33.5867,
         "degradation": 0.0,
         "charge_fee": 0.1847,
         "discharge_fee": 0.3148,
-        "terminal_value_credit": -7.4043,
+        "terminal_value_credit": -7.3905,
     },
     "cost_band": {"lower": 3.3107, "upper": 32.9326, "width": 29.622},
     "p2p_match_fraction": 0.0,
@@ -111,14 +121,14 @@ _EXPECTED_ATTRS = {
     "charge_efficiency": 0.9747,
     "discharge_efficiency": 0.9747,
     "ac_bus_losses_kwh": 1.285,
-    "n_periods": 360,
+    "n_periods": 202,
     "n_clamped_periods": 0,
     "horizon_hours": 96.0,
     "solve_seconds": 0.0,  # excluded from comparison -- see test body
     "binding_constraint_now": "Grid export at zero (not economical right now)",
-    "binding_constraint_shadow_price": 0.0235,
+    "binding_constraint_shadow_price": 0.0236,
     "energy_shadow_price_now": 0.025,
-    "p2p_volume_cap_shadow_price": -0.0001,
+    "p2p_volume_cap_shadow_price": -0.0,
     "p2p_recent_avg_volume_kwh": 0.0,
     "load_forecast_source_used": f"single sensor: {_LOAD_SENSOR}",
     "load_forecast_source_error": None,
@@ -147,29 +157,34 @@ _EXPECTED_ATTRS = {
 }
 
 # Per-period forecast keys asserted at fixed indices only (0, 1, -1) --
-# all 360 periods in full would make a real, intentional future change
+# all 202 periods in full would make a real, intentional future change
 # to the grid shape (e.g. a tier-boundary tweak) needlessly tedious to
 # update; three representative points (now, one step later, horizon end)
 # already catch a real behavior change anywhere in the per-period
 # construction just as reliably.
+#
+# nimbus issue #451: regenerated 2026-09-07 alongside the grid reshape
+# above -- period 0/1 both sit inside the new, boundary-snapped tier1
+# (5-min resolution still), period -1 is now index 201 (was 359),
+# tier2 (30-min, was 1h).
 _EXPECTED_FORECAST_SAMPLE = {
     0: {
-        "battery_kw": -4.617,
-        "grid_import_kw": 6.117,
+        "battery_kw": -5.0,
+        "grid_import_kw": 6.5,
         "grid_export_kw": 0.0,
         "solar_kw": 0.0,
         "load_kw": 1.5,
-        "soc_pct": 55.94,
+        "soc_pct": 56.02,
         "import_price": 0.3,
         "export_price": 0.05,
     },
     1: {
-        "battery_kw": -4.617,
-        "grid_import_kw": 6.117,
+        "battery_kw": -5.0,
+        "grid_import_kw": 6.5,
         "grid_export_kw": 0.0,
         "solar_kw": 0.0,
         "load_kw": 1.5,
-        "soc_pct": 56.88,
+        "soc_pct": 57.03,
         "import_price": 0.3,
         "export_price": 0.05,
     },
