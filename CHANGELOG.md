@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.152] — 2026-09-07
+
+### Changed
+- **Dispatch-card chart now fills all space left over after the table's own real content width** (`grid-template-columns: minmax(320px, 1fr) max-content`), fixing both remaining complaints from v0.94.151: chart too small, and dead space on the table's own right edge. Mathematically the largest the chart can be while the table still never scrolls and never wastes space — the exact split still depends on the table's real row content at any given moment.
+
 ## [0.94.151] — 2026-09-07
 
 ### Fixed
