@@ -815,23 +815,39 @@ class NimbusDispatchCardV4 extends HTMLElement {
         '.reasoning { font-size: 1.35em; line-height: 1.5; opacity: 0.85; flex: 1 1 300px; min-width: 260px; }' +
         '.range-labels { display:flex; justify-content:space-between; font-size: 1.05em; opacity: 0.5; width: 250px; margin-top: 4px; }' +
         '.section-label { font-size: 1.05em; text-transform: uppercase; letter-spacing: 0.09em; opacity: 0.5; margin: 22px 0 8px; }' +
-        // 2026-09-07: reverted to full-width stacking (chart above,
-        // table below, both 100% width) after FOUR same-day side-by-
-        // side attempts (fixed 2fr/1fr + breakpoint, flexbox,
-        // grid+minmax(max-content,1fr), grid+"1fr max-content") each
-        // failed differently -- the last one ("1fr max-content", meant
-        // to be the mathematically maximal chart size) confirmed live:
-        // chart tiny AND a horizontal scrollbar, worse than every prior
-        // attempt. Every one of these was reasoned from an ESTIMATED
-        // table content width, never a real DevTools measurement --
-        // stopping that pattern here. Full-width stacking is the one
-        // layout that has never produced a scrollbar or a crushed
-        // element tonight: each element gets 100% of the card's own
-        // width, which the table's real content already fits inside
-        // without scrolling on any real panel width. Do not attempt
-        // another side-by-side CSS formula without a real measured
-        // table.ftable width in hand first.
+        // 2026-09-07, direct household instruction after four failed
+        // content-aware formulas (fixed 2fr/1fr + breakpoint, flexbox,
+        // grid+minmax(max-content,1fr), grid+"1fr max-content"): design
+        // the CONTAINERS first, fixed at exactly 2/3 and 1/3 of the
+        // row, and place each object inside its own box -- rather than
+        // trying to make either box grow or shrink to match its
+        // content, which is what caused every prior failure (whichever
+        // box's content was estimated wrong ended up crushing the
+        // other, or overflowing the row).
+        //
+        // grid-template-columns: 2fr 1fr is a literal, content-BLIND
+        // fixed split -- chart-col is always exactly 2/3 of the row,
+        // table-col always exactly 1/3, regardless of what's inside
+        // either one. `min-width: 0` on both (overriding a CSS Grid
+        // item's own default auto-min-size, which is otherwise its
+        // content's max-content width and WOULD silently override the
+        // fr split for whichever side has more content) is what makes
+        // this actually hold: without it, table-col's real content
+        // would still force it wider than 1/3 the moment that content
+        // exceeds a third of the row, the exact failure mode from every
+        // earlier attempt tonight. With it, table-col is a true, fixed
+        // 1/3-width box; if table.ftable's real content is wider than
+        // that box, .ftable-wrap's own overflow-x:auto scrolls WITHIN
+        // that box only -- it can never crush the chart or push the
+        // page/card wider. Same real tradeoff as the very first
+        // attempt tonight (a fixed fraction can mean an internal table
+        // scrollbar on a content-heavy render), but now bounded and
+        // contained instead of distorting the whole row's geometry.
         '.chart-table-grid { display:block; }' +
+        '.chart-col, .table-col { min-width: 0; }' +
+        '@container (min-width: 900px) {' +
+          '.chart-table-grid { display:grid; grid-template-columns: 2fr 1fr; gap: 20px 28px; align-items:start; }' +
+        '}' +
         '.timeline-wrap { width: 100%; overflow-x: auto; }' +
         '.timeline-wrap svg { width: 100%; height: auto; display: block; min-width: 480px; }' +
         '.legend { display:flex; gap: 20px; font-size: 1.05em; opacity: 0.65; margin-top: 8px; flex-wrap: wrap; }' +
@@ -1061,9 +1077,8 @@ class NimbusDispatchCardV4 extends HTMLElement {
         '<div class="risk-row">' + riskSliders + '</div>' +
       '</div>' + // .col-left
       '<div class="col-right">' +
-      // Chart and table stack full-width, one above the other -- see
-      // .chart-table-grid's own CSS comment, above, for the four
-      // side-by-side attempts (2026-09-07) that were each reverted.
+      // Fixed 2/3:1/3 containers -- see .chart-table-grid's own CSS
+      // comment, above, for why content-aware sizing was abandoned.
       '<div class="chart-table-grid">' +
       '<div class="chart-col">' +
         '<div class="section-label" style="margin-top:0;">Dispatch Plan - next 3 days (plan vs. actual)</div>' +
