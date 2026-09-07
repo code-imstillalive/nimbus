@@ -178,6 +178,108 @@ class TestEprReliableMirrorsSocDiscrepancyReliable(unittest.TestCase):
         self.assertFalse(result["epr_reliable"])
 
 
+class TestSocDiscrepancyAgreementThreshold(unittest.TestCase):
+    """nimbus issue #538 (Mark Purcell, real household finding on this
+    repo's own v0.94.166): soc_discrepancy_reliable used to test ONLY
+    whether the achieved SoC integration stayed inside [0, 100] --
+    blind to a genuinely large, sustained disagreement that never
+    leaves that range (his own real case: raising the configured
+    battery capacity kept the trajectory in-range while the gap against
+    the real SoC sensor stayed at 40.7 points max / 10.85 mean, and the
+    flag still read "reliable"). These tests reproduce that shape
+    synthetically: a bounded 3kW/3h discharge burst against a flat 50%
+    real SoC sensor settles ~18 points away and NEVER leaves [0, 100]
+    at any point in the window (unlike TestEprReliableMirrorsSocDiscrepancyReliable's
+    own 20kW/24h scenario, which leaves range almost immediately)."""
+
+    def _fetch_bounded_disagreement(self, entity_id, start, end):
+        if entity_id == "sensor.real_solar":
+            return _flat_history(0.0, start, end)
+        if entity_id == "sensor.real_load":
+            return _flat_history(2.0, start, end)
+        if entity_id == "sensor.real_battery":
+            mid = start + timedelta(hours=3)
+            return _flat_history(3.0, start, mid) + _flat_history(0.0, mid, end)
+        if entity_id == "sensor.import_price":
+            return _price_history(start, end)
+        if entity_id == "sensor.export_price":
+            return _price_history(start, end, cheap=0.02, expensive=0.10)
+        if entity_id == "sensor.combined_soc":
+            return _flat_history(50.0, start, end)
+        return []
+
+    def test_a_bounded_in_range_disagreement_is_unreliable_by_default(self):
+        with patch.object(
+            solver_writer,
+            "fetch_entity_history_range",
+            side_effect=self._fetch_bounded_disagreement,
+        ):
+            result = solver_writer._compute_report_for_window(
+                _cfg(), DAY_START, DAY_END, allow_partial=True
+            )
+        self.assertIsNotNone(result)
+        # Real value, confirmed via direct computation: max ~18.5pt, mean
+        # ~17.5pt -- both exceed the 15/8pt defaults, neither the day nor
+        # any single hour ever left [0, 100] (a genuinely different
+        # scenario from the 20kW/24h out-of-range case above).
+        self.assertGreater(result["soc_discrepancy_max_pct"], 15.0)
+        self.assertGreater(result["soc_discrepancy_mean_pct"], 8.0)
+        self.assertFalse(result["soc_discrepancy_reliable"])
+        self.assertEqual(result["soc_discrepancy_reason"], "disagreement")
+        self.assertFalse(result["epr_reliable"])
+
+    def test_a_household_can_raise_its_own_configured_threshold(self):
+        # Same exact scenario, but this household's own dashboard
+        # numbers (number.nimbus_solver_soc_discrepancy_max_threshold_pct
+        # / _mean_threshold_pct) have been tuned up to accept a noisier
+        # install -- #538's own item 1 ask, end-to-end through cfg.
+        with patch.object(
+            solver_writer,
+            "fetch_entity_history_range",
+            side_effect=self._fetch_bounded_disagreement,
+        ):
+            result = solver_writer._compute_report_for_window(
+                _cfg(
+                    solver_soc_discrepancy_max_threshold_pct=50.0,
+                    solver_soc_discrepancy_mean_threshold_pct=50.0,
+                ),
+                DAY_START,
+                DAY_END,
+                allow_partial=True,
+            )
+        self.assertIsNotNone(result)
+        self.assertTrue(result["soc_discrepancy_reliable"])
+        self.assertIsNone(result["soc_discrepancy_reason"])
+        self.assertTrue(result["epr_reliable"])
+
+    def test_out_of_range_reason_takes_priority_over_disagreement(self):
+        # #532's own real case (reused from TestEprReliableMirrors...
+        # above): a 20kW/24h sustained discharge leaves [0, 100] almost
+        # immediately -- reason must say "out_of_range", not
+        # "disagreement", even though the raw gap numbers would also
+        # exceed the agreement thresholds.
+        with patch.object(
+            solver_writer, "fetch_entity_history_range", side_effect=_make_fetch(20.0)
+        ):
+            result = solver_writer._compute_report_for_window(
+                _cfg(), DAY_START, DAY_END, allow_partial=True
+            )
+        self.assertIsNotNone(result)
+        self.assertFalse(result["soc_discrepancy_reliable"])
+        self.assertEqual(result["soc_discrepancy_reason"], "out_of_range")
+
+    def test_a_well_behaved_day_has_no_reason(self):
+        with patch.object(
+            solver_writer, "fetch_entity_history_range", side_effect=_make_fetch(0.0)
+        ):
+            result = solver_writer._compute_report_for_window(
+                _cfg(), DAY_START, DAY_END, allow_partial=True
+            )
+        self.assertIsNotNone(result)
+        self.assertTrue(result["soc_discrepancy_reliable"])
+        self.assertIsNone(result["soc_discrepancy_reason"])
+
+
 class TestPublishLogsOncePerScoredDay(unittest.TestCase):
     """nimbus issue #533 item 3: the same #313/#314 'log once, with the
     number' discipline this project already applies elsewhere -- a
@@ -237,6 +339,35 @@ class TestPublishLogsOncePerScoredDay(unittest.TestCase):
             self.assertLogs(solver_writer._LOGGER, level="WARNING"),
         ):
             self._publish(now, 0.0)
+
+    def test_the_warning_names_out_of_range_as_the_reason(self):
+        # nimbus issue #538 item 2: the WARNING must name WHICH test
+        # failed, not a single message that always reads as the
+        # out-of-range case.
+        now = DAY_END
+        with self.assertLogs(solver_writer._LOGGER, level="WARNING") as captured:
+            self._publish(now, 20.0)
+        self.assertTrue(
+            any("reason=out_of_range" in r.message for r in captured.records)
+        )
+
+    def test_the_warning_names_disagreement_as_the_reason(self):
+        with (
+            patch.object(
+                solver_writer, "ha_get", side_effect=urllib.error.URLError("no cache")
+            ),
+            patch.object(
+                solver_writer,
+                "fetch_entity_history_range",
+                side_effect=TestSocDiscrepancyAgreementThreshold()._fetch_bounded_disagreement,
+            ),
+            patch.object(solver_writer, "ha_post_state"),
+            self.assertLogs(solver_writer._LOGGER, level="WARNING") as captured,
+        ):
+            solver_writer.publish_daily_quality_report(_cfg(), DAY_END)
+        self.assertTrue(
+            any("reason=disagreement" in r.message for r in captured.records)
+        )
 
 
 if __name__ == "__main__":

@@ -1247,6 +1247,23 @@ FLATTENED_ATTRS_QUALITY: tuple[FlattenedAttrSpec, ...] = (
         unit_of_measurement=None,
         suggested_display_precision=None,
     ),
+    # nimbus issue #538 (Mark Purcell, item 3): a string-or-None
+    # passthrough naming WHICH test failed when soc_discrepancy_reliable
+    # is False -- "out_of_range" or "disagreement" -- so this flattened
+    # sensor is self-explanatory without a household having to open the
+    # parent entity's attributes or read the HA log. None (native_value's
+    # own "unknown" state, same as every other None-valued row on this
+    # sub-device) when reliable or when there's no data for the window.
+    FlattenedAttrSpec(
+        source_key="soc_discrepancy_reason",
+        name="Quality SoC Discrepancy Reason",
+        entity_id_suffix="soc_discrepancy_reason",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=None,
+        state_class=None,
+        unit_of_measurement=None,
+        suggested_display_precision=None,
+    ),
     # nimbus issue #532: the real energy the achieved trajectory moved
     # through the configured battery_power sensor over the whole scored
     # window -- lets a household compare against their own configured

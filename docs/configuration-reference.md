@@ -88,6 +88,23 @@ batteries or a shared EV charger, see the multi-battery discussion on issue
 either sensor to a combined helper — a single-battery model is only ever
 correct for a genuinely single physical pack.
 
+**Two more dashboard numbers (nimbus issue #538, Mark Purcell — found the
+day after #532 shipped):** `soc_discrepancy_reliable` above only catches the
+achieved SoC integration leaving the physical [0, 100] range — it used to say
+"reliable" for a day where the integration stayed *inside* [0, 100] but still
+disagreed with the real SoC sensor by a large, sustained margin (his own real
+case: raising the configured capacity kept the trajectory in-range while the
+gap against the real sensor stayed at 40.7 points max / 10.85 mean). Two more
+dashboard-editable numbers close that gap: `number.nimbus_solver_soc_discrepancy_max_threshold_pct`
+(default 15) and `number.nimbus_solver_soc_discrepancy_mean_threshold_pct`
+(default 8) — a day whose max/mean gap against the real sensor exceeds either
+one is also called unreliable, even inside [0, 100]. The flattened
+`sensor.nimbus_quality_soc_discrepancy_reason` (and the parent report's own
+`soc_discrepancy_reason` attribute) names which test actually failed —
+`"out_of_range"` or `"disagreement"` — so this doesn't have to be re-derived
+from the raw numbers. Tune both up if your install's own sensors are known to
+be noisier than this default tolerates; tune them down for a tighter bar.
+
 ### Topology diagram: Switchboard
 
 Grid power, battery power, and every Load are auto-detected — nothing to

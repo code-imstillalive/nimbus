@@ -101,6 +101,8 @@ from .const import (
     CONF_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS,
     CONF_SOLVER_RISK_AVERSION,
     CONF_SOLVER_SALVAGE_VALUE,
+    CONF_SOLVER_SOC_DISCREPANCY_MAX_THRESHOLD_PCT,
+    CONF_SOLVER_SOC_DISCREPANCY_MEAN_THRESHOLD_PCT,
     DEFAULT_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
     DEFAULT_SOLVER_CHARGE_COST,
     DEFAULT_SOLVER_DEGRADATION_COST_PER_KWH,
@@ -124,6 +126,8 @@ from .const import (
     DEFAULT_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS,
     DEFAULT_SOLVER_RISK_AVERSION,
     DEFAULT_SOLVER_SALVAGE_VALUE,
+    DEFAULT_SOLVER_SOC_DISCREPANCY_MAX_THRESHOLD_PCT,
+    DEFAULT_SOLVER_SOC_DISCREPANCY_MEAN_THRESHOLD_PCT,
     DEFAULT_SOLVER_SOH_PERCENT,
     DOMAIN,
 )
@@ -713,6 +717,32 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         60,
         0.1,
         "s",
+    ),
+    # nimbus issue #538 (Mark Purcell, real household finding): the
+    # quality report's own soc_discrepancy_reliable/epr_reliable flags
+    # used to test only whether the achieved SoC integration stayed
+    # inside the physical [0, 100] range -- these two dials are the
+    # second, independent test (max/mean disagreement against the real
+    # SoC sensor, in points), tunable per household exactly like every
+    # other Solver number, no release needed to adjust a noisier
+    # install's own tolerance.
+    _SolverNumberDescription(
+        CONF_SOLVER_SOC_DISCREPANCY_MAX_THRESHOLD_PCT,
+        "SoC Discrepancy Max Threshold",
+        DEFAULT_SOLVER_SOC_DISCREPANCY_MAX_THRESHOLD_PCT,
+        0,
+        100,
+        0.5,
+        "%",
+    ),
+    _SolverNumberDescription(
+        CONF_SOLVER_SOC_DISCREPANCY_MEAN_THRESHOLD_PCT,
+        "SoC Discrepancy Mean Threshold",
+        DEFAULT_SOLVER_SOC_DISCREPANCY_MEAN_THRESHOLD_PCT,
+        0,
+        100,
+        0.5,
+        "%",
     ),
 )
 

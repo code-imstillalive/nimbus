@@ -4748,7 +4748,31 @@ def _compute_report_for_window(
         return None
 
     regret_dollars = report.j_ach - report.j_star
-    soc_discrepancy = _soc_discrepancy_stats(soc_hist, report.j_ach_hourly)
+    # nimbus issue #538 (Mark Purcell, real household finding): these two
+    # dashboard-editable thresholds are the "agreement" half of the
+    # reliability test -- see _soc_discrepancy_stats()'s own docstring.
+    # Same _cfg_num() convention as risk_aversion/etc above (real 0.0 is
+    # a legitimate, if unusual, household setting -- never silently
+    # swapped for the default).
+    # Literal fallback defaults (not an imported const.py DEFAULT_ symbol)
+    # -- matches this file's own established convention for a cfg.get()
+    # fallback (see import_price_risk_aversion/export_price_risk_aversion
+    # above); const.py's DEFAULT_SOLVER_SOC_DISCREPANCY_*_THRESHOLD_PCT
+    # is the single source of truth for the NUMBER ENTITY's own seeded
+    # default, these two literals are that same value mirrored for the
+    # rare case a household's dashboard number hasn't restored yet.
+    soc_discrepancy_max_threshold_pct = _cfg_num(
+        cfg, "solver_soc_discrepancy_max_threshold_pct", 15.0
+    )
+    soc_discrepancy_mean_threshold_pct = _cfg_num(
+        cfg, "solver_soc_discrepancy_mean_threshold_pct", 8.0
+    )
+    soc_discrepancy = _soc_discrepancy_stats(
+        soc_hist,
+        report.j_ach_hourly,
+        max_threshold_pct=soc_discrepancy_max_threshold_pct,
+        mean_threshold_pct=soc_discrepancy_mean_threshold_pct,
+    )
     return {
         # Fractional EPR (0..1). Canonical downstream contract: the OpEd
         # hero chart, the compute_quality_report service payload, and the
@@ -4837,8 +4861,11 @@ def _compute_report_for_window(
 
 
 def _soc_discrepancy_stats(
-    soc_hist: list[tuple[datetime, float]], j_ach_hourly: dict[str, dict[str, float]]
-) -> dict[str, float | bool | None]:
+    soc_hist: list[tuple[datetime, float]],
+    j_ach_hourly: dict[str, dict[str, float]],
+    max_threshold_pct: float = 15.0,
+    mean_threshold_pct: float = 8.0,
+) -> dict[str, float | bool | str | None]:
     """nimbus issue #427 (Mark Purcell): the achieved trajectory's own
     SoC is *integrated* from real battery-power history through the
     efficiency model (see compute_quality_report()'s own j_ach_soc_kwh
@@ -4886,12 +4913,32 @@ def _soc_discrepancy_stats(
     condition explicitly so a caller doesn't have to infer "this looks
     like a data-continuity gap, not a real dispatch problem" from the
     number's own magnitude.
+
+    nimbus issue #538 (Mark Purcell, real household finding on this
+    repo's own v0.94.166): the range test above catches one failure
+    mode (the integration leaving [0, 100]) but is blind to the other
+    -- a genuinely large, sustained disagreement that never leaves the
+    range. Mark's own real case: raising the configured battery
+    capacity kept the trajectory in-range while the gap against the
+    real SoC sensor stayed at 40.7 points max / 10.85 mean, and the
+    flag read "reliable" regardless. max_threshold_pct/mean_threshold_
+    pct are the second, independent test -- a household-tunable
+    dashboard number (see number.py), not a fixed constant, since what
+    counts as "too far apart" genuinely depends on how well-matched
+    that household's own power/SoC sensors are to its capacity model.
+    soc_discrepancy_reason names WHICH test failed ("out_of_range" takes
+    priority when both would fail, since it's the more fundamental
+    problem -- a trajectory that left the physical range at all makes
+    the disagreement numbers themselves suspect), so a consumer (or the
+    once-per-day WARNING below) doesn't have to re-derive the cause from
+    the raw numbers.
     """
     if not soc_hist or not j_ach_hourly:
         return {
             "soc_discrepancy_max_pct": None,
             "soc_discrepancy_mean_pct": None,
             "soc_discrepancy_reliable": None,
+            "soc_discrepancy_reason": None,
         }
     gaps: list[float] = []
     any_out_of_range = False
@@ -4911,11 +4958,24 @@ def _soc_discrepancy_stats(
             "soc_discrepancy_max_pct": None,
             "soc_discrepancy_mean_pct": None,
             "soc_discrepancy_reliable": None,
+            "soc_discrepancy_reason": None,
         }
+    max_gap = max(gaps)
+    mean_gap = sum(gaps) / len(gaps)
+    if any_out_of_range:
+        reliable = False
+        reason: str | None = "out_of_range"
+    elif max_gap > max_threshold_pct or mean_gap > mean_threshold_pct:
+        reliable = False
+        reason = "disagreement"
+    else:
+        reliable = True
+        reason = None
     return {
-        "soc_discrepancy_max_pct": round(max(gaps), 2),
-        "soc_discrepancy_mean_pct": round(sum(gaps) / len(gaps), 2),
-        "soc_discrepancy_reliable": not any_out_of_range,
+        "soc_discrepancy_max_pct": round(max_gap, 2),
+        "soc_discrepancy_mean_pct": round(mean_gap, 2),
+        "soc_discrepancy_reliable": reliable,
+        "soc_discrepancy_reason": reason,
     }
 
 
@@ -5012,20 +5072,42 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
         and yesterday_key not in _QUALITY_REPORT_UNRELIABLE_WARNED
     ):
         _QUALITY_REPORT_UNRELIABLE_WARNED.add(yesterday_key)
+        # nimbus issue #538 (Mark Purcell, item 2): two genuinely
+        # different causes now share this flag -- name which one this
+        # day actually hit, instead of a single message that always
+        # reads as the out-of-range case even when it was a plain
+        # threshold disagreement.
+        reason = day_entry.get("soc_discrepancy_reason")
+        if reason == "out_of_range":
+            cause = (
+                "the achieved SoC integration went outside the physically "
+                "real [0, 100] range for at least one hour this day (a real "
+                "recorder history gap, or the configured battery power/"
+                "capacity sensors not matching what they physically "
+                "describe -- compare this report's own achieved_energy_in_"
+                "kwh/achieved_energy_out_kwh against solver_battery_"
+                "capacity_kwh to tell the two apart)"
+            )
+        else:
+            cause = (
+                "the achieved SoC integration stayed inside [0, 100] but "
+                "disagreed with the real SoC sensor by more than this "
+                "install's configured threshold (number.nimbus_solver_"
+                "soc_discrepancy_max_threshold_pct/_mean_threshold_pct) -- "
+                "usually the SoC sensor covering different physical "
+                "storage than the power sensor/capacity model (see nimbus "
+                "issue #532)"
+            )
         _LOGGER.warning(
             "Nimbus quality: %s scored with soc_discrepancy_reliable=False "
-            "(max discrepancy %.1f pt, mean %.1f pt) -- the achieved SoC "
-            "integration went outside the physically real [0, 100] range "
-            "for at least one hour this day. EPR and every other figure "
-            "on this day's report are unreliable until this is "
-            "understood (a real recorder history gap, or the configured "
-            "battery power/capacity sensors not matching what they "
-            "physically describe -- compare this report's own "
-            "achieved_energy_in_kwh/achieved_energy_out_kwh against "
-            "solver_battery_capacity_kwh to tell the two apart)",
+            "(reason=%s, max discrepancy %.1f pt, mean %.1f pt) -- %s. EPR "
+            "and every other figure on this day's report are unreliable "
+            "until this is understood.",
             yesterday_key,
+            reason,
             day_entry.get("soc_discrepancy_max_pct") or 0.0,
             day_entry.get("soc_discrepancy_mean_pct") or 0.0,
+            cause,
         )
     ha_post_state(
         QUALITY_ENTITY_ID,

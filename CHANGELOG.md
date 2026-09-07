@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.168] — 2026-09-08
+
+### Fixed
+- **`soc_discrepancy_reliable`/`epr_reliable` now also test agreement with the real SoC sensor, not just the physical [0, 100] range** (nimbus issue #538, Mark Purcell, found the day after v0.94.166 shipped). A day whose achieved SoC integration stayed inside [0, 100] but disagreed with the real SoC sensor by a large, sustained margin (his own real case: raising the configured battery capacity kept the trajectory in-range while the gap stayed at 40.7 points max / 10.85 mean) used to still read "reliable". Two new dashboard-editable numbers, `number.nimbus_solver_soc_discrepancy_max_threshold_pct` (default 15) and `number.nimbus_solver_soc_discrepancy_mean_threshold_pct` (default 8), are the second, independent test. The once-per-day WARNING and the new flattened `sensor.nimbus_quality_soc_discrepancy_reason` (`"out_of_range"` or `"disagreement"`) both name which test actually failed.
+- **Two real, pre-existing, live Solver-config bugs found while auditing the class of mistake above**: `number.nimbus_solver_fixed_daily_charge` and `number.nimbus_solver_post_window_self_consume_hours` were both missing from the bridge sensor's own live-entity resolution list — any household adjusting either from the dashboard had **zero effect on the actual solve**, silently, since the writer always read the stale/absent wizard-time value instead. New regression test (`tests/test_sensor_solver_config_keys.py`) guards every current and future `number.nimbus_solver_*` field against this exact class of bug.
+
+### Added
+- `docs/configuration-reference.md` documents the two new threshold numbers and `soc_discrepancy_reason`.
+
 ## [0.94.167] — 2026-09-08
 
 ### Added
