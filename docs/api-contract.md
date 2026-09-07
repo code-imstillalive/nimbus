@@ -113,7 +113,7 @@ Anything not named above, including but not limited to:
   RAW-01/RAW-02 already cover (`import_price_raw`, `export_price_raw`,
   `load_kw`, `solar_kw`) — the rest of a per-load `forecast[]` entry's shape
   is still settling.
-- `sensor.nimbus_topology_config` and the switchboard-topology-card's own
+- `sensor.nimbus_topology_config` and the nimbus-topology-card's own
   data contract — actively changing as topology rendering matures.
 - Diagnostic-only fields (`solar_delivery_ratio`, `p2p_recent_avg_volume_kwh`,
   `price_blend_algorithm`, and similar) — genuinely useful today, not yet

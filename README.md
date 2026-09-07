@@ -413,7 +413,7 @@ Three sub-devices parented to the hub, each with a legacy parent entity plus per
 
 See [`docs/entities.md`](docs/entities.md) for the full per-entity table (unit, meaning, formula) and the known state_class warnings tracked in [#283](https://github.com/code-imstillalive/nimbus/issues/283).
 
-Two ready-made Lovelace cards ship with the integration itself — a "Control Panel" dispatch card and a "Regret" (dispatch-vs-oracle) card, both installed automatically via HACS with no `www/` copy needed. See [`docs/dashboards.md`](docs/dashboards.md) for setup and the full config-field reference.
+Three ready-made Lovelace cards ship with the integration itself — a "Control Panel" dispatch card, a "Regret" (dispatch-vs-oracle) card, and a real-time switchboard "Topology" diagram, all installed automatically via HACS with no `www/` copy needed, and all findable in the card picker by searching "nimbus". See [`docs/dashboards.md`](docs/dashboards.md) for setup and the full config-field reference.
 
 See [`docs/configuration-reference.md`](docs/configuration-reference.md) for
 every field across every wizard step and subentry type, plus the full

@@ -20,7 +20,7 @@ The six things this conftest does:
      behaviour it is testing.
   3. Autouse setup of the `http` and `frontend` components. Nimbus
      also declares `"http"` as a dependency as of v0.74.0 (the
-     bundled switchboard-topology-card frontend registration), so
+     bundled nimbus-topology-card frontend registration), so
      HA refuses to set the entry up at all without it -- same class
      of trap as #2, same shape of fix.
   4. Redirect the solver's on-disk state files into `tmp_path`, so a
@@ -150,7 +150,7 @@ async def http_and_frontend_set_up(hass):
 
     Nimbus declares `"http"` as a manifest dependency as of v0.74.0
     (needed by `frontend.async_register_frontend()` to serve the
-    bundled `switchboard-topology-card.js` via
+    bundled `nimbus-topology-card.js` via
     `hass.http.async_register_static_paths`, and to register the
     module URL with the Lovelace frontend via
     `frontend.add_extra_js_url()`). Without this fixture the test

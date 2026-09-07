@@ -29,13 +29,15 @@ the real, live wiring, not a sanitized toy example.
    `sensor.nimbus_*_forecast` entity (and its `lower`/`upper` bands)
    exist in the first place. Nothing in this folder replaces that step.
 2. **The topology card ships with the integration itself** (issue #79).
-   Nimbus serves `switchboard-topology-card.js` at
-   `/nimbus_load/switchboard-topology-card.js` and registers it with HA
+   Nimbus serves `nimbus-topology-card.js` at
+   `/nimbus_load/nimbus-topology-card.js` and registers it with HA
    as an extra JS module the moment the hub is set up — no `www/` file
    copy, no manual Settings → Dashboards → Resources step, works
    identically for storage-mode and YAML-mode Lovelace. Drop a
-   `type: custom:switchboard-topology-card` card into any view and it
-   resolves immediately. The standalone
+   `type: custom:nimbus-topology-card` card into any view and it
+   resolves immediately (nimbus issue #519 — renamed from
+   `switchboard-topology-card`, still registered as a back-compat alias
+   for one or two releases). The standalone
    `docs/real-world-integration/files/topology-card-v4.js` copy stays
    as a reference — the integration-bundled build is the same file.
 3. **The `lovelace_*.py` scripts** are meant to run once, from inside

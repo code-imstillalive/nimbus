@@ -576,7 +576,7 @@ async def async_setup_entry(
     # Real, live version, read from this integration's own manifest.json --
     # single source of truth, no more hand-syncing a version string in a
     # second place (this exact staleness bit a downstream dashboard card,
-    # topology-card-v4.js's own footer, showing "0.6.0" long after the
+    # nimbus-topology-card.js's own footer, showing "0.6.0" long after the
     # real running version had moved on to 0.29.0). Attached to each
     # device's own sw_version below so any consumer (HA's own device page,
     # or a card reading hass.devices directly) can read the real version
@@ -618,7 +618,7 @@ async def async_setup_entry(
     async_add_entities([NimbusSolverConfigSensor(entry, sw_version)])
 
     # Same "one per hub" reasoning as NimbusSolverConfigSensor above --
-    # topology-card-v4.js's own live discovery (_discoverLoads()) works
+    # nimbus-topology-card.js's own live discovery (_discoverLoads()) works
     # for Load subentries because every one of those publishes a real
     # sensor.nimbus_*_forecast entity to scan hass.states for. Power
     # Source / PV String / Battery Tower subentries publish NOTHING --
@@ -1271,7 +1271,7 @@ class NimbusTopologyConfigSensor(SensorEntity):
     (entry.options) out to a plain sensor -- same root reason
     NimbusSolverConfigSensor exists (2026-08-23): neither
     config_entries.subentries nor .options is exposed via HA's plain
-    REST API, and topology-card-v4.js's own live-discovery mechanism
+    REST API, and nimbus-topology-card.js's own live-discovery mechanism
     (_discoverLoads()) only works for subentry types that publish a
     real forecast sensor to scan hass.states for -- these three
     genuinely don't (pure wiring metadata, no coordinator at all).

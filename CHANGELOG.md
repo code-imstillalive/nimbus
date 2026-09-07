@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.162] — 2026-09-07
+
+### Changed
+- **Topology card renamed to `nimbus-topology-card`** (was `switchboard-topology-card`), picker name "Nimbus Topology" (was "Topology Card") — nimbus issue #519 (Mark Purcell): neither the old type nor the old picker name said "Nimbus", so it wasn't findable by searching the card picker for "nimbus" the way the other two shipped cards are. The old `custom:switchboard-topology-card` tag is kept registered as a back-compat alias for one or two releases, so an existing dashboard's config keeps rendering unchanged.
+- **`docs/dashboards.md` and the README now document the topology card** (type, auto-discovery, minimal example config) — previously undocumented since it shipped in #364.
+- Fixed seven stale `topology-card-v4.js` code-comment references (the household's pre-bundling `www/` copy name) to the real bundled filename.
+- Extended `tests/hass_integration/test_frontend_cards_registered.py` to assert every shipped card's picker `type` starts with `nimbus-` and its `name` mentions Nimbus, so this can't silently drift again.
+
 ## [0.94.161] — 2026-09-07
 
 ### Changed
