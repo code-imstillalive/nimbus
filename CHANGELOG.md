@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.165] — 2026-09-07
+
+### Fixed
+- **A malformed `done_when`/non-numeric done-sensor reading on a deferrable Controllable Load now warns once per condition, not every solve** (direct finding from Mark Purcell's own live review of #480) — matches this project's own #313/#314 "log once" discipline instead of repeating the same warning every ~5 minutes for as long as the condition persists.
+
 ## [0.94.164] — 2026-09-07
 
 ### Added
