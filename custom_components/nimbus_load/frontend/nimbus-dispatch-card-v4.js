@@ -88,6 +88,29 @@ class NimbusDispatchCardV4 extends HTMLElement {
     this._hass.callService('number', 'set_value', {entity_id: entityId, value});
   }
 
+  // nimbus_load.solve_now (services.yaml) is a real, no-argument,
+  // hub-level service -- no entity_id/target needed, unlike every
+  // other service call in this file. _solving/_render() give the
+  // button real visual feedback ("Solving…", disabled) for the
+  // duration of the call instead of looking like a no-op click while
+  // the real solve (up to ~2 minutes on this household's own solve
+  // times, see solver_writer.py's own acquire_lock() comment) runs.
+  async _solveNow() {
+    if (this._solving) return;
+    this._solving = true;
+    this._clearRenderThrottle();
+    this._render();
+    try {
+      await this._hass.callService('nimbus_load', 'solve_now', {});
+    } catch (err) {
+      console.error('nimbus-dispatch-card-v4: solve_now failed', err);
+    } finally {
+      this._solving = false;
+      this._clearRenderThrottle();
+      this._render();
+    }
+  }
+
   _maybeFetchHistory() {
     const now = Date.now();
     if (this._historyFetchedAt && now - this._historyFetchedAt < 5 * 60 * 1000) return;
@@ -618,9 +641,15 @@ class NimbusDispatchCardV4 extends HTMLElement {
       if (ftDate !== null && pDate !== ftDate) {
         const totalNetClass = ftDayNet < -0.001 ? 'net-pos' : (ftDayNet > 0.001 ? 'net-neg' : '');
         ftRows.push(
+          // colspan="2" (Time+Source): without this, this row's own
+          // long label was the REAL reason the Time column read so wide
+          // in every other row too -- table auto-layout sizes a column
+          // by its widest cell across every row, so one long label here
+          // forced column 1 wide regardless of how short "14:30" is
+          // everywhere else. Spanning it across two columns instead
+          // lets Time shrink to what its own real content needs.
           '<tr class="total-row">' +
-            '<td style="font-weight:700;">&mdash; ' + ftDate + ' TOTAL (shown rows) &mdash;</td>' +
-            '<td></td>' +
+            '<td colspan="2" style="font-weight:700;">&mdash; ' + ftDate + ' TOTAL (shown rows) &mdash;</td>' +
             '<td class="num"></td><td class="num"></td><td class="num"></td>' +
             '<td class="num"><span class="p2p-pill">+$' + ftDayP2p.toFixed(2) + '</span></td>' +
             '<td class="num"></td><td class="num"></td><td class="num"></td><td class="num"></td><td class="num"></td>' +
@@ -680,7 +709,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
       const gridColor = gridKwRow > 0.05 ? '#ffb340' : (gridKwRow < -0.05 ? '#3ddc84' : '#5a6070');
       ftRows.push(
         '<tr class="' + (idx === 0 ? 'now-row' : '') + '">' +
-          '<td>' + ftFmtTime(p.time) + (idx === 0 ? ' <span class="now-tag">now</span>' : '') + '</td>' +
+          '<td class="time-col">' + ftFmtTime(p.time) + (idx === 0 ? ' <span class="now-tag">now</span>' : '') + '</td>' +
           '<td>' + sourceBar + '</td>' +
           '<td class="num">' + buyC.toFixed(1) + '</td>' +
           '<td class="num">' + feesC.toFixed(1) + '</td>' +
@@ -763,6 +792,31 @@ class NimbusDispatchCardV4 extends HTMLElement {
         '.reasoning { font-size: 1.35em; line-height: 1.5; opacity: 0.85; flex: 1 1 300px; min-width: 260px; }' +
         '.range-labels { display:flex; justify-content:space-between; font-size: 1.05em; opacity: 0.5; width: 250px; margin-top: 4px; }' +
         '.section-label { font-size: 1.05em; text-transform: uppercase; letter-spacing: 0.09em; opacity: 0.5; margin: 22px 0 8px; }' +
+        // Direct household ask (2026-09-07, annotated screenshot): chart
+        // gets 2/3 of the width, table gets 1/3, side by side instead of
+        // stacked -- .chart-table-grid is the always-block default, the
+        // 2fr/1fr grid only applies once the CARD's own rendered width
+        // (container query, not viewport -- same #391 lesson as the
+        // outer .layout-grid above) clears chart-table-grid-min-width,
+        // so a genuinely narrow render still stacks full-width rather
+        // than squeezing both into an unreadable sliver.
+        //
+        // Breakpoint derived by hand, not guessed -- same #400 lesson
+        // already documented on table.ftable's own min-width below
+        // (two independently-hardcoded numbers is exactly what caused
+        // that bug): the table column is 1fr of a 2fr+1fr split, so it
+        // only ever gets 1/3 of (container - gap). For that 1/3 share
+        // to reach table.ftable's own real --ftable-min-width (640px)
+        // without the table needing to scroll inside its own narrower
+        // column, the container itself needs 640*3 + 28 (the gap) =
+        // 1948px. If --ftable-min-width above is ever changed, this
+        // breakpoint needs the same arithmetic redone by hand (same
+        // caveat as the old landscape breakpoint's own comment).
+        '.chart-table-grid { display:block; }' +
+        '.chart-col, .table-col { min-width: 0; }' +
+        '@container (min-width: 1948px) {' +
+          '.chart-table-grid { display:grid; grid-template-columns: 2fr 1fr; gap: 0 28px; align-items:start; }' +
+        '}' +
         '.timeline-wrap { width: 100%; overflow-x: auto; }' +
         '.timeline-wrap svg { width: 100%; height: auto; display: block; min-width: 480px; }' +
         '.legend { display:flex; gap: 20px; font-size: 1.05em; opacity: 0.65; margin-top: 8px; flex-wrap: wrap; }' +
@@ -772,6 +826,10 @@ class NimbusDispatchCardV4 extends HTMLElement {
           ' font-size: 1.15em; opacity: 0.78; align-items: center; }' +
         '.chip { display:inline-flex; align-items:center; gap:7px; }' +
         '.chip .dot { width:9px; height:9px; border-radius:50%; display:inline-block; }' +
+        '.solve-now-btn { margin-left: auto; background: rgba(79,163,255,0.14); border: 1.5px solid rgba(79,163,255,0.4); color: #cfe4ff;' +
+          ' border-radius: 8px; padding: 6px 14px; font-size: 0.9em; font-weight: 700; letter-spacing: 0.02em; cursor: pointer; transition: background 0.15s ease; }' +
+        '.solve-now-btn:hover:not(:disabled) { background: rgba(79,163,255,0.26); }' +
+        '.solve-now-btn:disabled { opacity: 0.6; cursor: not-allowed; }' +
         '.tuning-row { display:flex; gap: 28px; flex-wrap: wrap; margin-top: 18px; padding-top: 16px; border-top: 1px solid rgba(255,255,255,0.06); align-items: center; }' +
         '.tuning-item { display:flex; flex-direction:column; gap: 3px; }' +
         '.tuning-item .label { font-size: 1.0em; text-transform: uppercase; letter-spacing: 0.07em; opacity: 0.45; }' +
@@ -822,6 +880,12 @@ class NimbusDispatchCardV4 extends HTMLElement {
         // needs far less side margin than a text label does.
         'table.ftable td { padding: 3px 10px; border-bottom: 1px solid rgba(255,255,255,0.04); white-space: nowrap; }' +
         'table.ftable td.num { text-align: right; font-variant-numeric: tabular-nums; padding-left: 6px; padding-right: 6px; }' +
+        // Direct household ask: Time read as a "huge wide column" --
+        // real cause was the total-row's own long label sharing this
+        // column (fixed above via colspan), not the short "14:30 now"
+        // values themselves. This padding tightens it further now that
+        // nothing else is forcing it wide.
+        'table.ftable th.time-col, table.ftable td.time-col { padding-left: 8px; padding-right: 8px; }' +
         'table.ftable tbody tr:nth-child(even) { background: rgba(255,255,255,0.02); }' +
         'table.ftable tbody tr:hover { background: rgba(79,163,255,0.08); }' +
         'table.ftable td.net-pos { color: #3ddc84; }' +
@@ -965,6 +1029,18 @@ class NimbusDispatchCardV4 extends HTMLElement {
         '<div class="risk-row">' + riskSliders + '</div>' +
       '</div>' + // .col-left
       '<div class="col-right">' +
+      // Direct household ask (2026-09-07, annotated screenshot): the
+      // chart and the table used to stack full-width, one above the
+      // other -- wasting width on a wide panel where both could sit
+      // side by side. New inner grid, independent of the outer
+      // .layout-grid (still disabled, see that toggle's own comment
+      // above) -- chart gets 2fr (~2/3), table gets 1fr (~1/3). A
+      // @container fallback below chart-table-min-width still stacks
+      // to full-width single column on a genuinely narrow render,
+      // same "never reintroduce #400's overflow" discipline as the
+      // rest of this file's own container-query use.
+      '<div class="chart-table-grid">' +
+      '<div class="chart-col">' +
         '<div class="section-label" style="margin-top:0;">Dispatch Plan - next 96h (plan vs. actual)</div>' +
         '<div class="timeline-wrap"><svg viewBox="0 0 ' + TW + ' ' + TH + '" preserveAspectRatio="xMidYMid meet">' +
           '<defs>' +
@@ -993,26 +1069,55 @@ class NimbusDispatchCardV4 extends HTMLElement {
           '<span><span class="dot" style="background:#ff4d8d"></span>Now</span>' +
           '<span><span class="dot" style="background:#ffd54f"></span>P2P active</span>' +
         '</div>' +
-        '<div class="section-label" style="margin:22px 0 4px;">Forecast Intervals -- now until midnight (' + FT_ROWS + ' periods shown)</div>' +
+      '</div>' + // .chart-col
+      '<div class="table-col">' +
+        '<div class="section-label" style="margin-top:0;">Forecast Intervals -- now until midnight (' + FT_ROWS + ' periods shown)</div>' +
         '<div class="ftable-note">' +
           '<span class="source-bar" style="display:inline-flex; vertical-align:middle;"><span class="seg seg-a" style="width:60%"></span><span class="seg seg-b" style="width:40%"></span></span> Source = Solar (orange) / Grid (blue) share &middot; ' +
           'Buy&cent; = raw commodity price &middot; Fees&cent; = network TOU/certificates on top &middot; P2P&cent; = real total P2P rate (Sell&cent; + bonus, gold when active, 0 otherwise) &middot; &#9889; = period counts toward tonight\'s matched P2P volume' +
         '</div>' +
         '<div class="ftable-wrap"><table class="ftable">' +
           '<thead><tr>' +
-            '<th>Time</th><th>Source</th><th class="num">Buy&cent;</th><th class="num">Fees&cent;</th><th class="num">Sell&cent;</th><th class="num">P2P&cent;</th><th class="num">Load</th><th class="num">Solar</th><th class="num">Batt</th><th class="num">Grid</th><th class="num">SoC%</th><th class="num">Net$</th>' +
+            '<th class="time-col">Time</th><th>Source</th><th class="num">Buy&cent;</th><th class="num">Fees&cent;</th><th class="num">Sell&cent;</th><th class="num">P2P&cent;</th><th class="num">Load</th><th class="num">Solar</th><th class="num">Batt</th><th class="num">Grid</th><th class="num">SoC%</th><th class="num">Net$</th>' +
           '</tr></thead>' +
           '<tbody>' + forecastRows + '</tbody>' +
         '</table></div>' +
+      '</div>' + // .table-col
+      '</div>' + // .chart-table-grid
       '</div>' + // .col-right
       '</div>' + // .layout-grid
         '<div class="footer">' +
           '<span class="chip"><span class="dot" style="background:' + statusColor + '"></span>Solver: ' + solverStatus + (clamped !== undefined ? ' (' + clamped + ' clamped)' : '') + '</span>' +
           '<span class="chip">Solved in ' + (solveSecs !== undefined ? solveSecs + 's' : '?') + ' at ' + lastSolvedStr + '</span>' +
           healthChips.map((h) => '<span class="chip"><span class="dot" style="background:' + okColor(h.ent) + '"></span>' + h.label + '</span>').join('') +
+          // Direct household ask (2026-09-07, Mark Purcell via phone):
+          // "a button on the control card which calls action solve
+          // now... rather than waiting for it to do it all on next
+          // cycle." nimbus_load.solve_now already exists as a real,
+          // no-argument service (services.yaml) that "reuses the exact
+          // same solve path the periodic timer and price-triggered
+          // solve both call" (README's own docs) -- this button is
+          // pure UI wiring onto an already-real mechanism, not a new
+          // one. this._solving guards against a double-click firing a
+          // second overlapping call while one is still in flight.
+          '<button class="solve-now-btn" id="solve-now-btn" ' + (this._solving ? 'disabled' : '') + '>' +
+            (this._solving ? 'Solving…' : 'Solve Now') +
+          '</button>' +
         '</div>' +
+        // Real household finding: this used to hardcode a devhub-only
+        // dashboard path ("/nimbus-devhub/solver") -- the exact same
+        // per-household hardcoding class as nimbus issue #364, just a
+        // raw href instead of a config field. Since that path doesn't
+        // exist on any OTHER install's own dashboard, HA silently fell
+        // through to whichever view happened to load by default (HAEO's,
+        // on the real household's own system) instead of erroring
+        // visibly. Fixed to HA's own universal integration-settings URL
+        // (/config/integrations/integration/<domain>) -- this shows
+        // every Nimbus hub instance with its real "Configure" action
+        // right there, identically on every install, no per-household
+        // config needed at all since the domain itself never changes.
         '<div class="tuning-row">' + tuningItems +
-          '<a class="tuning-link" href="/nimbus-devhub/solver">Full Solver tuning &rarr;</a>' +
+          '<a class="tuning-link" href="/config/integrations/integration/nimbus_load">Full Solver settings &rarr;</a>' +
         '</div>' +
         '<div class="section-label" style="margin:18px 0 8px;">Economics &amp; Quality</div>' +
         '<div class="tuning-row" style="border-top:none; padding-top:0; margin-top:0;">' + econItems + '</div>' +
@@ -1028,6 +1133,8 @@ class NimbusDispatchCardV4 extends HTMLElement {
     });
     const killSwitch = this.shadowRoot.getElementById('kill-switch');
     if (killSwitch) killSwitch.addEventListener('click', () => this._toggleArmed());
+    const solveNowBtn = this.shadowRoot.getElementById('solve-now-btn');
+    if (solveNowBtn) solveNowBtn.addEventListener('click', () => this._solveNow());
     this.shadowRoot.querySelectorAll('.risk-slider').forEach(el => {
       const valueLabel = this.shadowRoot.querySelector('[data-risk-value="' + el.dataset.entity + '"]');
       const startDrag = () => { this._sliderDragging = true; };
