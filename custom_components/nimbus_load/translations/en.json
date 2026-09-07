@@ -302,7 +302,9 @@
             "deferrable_earliest_hour": "Deferrable: earliest start (24hr decimal)",
             "deferrable_deadline_hour": "Deferrable: deadline (24hr decimal)",
             "deferrable_shortfall_price": "Deferrable: shortfall price ($/kWh)",
-            "deferrable_value_per_kwh": "Deferrable: value credit (optional, $/kWh)"
+            "deferrable_value_per_kwh": "Deferrable: value credit (optional, $/kWh)",
+            "deferrable_done_entity": "Deferrable: done sensor (optional)",
+            "deferrable_done_when": "Deferrable: done condition (optional, e.g. \">= 60\")"
           },
           "data_description": {
             "controllable_load_name": "A short, real name for this load (e.g. \"Pool Pump\", \"HWS L1\") -- becomes this subentry's device title.",
@@ -316,7 +318,9 @@
             "deferrable_earliest_hour": "The earliest time of day this load may run at all. 0 = midnight. Leave blank for no restriction.",
             "deferrable_deadline_hour": "The real deadline -- cumulative energy delivered must reach the target by this time of day.",
             "deferrable_shortfall_price": "A real $/kWh cost the Solver pays for every kWh short of the target by the deadline. Set high enough (the default) that a genuinely reachable target is always fully met; a genuinely unreachable one costs this instead of breaking the whole plan.",
-            "deferrable_value_per_kwh": "Optional utility credit per kWh served, beyond the bare target -- makes this load also run whenever the switchboard's own live price is at or below this value, not just enough to hit the deadline."
+            "deferrable_value_per_kwh": "Optional utility credit per kWh served, beyond the bare target -- makes this load also run whenever the switchboard's own live price is at or below this value, not just enough to hit the deadline.",
+            "deferrable_done_entity": "A binary_sensor or numeric sensor that tells the Solver this load is genuinely finished (a tank-at-temperature sensor, a dishwasher's own \"done\" binary_sensor). Once done, the Solver stops scheduling more energy for it this window, even if the target/deadline hasn't been reached yet. Leave blank to always follow the target/deadline as configured above. A binary_sensor's own \"on\" state alone means done; any other domain needs the done condition field below too.",
+            "deferrable_done_when": "For a numeric done sensor only: the comparison that means \"done\", e.g. \">= 60\" for a tank temperature reaching 60°C. Leave blank when the done sensor above is a binary_sensor (its own \"on\" state is the done condition)."
           }
         }
       }

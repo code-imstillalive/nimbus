@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.164] — 2026-09-07
+
+### Added
+- **Early completion for deferrable Controllable Loads** (nimbus issue #480, Mark Purcell) — "hot water scheduled for 3h, tank reaches setpoint after 2h, the third hour is still bought." Two new optional wizard fields on a deferrable load, **Done sensor** and **Done condition**: once the done sensor reports finished (a `binary_sensor`'s own `on` state, or a numeric sensor compared against a fixed threshold like `>= 60`), the Solver stops scheduling any further energy for that load from the very next solve onward. Fails open on a missing/unavailable done sensor or a malformed condition — the load just keeps its normal schedule. Core stop-scheduling mechanic only; `completed_early_periods`/`kwh_released` reporting and the optional EMA run-duration learning hook are real, deferred follow-ups (see `docs/controllable-loads.md`).
+
 ## [0.94.162] — 2026-09-07
 
 ### Changed
