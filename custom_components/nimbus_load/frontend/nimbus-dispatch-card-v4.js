@@ -414,28 +414,39 @@ class NimbusDispatchCardV4 extends HTMLElement {
         ' stroke-dasharray="' + segLen + ' ' + gArcLen + '" stroke-dashoffset="' + offset + '" opacity="0.9"/>';
     }).join('');
 
+    // Direct household ask (2026-09-07, annotated screenshot): the chart
+    // only shows 3 real days (72h) now, not the full 96h forecast --
+    // fewer days sharing the same horizontal space means each real day
+    // gets more width, and the y-axis (below) scales to what's actually
+    // visible instead of a possibly-off-screen 4th-day extreme, reading
+    // less flat/horizontally-squeezed. This clips a CHART-ONLY view --
+    // fc itself stays the full forecast for the table and every other
+    // reader below, unaffected.
+    const CHART_HORIZON_HOURS = 72;
+    const chartCutoffMs = Date.now() + CHART_HORIZON_HOURS * 3600000;
+    const fcChart = fc.filter(p => new Date(p.time).getTime() <= chartCutoffMs);
     const TW = 1000, TH = 220, padL = 46, padR = 20, padT = 16, padB = 34;
     const plotW = TW - padL - padR, plotH = TH - padT - padB;
     const nowMs = Date.now();
     const actual = this._actualHistory || [];
-    const times = fc.map(p => new Date(p.time).getTime());
+    const times = fcChart.map(p => new Date(p.time).getTime());
     const tMin = actual.length ? Math.min(actual[0][0], times[0] || nowMs) : (times[0] || nowMs - 3600000);
-    const tMax = times.length ? times[times.length - 1] : nowMs + 96 * 3600000;
+    const tMax = times.length ? times[times.length - 1] : nowMs + CHART_HORIZON_HOURS * 3600000;
     const xOf = t => padL + ((t - tMin) / Math.max(1, (tMax - tMin))) * plotW;
-    const maxAbsKw = Math.max(1, ...fc.map(p => Math.abs(p.battery_kw || 0)), ...actual.map(a => Math.abs(a[1] || 0)));
+    const maxAbsKw = Math.max(1, ...fcChart.map(p => Math.abs(p.battery_kw || 0)), ...actual.map(a => Math.abs(a[1] || 0)));
     const yZero = padT + plotH * 0.55;
     const yScale = (plotH * 0.42) / maxAbsKw;
     const yOfKw = kw => yZero - kw * yScale;
     const yOfSoc = s => padT + plotH - (s / 100) * plotH;
 
     let areaPath = '';
-    if (fc.length) {
+    if (fcChart.length) {
       areaPath = 'M ' + xOf(times[0]) + ' ' + yZero;
-      fc.forEach((p, i) => { areaPath += ' L ' + xOf(times[i]) + ' ' + yOfKw(p.battery_kw || 0); });
+      fcChart.forEach((p, i) => { areaPath += ' L ' + xOf(times[i]) + ' ' + yOfKw(p.battery_kw || 0); });
       areaPath += ' L ' + xOf(times[times.length - 1]) + ' ' + yZero + ' Z';
     }
     let socPath = '';
-    fc.forEach((p, i) => { socPath += (i === 0 ? 'M ' : ' L ') + xOf(times[i]) + ' ' + yOfSoc(p.soc_pct || 0); });
+    fcChart.forEach((p, i) => { socPath += (i === 0 ? 'M ' : ' L ') + xOf(times[i]) + ' ' + yOfSoc(p.soc_pct || 0); });
     let actualPath = '';
     actual.forEach((a, i) => { actualPath += (i === 0 ? 'M ' : ' L ') + xOf(a[0]) + ' ' + yOfKw(a[1]); });
 
@@ -448,8 +459,8 @@ class NimbusDispatchCardV4 extends HTMLElement {
     // continuous band anyway, and this stays correct even if the P2P
     // window is ever non-contiguous (multiple blocks) in the future.
     let p2pBands = '';
-    for (let i = 0; i < fc.length; i++) {
-      const bonus = parseFloat(fc[i].bonus_price) || 0;
+    for (let i = 0; i < fcChart.length; i++) {
+      const bonus = parseFloat(fcChart[i].bonus_price) || 0;
       if (bonus <= 0.01) continue;
       const x1 = xOf(times[i]);
       const x2 = xOf(times[i + 1] !== undefined ? times[i + 1] : times[i] + 5 * 60000);
@@ -459,7 +470,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
 
     const nowX = xOf(nowMs);
     const hourMarks = [];
-    for (let h = 0; h <= 96; h += 3) {
+    for (let h = 0; h <= CHART_HORIZON_HOURS; h += 3) {
       const t = nowMs + h * 3600000;
       if (t <= tMax) hourMarks.push({x: xOf(t), label: h === 0 ? 'now' : '+' + h + 'h'});
     }
@@ -1059,7 +1070,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
       // rest of this file's own container-query use.
       '<div class="chart-table-grid">' +
       '<div class="chart-col">' +
-        '<div class="section-label" style="margin-top:0;">Dispatch Plan - next 96h (plan vs. actual)</div>' +
+        '<div class="section-label" style="margin-top:0;">Dispatch Plan - next 3 days (plan vs. actual)</div>' +
         '<div class="timeline-wrap"><svg viewBox="0 0 ' + TW + ' ' + TH + '" preserveAspectRatio="xMidYMid meet">' +
           '<defs>' +
             '<linearGradient id="fillGradV4" x1="0" y1="0" x2="0" y2="1">' +
