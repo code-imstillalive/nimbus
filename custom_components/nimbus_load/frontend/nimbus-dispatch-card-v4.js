@@ -757,6 +757,10 @@ class NimbusDispatchCardV4 extends HTMLElement {
       let gridKwRow = loadKwRow + chargeKwRow - solarKwRow - dischargeKwRow;
       if (idx === 0 && !isNaN(realGridNow)) gridKwRow = realGridNow;
       const gridColor = gridKwRow > 0.05 ? '#ffb340' : (gridKwRow < -0.05 ? '#3ddc84' : '#5a6070');
+      // nimbus #459: compact-only trader-convention grid colour class
+      // (positive = import = green, negative = export = red). Wide
+      // rendering keeps the existing solver-perspective inline colour.
+      const gridSignClass = gridKwRow > 0.05 ? ' grid-pos' : (gridKwRow < -0.05 ? ' grid-neg' : '');
       ftRows.push(
         '<tr class="' + (idx === 0 ? 'now-row' : '') + '">' +
           // nimbus issue #459: TIME cell carries three inline spans and
@@ -772,21 +776,22 @@ class NimbusDispatchCardV4 extends HTMLElement {
                 '<span class="time-nowtag-compact now-tag">NOW</span>'
               : '') +
           '</td>' +
-          '<td class="source-col">' + sourceBar + '</td>' +
-          // nimbus #459: each .num cell carries both precision spans; a
-          // container-query rule below shows .num-round in compact and
-          // .num-full in wide. Ints stay legible at 350px card width
-          // where two-decimal precision only causes column collision.
-          '<td class="num"><span class="num-full">' + buyC.toFixed(1) + '</span><span class="num-round">' + Math.round(buyC) + '</span></td>' +
-          '<td class="num col-fees"><span class="num-full">' + feesC.toFixed(1) + '</span><span class="num-round">' + Math.round(feesC) + '</span></td>' +
-          '<td class="num"><span class="num-full">' + spotC.toFixed(1) + '</span><span class="num-round">' + Math.round(spotC) + '</span></td>' +
+          '<td class="source-col col-source">' + sourceBar + '</td>' +
+          // nimbus #459: compact @container hides col-source, col-fees,
+          // col-p2p, col-net; wide format shows every column. .buy-color
+          // and .sell-color are the two colored data cells in compact
+          // (red buy, green sell) mirroring the target sample; wide
+          // format inherits the ambient text colour instead.
+          '<td class="num col-buy buy-color">' + buyC.toFixed(1) + '</td>' +
+          '<td class="num col-fees">' + feesC.toFixed(1) + '</td>' +
+          '<td class="num col-sell sell-color">' + spotC.toFixed(1) + '</td>' +
           '<td class="num col-p2p">' + p2pCell + '</td>' +
-          '<td class="num"><span class="num-full">' + (parseFloat(p.load_kw) || 0).toFixed(1) + '</span><span class="num-round">' + Math.round(parseFloat(p.load_kw) || 0) + '</span></td>' +
-          '<td class="num"><span class="num-full">' + (parseFloat(p.solar_kw) || 0).toFixed(1) + '</span><span class="num-round">' + Math.round(parseFloat(p.solar_kw) || 0) + '</span></td>' +
-          '<td class="num" style="color:' + battColor + '; font-weight:600;"><span class="num-full">' + bkwRow.toFixed(1) + (bonusKwActive ? ' &#9889;' : '') + '</span><span class="num-round">' + Math.round(bkwRow) + (bonusKwActive ? ' &#9889;' : '') + '</span></td>' +
-          '<td class="num" style="color:' + gridColor + ';"><span class="num-full">' + gridKwRow.toFixed(1) + '</span><span class="num-round">' + Math.round(gridKwRow) + '</span></td>' +
-          '<td class="num">' + (parseFloat(p.soc_pct) || 0).toFixed(0) + '%</td>' +
-          '<td class="num ' + netClass + '"><span class="num-full">$' + net.toFixed(2) + '</span><span class="num-round">$' + Math.round(net) + '</span></td>' +
+          '<td class="num col-load">' + (parseFloat(p.load_kw) || 0).toFixed(1) + '</td>' +
+          '<td class="num col-pv">' + (parseFloat(p.solar_kw) || 0).toFixed(1) + '</td>' +
+          '<td class="num col-batt" style="color:' + battColor + '; font-weight:600;">' + bkwRow.toFixed(1) + (bonusKwActive ? ' &#9889;' : '') + '</td>' +
+          '<td class="num col-grid' + gridSignClass + '" style="color:' + gridColor + ';">' + gridKwRow.toFixed(1) + '</td>' +
+          '<td class="num col-soc">' + (parseFloat(p.soc_pct) || 0).toFixed(0) + '%</td>' +
+          '<td class="num col-net ' + netClass + '">$' + net.toFixed(2) + '</td>' +
         '</tr>'
       );
     }
@@ -1054,44 +1059,57 @@ class NimbusDispatchCardV4 extends HTMLElement {
         // ftable-wrap resolves below 500px (phone cards, ~360-412px
         // real). Every rule inside this block only applies then;
         // wide-card rendering is unchanged.
-        // .num cells carry both precision spans everywhere; wide-card
-        // rendering shows .num-full and hides .num-round.
-        '.num-full { display: inline; }' +
-        '.num-round { display: none; }' +
+        // Wide-format header spans: name + unit read inline as one token
+        // ("Buy\u00a2" / "Load kW"). The unit sits alongside the name with
+        // a hair-space; compact stacks them below.
+        '.hdr-name, .hdr-unit { display: inline; }' +
+        '.hdr-unit { margin-left: 0.15em; }' +
         '@container ftable (max-width: 500px) {' +
-          // Fixed layout so the browser cannot redistribute leftover
-          // width as empty padding, and no min-width floor so the table
-          // fits the card instead of forcing a scroller.
-          'table.ftable { table-layout: fixed; min-width: 0; }' +
-          // Every td tight, numbers even tighter.
-          'table.ftable td, table.ftable thead th { padding: 3px 3px; }' +
-          'table.ftable td.num, table.ftable thead th.num { padding-left: 3px; padding-right: 3px; }' +
-          // Header row: 4-char labels do not fit in 8 numeric columns
-          // at 350px card width; shrink the header text so the columns
-          // stay readable. Data rows keep the parent font-size (14/16px).
-          'table.ftable thead th { font-size: 0.65em; letter-spacing: -0.02em; }' +
+          // Auto layout so the browser sizes columns to their content
+          // (BUY at 4 digits gets more than SoC at 3). min-width: 0
+          // keeps the table from forcing a horizontal scrollbar.
+          'table.ftable { table-layout: auto; min-width: 0; width: 100%; }' +
+          // Shrink the whole compact table so 8 columns fit inside
+          // 290-300px without values overrunning column borders. 0.72em
+          // (~10-11px) is the same visual density as the 2026-09-07
+          // target sample; values sit inside their cells with margin.
+          'table.ftable { font-size: 0.72em; }' +
+          // Every cell gets a right border for column separation. Numerics
+          // right-align so wider values sit against the border and
+          // narrower ones fall short of it, giving visible whitespace.
+          'table.ftable td, table.ftable thead th { padding: 4px 3px; text-align: center; border-right: 1px solid rgba(255,255,255,0.15); }' +
+          'table.ftable td:last-child, table.ftable thead th:last-child { border-right: none; }' +
+          'table.ftable td.num, table.ftable thead th.num { padding-left: 2px; padding-right: 4px; text-align: right; }' +
+          // Two-line stacked header: name on top, unit underneath, both
+          // centred. Mirrors 2026-09-07 target sample.
+          'table.ftable thead th { line-height: 1.1; letter-spacing: -0.01em; vertical-align: middle; text-align: center; }' +
+          'table.ftable thead th .hdr-name { display: block; font-weight: 600; }' +
+          'table.ftable thead th .hdr-unit { display: block; margin-left: 0; opacity: 0.75; font-weight: 400; }' +
           // TIME: exactly 5ch, centred. Clock hidden on the now row;
           // NOW tag hidden on every other row.
-          'table.ftable th.time-col, table.ftable td.time-col { width: 5ch; min-width: 5ch; max-width: 5ch; text-align: center; padding-left: 3px; padding-right: 3px; }' +
+          'table.ftable th.time-col, table.ftable td.time-col { width: 5ch; min-width: 5ch; max-width: 5ch; padding-left: 3px; padding-right: 3px; }' +
           'table.ftable tr.now-row td.time-col .time-clock { display: none; }' +
           'table.ftable td.time-col .time-nowtag-wide { display: none; }' +
           'table.ftable tr.now-row td.time-col .time-nowtag-compact { display: inline; margin-left: 0; font-size: 0.85em; }' +
-          // SOURCE: 1ch column, dot swapped in for the pill, header
-          // text visually hidden (empty label, colour swatch is legend).
-          'table.ftable th.source-col, table.ftable td.source-col { width: 1ch; min-width: 1ch; max-width: 1ch; padding-left: 2px; padding-right: 2px; text-align: center; }' +
-          'table.ftable th.source-col { font-size: 0; letter-spacing: 0; }' +
-          '.src-wide { display: none; }' +
-          '.src-compact { display: inline-flex; }' +
-          // Hide fees + p2p columns entirely -- both are usually 0/blank
-          // at Mark Purcell (2026-09-07 request) and their headers were
-          // colliding in the compact TIME/SOURCE + 10-column layout.
+          // Hide source, fees, p2p, net entirely in compact. Only 8
+          // columns render: Time, Buy\u00a2, Sell\u00a2, Load, PV, Batt,
+          // Grid, SoC (2026-09-07 target from Mark Purcell).
+          'table.ftable th.col-source, table.ftable td.col-source { display: none; }' +
           'table.ftable th.col-fees, table.ftable td.col-fees { display: none; }' +
           'table.ftable th.col-p2p, table.ftable td.col-p2p { display: none; }' +
-          // Round remaining numeric values to whole numbers so the 8
-          // narrow columns fit within 250-300px without adjacent values
-          // touching.
-          '.num-full { display: none; }' +
-          '.num-round { display: inline; }' +
+          'table.ftable th.col-net, table.ftable td.col-net { display: none; }' +
+          // Colored data cells: buy red, sell green. Header font colours
+          // match so "Buy\u00a2" and "Sell\u00a2" read as a legend for the
+          // two coloured columns.
+          'table.ftable td.buy-color { color: #e04a3f; }' +
+          'table.ftable th.buy-color { color: #e04a3f; }' +
+          'table.ftable td.sell-color { color: #3ddc84; }' +
+          'table.ftable th.sell-color { color: #3ddc84; }' +
+          // Trader-convention grid colour: positive (import) green,
+          // negative (export) red. Overrides the inline solver-
+          // perspective colour used in the wide format.
+          'table.ftable td.col-grid.grid-pos { color: #3ddc84 !important; }' +
+          'table.ftable td.col-grid.grid-neg { color: #e04a3f !important; }' +
         '}' +
         /* Landscape/desktop layout (nimbus issue #391, Mark Purcell): below
            this breakpoint the card stays a single vertical column (the
@@ -1265,7 +1283,22 @@ class NimbusDispatchCardV4 extends HTMLElement {
         '</div>' +
         '<div class="ftable-wrap"><table class="ftable">' +
           '<thead><tr>' +
-            '<th class="time-col">Time</th><th class="source-col">Source</th><th class="num">Buy&cent;</th><th class="num col-fees">Fees&cent;</th><th class="num">Sell&cent;</th><th class="num col-p2p">P2P&cent;</th><th class="num">Load</th><th class="num">Solar</th><th class="num">Batt</th><th class="num">Grid</th><th class="num">SoC%</th><th class="num">Net$</th>' +
+            // nimbus #459: each header cell carries a .hdr-name and .hdr-unit
+            // span. Wide format shows both inline ("Buy\u00a2" reads as one
+            // token); compact stacks them as two lines to keep header
+            // width down to the number width itself.
+            '<th class="time-col col-time"><span class="hdr-name">Time</span></th>' +
+            '<th class="source-col col-source"><span class="hdr-name">Source</span></th>' +
+            '<th class="num col-buy buy-color"><span class="hdr-name">Buy</span><span class="hdr-unit">\u00a2</span></th>' +
+            '<th class="num col-fees"><span class="hdr-name">Fees</span><span class="hdr-unit">\u00a2</span></th>' +
+            '<th class="num col-sell sell-color"><span class="hdr-name">Sell</span><span class="hdr-unit">\u00a2</span></th>' +
+            '<th class="num col-p2p"><span class="hdr-name">P2P</span><span class="hdr-unit">\u00a2</span></th>' +
+            '<th class="num col-load"><span class="hdr-name">Load</span><span class="hdr-unit">kW</span></th>' +
+            '<th class="num col-pv"><span class="hdr-name">PV</span><span class="hdr-unit">kW</span></th>' +
+            '<th class="num col-batt"><span class="hdr-name">Batt</span><span class="hdr-unit">kW</span></th>' +
+            '<th class="num col-grid"><span class="hdr-name">Grid</span><span class="hdr-unit">kW</span></th>' +
+            '<th class="num col-soc"><span class="hdr-name">SoC</span><span class="hdr-unit">%</span></th>' +
+            '<th class="num col-net"><span class="hdr-name">Net</span><span class="hdr-unit">$</span></th>' +
           '</tr></thead>' +
           '<tbody>' + forecastRows + '</tbody>' +
         '</table></div>' +
