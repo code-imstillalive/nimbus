@@ -399,12 +399,20 @@ class TestSocDiscrepancyStats(unittest.TestCase):
         self.assertIsNone(report["soc_discrepancy_mean_pct"])
         self.assertIsNone(report["soc_discrepancy_reliable"])
 
-    def test_in_range_divergence_is_reported_reliable(self):
+    def test_in_range_divergence_within_threshold_is_reliable(self):
         """The already-existing real_soc_divergence test above never
-        leaves [0, 100] on either side (50%/flat vs 50-96%/real) -- adding
-        the reliability field must not disturb that already-correct,
-        genuinely-large (46pp) discrepancy report."""
-        cfg = _cfg(solver_battery_soc_sensor="sensor.real_soc")
+        leaves [0, 100] on either side (50%/flat vs 50-96%/real) --
+        adding the range-only reliability field must not disturb that
+        already-correct, genuinely-large (46pp) discrepancy report, so
+        long as the agreement thresholds are set wide enough to accept
+        it (nimbus issue #538's own default thresholds, 15pt max/8pt
+        mean, do NOT accept a 46pp/23pp gap -- see the sibling test
+        below for that real, intended behaviour change)."""
+        cfg = _cfg(
+            solver_battery_soc_sensor="sensor.real_soc",
+            solver_soc_discrepancy_max_threshold_pct=100.0,
+            solver_soc_discrepancy_mean_threshold_pct=100.0,
+        )
         with patch.object(
             solver_writer,
             "fetch_entity_history_range",
@@ -413,6 +421,29 @@ class TestSocDiscrepancyStats(unittest.TestCase):
             report = solver_writer.compute_daily_quality_report(cfg, NOW)
         self.assertIsNotNone(report)
         self.assertTrue(report["soc_discrepancy_reliable"])
+        self.assertIsNone(report["soc_discrepancy_reason"])
+        self.assertAlmostEqual(report["soc_discrepancy_max_pct"], 46.0, places=2)
+
+    def test_in_range_divergence_beyond_the_default_threshold_is_unreliable(self):
+        """nimbus issue #538 (Mark Purcell, real household finding): the
+        exact behaviour the range-only test above USED TO assert was
+        the bug -- a 46pp max / 23pp mean gap against the real SoC
+        sensor is a genuinely large, sustained disagreement, and never
+        leaving [0, 100] does not make it trustworthy. With the default
+        thresholds (15pt max / 8pt mean, nothing overridden), this same
+        scenario is now correctly unreliable with reason="disagreement",
+        not "out_of_range" (the trajectory never left the physical
+        range at any point)."""
+        cfg = _cfg(solver_battery_soc_sensor="sensor.real_soc")
+        with patch.object(
+            solver_writer,
+            "fetch_entity_history_range",
+            side_effect=self._fetch_side_effect,
+        ):
+            report = solver_writer.compute_daily_quality_report(cfg, NOW)
+        self.assertIsNotNone(report)
+        self.assertFalse(report["soc_discrepancy_reliable"])
+        self.assertEqual(report["soc_discrepancy_reason"], "disagreement")
         self.assertAlmostEqual(report["soc_discrepancy_max_pct"], 46.0, places=2)
 
 
