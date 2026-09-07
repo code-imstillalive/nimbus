@@ -343,16 +343,23 @@ sys.modules.setdefault(
 sys.modules["homeassistant.helpers.storage"] = _fake_storage_module
 
 
-def _make_running_loop() -> asyncio.AbstractEventLoop:
+def _make_running_loop() -> tuple[asyncio.AbstractEventLoop, threading.Thread]:
     """A real, running background-thread event loop -- matches
     _NATIVE_HASS.loop's real shape closely enough for
     asyncio.run_coroutine_threadsafe() (used by _sample_load_run_state,
     same pattern as this file's own fetch_entity_history_range) to
-    actually work in a test."""
+    actually work in a test. Caller must stop+join+close it (see
+    TestSampleLoadRunState.tearDown) -- an event loop's own asyncio self-
+    pipe holds real OS sockets that only run_forever()'s own thread ever
+    releases; leaving it running past the test leaks them as unclosed-
+    socket ResourceWarnings, collected by pytest's unraisableexception
+    plugin and misattributed to whatever unrelated test happens to be
+    running at the next GC pass (confirmed live in CI: exactly this,
+    surfacing on test_solver_writer_import_and_token_laziness.py)."""
     loop = asyncio.new_event_loop()
     thread = threading.Thread(target=loop.run_forever, daemon=True)
     thread.start()
-    return loop
+    return loop, thread
 
 
 def _fake_state(value):
@@ -362,12 +369,14 @@ def _fake_state(value):
 class TestSampleLoadRunState(unittest.TestCase):
     def setUp(self):
         self._orig_native_hass = solver_writer._NATIVE_HASS
-        self._loop = _make_running_loop()
+        self._loop, self._loop_thread = _make_running_loop()
         _FakeRunStateStore._shared_data.clear()
 
     def tearDown(self):
         solver_writer._NATIVE_HASS = self._orig_native_hass
         self._loop.call_soon_threadsafe(self._loop.stop)
+        self._loop_thread.join(timeout=5)
+        self._loop.close()
 
     def test_a_real_sample_is_persisted_to_the_run_state_store(self):
         states = {"sensor.pool_pump_power": _fake_state("1.5")}
