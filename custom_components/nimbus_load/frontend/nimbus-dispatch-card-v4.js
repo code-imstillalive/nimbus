@@ -667,8 +667,23 @@ class NimbusDispatchCardV4 extends HTMLElement {
       if (ftDate !== null && pDate !== ftDate) {
         const totalNetClass = ftDayNet < -0.001 ? 'net-pos' : (ftDayNet > 0.001 ? 'net-neg' : '');
         ftRows.push(
+          // colspan="2" (Time+Source): spreads this row's own long label
+          // across two columns instead of one, same reasoning as before.
+          // BUT this alone already broke once (2026-09-07: removing the
+          // SOURCE column also removed this colspan, collapsing the
+          // label back into Time ALONE and reintroducing the exact
+          // "column forced wide by one long cell" bug this was built to
+          // prevent -- confirmed live, directly caused a real household
+          // report of a mysterious gap after the Time column that had
+          // nothing to do with SOURCE at all). `white-space: normal`
+          // (overriding table.ftable td's own default `nowrap`) is the
+          // real, structural fix on top of the colspan: this specific
+          // cell is now allowed to WRAP its own long text across
+          // multiple lines instead of forcing ANY column wide to fit it
+          // on one line, regardless of how many columns it spans or
+          // whether a future edit changes that number again.
           '<tr class="total-row">' +
-            '<td style="font-weight:700;">&mdash; ' + ftDate + ' TOTAL (shown rows) &mdash;</td>' +
+            '<td colspan="2" style="font-weight:700; white-space:normal;">&mdash; ' + ftDate + ' TOTAL (shown rows) &mdash;</td>' +
             '<td class="num"></td><td class="num"></td><td class="num"></td>' +
             '<td class="num"><span class="p2p-pill">+$' + ftDayP2p.toFixed(2) + '</span></td>' +
             '<td class="num"></td><td class="num"></td><td class="num"></td><td class="num"></td><td class="num"></td>' +
@@ -698,6 +713,21 @@ class NimbusDispatchCardV4 extends HTMLElement {
       const p2pCell = p2pActive
         ? '<span class="p2p-pill">' + p2pFullC.toFixed(1) + '</span>'
         : '<span style="opacity:0.35;">0.0</span>';
+      // Source split (Solar vs Grid share of this period's dispatch) --
+      // direct household ask to bring this back: "i loved the small bar
+      // with yellow and blue percentages... place it between Time and
+      // Buy". Real per-period fields already published by the Solver
+      // (dispatch_source_a/b_label/_pct) -- not invented, same fields
+      // this card used before the markdown-table-parity pass removed it.
+      const srcAPct = parseFloat(p.dispatch_source_a_pct);
+      const srcBPct = parseFloat(p.dispatch_source_b_pct);
+      const hasSource = !isNaN(srcAPct) && !isNaN(srcBPct) && (srcAPct + srcBPct) > 0;
+      const sourceBar = hasSource
+        ? '<div class="source-bar" title="' + (p.dispatch_source_a_label || 'Solar') + ' ' + srcAPct.toFixed(0) + '% / ' + (p.dispatch_source_b_label || 'Grid') + ' ' + srcBPct.toFixed(0) + '%">' +
+            '<span class="seg seg-a" style="width:' + srcAPct + '%"></span>' +
+            '<span class="seg seg-b" style="width:' + srcBPct + '%"></span>' +
+          '</div>'
+        : '<span style="opacity:0.3;">—</span>';
       // Grid column (direct household ask): energy balance across the same
       // three sources used everywhere else on this card -- grid + solar +
       // discharge = load + charge + export, rearranged to isolate grid.
@@ -714,6 +744,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
       ftRows.push(
         '<tr class="' + (idx === 0 ? 'now-row' : '') + '">' +
           '<td class="time-col">' + ftFmtTime(p.time) + (idx === 0 ? ' <span class="now-tag">now</span>' : '') + '</td>' +
+          '<td class="source-col">' + sourceBar + '</td>' +
           '<td class="num">' + buyC.toFixed(1) + '</td>' +
           '<td class="num">' + feesC.toFixed(1) + '</td>' +
           '<td class="num">' + spotC.toFixed(1) + '</td>' +
@@ -924,6 +955,16 @@ class NimbusDispatchCardV4 extends HTMLElement {
         // values themselves. This padding tightens it further now that
         // nothing else is forcing it wide.
         'table.ftable th.time-col, table.ftable td.time-col { padding-left: 8px; padding-right: 8px; }' +
+        // Direct household ask (2026-09-07): narrower still, but bar
+        // width and font must NOT change -- padding is the only
+        // remaining knob.
+        'table.ftable th.source-col, table.ftable td.source-col { padding-left: 2px; padding-right: 2px; }' +
+        // "Source" (uppercase + 0.06em letter-spacing, same as every
+        // other header) is itself wider than the 14px bar below it --
+        // dropping letter-spacing and shrinking the font specifically
+        // for this one header keeps the real word instead of
+        // abbreviating it, while still actually fitting tight.
+        'table.ftable th.source-col { letter-spacing: 0; font-size: 0.72em; }' +
         'table.ftable tbody tr:nth-child(even) { background: rgba(255,255,255,0.02); }' +
         'table.ftable tbody tr:hover { background: rgba(79,163,255,0.08); }' +
         'table.ftable td.net-pos { color: #3ddc84; }' +
@@ -934,8 +975,24 @@ class NimbusDispatchCardV4 extends HTMLElement {
         '.now-tag { font-size: 0.78em; text-transform: uppercase; letter-spacing: 0.06em; color: #ff4d8d; opacity: 0.85; margin-left: 4px; }' +
         '.p2p-pill { display: inline-block; background: rgba(255,213,79,0.16); color: #ffd54f; border: 1px solid rgba(255,213,79,0.35);' +
           ' border-radius: 10px; padding: 1px 9px; font-weight: 700; font-size: 0.92em; }' +
-        // .source-bar / SOURCE column removed entirely, 2026-09-07 --
-        // see the .ftable-note markup, above, for why.
+        // nimbus issue #456: 56px gave the SOURCE indicator noticeably
+        // more visual weight than the numeric columns beside it -- 34px
+        // still reads clearly as a two-segment bar (its own title
+        // attribute carries the exact solar/grid % on hover) at a width
+        // closer to what a numeric column actually needs.
+        // Direct household ask (2026-09-07): table needed a horizontal
+        // scrollbar in the new 2/3+1/3 layout -- SOURCE was still sized
+        // for the old wider row padding, not #457's tightened one.
+        // 34px -> 22px plus tighter column padding (matches .num's own
+        // 6px, was the default 10px td padding) directly reduces the
+        // table's real minimum content width instead of growing the
+        // grid share to compensate.
+        // 2026-09-07: 22px still wasn't narrow enough -- confirmed live,
+        // still scrolling. 14px, no more shrinking room without losing
+        // the two-segment bar shape entirely.
+        '.source-bar { display: flex; width: 14px; height: 7px; border-radius: 3px; overflow: hidden; background: rgba(255,255,255,0.06); }' +
+        '.source-bar .seg-a { background: #ffb340; }' +
+        '.source-bar .seg-b { background: #4fa3ff; }' +
         /* Landscape/desktop layout (nimbus issue #391, Mark Purcell): below
            this breakpoint the card stays a single vertical column (the
            original, unchanged mobile/narrow layout). At/above it, the header
@@ -1103,18 +1160,12 @@ class NimbusDispatchCardV4 extends HTMLElement {
       '<div class="table-col">' +
         '<div class="section-label" style="margin-top:0;">Forecast Intervals -- now until midnight (' + FT_ROWS + ' periods shown)</div>' +
         '<div class="ftable-note">' +
-          // Direct household ask (2026-09-07): the SOURCE column (a tiny
-          // two-segment Solar/Grid bar) caused enough real layout trouble
-          // across the whole chart/table saga that removing it outright
-          // was the right call -- not worth the friction for what it
-          // showed. dispatch_source_a/b_pct is still published by the
-          // Solver and still available via a future hover/detail view if
-          // ever wanted again; just not rendered as its own column now.
+          '<span class="source-bar" style="display:inline-flex; vertical-align:middle;"><span class="seg seg-a" style="width:60%"></span><span class="seg seg-b" style="width:40%"></span></span> Source = Solar (orange) / Grid (blue) share &middot; ' +
           'Buy&cent; = raw commodity price &middot; Fees&cent; = network TOU/certificates on top &middot; P2P&cent; = real total P2P rate (Sell&cent; + bonus, gold when active, 0 otherwise) &middot; &#9889; = period counts toward tonight\'s matched P2P volume' +
         '</div>' +
         '<div class="ftable-wrap"><table class="ftable">' +
           '<thead><tr>' +
-            '<th class="time-col">Time</th><th class="num">Buy&cent;</th><th class="num">Fees&cent;</th><th class="num">Sell&cent;</th><th class="num">P2P&cent;</th><th class="num">Load</th><th class="num">Solar</th><th class="num">Batt</th><th class="num">Grid</th><th class="num">SoC%</th><th class="num">Net$</th>' +
+            '<th class="time-col">Time</th><th class="source-col">Source</th><th class="num">Buy&cent;</th><th class="num">Fees&cent;</th><th class="num">Sell&cent;</th><th class="num">P2P&cent;</th><th class="num">Load</th><th class="num">Solar</th><th class="num">Batt</th><th class="num">Grid</th><th class="num">SoC%</th><th class="num">Net$</th>' +
           '</tr></thead>' +
           '<tbody>' + forecastRows + '</tbody>' +
         '</table></div>' +
