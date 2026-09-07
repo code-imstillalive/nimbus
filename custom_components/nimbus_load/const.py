@@ -60,6 +60,27 @@ SUBENTRY_TYPE_POWER_SOURCE: Final = "power_source"
 SUBENTRY_TYPE_PV_STRING: Final = "pv_string"
 SUBENTRY_TYPE_BATTERY_TOWER: Final = "battery_tower"
 
+# Sixth subentry type (2026-09-07, nimbus issue #486, sub-issue 10 of
+# Mark Purcell's controllable-loads spec #476): a real, LP-scheduled
+# load -- something the Solver can actually plan the timing/level of,
+# distinct from a plain forecasted Load subentry (which the Solver only
+# ever treats as fixed, unavoidable demand). solver_writer.py builds
+# SheddableLoadConfig/AdequacyLoadConfig instances from these each
+# solve and feeds them into build_plan() -- before this, both lists
+# were always empty; neither LP class, despite existing since #229/
+# #16, had ever run on a live install.
+#
+# Scoped to the two `kind`s with an existing, tested solver class
+# today -- "sheddable" (SheddableLoadConfig) and "deferrable"
+# (AdequacyLoadConfig, #477's soft-shortfall version). "quota",
+# "thermal", and "price_gated" kinds are reserved in CONF_CONTROLLABLE_
+# LOAD_KINDS below for #479/#481/#482 to extend into once their own
+# underlying solver-side work lands -- Mark's own stated delivery order
+# puts this wizard right after #477 (foundation) but before those, so
+# the wizard is deliberately built to grow one kind at a time rather
+# than wait for the whole spec to land at once.
+SUBENTRY_TYPE_CONTROLLABLE_LOAD: Final = "controllable_load"
+
 # Power Source fields -- one real hardware unit that connects to the
 # switchboard (an inverter, a hybrid battery/inverter unit, a battery-
 # only BMS, etc). Both sensors optional: a PV-only unit has no real
@@ -121,6 +142,54 @@ SIGNAL_ROLE_OTHER: Final = "other"
 SIGNAL_ROLE_BATTERY: Final = "battery"
 SIGNAL_ROLE_SOLAR: Final = "solar"
 SIGNAL_ROLE_GRID: Final = "grid"
+
+# Controllable Load fields (2026-09-07, nimbus issue #486). `kind`
+# selects which LP class solver_writer.py builds this subentry into --
+# see SUBENTRY_TYPE_CONTROLLABLE_LOAD's own comment above for why only
+# two kinds are wired to a real solver class today. power_sensor is the
+# one field every kind shares (the real, measured device power, for
+# monitoring/tracking-fidelity -- sub-issue 8/#484, not read by the LP
+# itself). The rest are kind-specific; solver_writer.py reads only the
+# ones its own `kind` branch needs, so a sheddable load's unused
+# deferrable_* fields (and vice versa) are simply never read, not an
+# error to leave them blank.
+CONF_CONTROLLABLE_LOAD_NAME: Final = "controllable_load_name"
+CONF_CONTROLLABLE_LOAD_KIND: Final = "controllable_load_kind"
+CONF_CONTROLLABLE_LOAD_POWER_SENSOR: Final = "controllable_load_power_sensor"
+CONTROLLABLE_LOAD_KIND_SHEDDABLE: Final = "sheddable"
+CONTROLLABLE_LOAD_KIND_DEFERRABLE: Final = "deferrable"
+# Reserved for #479 (quota), #481 (thermal), #482 (price_gated) --
+# not yet backed by a real solver-side class, so not offered in the
+# wizard's own kind selector yet (see flows/controllable_load_subentry.py).
+CONTROLLABLE_LOAD_KIND_QUOTA: Final = "quota"
+CONTROLLABLE_LOAD_KIND_THERMAL: Final = "thermal"
+CONTROLLABLE_LOAD_KIND_PRICE_GATED: Final = "price_gated"
+
+# kind=sheddable -- maps directly onto SheddableLoadConfig
+# (solver/elements.py). max_power_kw there is this load's own forecast
+# ceiling; nominal_kw here is the real, configured rated power used
+# when this subentry has no linked Forecaster load of its own (see
+# CONF_CONTROLLABLE_LOAD_LINKED_LOAD below) -- a flat, always-available
+# forecast rather than nothing at all.
+CONF_SHEDDABLE_NOMINAL_KW: Final = "sheddable_nominal_kw"
+CONF_SHEDDABLE_MIN_FRACTION: Final = "sheddable_min_fraction"
+CONF_SHEDDABLE_SHED_COST: Final = "sheddable_shed_cost"
+
+# kind=deferrable -- maps directly onto AdequacyLoadConfig
+# (solver/elements.py, #477). earliest/deadline are real 24hr-decimal
+# hours (same UX and same midnight-ambiguity fix as CONF_SCHEDULE_
+# START_HOUR/CONF_SCHEDULE_END_HOUR on the plain Load subentry -- see
+# flows/load_subentry.py's own comment on why a real TimeSelector was
+# rejected). value_per_kwh is optional -- see AdequacyLoadConfig's own
+# docstring on what leaving it unset (a pure deadline target) vs
+# setting it (also price-gated beyond the target, #482 groundwork)
+# each mean.
+CONF_DEFERRABLE_MAX_POWER_KW: Final = "deferrable_max_power_kw"
+CONF_DEFERRABLE_TARGET_KWH: Final = "deferrable_target_kwh"
+CONF_DEFERRABLE_EARLIEST_HOUR: Final = "deferrable_earliest_hour"
+CONF_DEFERRABLE_DEADLINE_HOUR: Final = "deferrable_deadline_hour"
+CONF_DEFERRABLE_SHORTFALL_PRICE: Final = "deferrable_shortfall_price"
+CONF_DEFERRABLE_VALUE_PER_KWH: Final = "deferrable_value_per_kwh"
 # 2026-09-03: a real household was guided to add a temperature/humidity
 # Power Signal using SIGNAL_ROLE_OTHER, since no dedicated role existed --
 # NimbusForecastSensor unconditionally builds every power-signal subentry

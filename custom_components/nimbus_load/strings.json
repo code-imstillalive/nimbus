@@ -278,6 +278,48 @@
           }
         }
       }
+    },
+    "controllable_load": {
+      "flow_title": "Controllable Load",
+      "entry_type": "Controllable Load",
+      "initiate_flow": {
+        "user": "Controllable Load",
+        "reconfigure": "Controllable Load"
+      },
+      "step": {
+        "user": {
+          "title": "Add a controllable load",
+          "description": "A load the Solver actually decides the timing or level of -- not just a forecast (see the plain Load subentry for that). Only the fields for your chosen Kind are used; leave the others blank.",
+          "data": {
+            "controllable_load_name": "Name",
+            "controllable_load_kind": "Kind",
+            "controllable_load_power_sensor": "Real power sensor (optional, for monitoring)",
+            "sheddable_nominal_kw": "Sheddable: nominal power (kW)",
+            "sheddable_min_fraction": "Sheddable: minimum fraction that must always run (0-1, optional)",
+            "sheddable_shed_cost": "Sheddable: shed cost ($/kWh)",
+            "deferrable_max_power_kw": "Deferrable: max power (kW)",
+            "deferrable_target_kwh": "Deferrable: target energy (kWh)",
+            "deferrable_earliest_hour": "Deferrable: earliest start (24hr decimal)",
+            "deferrable_deadline_hour": "Deferrable: deadline (24hr decimal)",
+            "deferrable_shortfall_price": "Deferrable: shortfall price ($/kWh)",
+            "deferrable_value_per_kwh": "Deferrable: value credit (optional, $/kWh)"
+          },
+          "data_description": {
+            "controllable_load_name": "A short, real name for this load (e.g. \"Pool Pump\", \"HWS L1\") -- becomes this subentry's device title.",
+            "controllable_load_kind": "Sheddable: the Solver can reduce it under price pressure, down to an optional minimum fraction. Deferrable: it has a real energy target and deadline (hot water, EV charging) -- the Solver decides WHEN within that window.",
+            "controllable_load_power_sensor": "The real, measured power draw of this device, if you have one -- used for monitoring/tracking fidelity, never read by the LP solve itself.",
+            "sheddable_nominal_kw": "This load's real rated power when running at full draw.",
+            "sheddable_min_fraction": "The minimum fraction of nominal power that must always be delivered, even under extreme price pressure. Leave blank for a load that can be shed all the way to zero.",
+            "sheddable_shed_cost": "A real $/kWh cost the Solver pays every kWh it sheds -- keeps shedding a genuine last resort rather than the LP's free first choice. Defaults to a high reference value if left blank.",
+            "deferrable_max_power_kw": "This load's own real power ceiling while running (e.g. a 3.7kW HWS element).",
+            "deferrable_target_kwh": "The real energy amount that must be delivered by the deadline (e.g. enough to reheat a hot water tank).",
+            "deferrable_earliest_hour": "The earliest time of day this load may run at all. 0 = midnight. Leave blank for no restriction.",
+            "deferrable_deadline_hour": "The real deadline -- cumulative energy delivered must reach the target by this time of day.",
+            "deferrable_shortfall_price": "A real $/kWh cost the Solver pays for every kWh short of the target by the deadline. Set high enough (the default) that a genuinely reachable target is always fully met; a genuinely unreachable one costs this instead of breaking the whole plan.",
+            "deferrable_value_per_kwh": "Optional utility credit per kWh served, beyond the bare target -- makes this load also run whenever the switchboard's own live price is at or below this value, not just enough to hit the deadline."
+          }
+        }
+      }
     }
   },
   "selector": {
@@ -289,6 +331,12 @@
         "grid": "Grid",
         "temperature": "Temperature",
         "humidity": "Humidity"
+      }
+    },
+    "controllable_load_kind": {
+      "options": {
+        "sheddable": "Sheddable (shed under price pressure)",
+        "deferrable": "Deferrable (real deadline target)"
       }
     },
     "training_source": {
