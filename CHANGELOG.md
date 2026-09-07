@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.166] — 2026-09-07
+
+### Fixed
+- **Controllable Load run-state sampling no longer misreads a Watts power sensor as kilowatts** (nimbus issue #535, Mark Purcell, real household finding). A 4.6W standby reading on a real heat-pump HWS power sensor was read as 4.6 kW — `currently_on` permanently true, `delivered_today_kwh` accruing ~1000× too fast — for any load whose power sensor reports native Watts (the common case for plug/CT power sensors). Same `unit_of_measurement` check the Solver's own solar/load/battery quality-report sensors already use; logs once per sensor when the correction fires.
+
+### Added
+- **Quality report: `achieved_energy_in_kwh`/`achieved_energy_out_kwh`** now published alongside `soc_discrepancy_reliable` (nimbus issue #532, Mark Purcell, real household finding) — lets a household compare the real energy that moved through their configured battery power sensor against their own `solver_battery_capacity_kwh` and tell a recorder history gap from a sensor covering more physical storage than the capacity figure describes (Mark's own real case: a combined sensor summing the home pack and a shared EV DC charger into a 100 kWh single-battery model), without a manual recorder pull.
+- **`epr_reliable`, plus the three `soc_discrepancy_*` fields, are now flattened onto the Nimbus Quality sub-device** (nimbus issue #533, Mark Purcell) — the EPR headline used to publish a clean-looking percentage even when the underlying SoC integration was unreliable, with the qualifying flag visible only in the parent sensor's own attributes. `sensor.nimbus_quality_epr_reliable`, `sensor.nimbus_quality_soc_discrepancy_max`, `sensor.nimbus_quality_soc_discrepancy_mean`, and `sensor.nimbus_quality_soc_discrepancy_reliable` are new diagnostic entities.
+- `publish_daily_quality_report()` now logs once per scored day (not every cycle) at WARNING when a day's own report is unreliable, naming the max/mean discrepancy.
+- `docs/configuration-reference.md` documents the real invariant behind #532: the battery power sensor and `solver_battery_capacity_kwh` must describe exactly the same physical storage, and a combined SoC sensor must be capacity-weighted, never a plain mean.
+
 ## [0.94.165] — 2026-09-07
 
 ### Fixed

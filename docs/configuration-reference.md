@@ -62,6 +62,31 @@ instead (table below) so you can tune it without re-running this wizard.
 | Household load forecast sensor | The single sensor treated as "total household load" — e.g. a Nimbus Power Signal on your whole-house meter. |
 | Individual circuit forecast sensors (optional) | Sum several per-circuit forecasts instead of one whole-house sensor — leave blank to use the field above. |
 | Whole-house cross-check sensor (optional) | A real, currently-measured (not forecast) whole-house sensor the Solver compares its own first forecast period against, as a live sanity check. Has no effect on the actual dispatch plan. |
+| Solar power sensor (optional) | Real, currently-*measured* solar power (not a forecast) — feeds the built-in daily EPR/regret quality score (`sensor.nimbus_solver_quality_report`). Leave blank to skip scoring entirely. |
+| Battery power sensor (optional) | Real, currently-measured net battery power (kW, positive = discharging) — same quality-score role as the solar sensor above; both are required together for a score to be published. |
+| Battery power sign flip (optional) | Tick only if your battery sensor reports the opposite convention (positive = *charging* — confirmed on SigEnergy plants). Getting this wrong silently inverts every charge/discharge decision the quality score sees. |
+
+**⚠️ Real invariant (nimbus issue #532, Mark Purcell — found from real household
+data, not a hypothetical):** the battery power sensor above and
+`number.nimbus_solver_battery_capacity_kwh` must describe **exactly the same
+physical storage** — the power sensor must cover no more and no less than what
+the capacity figure represents. A real, confirmed-live counter-example: a
+household with a combined helper sensor summing the home battery pack *and* a
+shared EV DC-charger channel, feeding a single `capacity_kwh: 100` model. Real
+recorded energy through that combined sensor exceeded 100 kWh inside one
+calendar day (in and out), so the achieved SoC integration left the physical
+[0, 100] range — `soc_discrepancy_reliable` correctly reads `false`, and the
+quality report becomes unreliable by construction, not because of a bug in
+the scoring itself. The same logic applies to `solver_battery_soc_sensor`
+(Step 1): if you point it at a combined/helper sensor across multiple packs,
+that helper must be **capacity-weighted** (e.g. `Σ(pack_soc × pack_capacity) /
+Σ(pack_capacity)`), never a plain unweighted mean — an unweighted mean of two
+differently-sized packs at different charge levels does not correspond to any
+real, physical state of charge. If your own install has multiple independent
+batteries or a shared EV charger, see the multi-battery discussion on issue
+[#467](https://github.com/code-imstillalive/nimbus/issues/467) before wiring
+either sensor to a combined helper — a single-battery model is only ever
+correct for a genuinely single physical pack.
 
 ### Topology diagram: Switchboard
 

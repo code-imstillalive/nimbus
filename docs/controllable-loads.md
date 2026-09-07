@@ -114,7 +114,15 @@ solve tick and folded into a small per-hub JSON store
 (`custom_components/nimbus_load/load_run_state.py`) tracking
 `currently_on`/`on_since`/`off_since`/`delivered_today_kwh` — real
 restart-survivable state, same durability pattern as the Solver's own
-`number.nimbus_solver_*` settings. This lands ahead of the things that
+`number.nimbus_solver_*` settings. The sample is scaled to kW first if
+the sensor itself reports Watts (`unit_of_measurement: "W"`) — a real
+bug (nimbus issue #535, Mark Purcell) had a 4.6W standby reading read
+as 4.6 kW, making `currently_on` permanently true and
+`delivered_today_kwh` ~1000× too large for any load whose power sensor
+is a plug/CT sensor reporting native Watts, the common case. Fixed the
+same way `_kw_scale_factor()` already fixes it for the Solver's own
+solar/load/battery quality-report sensors; logs once per sensor
+(`#313`/`#314` discipline) when the scaling actually fires. This lands ahead of the things that
 actually need it (#484's relay-chatter guard, below, needs a place to
 persist its own guarded decision; #480's early completion needs
 `delivered_today_kwh`), rather than alongside them — scoped down the

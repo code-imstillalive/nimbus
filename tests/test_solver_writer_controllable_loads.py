@@ -101,8 +101,8 @@ def _fake_native_hass(subentries: list, states: dict | None = None):
     return fake
 
 
-def _fake_state(value):
-    return SimpleNamespace(state=value)
+def _fake_state(value, unit=None):
+    return SimpleNamespace(state=value, attributes={"unit_of_measurement": unit})
 
 
 class TestBuildControllableLoads(unittest.TestCase):
@@ -700,6 +700,102 @@ class TestSampleLoadRunState(unittest.TestCase):
         solver_writer._sample_load_run_state(
             "entry_1", "s_missing", "sensor.pool_pump_power", now, "2026-09-07"
         )
+
+    def _read_state(self, hub_entry_id, subentry_id):
+        async def _read():
+            store = load_run_state.LoadRunStateStore(
+                store=_FakeRunStateStore(
+                    None, 1, f"nimbus_load_{hub_entry_id}_load_run_state"
+                )
+            )
+            return await store.async_read(subentry_id)
+
+        return asyncio.run(_read())
+
+    def test_a_watts_sensor_is_scaled_down_to_kw(self):
+        # nimbus issue #535 (Mark Purcell, real household finding): a
+        # 4.6W standby reading on a real heat-pump HWS power sensor used
+        # to be read as 4.6 kW -- currently_on permanently true. Same
+        # reading, correctly scaled, must read as OFF (4.6W is well
+        # under DEFAULT_ON_THRESHOLD_KW=0.05 kW = 50W).
+        states = {
+            "sensor.hws_power": _fake_state("4.6", unit="W"),
+        }
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            states=SimpleNamespace(get=lambda eid: states.get(eid)),
+            loop=self._loop,
+        )
+        now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+        solver_writer._sample_load_run_state(
+            "entry_w", "s_hws", "sensor.hws_power", now, "2026-09-07"
+        )
+        result = self._read_state("entry_w", "s_hws")
+        self.assertFalse(result.currently_on)
+
+    def test_a_watts_sensor_heating_reading_scales_delivered_kwh_correctly(self):
+        # 550W heating for 30 minutes must accrue 0.275 kWh, not 275 kWh
+        # (#535's own worked example: "~550 kWh per hour instead of
+        # 0.55").
+        states = {"sensor.hws_power": _fake_state("550", unit="W")}
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            states=SimpleNamespace(get=lambda eid: states.get(eid)),
+            loop=self._loop,
+        )
+        t0 = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+        solver_writer._sample_load_run_state(
+            "entry_w2", "s_hws2", "sensor.hws_power", t0, "2026-09-07"
+        )
+        t1 = datetime(2026, 9, 7, 8, 30, tzinfo=_TZ)
+        solver_writer._sample_load_run_state(
+            "entry_w2", "s_hws2", "sensor.hws_power", t1, "2026-09-07"
+        )
+        result = self._read_state("entry_w2", "s_hws2")
+        self.assertTrue(result.currently_on)
+        self.assertAlmostEqual(result.delivered_today_kwh, 0.275, places=3)
+
+    def test_a_kw_sensor_is_unaffected_by_the_scale_check(self):
+        # Explicit kW unit -- no scaling, same as the no-unit default.
+        states = {"sensor.pool_pump_power": _fake_state("1.5", unit="kW")}
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            states=SimpleNamespace(get=lambda eid: states.get(eid)),
+            loop=self._loop,
+        )
+        now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+        solver_writer._sample_load_run_state(
+            "entry_kw", "s_kw", "sensor.pool_pump_power", now, "2026-09-07"
+        )
+        result = self._read_state("entry_kw", "s_kw")
+        self.assertTrue(result.currently_on)
+
+    def test_watt_scaling_hint_logs_once_per_entity(self):
+        states = {"sensor.hws_power": _fake_state("550", unit="W")}
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            states=SimpleNamespace(get=lambda eid: states.get(eid)),
+            loop=self._loop,
+        )
+        orig_logged = set(solver_writer._LOAD_POWER_SENSOR_UNIT_HINT_LOGGED)
+        solver_writer._LOAD_POWER_SENSOR_UNIT_HINT_LOGGED.clear()
+        try:
+            now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+            with self.assertLogs(solver_writer._LOGGER, level="INFO") as first:
+                solver_writer._sample_load_run_state(
+                    "entry_log", "s_log", "sensor.hws_power", now, "2026-09-07"
+                )
+            self.assertTrue(any("reports Watts" in r.message for r in first.records))
+            with (
+                self.assertRaises(AssertionError),
+                self.assertLogs(solver_writer._LOGGER, level="INFO"),
+            ):
+                solver_writer._sample_load_run_state(
+                    "entry_log",
+                    "s_log",
+                    "sensor.hws_power",
+                    now + timedelta(minutes=5),
+                    "2026-09-07",
+                )
+        finally:
+            solver_writer._LOAD_POWER_SENSOR_UNIT_HINT_LOGGED.clear()
+            solver_writer._LOAD_POWER_SENSOR_UNIT_HINT_LOGGED.update(orig_logged)
 
     def test_a_missing_sensor_is_silently_skipped(self):
         solver_writer._NATIVE_HASS = SimpleNamespace(
