@@ -62,7 +62,19 @@ file is not re-summarized here; read it directly for the full detail. Most recen
   this file's pytest-style tests aren't exercised locally at all); fixed, re-pushed,
   merged. Released as v0.94.168, deployed to devhub, verified live — the new
   reason-aware WARNING fired for real on devhub's own data
-  (`reason=disagreement, max discrepancy 20.4 pt, mean 9.6 pt`).
+  (`reason=disagreement, max discrepancy 20.4 pt, mean 9.6 pt`). **Then #542/#543**
+  (Mark, found reading the real log right after verifying v0.94.168): a solar source
+  configured directly at Solcast/Open-Meteo's own entities was silently dropped every
+  solve (the configured-source reader only recognized the generic `forecast=[...]`
+  shape, not Solcast's `detailedForecast`/Open-Meteo's `watts`) — one shared
+  `_solar_entries_from_attributes()` reshape function now backs every solar reader,
+  ported to the standalone/cron docs copy too (caught by the anti-drift test when
+  the port was still missing); also fixed the resulting double-weighting risk when
+  the same entity is both configured AND auto-included. Plus the warning itself now
+  logs once per `(entity_id, reason)` with a recovery INFO log — first of this
+  project's log-once dedup sets to add that. 20 new tests, released as v0.94.169,
+  deployed to devhub, restart verified clean (devhub's own source didn't happen to
+  hit either path this cycle, so live confirmation rests on the unit tests here).
 - [2026-09-07](docs/worklog/2026-09-07.md) — #445/#453/#451 real bug fixes; dispatch-card
   risk-aversion live-effect proof, Solve Now button, nimbus_status sensor. Chart/table
   layout saga ran through SEVEN CSS iterations (four content-aware formulas, then two
