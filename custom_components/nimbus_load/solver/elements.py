@@ -942,6 +942,17 @@ class SheddableLoadConfig:
     min_fraction: float = 0.0
     lower_kw: NDArray[np.float64] | None = None
     upper_kw: NDArray[np.float64] | None = None
+    # nimbus issue #484: the real ConfigSubentry id this load was built
+    # from, if any (None for a load constructed directly by a test, or
+    # by any future caller with no subentry to reference). `name` alone
+    # is not reliably unique or stable -- solver_writer.py's own build_
+    # controllable_loads() falls back to subentry_id AS `name` only when
+    # no real name was configured, so the two can genuinely differ.
+    # Threaded through to SheddableLoadPlan below so a post-solve caller
+    # (the relay-chatter guard) can map a plan entry back to the real
+    # per-load run-state store entry (load_run_state.py) it belongs to,
+    # without re-deriving the name/subentry mapping a second time.
+    subentry_id: str | None = None
 
     def __post_init__(self) -> None:
         if np.any(self.forecast_kw < 0):
@@ -1066,6 +1077,11 @@ class AdequacyLoadConfig:
     # and validated (>= 0 when given) so the field exists on the config
     # surface now; network.py does not yet read it.
     max_cost_per_run: float | None = None
+    # nimbus issue #484: same reasoning as SheddableLoadConfig's own
+    # subentry_id field above -- threaded through to AdequacyLoadPlan so
+    # a post-solve caller can map a plan entry back to its real
+    # load_run_state.py store entry.
+    subentry_id: str | None = None
 
     def __post_init__(self) -> None:
         if self.max_power_kw <= 0.0:

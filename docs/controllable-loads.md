@@ -76,24 +76,31 @@ crash — the next cycle's own "now" almost always resolves it correctly.
 
 Real, tracked gaps, not oversights being papered over:
 
-- **No per-load output.** The Solver's plan genuinely includes this load's
-  own scheduled power (visible in `sensor.nimbus_solver_battery_forecast`'s
-  own `adequacy_loads`/`sheddable_loads` internals if you inspect a solve
-  directly), but nothing publishes a per-load `commanded_state` sensor or
-  sub-device yet (#465's own pattern, not yet applied here). Until that
-  exists, there is nothing for a real household automation to read.
+- **No per-load output SENSOR yet.** The relay-chatter-guarded
+  `commanded_state`/`commanded_since` decision itself is now computed and
+  persisted every solve (see "Relay-chatter guard" below) — but nothing
+  publishes it as a real HA sensor or sub-device yet (#465's own pattern,
+  not yet applied here). Until that exists, there is still nothing for a
+  real household automation to actually READ, even though the guarded
+  decision genuinely exists in the run-state store.
 - **No reference automation.** Directly blocked on the point above — a
   chatter-guarded switch-call automation (the #484 sub-issue 8 pattern) needs
   a real published state to react to.
+- **No tracking-fidelity/monitoring sensors** (`scheduled_kw`, `actual_kw`,
+  `tracking_fidelity_24h`, `tracking_error_cost_24h`, the plain-language
+  `sensor.nimbus_<load>_status`, `delivered_today_kwh` vs `target_today_kwh`
+  display) — the rest of #484's own spec, deferred alongside the sensor
+  gap above since building the analytics layer before the entities exist
+  to show it would be built twice.
 - **No linked-Forecaster-load option.** A sheddable load's forecast is always
   flat (`nominal_kw`) — there's no way yet to point it at an existing Load
   subentry's own real per-period forecast instead.
 - **`quota`/`thermal`/`price_gated` kinds** aren't selectable — #481/#482
   need to land first, and #479's own daily-carry math (below) needs a
   `quota` wizard kind to actually attach to.
-- **No shadow costing, monitoring, or household-mode wiring** (#483/#484/#485)
-  — a Controllable Load's real running cost and tracking fidelity aren't
-  computed or exposed anywhere yet.
+- **No shadow costing or household-mode wiring** (#483/#485) — a
+  Controllable Load's real running cost isn't computed or exposed
+  anywhere yet.
 
 ## Run-state store (nimbus issue #479, foundation only)
 
@@ -103,11 +110,11 @@ solve tick and folded into a small per-hub JSON store
 `currently_on`/`on_since`/`off_since`/`delivered_today_kwh` — real
 restart-survivable state, same durability pattern as the Solver's own
 `number.nimbus_solver_*` settings. This lands ahead of the things that
-actually need it (#484's relay-chatter guard needs `on_since`/
-`off_since` to hysteresis-guard `commanded_state`; #480's early
-completion needs `delivered_today_kwh`), rather than alongside them —
-scoped down the same way #486 was, building the shared foundation once
-instead of duplicating a state store per consuming feature.
+actually need it (#484's relay-chatter guard, below, needs a place to
+persist its own guarded decision; #480's early completion needs
+`delivered_today_kwh`), rather than alongside them — scoped down the
+same way #486 was, building the shared foundation once instead of
+duplicating a state store per consuming feature.
 
 Also landed: the daily quota carry/rollover math itself
 (`compute_rollover()`/`effective_target_kwh()`/`remaining_kwh()`) —
@@ -117,6 +124,45 @@ selectable wizard kind (see above). **Nothing reads this store or this
 math today** — no sensor exposes `delivered_today_kwh`, no LP field
 consumes `remaining_kwh`. It exists so the next feature that needs it
 doesn't have to build it from scratch.
+
+## Relay-chatter guard (nimbus issue #484, decision layer only)
+
+Mark's own cited HAEO incident motivates this: "a plan re-solved every
+few seconds drove 131 spurious relay states in a night." Every solve
+now computes a raw on/off decision for each Controllable Load from its
+own just-solved period-0 scheduled power, and persists a GUARDED
+`commanded_state`/`commanded_since` in the same per-load run-state store
+above (`apply_commanded_state_guard()`, `solver_writer.py`) — genuinely
+separate from `currently_on`/`on_since`/`off_since`, which track what
+the load's real power sensor MEASURED, not what the Solver last decided
+to command.
+
+The guard is a real debounce, not a rate limit: a raw decision that
+disagrees with the currently-published `commanded_state` only gets
+adopted once it has held *consecutively* for `DEFAULT_MIN_HYSTERESIS_
+PERIODS` (2, the spec's own default — sub-issue 2/#478's own
+`min_on_periods` override doesn't exist yet, so this default always
+applies) real solve periods. A raw decision that flips back to agreeing
+with the current `commanded_state` — even once — clears any in-progress
+challenge entirely, rather than pausing it. This is what makes an
+"indifferent" load whose period-0 decision flips on literally every
+single re-solve produce **zero** real published changes across ten
+consecutive solves, not one every `min_hysteresis` window — the exact
+acceptance scenario #484 itself specifies. See
+`load_run_state.decide_commanded_state()`'s own docstring and
+`tests/test_load_run_state.py`'s `TestDecideCommandedState` for the
+full worked traces.
+
+**Status: decision layer only, same honest partial-scope pattern as
+everything else on this page.** The guarded `commanded_state` is real
+and persisted every solve — but, per "What's not built yet" above,
+nothing publishes it as an HA sensor yet, so there is still no automation
+this can actually drive today. `scheduled_kw`/`actual_kw`/
+`tracking_fidelity_24h`/`tracking_error_cost_24h`/the plain-language
+status sensor/`delivered_today_kwh` vs `target_today_kwh` display are
+all deferred to the same follow-up that builds the sensor/sub-device
+itself (#465's own pattern) — building the analytics layer with nothing
+to show it on would mean building it twice.
 
 ## Diagnostics
 

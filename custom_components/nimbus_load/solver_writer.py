@@ -6854,6 +6854,7 @@ def build_controllable_loads(
                         data.get(CONF_SHEDDABLE_SHED_COST) or elements.DEFAULT_SHED_COST
                     ),
                     min_fraction=float(data.get(CONF_SHEDDABLE_MIN_FRACTION) or 0.0),
+                    subentry_id=subentry.subentry_id,
                 )
             )
         elif kind == CONTROLLABLE_LOAD_KIND_DEFERRABLE:
@@ -6920,9 +6921,98 @@ def build_controllable_loads(
                     value_per_kwh=float(value_per_kwh)
                     if value_per_kwh is not None
                     else None,
+                    subentry_id=subentry.subentry_id,
                 )
             )
     return sheddable_loads, adequacy_loads
+
+
+def apply_commanded_state_guard(
+    plan: network.Plan,
+    now: datetime,
+    grid_times: list[datetime],
+) -> None:
+    """nimbus issue #484: the relay-chatter guard itself. Reads each
+    Controllable Load's own real, just-solved period-0 power off `plan`
+    (its `subentry_id`, threaded through from build_controllable_loads()'s
+    own config objects via elements.py/network.py), decides the raw new
+    commanded state (on if period-0 power exceeds the same on-threshold
+    load_run_state.py's own power sampling uses, for a consistent
+    on/off reading between the measured and the commanded side), and
+    persists the DEBOUNCED result via load_run_state.decide_commanded_state()
+    -- see that function's own docstring for the actual guarantee (a
+    disagreeing raw value must hold consecutively for
+    DEFAULT_MIN_HYSTERESIS_PERIODS periods before a real change publishes).
+
+    Best-effort and silent on any failure, same posture as
+    _sample_load_run_state() -- this bookkeeping has no consumer yet
+    (see #484's own scope note in docs/controllable-loads.md: no sensor
+    exposes commanded_state today), so it must never be able to take the
+    actual solve cycle down. Native mode only, same reasoning as
+    build_controllable_loads() itself -- a no-op when _NATIVE_HASS is
+    None (standalone/cron mode, or plan.sheddable_loads/adequacy_loads
+    are always empty there anyway since build_controllable_loads()
+    already returns ([], []) unconditionally in that mode).
+    """
+    if _NATIVE_HASS is None or len(grid_times) < 2:
+        return
+    entries_with_ids = [
+        (sl.subentry_id, sl.served_kw[0] if len(sl.served_kw) else 0.0)
+        for sl in plan.sheddable_loads
+        if sl.subentry_id is not None
+    ] + [
+        (al.subentry_id, al.power_kw[0] if len(al.power_kw) else 0.0)
+        for al in plan.adequacy_loads
+        if al.subentry_id is not None
+    ]
+    if not entries_with_ids:
+        return
+    try:
+        from homeassistant.helpers.storage import Store as _Store
+
+        try:
+            from . import load_run_state
+            from .const import DOMAIN
+        except ImportError:
+            import load_run_state
+            from const import DOMAIN
+
+        entries = _NATIVE_HASS.config_entries.async_entries(DOMAIN)
+        if not entries:
+            return
+        hub_entry_id = entries[0].entry_id
+        period_seconds = (grid_times[1] - grid_times[0]).total_seconds()
+        min_hysteresis_seconds = (
+            period_seconds * load_run_state.DEFAULT_MIN_HYSTERESIS_PERIODS
+        )
+
+        async def _update_all() -> None:
+            store = load_run_state.LoadRunStateStore(
+                store=_Store(_NATIVE_HASS, 1, f"{DOMAIN}_{hub_entry_id}_load_run_state")
+            )
+            for subentry_id, period0_kw in entries_with_ids:
+                raw_new_state = (
+                    float(period0_kw) > load_run_state.DEFAULT_ON_THRESHOLD_KW
+                )
+                prev = await store.async_read(subentry_id)
+                new = load_run_state.decide_commanded_state(
+                    prev,
+                    raw_new_state=raw_new_state,
+                    now=now,
+                    min_hysteresis_seconds=min_hysteresis_seconds,
+                )
+                if new is not prev:
+                    await store.async_write(subentry_id, new)
+
+        import asyncio as _asyncio
+
+        future = _asyncio.run_coroutine_threadsafe(_update_all(), _NATIVE_HASS.loop)
+        future.result(timeout=10)
+    except Exception:
+        _LOGGER.debug(
+            "Nimbus: commanded-state guard failed for this solve cycle",
+            exc_info=True,
+        )
 
 
 def main() -> None:
@@ -8327,6 +8417,10 @@ def main() -> None:
         export_price_risk_aversion=export_price_risk_aversion,
         smoothness_weight=network.DEFAULT_SMOOTHNESS_WEIGHT_KW,
     )
+    # nimbus issue #484: the relay-chatter guard, run once per solve
+    # right after the plan exists -- needs the plan's own just-solved
+    # period-0 power per load, so it can't run any earlier than this.
+    apply_commanded_state_guard(plan, now, grid_times)
     publish_plan(
         cfg=cfg,
         now=now,

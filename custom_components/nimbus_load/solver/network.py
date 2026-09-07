@@ -343,6 +343,10 @@ class SheddableLoadPlan:
     name: str
     served_kw: NDArray[np.float64]
     shed_kw: NDArray[np.float64]
+    # nimbus issue #484: propagated straight through from the input
+    # SheddableLoadConfig's own subentry_id -- see that field's own
+    # docstring (elements.py) for why.
+    subentry_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -363,6 +367,10 @@ class AdequacyLoadPlan:
     power_kw: NDArray[np.float64]
     delivered_by_deadline_kwh: float
     shortfall_kwh: float
+    # nimbus issue #484: propagated straight through from the input
+    # AdequacyLoadConfig's own subentry_id -- see that field's own
+    # docstring (elements.py) for why.
+    subentry_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -1683,6 +1691,7 @@ def build_plan(
             # SheddableLoadPlan both declare.
             served_kw=(sl.forecast_kw - _get(shed_vars[sl.name])).astype(np.float64),
             shed_kw=_get(shed_vars[sl.name]),
+            subentry_id=sl.subentry_id,
         )
         for sl in sheddable_loads
     ]
@@ -1697,6 +1706,7 @@ def build_plan(
                 )
             ),
             shortfall_kwh=p.value_of(result, adequacy_shortfall_vars[al.name]),
+            subentry_id=al.subentry_id,
         )
         for al in adequacy_loads
     ]

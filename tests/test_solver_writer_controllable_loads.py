@@ -460,5 +460,115 @@ class TestSampleLoadRunState(unittest.TestCase):
         self.assertTrue(result.currently_on)
 
 
+def _fake_plan(sheddable=(), adequacy=()):
+    return SimpleNamespace(
+        sheddable_loads=list(sheddable), adequacy_loads=list(adequacy)
+    )
+
+
+def _fake_load_plan(subentry_id, kw_array, *, adequacy=False):
+    """A stand-in for SheddableLoadPlan/AdequacyLoadPlan -- only the
+    fields apply_commanded_state_guard() actually reads."""
+    if adequacy:
+        return SimpleNamespace(subentry_id=subentry_id, power_kw=kw_array)
+    return SimpleNamespace(subentry_id=subentry_id, served_kw=kw_array)
+
+
+class TestApplyCommandedStateGuard(unittest.TestCase):
+    """nimbus issue #484: real tests for apply_commanded_state_guard()'s
+    own wiring -- reading period-0 power off a real Plan-shaped object,
+    reaching the same fake Store as TestSampleLoadRunState above (same
+    reasoning: no stub exists for homeassistant.helpers.storage in this
+    bare-module harness)."""
+
+    def setUp(self):
+        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._loop, self._loop_thread = _make_running_loop()
+        _FakeRunStateStore._shared_data.clear()
+
+    def tearDown(self):
+        solver_writer._NATIVE_HASS = self._orig_native_hass
+        self._loop.call_soon_threadsafe(self._loop.stop)
+        self._loop_thread.join(timeout=5)
+        self._loop.close()
+
+    def _read_state(self, hub_entry_id, subentry_id):
+        async def _read():
+            store = load_run_state.LoadRunStateStore(
+                store=_FakeRunStateStore(
+                    None, 1, f"nimbus_load_{hub_entry_id}_load_run_state"
+                )
+            )
+            return await store.async_read(subentry_id)
+
+        return asyncio.run(_read())
+
+    def test_a_sheddable_loads_first_ever_decision_is_persisted_immediately(self):
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            config_entries=SimpleNamespace(
+                async_entries=lambda domain: [SimpleNamespace(entry_id="entry_a")]
+            ),
+            loop=self._loop,
+        )
+        import numpy as np
+
+        plan = _fake_plan(sheddable=[_fake_load_plan("s1", np.array([1.5, 1.5]))])
+        now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+        grid_times = _grid(now, 4, minutes=5)
+        solver_writer.apply_commanded_state_guard(plan, now, grid_times)
+        result = self._read_state("entry_a", "s1")
+        self.assertTrue(result.commanded_state)
+        self.assertEqual(result.commanded_since, now.timestamp())
+
+    def test_an_adequacy_loads_period_0_power_below_threshold_commands_off(self):
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            config_entries=SimpleNamespace(
+                async_entries=lambda domain: [SimpleNamespace(entry_id="entry_b")]
+            ),
+            loop=self._loop,
+        )
+        import numpy as np
+
+        plan = _fake_plan(
+            adequacy=[_fake_load_plan("s2", np.array([0.0, 3.7]), adequacy=True)]
+        )
+        now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+        grid_times = _grid(now, 4, minutes=5)
+        solver_writer.apply_commanded_state_guard(plan, now, grid_times)
+        result = self._read_state("entry_b", "s2")
+        self.assertFalse(result.commanded_state)
+
+    def test_ten_alternating_solves_produce_at_most_one_real_commanded_change(self):
+        # #484's own acceptance criterion, exercised through the real
+        # solver_writer.py wiring (not just load_run_state.py's own pure
+        # function -- test_load_run_state.py already covers that
+        # directly; this confirms the wiring passes the right
+        # min_hysteresis_seconds through from the real grid period).
+        import numpy as np
+
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            config_entries=SimpleNamespace(
+                async_entries=lambda domain: [SimpleNamespace(entry_id="entry_c")]
+            ),
+            loop=self._loop,
+        )
+        start = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+        grid_times = _grid(start, 4, minutes=5)  # 5-min periods
+        raw_high = np.array([1.5, 1.5])
+        raw_low = np.array([0.0, 0.0])
+        real_changes = 0
+        prev_commanded = None
+        for i in range(10):
+            now = start + timedelta(minutes=5 * i)
+            kw = raw_high if i % 2 == 0 else raw_low
+            plan = _fake_plan(sheddable=[_fake_load_plan("s3", kw)])
+            solver_writer.apply_commanded_state_guard(plan, now, grid_times)
+            state = self._read_state("entry_c", "s3")
+            if prev_commanded is not None and state.commanded_state != prev_commanded:
+                real_changes += 1
+            prev_commanded = state.commanded_state
+        self.assertLessEqual(real_changes, 1)
+
+
 if __name__ == "__main__":
     unittest.main()
