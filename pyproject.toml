@@ -67,6 +67,19 @@ dev = [
     "pytest-asyncio>=0.23",
     "ruff>=0.6",
     "highspy>=1.15.1",
+    # Pure-Python CSS parser (~50KB, no C deps, no browser). Added
+    # 2026-09-07 for tests/frontend/test_dispatch_card_compact_layout.py
+    # (issue #459, Mark Purcell): the compact phone-width layout on
+    # nimbus-dispatch-card-v4.js is asserted by extracting the shadow-root
+    # CSS string from the JS file and walking the parsed rule tree. Static
+    # test only -- no headless browser, no visual-diff step, no CI browser
+    # install. What it catches: a future edit that deletes the @container
+    # block, moves the 500px breakpoint, drops table-layout: fixed, or
+    # regresses the wide-format defaults. What it does NOT catch: browser
+    # bugs, visual regressions inside the wide format, real-device
+    # container-width edges -- those need Playwright, which nimbus does
+    # not have today and did not seem worth adding for one bugfix.
+    "tinycss2>=1.4",
     # Real Home Assistant test harness -- gives tests a genuine `hass`
     # fixture with a real state machine, real event loop, and
     # `async_fire_time_changed` so time-dependent behaviour can be

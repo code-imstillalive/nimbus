@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.160] — 2026-09-07
+
+### Testing
+- **Acceptance test for the #459 compact layout added at `tests/frontend/test_dispatch_card_compact_layout.py`.** The test extracts the shadow-root CSS string from `nimbus-dispatch-card-v4.js`, parses it with `tinycss2`, and asserts on the rule tree: the `@container ftable (max-width: 500px)` block exists exactly once, inside it `table.ftable` is `table-layout: fixed` with `min-width: 0`, `th/td.time-col` is exactly 5ch, `th/td.source-col` is exactly 1ch, the wide/compact source spans and now-tag spans flip visibility, and the wide-format defaults (pill share bar visible, compact spans hidden, inline lowercase `now` tag) are still in place outside the block. Also grep-asserts the row rendering actually emits the classes the CSS targets, so a silently-empty-markup regression cannot pass. Pure-Python (no browser, no Node, no CI install cost beyond `tinycss2` in the `[dev]` extra); runs under the existing pytest job. Two hand-inserted regressions (breakpoint moved to 400px, source-col widened to 2ch) were both caught.
+
 ## [0.94.159] — 2026-09-07
 
 ### Changed
