@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.167] — 2026-09-08
+
+### Added
+- **Controllable Load "Done sensor" now accepts a `water_heater` or `climate` entity directly** (nimbus issue #534, item 1, Mark Purcell, real SG-Ready heat-pump HWS install). These domains' own *state* is a mode string (`eco`/`performance`), not a number, so the existing done-condition comparison couldn't read it — a household had to find a separate `sensor.*_current_temperature` helper instead. The Solver now reads the entity's own `current_temperature` attribute, and if **Done condition** is left blank, defaults it to `>= <the entity's own "temperature" attribute>` (its live setpoint) instead of the `binary_sensor` "state == on" default every other domain uses. Same fail-open behaviour as #480 for a missing entity, an `unavailable`/`unknown` state, or a malformed condition. No wizard change was needed — the Done sensor field already accepts any entity domain.
+- Seeding a thermal-kind load's temperature fields from the entity (#481) and commanding it via `water_heater.set_operation_mode` (needs #484/#486's own still-undelivered per-load output) are real, deferred follow-ups — see `docs/controllable-loads.md`.
+
 ## [0.94.166] — 2026-09-07
 
 ### Fixed
