@@ -633,6 +633,17 @@ async def async_setup_entry(
     # own docstring.
     async_add_entities([NimbusHealthReportSensor(entry, sw_version)])
 
+    # nimbus issue #450: the plain-language status sensor added in front
+    # of Health Report and every other jargon-carrying sensor -- same
+    # "one per hub" pattern, registered after NimbusHealthReportSensor
+    # above (and NimbusSolverConfigSensor further up) since its own
+    # _evaluate() reads both of those sensors' live states via
+    # self.hass.states.get() at read time, not at registration time, so
+    # the exact ordering here doesn't matter for correctness -- kept
+    # this way only for readability (config -> health -> status,
+    # matching _evaluate()'s own priority order).
+    async_add_entities([NimbusStatusSensor(entry, sw_version)])
+
     # Price-response-latency sensor (issue #294) -- same "one per hub"
     # pattern as the two entities above. Registered with solver_runtime
     # (not solver_writer's dispatch table -- this sensor's data never
@@ -1463,6 +1474,128 @@ class NimbusHealthReportSensor(SensorEntity):
             ),
             "never_trained": never_trained,
             "subentry_status": subentry_status,
+            "generated_at": datetime.now(UTC).isoformat(),
+        }
+
+
+class NimbusStatusSensor(SensorEntity):
+    """nimbus issue #450 (Mark Purcell, sub-issue of #448): a single,
+    plain-language "is this working?" answer in front of the 13+ other
+    sensors (each carrying its own jargon -- EPR, regret, tracking
+    fidelity, theoretical maximum yield, salvage value, cost band width)
+    that a household would otherwise have to already understand before
+    they could tell whether Nimbus is doing what it should.
+
+    Deliberately a PRESENTATION layer only, per #450's own explicit
+    scope: reads the same "one per hub" sensors already registered in
+    this module (sensor.nimbus_solver_config's own `state`, sensor.
+    nimbus_health_report's own native_value/never_trained, sensor.
+    nimbus_solver_battery_forecast's own `status` attribute) via
+    self.hass.states.get() -- the same live entity states any dashboard
+    card already reads -- rather than recomputing or duplicating any of
+    those sensors' own scoring logic. Every existing sensor stays
+    exactly as-is underneath; this adds one thing in front, it doesn't
+    replace or simplify anything already exposed.
+
+    Same "pure wiring/status metadata, no coordinator of its own"
+    pattern as NimbusHealthReportSensor/NimbusTopologyConfigSensor
+    above -- current on every read with no separate update-listener
+    plumbing, and no coordinator of its own to keep in sync.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Status"
+    _attr_entity_category = None  # the front-page answer, not a diagnostic
+    _unrecorded_attributes = frozenset({"generated_at"})
+
+    def __init__(self, entry: NimbusConfigEntry, sw_version: str | None) -> None:
+        self._entry = entry
+        self._attr_unique_id = f"{entry.entry_id}_status"
+        self.entity_id = "sensor.nimbus_status"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+            name="Nimbus",
+            manufacturer="Nimbus",
+            model="Hub",
+            sw_version=sw_version,
+        )
+
+    def _evaluate(self) -> tuple[str, str]:
+        """Returns (state, reason). Checked in priority order -- the
+        first real, currently-true condition wins, same "one honest
+        answer, not a jargon dump" reasoning the issue itself asks for.
+        Every branch here reads an EXISTING sensor's own already-
+        published state/attributes; nothing here is a new scoring
+        mechanism.
+        """
+        config_state = self.hass.states.get("sensor.nimbus_solver_config")
+        if config_state is None or config_state.state != "configured":
+            return (
+                "Not yet configured",
+                (
+                    "Run the Solver settings wizard (Configure -> Solver settings) "
+                    "to finish setup."
+                ),
+            )
+
+        health_state = self.hass.states.get("sensor.nimbus_health_report")
+        if health_state is not None:
+            never_trained = health_state.attributes.get("never_trained") or []
+            if never_trained:
+                names = ", ".join(
+                    str(item.get("title", "?")) for item in never_trained[:3]
+                )
+                more = (
+                    f" (+{len(never_trained) - 3} more)"
+                    if len(never_trained) > 3
+                    else ""
+                )
+                return (
+                    "Learning",
+                    (
+                        f"Still building initial models for: {names}{more}. "
+                        "This resolves on its own once enough real history "
+                        "has been recorded."
+                    ),
+                )
+            try:
+                error_count = int(health_state.state)
+            except (TypeError, ValueError):
+                error_count = 0
+            if error_count > 0:
+                return (
+                    "Needs attention",
+                    (
+                        f"{error_count} recent error(s) logged -- see "
+                        "Health Report for detail."
+                    ),
+                )
+
+        forecast_state = self.hass.states.get("sensor.nimbus_solver_battery_forecast")
+        if forecast_state is not None:
+            solver_status = forecast_state.attributes.get("status")
+            if solver_status is not None and solver_status != "optimal":
+                return (
+                    "Needs attention",
+                    (
+                        f"Solver plan is '{solver_status}', not optimal -- "
+                        "see Battery Forecast's own binding_constraint_now "
+                        "attribute for detail."
+                    ),
+                )
+
+        return ("Working well", "No known issues right now.")
+
+    @property
+    def native_value(self) -> str:
+        state, _ = self._evaluate()
+        return state
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        _, reason = self._evaluate()
+        return {
+            "reason": reason,
             "generated_at": datetime.now(UTC).isoformat(),
         }
 
