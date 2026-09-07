@@ -949,6 +949,26 @@ CONF_SOLVER_RISK_AVERSION: Final = "solver_risk_aversion"
 CONF_SOLVER_IMPORT_PRICE_RISK_AVERSION: Final = "solver_import_price_risk_aversion"
 CONF_SOLVER_EXPORT_PRICE_RISK_AVERSION: Final = "solver_export_price_risk_aversion"
 
+# Quality-report SoC-discrepancy reliability thresholds (nimbus issue
+# #538, Mark Purcell, real household finding on this repo's own
+# v0.94.166): _soc_discrepancy_stats() used to call a scored day
+# "reliable" purely on the achieved SoC integration staying inside the
+# physical [0, 100] range -- but a genuinely large, sustained
+# disagreement WITHIN that range (his own real case: raising the
+# configured battery capacity kept the trajectory in-range while the
+# gap against the real SoC sensor stayed at 40.7 points max / 10.85
+# mean) still flipped the flag to "reliable". These two thresholds are
+# the second, independent test: max/mean discrepancy in points beyond
+# which a day is called unreliable even though it never left [0, 100].
+# Same "never hardcoded, every value is a real config-flow/dashboard
+# field" discipline as every other Solver number.
+CONF_SOLVER_SOC_DISCREPANCY_MAX_THRESHOLD_PCT: Final = (
+    "solver_soc_discrepancy_max_threshold_pct"
+)
+CONF_SOLVER_SOC_DISCREPANCY_MEAN_THRESHOLD_PCT: Final = (
+    "solver_soc_discrepancy_mean_threshold_pct"
+)
+
 DEFAULT_SOLVER_SOH_PERCENT: Final = 100.0
 DEFAULT_SOLVER_MIN_SOC_PERCENT: Final = 5.0
 DEFAULT_SOLVER_MAX_SOC_PERCENT: Final = 100.0
@@ -986,6 +1006,14 @@ DEFAULT_SOLVER_FLAT_FEE_RATE: Final = 0.0
 DEFAULT_SOLVER_RISK_AVERSION: Final = 0.25
 DEFAULT_SOLVER_IMPORT_PRICE_RISK_AVERSION: Final = 0.0
 DEFAULT_SOLVER_EXPORT_PRICE_RISK_AVERSION: Final = 0.0
+# nimbus issue #538 (Mark Purcell): his own ask's suggested starting
+# point ("something like 15 points max, or 8 points mean") -- #427's own
+# first real measurement (22.5 max / 6.9 mean) was judged worth flagging
+# by that same household, so these sit just below it. Purely a starting
+# default; a household with noisier sensors tunes it via the dashboard
+# number, no release needed.
+DEFAULT_SOLVER_SOC_DISCREPANCY_MAX_THRESHOLD_PCT: Final = 15.0
+DEFAULT_SOLVER_SOC_DISCREPANCY_MEAN_THRESHOLD_PCT: Final = 8.0
 
 # Switchboard-level hub Configure step (2026-08-23) -- the topology
 # dashboard card's own top-of-diagram sensors (grid meter, current buy/

@@ -87,6 +87,7 @@ from .const import (
     CONF_SOLVER_EXPORT_PRICE_SENSOR,
     CONF_SOLVER_EXPORT_PRICE_SENSOR_2,
     CONF_SOLVER_EXPORT_PRICE_SENSOR_3,
+    CONF_SOLVER_FIXED_DAILY_CHARGE,
     CONF_SOLVER_FLAT_FEE_RATE,
     CONF_SOLVER_GRID_MAX_EXPORT_KW,
     CONF_SOLVER_GRID_MAX_IMPORT_KW,
@@ -123,11 +124,14 @@ from .const import (
     CONF_SOLVER_P2P_BONUS_VOLUME_KWH,
     CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR,
     CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR,
+    CONF_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS,
     CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR,
     CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR,
     CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR,
     CONF_SOLVER_RISK_AVERSION,
     CONF_SOLVER_SALVAGE_VALUE,
+    CONF_SOLVER_SOC_DISCREPANCY_MAX_THRESHOLD_PCT,
+    CONF_SOLVER_SOC_DISCREPANCY_MEAN_THRESHOLD_PCT,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_2,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_3,
@@ -302,6 +306,27 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     CONF_SOLVER_RISK_AVERSION,
     CONF_SOLVER_IMPORT_PRICE_RISK_AVERSION,
     CONF_SOLVER_EXPORT_PRICE_RISK_AVERSION,
+    # nimbus issue #538: same "wizard/number entity saves it, this bridge
+    # sensor must also expose it" requirement as every field above --
+    # caught here directly this time, not left for the next audit.
+    CONF_SOLVER_SOC_DISCREPANCY_MAX_THRESHOLD_PCT,
+    CONF_SOLVER_SOC_DISCREPANCY_MEAN_THRESHOLD_PCT,
+    # nimbus issue #538's own new regression test (test_sensor_solver_
+    # config_keys.py) caught these two as a REAL, PRE-EXISTING, live bug
+    # while auditing this exact class of mistake for the fields directly
+    # above: both are real number.nimbus_solver_* entities (number.py's
+    # own _DESCRIPTIONS) but were missing from this tuple AND from
+    # _SOLVER_NUMBER_ENTITY_KEYS below entirely -- fetch_solver_config()
+    # (the writer's only channel to read config) could never see either
+    # field's real value at all, live-edited or not. Concretely: any
+    # household adjusting "Fixed Daily Charge" or "Post-Window Self-
+    # Consume Hours" from the dashboard had ZERO effect on the actual
+    # solve -- solver_writer.py's own _cfg_num() calls for both
+    # (fixed_daily_charge default 1.95, post_window_self_consume_hours
+    # default 4) silently fell back to their hardcoded defaults on every
+    # single cycle, forever, regardless of what the entity showed.
+    CONF_SOLVER_FIXED_DAILY_CHARGE,
+    CONF_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS,
 )
 # 2026-08-20: these 14 plain-numeric fields moved off entry.options entirely
 # -- they're now LIVE, dashboard-editable number.nimbus_solver_* entities
@@ -358,6 +383,20 @@ _SOLVER_NUMBER_ENTITY_KEYS = (
     # change debounce window (see switch.py's own
     # NimbusSolverSwitch entry for the paired toggle).
     CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
+    # nimbus issue #538: the quality report's own SoC-discrepancy
+    # agreement thresholds -- see number.py's own comment on these two
+    # fields.
+    CONF_SOLVER_SOC_DISCREPANCY_MAX_THRESHOLD_PCT,
+    CONF_SOLVER_SOC_DISCREPANCY_MEAN_THRESHOLD_PCT,
+    # nimbus issue #538's own regression test caught these two as a
+    # real, pre-existing, live bug (see this file's own comment on
+    # _SOLVER_ALL_KEYS above for the full "dashboard edits had zero
+    # effect on the actual solve" story) -- genuine number.py entities,
+    # just never added to this tuple, so _resolve() fell through to
+    # entry.options (never written for either field) instead of ever
+    # reading the live entity.
+    CONF_SOLVER_FIXED_DAILY_CHARGE,
+    CONF_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS,
 )
 # 2026-08-22: switch.py's own one live boolean toggle -- same
 # "resolve from a live entity, not entry.options" mechanism as
