@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.157] — 2026-09-07
+
+### Fixed
+- **SOURCE column restored** — removing it (v0.94.156) was confirmed live to change nothing, it was never the actual cause of the reported gap.
+- **Real cause fixed**: the forecast table's total row has a long label that was forcing the Time column wide (table.ftable's default cell is `white-space:nowrap`) once the SOURCE column's removal also removed the `colspan="2"` that used to spread that label across two columns. Added `white-space:normal` on that specific cell so it wraps instead of forcing any column wide, regardless of column count in the future.
+
 ## [0.94.156] — 2026-09-07
 
 ### Removed
