@@ -20,6 +20,11 @@ Dated work-in-progress notes live in `docs/worklog/`, one file per date — this
 the "CURRENT STATE" journal that used to live directly in this file now lives. Each
 file is not re-summarized here; read it directly for the full detail. Most recent 5:
 
+- [2026-09-07](docs/worklog/2026-09-07.md) — #445/#453/#451 real bug fixes; dispatch-card
+  risk-aversion live-effect proof, Solve Now button, nimbus_status sensor; the
+  chart/table layout scrolling saga root-caused (fr-split+breakpoint is structurally
+  fragile, same class as #391/#395/#400/#407) and fixed with flexbox in v0.94.150;
+  #477 (controllable-loads foundation) started, paused mid-flight, stashed not lost.
 - [2026-09-06](docs/worklog/2026-09-06.md) — #391/regression/#400 dispatch-card layout
   (three passes, root-caused with a shared CSS variable); #389 solver crash and #390
   whole-horizon infeasibility (penalized grid_import_excess slack); EPR-consistency fix
