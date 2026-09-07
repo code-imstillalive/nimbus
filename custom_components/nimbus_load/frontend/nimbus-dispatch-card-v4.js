@@ -815,43 +815,23 @@ class NimbusDispatchCardV4 extends HTMLElement {
         '.reasoning { font-size: 1.35em; line-height: 1.5; opacity: 0.85; flex: 1 1 300px; min-width: 260px; }' +
         '.range-labels { display:flex; justify-content:space-between; font-size: 1.05em; opacity: 0.5; width: 250px; margin-top: 4px; }' +
         '.section-label { font-size: 1.05em; text-transform: uppercase; letter-spacing: 0.09em; opacity: 0.5; margin: 22px 0 8px; }' +
-        // 2026-09-07: direct household ask, live on the deployed
-        // grid+minmax(max-content,1fr) layout -- chart is too small,
-        // table has dead space on its own right edge (table-col's own
-        // TRACK ends up wider than the table's real content whenever
-        // 1fr's proportional share exceeds max-content, since minmax's
-        // floor and its fr share both apply -- table.ftable itself
-        // doesn't stretch to fill that extra track width, since it has
-        // no width:100% of its own, per #459).
-        //
-        // Fixed both at once, exactly: `1fr max-content` instead of
-        // `minmax(320px,2fr) minmax(max-content,1fr)`. table-col is
-        // now sized EXACTLY to its own real content, nothing more --
-        // zero dead space by construction, no width:100% needed. chart-
-        // col gets 1fr, i.e. 100% of whatever space is left after that
-        // -- the largest the chart can possibly be while table still
-        // never needs to scroll and never has dead space. This is the
-        // mathematically maximal answer to "chart bigger + table fills
-        // to its own edge" -- there's no CSS arrangement that gives
-        // chart more room without either shrinking table below its own
-        // content (reintroducing the original scrollbar) or letting
-        // the row overflow the card. Honest caveat, stated plainly
-        // rather than promised away: the exact chart:table split still
-        // depends on how much real content is in the table right now
-        // (P2P pills, populated columns) -- it will not always land at
-        // a clean 2:1, because a literal fixed 2:1 ratio and "table
-        // never scrolls, never wastes space" are not simultaneously
-        // achievable for a table with this many real columns (confirmed
-        // twice already tonight: minmax(max-content,1fr) let table
-        // dominate the row when its content was large; flexbox's
-        // content-exact table sizing rendered ~half/half for the same
-        // reason). This formula always gives chart the most room
-        // mathematically possible under those real constraints.
+        // 2026-09-07: reverted to full-width stacking (chart above,
+        // table below, both 100% width) after FOUR same-day side-by-
+        // side attempts (fixed 2fr/1fr + breakpoint, flexbox,
+        // grid+minmax(max-content,1fr), grid+"1fr max-content") each
+        // failed differently -- the last one ("1fr max-content", meant
+        // to be the mathematically maximal chart size) confirmed live:
+        // chart tiny AND a horizontal scrollbar, worse than every prior
+        // attempt. Every one of these was reasoned from an ESTIMATED
+        // table content width, never a real DevTools measurement --
+        // stopping that pattern here. Full-width stacking is the one
+        // layout that has never produced a scrollbar or a crushed
+        // element tonight: each element gets 100% of the card's own
+        // width, which the table's real content already fits inside
+        // without scrolling on any real panel width. Do not attempt
+        // another side-by-side CSS formula without a real measured
+        // table.ftable width in hand first.
         '.chart-table-grid { display:block; }' +
-        '.chart-col { min-width: 0; }' +
-        '@container (min-width: 900px) {' +
-          '.chart-table-grid { display:grid; grid-template-columns: minmax(320px, 1fr) max-content; gap: 20px 28px; align-items:start; }' +
-        '}' +
         '.timeline-wrap { width: 100%; overflow-x: auto; }' +
         '.timeline-wrap svg { width: 100%; height: auto; display: block; min-width: 480px; }' +
         '.legend { display:flex; gap: 20px; font-size: 1.05em; opacity: 0.65; margin-top: 8px; flex-wrap: wrap; }' +
@@ -1081,9 +1061,9 @@ class NimbusDispatchCardV4 extends HTMLElement {
         '<div class="risk-row">' + riskSliders + '</div>' +
       '</div>' + // .col-left
       '<div class="col-right">' +
-      // Chart takes all space left over after the table claims exactly
-      // its own real content width -- see .chart-table-grid's own CSS
-      // comment, above, for the full "why" and prior attempts.
+      // Chart and table stack full-width, one above the other -- see
+      // .chart-table-grid's own CSS comment, above, for the four
+      // side-by-side attempts (2026-09-07) that were each reverted.
       '<div class="chart-table-grid">' +
       '<div class="chart-col">' +
         '<div class="section-label" style="margin-top:0;">Dispatch Plan - next 3 days (plan vs. actual)</div>' +
