@@ -815,28 +815,35 @@ class NimbusDispatchCardV4 extends HTMLElement {
         '.reasoning { font-size: 1.35em; line-height: 1.5; opacity: 0.85; flex: 1 1 300px; min-width: 260px; }' +
         '.range-labels { display:flex; justify-content:space-between; font-size: 1.05em; opacity: 0.5; width: 250px; margin-top: 4px; }' +
         '.section-label { font-size: 1.05em; text-transform: uppercase; letter-spacing: 0.09em; opacity: 0.5; margin: 22px 0 8px; }' +
-        // 2026-09-07: replaced the fr-split + @container-breakpoint
-        // approach (three tweaks the same day, still reported scrolling
-        // every time) with flexbox wrapping. The old approach's failure
-        // was structural, not a wrong number: giving table-col a FIXED
-        // FRACTION (1fr) of the row caps its width at that fraction no
-        // matter what table.ftable's own real content needs (auto table
-        // layout sizes columns by their widest real cell) -- so no
-        // hand-picked breakpoint could stay correct as row padding/font
-        // tweaks kept moving the table's real minimum width underneath
-        // it. flex:0 0 auto on table-col means it is never narrower than
-        // its own real content (nothing to fight for room), chart-col
-        // (flex:1 1 480px, min-width:320px) takes whatever's left and
-        // only shrinks to its own floor, and flex-wrap:wrap drops
-        // table-col to its own full-width line below the chart if the
-        // two genuinely don't both fit. No breakpoint number to keep in
-        // sync with the table's real width ever again -- the table can
-        // only get a horizontal scrollbar when the viewport itself is
-        // too narrow for its real content, never from an arbitrary
-        // fraction being smaller than that content.
-        '.chart-table-grid { display:flex; flex-wrap:wrap; align-items:flex-start; gap: 20px 28px; }' +
-        '.chart-col { flex: 1 1 480px; min-width: 320px; }' +
-        '.table-col { flex: 0 0 auto; max-width: 100%; min-width: 0; }' +
+        // 2026-09-07, two fixes same day:
+        // 1st attempt replaced the fixed 2fr/1fr grid+breakpoint with
+        // flexbox (table-col: flex:0 0 auto, chart-col: flex:1 1 480px).
+        // That killed the scrollbar but broke the actual 2/3-chart /
+        // 1/3-table ratio that was asked for -- table-col's own natural
+        // content width turned out to be nearly as wide as the chart, so
+        // flex-grow left chart-col only whatever was left over (~half),
+        // not 2/3. Confirmed live on both devhub and NUC1: NUC1 rendered
+        // roughly half/half instead of 2:1, devhub's narrower real card
+        // width made table-col + chart-col's 480px floor not fit at all,
+        // wrapping to fully stacked.
+        // Real fix: back to a CSS Grid 2fr/1fr split (the actual target
+        // ratio when there is room), but table-col's own track is
+        // `minmax(max-content, 1fr)` instead of a bare `1fr` -- it still
+        // defaults to 1fr's share when that share is >= the table's own
+        // real content width, but can never be squeezed narrower than
+        // that content, growing past 1fr instead of scrolling if it
+        // genuinely needs to. This is the actual fix for the original
+        // scrolling bug (table can never be told "be narrower than your
+        // own content"), applied without giving up the 2:1 proportion.
+        // Breakpoint (900px) is a generous, round, table-content-
+        // INDEPENDENT floor -- purely "is this roughly desktop width,"
+        // not hand-derived arithmetic against --ftable-min-width, so it
+        // can't drift out of sync the way the old 1708px one did.
+        '.chart-table-grid { display:block; }' +
+        '.chart-col, .table-col { min-width: 0; }' +
+        '@container (min-width: 900px) {' +
+          '.chart-table-grid { display:grid; grid-template-columns: minmax(320px, 2fr) minmax(max-content, 1fr); gap: 20px 28px; align-items:start; }' +
+        '}' +
         '.timeline-wrap { width: 100%; overflow-x: auto; }' +
         '.timeline-wrap svg { width: 100%; height: auto; display: block; min-width: 480px; }' +
         '.legend { display:flex; gap: 20px; font-size: 1.05em; opacity: 0.65; margin-top: 8px; flex-wrap: wrap; }' +
@@ -1069,13 +1076,12 @@ class NimbusDispatchCardV4 extends HTMLElement {
       // Direct household ask (2026-09-07, annotated screenshot): the
       // chart and the table used to stack full-width, one above the
       // other -- wasting width on a wide panel where both could sit
-      // side by side. New inner flex row, independent of the outer
+      // side by side. New inner grid, independent of the outer
       // .layout-grid (still disabled, see that toggle's own comment
-      // above) -- chart-col flexes to fill available space, table-col
-      // takes exactly its own real content width (see .chart-table-grid's
+      // above) -- 2:1 chart:table split when there's room, table-col
+      // never squeezed narrower than its own real content (see .chart-table-grid's
       // own CSS comment, above, for why this replaced an fr-split +
-      // breakpoint). flex-wrap drops table-col to its own line below
-      // the chart on a genuinely narrow render.
+      // breakpoint). Stacks to full-width single column below 900px.
       '<div class="chart-table-grid">' +
       '<div class="chart-col">' +
         '<div class="section-label" style="margin-top:0;">Dispatch Plan - next 3 days (plan vs. actual)</div>' +
