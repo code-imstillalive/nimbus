@@ -938,7 +938,11 @@ class NimbusDispatchCardV4 extends HTMLElement {
         // internally, unchanged -- the #459 regression can't recur because
         // the container itself can no longer grow unbounded the way the
         // old full-width single-column layout could.
-        'table.ftable { border-collapse: collapse; font-size: 1.08em; min-width: var(--ftable-min-width); width: 100%; }' +
+        // Direct household ask (2026-09-07): whole table font 20%
+        // smaller (1.08em -> 0.86em) to help it fit without scrolling,
+        // now that the real Time-column bug (not SOURCE, not font size)
+        // is fixed -- a genuine, if partial, further reduction on top.
+        'table.ftable { border-collapse: collapse; font-size: 0.86em; min-width: var(--ftable-min-width); width: 100%; }' +
         'table.ftable thead th { text-align: left; text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.85em; opacity: 0.5;' +
           ' font-weight: 600; padding: 6px 10px; border-bottom: 1px solid rgba(255,255,255,0.1); position: sticky; top: 0; background: #14181f; }' +
         'table.ftable thead th.num { text-align: right; }' +
