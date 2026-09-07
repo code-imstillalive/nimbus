@@ -31,20 +31,28 @@ file is not re-summarized here; read it directly for the full detail. Most recen
   another guess. Real NUC1 incident: battery charged instead of discharging at the
   17:00 P2P boundary; root cause NOT confirmed after three theories each disproven/
   unconfirmed by live evidence; reverted to HAEO for the night, live trace planned
-  before next P2P window. #477, #486, #479, AND #484 (controllable-loads
+  before next P2P window. #477, #486, #479, #484, AND #480 (controllable-loads
   foundation + config surface + per-load run-state store + relay-chatter guard
-  decision layer) all completed and merged — real, honestly-documented gap
-  left open: no per-load output SENSOR yet (#465's own sub-device pattern),
-  so the guarded commanded_state #484 now computes every solve has nowhere
-  real to be read from yet; next real target is that sensor platform, or
-  #483 (shadow costing). Household went to bed partway through with explicit
-  authorization to keep working solo — everything after that point in the
-  entry happened unsupervised, including Mark Purcell's own Claude Code
-  becoming concurrently active on the repo (opened/merged #516 for #459's
-  mobile-clipping regression after a CI-lint assist, filed and got #519's
-  topology-card discoverability fix merged, #522 left as his own active
-  follow-up, reviewed #486 and confirmed it solid). Version reaches
-  v0.94.162, nineteen releases.
+  decision layer + early completion) all completed and merged. #480 is real
+  and RELEASED (v0.94.164) — a household can configure a deferrable load's
+  Done sensor today and see the Solver stop scheduling once it fires. The
+  other four remain foundation-only: real, honestly-documented gap left
+  open — no per-load output SENSOR yet (#465's own sub-device pattern), so
+  #484's own guarded commanded_state has nowhere real to be read from yet.
+  Deliberately did NOT build that sensor platform next despite it being the
+  clear blocker every prior section flags — a real new HA entity-registry
+  lifecycle feature is exactly the kind of change the local dev venv can't
+  fully verify (`hass_integration` tests need a newer `homeassistant`
+  package than this machine has); picked #480 instead for its
+  fully-verifiable, #479-shaped risk profile (reads an existing external
+  entity, no new entity lifecycle). Household went to bed partway through
+  with explicit authorization to keep working solo — everything after that
+  point in the entry happened unsupervised, including Mark Purcell's own
+  Claude Code becoming concurrently active on the repo (opened/merged #516
+  for #459's mobile-clipping regression after a CI-lint assist, filed and
+  got #519's topology-card discoverability fix merged, #522 left as his own
+  active follow-up, reviewed #486 and confirmed it solid). Version reaches
+  v0.94.164, twenty releases.
 - [2026-09-06](docs/worklog/2026-09-06.md) — #391/regression/#400 dispatch-card layout
   (three passes, root-caused with a shared CSS variable); #389 solver crash and #390
   whole-horizon infeasibility (penalized grid_import_excess slack); EPR-consistency fix
