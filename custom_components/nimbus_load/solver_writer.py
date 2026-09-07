@@ -153,6 +153,7 @@ import functools
 import io
 import json
 import logging
+import operator
 import os
 import re
 import statistics
@@ -6727,6 +6728,74 @@ def _sample_load_run_state(
         )
 
 
+# nimbus issue #480: a small, FIXED comparison DSL for a deferrable
+# load's own done_when field (e.g. ">= 60") -- deliberately not eval(),
+# since a household-supplied config string must never run as code.
+# Longer operator strings checked first (">="/"<="/"=="/"!=" before the
+# single-char ">"/"<"), so ">= 60" is never misparsed as "> = 60".
+_DONE_WHEN_OPERATORS: dict[str, object] = {
+    ">=": operator.ge,
+    "<=": operator.le,
+    "==": operator.eq,
+    "!=": operator.ne,
+    ">": operator.gt,
+    "<": operator.lt,
+}
+_DONE_WHEN_OPERATOR_ORDER = (">=", "<=", "==", "!=", ">", "<")
+
+
+def _parse_done_when(done_when: str) -> tuple:
+    """Parses done_when into (operator_fn, threshold). Raises ValueError
+    for anything that doesn't match `<op><number>` (whitespace-tolerant)
+    -- the caller treats that as a misconfiguration, not a crash."""
+    stripped = done_when.strip()
+    for op_str in _DONE_WHEN_OPERATOR_ORDER:
+        if stripped.startswith(op_str):
+            threshold_str = stripped[len(op_str) :].strip()
+            return _DONE_WHEN_OPERATORS[op_str], float(threshold_str)
+    msg = (
+        f"done_when {done_when!r} doesn't start with a recognized operator "
+        f"({', '.join(_DONE_WHEN_OPERATOR_ORDER)})"
+    )
+    raise ValueError(msg)
+
+
+def _evaluate_done_condition(done_entity: str, done_when: str | None) -> bool | None:
+    """nimbus issue #480: reads done_entity's real live state and decides
+    whether a deferrable load counts as DONE. Returns True/False, or
+    None for "can't tell right now" (entity missing/unavailable/unknown,
+    or a genuinely malformed done_when) -- the caller's own fail-open
+    contract (#480's acceptance: "a done-sensor going unavailable is
+    ignored... same discipline as #313/#314") treats None as "not done,
+    keep the normal schedule", never as an error.
+
+    done_when=None means done_entity is treated as a binary_sensor --
+    its own "on" state alone is the done condition, the same convention
+    a plain HA automation trigger would use. Any other domain (a numeric
+    tank-temperature sensor, say) needs done_when to say what "done"
+    means for that reading.
+    """
+    if _NATIVE_HASS is None:
+        return None
+    state_obj = _NATIVE_HASS.states.get(done_entity)
+    if state_obj is None or state_obj.state in (None, "unknown", "unavailable"):
+        return None
+    if done_when is None:
+        return state_obj.state == "on"
+    try:
+        op_fn, threshold = _parse_done_when(done_when)
+        return bool(op_fn(float(state_obj.state), threshold))
+    except (ValueError, TypeError):
+        _LOGGER.warning(
+            "Nimbus: controllable load done_entity %s / done_when %r could not "
+            "be evaluated (state %r) -- treating as not done this cycle",
+            done_entity,
+            done_when,
+            state_obj.state,
+        )
+        return None
+
+
 def build_controllable_loads(
     now: datetime, grid_times: list[datetime], n_periods: int
 ) -> tuple[list, list]:
@@ -6767,6 +6836,8 @@ def build_controllable_loads(
             CONF_CONTROLLABLE_LOAD_NAME,
             CONF_CONTROLLABLE_LOAD_POWER_SENSOR,
             CONF_DEFERRABLE_DEADLINE_HOUR,
+            CONF_DEFERRABLE_DONE_ENTITY,
+            CONF_DEFERRABLE_DONE_WHEN,
             CONF_DEFERRABLE_EARLIEST_HOUR,
             CONF_DEFERRABLE_MAX_POWER_KW,
             CONF_DEFERRABLE_SHORTFALL_PRICE,
@@ -6786,6 +6857,8 @@ def build_controllable_loads(
             CONF_CONTROLLABLE_LOAD_NAME,
             CONF_CONTROLLABLE_LOAD_POWER_SENSOR,
             CONF_DEFERRABLE_DEADLINE_HOUR,
+            CONF_DEFERRABLE_DONE_ENTITY,
+            CONF_DEFERRABLE_DONE_WHEN,
             CONF_DEFERRABLE_EARLIEST_HOUR,
             CONF_DEFERRABLE_MAX_POWER_KW,
             CONF_DEFERRABLE_SHORTFALL_PRICE,
@@ -6904,6 +6977,27 @@ def build_controllable_loads(
                     name,
                     deadline_period,
                     earliest_period,
+                )
+                continue
+            # nimbus issue #480: a done_entity that currently reports DONE
+            # means this window's real requirement is already satisfied --
+            # skip this cycle entirely rather than let the LP keep buying
+            # energy this load no longer needs (the issue's own worked
+            # example: HWS scheduled for 3h, reaches setpoint after 2h,
+            # "the third hour is still bought"). Fail-open on anything
+            # else (no done_entity configured, entity unavailable, a
+            # malformed done_when) -- _evaluate_done_condition() only
+            # ever returns True when it's genuinely confident.
+            done_entity = data.get(CONF_DEFERRABLE_DONE_ENTITY)
+            if done_entity and _evaluate_done_condition(
+                done_entity, data.get(CONF_DEFERRABLE_DONE_WHEN)
+            ):
+                _LOGGER.info(
+                    "Nimbus: controllable load '%s' (deferrable) reports "
+                    "done via %s -- releasing the remainder of this "
+                    "window's schedule",
+                    name,
+                    done_entity,
                 )
                 continue
             value_per_kwh = data.get(CONF_DEFERRABLE_VALUE_PER_KWH)

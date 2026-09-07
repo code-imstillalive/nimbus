@@ -37,6 +37,8 @@ from ..const import (
     CONF_CONTROLLABLE_LOAD_NAME,
     CONF_CONTROLLABLE_LOAD_POWER_SENSOR,
     CONF_DEFERRABLE_DEADLINE_HOUR,
+    CONF_DEFERRABLE_DONE_ENTITY,
+    CONF_DEFERRABLE_DONE_WHEN,
     CONF_DEFERRABLE_EARLIEST_HOUR,
     CONF_DEFERRABLE_MAX_POWER_KW,
     CONF_DEFERRABLE_SHORTFALL_PRICE,
@@ -187,6 +189,24 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
         CONF_DEFERRABLE_VALUE_PER_KWH,
         defaults.get(CONF_DEFERRABLE_VALUE_PER_KWH),
         _DOLLAR_PER_KWH_SELECTOR,
+    )
+    # nimbus issue #480: a binary_sensor's own "on" state IS the done
+    # condition (done_when left blank); any other domain needs done_when
+    # too, to know what "done" means for a numeric reading. No domain
+    # restriction on the EntitySelector itself -- binary_sensor and a
+    # plain numeric sensor (tank temperature, etc.) are both real,
+    # expected choices.
+    _optional_field(
+        schema_dict,
+        CONF_DEFERRABLE_DONE_ENTITY,
+        defaults.get(CONF_DEFERRABLE_DONE_ENTITY),
+        selector.EntitySelector(),
+    )
+    _optional_field(
+        schema_dict,
+        CONF_DEFERRABLE_DONE_WHEN,
+        defaults.get(CONF_DEFERRABLE_DONE_WHEN),
+        selector.TextSelector(),
     )
     return vol.Schema(schema_dict)
 

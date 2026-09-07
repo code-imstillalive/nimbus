@@ -62,6 +62,8 @@ Reached the same way as every other subentry: the Nimbus hub's device page →
 | Deadline (24hr decimal, optional) | The real deadline — cumulative energy delivered must reach the target by this time of day. Blank = the whole 96h horizon is the window. |
 | Shortfall price ($/kWh) | The real cost the Solver pays for every kWh short of the target by the deadline. Defaults to `10.00` (`DEFAULT_ADEQUACY_SHORTFALL_PRICE`) — high enough that a genuinely reachable target still gets fully met at any real price; a genuinely unreachable one costs this instead of taking the whole plan infeasible (#477). |
 | Value credit (optional, $/kWh) | A utility credit per kWh served, beyond the bare target — makes this load also run wherever the switchboard's own live shadow price is at or below this value (#482 groundwork), not just enough to hit the deadline. |
+| Done sensor (optional) | A `binary_sensor` or numeric sensor telling the Solver this load is genuinely finished — see "Early completion" below. Leave blank to always follow the target/deadline as configured. |
+| Done condition (optional) | For a numeric done sensor only, e.g. `>= 60` for a tank reaching 60°C. Leave blank when the done sensor is a `binary_sensor` (its own `on` state is the done condition). |
 
 **Earliest/deadline hour resolution, in plain terms:** both fields are a
 24-hour decimal ("hour of day"), resolved against *the next real occurrence
@@ -101,6 +103,9 @@ Real, tracked gaps, not oversights being papered over:
 - **No shadow costing or household-mode wiring** (#483/#485) — a
   Controllable Load's real running cost isn't computed or exposed
   anywhere yet.
+- **No `completed_early_periods`/`kwh_released` reporting, no EMA
+  learning hook** (#480's own remaining scope) — see "Early completion"
+  below for what IS built (the core stop-scheduling mechanic).
 
 ## Run-state store (nimbus issue #479, foundation only)
 
@@ -163,6 +168,36 @@ status sensor/`delivered_today_kwh` vs `target_today_kwh` display are
 all deferred to the same follow-up that builds the sensor/sub-device
 itself (#465's own pattern) — building the analytics layer with nothing
 to show it on would mean building it twice.
+
+## Early completion (nimbus issue #480, core mechanic only)
+
+"Hot water scheduled for 3h, tank reaches setpoint after 2h — the third
+hour is still bought." When a deferrable load's **Done sensor** reports
+done (see the wizard fields above), the Solver stops scheduling any
+further energy for it **this solve cycle onward** — the just-finished
+load simply doesn't appear in the LP's own adequacy-load list at all
+(`build_controllable_loads()`), the same way a misconfigured load is
+skipped, except this is the expected, successful case, logged at INFO
+rather than WARNING.
+
+A `binary_sensor` done sensor's own `on` state alone means done. Any
+other sensor (a tank-temperature reading, say) needs the **Done
+condition** field too — a small, fixed comparison (`>= 60`, `== 1`,
+etc.), deliberately not a free-form expression evaluator (a household-
+supplied config string never runs as code). **Fails open**: a missing
+entity, an `unknown`/`unavailable` state, or a malformed done condition
+is all treated as "not done" — the load keeps its normal schedule,
+exactly matching #480's own acceptance criterion.
+
+**Status: the core skip mechanic only.** Real and working — a load that
+reports done genuinely stops being scheduled. NOT built: the
+`completed_early_periods`/`kwh_released` reporting fields #480's own
+spec also asks for (needs a NEW per-requirement-window delivered-energy
+tracker — genuinely different from #479's own calendar-day-scoped
+`delivered_today_kwh`, since a deferrable load's own deadline window
+doesn't necessarily align with local midnight), and the optional EMA
+run-duration learning hook (explicitly marked optional in #480's own
+spec). Both are real, deferred follow-ups, not silently dropped.
 
 ## Diagnostics
 
