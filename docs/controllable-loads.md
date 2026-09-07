@@ -88,11 +88,35 @@ Real, tracked gaps, not oversights being papered over:
 - **No linked-Forecaster-load option.** A sheddable load's forecast is always
   flat (`nominal_kw`) — there's no way yet to point it at an existing Load
   subentry's own real per-period forecast instead.
-- **`quota`/`thermal`/`price_gated` kinds** aren't selectable — #479/#481/#482
-  need to land first.
+- **`quota`/`thermal`/`price_gated` kinds** aren't selectable — #481/#482
+  need to land first, and #479's own daily-carry math (below) needs a
+  `quota` wizard kind to actually attach to.
 - **No shadow costing, monitoring, or household-mode wiring** (#483/#484/#485)
   — a Controllable Load's real running cost and tracking fidelity aren't
   computed or exposed anywhere yet.
+
+## Run-state store (nimbus issue #479, foundation only)
+
+Every configured load's `power_sensor` (if set) is now sampled once per
+solve tick and folded into a small per-hub JSON store
+(`custom_components/nimbus_load/load_run_state.py`) tracking
+`currently_on`/`on_since`/`off_since`/`delivered_today_kwh` — real
+restart-survivable state, same durability pattern as the Solver's own
+`number.nimbus_solver_*` settings. This lands ahead of the things that
+actually need it (#484's relay-chatter guard needs `on_since`/
+`off_since` to hysteresis-guard `commanded_state`; #480's early
+completion needs `delivered_today_kwh`), rather than alongside them —
+scoped down the same way #486 was, building the shared foundation once
+instead of duplicating a state store per consuming feature.
+
+Also landed: the daily quota carry/rollover math itself
+(`compute_rollover()`/`effective_target_kwh()`/`remaining_kwh()`) —
+fully implemented and tested against #479's own synthetic 3-day
+scenario, but with nothing to attach to yet, since `quota` isn't a
+selectable wizard kind (see above). **Nothing reads this store or this
+math today** — no sensor exposes `delivered_today_kwh`, no LP field
+consumes `remaining_kwh`. It exists so the next feature that needs it
+doesn't have to build it from scratch.
 
 ## Diagnostics
 

@@ -13,11 +13,17 @@ similar module-level-state functions.
 
 from __future__ import annotations
 
+import asyncio
+import sys
+import threading
+import types
 import unittest
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from typing import ClassVar
 
 import _solver_path  # noqa: F401
+import load_run_state
 import solver_writer
 
 _TZ = timezone(timedelta(hours=10))  # Australia/Brisbane, no DST
@@ -294,6 +300,164 @@ class TestBuildControllableLoads(unittest.TestCase):
         self.assertEqual(len(sheddable), 1)
         self.assertEqual(len(adequacy), 2)
         self.assertEqual({a.name for a in adequacy}, {"HWS L1", "HWS L3"})
+
+
+# nimbus issue #479: tests for _sample_load_run_state() and its wiring
+# into build_controllable_loads() -- the one seam solver_writer.py's own
+# top-of-file try/except pattern doesn't cover, since this function
+# imports `homeassistant.helpers.storage.Store` directly (not through
+# this project's own `.const`-style relative/absolute fallback, because
+# it's a real HA core module, not one of this package's own). No stub
+# exists for it in this bare-module test harness (tests/_ha_stubs.py's
+# stub is only ever installed for the full HA-stub suite, which this
+# file's own module-level imports never trigger), so a minimal fake is
+# injected into sys.modules here, same reasoning tests/_ha_stubs.py's
+# own _StubStore gives for number.py's tests.
+
+
+class _FakeRunStateStore:
+    """Real (not mocked) in-memory stand-in for
+    homeassistant.helpers.storage.Store, same shape/reasoning as
+    tests/_ha_stubs.py's own _StubStore -- keyed by the literal `key`
+    string so two instances built with the same key share data."""
+
+    _shared_data: ClassVar[dict] = {}
+
+    def __init__(self, hass, version: int, key: str) -> None:
+        self._key = key
+        self._shared_data.setdefault(key, None)
+
+    async def async_load(self):
+        return self._shared_data.get(self._key)
+
+    async def async_save(self, data) -> None:
+        self._shared_data[self._key] = data
+
+
+_fake_storage_module = types.ModuleType("homeassistant.helpers.storage")
+_fake_storage_module.Store = _FakeRunStateStore
+sys.modules.setdefault("homeassistant", types.ModuleType("homeassistant"))
+sys.modules.setdefault(
+    "homeassistant.helpers", types.ModuleType("homeassistant.helpers")
+)
+sys.modules["homeassistant.helpers.storage"] = _fake_storage_module
+
+
+def _make_running_loop() -> tuple[asyncio.AbstractEventLoop, threading.Thread]:
+    """A real, running background-thread event loop -- matches
+    _NATIVE_HASS.loop's real shape closely enough for
+    asyncio.run_coroutine_threadsafe() (used by _sample_load_run_state,
+    same pattern as this file's own fetch_entity_history_range) to
+    actually work in a test. Caller must stop+join+close it (see
+    TestSampleLoadRunState.tearDown) -- an event loop's own asyncio self-
+    pipe holds real OS sockets that only run_forever()'s own thread ever
+    releases; leaving it running past the test leaks them as unclosed-
+    socket ResourceWarnings, collected by pytest's unraisableexception
+    plugin and misattributed to whatever unrelated test happens to be
+    running at the next GC pass (confirmed live in CI: exactly this,
+    surfacing on test_solver_writer_import_and_token_laziness.py)."""
+    loop = asyncio.new_event_loop()
+    thread = threading.Thread(target=loop.run_forever, daemon=True)
+    thread.start()
+    return loop, thread
+
+
+def _fake_state(value):
+    return SimpleNamespace(state=value)
+
+
+class TestSampleLoadRunState(unittest.TestCase):
+    def setUp(self):
+        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._loop, self._loop_thread = _make_running_loop()
+        _FakeRunStateStore._shared_data.clear()
+
+    def tearDown(self):
+        solver_writer._NATIVE_HASS = self._orig_native_hass
+        self._loop.call_soon_threadsafe(self._loop.stop)
+        self._loop_thread.join(timeout=5)
+        self._loop.close()
+
+    def test_a_real_sample_is_persisted_to_the_run_state_store(self):
+        states = {"sensor.pool_pump_power": _fake_state("1.5")}
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            states=SimpleNamespace(get=lambda eid: states.get(eid)),
+            loop=self._loop,
+        )
+        now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+        solver_writer._sample_load_run_state(
+            "entry_1", "s1", "sensor.pool_pump_power", now, "2026-09-07"
+        )
+
+        async def _read():
+            store = load_run_state.LoadRunStateStore(
+                store=_FakeRunStateStore(None, 1, "nimbus_load_entry_1_load_run_state")
+            )
+            return await store.async_read("s1")
+
+        result = asyncio.run(_read())
+        self.assertTrue(result.currently_on)
+        self.assertEqual(result.day_key, "2026-09-07")
+
+    def test_an_unavailable_sensor_is_silently_skipped(self):
+        states = {"sensor.pool_pump_power": _fake_state("unavailable")}
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            states=SimpleNamespace(get=lambda eid: states.get(eid)),
+            loop=self._loop,
+        )
+        now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+        # Must not raise -- best-effort bookkeeping, per this function's
+        # own docstring.
+        solver_writer._sample_load_run_state(
+            "entry_1", "s_missing", "sensor.pool_pump_power", now, "2026-09-07"
+        )
+
+    def test_a_missing_sensor_is_silently_skipped(self):
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            states=SimpleNamespace(get=lambda eid: None),
+            loop=self._loop,
+        )
+        now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+        solver_writer._sample_load_run_state(
+            "entry_1", "s_missing", "sensor.does_not_exist", now, "2026-09-07"
+        )
+
+    def test_build_controllable_loads_samples_run_state_when_power_sensor_configured(
+        self,
+    ):
+        now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
+        grid_times = _grid(now, 4)
+        states = {"sensor.pool_pump_power": _fake_state("2.0")}
+        entry = SimpleNamespace(
+            entry_id="entry_2",
+            subentries={
+                "s1": _fake_subentry(
+                    "s1",
+                    "controllable_load",
+                    {
+                        "controllable_load_name": "Pool Pump",
+                        "controllable_load_kind": "sheddable",
+                        "sheddable_nominal_kw": 1.5,
+                        "controllable_load_power_sensor": "sensor.pool_pump_power",
+                    },
+                )
+            },
+        )
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            config_entries=SimpleNamespace(async_entries=lambda domain: [entry]),
+            states=SimpleNamespace(get=lambda eid: states.get(eid)),
+            loop=self._loop,
+        )
+        solver_writer.build_controllable_loads(now, grid_times, len(grid_times))
+
+        async def _read():
+            store = load_run_state.LoadRunStateStore(
+                store=_FakeRunStateStore(None, 1, "nimbus_load_entry_2_load_run_state")
+            )
+            return await store.async_read("s1")
+
+        result = asyncio.run(_read())
+        self.assertTrue(result.currently_on)
 
 
 if __name__ == "__main__":
