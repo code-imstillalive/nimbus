@@ -21,10 +21,17 @@ the "CURRENT STATE" journal that used to live directly in this file now lives. E
 file is not re-summarized here; read it directly for the full detail. Most recent 5:
 
 - [2026-09-07](docs/worklog/2026-09-07.md) — #445/#453/#451 real bug fixes; dispatch-card
-  risk-aversion live-effect proof, Solve Now button, nimbus_status sensor; the
-  chart/table layout scrolling saga root-caused (fr-split+breakpoint is structurally
-  fragile, same class as #391/#395/#400/#407) and fixed with flexbox in v0.94.150;
-  #477 (controllable-loads foundation) started, paused mid-flight, stashed not lost.
+  risk-aversion live-effect proof, Solve Now button, nimbus_status sensor. Chart/table
+  layout saga ran through FOUR content-aware CSS formulas (flexbox, two grid+minmax
+  variants) each failing differently live before landing on fixed, content-blind 2/3:1/3
+  grid containers (v0.94.153) — real lesson: every failed attempt was reasoned from an
+  estimated content width, never measured. Real NUC1 incident: battery charged instead
+  of discharging at the 17:00 P2P boundary; root cause NOT confirmed after three
+  theories each disproven/unconfirmed by live evidence; reverted to HAEO for the night,
+  live trace planned before next P2P window. #477 (controllable-loads foundation)
+  completed and merged. #486 (config surface) started, not finished — solver_writer.py
+  wiring still pending, see the entry for exact resume point. Version reaches v0.94.154,
+  eleven releases.
 - [2026-09-06](docs/worklog/2026-09-06.md) — #391/regression/#400 dispatch-card layout
   (three passes, root-caused with a shared CSS variable); #389 solver crash and #390
   whole-horizon infeasibility (penalized grid_import_excess slack); EPR-consistency fix
