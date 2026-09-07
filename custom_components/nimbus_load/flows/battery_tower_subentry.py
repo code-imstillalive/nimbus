@@ -3,7 +3,7 @@ tower for the topology dashboard card. Reached via the "+ Add" button on
 the Nimbus hub's own device page, same mechanism as Load/Power Signal.
 
 Pure wiring/topology metadata -- NOT a forecasting target. Only the 4
-fields topology-card-v4.js's own _batteryBox() actually renders (SoC,
+fields nimbus-topology-card.js's own _batteryBox() actually renders (SoC,
 SoH, Voltage, Temperature -- confirmed by reading that function
 directly, 2026-08-23, rather than assuming this household's own old
 hardcoded prefix convention -- Current/Status/lifetime-charge/lifetime-

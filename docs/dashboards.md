@@ -1,10 +1,12 @@
-# Dashboards — Control Panel and Regret cards
+# Dashboards — Control Panel, Regret, and Topology cards
 
-Two ready-made Lovelace cards ship with this integration (issue #364,
+Three ready-made Lovelace cards ship with this integration (issue #364,
 Mark Purcell) — no `www/` file copy, no manual Settings -> Dashboards ->
 Resources step. Installing/updating Nimbus via HACS is the entire setup
 step; see `custom_components/nimbus_load/frontend.py` for how they're
-served and registered.
+served and registered. All three are findable in the card picker by
+searching "nimbus" (issue #519) — each `type` starts with `nimbus-` and
+each picker entry's name says Nimbus.
 
 ## Nimbus Dispatch Card (`custom:nimbus-dispatch-card-v4`) — "Control Panel"
 
@@ -109,12 +111,55 @@ sections:
         days_ago: 2
 ```
 
+## Nimbus Topology Card (`custom:nimbus-topology-card`) — "Topology"
+
+A real SVG switchboard power-flow diagram: switchboard, inverters (each
+with its own PV strings + battery towers), auto-discovered Loads, and a
+whole-house readout, with live arrows/coloring showing which direction
+power is actually flowing right now.
+
+Auto-discovers almost everything once the Nimbus hub's own Topology
+wizard (hub → Configure → Power Source / PV String / Battery Tower
+steps) has at least one Power Source subentry configured — its live
+data (`sensor.nimbus_topology_config`) wholesale-overrides whatever the
+card's own config says. `switchboard` and `inverters` are still
+**required keys in the card config itself** (the card throws without
+them), even though their actual content gets replaced by the live
+wizard data — so the minimal config for a wizard-configured household
+is:
+
+```yaml
+type: custom:nimbus-topology-card
+switchboard: {}
+inverters: []
+```
+
+Every Nimbus **Load** subentry (HWS, pool, an individual circuit
+breaker — anything added via the hub's own "+ Add" → Load) appears on
+the diagram automatically, with no config at all — added the moment its
+forecast sensor exists, removed the moment it doesn't.
+
+If you'd rather hand-author the topology instead of running the wizard
+(or are still migrating a static file from a hand-copied `www/`
+install), `switchboard`/`inverters` accept the same shape documented in
+`docs/real-world-integration/files/topology_map.yaml` — read that file
+for the full field reference (grid meter, import/export price, per-
+inverter battery/DC power, PV strings, battery tower ID prefixes), not
+to copy its entity IDs, which are one specific household's own hardware.
+
+**Renamed in issue #519** (was `switchboard-topology-card` / "Topology
+Card" — neither said "Nimbus", so it wasn't findable by searching the
+card picker the way the other two cards are). The old
+`custom:switchboard-topology-card` type is kept registered as a
+back-compat alias for one or two releases; update to
+`custom:nimbus-topology-card` when convenient.
+
 ## Migrating from a hand-copied `www/` install
 
-If either card was previously added by hand-copying the JS file into a
-`www/` folder and registering it as a Lovelace resource, remove that
-resource and the file once this integration's own bundled version is
-active — having both loaded on the same dashboard raises a real
+If any of these cards was previously added by hand-copying the JS file
+into a `www/` folder and registering it as a Lovelace resource, remove
+that resource and the file once this integration's own bundled version
+is active — having both loaded on the same dashboard raises a real
 `customElements.define()` collision (the browser refuses to register
 the same custom element tag twice). Update the view's card config to
 the field names above; the entity_ids themselves don't need to change.

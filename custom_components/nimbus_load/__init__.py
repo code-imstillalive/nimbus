@@ -388,7 +388,7 @@ async def _async_setup_entry_impl(
     # nimbus_load.retrain (issue #195) -- idempotent, safe on every reload.
     services.async_register_services(hass)
 
-    # Ship the switchboard-topology-card Lovelace resource -- served
+    # Ship the nimbus-topology-card Lovelace resource -- served
     # over HTTP and registered as an extra JS module via
     # frontend.add_extra_js_url(), so a fresh HACS install gets the card
     # without a `www/` file copy or a manual Settings -> Dashboards ->

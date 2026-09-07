@@ -2,7 +2,7 @@
 issue #364, Mark Purcell) -- generalized from a single hardcoded
 topology-card registration to a small table of (filename, card type)
 pairs, so nimbus-dispatch-card-v4.js ("Control Panel") and
-nimbus-regret-card.js ("Regret") ship the same way switchboard-topology-
+nimbus-regret-card.js ("Regret") ship the same way nimbus-topology-
 card.js already did. Nothing exercised this end-to-end before (the
 existing unit tests all mock `frontend.async_register_frontend` out
 entirely, per that function's own docstring on why a module-level import
@@ -19,6 +19,8 @@ gives for choosing this harness.
 """
 
 from __future__ import annotations
+
+import re
 
 import pytest
 from homeassistant.components.frontend import DATA_EXTRA_MODULE_URL
@@ -88,4 +90,53 @@ async def test_every_shipped_card_is_actually_served_over_http(
         assert card.card_type in body, (
             f"{card.filename}'s served content doesn't mention its own "
             f"card_type {card.card_type!r} -- wrong file served?"
+        )
+
+
+# nimbus issue #519 (Mark Purcell): the topology card's own `type` and
+# picker `name` had neither "nimbus" in them ("switchboard-topology-
+# card" / "Topology Card"), so a household searching the card picker for
+# "nimbus" -- having already found the other two cards that way --
+# concluded the third one wasn't deployed. Regex against the served
+# content rather than a real JS parser: this project has no JS test
+# runner, and the `window.customCards.push({...})` block is a small,
+# stable, single-object literal every shipped card already writes the
+# same way (confirmed by eye across all three files).
+_CUSTOM_CARDS_PUSH_RE = re.compile(
+    r"window\.customCards\.push\(\{(?P<body>.*?)\}\);", re.DOTALL
+)
+_FIELD_RE = re.compile(r"""(\w+):\s*["'](.*?)["']""")
+
+
+async def test_every_shipped_cards_picker_identity_says_nimbus(
+    hass: HomeAssistant, hass_client, nimbus_entry: MockConfigEntry
+):
+    """So the next new card -- or the next rename -- can't silently drift
+    back into a picker entry a household can't find by searching
+    "nimbus", the way this issue's own topology card did."""
+    client = await hass_client()
+    for card in _CARDS:
+        resp = await client.get(f"/{DOMAIN}/{card.filename}")
+        body = await resp.text()
+        match = _CUSTOM_CARDS_PUSH_RE.search(body)
+        assert match, (
+            f"{card.filename} has no window.customCards.push({{...}}) "
+            f"block -- not registered in the card picker at all"
+        )
+        fields = dict(_FIELD_RE.findall(match.group("body")))
+        assert fields.get("type", "").startswith("nimbus-"), (
+            f"{card.filename}'s picker type {fields.get('type')!r} doesn't "
+            f"start with 'nimbus-' -- not findable by searching \"nimbus\" "
+            f"in the card picker"
+        )
+        assert "nimbus" in fields.get("name", "").lower(), (
+            f"{card.filename}'s picker name {fields.get('name')!r} doesn't "
+            f'mention Nimbus -- not findable by searching "nimbus" in '
+            f"the card picker"
+        )
+        # The type registered in the picker must also be the one actually
+        # served -- i.e. _CARDS' own card_type, not a stale alias.
+        assert fields.get("type") == card.card_type, (
+            f"{card.filename}'s picker type {fields.get('type')!r} doesn't "
+            f"match _CARDS' own registered card_type {card.card_type!r}"
         )

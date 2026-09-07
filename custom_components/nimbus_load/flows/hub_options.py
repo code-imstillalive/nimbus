@@ -622,7 +622,7 @@ def _discover_nimbus_load_forecast_candidates(
     Mark Purcell critique, relayed: entity-pointer fields are confusing
     to fill in cold, since a fresh install has no way to know which of
     its own dozens of live entities are the RIGHT kind of candidate).
-    Mirrors the already-proven, already-live pattern topology-card-v4.js
+    Mirrors the already-proven, already-live pattern nimbus-topology-card.js
     uses client-side (_discoverLoads()/_discoverPowerSignalsByRole()) --
     scan hass.states for Nimbus's own real, live forecast entities
     (every one is tagged with ATTR_SUBENTRY_TYPE at publish time, see
@@ -880,7 +880,7 @@ async def _energy_dashboard_switchboard_suggestions(hass: Any) -> dict[str, str]
 # entities should be auto detected by topo card and only the daily
 # summaries should be a part of a wizard"): grid_meter and
 # battery_power are GONE from this form entirely, not just moved to a
-# later step -- topology-card-v4.js now auto-discovers both directly
+# later step -- nimbus-topology-card.js now auto-discovers both directly
 # from whichever Power Signal subentry carries CONF_SIGNAL_ROLE
 # "grid"/"battery" (see const.py's own comment on CONF_SIGNAL_ROLE for
 # why role has to be explicit, not guessed from naming). What's left
