@@ -19,6 +19,7 @@ import unittest
 import _solver_path  # noqa: F401
 import numpy as np
 from solver.elements import (
+    DEFAULT_ADEQUACY_SHORTFALL_PRICE,
     AdequacyLoadConfig,
     BatteryConfig,
     GridConfig,
@@ -96,6 +97,7 @@ class TestSharedCircuitCapReproducesAndFixesRealCollision(unittest.TestCase):
                 target_kwh=3.7,
                 earliest_period=0,
                 deadline_period=1,
+                shortfall_price=DEFAULT_ADEQUACY_SHORTFALL_PRICE,
             ),
             AdequacyLoadConfig(
                 name="hws_l3",
@@ -103,6 +105,7 @@ class TestSharedCircuitCapReproducesAndFixesRealCollision(unittest.TestCase):
                 target_kwh=3.7,
                 earliest_period=0,
                 deadline_period=1,
+                shortfall_price=DEFAULT_ADEQUACY_SHORTFALL_PRICE,
             ),
         ]
         return build_plan(
@@ -192,6 +195,7 @@ class TestSharedCircuitMissingMemberRaises(unittest.TestCase):
                 target_kwh=1.0,
                 earliest_period=0,
                 deadline_period=1,
+                shortfall_price=DEFAULT_ADEQUACY_SHORTFALL_PRICE,
             )
         ]
         shared = [
@@ -215,13 +219,22 @@ class TestSharedCircuitMissingMemberRaises(unittest.TestCase):
         self.assertIn("hws_l3", str(ctx.exception))
 
 
-class TestSharedCircuitGenuineInfeasibility(unittest.TestCase):
+class TestSharedCircuitGenuineShortfall(unittest.TestCase):
     """A shared cap can make two individually-achievable targets jointly
-    impossible within an identical, too-narrow shared window -- must
-    surface honestly as status="infeasible", same standard as a single
-    AdequacyLoadConfig's own genuinely-impossible target."""
+    impossible within an identical, too-narrow shared window. nimbus
+    issue #477 changed the honest surface for this from status=
+    "infeasible" to a real, combined shortfall -- SharedCircuitConfig's
+    own cap is still a hard per-period constraint (untouched by #477,
+    no slack mechanism exists for it), but each individual
+    AdequacyLoadConfig's own deadline is soft now, so the two loads
+    fighting over one shared, too-small window shows up as shortfall
+    split across them (the LP is indifferent to exactly how it's split
+    here -- both loads share an identical price/window/shortfall_price,
+    so only the COMBINED total across both is a meaningful assertion)."""
 
-    def test_cap_too_low_for_both_loads_single_shared_window_is_infeasible(self):
+    def test_cap_too_low_for_both_loads_single_shared_window_reports_shortfall(
+        self,
+    ):
         n = 1  # both loads have ONLY this one period to run in
         periods = _flat_grid(n)
         grid = GridConfig(
@@ -239,6 +252,7 @@ class TestSharedCircuitGenuineInfeasibility(unittest.TestCase):
                 target_kwh=3.7,
                 earliest_period=0,
                 deadline_period=0,
+                shortfall_price=DEFAULT_ADEQUACY_SHORTFALL_PRICE,
             ),
             AdequacyLoadConfig(
                 name="hws_l3",
@@ -246,6 +260,7 @@ class TestSharedCircuitGenuineInfeasibility(unittest.TestCase):
                 target_kwh=3.7,
                 earliest_period=0,
                 deadline_period=0,
+                shortfall_price=DEFAULT_ADEQUACY_SHORTFALL_PRICE,
             ),
         ]
         # Both need the full 3.7kW in the SAME single period to hit their
@@ -269,10 +284,17 @@ class TestSharedCircuitGenuineInfeasibility(unittest.TestCase):
         )
         self.assertEqual(
             plan.status,
-            "infeasible",
-            "a shared cap that makes two individually-achievable targets "
-            "jointly impossible must surface honestly as infeasible",
+            "optimal",
+            "a shared-cap conflict between two individually-achievable "
+            "targets must no longer take the whole plan infeasible -- "
+            "it's a priced, combined shortfall now",
         )
+        total_delivered = sum(
+            al.delivered_by_deadline_kwh for al in plan.adequacy_loads
+        )
+        total_shortfall = sum(al.shortfall_kwh for al in plan.adequacy_loads)
+        self.assertAlmostEqual(total_delivered, 3.7, delta=1e-3)
+        self.assertAlmostEqual(total_shortfall, 3.7, delta=1e-3)
 
 
 class TestSharedCircuitsDefaultIsANoOp(unittest.TestCase):
@@ -294,6 +316,7 @@ class TestSharedCircuitsDefaultIsANoOp(unittest.TestCase):
                 target_kwh=2.0,
                 earliest_period=0,
                 deadline_period=1,
+                shortfall_price=DEFAULT_ADEQUACY_SHORTFALL_PRICE,
             )
         ]
         plan_none = build_plan(
