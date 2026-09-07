@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.146] — 2026-09-07
+
+### Changed
+- **Fix [#451](https://github.com/code-imstillalive/nimbus/issues/451) (Mark Purcell): `build_tiered_grid()`'s fine-resolution tier no longer runs a fixed 24h.** Tier1's 5-min resolution is now boundary-snapped to the real current + next NEM trading interval (:00/:30) — matching what LocalVolts/AEMO's real forward price data actually supports (genuine 5-min coverage is only the current settlement interval; the longer-horizon AEMO PD7DAY report is natively 30-min). Tier2 now runs at 30-min (was 1h), matching PD7DAY's own real cadence. Total periods drop from ~365 to ~200-206 — roughly 45% fewer LP variables and constraints, with zero loss of genuine forecast fidelity since nothing beyond the current+next interval was ever really 5-min-informed to begin with.
+- The two report-scoring functions (`compute_daily_quality_report`/`compute_efficiency_backtest_report`, [#438](https://github.com/code-imstillalive/nimbus/issues/438)/[#441](https://github.com/code-imstillalive/nimbus/issues/441)) now match the live dispatch's real dominant resolution given tier1's new, much shorter span.
+
+### Fixed
+- **Fix [#459](https://github.com/code-imstillalive/nimbus/issues/459) (Mark Purcell): the forecast-intervals table no longer stretches to fill wide dashboard panels.** `width: 100%` was overriding [#457](https://github.com/code-imstillalive/nimbus/issues/457)'s own tightened cell padding on wide (~1900px) panels — the browser's table auto-layout redistributes leftover width as empty padding regardless of how tight the cell padding is. The table now sizes to its own real content; `min-width` still floors it on narrow containers.
+
 ## [0.94.145] — 2026-09-07
 
 ### Fixed
