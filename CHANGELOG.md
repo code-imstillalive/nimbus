@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.158] — 2026-09-07
+
+### Changed
+- **Dispatch-card forecast table font 20% smaller** (1.08em → 0.86em), on top of the real Time-column fix in v0.94.157 — direct household ask to help the table fit without scrolling.
+
 ## [0.94.157] — 2026-09-07
 
 ### Fixed
