@@ -226,6 +226,17 @@ class NimbusDispatchCardV4 extends HTMLElement {
     this._lastRenderAt = now;
     const prevWrap = this._built ? this.shadowRoot.querySelector('.ftable-wrap') : null;
     const prevScrollTop = prevWrap ? prevWrap.scrollTop : 0;
+    // 2026-09-07: direct household report -- horizontal scroll snapped
+    // back to the left on every re-render ("magnetic, pulls to the left
+    // every second"). Same real cause as the vertical version this file
+    // already fixed (2026-09-05, see this function's own top-of-function
+    // comment): every re-render tears out and rebuilds .ftable-wrap's DOM
+    // node, resetting its scroll position -- but that earlier fix only
+    // ever captured/restored scrollTop, never scrollLeft, so the
+    // horizontal axis was still silently broken every ~3s throttled
+    // rebuild. Same capture-before/restore-after pattern, just the other
+    // axis too.
+    const prevScrollLeft = prevWrap ? prevWrap.scrollLeft : 0;
 
     const modeEnt = this._modeEntity ? hass.states[this._modeEntity] : undefined;
     const mode = modeEnt ? modeEnt.state : 'Self-Consume';
@@ -899,19 +910,27 @@ class NimbusDispatchCardV4 extends HTMLElement {
         // the fold.
         '.ftable-wrap { width: 100%; overflow-x: auto; overflow-y: auto; max-height: 640px; margin-top: 4px; border-radius: 12px; border: 1px solid rgba(255,255,255,0.06); }' +
         '.ftable-note { font-size: 1.0em; opacity: 0.45; margin: 0 0 6px; }' +
-        // nimbus issue #459 (Mark Purcell): width:100% + min-width together
-        // meant the table always stretched to fill whatever container it
-        // sat in -- on a narrow card the 640px floor was doing real work,
-        // but on a wide (~1900px) panel the browser's own table auto-layout
-        // redistributed the leftover width as pure empty padding across
-        // every numeric column, undoing #457's own tightened cell padding.
-        // Dropping width:100% lets the table default to its own natural,
-        // content-driven width (browsers' standard table auto-layout
-        // already sizes columns to their real content otherwise) --
-        // min-width still floors it at 640px on a narrow container, and
-        // .ftable-wrap's own overflow-x:auto still handles anything
-        // narrower than that, unchanged.
-        'table.ftable { border-collapse: collapse; font-size: 1.08em; min-width: var(--ftable-min-width); }' +
+        // nimbus issue #459 (Mark Purcell) removed width:100% here because
+        // back then table.ftable's container was the WHOLE wide panel
+        // (uncapped, ~1900px) -- leftover width past the table's real
+        // content got redistributed as ugly empty column padding.
+        // 2026-09-07: re-added now that the container is different --
+        // table-col is a fixed, content-blind 1/3 of the row (see
+        // .chart-table-grid's own CSS comment), a modest, STABLE box, not
+        // an unbounded panel. Without width:100%, table.ftable sat at its
+        // own natural content width inside that box, which on a lighter
+        // render (fewer P2P pills, fewer populated columns) left real dead
+        // space on both sides while every column stayed packed at its bare
+        // minimum -- squished AND wasted space at once, a direct household
+        // report. With width:100%, the table always exactly fills its
+        // fixed box: on a lighter render the extra width spreads evenly
+        // across columns instead of sitting empty; on a heavier render
+        // (more real content than the box can hold) min-width plus
+        // .ftable-wrap's own overflow-x:auto still floor it and scroll
+        // internally, unchanged -- the #459 regression can't recur because
+        // the container itself can no longer grow unbounded the way the
+        // old full-width single-column layout could.
+        'table.ftable { border-collapse: collapse; font-size: 1.08em; min-width: var(--ftable-min-width); width: 100%; }' +
         'table.ftable thead th { text-align: left; text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.85em; opacity: 0.5;' +
           ' font-weight: 600; padding: 6px 10px; border-bottom: 1px solid rgba(255,255,255,0.1); position: sticky; top: 0; background: #14181f; }' +
         'table.ftable thead th.num { text-align: right; }' +
@@ -1187,6 +1206,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
     // the comment at the top of _render() for why this is needed at all.
     const newWrap = this.shadowRoot.querySelector('.ftable-wrap');
     if (newWrap && prevScrollTop) newWrap.scrollTop = prevScrollTop;
+    if (newWrap && prevScrollLeft) newWrap.scrollLeft = prevScrollLeft;
 
     this.shadowRoot.querySelectorAll('.mode-chip').forEach(btn => {
       btn.addEventListener('click', () => this._setMode(btn.dataset.mode));
