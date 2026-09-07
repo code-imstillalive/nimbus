@@ -773,16 +773,20 @@ class NimbusDispatchCardV4 extends HTMLElement {
               : '') +
           '</td>' +
           '<td class="source-col">' + sourceBar + '</td>' +
-          '<td class="num">' + buyC.toFixed(1) + '</td>' +
-          '<td class="num">' + feesC.toFixed(1) + '</td>' +
-          '<td class="num">' + spotC.toFixed(1) + '</td>' +
-          '<td class="num">' + p2pCell + '</td>' +
-          '<td class="num">' + (parseFloat(p.load_kw) || 0).toFixed(1) + '</td>' +
-          '<td class="num">' + (parseFloat(p.solar_kw) || 0).toFixed(1) + '</td>' +
-          '<td class="num" style="color:' + battColor + '; font-weight:600;">' + bkwRow.toFixed(1) + (bonusKwActive ? ' &#9889;' : '') + '</td>' +
-          '<td class="num" style="color:' + gridColor + ';">' + gridKwRow.toFixed(1) + '</td>' +
+          // nimbus #459: each .num cell carries both precision spans; a
+          // container-query rule below shows .num-round in compact and
+          // .num-full in wide. Ints stay legible at 350px card width
+          // where two-decimal precision only causes column collision.
+          '<td class="num"><span class="num-full">' + buyC.toFixed(1) + '</span><span class="num-round">' + Math.round(buyC) + '</span></td>' +
+          '<td class="num col-fees"><span class="num-full">' + feesC.toFixed(1) + '</span><span class="num-round">' + Math.round(feesC) + '</span></td>' +
+          '<td class="num"><span class="num-full">' + spotC.toFixed(1) + '</span><span class="num-round">' + Math.round(spotC) + '</span></td>' +
+          '<td class="num col-p2p">' + p2pCell + '</td>' +
+          '<td class="num"><span class="num-full">' + (parseFloat(p.load_kw) || 0).toFixed(1) + '</span><span class="num-round">' + Math.round(parseFloat(p.load_kw) || 0) + '</span></td>' +
+          '<td class="num"><span class="num-full">' + (parseFloat(p.solar_kw) || 0).toFixed(1) + '</span><span class="num-round">' + Math.round(parseFloat(p.solar_kw) || 0) + '</span></td>' +
+          '<td class="num" style="color:' + battColor + '; font-weight:600;"><span class="num-full">' + bkwRow.toFixed(1) + (bonusKwActive ? ' &#9889;' : '') + '</span><span class="num-round">' + Math.round(bkwRow) + (bonusKwActive ? ' &#9889;' : '') + '</span></td>' +
+          '<td class="num" style="color:' + gridColor + ';"><span class="num-full">' + gridKwRow.toFixed(1) + '</span><span class="num-round">' + Math.round(gridKwRow) + '</span></td>' +
           '<td class="num">' + (parseFloat(p.soc_pct) || 0).toFixed(0) + '%</td>' +
-          '<td class="num ' + netClass + '">$' + net.toFixed(2) + '</td>' +
+          '<td class="num ' + netClass + '"><span class="num-full">$' + net.toFixed(2) + '</span><span class="num-round">$' + Math.round(net) + '</span></td>' +
         '</tr>'
       );
     }
@@ -1050,6 +1054,10 @@ class NimbusDispatchCardV4 extends HTMLElement {
         // ftable-wrap resolves below 500px (phone cards, ~360-412px
         // real). Every rule inside this block only applies then;
         // wide-card rendering is unchanged.
+        // .num cells carry both precision spans everywhere; wide-card
+        // rendering shows .num-full and hides .num-round.
+        '.num-full { display: inline; }' +
+        '.num-round { display: none; }' +
         '@container ftable (max-width: 500px) {' +
           // Fixed layout so the browser cannot redistribute leftover
           // width as empty padding, and no min-width floor so the table
@@ -1058,6 +1066,10 @@ class NimbusDispatchCardV4 extends HTMLElement {
           // Every td tight, numbers even tighter.
           'table.ftable td, table.ftable thead th { padding: 3px 3px; }' +
           'table.ftable td.num, table.ftable thead th.num { padding-left: 3px; padding-right: 3px; }' +
+          // Header row: 4-char labels do not fit in 8 numeric columns
+          // at 350px card width; shrink the header text so the columns
+          // stay readable. Data rows keep the parent font-size (14/16px).
+          'table.ftable thead th { font-size: 0.65em; letter-spacing: -0.02em; }' +
           // TIME: exactly 5ch, centred. Clock hidden on the now row;
           // NOW tag hidden on every other row.
           'table.ftable th.time-col, table.ftable td.time-col { width: 5ch; min-width: 5ch; max-width: 5ch; text-align: center; padding-left: 3px; padding-right: 3px; }' +
@@ -1070,6 +1082,16 @@ class NimbusDispatchCardV4 extends HTMLElement {
           'table.ftable th.source-col { font-size: 0; letter-spacing: 0; }' +
           '.src-wide { display: none; }' +
           '.src-compact { display: inline-flex; }' +
+          // Hide fees + p2p columns entirely -- both are usually 0/blank
+          // at Mark Purcell (2026-09-07 request) and their headers were
+          // colliding in the compact TIME/SOURCE + 10-column layout.
+          'table.ftable th.col-fees, table.ftable td.col-fees { display: none; }' +
+          'table.ftable th.col-p2p, table.ftable td.col-p2p { display: none; }' +
+          // Round remaining numeric values to whole numbers so the 8
+          // narrow columns fit within 250-300px without adjacent values
+          // touching.
+          '.num-full { display: none; }' +
+          '.num-round { display: inline; }' +
         '}' +
         /* Landscape/desktop layout (nimbus issue #391, Mark Purcell): below
            this breakpoint the card stays a single vertical column (the
@@ -1243,7 +1265,7 @@ class NimbusDispatchCardV4 extends HTMLElement {
         '</div>' +
         '<div class="ftable-wrap"><table class="ftable">' +
           '<thead><tr>' +
-            '<th class="time-col">Time</th><th class="source-col">Source</th><th class="num">Buy&cent;</th><th class="num">Fees&cent;</th><th class="num">Sell&cent;</th><th class="num">P2P&cent;</th><th class="num">Load</th><th class="num">Solar</th><th class="num">Batt</th><th class="num">Grid</th><th class="num">SoC%</th><th class="num">Net$</th>' +
+            '<th class="time-col">Time</th><th class="source-col">Source</th><th class="num">Buy&cent;</th><th class="num col-fees">Fees&cent;</th><th class="num">Sell&cent;</th><th class="num col-p2p">P2P&cent;</th><th class="num">Load</th><th class="num">Solar</th><th class="num">Batt</th><th class="num">Grid</th><th class="num">SoC%</th><th class="num">Net$</th>' +
           '</tr></thead>' +
           '<tbody>' + forecastRows + '</tbody>' +
         '</table></div>' +

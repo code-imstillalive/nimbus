@@ -345,8 +345,64 @@ def test_row_html_emits_both_source_spans_and_both_time_tags():
         'class="time-nowtag-compact',
         'class="time-clock"',
         'class="source-dot',
+        'class="num-full"',
+        'class="num-round"',
+        'class="num col-fees"',
+        'class="num col-p2p"',
     ):
         assert expected in src, (
             f"row rendering must include '{expected}' -- the CSS above "
             f"targets it and would be silently no-op otherwise"
         )
+
+
+# --------------------------------------------------------------------------- #
+# Compact column drop + rounding                                              #
+# --------------------------------------------------------------------------- #
+
+
+def test_wide_default_num_full_visible_num_round_hidden(top_rules):
+    """Wide-card default: precise .num-full values render, rounded
+    .num-round values are hidden."""
+    full = _find_rule(top_rules, lambda s: s == ".num-full")
+    rnd = _find_rule(top_rules, lambda s: s == ".num-round")
+    assert full is not None and rnd is not None, (
+        ".num-full and .num-round default rules missing"
+    )
+    assert _decls(full).get("display") == "inline"
+    assert _decls(rnd).get("display") == "none"
+
+
+def test_compact_hides_fees_column(compact_rules):
+    """Compact block hides the fees column entirely (both header and cells).
+    Fees are usually 0 in Mark Purcell's data and their header collides
+    with adjacent columns at 350px card width."""
+    r = _find_rule(
+        compact_rules,
+        lambda s: "th.col-fees" in s and "td.col-fees" in s,
+    )
+    assert r is not None, "compact block must hide .col-fees column"
+    assert _decls(r).get("display") == "none"
+
+
+def test_compact_hides_p2p_column(compact_rules):
+    """Compact block hides the P2P column entirely."""
+    r = _find_rule(
+        compact_rules,
+        lambda s: "th.col-p2p" in s and "td.col-p2p" in s,
+    )
+    assert r is not None, "compact block must hide .col-p2p column"
+    assert _decls(r).get("display") == "none"
+
+
+def test_compact_flips_num_full_and_num_round(compact_rules):
+    """Inside the compact block, .num-full hides and .num-round shows so
+    each numeric cell renders as a whole integer. Values like -0.1 that
+    round to 0 are the intended tradeoff for legibility at 350px."""
+    full = _find_rule(compact_rules, lambda s: s == ".num-full")
+    rnd = _find_rule(compact_rules, lambda s: s == ".num-round")
+    assert full is not None and rnd is not None, (
+        "compact block must override both .num-full and .num-round"
+    )
+    assert _decls(full).get("display") == "none"
+    assert _decls(rnd).get("display") == "inline"
