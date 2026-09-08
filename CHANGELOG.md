@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.184] — 2026-09-08
+
+### Fixed
+- **Quality scorer no longer flags a real physical battery-boundary reading as `out_of_range`** (nimbus issue #571, Mark Purcell — confirmed against real recorder data he pulled on request). A pack that genuinely runs down to its own cut-off (real SoC sensor at 0.0%, verified against the plant's own discharge-cut-off reading, not a sensor fault) could still leave the achieved (integrated) trajectory's own round-trip-efficiency accounting a few points negative for that hour — the scorer read this as the achieved and real sensors describing different storage, when it was really integration loss landing right at a genuine physical edge. `_soc_discrepancy_stats()` now only flags an hour's excursion past 0%/100% as `out_of_range` when the real SoC sensor *isn't itself* already within a small tolerance (`_SOC_BOUNDARY_EDGE_TOLERANCE_PCT = 1.0`) of that same boundary — a real in-range sensor near the edge confirms the excursion is genuine, not a data-continuity problem. The reported gap itself is still clamped exactly as before; only the reliability classification changes. `_soc_discrepancy_stats()` is unit-tested directly (existing convention in this file) with 4 new cases covering both the excused-edge and still-flagged-when-genuinely-wrong paths.
+
 ## [0.94.183] — 2026-09-08
 
 ### Added
