@@ -84,6 +84,18 @@ class LoadRunState:
     # this pair implements.
     pending_state: bool | None = None
     pending_since: float | None = None  # epoch seconds
+    # The output-layer gap #484's own docstring flagged ("no consumer
+    # yet"): how many times TODAY dispatch_commanded_state() has actually
+    # issued a real ON command for this load -- a genuinely new concept,
+    # distinct from commanded_since (which tracks WHEN the current
+    # published value took effect, not how many times it's flipped on).
+    # Rolled to 0 on a day_key change via record_activation() itself (the
+    # only writer of this field), same "reset at local midnight" posture
+    # apply_power_sample() already uses for delivered_today_kwh -- kept as
+    # its own small function rather than folded into apply_power_sample()
+    # since activations are counted at DISPATCH time (a real service call
+    # actually issued), not at every solve tick's power sample.
+    activations_today: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -98,6 +110,7 @@ class LoadRunState:
             "commanded_since": self.commanded_since,
             "pending_state": self.pending_state,
             "pending_since": self.pending_since,
+            "activations_today": self.activations_today,
         }
 
     @staticmethod
@@ -114,6 +127,7 @@ class LoadRunState:
             commanded_since=data.get("commanded_since"),
             pending_state=data.get("pending_state"),
             pending_since=data.get("pending_since"),
+            activations_today=int(data.get("activations_today", 0)),
         )
 
 
@@ -286,6 +300,51 @@ def decide_commanded_state(
             pending_since=None,
         )
     return state
+
+
+def activation_allowed(
+    state: LoadRunState,
+    *,
+    max_activations_per_day: int | None,
+    day_key: str,
+) -> bool:
+    """nimbus issue #534 item 3: the daily activation cap ("a cap of 3
+    performance activations per 24h", the bridge's own real device-side
+    constraint, made configurable per load rather than hard-coded).
+    `max_activations_per_day=None` is the default/no-op -- every load with
+    no cap configured is always allowed, matching every other optional
+    field's convention in this project.
+
+    Reads state.activations_today directly against `day_key` rather than
+    calling record_activation() itself, so a caller can check BEFORE
+    deciding whether to actually dispatch (dispatch_commanded_state()'s
+    own real use) without side effects from the check alone. If
+    state.day_key doesn't match day_key yet (the state hasn't rolled over
+    for today), today's real count is 0 -- record_activation() below is
+    what actually performs that roll, this function only reads."""
+    if max_activations_per_day is None:
+        return True
+    today_count = state.activations_today if state.day_key == day_key else 0
+    return today_count < max_activations_per_day
+
+
+def record_activation(state: LoadRunState, *, day_key: str) -> LoadRunState:
+    """Called by dispatch_commanded_state() exactly once per real ON
+    command actually issued (never for a command that activation_allowed()
+    blocked, and never for an OFF command -- the cap is specifically on
+    "performance activations", per #534's own wording). Rolls
+    activations_today to 0 first if `day_key` is a new day relative to
+    state.day_key -- this is the field's only writer, so this is also the
+    only place that roll happens; unlike apply_power_sample() above, this
+    intentionally does NOT touch delivered_today_kwh/carry_kwh/currently_on
+    -- those roll over on their own schedule from real power samples, this
+    is a separate, dispatch-time count."""
+    base = (
+        state
+        if state.day_key == day_key
+        else replace(state, activations_today=0, day_key=day_key)
+    )
+    return replace(base, activations_today=base.activations_today + 1)
 
 
 @dataclass

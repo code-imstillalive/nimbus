@@ -38,10 +38,11 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.loader import async_get_integration
 
-from . import health, sensor_flattened
+from . import health, load_run_state, sensor_flattened
 from .const import (
     ATTR_FORECAST,
     ATTR_MASE_SCALE_POINTS,
@@ -65,6 +66,9 @@ from .const import (
     CONF_BATTERY_TOWER_SOH_SENSOR,
     CONF_BATTERY_TOWER_TEMPERATURE_SENSOR,
     CONF_BATTERY_TOWER_VOLTAGE_SENSOR,
+    CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY,
+    CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY,
+    CONF_CONTROLLABLE_LOAD_MIN_HOLD_MINUTES,
     CONF_LOAD_SENSOR,
     CONF_POWER_SOURCE_BATTERY_SENSOR,
     CONF_POWER_SOURCE_DC_SENSOR,
@@ -160,6 +164,7 @@ from .const import (
     SIGNAL_ROLE_TEMPERATURE,
     SUBENTRY_TYPE_BATTERY_PARTICIPANT,
     SUBENTRY_TYPE_BATTERY_TOWER,
+    SUBENTRY_TYPE_CONTROLLABLE_LOAD,
     SUBENTRY_TYPE_LOAD,
     SUBENTRY_TYPE_POWER_SOURCE,
     SUBENTRY_TYPE_PV_STRING,
@@ -596,6 +601,19 @@ async def async_setup_entry(
             _remediate_forecast_lts_unit(
                 hass, forecast_entity.entity_id, UnitOfPower.KILO_WATT
             )
+        )
+
+    # nimbus issue #476/#484/#534: one Commanded State sensor per
+    # controllable_load subentry, own device -- see
+    # NimbusControllableLoadStateSensor's own docstring for why this
+    # can't share the coordinator-based loop above (LoadRunStateStore
+    # reads are async I/O against a real Store, not a coordinator).
+    for subentry in entry.subentries.values():
+        if subentry.subentry_type != SUBENTRY_TYPE_CONTROLLABLE_LOAD:
+            continue
+        async_add_entities(
+            [NimbusControllableLoadStateSensor(hass, entry, subentry, sw_version)],
+            config_subentry_id=subentry.subentry_id,
         )
 
     # One per hub, NOT per subentry (added straight to the top-level
@@ -1166,6 +1184,88 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
             ATTR_SUBENTRY_TYPE: self._subentry_type,
             ATTR_SIGNAL_ROLE: self._signal_role,
             ATTR_SOURCE_SENSOR: self._source_sensor,
+        }
+
+
+class NimbusControllableLoadStateSensor(SensorEntity):
+    """nimbus issue #476/#484/#534: the sensor #484's own docstring
+    flagged as missing ("no consumer yet") -- exposes one Controllable
+    Load's own persisted `load_run_state.LoadRunState` (currently_on,
+    commanded_state, delivered_today_kwh, activations_today, and every
+    other field that store carries) as a real HA entity, one per
+    `controllable_load` subentry, on that subentry's own device (same
+    per-subentry-device pattern NimbusForecastSensor uses for Load/
+    Signal subentries -- `identifiers={(DOMAIN, subentry.subentry_id)}`).
+
+    Reads the SAME Store apply_commanded_state_guard() in solver_writer.py
+    writes to (`f"{DOMAIN}_{entry.entry_id}_load_run_state"`) -- this
+    entity is a pure reader, it never writes. `native_value` is a plain
+    "on"/"off" string (this project's own convention for a status/state
+    sensor elsewhere, e.g. NimbusStatusSensor, rather than a dedicated
+    binary_sensor platform this repo doesn't otherwise have) reflecting
+    commanded_state; every other run-state field, plus this load's own
+    configured device_entity/min_hold_minutes/max_activations_per_day
+    (so a consumer can see WHY a value is what it is without cross-
+    referencing the wizard), is an attribute.
+
+    `_attr_should_poll = True` with the default HA scan interval --
+    LoadRunStateStore's own `async_load()` is genuinely async I/O (reads
+    a real `.storage` JSON file), so this can't be a plain synchronous
+    property the way NimbusHealthReportSensor's own native_value is;
+    `async_update()` is HA's own supported hook for exactly this shape
+    of entity.
+    """
+
+    _attr_has_entity_name = True
+    _attr_name = "Commanded State"
+    _attr_entity_category = None  # a real, actively-read data source
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: NimbusConfigEntry,
+        subentry: ConfigSubentry,
+        sw_version: str | None,
+    ) -> None:
+        self._hass = hass
+        self._entry = entry
+        self._subentry = subentry
+        self._attr_unique_id = f"{subentry.subentry_id}_commanded_state"
+        self.entity_id = f"sensor.nimbus_{subentry.subentry_id}_commanded_state"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, subentry.subentry_id)},
+            name=subentry.title,
+            manufacturer="Nimbus",
+            model="Controllable Load",
+            sw_version=sw_version,
+        )
+        self._native_value: str | None = None
+        self._attrs: dict = {}
+
+    @property
+    def native_value(self) -> str | None:
+        return self._native_value
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return self._attrs
+
+    async def async_update(self) -> None:
+        store = load_run_state.LoadRunStateStore(
+            store=Store(
+                self._hass, 1, f"{DOMAIN}_{self._entry.entry_id}_load_run_state"
+            )
+        )
+        state = await store.async_read(self._subentry.subentry_id)
+        self._native_value = "on" if state.commanded_state else "off"
+        data = self._subentry.data
+        self._attrs = {
+            **state.to_dict(),
+            "device_entity": data.get(CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY),
+            "min_hold_minutes": data.get(CONF_CONTROLLABLE_LOAD_MIN_HOLD_MINUTES),
+            "max_activations_per_day": data.get(
+                CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY
+            ),
         }
 
 

@@ -493,5 +493,80 @@ class TestLoadRunStateStore(unittest.TestCase):
         self.assertEqual(state_b.delivered_today_kwh, 9.0)
 
 
+class TestActivationAllowedAndRecordActivation(unittest.TestCase):
+    """nimbus issue #534 item 3: the daily activation cap -- "a cap of 3
+    performance activations per 24h", the real bridge's own device-side
+    constraint, made configurable per load rather than hard-coded. See
+    solver_writer.py's own apply_commanded_state_guard() for how these two
+    functions are wired into the real dispatch decision."""
+
+    def test_no_cap_configured_always_allows(self):
+        state = lrs.LoadRunState(activations_today=999, day_key="2026-09-08")
+        self.assertTrue(
+            lrs.activation_allowed(
+                state, max_activations_per_day=None, day_key="2026-09-08"
+            )
+        )
+
+    def test_under_the_cap_is_allowed(self):
+        state = lrs.LoadRunState(activations_today=2, day_key="2026-09-08")
+        self.assertTrue(
+            lrs.activation_allowed(
+                state, max_activations_per_day=3, day_key="2026-09-08"
+            )
+        )
+
+    def test_at_the_cap_is_blocked(self):
+        state = lrs.LoadRunState(activations_today=3, day_key="2026-09-08")
+        self.assertFalse(
+            lrs.activation_allowed(
+                state, max_activations_per_day=3, day_key="2026-09-08"
+            )
+        )
+
+    def test_a_stale_days_count_does_not_count_against_a_new_day(self):
+        # activations_today=5 was YESTERDAY's count -- today hasn't rolled
+        # over yet (record_activation() is what performs that roll), so
+        # activation_allowed() must read today's real count as 0, not 5.
+        state = lrs.LoadRunState(activations_today=5, day_key="2026-09-07")
+        self.assertTrue(
+            lrs.activation_allowed(
+                state, max_activations_per_day=3, day_key="2026-09-08"
+            )
+        )
+
+    def test_record_activation_increments_within_the_same_day(self):
+        state = lrs.LoadRunState(activations_today=1, day_key="2026-09-08")
+        result = lrs.record_activation(state, day_key="2026-09-08")
+        self.assertEqual(result.activations_today, 2)
+        self.assertEqual(result.day_key, "2026-09-08")
+
+    def test_record_activation_rolls_over_on_a_new_day(self):
+        state = lrs.LoadRunState(activations_today=5, day_key="2026-09-07")
+        result = lrs.record_activation(state, day_key="2026-09-08")
+        self.assertEqual(result.activations_today, 1)
+        self.assertEqual(result.day_key, "2026-09-08")
+
+    def test_record_activation_from_a_never_sampled_state_starts_at_one(self):
+        state = lrs.LoadRunState()  # day_key="" -- never sampled
+        result = lrs.record_activation(state, day_key="2026-09-08")
+        self.assertEqual(result.activations_today, 1)
+
+
+class TestLoadRunStateActivationsTodayRoundTrip(unittest.TestCase):
+    def test_to_dict_and_from_dict_round_trip_activations_today(self):
+        state = lrs.LoadRunState(activations_today=2, day_key="2026-09-08")
+        restored = lrs.LoadRunState.from_dict(state.to_dict())
+        self.assertEqual(restored.activations_today, 2)
+
+    def test_from_dict_defaults_activations_today_to_zero_for_old_data(self):
+        # Real backward-compat case: a LoadRunState written before #534
+        # shipped has no "activations_today" key in its persisted dict at
+        # all -- must not raise, must default to 0.
+        old_data = {"currently_on": True, "delivered_today_kwh": 1.5}
+        restored = lrs.LoadRunState.from_dict(old_data)
+        self.assertEqual(restored.activations_today, 0)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -7852,32 +7852,105 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
     return batteries
 
 
+async def dispatch_commanded_state(hass, entity_id: str, commanded_state: bool) -> None:
+    """nimbus issue #476/#534: the real output/actuation layer -- the
+    piece #484's own docstring flagged as missing ("this bookkeeping has
+    no consumer yet... no sensor exposes commanded_state today"). Calls
+    the right HA service for `entity_id`'s own domain, decided by a plain
+    string split on the entity_id itself (no config field needed for
+    "which domain is this" -- HA entity_ids are already domain-prefixed).
+
+    switch.*: turn_on/turn_off, unconditional -- no per-domain nuance.
+
+    water_heater.*: set_operation_mode("performance"/"eco"), per #534
+    item 3's own real device investigation (a DIY SG-Ready bridge whose
+    two modes are exactly these two literal strings) -- deliberately NOT
+    a per-load configurable mode-string pair in this pass; every real
+    water_heater device #534 investigated uses this exact convention, and
+    adding a speculative override for hardware nobody has yet would be
+    guessing ahead of a real need.
+
+    climate.*: not implemented -- #534's own "written for both domains"
+    note flags it as the obvious next domain (current_temperature/
+    temperature/hvac_modes have the same shape as water_heater), but
+    building it without a real climate-zone install to verify against
+    would be exactly the kind of guess this project's own process lessons
+    warn against. An unrecognized domain (climate.* included) logs a
+    WARNING and is a safe no-op, never a crash -- a household who
+    configures a device_entity in an unsupported domain finds out from
+    the log, not from a silently-ignored command.
+
+    Raises on a genuine service-call failure (a bad entity_id, the
+    service unavailable) -- the caller (apply_commanded_state_guard())
+    wraps each load's own dispatch in its own try/except so one load's
+    failure never blocks another's, matching this file's established
+    best-effort posture elsewhere.
+    """
+    domain = entity_id.split(".", 1)[0]
+    if domain == "switch":
+        service = "turn_on" if commanded_state else "turn_off"
+        await hass.services.async_call(
+            "switch", service, {"entity_id": entity_id}, blocking=False
+        )
+    elif domain == "water_heater":
+        mode = "performance" if commanded_state else "eco"
+        await hass.services.async_call(
+            "water_heater",
+            "set_operation_mode",
+            {"entity_id": entity_id, "operation_mode": mode},
+            blocking=False,
+        )
+    else:
+        _LOGGER.warning(
+            "Nimbus: controllable load device entity '%s' has an unsupported "
+            "domain '%s' for dispatch -- switch and water_heater are "
+            "supported today, climate is not yet built (#534)",
+            entity_id,
+            domain,
+        )
+
+
 def apply_commanded_state_guard(
     plan: network.Plan,
     now: datetime,
     grid_times: list[datetime],
 ) -> None:
-    """nimbus issue #484: the relay-chatter guard itself. Reads each
-    Controllable Load's own real, just-solved period-0 power off `plan`
-    (its `subentry_id`, threaded through from build_controllable_loads()'s
-    own config objects via elements.py/network.py), decides the raw new
-    commanded state (on if period-0 power exceeds the same on-threshold
-    load_run_state.py's own power sampling uses, for a consistent
-    on/off reading between the measured and the commanded side), and
-    persists the DEBOUNCED result via load_run_state.decide_commanded_state()
-    -- see that function's own docstring for the actual guarantee (a
-    disagreeing raw value must hold consecutively for
-    DEFAULT_MIN_HYSTERESIS_PERIODS periods before a real change publishes).
+    """nimbus issue #484/#534: the relay-chatter guard, now with a real
+    output stage. Reads each Controllable Load's own real, just-solved
+    period-0 power off `plan` (its `subentry_id`, threaded through from
+    build_controllable_loads()'s own config objects via elements.py/
+    network.py), decides the raw new commanded state (on if period-0
+    power exceeds the same on-threshold load_run_state.py's own power
+    sampling uses, for a consistent on/off reading between the measured
+    and the commanded side), persists the DEBOUNCED result via
+    load_run_state.decide_commanded_state() -- see that function's own
+    docstring for the actual guarantee -- and, when that subentry has a
+    configured CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY AND commanded_state
+    just genuinely CHANGED, actually dispatches it via
+    dispatch_commanded_state() above. A load with no device entity
+    configured is scored/persisted exactly as before this issue -- never
+    physically commanded, a real no-op.
 
-    Best-effort and silent on any failure, same posture as
-    _sample_load_run_state() -- this bookkeeping has no consumer yet
-    (see #484's own scope note in docs/controllable-loads.md: no sensor
-    exposes commanded_state today), so it must never be able to take the
-    actual solve cycle down. Native mode only, same reasoning as
-    build_controllable_loads() itself -- a no-op when _NATIVE_HASS is
-    None (standalone/cron mode, or plan.sheddable_loads/adequacy_loads
-    are always empty there anyway since build_controllable_loads()
-    already returns ([], []) unconditionally in that mode).
+    Per-load min_hold_minutes (CONF_CONTROLLABLE_LOAD_MIN_HOLD_MINUTES)
+    overrides the shared DEFAULT_MIN_HYSTERESIS_PERIODS-based debounce for
+    just that load when set. A real ON dispatch is additionally gated by
+    load_run_state.activation_allowed() against CONF_CONTROLLABLE_LOAD_
+    MAX_ACTIVATIONS_PER_DAY -- when the cap is already reached, the
+    solver's own desired commanded_state is still persisted (so a
+    consumer honestly sees "wants ON, capped" rather than a silent lie),
+    but no real service call is issued this cycle; record_activation()
+    only increments on an actual, successful dispatch, never a blocked
+    one. An OFF transition is never capped -- #534's own cap is
+    specifically on "performance activations", not on releasing a load.
+
+    Best-effort and silent on any WHOLE-FUNCTION failure (a device_entity
+    dispatch failure for one load is caught per-load below and does not
+    escalate here) -- same posture as _sample_load_run_state(). Native
+    mode only, same reasoning as build_controllable_loads() itself -- a
+    no-op when _NATIVE_HASS is None (standalone/cron mode, or
+    plan.sheddable_loads/adequacy_loads are always empty there anyway
+    since build_controllable_loads() already returns ([], [])
+    unconditionally in that mode).
     """
     if _NATIVE_HASS is None or len(grid_times) < 2:
         return
@@ -7897,19 +7970,36 @@ def apply_commanded_state_guard(
 
         try:
             from . import load_run_state
-            from .const import DOMAIN
+            from .const import (
+                CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY,
+                CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY,
+                CONF_CONTROLLABLE_LOAD_MIN_HOLD_MINUTES,
+                DOMAIN,
+            )
         except ImportError:
             import load_run_state
-            from const import DOMAIN
+            from const import (
+                CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY,
+                CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY,
+                CONF_CONTROLLABLE_LOAD_MIN_HOLD_MINUTES,
+                DOMAIN,
+            )
 
         entries = _NATIVE_HASS.config_entries.async_entries(DOMAIN)
         if not entries:
             return
         hub_entry_id = entries[0].entry_id
+        # getattr, not direct access: existing callers/tests of this
+        # function (predating #534) construct a minimal fake entry with
+        # no .subentries attribute at all -- a real HA ConfigEntry always
+        # has one, but this stays defensive rather than assume every
+        # caller's fake matches the real shape.
+        hub_subentries = getattr(entries[0], "subentries", {}) or {}
         period_seconds = (grid_times[1] - grid_times[0]).total_seconds()
-        min_hysteresis_seconds = (
+        default_min_hysteresis_seconds = (
             period_seconds * load_run_state.DEFAULT_MIN_HYSTERESIS_PERIODS
         )
+        day_key = now.strftime("%Y-%m-%d")
 
         async def _update_all() -> None:
             store = load_run_state.LoadRunStateStore(
@@ -7919,6 +8009,14 @@ def apply_commanded_state_guard(
                 raw_new_state = (
                     float(period0_kw) > load_run_state.DEFAULT_ON_THRESHOLD_KW
                 )
+                subentry = hub_subentries.get(subentry_id)
+                data = subentry.data if subentry is not None else {}
+                min_hold_minutes = data.get(CONF_CONTROLLABLE_LOAD_MIN_HOLD_MINUTES)
+                min_hysteresis_seconds = (
+                    float(min_hold_minutes) * 60.0
+                    if min_hold_minutes is not None
+                    else default_min_hysteresis_seconds
+                )
                 prev = await store.async_read(subentry_id)
                 new = load_run_state.decide_commanded_state(
                     prev,
@@ -7926,6 +8024,58 @@ def apply_commanded_state_guard(
                     now=now,
                     min_hysteresis_seconds=min_hysteresis_seconds,
                 )
+                device_entity = data.get(CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY)
+                if device_entity and new.commanded_state != prev.commanded_state:
+                    if new.commanded_state:
+                        max_activations_raw = data.get(
+                            CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY
+                        )
+                        max_activations = (
+                            int(max_activations_raw)
+                            if max_activations_raw is not None
+                            else None
+                        )
+                        if load_run_state.activation_allowed(
+                            new,
+                            max_activations_per_day=max_activations,
+                            day_key=day_key,
+                        ):
+                            try:
+                                await dispatch_commanded_state(
+                                    _NATIVE_HASS, device_entity, True
+                                )
+                                new = load_run_state.record_activation(
+                                    new, day_key=day_key
+                                )
+                            except Exception:
+                                _LOGGER.warning(
+                                    "Nimbus: dispatch ON failed for "
+                                    "controllable load '%s' (%s)",
+                                    subentry_id,
+                                    device_entity,
+                                    exc_info=True,
+                                )
+                        else:
+                            _LOGGER.warning(
+                                "Nimbus: controllable load '%s' wants ON but "
+                                "is capped at %s activations/day -- not "
+                                "dispatched this cycle",
+                                subentry_id,
+                                max_activations,
+                            )
+                    else:
+                        try:
+                            await dispatch_commanded_state(
+                                _NATIVE_HASS, device_entity, False
+                            )
+                        except Exception:
+                            _LOGGER.warning(
+                                "Nimbus: dispatch OFF failed for "
+                                "controllable load '%s' (%s)",
+                                subentry_id,
+                                device_entity,
+                                exc_info=True,
+                            )
                 if new is not prev:
                     await store.async_write(subentry_id, new)
 

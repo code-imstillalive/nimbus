@@ -33,7 +33,10 @@ from homeassistant.config_entries import (
 from homeassistant.helpers import selector
 
 from ..const import (
+    CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY,
     CONF_CONTROLLABLE_LOAD_KIND,
+    CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY,
+    CONF_CONTROLLABLE_LOAD_MIN_HOLD_MINUTES,
     CONF_CONTROLLABLE_LOAD_NAME,
     CONF_CONTROLLABLE_LOAD_POWER_SENSOR,
     CONF_DEFERRABLE_DEADLINE_HOUR,
@@ -129,6 +132,36 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
         CONF_CONTROLLABLE_LOAD_POWER_SENSOR,
         defaults.get(CONF_CONTROLLABLE_LOAD_POWER_SENSOR),
         selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+    )
+    # nimbus issue #534: the real device this load is commanded through --
+    # no domain restriction on the selector itself (switch/water_heater
+    # today, climate expected later, per dispatch_commanded_state()'s own
+    # domain-pluggable design in solver_writer.py).
+    _optional_field(
+        schema_dict,
+        CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY,
+        defaults.get(CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY),
+        selector.EntitySelector(),
+    )
+    _optional_field(
+        schema_dict,
+        CONF_CONTROLLABLE_LOAD_MIN_HOLD_MINUTES,
+        defaults.get(CONF_CONTROLLABLE_LOAD_MIN_HOLD_MINUTES),
+        selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=0, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="min"
+            )
+        ),
+    )
+    _optional_field(
+        schema_dict,
+        CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY,
+        defaults.get(CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY),
+        selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=1, step=1, mode=selector.NumberSelectorMode.BOX
+            )
+        ),
     )
     # kind=sheddable fields
     _optional_field(
