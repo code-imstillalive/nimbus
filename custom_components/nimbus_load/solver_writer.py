@@ -7623,6 +7623,13 @@ _DEFAULT_EXTRA_BATTERY_DISCHARGE_COST: float = 0.01
 # two track genuinely different condition shapes.
 _BATTERY_PARTICIPANT_WARNED: set[str] = set()
 
+# nimbus issue #601: the same warn-once/debug/recovered treatment as
+# _BATTERY_PARTICIPANT_WARNED's own SoC-excursion key, for the single
+# home battery's own equivalent warning in main() -- a plain module-level
+# flag rather than a set entry, since there is only ever one "home"
+# instance (unlike battery participants, which are keyed by name).
+_HOME_BATTERY_SOC_EXCURSION_WARNED = False
+
 
 def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
     """nimbus issue #563: the config surface for #467 stage 1's own
@@ -7786,6 +7793,20 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
         initial_soc_pct = safe_num(soc_sensor, min_soc_pct)
         initial_soc_kwh = capacity_kwh * initial_soc_pct / 100.0
         initial_soc_kwh = min(max(initial_soc_kwh, 0.0), capacity_kwh)
+        # nimbus issue #563 item 2 (2026-09-08): availability gating.
+        # No entity configured -- always available, byte-identical to
+        # every scenario before this field existed. An entity that's
+        # missing/unavailable/unknown is treated the same as 'off' (not
+        # available) -- the conservative reading for a live safety-
+        # relevant gate: if we can't confirm the car/resource is really
+        # there, don't plan to dispatch it. Moved ahead of the SoC-
+        # excursion warning below (nimbus issue #601) so that warning can
+        # know whether this participant is even reachable this cycle.
+        available_entity = data.get(CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY)
+        available = True
+        if available_entity:
+            state_obj = _NATIVE_HASS.states.get(available_entity)
+            available = state_obj is not None and state_obj.state == "on"
         # Parity fix (2026-09-08, Mark Purcell's own live-tested #563
         # review): the home battery's own live SoC read in main() logs a
         # WARNING when it sits outside its configured [min, max] --
@@ -7795,30 +7816,61 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
         # EV arriving above its own charge limit landing in the soft
         # `overfill` slack with nothing logged) -- same real signal,
         # same real reason to surface it, now the same warning.
+        #
+        # nimbus issue #601 (Mark Purcell, real finding: 35 WARNING lines
+        # in 51 minutes for one parked EV recovering slowly on solar --
+        # every solve, including the 2-3 extra price-change-triggered
+        # solves per 5-minute slot, re-logged the identical line). Now
+        # WARNING only on the FIRST cycle a participant is found outside
+        # its own range, DEBUG on every cycle it stays outside (still
+        # visible if you go looking, never spamming the real log), and
+        # one INFO "recovered" the cycle it returns inside -- same
+        # per-condition warn-once discipline _BATTERY_PARTICIPANT_WARNED
+        # already uses for the partial departure-deadline config just
+        # below. A participant that's `available=False` (gated off, e.g.
+        # away from home) is skipped entirely: the LP cannot schedule its
+        # recovery and the household cannot act on it either, so there is
+        # nothing actionable to log.
+        _soc_excursion_key = f"{name}:soc_excursion"
         if not (min_soc_kwh <= initial_soc_kwh <= max_soc_kwh):
-            _LOGGER.warning(
-                "Nimbus: battery participant '%s' live SoC %.2f%% is outside "
-                "its own configured floor/ceiling [%.2f%%, %.2f%%] -- the LP "
-                "is scheduling real recovery this cycle rather than having "
-                "this state clamped away. If this repeats every period, "
-                "investigate rather than adjust the floor/ceiling.",
+            if not available:
+                pass
+            elif _soc_excursion_key not in _BATTERY_PARTICIPANT_WARNED:
+                _BATTERY_PARTICIPANT_WARNED.add(_soc_excursion_key)
+                _LOGGER.warning(
+                    "Nimbus: battery participant '%s' live SoC %.2f%% is "
+                    "outside its own configured floor/ceiling [%.2f%%, "
+                    "%.2f%%] -- the LP is scheduling real recovery this "
+                    "cycle rather than having this state clamped away. If "
+                    "this repeats every period, investigate rather than "
+                    "adjust the floor/ceiling. (Logged once per excursion; "
+                    "further cycles are DEBUG until it recovers.)",
+                    name,
+                    initial_soc_pct,
+                    min_soc_pct,
+                    max_soc_pct,
+                )
+            else:
+                _LOGGER.debug(
+                    "Nimbus: battery participant '%s' live SoC %.2f%% "
+                    "still outside its own configured floor/ceiling "
+                    "[%.2f%%, %.2f%%] this cycle.",
+                    name,
+                    initial_soc_pct,
+                    min_soc_pct,
+                    max_soc_pct,
+                )
+        elif _soc_excursion_key in _BATTERY_PARTICIPANT_WARNED:
+            _BATTERY_PARTICIPANT_WARNED.discard(_soc_excursion_key)
+            _LOGGER.info(
+                "Nimbus: battery participant '%s' live SoC %.2f%% has "
+                "recovered back inside its own configured floor/ceiling "
+                "[%.2f%%, %.2f%%].",
                 name,
                 initial_soc_pct,
                 min_soc_pct,
                 max_soc_pct,
             )
-        # nimbus issue #563 item 2 (2026-09-08): availability gating.
-        # No entity configured -- always available, byte-identical to
-        # every scenario before this field existed. An entity that's
-        # missing/unavailable/unknown is treated the same as 'off' (not
-        # available) -- the conservative reading for a live safety-
-        # relevant gate: if we can't confirm the car/resource is really
-        # there, don't plan to dispatch it.
-        available_entity = data.get(CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY)
-        available = True
-        if available_entity:
-            state_obj = _NATIVE_HASS.states.get(available_entity)
-            available = state_obj is not None and state_obj.state == "on"
         # nimbus issue #563 item 2, the departure-deadline half. Both
         # fields must be set together to do anything -- either one alone
         # is treated as neither set (a real, expected partial config,
@@ -9594,18 +9646,48 @@ def main() -> None:
     # comparison (this solve and the quality-report scorer) seeing the
     # same real state.
     initial_soc_kwh = initial_soc_kwh_raw
+    # nimbus issue #601: same warn-once/debug/recovered treatment as
+    # build_extra_batteries()'s own per-participant SoC-excursion warning
+    # -- the 8 Sep day at 0% would otherwise have logged this ~800 times
+    # overnight. See _HOME_BATTERY_SOC_EXCURSION_WARNED's own module-
+    # level comment for why this is a plain flag, not a set entry.
+    global _HOME_BATTERY_SOC_EXCURSION_WARNED
     if not (min_soc_kwh_val <= initial_soc_kwh_raw <= max_soc_kwh_val):
         _initial_pct_raw = (
             initial_soc_kwh_raw / capacity_kwh * 100.0 if capacity_kwh > 0 else 0.0
         )
-        _LOGGER.warning(
-            "Nimbus Solver: live battery SoC %.2f%% is outside the "
-            "configured Solver floor/ceiling [%.2f%%, %.2f%%] -- the LP is "
-            "scheduling real recovery this cycle rather than having this "
-            "state clamped away. If this repeats every period the real "
-            "battery is stuck outside its own configured range (fault, "
-            "cold pack, sensor drift) -- investigate rather than lower the "
-            "floor.",
+        if not _HOME_BATTERY_SOC_EXCURSION_WARNED:
+            _HOME_BATTERY_SOC_EXCURSION_WARNED = True
+            _LOGGER.warning(
+                "Nimbus Solver: live battery SoC %.2f%% is outside the "
+                "configured Solver floor/ceiling [%.2f%%, %.2f%%] -- the LP "
+                "is scheduling real recovery this cycle rather than having "
+                "this state clamped away. If this repeats every period the "
+                "real battery is stuck outside its own configured range "
+                "(fault, cold pack, sensor drift) -- investigate rather "
+                "than lower the floor. (Logged once per excursion; further "
+                "cycles are DEBUG until it recovers.)",
+                _initial_pct_raw,
+                min_pct,
+                max_pct,
+            )
+        else:
+            _LOGGER.debug(
+                "Nimbus Solver: live battery SoC %.2f%% still outside the "
+                "configured Solver floor/ceiling [%.2f%%, %.2f%%] this "
+                "cycle.",
+                _initial_pct_raw,
+                min_pct,
+                max_pct,
+            )
+    elif _HOME_BATTERY_SOC_EXCURSION_WARNED:
+        _HOME_BATTERY_SOC_EXCURSION_WARNED = False
+        _initial_pct_raw = (
+            initial_soc_kwh_raw / capacity_kwh * 100.0 if capacity_kwh > 0 else 0.0
+        )
+        _LOGGER.info(
+            "Nimbus Solver: live battery SoC %.2f%% has recovered back "
+            "inside the configured Solver floor/ceiling [%.2f%%, %.2f%%].",
             _initial_pct_raw,
             min_pct,
             max_pct,

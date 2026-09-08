@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.194] — 2026-09-09
+
+### Fixed
+- **The battery-participant and home-battery "live SoC outside its own configured floor/ceiling" WARNING no longer fires on every solve** (nimbus issue #601, Mark Purcell — real finding: 35 WARNING lines in 51 minutes for one parked EV recovering slowly on solar, including the 2-3 extra price-change-triggered solves per 5-minute slot; the 8 Sep day at 0% would have logged the home battery's own equivalent line roughly 800 times overnight). Both warnings now fire WARNING only on the first cycle a battery is found outside its own range, DEBUG on every cycle it stays outside, and one INFO "recovered" the cycle it returns inside — same per-condition warn-once discipline this file already uses for the partial departure-deadline config warning. A battery participant that's `available=False` (gated off, e.g. away from home) skips the warning entirely: the LP cannot schedule its recovery and the household cannot act on it. No change to the underlying LP behavior — the real, unclamped SoC value still passes straight through, only the logging volume changed.
+
 ## [0.94.193] — 2026-09-09
 
 ### Added

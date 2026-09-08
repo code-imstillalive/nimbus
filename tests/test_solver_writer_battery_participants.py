@@ -381,9 +381,15 @@ class TestOutOfRangeSocWarningParity(unittest.TestCase):
 
     def setUp(self):
         self._orig_native_hass = solver_writer._NATIVE_HASS
+        # nimbus issue #601: this suite's own module-level warn-once
+        # tracking now persists across calls (previously every call
+        # warned unconditionally, so a leaked key from another test
+        # class never mattered) -- isolate it here too.
+        solver_writer._BATTERY_PARTICIPANT_WARNED.clear()
 
     def tearDown(self):
         solver_writer._NATIVE_HASS = self._orig_native_hass
+        solver_writer._BATTERY_PARTICIPANT_WARNED.clear()
 
     def test_soc_above_configured_ceiling_logs_a_warning(self):
         data = dict(_TESLA_DATA)  # max_soc_percent=95.0
@@ -407,6 +413,90 @@ class TestOutOfRangeSocWarningParity(unittest.TestCase):
         )
         with self.assertNoLogs(solver_writer._LOGGER, level="WARNING"):
             solver_writer.build_extra_batteries()
+
+
+class TestSocExcursionWarnOnce(unittest.TestCase):
+    """nimbus issue #601 (Mark Purcell, real finding: 35 WARNING lines in
+    51 minutes for one parked EV recovering slowly on solar): the SoC-
+    outside-floor/ceiling warning fires WARNING once per excursion, DEBUG
+    on every cycle it stays outside, one INFO on recovery, and is skipped
+    entirely while the participant is unavailable."""
+
+    def setUp(self):
+        self._orig_native_hass = solver_writer._NATIVE_HASS
+        solver_writer._BATTERY_PARTICIPANT_WARNED.clear()
+
+    def tearDown(self):
+        solver_writer._NATIVE_HASS = self._orig_native_hass
+        solver_writer._BATTERY_PARTICIPANT_WARNED.clear()
+
+    def _below_floor_hass(self):
+        data = dict(_TESLA_DATA)
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [_fake_subentry("s1", "battery_participant", data)],
+            states={"sensor.m3p_t_battery_level": _fake_state("16.11")},
+        )
+
+    def test_first_excursion_cycle_logs_a_real_warning(self):
+        self._below_floor_hass()
+        with self.assertLogs(solver_writer._LOGGER, level="WARNING") as cm:
+            solver_writer.build_extra_batteries()
+        self.assertTrue(
+            any("ev_m3p" in line and "outside" in line for line in cm.output)
+        )
+
+    def test_second_consecutive_excursion_cycle_is_debug_not_warning(self):
+        self._below_floor_hass()
+        solver_writer.build_extra_batteries()  # first cycle: WARNING, consumes the key
+        with (
+            self.assertNoLogs(solver_writer._LOGGER, level="WARNING"),
+            self.assertLogs(solver_writer._LOGGER, level="DEBUG") as cm,
+        ):
+            solver_writer.build_extra_batteries()
+        self.assertTrue(
+            any("ev_m3p" in line and "still outside" in line for line in cm.output)
+        )
+
+    def test_recovery_cycle_logs_one_info_and_resets_the_key(self):
+        self._below_floor_hass()
+        solver_writer.build_extra_batteries()  # establishes the excursion
+        data = dict(_TESLA_DATA)
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [_fake_subentry("s1", "battery_participant", data)],
+            states={"sensor.m3p_t_battery_level": _fake_state("55.0")},  # back inside
+        )
+        with self.assertLogs(solver_writer._LOGGER, level="INFO") as cm:
+            solver_writer.build_extra_batteries()
+        self.assertTrue(any("recovered" in line for line in cm.output))
+        self.assertNotIn(
+            "ev_m3p:soc_excursion", solver_writer._BATTERY_PARTICIPANT_WARNED
+        )
+
+        # A subsequent excursion after recovering must warn again (not
+        # stay silently suppressed by a stale key).
+        self._below_floor_hass()
+        with self.assertLogs(solver_writer._LOGGER, level="WARNING") as cm2:
+            solver_writer.build_extra_batteries()
+        self.assertTrue(any("outside" in line for line in cm2.output))
+
+    def test_unavailable_participant_never_warns_even_while_outside_floor(self):
+        # Below floor (16.11% < 20% configured min) AND gated unavailable
+        # -- the LP cannot recover it and the household cannot act on it,
+        # so nothing should be logged at all.
+        data = dict(_TESLA_DATA)
+        data["battery_participant_available_entity"] = "binary_sensor.away"
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [_fake_subentry("s1", "battery_participant", data)],
+            states={
+                "sensor.m3p_t_battery_level": _fake_state("16.11"),
+                "binary_sensor.away": _fake_state("off"),
+            },
+        )
+        with self.assertNoLogs(solver_writer._LOGGER, level="DEBUG"):
+            solver_writer.build_extra_batteries()
+        self.assertNotIn(
+            "ev_m3p:soc_excursion", solver_writer._BATTERY_PARTICIPANT_WARNED
+        )
 
 
 if __name__ == "__main__":
