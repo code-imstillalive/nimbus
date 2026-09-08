@@ -42,10 +42,49 @@ def test_entity_id_unique_id_and_device_are_per_subentry():
     entry = _fake_entry()
     subentry = _fake_subentry("s1", "controllable_load", "Pool Pump", {})
     s = sensor.NimbusControllableLoadStateSensor(MagicMock(), entry, subentry, "1.0.0")
-    assert s.entity_id == "sensor.nimbus_s1_commanded_state"
+    # entity_id is derived from the load's own TITLE (a real, findable,
+    # HA-valid name), never the raw subentry_id -- see the ULID-shaped
+    # test below for the real bug (#579) this asserts against.
+    assert s.entity_id == "sensor.nimbus_pool_pump_commanded_state"
+    # unique_id keeps the subentry_id -- stable across a title rename,
+    # exactly like every other subentry-scoped entity in this file.
     assert s._attr_unique_id == "s1_commanded_state"
     assert s._attr_device_info["identifiers"] == {("nimbus_load", "s1")}
     assert s._attr_device_info["name"] == "Pool Pump"
+
+
+def test_entity_id_is_valid_even_when_subentry_id_is_a_ulid():
+    # nimbus issue #579 (Mark Purcell, first live use, v0.94.185): a real
+    # subentry_id is a ULID -- upper-case, e.g. "01M20H3DYJ8DRBGP04KFSDBN6Z"
+    # -- and using it raw in entity_id produced an invalid entity_id HA
+    # only tolerated with a deprecation warning (removed in 2027.2.0) and
+    # an unreadable name. The fix derives entity_id from subentry.title
+    # instead; a ULID subentry_id must never appear in entity_id at all.
+    entry = _fake_entry()
+    ulid = "01M20H3DYJ8DRBGP04KFSDBN6Z"
+    subentry = _fake_subentry(ulid, "controllable_load", "Hot Water Heat Pump", {})
+    s = sensor.NimbusControllableLoadStateSensor(MagicMock(), entry, subentry, "1.0.0")
+    assert s.entity_id == "sensor.nimbus_hot_water_heat_pump_commanded_state"
+    assert s.entity_id == s.entity_id.lower()
+    assert ulid not in s.entity_id
+    assert ulid.lower() not in s.entity_id
+    # unique_id is unaffected -- still the real, stable ULID.
+    assert s._attr_unique_id == f"{ulid}_commanded_state"
+
+
+def test_title_slug_handles_punctuation_and_empty_title():
+    entry = _fake_entry()
+    subentry = _fake_subentry(
+        "s2", "controllable_load", "HWS L1 (Heat Pump) - 3.7kW!", {}
+    )
+    s = sensor.NimbusControllableLoadStateSensor(MagicMock(), entry, subentry, "1.0.0")
+    assert s.entity_id == "sensor.nimbus_hws_l1_heat_pump_3_7kw_commanded_state"
+
+    subentry_blank = _fake_subentry("s3", "controllable_load", "", {})
+    s_blank = sensor.NimbusControllableLoadStateSensor(
+        MagicMock(), entry, subentry_blank, "1.0.0"
+    )
+    assert s_blank.entity_id == "sensor.nimbus_load_commanded_state"
 
 
 def test_async_update_reads_commanded_state_as_on_off_string():

@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import time
 from collections import deque
 from datetime import UTC, datetime, timedelta
@@ -441,6 +442,19 @@ _SOLVER_SWITCH_ENTITY_KEYS = (
     # change on their side.
     CONF_SOLVE_ON_PRICE_CHANGE,
 )
+
+
+def _slug_for_entity_id(title: str) -> str:
+    """A plain, predictable slug for a human-typed title -- lowercase,
+    non-alphanumeric runs collapsed to a single underscore, no leading/
+    trailing underscore. Same hand-rolled-not-HA-util philosophy as
+    object_id_from_source() below (a clean, predictable slug rather than
+    letting Home Assistant auto-combine device/entity names), used where
+    the source is a human title (a Controllable Load's own subentry.title)
+    rather than an existing entity_id.
+    """
+    slug = re.sub(r"[^a-z0-9]+", "_", title.lower()).strip("_")
+    return slug or "load"
 
 
 def object_id_from_source(load_sensor_entity_id: str) -> str:
@@ -1230,8 +1244,19 @@ class NimbusControllableLoadStateSensor(SensorEntity):
         self._hass = hass
         self._entry = entry
         self._subentry = subentry
+        # nimbus issue #579 (Mark Purcell, first live use): subentry_id
+        # is a ULID (upper-case) -- using it raw in entity_id produced an
+        # invalid entity_id HA only tolerates with a deprecation warning
+        # today (removed in HA 2027.2.0) and an unreadable, unfindable
+        # name. unique_id keeps the ULID (stable across a title rename);
+        # entity_id is derived from the load's own title instead, same
+        # "clean, predictable, source-derived slug" convention
+        # object_id_from_source() already uses for the forecast sensors
+        # -- a title collision gets HA's own standard "_2" suffix.
         self._attr_unique_id = f"{subentry.subentry_id}_commanded_state"
-        self.entity_id = f"sensor.nimbus_{subentry.subentry_id}_commanded_state"
+        self.entity_id = (
+            f"sensor.nimbus_{_slug_for_entity_id(subentry.title)}_commanded_state"
+        )
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, subentry.subentry_id)},
             name=subentry.title,
