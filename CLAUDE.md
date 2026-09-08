@@ -94,6 +94,21 @@ file is not re-summarized here; read it directly for the full detail. Most recen
   closed (that PR's own description didn't use GitHub's auto-close keyword) — all
   three closed with the record straight; see `feedback_nimbus_close_fixed_issues`
   memory for the standing fix (always verify/close, don't just remember "handled").
+  **Later, after a real 116KAT-HA-AI production detour** (first-ever live Nimbus-driven
+  battery automation on NUC1, see that repo's own CLAUDE.md/worklog for the full detail —
+  nimbus itself only gained a new `sensor.nimbus_solver_battery_forecast` grid-helper
+  consumer, no code change here): resumed and shipped **#551** (Mark) — all three shipped
+  cards now define `getStubConfig()`, and the topology card's `setConfig()` no longer
+  throws on a missing `switchboard`/`inverters` (defaults to `{}`/`[]`), fixing the
+  card-picker's own bare `{ type: ... }` insert erroring immediately. Released v0.94.172.
+  Then **#553** (Mark, same cluster as #550) — topology card now shows a plain-HTML empty-
+  state banner (deliberately outside the SVG's own coordinate math) when no Topology
+  wizard subentries exist, while still drawing discovered Loads/signals underneath;
+  caught and fixed a related doc staleness in `docs/dashboards.md`. Released v0.94.173,
+  deployed to devhub, restart verified clean. Both fixes traced to real findings from
+  Mark's own install (a picker-added card erroring; a near-empty topology diagram with
+  no guidance). Remaining #550-cluster backlog: #552 (dashboard YAML), #554
+  (auto-populate topology from Energy dashboard), #473 (flaky test) — not yet started.
 - [2026-09-07](docs/worklog/2026-09-07.md) — #445/#453/#451 real bug fixes; dispatch-card
   risk-aversion live-effect proof, Solve Now button, nimbus_status sensor. Chart/table
   layout saga ran through SEVEN CSS iterations (four content-aware formulas, then two
