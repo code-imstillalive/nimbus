@@ -26,7 +26,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import voluptuous as vol
 
 from custom_components.nimbus_load.const import (
+    CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY,
     CONF_CONTROLLABLE_LOAD_KIND,
+    CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY,
+    CONF_CONTROLLABLE_LOAD_MIN_HOLD_MINUTES,
     CONF_CONTROLLABLE_LOAD_NAME,
     CONF_CONTROLLABLE_LOAD_POWER_SENSOR,
     CONF_DEFERRABLE_DEADLINE_HOUR,
@@ -81,6 +84,33 @@ def test_name_and_kind_are_required():
 def test_power_sensor_omits_default_entirely_when_never_configured():
     schema = _schema({})
     marker = _find_marker(schema, CONF_CONTROLLABLE_LOAD_POWER_SENSOR)
+    assert marker.default is vol.UNDEFINED
+
+
+def test_device_entity_omits_default_entirely_when_never_configured():
+    # nimbus issue #476/#534: the output-layer's own new field -- same
+    # None-default frontend crash guard as every other optional entity
+    # selector in this schema.
+    schema = _schema({})
+    marker = _find_marker(schema, CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY)
+    assert marker.default is vol.UNDEFINED
+
+
+def test_device_entity_carries_its_real_value_through_reconfigure():
+    schema = _schema({CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY: "switch.pool_pump"})
+    marker = _find_marker(schema, CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY)
+    assert marker.default() == "switch.pool_pump"
+
+
+def test_min_hold_minutes_same_none_default_guard():
+    schema = _schema({})
+    marker = _find_marker(schema, CONF_CONTROLLABLE_LOAD_MIN_HOLD_MINUTES)
+    assert marker.default is vol.UNDEFINED
+
+
+def test_max_activations_per_day_same_none_default_guard():
+    schema = _schema({})
+    marker = _find_marker(schema, CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY)
     assert marker.default is vol.UNDEFINED
 
 

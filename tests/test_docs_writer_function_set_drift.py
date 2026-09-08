@@ -138,6 +138,14 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # mode anyway, since sheddable_loads/adequacy_loads are always
         # empty lists there.
         "apply_commanded_state_guard",
+        # nimbus issue #476/#534: the output-layer dispatch itself -- calls
+        # hass.services.async_call(), a real Home Assistant API with no
+        # standalone/cron equivalent, same no-standalone-equivalent
+        # reasoning as apply_commanded_state_guard() just above, which is
+        # this function's only caller. Only ever invoked from native mode,
+        # and does nothing at all when it isn't (apply_commanded_state_
+        # guard() itself no-ops with _NATIVE_HASS is None).
+        "dispatch_commanded_state",
         # nimbus issue #480: reads a real done_entity's live state off
         # _NATIVE_HASS.states -- only ever called from build_
         # controllable_loads() itself, which is native-only; Mark's own

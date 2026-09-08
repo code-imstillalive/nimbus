@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.185] — 2026-09-08
+
+### Added
+- **Controllable Loads: real device dispatch, closing the "no consumer yet" gap** (nimbus issue #476/#534). Since #484, `apply_commanded_state_guard()` computed a guarded `commanded_state` every solve but nothing read it — its own docstring said so outright. It now does: a new **Device entity** wizard field lets a Controllable Load be pointed at a real `switch` or `water_heater` entity, and `dispatch_commanded_state()` calls the right HA service (`switch.turn_on`/`turn_off`, or `water_heater.set_operation_mode` with `"performance"`/`"eco"` — nimbus issue #534's own investigated real device's exact convention) whenever `commanded_state` genuinely CHANGES — never on every solve tick. Two new per-load fields, configurable rather than hard-coded (#534 item 3's own explicit ask): **Minimum hold between commands** (overrides the shared debounce for just this load) and **Max activations per day** (caps real ON dispatches specifically; an OFF is never capped — when the cap blocks a dispatch, the Solver's own desired state is still persisted so a consumer honestly sees "wants ON, capped" rather than a silent lie). A new `sensor.nimbus_<load>_commanded_state` entity (one per Controllable Load, its own device) exposes the full run-state — `commanded_state`, `currently_on`, `delivered_today_kwh`, `activations_today`, and this load's own device/hold/cap config — closing the other half of the same gap (nothing to read, nothing to act on). `climate.*` domain dispatch and per-load mode-string overrides are deliberately not built yet (logged as an unsupported-domain WARNING, never a crash) — see `docs/controllable-loads.md`'s own "What's not built yet" for the honest remaining scope, including #481 (thermal-state targets), which this does not attempt. No Device entity configured is a complete no-op — every existing Controllable Load's behavior is unchanged.
+
 ## [0.94.184] — 2026-09-08
 
 ### Fixed

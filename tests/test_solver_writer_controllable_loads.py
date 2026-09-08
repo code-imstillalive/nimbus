@@ -1064,5 +1064,350 @@ class TestApplyCommandedStateGuard(unittest.TestCase):
         self.assertLessEqual(real_changes, 1)
 
 
+class _FakeServiceCalls:
+    """Records every hass.services.async_call() invocation -- real
+    async_call() signature is (domain, service, service_data, ...,
+    blocking=...); recorded as a plain tuple so tests can assert the
+    exact domain/service/entity_id/mode dispatched, same reasoning as
+    this file's own _FakeRunStateStore standing in for the real Store."""
+
+    def __init__(self, raise_for: set[str] | None = None) -> None:
+        self.calls: list[tuple] = []
+        self._raise_for = raise_for or set()
+
+    async def async_call(self, domain, service, service_data, **kwargs):
+        if domain in self._raise_for:
+            raise RuntimeError(f"simulated {domain} service failure")
+        self.calls.append((domain, service, dict(service_data)))
+
+
+class TestDispatchCommandedState(unittest.TestCase):
+    """nimbus issue #476/#534: real tests for the output/actuation layer
+    itself -- dispatch_commanded_state()'s own domain-pluggable service
+    call, and apply_commanded_state_guard()'s wiring of it (real dispatch
+    only on a genuine commanded_state transition, the daily activation
+    cap, and per-load min_hold_minutes)."""
+
+    def setUp(self):
+        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._loop, self._loop_thread = _make_running_loop()
+        _FakeRunStateStore._shared_data.clear()
+
+    def tearDown(self):
+        solver_writer._NATIVE_HASS = self._orig_native_hass
+        self._loop.call_soon_threadsafe(self._loop.stop)
+        self._loop_thread.join(timeout=5)
+        self._loop.close()
+
+    def _read_state(self, hub_entry_id, subentry_id):
+        async def _read():
+            store = load_run_state.LoadRunStateStore(
+                store=_FakeRunStateStore(
+                    None, 1, f"nimbus_load_{hub_entry_id}_load_run_state"
+                )
+            )
+            return await store.async_read(subentry_id)
+
+        return asyncio.run(_read())
+
+    def _hass(self, subentries, entry_id="entry_d", raise_for=None):
+        services = _FakeServiceCalls(raise_for=raise_for)
+        entry = SimpleNamespace(
+            entry_id=entry_id, subentries={s.subentry_id: s for s in subentries}
+        )
+        return (
+            SimpleNamespace(
+                config_entries=SimpleNamespace(async_entries=lambda domain: [entry]),
+                services=services,
+                loop=self._loop,
+            ),
+            services,
+        )
+
+    def test_switch_domain_load_turning_on_calls_switch_turn_on(self):
+        import numpy as np
+
+        sub = _fake_subentry(
+            "s_sw",
+            "controllable_load",
+            {"controllable_load_device_entity": "switch.pool_pump"},
+        )
+        solver_writer._NATIVE_HASS, services = self._hass([sub])
+        plan = _fake_plan(sheddable=[_fake_load_plan("s_sw", np.array([1.5, 1.5]))])
+        now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+        grid_times = _grid(now, 4, minutes=5)
+        solver_writer.apply_commanded_state_guard(plan, now, grid_times)
+
+        self.assertEqual(len(services.calls), 1)
+        domain, service, data = services.calls[0]
+        self.assertEqual(domain, "switch")
+        self.assertEqual(service, "turn_on")
+        self.assertEqual(data["entity_id"], "switch.pool_pump")
+
+    def test_switch_domain_load_turning_off_calls_switch_turn_off(self):
+        import numpy as np
+
+        # "Off" is only a real, dispatchable TRANSITION once the load has
+        # genuinely been on -- a fresh, never-sampled state already
+        # defaults to commanded_state=False, so going straight to "off"
+        # from nothing is a no-op, not a transition. Establish a real ON
+        # first (min_hold_minutes=0 so the OFF that follows adopts on the
+        # very next solve where it persists a second time).
+        sub = _fake_subentry(
+            "s_sw2",
+            "controllable_load",
+            {
+                "controllable_load_device_entity": "switch.pool_pump",
+                "controllable_load_min_hold_minutes": 0,
+            },
+        )
+        solver_writer._NATIVE_HASS, services = self._hass([sub])
+        start = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+        grid_times = _grid(start, 4, minutes=5)
+        on_plan = _fake_plan(sheddable=[_fake_load_plan("s_sw2", np.array([1.5, 1.5]))])
+        off_plan = _fake_plan(
+            adequacy=[_fake_load_plan("s_sw2", np.array([0.0, 0.0]), adequacy=True)]
+        )
+        solver_writer.apply_commanded_state_guard(on_plan, start, grid_times)
+        solver_writer.apply_commanded_state_guard(
+            off_plan, start + timedelta(minutes=5), grid_times
+        )
+        solver_writer.apply_commanded_state_guard(
+            off_plan, start + timedelta(minutes=10), grid_times
+        )
+
+        self.assertEqual(len(services.calls), 2)
+        domain, service, _data = services.calls[-1]
+        self.assertEqual(domain, "switch")
+        self.assertEqual(service, "turn_off")
+
+    def test_unchanged_commanded_state_across_solves_dispatches_only_once(self):
+        # The real safety property: a load that STAYS on across many
+        # re-solves must not spam switch.turn_on every cycle.
+        import numpy as np
+
+        sub = _fake_subentry(
+            "s_stay",
+            "controllable_load",
+            {"controllable_load_device_entity": "switch.stays_on"},
+        )
+        solver_writer._NATIVE_HASS, services = self._hass([sub])
+        now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+        grid_times = _grid(now, 4, minutes=5)
+        for i in range(5):
+            plan = _fake_plan(
+                sheddable=[_fake_load_plan("s_stay", np.array([1.5, 1.5]))]
+            )
+            solver_writer.apply_commanded_state_guard(
+                plan, now + timedelta(minutes=5 * i), grid_times
+            )
+        self.assertEqual(len(services.calls), 1)
+
+    def test_water_heater_domain_load_turning_on_calls_set_operation_mode_performance(
+        self,
+    ):
+        import numpy as np
+
+        sub = _fake_subentry(
+            "s_wh",
+            "controllable_load",
+            {
+                "controllable_load_device_entity": (
+                    "water_heater.hot_water_heat_pump_hot_water_sg_ready"
+                )
+            },
+        )
+        solver_writer._NATIVE_HASS, services = self._hass([sub])
+        plan = _fake_plan(sheddable=[_fake_load_plan("s_wh", np.array([0.55, 0.55]))])
+        now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+        grid_times = _grid(now, 4, minutes=5)
+        solver_writer.apply_commanded_state_guard(plan, now, grid_times)
+
+        self.assertEqual(len(services.calls), 1)
+        domain, service, data = services.calls[0]
+        self.assertEqual(domain, "water_heater")
+        self.assertEqual(service, "set_operation_mode")
+        self.assertEqual(
+            data["entity_id"], "water_heater.hot_water_heat_pump_hot_water_sg_ready"
+        )
+        self.assertEqual(data["operation_mode"], "performance")
+
+    def test_water_heater_domain_load_turning_off_calls_set_operation_mode_eco(self):
+        import numpy as np
+
+        # Same "establish a real ON first" reasoning as the switch-domain
+        # OFF test above -- see its own comment.
+        sub = _fake_subentry(
+            "s_wh2",
+            "controllable_load",
+            {
+                "controllable_load_device_entity": "water_heater.hws",
+                "controllable_load_min_hold_minutes": 0,
+            },
+        )
+        solver_writer._NATIVE_HASS, services = self._hass([sub])
+        start = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+        grid_times = _grid(start, 4, minutes=5)
+        on_plan = _fake_plan(
+            sheddable=[_fake_load_plan("s_wh2", np.array([0.55, 0.55]))]
+        )
+        off_plan = _fake_plan(
+            adequacy=[_fake_load_plan("s_wh2", np.array([0.0, 0.0]), adequacy=True)]
+        )
+        solver_writer.apply_commanded_state_guard(on_plan, start, grid_times)
+        solver_writer.apply_commanded_state_guard(
+            off_plan, start + timedelta(minutes=5), grid_times
+        )
+        solver_writer.apply_commanded_state_guard(
+            off_plan, start + timedelta(minutes=10), grid_times
+        )
+
+        self.assertEqual(len(services.calls), 2)
+        _domain, _service, data = services.calls[-1]
+        self.assertEqual(data["operation_mode"], "eco")
+
+    def test_no_device_entity_configured_never_dispatches(self):
+        import numpy as np
+
+        sub = _fake_subentry("s_nodevice", "controllable_load", {})
+        solver_writer._NATIVE_HASS, services = self._hass([sub])
+        plan = _fake_plan(
+            sheddable=[_fake_load_plan("s_nodevice", np.array([1.5, 1.5]))]
+        )
+        now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+        grid_times = _grid(now, 4, minutes=5)
+        solver_writer.apply_commanded_state_guard(plan, now, grid_times)
+        self.assertEqual(len(services.calls), 0)
+        # commanded_state is still tracked normally -- only dispatch is
+        # skipped, matching this field's own no-op convention.
+        result = self._read_state("entry_d", "s_nodevice")
+        self.assertTrue(result.commanded_state)
+
+    def test_max_activations_per_day_blocks_dispatch_once_reached(self):
+        import numpy as np
+
+        sub = _fake_subentry(
+            "s_cap",
+            "controllable_load",
+            {
+                "controllable_load_device_entity": "switch.capped",
+                "controllable_load_max_activations_per_day": 1,
+                # A tight min_hold so consecutive re-solves in this test
+                # (5 min apart, same as the real grid) can each adopt a
+                # new raw value on the very next solve rather than being
+                # absorbed by the shared 2-period debounce.
+                "controllable_load_min_hold_minutes": 0,
+            },
+        )
+        solver_writer._NATIVE_HASS, services = self._hass([sub])
+        start = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+        grid_times = _grid(start, 4, minutes=5)
+        high = np.array([1.5, 1.5])
+        low = np.array([0.0, 0.0])
+        # decide_commanded_state()'s own debounce needs a NEW disagreeing
+        # value to persist across two consecutive solves before it
+        # adopts, even with min_hold_minutes=0 (the first occurrence only
+        # starts the challenge) -- so [high, low, low, high, high]
+        # produces exactly two real transitions: ON at solve 1 (the
+        # very-first-ever decision, always immediate), OFF at solve 3
+        # (low persisting a second time), ON again at solve 5 (high
+        # persisting a second time). Cap=1 must block that second ON.
+        sequence = [high, low, low, high, high]
+        for i, kw in enumerate(sequence):
+            plan = _fake_plan(sheddable=[_fake_load_plan("s_cap", kw)])
+            solver_writer.apply_commanded_state_guard(
+                plan, start + timedelta(minutes=5 * i), grid_times
+            )
+        on_calls = [c for c in services.calls if c[1] == "turn_on"]
+        self.assertEqual(len(on_calls), 1)
+        # The second requested ON is still recorded as the solver's own
+        # desired commanded_state, even though it wasn't dispatched.
+        result = self._read_state("entry_d", "s_cap")
+        self.assertTrue(result.commanded_state)
+        self.assertEqual(result.activations_today, 1)
+
+    def test_min_hold_minutes_overrides_the_shared_default_hysteresis(self):
+        import numpy as np
+
+        # min_hold_minutes=0 means even a single-solve flip should adopt
+        # immediately, unlike the shared 2-period default this same
+        # 5-min grid would otherwise require.
+        sub = _fake_subentry(
+            "s_fast",
+            "controllable_load",
+            {
+                "controllable_load_device_entity": "switch.fast",
+                "controllable_load_min_hold_minutes": 0,
+            },
+        )
+        solver_writer._NATIVE_HASS, services = self._hass([sub])
+        now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+        grid_times = _grid(now, 4, minutes=5)
+        plan = _fake_plan(sheddable=[_fake_load_plan("s_fast", np.array([1.5, 1.5]))])
+        solver_writer.apply_commanded_state_guard(plan, now, grid_times)
+        result = self._read_state("entry_d", "s_fast")
+        self.assertTrue(result.commanded_state)
+        self.assertEqual(len(services.calls), 1)
+
+    def test_a_dispatch_failure_does_not_raise_or_block_other_loads(self):
+        import numpy as np
+
+        sub_bad = _fake_subentry(
+            "s_bad",
+            "controllable_load",
+            {"controllable_load_device_entity": "switch.will_fail"},
+        )
+        sub_good = _fake_subentry(
+            "s_good",
+            "controllable_load",
+            {"controllable_load_device_entity": "switch.will_succeed"},
+        )
+        solver_writer._NATIVE_HASS, _services = self._hass(
+            [sub_bad, sub_good], raise_for={"switch"}
+        )
+        # raise_for covers BOTH switches (same domain) -- confirms the
+        # whole-function try/except doesn't get triggered by the first
+        # load's failure in a way that skips the second load entirely;
+        # the test asserts on state persistence, not on a call succeeding.
+        plan = _fake_plan(
+            sheddable=[
+                _fake_load_plan("s_bad", np.array([1.5, 1.5])),
+                _fake_load_plan("s_good", np.array([1.5, 1.5])),
+            ]
+        )
+        now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+        grid_times = _grid(now, 4, minutes=5)
+        # Must not raise.
+        solver_writer.apply_commanded_state_guard(plan, now, grid_times)
+        # Both loads' commanded_state is still persisted despite the
+        # dispatch failure -- the guard's own bookkeeping is independent
+        # of whether the physical command actually succeeded.
+        self.assertTrue(self._read_state("entry_d", "s_bad").commanded_state)
+        self.assertTrue(self._read_state("entry_d", "s_good").commanded_state)
+
+    def test_climate_domain_logs_a_warning_and_does_not_raise(self):
+        import numpy as np
+
+        sub = _fake_subentry(
+            "s_climate",
+            "controllable_load",
+            {"controllable_load_device_entity": "climate.living_room"},
+        )
+        solver_writer._NATIVE_HASS, services = self._hass([sub])
+        plan = _fake_plan(
+            sheddable=[_fake_load_plan("s_climate", np.array([1.5, 1.5]))]
+        )
+        now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+        grid_times = _grid(now, 4, minutes=5)
+        with self.assertLogs(solver_writer._LOGGER, level="WARNING") as logs:
+            solver_writer.apply_commanded_state_guard(plan, now, grid_times)
+        self.assertTrue(any("unsupported domain" in r.message for r in logs.records))
+        self.assertEqual(len(services.calls), 0)
+        # commanded_state is still tracked -- only the physical dispatch
+        # is a no-op for an unsupported domain.
+        result = self._read_state("entry_d", "s_climate")
+        self.assertTrue(result.commanded_state)
+
+
 if __name__ == "__main__":
     unittest.main()

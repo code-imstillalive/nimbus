@@ -156,6 +156,39 @@ SIGNAL_ROLE_GRID: Final = "grid"
 CONF_CONTROLLABLE_LOAD_NAME: Final = "controllable_load_name"
 CONF_CONTROLLABLE_LOAD_KIND: Final = "controllable_load_kind"
 CONF_CONTROLLABLE_LOAD_POWER_SENSOR: Final = "controllable_load_power_sensor"
+# nimbus issue #534 item 3 / the output-layer gap it depends on: the real
+# entity this load is actually COMMANDED through, once the solver's own
+# guarded commanded_state (#484) has somewhere real to go. Deliberately a
+# SEPARATE field from CONF_CONTROLLABLE_LOAD_POWER_SENSOR above (a load's
+# own measured power) and CONF_DEFERRABLE_DONE_ENTITY below (what tells
+# the solver the load is finished) -- #534's own real device (a DIY
+# water_heater MQTT bridge) has three genuinely different entities for
+# these three questions, and conflating them would silently break on any
+# install where they differ. Optional and defaults to a real no-op: a
+# load with no device entity configured is scored/planned by the LP
+# exactly as today, just never physically commanded -- matches every
+# other optional field's own no-op convention in this subentry. Domain
+# is read directly off the entity_id at dispatch time (switch.*/
+# water_heater.* today; see dispatch_commanded_state()'s own docstring
+# in solver_writer.py for the domain-pluggable design climate.* is
+# expected to join later, per #534's own "written for both domains"
+# note -- not built yet, out of scope for this pass).
+CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY: Final = "controllable_load_device_entity"
+# #534 item 3's own two device-side constraints, "configurable per load
+# rather than hard-coded" (its own explicit wording) rather than a single
+# hardcoded default shared by every load regardless of what real hardware
+# is behind it. min_hold_minutes overrides load_run_state.py's own
+# DEFAULT_MIN_HYSTERESIS_PERIODS-based debounce for JUST this load when
+# set (None -- the default -- keeps today's shared default, a real
+# no-op); max_activations_per_day is a genuinely new concept (#484's own
+# hysteresis debounces CHATTER, it has no notion of a daily count at all)
+# -- None (the default) means no cap, matching every other optional
+# field's no-op convention. See load_run_state.py's own activations_
+# today/record_activation()/activation_allowed() for the real mechanism.
+CONF_CONTROLLABLE_LOAD_MIN_HOLD_MINUTES: Final = "controllable_load_min_hold_minutes"
+CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY: Final = (
+    "controllable_load_max_activations_per_day"
+)
 CONTROLLABLE_LOAD_KIND_SHEDDABLE: Final = "sheddable"
 CONTROLLABLE_LOAD_KIND_DEFERRABLE: Final = "deferrable"
 # Reserved for #479 (quota), #481 (thermal), #482 (price_gated) --
