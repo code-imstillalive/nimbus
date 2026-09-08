@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.183] — 2026-09-08
+
+### Added
+- **Derived topology from the Solver's own config when no Topology subentry exists** (nimbus issue #575, Mark Purcell — "the topology card should reuse all the sensors that Nimbus solver already presents"). `NimbusTopologyConfigSensor` (`sensor.nimbus_topology_config`) now synthesizes one derived Power Source, PV String, and Battery Tower directly from the hub's own already-configured Solver entities (`solver_battery_power_sensor`, `solver_solar_power_sensor`, `solver_battery_soc_sensor`, and the live `number.nimbus_solver_battery_capacity_kwh` for capacity) whenever none of the three real Topology-wizard subentry types exist yet — plus one additional derived Power Source + Battery Tower pair per `battery_participant` subentry (#563, EV/second-battery participants), using the shared-charger group name as the derived source's name when set. Every derived entry carries `"derived": true`; real Topology entries never do, and adding even one real Topology subentry (Power Source, PV String, or Battery Tower) disables derivation entirely — no mixing real and derived data. `nimbus-topology-card.js` needed no changes: its existing `if (!powerSources.length) return null` empty-state check already stops firing once the sensor reports a non-empty derived (or real) list, resolving the empty-state gap on any install with a configured Solver but an unrun Topology wizard. Grid is deliberately not derived (the Solver holds no grid-power input) — left for #554 (Energy dashboard) or a real `power_signal` role-grid subentry.
+
 ## [0.94.182] — 2026-09-08
 
 ### Changed
