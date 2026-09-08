@@ -31,6 +31,8 @@ tree deliberately doesn't model that.
 
 from __future__ import annotations
 
+import gc
+import weakref
 from datetime import timedelta
 
 import pytest
@@ -135,12 +137,36 @@ async def test_exactly_one_instance_per_push_entity_after_reload(
     timer will publish `native_value=None` every 60s and clobber the
     fresh instance's pushes -- the exact observed symptom in the
     live install.
+
+    nimbus issue #473: the pre/post identity check below used to
+    compare raw `id()` integers -- CPython's `id()` is just the
+    object's current memory address, and once the OLD instance is
+    genuinely garbage collected (the CORRECT, desired outcome of a
+    reload), the allocator is free to hand that exact address to the
+    NEW instance. That's a real, observed CI flake (a rerun with zero
+    code changes passed clean), not a real regression -- `id()` reuse
+    across a clean collect-and-reallocate is expected CPython
+    behaviour, not evidence the new entity IS the old one. Fixed per
+    the issue's own suggested direction: hold a `weakref.ref()` to the
+    pre-reload instance instead of its `id()`, force a `gc.collect()`
+    after the reload (SensorEntity instances commonly sit in reference
+    cycles -- e.g. callback closures pointing back at `self` -- so
+    without an explicit collect a properly-torn-down instance can
+    still be alive as unreachable cycle garbage for a nondeterministic
+    number of GC generations, which would make this check flaky in
+    the OTHER direction). Comparing the weakref's own dereferenced
+    object via `is` against the live instance is real identity
+    comparison, not an address-integer coincidence -- it cannot
+    produce a false positive the way `id()` reuse can, and (unlike
+    `id()`) it also lets us confirm the old instance was actually
+    collected, not just that a fresh address was handed out.
     """
-    # Capture pre-reload instance identities so we can prove the new
-    # ones are actually NEW (defence against a false-pass where the
-    # test happens to count the same instance twice via two platforms).
-    pre_reload_ids = {
-        entity_id: id(_live_instances_for(hass, entity_id)[0])
+    # Capture pre-reload instance IDENTITIES via weakref (not id()) --
+    # see this test's own docstring above for why id() is the wrong tool
+    # here. A weakref doesn't keep the object alive, so it still lets a
+    # properly-torn-down instance be collected normally.
+    pre_reload_refs = {
+        entity_id: weakref.ref(_live_instances_for(hass, entity_id)[0])
         for entity_id in (
             _BATTERY_FORECAST_ENTITY_ID,
             _LOAD_TOTAL_FORECAST_ENTITY_ID,
@@ -151,6 +177,10 @@ async def test_exactly_one_instance_per_push_entity_after_reload(
     # `_async_update_listener` -> `hass.config_entries.async_reload`.
     assert await hass.config_entries.async_reload(nimbus_entry.entry_id)
     await hass.async_block_till_done()
+    # Force collection of any properly-torn-down instance that's only
+    # reachable via a reference cycle (see docstring) -- makes the
+    # weakref check below deterministic instead of GC-timing-dependent.
+    gc.collect()
 
     for entity_id in (
         _BATTERY_FORECAST_ENTITY_ID,
@@ -160,18 +190,18 @@ async def test_exactly_one_instance_per_push_entity_after_reload(
         assert len(instances) == 1, (
             f"{entity_id} has {len(instances)} live entity instances "
             f"after ONE reload. Expected 1. Stale instances found: "
-            f"{[id(i) for i in instances]}, pre-reload was "
-            f"{pre_reload_ids[entity_id]}. This is the #85 stale-"
+            f"{[id(i) for i in instances]}. This is the #85 stale-"
             "instance regression -- async_will_remove_from_hass "
             "didn't tear down the old entity before setup added a "
             "new one."
         )
-        assert id(instances[0]) != pre_reload_ids[entity_id], (
-            f"{entity_id} instance identity did NOT change across a "
-            "reload -- either the test isn't triggering a real "
-            "reload, or the entity is being reused across setups "
-            "(which would also be wrong -- reload MUST produce a "
-            "fresh instance)."
+        old_instance = pre_reload_refs[entity_id]()
+        assert old_instance is None or old_instance is not instances[0], (
+            f"{entity_id}'s live instance after reload IS the exact "
+            "same Python object as before the reload -- either the "
+            "test isn't triggering a real reload, or the entity is "
+            "being reused across setups (which would also be wrong -- "
+            "reload MUST produce a fresh instance)."
         )
 
 
