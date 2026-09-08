@@ -58,6 +58,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.storage import Store
 from homeassistant.loader import async_get_integration
 
+from . import sensor_flattened
 from .const import (
     CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
     CONF_SOLVER_BATTERY_CAPACITY_KWH,
@@ -252,6 +253,14 @@ class _SolverNumberDescription:
     # warned-about device_class at entity registration, not just be a
     # missed nicety.
     device_class: NumberDeviceClass | None = None
+    # nimbus issue #465: None (the default, every field but the 11 P2P
+    # ones below) keeps this entity on the hub device, unchanged. "p2p"
+    # moves it onto the "Nimbus P2P" sub-device instead -- see
+    # NimbusSolverNumber.__init__'s own branch for how this field is
+    # consumed, and sensor_flattened.resolve_hub_device_id()'s docstring
+    # for the shared via_device/via_device_id resolution both this module
+    # and sensor.py's own sub-device parents use.
+    sub_device: str | None = None
 
 
 # Real bounds/units/defaults mirrored exactly from flows/hub_options.py's own
@@ -450,6 +459,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         10,
         0.001,
         "$/kWh",
+        sub_device="p2p",
     ),
     _SolverNumberDescription(
         CONF_SOLVER_P2P_BONUS_VOLUME_KWH,
@@ -460,6 +470,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0.1,
         "kWh",
         device_class=NumberDeviceClass.ENERGY,
+        sub_device="p2p",
     ),
     # P2P fixed-rate delivery blocks (2026-08-21) -- up to 3 independent
     # windows, each holding export at a constant, user-set rate rather than
@@ -477,6 +488,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0.1,
         "kW",
         device_class=NumberDeviceClass.POWER,
+        sub_device="p2p",
     ),
     _SolverNumberDescription(
         CONF_SOLVER_P2P_BLOCK_1_START_HOUR,
@@ -486,6 +498,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         23,
         1,
         "hour",
+        sub_device="p2p",
     ),
     _SolverNumberDescription(
         CONF_SOLVER_P2P_BLOCK_1_END_HOUR,
@@ -495,6 +508,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         24,
         1,
         "hour",
+        sub_device="p2p",
     ),
     _SolverNumberDescription(
         CONF_SOLVER_P2P_BLOCK_2_RATE_KW,
@@ -505,6 +519,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0.1,
         "kW",
         device_class=NumberDeviceClass.POWER,
+        sub_device="p2p",
     ),
     _SolverNumberDescription(
         CONF_SOLVER_P2P_BLOCK_2_START_HOUR,
@@ -514,6 +529,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         23,
         1,
         "hour",
+        sub_device="p2p",
     ),
     _SolverNumberDescription(
         CONF_SOLVER_P2P_BLOCK_2_END_HOUR,
@@ -523,6 +539,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         24,
         1,
         "hour",
+        sub_device="p2p",
     ),
     _SolverNumberDescription(
         CONF_SOLVER_P2P_BLOCK_3_RATE_KW,
@@ -533,6 +550,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0.1,
         "kW",
         device_class=NumberDeviceClass.POWER,
+        sub_device="p2p",
     ),
     _SolverNumberDescription(
         CONF_SOLVER_P2P_BLOCK_3_START_HOUR,
@@ -542,6 +560,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         23,
         1,
         "hour",
+        sub_device="p2p",
     ),
     _SolverNumberDescription(
         CONF_SOLVER_P2P_BLOCK_3_END_HOUR,
@@ -551,6 +570,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         24,
         1,
         "hour",
+        sub_device="p2p",
     ),
     # Real per-kWh import FEES on top of the raw spot price -- network
     # TOU tariff + a flat always-on charge (certificates, etc.), same
@@ -800,15 +820,23 @@ async def async_setup_entry(
     # platform modules) since Platform.NUMBER/Platform.SENSOR forward-setup
     # order isn't something to depend on; HA merges device info across
     # entities sharing the same identifier regardless of which one loads
-    # first.
+    # first. hub_device_id below does its own independent registry lookup
+    # (same reasoning) -- sensor_flattened.resolve_hub_device_id() carries
+    # zero dependency on sensor.py's own async_setup_entry having run
+    # first, it's a shared helper, not a hand-off.
     integration = await async_get_integration(hass, DOMAIN)
     sw_version = str(integration.version) if integration.version else None
+    # nimbus issue #465: resolved once here for the new "Nimbus P2P"
+    # sub-device the 11 P2P number entities below move onto -- see
+    # sensor_flattened.resolve_hub_device_id()'s own docstring for the
+    # full history behind this exact call shape.
+    hub_device_id = sensor_flattened.resolve_hub_device_id(hass, entry)
     shared_store = _SharedNumberStore(
         store=Store(hass, _STORAGE_VERSION, f"{DOMAIN}_{entry.entry_id}_solver_numbers")
     )
     async_add_entities(
         [
-            NimbusSolverNumber(entry, desc, sw_version, shared_store)
+            NimbusSolverNumber(entry, desc, sw_version, shared_store, hub_device_id)
             for desc in _DESCRIPTIONS
         ]
     )
@@ -836,6 +864,7 @@ class NimbusSolverNumber(RestoreNumber, NumberEntity):
         desc: _SolverNumberDescription,
         sw_version: str | None,
         shared_store: _SharedNumberStore,
+        hub_device_id: str | None = None,
     ) -> None:
         self._entry = entry
         self._desc = desc
@@ -852,13 +881,32 @@ class NimbusSolverNumber(RestoreNumber, NumberEntity):
         self._attr_native_step = desc.step
         self._attr_native_unit_of_measurement = desc.unit
         self._attr_device_class = desc.device_class
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, entry.entry_id)},
-            name="Nimbus",
-            manufacturer="Nimbus",
-            model="Hub",
-            sw_version=sw_version,
-        )
+        # nimbus issue #465: desc.sub_device="p2p" (the 11 P2P fields
+        # only) moves this entity onto the "Nimbus P2P" sub-device
+        # instead of the hub -- same via_device/via_device_id mechanism
+        # already proven for sensor.py's own Quality/Backtest/
+        # Counterfactual sub-devices, unique_id/entity_id above are
+        # completely unaffected (only device_info changes), so this is a
+        # non-breaking move for these 11 already-deployed entities.
+        if desc.sub_device == "p2p":
+            self._attr_device_info = DeviceInfo(
+                identifiers={(DOMAIN, f"{entry.entry_id}_p2p")},
+                name="Nimbus P2P",
+                manufacturer="Nimbus",
+                model="Sub-device",
+                sw_version=sw_version,
+                **sensor_flattened.resolve_via_device_field(  # type: ignore[typeddict-item]
+                    hub_device_id, entry.entry_id
+                ),
+            )
+        else:
+            self._attr_device_info = DeviceInfo(
+                identifiers={(DOMAIN, entry.entry_id)},
+                name="Nimbus",
+                manufacturer="Nimbus",
+                model="Hub",
+                sw_version=sw_version,
+            )
         self._attr_native_value = desc.default
 
     async def async_added_to_hass(self) -> None:

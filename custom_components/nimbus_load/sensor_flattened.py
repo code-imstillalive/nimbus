@@ -69,8 +69,10 @@ from homeassistant.components.sensor import (
     SensorEntity,
     SensorStateClass,
 )
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import EntityCategory, UnitOfPower
-from homeassistant.core import callback
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.event import async_track_time_interval
 
@@ -448,33 +450,6 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         unit_of_measurement=UnitOfPower.KILO_WATT,
         suggested_display_precision=3,
     ),
-    # --- P2P signals (primary) ----------------------------------------------
-    FlattenedAttrSpec(
-        source_key="p2p_match_fraction",
-        name="Solver P2P Match Fraction",
-        entity_id_suffix="p2p_match_fraction",
-        entity_category=None,
-        device_class=None,
-        state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_PERCENT,
-        suggested_display_precision=1,
-    ),
-    FlattenedAttrSpec(
-        source_key="p2p_recent_avg_volume_kwh",
-        name="Solver P2P Recent Average Volume",
-        entity_id_suffix="p2p_recent_avg_volume_kwh",
-        entity_category=None,
-        # HA core requires state_class='total' for MONETARY, 'total'/
-        # 'total_increasing' for ENERGY -- none allow MEASUREMENT. These are
-        # per-solve or per-day POINT-IN-TIME values (recomputed fresh each
-        # cycle, can legitimately go up or down), never a cumulative meter --
-        # MEASUREMENT is the semantically correct state_class here, so
-        # device_class is dropped instead (issue #283).
-        device_class=None,
-        state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_KWH,
-        suggested_display_precision=3,
-    ),
     # --- Solve runtime (diagnostic) ------------------------------------------
     FlattenedAttrSpec(
         source_key="solve_seconds",
@@ -572,22 +547,6 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         source_key="energy_shadow_price_now",
         name="Solver Energy Shadow Price (Now)",
         entity_id_suffix="energy_shadow_price_now",
-        entity_category=EntityCategory.DIAGNOSTIC,
-        # HA core requires state_class='total' for MONETARY, 'total'/
-        # 'total_increasing' for ENERGY -- none allow MEASUREMENT. These are
-        # per-solve or per-day POINT-IN-TIME values (recomputed fresh each
-        # cycle, can legitimately go up or down), never a cumulative meter --
-        # MEASUREMENT is the semantically correct state_class here, so
-        # device_class is dropped instead (issue #283).
-        device_class=None,
-        state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD_PER_KWH,
-        suggested_display_precision=4,
-    ),
-    FlattenedAttrSpec(
-        source_key="p2p_volume_cap_shadow_price",
-        name="Solver P2P Volume Cap Shadow Price",
-        entity_id_suffix="p2p_volume_cap_shadow_price",
         entity_category=EntityCategory.DIAGNOSTIC,
         # HA core requires state_class='total' for MONETARY, 'total'/
         # 'total_increasing' for ENERGY -- none allow MEASUREMENT. These are
@@ -702,6 +661,66 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=None,
         suggested_display_precision=0,
+    ),
+)
+
+
+# nimbus issue #465: the 3 P2P signals, moved out of FLATTENED_ATTRS above
+# onto their own dedicated "Nimbus P2P" sub-device -- same "group a
+# concern's own entities off the 40+-entity hub" reasoning that already
+# moved Quality/Backtest/Counterfactual, plus the 11 P2P number.* entities
+# (see number.py's own _SolverNumberDescription.sub_device field). Same
+# source data (still fanned out from NimbusSolverBatteryForecastSensor's
+# own update_from_solver(), see create_flattened_entities_p2p()'s own
+# docstring below for the dispatch-wiring detail), only the DEVICE
+# changes -- unique_id/entity_id stay EXACTLY what they were on the hub
+# (no entity_id_prefix rename, unlike Quality/Backtest/Counterfactual's
+# own sub-device children), since these three are pre-existing, already-
+# deployed entities and a rename would orphan real history/dashboards/
+# automations. See _FlattenedAttributeSensorP2PSubDevice below for how
+# that's achieved (device_info override only, base __init__ untouched).
+FLATTENED_ATTRS_P2P: tuple[FlattenedAttrSpec, ...] = (
+    FlattenedAttrSpec(
+        source_key="p2p_match_fraction",
+        name="Solver P2P Match Fraction",
+        entity_id_suffix="p2p_match_fraction",
+        entity_category=None,
+        device_class=None,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_PERCENT,
+        suggested_display_precision=1,
+    ),
+    FlattenedAttrSpec(
+        source_key="p2p_recent_avg_volume_kwh",
+        name="Solver P2P Recent Average Volume",
+        entity_id_suffix="p2p_recent_avg_volume_kwh",
+        entity_category=None,
+        # HA core requires state_class='total' for MONETARY, 'total'/
+        # 'total_increasing' for ENERGY -- none allow MEASUREMENT. These are
+        # per-solve or per-day POINT-IN-TIME values (recomputed fresh each
+        # cycle, can legitimately go up or down), never a cumulative meter --
+        # MEASUREMENT is the semantically correct state_class here, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_KWH,
+        suggested_display_precision=3,
+    ),
+    FlattenedAttrSpec(
+        source_key="p2p_volume_cap_shadow_price",
+        name="Solver P2P Volume Cap Shadow Price",
+        entity_id_suffix="p2p_volume_cap_shadow_price",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        # HA core requires state_class='total' for MONETARY, 'total'/
+        # 'total_increasing' for ENERGY -- none allow MEASUREMENT. These are
+        # per-solve or per-day POINT-IN-TIME values (recomputed fresh each
+        # cycle, can legitimately go up or down), never a cumulative meter --
+        # MEASUREMENT is the semantically correct state_class here, so
+        # device_class is dropped instead (issue #283).
+        device_class=None,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_AUD_PER_KWH,
+        suggested_display_precision=4,
     ),
 )
 
@@ -953,6 +972,65 @@ def create_flattened_entities(
     """
     return [
         _FlattenedAttributeSensor(entry, sw_version, spec) for spec in FLATTENED_ATTRS
+    ]
+
+
+class _FlattenedAttributeSensorP2PSubDevice(_FlattenedAttributeSensor):
+    """nimbus issue #465: the 3 P2P flattened children (FLATTENED_ATTRS_P2P
+    above), grouped onto their own "Nimbus P2P" sub-device instead of the
+    hub -- same real motivation as the Quality/Backtest/Counterfactual
+    sub-devices further below (the hub has 40+ entities, a dedicated
+    device page per real concern is the honest fit).
+
+    Deliberately NOT built on `_FlattenedAttributeSensorSubDevice` (the
+    Quality/Backtest/Counterfactual base further below): that class ALSO
+    re-derives unique_id/entity_id with a new `entity_id_prefix`, correct
+    for those three (brand new entities when Family-A completion shipped,
+    2026-08-29, no prior existence to preserve) but wrong here -- these
+    three P2P entities are pre-existing, already-deployed on real
+    installs. Overriding ONLY `_attr_device_info` (unique_id/entity_id
+    stay exactly what the base `_FlattenedAttributeSensor.__init__`
+    already derives, unchanged) keeps this a non-breaking move: the
+    entity_id a household's dashboard/automation already references, and
+    the Recorder/LTS history already attached to it, both carry over
+    untouched -- only the device grouping changes.
+    """
+
+    def __init__(
+        self,
+        entry,
+        sw_version: str | None,
+        spec: FlattenedAttrSpec,
+        hub_device_id: str | None = None,
+    ) -> None:
+        super().__init__(entry, sw_version, spec)
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"{entry.entry_id}_p2p")},
+            name="Nimbus P2P",
+            manufacturer="Nimbus",
+            model="Sub-device",
+            sw_version=sw_version,
+            **resolve_via_device_field(hub_device_id, entry.entry_id),  # type: ignore[typeddict-item]
+        )
+
+
+def create_flattened_entities_p2p(
+    entry, sw_version: str | None, hub_device_id: str | None = None
+) -> list[_FlattenedAttributeSensorP2PSubDevice]:
+    """One SensorEntity per FLATTENED_ATTRS_P2P row, all attached to the
+    "Nimbus P2P" sub-device (via_device/via_device_id -> hub). Same "one
+    per hub" call site in sensor.py's async_setup_entry as create_
+    flattened_entities() above -- sensor.py concatenates this factory's
+    own return value onto the base list it passes to `battery_forecast.
+    _flattened_entities`, so `dispatch_to_flattened()` fans out to both
+    groups identically; no separate dispatch function needed since these
+    three still come from the exact same parent (NimbusSolverBattery-
+    ForecastSensor's own update_from_solver()) as every other Family-A
+    child, only the DEVICE they render under changes.
+    """
+    return [
+        _FlattenedAttributeSensorP2PSubDevice(entry, sw_version, spec, hub_device_id)
+        for spec in FLATTENED_ATTRS_P2P
     ]
 
 
@@ -1388,6 +1466,92 @@ FLATTENED_ATTRS_COUNTERFACTUAL: tuple[FlattenedAttrSpec, ...] = (
 # ---------------------------------------------------------------------------
 # Sub-device variant of the flattened base
 # ---------------------------------------------------------------------------
+
+
+def resolve_hub_device_id(hass: HomeAssistant, entry: ConfigEntry) -> str | None:
+    """nimbus issue #335: resolve the hub's own device-registry row id once,
+    defensively -- dr.async_get_device_id_by_identifier only exists on HA
+    2026.9+, so this stays None (falls back to via_device) on any older
+    or stubbed-out HA. See resolve_via_device_field's own docstring.
+
+    Moved here from sensor.py (2026-09-08, nimbus issue #465) -- number.py
+    needs this same resolution for the new "Nimbus P2P" sub-device (its
+    own 11 P2P number entities), and this module is the existing shared
+    home for cross-platform device-info helpers (see resolve_via_device_
+    field's own docstring for why THAT one lives here too, same reasoning
+    applies). sensor.py keeps calling this as sensor_flattened.resolve_
+    hub_device_id(...) -- pure move, zero behaviour change, guarded by the
+    same regression tests (relocated to test the new call site).
+
+    Extracted as its own function (2026-09-03, live bug found on devhub
+    immediately after v0.94.53 shipped) specifically so this exact call is
+    directly unit-testable in isolation. Got the real HA signature wrong
+    THREE times, live on devhub, across three successive same-night
+    releases, before actually reading HA core's own source instead of
+    guessing:
+      - v0.94.53: called with an extra positional `entry.entry_id` arg
+        (`TypeError: ... takes 2 positional arguments but 3 were given`).
+      - v0.94.55: dropped that extra arg but omitted the (genuinely
+        unusual) REQUIRED KEYWORD-ONLY `config_entry_id` argument entirely
+        (`TypeError: ... missing 1 required keyword-only argument:
+        'config_entry_id'`).
+      - v0.94.56: added `config_entry_id`, but passed an already-resolved
+        `DeviceRegistry` object (`dr.async_get(hass)`) as the first
+        positional argument -- the REAL signature takes `hass` itself as
+        that argument and resolves the registry internally
+        (`AttributeError: 'DeviceRegistry' object has no attribute
+        'data'`, since the function tried to treat our registry object AS
+        the hass it expected).
+    The real, confirmed-against-source (github.com/home-assistant/core,
+    homeassistant/helpers/device_registry.py, tag 2026.9.0) signature is
+    `async_get_device_id_by_identifier(hass, identifier_tuple, *,
+    config_entry_id)`, and it RAISES `ValueError` (not None) when the
+    device doesn't exist yet -- handled below as the normal, expected
+    condition on a hub's first-ever setup. All three mistakes shipped
+    undetected for the same reason: the stub environment deliberately
+    doesn't define this attribute at all (hasattr is False there, see
+    tests/_ha_stubs.py's own comment), so the buggy call was never
+    actually invoked by anything before reaching a real HA 2026.9 install.
+    The regression tests now mimic the REAL signature exactly (hass +
+    identifier positional, config_entry_id required keyword-only, plus a
+    ValueError-raising case), so a caller passing the wrong shape or wrong
+    argument type raises here, in CI, the same way it would against the
+    real function.
+    """
+    if not hasattr(dr, "async_get_device_id_by_identifier"):
+        return None
+    try:
+        # Takes `hass` directly, NOT a DeviceRegistry object -- confirmed
+        # 2026-09-03 against HA core's own real source (github.com/home-
+        # assistant/core, homeassistant/helpers/device_registry.py, tag
+        # 2026.9.0) after a THIRD live failure on devhub following two
+        # earlier wrong-signature guesses. It resolves the registry
+        # internally (`async_get(hass)`) -- passing our own already-
+        # resolved DeviceRegistry object here instead raised
+        # `AttributeError: 'DeviceRegistry' object has no attribute
+        # 'data'` (it tried to treat that object AS the hass it expected).
+        return dr.async_get_device_id_by_identifier(
+            hass,
+            (DOMAIN, entry.entry_id),
+            config_entry_id=entry.entry_id,
+        )
+    except ValueError:
+        # Real HA source: "Raises ValueError if no such device exists" --
+        # the normal, expected condition on this hub's very first-ever
+        # setup, before its own device row has been created at all. Not
+        # an error worth an ERROR-level traceback; DEBUG is enough since
+        # the via_device fallback handles this identically either way.
+        _LOGGER.debug(
+            "Nimbus: hub device not found yet (first-ever setup) -- "
+            "sub-devices will fall back to via_device this cycle"
+        )
+        return None
+    except Exception:  # never let this resolution block real entity setup
+        _LOGGER.exception(
+            "Nimbus: hub device_id resolution failed -- sub-devices will "
+            "fall back to via_device, harmless"
+        )
+        return None
 
 
 def resolve_via_device_field(

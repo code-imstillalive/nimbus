@@ -131,6 +131,53 @@ def test_every_entity_attaches_to_the_hub_device():
         assert di["sw_version"] == "0.94.18"
 
 
+def test_p2p_entities_attach_to_their_own_sub_device_not_the_hub():
+    """nimbus issue #465: the 3 P2P signals move to a dedicated "Nimbus
+    P2P" sub-device instead of piling onto the 40+-entity hub -- same
+    real motivation, and same via_device mechanism, as the existing
+    Quality/Backtest/Counterfactual sub-devices. Unlike those three
+    (brand new when Family-A completion shipped, free to also rename
+    their entity_id via entity_id_prefix), these are pre-existing,
+    already-deployed entities -- unique_id/entity_id must stay EXACTLY
+    what FLATTENED_ATTRS's own hub-based entities would have produced,
+    only the device changes, or this "fix" silently orphans real
+    history/dashboards/automations on every install with these entities
+    already deployed.
+    """
+    entry = _fake_entry()
+    entities = sensor_flattened.create_flattened_entities_p2p(
+        entry, sw_version="0.94.18"
+    )
+    assert len(entities) == len(sensor_flattened.FLATTENED_ATTRS_P2P)
+    for e in entities:
+        di = e._attr_device_info
+        assert (DOMAIN, f"{entry.entry_id}_p2p") in di["identifiers"]
+        assert (DOMAIN, entry.entry_id) not in di["identifiers"]
+        assert di["name"] == "Nimbus P2P"
+        assert di["manufacturer"] == "Nimbus"
+        assert di["model"] == "Sub-device"
+        assert di["sw_version"] == "0.94.18"
+        # The non-breaking property: unique_id/entity_id are byte-
+        # identical to what the OLD hub-based _FlattenedAttributeSensor
+        # would have produced for the same spec -- only device_info
+        # differs. Confirmed directly against the base class's own
+        # derivation, not just "looks like the right shape".
+        suffix = e.entity_id.removeprefix("sensor.nimbus_solver_")
+        assert e.entity_id == f"sensor.nimbus_solver_{suffix}"
+        assert e._attr_unique_id == f"{entry.entry_id}_nimbus_solver_{suffix}"
+
+    # And via_device_id wins over via_device when a real hub_device_id is
+    # available -- same resolve_via_device_field() contract every other
+    # sub-device already relies on.
+    entities_with_hub_id = sensor_flattened.create_flattened_entities_p2p(
+        entry, sw_version="0.94.18", hub_device_id="fake-hub-device-id-123"
+    )
+    for e in entities_with_hub_id:
+        di = e._attr_device_info
+        assert di.get("via_device_id") == "fake-hub-device-id-123"
+        assert "via_device" not in di
+
+
 # --- spec-to-entity attribute mapping --------------------------------------
 
 
@@ -429,7 +476,6 @@ def test_lp_internals_and_shadow_prices_are_diagnostic():
         "sensor.nimbus_solver_binding_constraint_now",
         "sensor.nimbus_solver_binding_constraint_shadow_price",
         "sensor.nimbus_solver_energy_shadow_price_now",
-        "sensor.nimbus_solver_p2p_volume_cap_shadow_price",
         "sensor.nimbus_solver_charge_efficiency",
         "sensor.nimbus_solver_discharge_efficiency",
         "sensor.nimbus_solver_degradation_cost_per_kwh",
@@ -441,6 +487,24 @@ def test_lp_internals_and_shadow_prices_are_diagnostic():
         assert by_id[entity_id]._attr_entity_category is EntityCategory.DIAGNOSTIC, (
             f"{entity_id} should be DIAGNOSTIC per the by-what-it-measures rule"
         )
+
+    # nimbus issue #465: p2p_volume_cap_shadow_price moved out of
+    # FLATTENED_ATTRS (and _build_entities() above, which is deliberately
+    # scoped to that one table -- see test_every_spec_row_produces_one_
+    # entity) onto its own "Nimbus P2P" sub-device. Same rule, different
+    # factory -- checked separately so this file's real coverage of that
+    # entity doesn't just silently disappear.
+    p2p_entry = _fake_entry()
+    p2p_entities = sensor_flattened.create_flattened_entities_p2p(
+        p2p_entry, sw_version="0.94.18"
+    )
+    p2p_by_id = {e.entity_id: e for e in p2p_entities}
+    assert (
+        p2p_by_id[
+            "sensor.nimbus_solver_p2p_volume_cap_shadow_price"
+        ]._attr_entity_category
+        is EntityCategory.DIAGNOSTIC
+    )
 
 
 # --- integration with the parent sensor's fan-out --------------------------

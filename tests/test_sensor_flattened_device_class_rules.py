@@ -58,6 +58,10 @@ from custom_components.nimbus_load import sensor_flattened
 
 _ALL_TABLES = {
     "FLATTENED_ATTRS": sensor_flattened.FLATTENED_ATTRS,
+    # nimbus issue #465: the 3 P2P signals moved out of FLATTENED_ATTRS
+    # above onto their own dedicated table/sub-device -- registered here
+    # too so this file's own device_class rule scan still covers them.
+    "FLATTENED_ATTRS_P2P": sensor_flattened.FLATTENED_ATTRS_P2P,
     "FLATTENED_ATTRS_QUALITY": sensor_flattened.FLATTENED_ATTRS_QUALITY,
     "FLATTENED_ATTRS_BACKTEST": sensor_flattened.FLATTENED_ATTRS_BACKTEST,
     "FLATTENED_ATTRS_COUNTERFACTUAL": sensor_flattened.FLATTENED_ATTRS_COUNTERFACTUAL,
