@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.179] — 2026-09-08
+
+### Added
+- **Battery Participant config surface** (nimbus issue #563, the config surface for #467 stage 1's own `batteries: list[BatteryConfig]` solver support). A new `battery_participant` subentry type — Configure → "+ Add" on the Nimbus hub — lets a household add ADDITIONAL, independently-metered battery/EV participants (a second inverter, or an EV) on top of their existing single hub-level battery, which always stays the "home" participant. Each subentry configures: name, capacity, State of Charge sensor, power sensor + sign convention, max charge/discharge power, min/max SoC, round-trip efficiency, and optional salvage value / degradation cost / a live charge-limit entity (e.g. a real EV's own `number.*_charge_limit`, whose current value overrides the configured max SoC for that solve). Zero subentries configured is a genuine no-op — the real production dispatch solve's own `batteries` list stays exactly `[home]`, byte-identical to v0.94.177's own single-battery behaviour. The P2P fixed-export gate stays on `batteries[0]` ("home") only, per #467 stage 1's own decision — additional participants never carry an export commitment.
+  - Deliberately **not yet built** (explicit, clearly-scoped follow-up, not silently missing): per-participant availability gating (a live binary_sensor hard-zeroing charge/discharge while e.g. an EV is away) and a shared-charger power constraint (two participants sharing one physical charger's own kW ceiling) are both genuinely new LP mechanisms — see #563's own issue thread for the full scoping decision. Every participant configured today gets its own independent, ungated power bounds.
+
 ## [0.94.178] — 2026-09-08
 
 ### Added

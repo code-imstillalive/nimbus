@@ -324,6 +324,50 @@
           }
         }
       }
+    },
+    "battery_participant": {
+      "flow_title": "Battery Participant",
+      "entry_type": "Battery Participant",
+      "initiate_flow": {
+        "user": "Battery Participant",
+        "reconfigure": "Battery Participant"
+      },
+      "step": {
+        "user": {
+          "title": "Add a battery participant",
+          "description": "An ADDITIONAL, independently-metered battery the Solver dispatches on its own (a second inverter, or an EV) -- not your main household battery, which is already configured on the hub's own Solver settings and always stays the \"home\" participant. Leave every subentry off if you only have the one battery.",
+          "data": {
+            "battery_participant_name": "Name",
+            "battery_participant_capacity_kwh": "Capacity (kWh)",
+            "battery_participant_soc_sensor": "State of Charge sensor (%)",
+            "battery_participant_power_sensor": "Power sensor (kW)",
+            "battery_participant_power_positive_is_charge": "Positive reading means charging",
+            "battery_participant_max_charge_kw": "Max charge power (kW)",
+            "battery_participant_max_discharge_kw": "Max discharge power (kW)",
+            "battery_participant_min_soc_percent": "Minimum SoC (%)",
+            "battery_participant_max_soc_percent": "Maximum SoC (%)",
+            "battery_participant_efficiency_percent": "Round-trip efficiency (%)",
+            "battery_participant_salvage_value": "Salvage value (optional, $/kWh)",
+            "battery_participant_degradation_cost_per_kwh": "Degradation cost (optional, $/kWh)",
+            "battery_participant_charge_limit_entity": "Live charge-limit entity (optional)"
+          },
+          "data_description": {
+            "battery_participant_name": "A short, real name for this participant (e.g. \"Tesla Model Y\", \"Second Inverter\") -- becomes this subentry's device title and identifies it in the Solver's own per-battery output.",
+            "battery_participant_capacity_kwh": "This participant's own real usable capacity, independent of the home battery's.",
+            "battery_participant_soc_sensor": "This participant's own real State of Charge sensor (%) -- its own, not the home battery's or a combined/averaged figure.",
+            "battery_participant_power_sensor": "This participant's own real power sensor (kW). For a shared resource (e.g. two EVs on one DC charger), use whichever sensor actually reflects THIS participant's own flow if one exists, or the shared charger's sensor if that's all your hardware exposes.",
+            "battery_participant_power_positive_is_charge": "Whether a positive reading on the power sensor above means this participant is charging. Different hardware/integrations use opposite conventions -- check a real reading while it's actively charging or discharging if unsure.",
+            "battery_participant_max_charge_kw": "This participant's own real charge power ceiling.",
+            "battery_participant_max_discharge_kw": "This participant's own real discharge power ceiling. Set to 0 for a charge-only participant that never exports back.",
+            "battery_participant_min_soc_percent": "The Solver won't plan discharging this participant below this SoC except under real price pressure (a soft preference, not a hard wall) -- e.g. keep an EV drivable.",
+            "battery_participant_max_soc_percent": "The Solver won't plan charging this participant above this SoC except under real price pressure. Overridden per-solve by the live charge-limit entity below when one is set.",
+            "battery_participant_efficiency_percent": "This participant's own real combined round-trip efficiency (battery chemistry + any inverter/charger conversion loss).",
+            "battery_participant_salvage_value": "A real $/kWh credit for energy remaining in THIS participant at the end of a solve's horizon. Leave blank for none (0.0) -- a genuine no-op, same convention as Degradation cost below.",
+            "battery_participant_degradation_cost_per_kwh": "A real $/kWh cycle-wear cost for THIS participant. Leave blank for none.",
+            "battery_participant_charge_limit_entity": "An optional live number entity (e.g. an EV's own charge-limit slider) whose CURRENT value overrides Maximum SoC above for every solve -- so a household changing this in the vehicle's own app doesn't also have to update this wizard."
+          }
+        }
+      }
     }
   },
   "selector": {
