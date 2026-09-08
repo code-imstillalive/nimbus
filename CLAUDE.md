@@ -85,7 +85,15 @@ file is not re-summarized here; read it directly for the full detail. Most recen
   that's one of Solcast's/Open-Meteo's own known entities is now skipped as a
   standalone member ENTIRELY when auto-include is on, restoring v0.94.168's own
   correct two-member structure. 5 new tests, ported to the docs copy, released as
-  v0.94.170, deployed to devhub, restart verified clean.
+  v0.94.170, deployed to devhub, restart verified clean. **Unblocked and merged
+  Mark's own #522** (#459 dispatch-card compact-format rework, real merge conflict
+  against main's v0.94.164→v0.94.170 movement) — resolved, CI green, released as
+  v0.94.171, deployed. **Real issue-hygiene gap caught by a direct household
+  question** ("why are there 34 issues, more than when I left?"): #532/#533/#535
+  were genuinely fixed and shipped in v0.94.166 hours earlier but never actually
+  closed (that PR's own description didn't use GitHub's auto-close keyword) — all
+  three closed with the record straight; see `feedback_nimbus_close_fixed_issues`
+  memory for the standing fix (always verify/close, don't just remember "handled").
 - [2026-09-07](docs/worklog/2026-09-07.md) — #445/#453/#451 real bug fixes; dispatch-card
   risk-aversion live-effect proof, Solve Now button, nimbus_status sensor. Chart/table
   layout saga ran through SEVEN CSS iterations (four content-aware formulas, then two
