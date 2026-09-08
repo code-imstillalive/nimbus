@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.188] — 2026-09-09
+
+### Fixed
+- **Quality scorer's oracle no longer inflates `j_star`/understates regret by rushing to recover a below-floor SoC at an expensive price** (nimbus issue #586, Mark Purcell — real repro: 8 Sep started at 0.0% against a 13% floor (#571), with 20.2¢/kWh live at midnight and the day's own real cheapest power at 4.9¢/kWh six hours later at 14:00). The oracle's `build_plan()` call used the same auto-derived `soft_soc_penalty_per_kwh` the *live* solver correctly uses to recover promptly — backwards for a retrospective oracle, which has no reason to value promptness, only genuine price advantage. The oracle bought 5.4 kWh at 20.2¢ purely to reach the floor, inflating `j_star` and misreporting a scored day as "the household beat the oracle at midnight." A first fix attempt (deriving the penalty from the day's own minimum price instead of its maximum, still applied every period) was proven insufficient by this fix's own regression tests before shipping — the penalty still accrues per period for every period spent below floor, so even a much lower rate still costs more than an expensive-but-prompt recovery once enough hours separate the start of the day from its cheap window. The real fix: the auto-derived penalty is completely untouched for the ordinary case (a battery starting at or above its own floor never triggers this at all — zero behavior change, confirmed byte-identical); only when the day's own starting condition is already below floor is the penalty relaxed to exactly zero for that one oracle solve, removing the false urgency without weakening the floor's real economic weight on any other, well-behaved day.
+
 ## [0.94.187] — 2026-09-09
 
 ### Fixed

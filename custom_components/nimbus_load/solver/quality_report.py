@@ -298,12 +298,52 @@ def compute_quality_report(
     )
     j_ach = j_ach_residual.total_cost - real_p2p_dollars_earned
 
+    # nimbus issue #586 (Mark Purcell, real repro: 8 Sep started at 0.0%
+    # against a 13% floor, #571, with 20.2c/kWh live at midnight and the
+    # day's own real cheapest power at 4.9c/kWh six hours later at
+    # 14:00). build_plan()'s own auto-derived soft_soc_penalty_per_kwh
+    # (network.py) is deliberately steep -- DEFAULT_SOFT_SOC_PENALTY_
+    # MULTIPLIER times the day's own MAXIMUM real price -- so the LIVE
+    # solver always finds it worth recovering a below-floor SoC promptly.
+    # That reasoning is backwards for a RETROSPECTIVE oracle: perfect
+    # foresight has no reason to value promptness, only genuine price
+    # advantage.
+    #
+    # A first attempt at this fix tried deriving the penalty from the
+    # day's own MINIMUM price instead of its maximum, still applied on
+    # every period -- proven wrong by this issue's own regression test
+    # before shipping: the penalty accrues PER PERIOD for every period
+    # spent below floor, so even a much smaller per-kWh rate still adds
+    # up to far more than the one-time cost of an expensive-but-prompt
+    # recovery once enough hours separate `now` from the day's own cheap
+    # window (14 hours x 5.2 kWh x a "low" $0.50/kWh rate is still ~$36,
+    # dwarfing the ~$1.05 one-time cost of just paying 20.2c/kWh at
+    # midnight) -- so a lower recurring rate alone never actually removes
+    # the urgency, it only raises the bar for how many hours of delay it
+    # takes to reproduce the same rush.
+    #
+    # Real fix: the penalty stays exactly as auto-derived (untouched,
+    # zero behaviour change) for the ordinary case -- a battery that
+    # starts the day AT OR ABOVE its own floor never needed this
+    # question answered at all, and the floor stays a real, fully-priced
+    # preference throughout the plan, same as the live solver. Only when
+    # the day's own STARTING condition is already below floor (a fact
+    # about history the oracle had no way to have prevented, not a
+    # choice within the scored window) is the penalty relaxed to zero for
+    # this one oracle solve -- removing the false "must recover
+    # immediately" pressure precisely in the one case #586 describes,
+    # without weakening the floor's real economic weight on every other,
+    # well-behaved day.
+    oracle_soft_soc_penalty_per_kwh = (
+        0.0 if battery_scoring.initial_soc_kwh < battery_scoring.min_soc_kwh else None
+    )
     oracle_plan = build_plan(
         periods=periods,
         grid=grid_oracle,
         batteries=[battery_scoring],
         solar=solar,
         loads=[load],
+        soft_soc_penalty_per_kwh=oracle_soft_soc_penalty_per_kwh,
     )
     if not oracle_plan.is_optimal:
         msg = f"Oracle solve failed (status={oracle_plan.status}) -- should not happen with real, already-realized data unless genuinely infeasible"

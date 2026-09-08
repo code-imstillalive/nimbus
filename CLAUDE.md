@@ -29,7 +29,17 @@ file is not re-summarized here; read it directly for the full detail. Most recen
   case directly and resolve earliest_period to "right now" instead of tomorrow.
   Known, honestly-scoped remaining gap: an overnight window already in progress when
   `now` falls inside it hits a related but different path, not fixed this pass.
-  Released v0.94.187.
+  Released v0.94.187. **Then #586** (Mark, real repro: 8 Sep started at 0.0% against
+  the 13% floor per #571) — the quality-scorer oracle rushed to buy 5.4 kWh at
+  20.2¢/kWh at midnight purely to reach the floor when the day's own real cheapest
+  power (4.9¢/kWh) arrived six hours later, inflating `j_star` and understating
+  regret. A first fix attempt (deriving the recovery penalty from the day's own
+  minimum price instead of maximum, still applied every period) was caught as
+  insufficient by this fix's own regression tests before shipping — a per-period
+  accumulating penalty still dwarfs a one-time expensive recovery given enough
+  hours of delay, regardless of the rate. Real fix: the penalty is completely
+  untouched (zero behavior change) unless the day genuinely starts below floor, in
+  which case it's relaxed to zero for that one oracle solve only. Released v0.94.188.
 - [2026-09-08](docs/worklog/2026-09-08.md) — Continuation of the 09-07 marathon.
   Household re-engaged after the quiet overnight monitoring stretch; confirmed #519's
   topology-card fix genuinely ships (Mark's install just needed a client-side cache
