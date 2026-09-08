@@ -36,7 +36,6 @@ title: Nimbus
 views:
   - title: Control Panel
     path: control
-    icon: mdi:battery-charging-100
     type: sections
     max_columns: 4
     sections:
@@ -55,7 +54,6 @@ views:
               rows: auto
   - title: Regret
     path: regret
-    icon: mdi:chart-bell-curve
     type: sections
     max_columns: 4
     sections:
@@ -81,7 +79,6 @@ views:
               rows: auto
   - title: Topology
     path: topology
-    icon: mdi:transmission-tower
     type: sections
     max_columns: 4
     sections:
