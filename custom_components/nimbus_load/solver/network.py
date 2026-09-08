@@ -1543,7 +1543,13 @@ def build_plan(
     # index beyond the horizon at build_plan()'s own top-level guard,
     # never here mid-construction.
     for b in batteries:
-        if b.must_have_soc_by_period_index is None:
+        # Both-None-or-both-set is a real BatteryConfig.__post_init__
+        # invariant, but this explicit check (rather than trusting that
+        # invariant silently) is what lets mypy narrow must_have_soc_kwh
+        # from `float | None` to `float` below -- the type checker has
+        # no way to see across dataclass construction into this
+        # unrelated function.
+        if b.must_have_soc_by_period_index is None or b.must_have_soc_kwh is None:
             continue
         if b.must_have_soc_by_period_index >= n:
             continue
