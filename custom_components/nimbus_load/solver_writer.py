@@ -5781,13 +5781,24 @@ def compute_nimbus_only_soc_counterfactual(cfg: dict, day: datetime) -> dict | N
         loads = [elements.LoadConfig(name="whole_house", forecast_kw=load_kw)]
 
         try:
+            # 2026-09-08: reads the SAME live-tunable smoothness_weight as
+            # the real dispatch solve (see build_plan()'s own call site
+            # further below in this file) rather than a second, silently-
+            # divergent hardcoded copy -- this counterfactual tracker
+            # exists to honestly answer "what would Nimbus-only SoC have
+            # been," which stops being true if it used a different
+            # degeneracy-smoothing behaviour than the real solve did.
             plan = network.build_plan(
                 periods=periods,
                 grid=grid,
                 battery=battery,
                 solar=solar,
                 loads=loads,
-                smoothness_weight=network.DEFAULT_SMOOTHNESS_WEIGHT_KW,
+                smoothness_weight=_cfg_num(
+                    cfg,
+                    "solver_intraplan_smoothness_weight_kw",
+                    network.DEFAULT_SMOOTHNESS_WEIGHT_KW,
+                ),
             )
         except Exception:
             # nimbus issue #363 (Mark Purcell, codebase review): the
@@ -8887,11 +8898,13 @@ def main() -> None:
     periods = elements.PeriodGrid(hours=np.array(period_hours_arr), start=grid_times[0])
 
     # Plan-to-plan stability (2026-08-16, see PLAN_STATE_PATH's own
-    # comment) -- proximal_weight uses the Solver's own documented
-    # default (DEFAULT_PROXIMAL_WEIGHT_KW), deliberately not overridden:
-    # small enough to never override a genuine economic signal, just
-    # enough to break a near-tie toward continuity instead of an
-    # arbitrary vertex. max_rate_kw deliberately NOT used here -- a hard
+    # comment). proximal_weight now reads live from cfg (2026-09-08,
+    # number.nimbus_solver_proximal_weight_kw, dashboard-editable) --
+    # falls back to network.py's own DEFAULT_PROXIMAL_WEIGHT_KW, the
+    # exact value this always silently used before, so an already-
+    # configured household sees zero behaviour change until they
+    # actually tune it. Same real gap, same fix, as smoothness_weight
+    # just below. max_rate_kw deliberately NOT used here -- a hard
     # cap risks suppressing the legitimate, large, real swing at the
     # actual 5pm P2P transition, and this Solver still only observes, it
     # doesn't control anything, so there's no real inverter to protect
@@ -8919,16 +8932,31 @@ def main() -> None:
     )
     import_price_risk_aversion = _cfg_num(cfg, "solver_import_price_risk_aversion", 0.0)
     export_price_risk_aversion = _cfg_num(cfg, "solver_export_price_risk_aversion", 0.0)
+    proximal_weight = _cfg_num(
+        cfg, "solver_proximal_weight_kw", network.DEFAULT_PROXIMAL_WEIGHT_KW
+    )
     # smoothness_weight (2026-08-20, real household finding: "why nimbus
     # decided to make such decisions and charge in bursts not
-    # continuously") -- mechanism 4, network.py's own DEFAULT_SMOOTHNESS_
-    # WEIGHT_KW, same value/reasoning as proximal_weight (mechanism 1),
-    # just applied within this solve's own timeline instead of across
-    # solves. Locally validated (both repo's own scratchpad and nimbus's
-    # own committed tests): eliminates a real, reconstructed degenerate
-    # burst at byte-identical total_cost, and does NOT smear a genuine,
-    # large, real transition (an 80kW price-step scenario, on or off,
-    # within $0.07 either way).
+    # continuously") -- mechanism 4, same value/reasoning as
+    # proximal_weight (mechanism 1) just above, just applied within this
+    # solve's own timeline instead of across solves. Locally validated
+    # (both repo's own scratchpad and nimbus's own committed tests):
+    # eliminates a real, reconstructed degenerate burst at byte-identical
+    # total_cost, and does NOT smear a genuine, large, real transition
+    # (an 80kW price-step scenario, on or off, within $0.07 either way).
+    # 2026-09-08 (real household finding, NUC1's own first day of live
+    # dispatch -- see network.py's own _add_intraplan_smoothness_penalty
+    # docstring for the exact confirmed-live symptom): now reads live
+    # from cfg (number.nimbus_solver_intraplan_smoothness_weight_kw,
+    # dashboard-editable) instead of always silently passing network.py's
+    # own DEFAULT_SMOOTHNESS_WEIGHT_KW constant -- falls back to that same
+    # constant, so an already-configured household sees zero behaviour
+    # change until they actually tune it up.
+    smoothness_weight = _cfg_num(
+        cfg,
+        "solver_intraplan_smoothness_weight_kw",
+        network.DEFAULT_SMOOTHNESS_WEIGHT_KW,
+    )
     # nimbus issue #486: real controllable_load subentries (sheddable/
     # deferrable kinds only -- see build_controllable_loads()'s own
     # docstring), replacing the two hardcoded empty lists this call used
@@ -8949,7 +8977,8 @@ def main() -> None:
         risk_aversion=risk_aversion,
         import_price_risk_aversion=import_price_risk_aversion,
         export_price_risk_aversion=export_price_risk_aversion,
-        smoothness_weight=network.DEFAULT_SMOOTHNESS_WEIGHT_KW,
+        proximal_weight=proximal_weight,
+        smoothness_weight=smoothness_weight,
     )
     # nimbus issue #484: the relay-chatter guard, run once per solve
     # right after the plan exists -- needs the plan's own just-solved

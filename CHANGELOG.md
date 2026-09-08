@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.175] — 2026-09-08
+
+### Added
+- **Live, dashboard-editable Intra-Plan Smoothness Weight and Cross-Solve Proximal Weight** (real household finding, NUC1's own first day of live dispatch). The solver's own LP-degeneracy guards (`network.py`'s `_add_intraplan_smoothness_penalty`/`_add_proximal_penalty`, added 2026-08-20 for the exact confirmed symptom — a single solve's battery_kw jumping mid-band while the real import price hadn't changed yet) were already wired into every real solve, but always passed a hardcoded Python constant, invisible to and untunable by any household. Now `number.nimbus_solver_intraplan_smoothness_weight_kw` and `number.nimbus_solver_proximal_weight_kw` (both default `0.005`, matching the prior hardcoded value exactly — a no-op on upgrade until tuned). Turning either UP only ever breaks a genuine tie between economically-identical schedules; it can never override a real price signal, so the plan stays exactly as responsive to real price changes, just less willing to pick an arbitrary jagged shape when nothing real favours one shape over another.
+
 ## [0.94.174] — 2026-09-08
 
 ### Added

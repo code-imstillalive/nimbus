@@ -95,6 +95,7 @@ from .const import (
     CONF_SOLVER_IMPORT_PRICE_SENSOR,
     CONF_SOLVER_IMPORT_PRICE_SENSOR_2,
     CONF_SOLVER_IMPORT_PRICE_SENSOR_3,
+    CONF_SOLVER_INTRAPLAN_SMOOTHNESS_WEIGHT_KW,
     CONF_SOLVER_INVERTER_SELF_CONSUMPTION_KW,
     CONF_SOLVER_LOAD_FORECAST_ENTITIES,
     CONF_SOLVER_LOAD_FORECAST_SENSOR,
@@ -126,6 +127,7 @@ from .const import (
     CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR,
     CONF_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS,
     CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR,
+    CONF_SOLVER_PROXIMAL_WEIGHT_KW,
     CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR,
     CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR,
     CONF_SOLVER_RISK_AVERSION,
@@ -327,6 +329,15 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     # single cycle, forever, regardless of what the entity showed.
     CONF_SOLVER_FIXED_DAILY_CHARGE,
     CONF_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS,
+    # Real household finding (2026-09-08, NUC1's own first day of live
+    # dispatch): network.py's own intra-plan-smoothness/cross-solve-
+    # proximal degeneracy guards existed already but were always passed
+    # network.py's own hardcoded DEFAULT_SMOOTHNESS_WEIGHT_KW/
+    # DEFAULT_PROXIMAL_WEIGHT_KW constants -- no household could ever see
+    # or tune either one. See number.py's own comment on these two
+    # fields for the full mechanism.
+    CONF_SOLVER_INTRAPLAN_SMOOTHNESS_WEIGHT_KW,
+    CONF_SOLVER_PROXIMAL_WEIGHT_KW,
 )
 # 2026-08-20: these 14 plain-numeric fields moved off entry.options entirely
 # -- they're now LIVE, dashboard-editable number.nimbus_solver_* entities
@@ -397,6 +408,11 @@ _SOLVER_NUMBER_ENTITY_KEYS = (
     # reading the live entity.
     CONF_SOLVER_FIXED_DAILY_CHARGE,
     CONF_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS,
+    # 2026-09-08: same real gap, same fix, for the intra-plan-smoothness/
+    # cross-solve-proximal LP-degeneracy guards -- see this file's own
+    # comment on _SOLVER_ALL_KEYS above.
+    CONF_SOLVER_INTRAPLAN_SMOOTHNESS_WEIGHT_KW,
+    CONF_SOLVER_PROXIMAL_WEIGHT_KW,
 )
 # 2026-08-22: switch.py's own one live boolean toggle -- same
 # "resolve from a live entity, not entry.options" mechanism as

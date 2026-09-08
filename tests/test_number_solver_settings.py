@@ -151,7 +151,7 @@ def test_entity_wiring_carries_through_for_a_field_with_no_device_class():
 
 
 def test_every_solver_number_is_entity_category_config():
-    """Gold entity-category (2026-08-23): every one of these 38 entities
+    """Gold entity-category (2026-08-23): every one of these entities
     IS a Solver tuning knob by NimbusSolverNumber's own class definition
     -- unlike device_class (a real per-field judgment call, tested
     above), CONFIG applies uniformly here with no exceptions."""

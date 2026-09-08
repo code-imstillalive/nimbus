@@ -969,6 +969,42 @@ CONF_SOLVER_SOC_DISCREPANCY_MEAN_THRESHOLD_PCT: Final = (
     "solver_soc_discrepancy_mean_threshold_pct"
 )
 
+# Intra-plan smoothness weight (real household finding, 2026-09-08): the
+# solver's own network.py already has an "intra-plan smoothness" mechanism
+# (_add_intraplan_smoothness_penalty, added 2026-08-20 for this exact
+# symptom -- see that function's own docstring: "a single solve's own
+# battery_kw swung -1.25 -> -33.15 -> -0.30 kW across three consecutive
+# 5-minute periods while the real import price was byte-identical across
+# all of them -- classic LP degeneracy, not a real decision"). It was
+# already wired into every real build_plan() call in this file, but always
+# passed network.DEFAULT_SMOOTHNESS_WEIGHT_KW -- a plain hardcoded Python
+# constant, invisible to and untunable by any household, the same
+# "no hardcoding" gap #538 found and fixed for two other fields the day
+# before. Confirmed live the same day this was added: NUC1's own first day
+# of real live dispatch (the household's new Nimbus Battery Automation
+# (LIVE)) showed exactly this degenerate-burst pattern in a live plan --
+# so this is not a hypothetical, it's the mechanism a real household
+# needed to actually be able to turn up. Same "never hardcoded, every
+# value is a real config-flow/dashboard field" discipline as every other
+# Solver number; default matches network.DEFAULT_SMOOTHNESS_WEIGHT_KW
+# exactly, so rolling this out is a no-op until a household actually
+# raises it.
+CONF_SOLVER_INTRAPLAN_SMOOTHNESS_WEIGHT_KW: Final = (
+    "solver_intraplan_smoothness_weight_kw"
+)
+# Same real gap, same fix, for network.py's sibling mechanism 1
+# (cross-solve proximal regularization -- how much each new solve is
+# pulled toward the PREVIOUS solve's own committed plan, vs. mechanism 4
+# above which only compares periods WITHIN one solve). Also never
+# overridden at any real build_plan() call site in this file -- always
+# silently fell through to build_plan()'s own DEFAULT_PROXIMAL_WEIGHT_KW
+# parameter default, the identical hardcoded-and-untunable shape as
+# smoothness_weight. Exposed alongside it rather than left for a
+# follow-up: same mechanism family, same household ask ("no hardcoding"),
+# and leaving one sibling tunable while the other stays hardcoded would
+# be a confusing half-fix.
+CONF_SOLVER_PROXIMAL_WEIGHT_KW: Final = "solver_proximal_weight_kw"
+
 DEFAULT_SOLVER_SOH_PERCENT: Final = 100.0
 DEFAULT_SOLVER_MIN_SOC_PERCENT: Final = 5.0
 DEFAULT_SOLVER_MAX_SOC_PERCENT: Final = 100.0
@@ -1014,6 +1050,12 @@ DEFAULT_SOLVER_EXPORT_PRICE_RISK_AVERSION: Final = 0.0
 # number, no release needed.
 DEFAULT_SOLVER_SOC_DISCREPANCY_MAX_THRESHOLD_PCT: Final = 15.0
 DEFAULT_SOLVER_SOC_DISCREPANCY_MEAN_THRESHOLD_PCT: Final = 8.0
+# Matches network.py's own DEFAULT_SMOOTHNESS_WEIGHT_KW exactly -- see
+# CONF_SOLVER_INTRAPLAN_SMOOTHNESS_WEIGHT_KW's own comment above for why.
+DEFAULT_SOLVER_INTRAPLAN_SMOOTHNESS_WEIGHT_KW: Final = 0.005
+# Matches network.py's own DEFAULT_PROXIMAL_WEIGHT_KW exactly -- see
+# CONF_SOLVER_PROXIMAL_WEIGHT_KW's own comment above for why.
+DEFAULT_SOLVER_PROXIMAL_WEIGHT_KW: Final = 0.005
 
 # Switchboard-level hub Configure step (2026-08-23) -- the topology
 # dashboard card's own top-of-diagram sensors (grid meter, current buy/

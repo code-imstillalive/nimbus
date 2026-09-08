@@ -74,6 +74,7 @@ from .const import (
     CONF_SOLVER_GRID_MAX_EXPORT_KW,
     CONF_SOLVER_GRID_MAX_IMPORT_KW,
     CONF_SOLVER_IMPORT_PRICE_RISK_AVERSION,
+    CONF_SOLVER_INTRAPLAN_SMOOTHNESS_WEIGHT_KW,
     CONF_SOLVER_INVERTER_SELF_CONSUMPTION_KW,
     CONF_SOLVER_MAX_CHARGE_KW,
     CONF_SOLVER_MAX_DISCHARGE_KW,
@@ -99,6 +100,7 @@ from .const import (
     CONF_SOLVER_P2P_BONUS_PRICE,
     CONF_SOLVER_P2P_BONUS_VOLUME_KWH,
     CONF_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS,
+    CONF_SOLVER_PROXIMAL_WEIGHT_KW,
     CONF_SOLVER_RISK_AVERSION,
     CONF_SOLVER_SALVAGE_VALUE,
     CONF_SOLVER_SOC_DISCREPANCY_MAX_THRESHOLD_PCT,
@@ -112,6 +114,7 @@ from .const import (
     DEFAULT_SOLVER_FIXED_DAILY_CHARGE,
     DEFAULT_SOLVER_FLAT_FEE_RATE,
     DEFAULT_SOLVER_IMPORT_PRICE_RISK_AVERSION,
+    DEFAULT_SOLVER_INTRAPLAN_SMOOTHNESS_WEIGHT_KW,
     DEFAULT_SOLVER_INVERTER_SELF_CONSUMPTION_KW,
     DEFAULT_SOLVER_MAX_SOC_PERCENT,
     DEFAULT_SOLVER_MIN_SOC_PERCENT,
@@ -124,6 +127,7 @@ from .const import (
     DEFAULT_SOLVER_P2P_BONUS_PRICE,
     DEFAULT_SOLVER_P2P_BONUS_VOLUME_KWH,
     DEFAULT_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS,
+    DEFAULT_SOLVER_PROXIMAL_WEIGHT_KW,
     DEFAULT_SOLVER_RISK_AVERSION,
     DEFAULT_SOLVER_SALVAGE_VALUE,
     DEFAULT_SOLVER_SOC_DISCREPANCY_MAX_THRESHOLD_PCT,
@@ -137,7 +141,7 @@ from .const import (
 PARALLEL_UPDATES = 0
 
 # nimbus issue: real, live incident 2026-09-02 (devhub restart) -- 14 of
-# these 38 entities (grid limits, P2P block 1, all three network-fee
+# these entities (grid limits, P2P block 1, all three network-fee
 # tiers, min SoC, SoH, efficiency, charge cost) silently reset to their
 # schema placeholder. Root cause: RestoreNumber's own restore-state has a
 # genuine, still-not-fully-diagnosed HA-core startup timing race (the
@@ -159,7 +163,7 @@ _STORAGE_VERSION = 1
 @dataclass
 class _SharedNumberStore:
     """One Store + one lock, shared by every NimbusSolverNumber instance
-    for a given config entry -- all 38 fields live in the SAME small JSON
+    for a given config entry -- every field lives in the SAME small JSON
     file, so writes must be serialized (read-modify-write across
     independent entity instances would otherwise race if two fields are
     edited back-to-back quickly)."""
@@ -744,6 +748,45 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0.5,
         "%",
     ),
+    # Real household finding (2026-09-08, NUC1's own first day of live
+    # dispatch): a single solve's own battery_kw jumped mid-band (e.g.
+    # -16.2 -> -25.9 kW) while the real import price hadn't actually
+    # changed yet -- classic LP degeneracy (network.py's own
+    # _add_intraplan_smoothness_penalty docstring), not a real decision.
+    # The mechanism to fix this already existed (added 2026-08-20) but
+    # was always passed network.py's own hardcoded DEFAULT_SMOOTHNESS_
+    # WEIGHT_KW constant -- no household could ever see or tune it. Small
+    # values (comfortably below the smallest real price step this
+    # household's data shows, ~1c/kWh = 0.01 $/kWh) only ever break a
+    # genuine tie between economically-identical schedules; they can
+    # never override a real price/cost signal, so turning this UP
+    # doesn't make the plan less responsive to real price changes, only
+    # less willing to pick an arbitrary jagged shape when nothing real
+    # favours one shape over another.
+    _SolverNumberDescription(
+        CONF_SOLVER_INTRAPLAN_SMOOTHNESS_WEIGHT_KW,
+        "Intra-Plan Smoothness Weight",
+        DEFAULT_SOLVER_INTRAPLAN_SMOOTHNESS_WEIGHT_KW,
+        0,
+        0.1,
+        0.001,
+        "$/kWh",
+    ),
+    # Same real gap, same fix, for the sibling mechanism (network.py's
+    # own _add_proximal_penalty) -- how strongly each NEW solve is pulled
+    # toward the PREVIOUS solve's own already-committed plan, instead of
+    # jumping to a different, equally-cheap vertex every solve cycle just
+    # because the LP re-solved from scratch. Also always silently used
+    # network.py's own hardcoded DEFAULT_PROXIMAL_WEIGHT_KW before this.
+    _SolverNumberDescription(
+        CONF_SOLVER_PROXIMAL_WEIGHT_KW,
+        "Cross-Solve Proximal Weight",
+        DEFAULT_SOLVER_PROXIMAL_WEIGHT_KW,
+        0,
+        0.1,
+        0.001,
+        "$/kWh",
+    ),
 )
 
 
@@ -778,7 +821,7 @@ class NimbusSolverNumber(RestoreNumber, NumberEntity):
 
     _attr_has_entity_name = True
     _attr_mode = NumberMode.BOX
-    # Gold entity-category (2026-08-23): every one of these 38 entities IS
+    # Gold entity-category (2026-08-23): every one of these entities IS
     # a Solver tuning knob, by this class's own definition -- unlike
     # entity-device-class (deliberately left unset per-field where HA has
     # no real matching device class, see _SolverNumberDescription's own
