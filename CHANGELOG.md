@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.177] — 2026-09-08
+
+### Fixed
+- **Flaky test: `test_exactly_one_instance_per_push_entity_after_reload`** (nimbus issue #473). The pre/post reload-instance identity check compared raw `id()` integers — CPython's `id()` is just the object's current memory address, and once the old, correctly-torn-down entity instance is genuinely garbage collected, the allocator is free to hand that exact address to the new instance. A rerun with zero code changes passing clean was the tell (real CI evidence on PR #472). Fixed per the issue's own suggested direction: the check now holds a `weakref.ref()` to the pre-reload instance instead of its `id()`, forces a `gc.collect()` after the reload (SensorEntity instances commonly sit in reference cycles, so without an explicit collect a properly-torn-down instance could still be alive as unreachable cycle garbage), and compares real object identity (`is`) against the live post-reload instance. No production code changed — this is a test-only fix for a real test-fragility bug, not a dispatch/entity-registration behavior change.
+
 ## [0.94.176] — 2026-09-08
 
 ### Added
