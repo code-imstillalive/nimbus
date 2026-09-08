@@ -49,8 +49,18 @@ def test_entity_id_unique_id_and_device_are_per_subentry():
 
 
 def test_async_update_reads_commanded_state_as_on_off_string():
-    from homeassistant.helpers.storage import Store as StubStore  # stub-installed
-
+    # sensor.Store, not a fresh `from homeassistant.helpers.storage import
+    # Store` here -- in the full suite, an earlier-collected test file can
+    # already have imported custom_components.nimbus_load.sensor (caching
+    # it in sys.modules with whatever Store class was live at THAT import
+    # time), while install_ha_stubs() re-running in THIS file installs a
+    # fresh stub module/class into sys.modules -- a plain re-import here
+    # would then bind to a DIFFERENT class object (a different, empty
+    # _shared_data dict) than the one sensor.py's own async_update()
+    # actually uses. sensor.Store is the exact class object sensor.py
+    # itself resolved, so writing through it is guaranteed to be visible
+    # to the real async_update() call below regardless of import order.
+    StubStore = sensor.Store
     StubStore._shared_data.clear()
     hass = MagicMock()
     entry = _fake_entry("entry_x")
@@ -95,9 +105,9 @@ def test_async_update_reads_commanded_state_as_on_off_string():
 
 
 def test_async_update_with_no_persisted_state_reads_off_defaults():
-    from homeassistant.helpers.storage import Store as StubStore
-
-    StubStore._shared_data.clear()
+    # See the comment in the previous test for why this must be
+    # sensor.Store, not a fresh top-level re-import.
+    sensor.Store._shared_data.clear()
     hass = MagicMock()
     entry = _fake_entry("entry_y")
     subentry = _fake_subentry("s3", "controllable_load", "Never Sampled", {})
