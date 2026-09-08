@@ -291,7 +291,11 @@ class TestTerminalValueDoesNotCompoundAcrossMultipleCheckpoints(unittest.TestCas
         ):
             periods, grid, battery, solar, loads = _multi_day_scenario(idxs)
             plan = build_plan(
-                periods=periods, grid=grid, batteries=[battery], solar=solar, loads=loads
+                periods=periods,
+                grid=grid,
+                batteries=[battery],
+                solar=solar,
+                loads=loads,
             )
             self.assertEqual(plan.status, "optimal")
             costs[label] = plan.total_cost
@@ -438,7 +442,11 @@ class TestTerminalValuePeriodIndicesOutOfRange(unittest.TestCase):
         )
         with self.assertRaises(ValueError) as ctx:
             build_plan(
-                periods=periods, grid=grid, batteries=[battery], solar=solar, loads=loads
+                periods=periods,
+                grid=grid,
+                batteries=[battery],
+                solar=solar,
+                loads=loads,
             )
         self.assertIn("terminal_value_period_indices", str(ctx.exception))
         self.assertIn(str(FINAL_IDX + 1), str(ctx.exception))
