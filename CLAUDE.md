@@ -20,6 +20,16 @@ Dated work-in-progress notes live in `docs/worklog/`, one file per date — this
 the "CURRENT STATE" journal that used to live directly in this file now lives. Each
 file is not re-summarized here; read it directly for the full detail. Most recent 5:
 
+- [2026-09-09](docs/worklog/2026-09-09.md) — #582: a deferrable Controllable Load with
+  a same-day window (the #534 heat pump's real 6am-4pm window) was silently dropped
+  for its ENTIRE active window once `now` fell inside it, the opposite of intended
+  behavior — `_resolve_hour_to_period_index()` rolled the earliest hour to tomorrow
+  while the deadline stayed today, tripping the ordering guard written for the
+  overnight case. Fixed per Mark's own diagnosis: detect the same-day-in-progress
+  case directly and resolve earliest_period to "right now" instead of tomorrow.
+  Known, honestly-scoped remaining gap: an overnight window already in progress when
+  `now` falls inside it hits a related but different path, not fixed this pass.
+  Released v0.94.187.
 - [2026-09-08](docs/worklog/2026-09-08.md) — Continuation of the 09-07 marathon.
   Household re-engaged after the quiet overnight monitoring stretch; confirmed #519's
   topology-card fix genuinely ships (Mark's install just needed a client-side cache
