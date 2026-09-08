@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.182] — 2026-09-08
+
+### Changed
+- **P2P entities moved onto their own "Nimbus P2P" sub-device** (nimbus issue #465). All 14 P2P entities (11 `number.*` config fields + 3 flattened `sensor.*` children — Match Fraction, Recent Average Volume, Volume Cap Shadow Price) previously sat directly on the main Hub device alongside 40+ other entities. They now group under a dedicated "Nimbus P2P" device page, the same `via_device`/`via_device_id` pattern already used for the Quality/Backtest/Counterfactual sub-devices. Non-breaking: every entity keeps its exact existing `unique_id`/`entity_id` — only the device grouping changes, so existing dashboards/automations/history are unaffected.
+
 ## [0.94.181] — 2026-09-08
 
 ### Added

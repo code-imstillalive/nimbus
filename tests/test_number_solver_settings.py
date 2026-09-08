@@ -134,6 +134,73 @@ def test_entity_attribute_wiring():
     assert (DOMAIN, entry.entry_id) in entity._attr_device_info["identifiers"]
 
 
+def test_p2p_fields_attach_to_the_p2p_sub_device_not_the_hub():
+    """nimbus issue #465: the 11 P2P number entities (2 bonus fields + 3
+    blocks x 3 fields each) move to the dedicated "Nimbus P2P" sub-device
+    -- same real motivation and via_device mechanism as sensor.py's own
+    P2P sensor children. unique_id/entity_id are untouched (only
+    device_info differs) since these are pre-existing, already-deployed
+    entities -- a rename would orphan real history/dashboards/
+    automations.
+    """
+    entry = MagicMock()
+    entry.entry_id = "test_entry_id"
+    p2p_descs = [d for d in _DESCRIPTIONS if d.sub_device == "p2p"]
+    assert len(p2p_descs) == 11, (
+        "expected exactly 11 P2P fields (2 bonus + 3 blocks x 3 fields); "
+        f"got {len(p2p_descs)} -- a field was added/removed/renamed?"
+    )
+
+    for desc in p2p_descs:
+        entity = NimbusSolverNumber(
+            entry, desc, sw_version="9.9.9-test", shared_store=_fresh_shared_store()
+        )
+        di = entity._attr_device_info
+        assert (DOMAIN, "test_entry_id_p2p") in di["identifiers"]
+        assert (DOMAIN, entry.entry_id) not in di["identifiers"]
+        assert di["name"] == "Nimbus P2P"
+        assert di["model"] == "Sub-device"
+        # Non-breaking: unique_id/entity_id byte-identical to what a
+        # hub-attached entity for the same desc would have produced.
+        assert entity._attr_unique_id == f"test_entry_id_{desc.key}"
+        assert entity.entity_id == f"number.nimbus_{desc.key}"
+
+    # via_device_id wins over via_device when a real hub_device_id is
+    # supplied -- same resolve_via_device_field() contract every other
+    # sub-device in this project relies on.
+    desc = p2p_descs[0]
+    entity = NimbusSolverNumber(
+        entry,
+        desc,
+        sw_version="9.9.9-test",
+        shared_store=_fresh_shared_store(),
+        hub_device_id="fake-hub-device-id-123",
+    )
+    di = entity._attr_device_info
+    assert di.get("via_device_id") == "fake-hub-device-id-123"
+    assert "via_device" not in di
+
+
+def test_non_p2p_fields_still_attach_to_the_hub():
+    """The other 27 fields (sub_device=None, the dataclass default) must
+    be completely unaffected by #465 -- still on the hub device, exactly
+    as before this sub-device split existed.
+    """
+    entry = MagicMock()
+    entry.entry_id = "test_entry_id"
+    non_p2p_descs = [d for d in _DESCRIPTIONS if d.sub_device is None]
+    assert len(non_p2p_descs) == len(_DESCRIPTIONS) - 11
+
+    for desc in non_p2p_descs:
+        entity = NimbusSolverNumber(
+            entry, desc, sw_version="9.9.9-test", shared_store=_fresh_shared_store()
+        )
+        di = entity._attr_device_info
+        assert (DOMAIN, entry.entry_id) in di["identifiers"]
+        assert di["name"] == "Nimbus"
+        assert di["model"] == "Hub"
+
+
 def test_entity_wiring_carries_through_for_a_field_with_no_device_class():
     entry = MagicMock()
     entry.entry_id = "test_entry_id"

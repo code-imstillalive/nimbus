@@ -816,11 +816,13 @@ def test_resolve_hub_device_id_calls_real_signature_exactly():
         calls.append((hass_arg, identifier, config_entry_id))
         return "fake-hub-device-id-123"
 
-    sensor.dr.async_get_device_id_by_identifier = fake_async_get_device_id_by_identifier
+    sensor_flattened.dr.async_get_device_id_by_identifier = (
+        fake_async_get_device_id_by_identifier
+    )
     try:
         result = sensor._resolve_hub_device_id(hass=hass, entry=entry)
     finally:
-        del sensor.dr.async_get_device_id_by_identifier
+        del sensor_flattened.dr.async_get_device_id_by_identifier
 
     assert result == "fake-hub-device-id-123"
     assert len(calls) == 1
@@ -841,11 +843,11 @@ def test_resolve_hub_device_id_handles_value_error_as_expected_first_setup():
     def not_found_yet(*args, **kwargs):
         raise ValueError("There is no device with identifier ... ")
 
-    sensor.dr.async_get_device_id_by_identifier = not_found_yet
+    sensor_flattened.dr.async_get_device_id_by_identifier = not_found_yet
     try:
         result = sensor._resolve_hub_device_id(hass=MagicMock(), entry=entry)
     finally:
-        del sensor.dr.async_get_device_id_by_identifier
+        del sensor_flattened.dr.async_get_device_id_by_identifier
     assert result is None
 
 
@@ -854,7 +856,7 @@ def test_resolve_hub_device_id_returns_none_when_helper_missing():
     any older real install -- must degrade to None (via_device fallback),
     never raise."""
     entry = _fake_entry()
-    assert not hasattr(sensor.dr, "async_get_device_id_by_identifier")
+    assert not hasattr(sensor_flattened.dr, "async_get_device_id_by_identifier")
     result = sensor._resolve_hub_device_id(hass=MagicMock(), entry=entry)
     assert result is None
 
@@ -868,9 +870,9 @@ def test_resolve_hub_device_id_swallows_exceptions_and_returns_none():
     def boom(*args, **kwargs):
         raise RuntimeError("simulated failure")
 
-    sensor.dr.async_get_device_id_by_identifier = boom
+    sensor_flattened.dr.async_get_device_id_by_identifier = boom
     try:
         result = sensor._resolve_hub_device_id(hass=MagicMock(), entry=entry)
     finally:
-        del sensor.dr.async_get_device_id_by_identifier
+        del sensor_flattened.dr.async_get_device_id_by_identifier
     assert result is None
