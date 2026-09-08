@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.171] — 2026-09-08
+
+### Changed
+- **Compact forecast-table format redesigned to match the trader-view target sample.** Follow-up on [#459](https://github.com/code-imstillalive/nimbus/issues/459) after Mark Purcell shared a target render. Whole-integer rounding introduced in v0.94.161 is reverted; one-decimal precision is preserved everywhere (`36.2`, `-0.1`, `3.3`). The compact `@container` block now hides four columns entirely (source, fees, p2p, net) leaving eight: TIME, BUY`¢`, SELL`¢`, LOAD kW, PV kW, BATT kW, GRID kW, SOC%. Column headers use two-line stacked spans (`.hdr-name` + `.hdr-unit`) so the name sits above the unit, matching the target sample. Table switches to `table-layout: auto` at 100% width so the browser sizes columns to their content; numerics right-align inside cells with visible vertical rules between columns. Compact-only colour: buy red (`#e04a3f`), sell green (`#3ddc84`), and a trader-convention grid colour (positive = import = green, negative = export = red) that overrides the wide-format solver-perspective colour. Wide-card rendering is unchanged.
+- **Wide-format headers now emit two spans per cell.** `.hdr-name` and `.hdr-unit` sit inline with a hair-space between them at the wide default (`BUY ¢`, `LOAD kW`) and stack as blocks in compact. No visual change for wide cards.
+
+### Testing
+- Rebuilt `tests/frontend/test_dispatch_card_compact_layout.py` for the new shape (18 assertions, all passing): table-layout auto + width 100% + min-width 0 in compact; each of the four hidden columns (`col-source`, `col-fees`, `col-p2p`, `col-net`) has a compact `display: none` rule; buy is `#e04a3f` red and sell is `#3ddc84` green on both `td` and `th`; `td.col-grid.grid-pos` is green and `td.col-grid.grid-neg` is red; header spans stack as blocks in compact and are inline at the wide default. Row rendering grep-asserts every new column class plus the sign-conditional `grid-pos` / `grid-neg` classes so a silent regression to unclassed cells cannot pass.
+
+### Verified
+- Real Chromium headless render at 350px card width shows the target layout: two-line stacked headers, buy red, sell green, grid coloured by sign, NOW badge on the current-period row, no column collision. Wide render at 1900px dashboard (table-col 605px) is byte-identical to v0.94.158 output.
+
 ## [0.94.170] — 2026-09-08
 
 ### Fixed
