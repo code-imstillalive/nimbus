@@ -75,6 +75,17 @@ file is not re-summarized here; read it directly for the full detail. Most recen
   project's log-once dedup sets to add that. 20 new tests, released as v0.94.169,
   deployed to devhub, restart verified clean (devhub's own source didn't happen to
   hit either path this cycle, so live confirmation rests on the unit tests here).
+  **Then a real regression, found within minutes on Mark's own install (#546)**:
+  v0.94.169's own dedup excluded just the ONE overlapping entity from the
+  auto-include Solcast pair — but Solcast's own entity only ever covers ONE day, so
+  the auto-include fetch was left reading only the OTHER day, fragmenting a healthy
+  2-member blend into a 3-member blend with a near-zero holdover member every day
+  (same real forecasts, 252.8 kWh → 172.4 kWh next-24h plan solar). Fixed by moving
+  the dedup from the entity level to the integration level — a configured source
+  that's one of Solcast's/Open-Meteo's own known entities is now skipped as a
+  standalone member ENTIRELY when auto-include is on, restoring v0.94.168's own
+  correct two-member structure. 5 new tests, ported to the docs copy, released as
+  v0.94.170, deployed to devhub, restart verified clean.
 - [2026-09-07](docs/worklog/2026-09-07.md) — #445/#453/#451 real bug fixes; dispatch-card
   risk-aversion live-effect proof, Solve Now button, nimbus_status sensor. Chart/table
   layout saga ran through SEVEN CSS iterations (four content-aware formulas, then two
