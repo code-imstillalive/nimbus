@@ -154,3 +154,57 @@ def test_async_update_with_no_persisted_state_reads_off_defaults():
     asyncio.run(s.async_update())
     assert s.native_value == "off"
     assert s.extra_state_attributes["commanded_state"] is False
+
+
+def test_async_update_exposes_the_plan_forecast_fields():
+    # nimbus issue #581: the seven new plan_* fields flow through
+    # extra_state_attributes exactly like every other LoadRunState field
+    # already does (via the same **state.to_dict() spread) -- no new
+    # sensor-side wiring needed beyond what #578 already built.
+    StubStore = sensor.Store
+    StubStore._shared_data.clear()
+    hass = MagicMock()
+    entry = _fake_entry("entry_z")
+    subentry = _fake_subentry("s4", "controllable_load", "HWS L1", {})
+    store = load_run_state.LoadRunStateStore(
+        store=StubStore(hass, 1, "nimbus_load_entry_z_load_run_state")
+    )
+    asyncio.run(
+        store.async_write(
+            "s4",
+            load_run_state.LoadRunState(
+                plan_forecast=[{"time": "t0", "value": 2.0}],
+                plan_delivered_kwh_forecast=[{"time": "t0", "value": 1.0}],
+                plan_target_kwh=5.0,
+                plan_shortfall_kwh=0.0,
+                plan_earliest_period=2,
+                plan_deadline_period=12,
+            ),
+        )
+    )
+    s = sensor.NimbusControllableLoadStateSensor(hass, entry, subentry, "1.0.0")
+    asyncio.run(s.async_update())
+    attrs = s.extra_state_attributes
+    assert attrs["plan_forecast"] == [{"time": "t0", "value": 2.0}]
+    assert attrs["plan_delivered_kwh_forecast"] == [{"time": "t0", "value": 1.0}]
+    assert attrs["plan_target_kwh"] == 5.0
+    assert attrs["plan_earliest_period"] == 2
+    assert attrs["plan_deadline_period"] == 12
+    assert attrs["plan_nominal_kw"] is None
+
+
+def test_plan_forecast_fields_are_excluded_from_recorder_history():
+    # Same nimbus issue #362 reasoning already applied to
+    # NimbusHealthReportSensor -- these seven fields refresh every solve
+    # cycle and would otherwise write a non-dedupable recorder row every
+    # poll for no real long-term-history value.
+    expected = {
+        "plan_forecast",
+        "plan_delivered_kwh_forecast",
+        "plan_target_kwh",
+        "plan_shortfall_kwh",
+        "plan_earliest_period",
+        "plan_deadline_period",
+        "plan_nominal_kw",
+    }
+    assert expected <= sensor.NimbusControllableLoadStateSensor._unrecorded_attributes

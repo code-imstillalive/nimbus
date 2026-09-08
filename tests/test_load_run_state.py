@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 import sys
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 from typing import ClassVar
 
@@ -566,6 +566,77 @@ class TestLoadRunStateActivationsTodayRoundTrip(unittest.TestCase):
         old_data = {"currently_on": True, "delivered_today_kwh": 1.5}
         restored = lrs.LoadRunState.from_dict(old_data)
         self.assertEqual(restored.activations_today, 0)
+
+
+class TestBuildTimeValueSeries(unittest.TestCase):
+    """nimbus issue #581: build_time_value_series() -- the shared
+    {"time", "value"} shape every Nimbus forecast sensor already uses."""
+
+    def test_pairs_each_grid_time_with_its_own_value_rounded(self):
+        times = [
+            datetime(2026, 9, 9, 0, 0, tzinfo=UTC),
+            datetime(2026, 9, 9, 0, 30, tzinfo=UTC),
+        ]
+        result = lrs.build_time_value_series(times, [1.23456, 2.0])
+        self.assertEqual(
+            result,
+            [
+                {"time": times[0].isoformat(), "value": 1.235},
+                {"time": times[1].isoformat(), "value": 2.0},
+            ],
+        )
+
+    def test_works_with_a_numpy_array_not_just_a_plain_list(self):
+        import numpy as np
+
+        times = [datetime(2026, 9, 9, 0, 0, tzinfo=UTC)]
+        result = lrs.build_time_value_series(times, np.array([3.5]))
+        self.assertEqual(result, [{"time": times[0].isoformat(), "value": 3.5}])
+
+    def test_empty_inputs_produce_an_empty_series(self):
+        self.assertEqual(lrs.build_time_value_series([], []), [])
+
+
+class TestLoadRunStatePlanForecastRoundTrip(unittest.TestCase):
+    """nimbus issue #581: the seven new plan_* fields round-trip through
+    to_dict()/from_dict() the same way activations_today already does
+    above, including the same old-data backward-compat guarantee."""
+
+    def test_to_dict_and_from_dict_round_trip_every_new_field(self):
+        state = lrs.LoadRunState(
+            plan_forecast=[{"time": "t0", "value": 1.0}],
+            plan_delivered_kwh_forecast=[{"time": "t0", "value": 0.5}],
+            plan_target_kwh=5.0,
+            plan_shortfall_kwh=0.2,
+            plan_earliest_period=2,
+            plan_deadline_period=12,
+            plan_nominal_kw=1.5,
+        )
+        restored = lrs.LoadRunState.from_dict(state.to_dict())
+        self.assertEqual(restored.plan_forecast, state.plan_forecast)
+        self.assertEqual(
+            restored.plan_delivered_kwh_forecast, state.plan_delivered_kwh_forecast
+        )
+        self.assertEqual(restored.plan_target_kwh, 5.0)
+        self.assertEqual(restored.plan_shortfall_kwh, 0.2)
+        self.assertEqual(restored.plan_earliest_period, 2)
+        self.assertEqual(restored.plan_deadline_period, 12)
+        self.assertEqual(restored.plan_nominal_kw, 1.5)
+
+    def test_from_dict_defaults_every_new_field_to_none_for_old_data(self):
+        # Real backward-compat case: a LoadRunState written before #581
+        # shipped has none of these seven keys at all -- must not raise,
+        # must default to None (not 0.0/[] -- "never computed" is a
+        # genuinely different state from "computed as zero/empty").
+        old_data = {"currently_on": True, "delivered_today_kwh": 1.5}
+        restored = lrs.LoadRunState.from_dict(old_data)
+        self.assertIsNone(restored.plan_forecast)
+        self.assertIsNone(restored.plan_delivered_kwh_forecast)
+        self.assertIsNone(restored.plan_target_kwh)
+        self.assertIsNone(restored.plan_shortfall_kwh)
+        self.assertIsNone(restored.plan_earliest_period)
+        self.assertIsNone(restored.plan_deadline_period)
+        self.assertIsNone(restored.plan_nominal_kw)
 
 
 if __name__ == "__main__":

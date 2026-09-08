@@ -40,6 +40,19 @@ file is not re-summarized here; read it directly for the full detail. Most recen
   hours of delay, regardless of the rate. Real fix: the penalty is completely
   untouched (zero behavior change) unless the day genuinely starts below floor, in
   which case it's relaxed to zero for that one oracle solve only. Released v0.94.188.
+  **Then #581** (Mark, real ask: "chart the day-ahead plan for the heat pump"):
+  `sensor.nimbus_<load>_commanded_state` now publishes each Controllable Load's own
+  full per-period plan (`plan_forecast`, plus deferrable's `plan_delivered_kwh_
+  forecast`/`plan_target_kwh`/`plan_shortfall_kwh`/`plan_earliest_period`/`plan_
+  deadline_period`, sheddable's `plan_nominal_kw`) — the LP already computed this
+  every solve, `apply_commanded_state_guard()` only ever read period 0 of it.
+  Excluded from recorder history via the same #362 reasoning already applied to
+  `NimbusHealthReportSensor`. While rebasing onto #582, found and fixed a real
+  inconsistency: `apply_commanded_state_guard()`'s own duplicated period-index
+  resolution didn't inherit #582's same-day fix, which would have published the
+  wrong `plan_earliest_period` for exactly the case #582 just fixed for the LP
+  itself — duplicated the fix, flagged the drift risk between the two call sites
+  as a candidate for a future shared-helper refactor. Released v0.94.189.
 - [2026-09-08](docs/worklog/2026-09-08.md) — Continuation of the 09-07 marathon.
   Household re-engaged after the quiet overnight monitoring stretch; confirmed #519's
   topology-card fix genuinely ships (Mark's install just needed a client-side cache

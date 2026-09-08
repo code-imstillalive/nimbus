@@ -1228,11 +1228,32 @@ class NimbusControllableLoadStateSensor(SensorEntity):
     property the way NimbusHealthReportSensor's own native_value is;
     `async_update()` is HA's own supported hook for exactly this shape
     of entity.
+
+    nimbus issue #581: also publishes each load's own full per-period
+    plan (plan_forecast/plan_delivered_kwh_forecast/plan_target_kwh/
+    plan_shortfall_kwh/plan_earliest_period/plan_deadline_period/plan_
+    nominal_kw) -- these refresh every solve cycle regardless of whether
+    commanded_state changed, so they're excluded from long-term recorder
+    history the same way nimbus issue #362 already excluded NimbusHealth
+    ReportSensor's own per-poll-churning attributes (generated_at/
+    subentry_status/recent_errors/recent_warnings) -- real, current data
+    worth reading live, not worth a non-dedupable recorder row every poll.
     """
 
     _attr_has_entity_name = True
     _attr_name = "Commanded State"
     _attr_entity_category = None  # a real, actively-read data source
+    _unrecorded_attributes = frozenset(
+        {
+            "plan_forecast",
+            "plan_delivered_kwh_forecast",
+            "plan_target_kwh",
+            "plan_shortfall_kwh",
+            "plan_earliest_period",
+            "plan_deadline_period",
+            "plan_nominal_kw",
+        }
+    )
 
     def __init__(
         self,
