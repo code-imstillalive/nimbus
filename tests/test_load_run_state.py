@@ -781,9 +781,14 @@ class TestDeriveScheduleView(unittest.TestCase):
 
     def test_planned_cost_sums_the_cost_forecast_over_the_run_window(self):
         # nimbus issue #591: same run window as the test above (periods
-        # 1-2, 0.65 kW for 1.0h total) at a flat 0.10 $/kWh -- 0.65 kWh *
-        # $0.10 = $0.065 planned cost.
-        cost_forecast = _series(self.times, [0.0, 0.0325, 0.0325, 0.0, 0.0, 0.0])
+        # 1-2, 0.65 kW for 0.5h each) at a flat 0.12 $/kWh -- 0.325 kWh *
+        # $0.12 = $0.039 per period, summed to $0.078. (Chosen to land
+        # cleanly on build_time_value_series()'s own 3dp rounding -- a
+        # per-period cost of exactly $0.0325 rounds UP to $0.033 there,
+        # which would make this test's own expected sum wrong for a
+        # reason that has nothing to do with derive_schedule_view()
+        # itself; found live when this test first ran on CI.)
+        cost_forecast = _series(self.times, [0.0, 0.039, 0.039, 0.0, 0.0, 0.0])
         state = lrs.LoadRunState(
             plan_forecast=self.forecast,
             plan_cost_forecast=cost_forecast,
@@ -795,7 +800,7 @@ class TestDeriveScheduleView(unittest.TestCase):
         view = lrs.derive_schedule_view(
             state, load_kind="deferrable", now=self.times[0]
         )
-        self.assertAlmostEqual(view.planned_cost, 0.065)
+        self.assertAlmostEqual(view.planned_cost, 0.078)
 
     def test_planned_cost_is_none_when_the_cost_forecast_was_not_published(self):
         # An unpriced run must read as an honest "unknown," never a
