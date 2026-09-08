@@ -87,6 +87,7 @@ def _scenario(fixed_kw: float | None):
         fixed_export_kw=fixed_export_kw,
     )
     battery = BatteryConfig(
+        name="battery",
         capacity_kwh=122.2,
         initial_soc_kwh=122.2 * 0.20,
         min_soc_kwh=122.2 * 0.05,
@@ -108,7 +109,7 @@ class TestFixedExportKw(unittest.TestCase):
     def test_without_fix_variable_price_makes_export_swing(self):
         periods, grid, battery, solar, loads = _scenario(fixed_kw=None)
         plan = build_plan(
-            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+            periods=periods, grid=grid, batteries=[battery], solar=solar, loads=loads
         )
         self.assertEqual(plan.status, "optimal")
         window_export = plan.grid_export_kw[10:17]
@@ -125,7 +126,7 @@ class TestFixedExportKw(unittest.TestCase):
         target_kw = 11.5
         periods, grid, battery, solar, loads = _scenario(fixed_kw=target_kw)
         plan = build_plan(
-            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+            periods=periods, grid=grid, batteries=[battery], solar=solar, loads=loads
         )
         self.assertEqual(plan.status, "optimal")
         window_export = plan.grid_export_kw[10:17]
@@ -141,7 +142,7 @@ class TestFixedExportKw(unittest.TestCase):
         target_kw = 11.5
         periods, grid, battery, solar, loads = _scenario(fixed_kw=target_kw)
         plan = build_plan(
-            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+            periods=periods, grid=grid, batteries=[battery], solar=solar, loads=loads
         )
         self.assertEqual(plan.status, "optimal")
         # Outside the fixed window, export should NOT be pinned to 11.5 --
@@ -157,7 +158,7 @@ class TestFixedExportKw(unittest.TestCase):
         target_kw = 11.5
         periods, grid, battery, solar, loads = _scenario(fixed_kw=target_kw)
         plan = build_plan(
-            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+            periods=periods, grid=grid, batteries=[battery], solar=solar, loads=loads
         )
         self.assertEqual(plan.status, "optimal")
         # Genuine, real energy requirement for 7h @ 11.5kW export + 1.5kW
@@ -192,14 +193,14 @@ class TestFixedExportKw(unittest.TestCase):
         plan_a = build_plan(
             periods=periods,
             grid=grid_with_none,
-            battery=battery,
+            batteries=[battery],
             solar=solar,
             loads=loads,
         )
         plan_b = build_plan(
             periods=periods,
             grid=grid_without_field,
-            battery=battery,
+            batteries=[battery],
             solar=solar,
             loads=loads,
         )
@@ -249,7 +250,7 @@ class TestFixedExportKw(unittest.TestCase):
         )
 
         plan = build_plan(
-            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+            periods=periods, grid=grid, batteries=[battery], solar=solar, loads=loads
         )
         self.assertEqual(plan.status, "optimal")
 

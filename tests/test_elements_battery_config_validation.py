@@ -36,6 +36,7 @@ from solver.elements import BatteryConfig, DegenerateConfigError
 
 def _base_battery(**overrides) -> dict:
     defaults = {
+        "name": "battery",
         "capacity_kwh": 30.0,
         "initial_soc_kwh": 15.0,
         "min_soc_kwh": 2.0,

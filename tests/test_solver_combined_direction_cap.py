@@ -108,6 +108,7 @@ def _scenario(*, charge_cost: float, discharge_cost: float, roundtrip_profitable
         export_limit_kw=40.0,
     )
     battery = BatteryConfig(
+        name="battery",
         capacity_kwh=40.0,
         initial_soc_kwh=40.0 * 0.5,
         min_soc_kwh=40.0 * 0.05,
@@ -138,7 +139,7 @@ class TestCombinedDirectionCap(unittest.TestCase):
             charge_cost=0.005, discharge_cost=0.005, roundtrip_profitable=True
         )
         plan = build_plan(
-            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+            periods=periods, grid=grid, batteries=[battery], solar=solar, loads=loads
         )
         self.assertEqual(plan.status, "optimal")
         combined = plan.battery_charge_kw + plan.battery_discharge_kw
@@ -158,7 +159,7 @@ class TestCombinedDirectionCap(unittest.TestCase):
             charge_cost=0.005, discharge_cost=0.01, roundtrip_profitable=False
         )
         plan = build_plan(
-            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+            periods=periods, grid=grid, batteries=[battery], solar=solar, loads=loads
         )
         self.assertEqual(plan.status, "optimal")
         for t in range(len(plan.battery_charge_kw)):
@@ -187,7 +188,7 @@ class TestCombinedDirectionCap(unittest.TestCase):
             charge_cost=0.005, discharge_cost=0.01, roundtrip_profitable=True
         )
         plan = build_plan(
-            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+            periods=periods, grid=grid, batteries=[battery], solar=solar, loads=loads
         )
         self.assertEqual(plan.status, "optimal")
         combined = plan.battery_charge_kw + plan.battery_discharge_kw

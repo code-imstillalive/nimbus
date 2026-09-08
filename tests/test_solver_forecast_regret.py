@@ -43,6 +43,7 @@ def _grid(import_price, export_price):
 
 def _battery():
     return BatteryConfig(
+        name="battery",
         capacity_kwh=20.0,
         initial_soc_kwh=10.0,
         min_soc_kwh=1.0,

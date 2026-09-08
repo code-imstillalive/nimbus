@@ -316,7 +316,7 @@ def oracle_dispatch(
     oracle included, is what makes the comparison honest).
     """
     plan = build_plan(
-        periods=periods, grid=grid, battery=battery, solar=solar, loads=[load]
+        periods=periods, grid=grid, batteries=[battery], solar=solar, loads=[load]
     )
     if not plan.is_optimal:
         msg = f"Oracle solve failed (status={plan.status}) -- this should not happen with real, already-realized data unless the scenario is genuinely infeasible"

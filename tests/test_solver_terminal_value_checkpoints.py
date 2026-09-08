@@ -85,6 +85,7 @@ def _scenario(period_indices):
     )
     min_soc_kwh, max_soc_kwh = 122.2 * 0.05, 122.2 * 1.0
     battery = BatteryConfig(
+        name="battery",
         capacity_kwh=122.2,
         initial_soc_kwh=max_soc_kwh,
         min_soc_kwh=min_soc_kwh,
@@ -112,7 +113,7 @@ class TestTerminalValueCheckpoints(unittest.TestCase):
         without_plan = build_plan(
             periods=without_periods,
             grid=without_grid,
-            battery=without_battery,
+            batteries=[without_battery],
             solar=without_solar,
             loads=without_loads,
         )
@@ -123,7 +124,7 @@ class TestTerminalValueCheckpoints(unittest.TestCase):
         with_plan = build_plan(
             periods=with_periods,
             grid=with_grid,
-            battery=with_battery,
+            batteries=[with_battery],
             solar=with_solar,
             loads=with_loads,
         )
@@ -146,7 +147,7 @@ class TestTerminalValueCheckpoints(unittest.TestCase):
             period_indices=[DAY_BOUNDARY_IDX, FINAL_IDX]
         )
         plan = build_plan(
-            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+            periods=periods, grid=grid, batteries=[battery], solar=solar, loads=loads
         )
         self.assertEqual(plan.status, "optimal")
         # The final period should ALSO show real held-back SoC (same
@@ -176,7 +177,7 @@ class TestTerminalValueCheckpoints(unittest.TestCase):
         auto_plan = build_plan(
             periods=auto_periods,
             grid=auto_grid,
-            battery=auto_battery,
+            batteries=[auto_battery],
             solar=auto_solar,
             loads=auto_loads,
         )
@@ -191,7 +192,7 @@ class TestTerminalValueCheckpoints(unittest.TestCase):
         explicit_plan = build_plan(
             periods=explicit_periods,
             grid=explicit_grid,
-            battery=explicit_battery,
+            batteries=[explicit_battery],
             solar=explicit_solar,
             loads=explicit_loads,
         )
@@ -234,6 +235,7 @@ def _multi_day_scenario(period_indices):
     )
     min_soc_kwh, max_soc_kwh = 40.0 * 0.05, 40.0 * 1.0
     battery = BatteryConfig(
+        name="battery",
         capacity_kwh=40.0,
         initial_soc_kwh=max_soc_kwh,
         min_soc_kwh=min_soc_kwh,
@@ -289,7 +291,7 @@ class TestTerminalValueDoesNotCompoundAcrossMultipleCheckpoints(unittest.TestCas
         ):
             periods, grid, battery, solar, loads = _multi_day_scenario(idxs)
             plan = build_plan(
-                periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+                periods=periods, grid=grid, batteries=[battery], solar=solar, loads=loads
             )
             self.assertEqual(plan.status, "optimal")
             costs[label] = plan.total_cost
@@ -328,11 +330,11 @@ class TestTerminalValueDoesNotCompoundAcrossMultipleCheckpoints(unittest.TestCas
 
         periods, grid, battery, solar, loads = _multi_day_scenario(two_intermediate)
         plan_2 = build_plan(
-            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+            periods=periods, grid=grid, batteries=[battery], solar=solar, loads=loads
         )
         periods, grid, battery, solar, loads = _multi_day_scenario(four_intermediate)
         plan_4 = build_plan(
-            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+            periods=periods, grid=grid, batteries=[battery], solar=solar, loads=loads
         )
 
         self.assertEqual(plan_2.status, "optimal")
@@ -362,7 +364,7 @@ class TestTerminalValueDoesNotCompoundAcrossMultipleCheckpoints(unittest.TestCas
         self.assertEqual(len(idxs), 2, "test setup bug: expected 2 distinct indices")
         periods, grid, battery, solar, loads = _multi_day_scenario(idxs)
         plan = build_plan(
-            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+            periods=periods, grid=grid, batteries=[battery], solar=solar, loads=loads
         )
         self.assertEqual(plan.status, "optimal")
         # With comfortably-profitable export price and a real single
@@ -376,6 +378,7 @@ class TestTerminalValueDoesNotCompoundAcrossMultipleCheckpoints(unittest.TestCas
 
 def _base_kwargs(**overrides):
     kwargs = {
+        "name": "battery",
         "capacity_kwh": 100.0,
         "initial_soc_kwh": 50.0,
         "min_soc_kwh": 5.0,
@@ -435,7 +438,7 @@ class TestTerminalValuePeriodIndicesOutOfRange(unittest.TestCase):
         )
         with self.assertRaises(ValueError) as ctx:
             build_plan(
-                periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+                periods=periods, grid=grid, batteries=[battery], solar=solar, loads=loads
             )
         self.assertIn("terminal_value_period_indices", str(ctx.exception))
         self.assertIn(str(FINAL_IDX + 1), str(ctx.exception))
@@ -444,6 +447,6 @@ class TestTerminalValuePeriodIndicesOutOfRange(unittest.TestCase):
         # Boundary case: n-1 is the last VALID index, must not raise.
         periods, grid, battery, solar, loads = _scenario(period_indices=[FINAL_IDX])
         plan = build_plan(
-            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+            periods=periods, grid=grid, batteries=[battery], solar=solar, loads=loads
         )
         self.assertEqual(plan.status, "optimal")

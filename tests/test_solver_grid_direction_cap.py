@@ -74,6 +74,7 @@ _COMBINED_CAP = max(_IMPORT_LIMIT_KW, _EXPORT_LIMIT_KW)
 def _battery(*, initial_soc_frac: float) -> BatteryConfig:
     capacity = 40.0
     return BatteryConfig(
+        name="battery",
         capacity_kwh=capacity,
         initial_soc_kwh=capacity * initial_soc_frac,
         min_soc_kwh=capacity * 0.05,
@@ -117,7 +118,7 @@ class TestGridDirectionCap(unittest.TestCase):
         loads = [LoadConfig(name="load", forecast_kw=np.zeros(n))]
 
         plan = build_plan(
-            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+            periods=periods, grid=grid, batteries=[battery], solar=solar, loads=loads
         )
         self.assertEqual(plan.status, "optimal")
         combined = plan.grid_import_kw + plan.grid_export_kw
@@ -149,7 +150,7 @@ class TestGridDirectionCap(unittest.TestCase):
         loads = [LoadConfig(name="house", forecast_kw=np.full(n, 1.5))]
 
         plan = build_plan(
-            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+            periods=periods, grid=grid, batteries=[battery], solar=solar, loads=loads
         )
         self.assertEqual(plan.status, "optimal")
         for t in range(n):
@@ -183,7 +184,7 @@ class TestGridDirectionCap(unittest.TestCase):
         loads = [LoadConfig(name="load", forecast_kw=np.zeros(n))]
 
         plan = build_plan(
-            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+            periods=periods, grid=grid, batteries=[battery], solar=solar, loads=loads
         )
         self.assertEqual(plan.status, "optimal")
         combined = plan.grid_import_kw + plan.grid_export_kw

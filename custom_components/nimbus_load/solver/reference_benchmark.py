@@ -160,6 +160,7 @@ def _reference_battery() -> BatteryConfig:
     round_trip = 0.90
     leg_efficiency = float(np.sqrt(round_trip))
     return BatteryConfig(
+        name="reference",  # nimbus issue #467: generic single-battery reference scenario
         capacity_kwh=15.0,
         initial_soc_kwh=7.5,  # start at 50% -- no free head start either direction
         min_soc_kwh=1.5,  # 10% floor

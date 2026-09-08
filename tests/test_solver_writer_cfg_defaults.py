@@ -90,6 +90,7 @@ class TestBatteryConfigSoCClamp(unittest.TestCase):
 
     def _base_kwargs(self):
         return {
+            "name": "battery",
             "capacity_kwh": 40.0,
             "min_soc_kwh": 2.0,  # 5% of 40
             "max_soc_kwh": 40.0,  # 100% of 40

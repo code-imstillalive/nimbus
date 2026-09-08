@@ -36,6 +36,7 @@ def _flat_grid(n: int, hours: float = 1.0) -> PeriodGrid:
 
 def _base_battery(**overrides) -> BatteryConfig:
     defaults = {
+        "name": "battery",
         "capacity_kwh": 20.0,
         "initial_soc_kwh": 10.0,
         "min_soc_kwh": 2.0,
@@ -111,7 +112,7 @@ class TestSharedCircuitCapReproducesAndFixesRealCollision(unittest.TestCase):
         return build_plan(
             periods=periods,
             grid=grid,
-            battery=battery,
+            batteries=[battery],
             solar=solar,
             loads=[],
             adequacy_loads=adequacy,
@@ -210,7 +211,7 @@ class TestSharedCircuitMissingMemberRaises(unittest.TestCase):
             build_plan(
                 periods=periods,
                 grid=grid,
-                battery=battery,
+                batteries=[battery],
                 solar=solar,
                 loads=[],
                 adequacy_loads=adequacy,
@@ -276,7 +277,7 @@ class TestSharedCircuitGenuineShortfall(unittest.TestCase):
         plan = build_plan(
             periods=periods,
             grid=grid,
-            battery=battery,
+            batteries=[battery],
             solar=solar,
             loads=[],
             adequacy_loads=adequacy,
@@ -322,7 +323,7 @@ class TestSharedCircuitsDefaultIsANoOp(unittest.TestCase):
         plan_none = build_plan(
             periods=periods,
             grid=grid,
-            battery=battery,
+            batteries=[battery],
             solar=solar,
             loads=[],
             adequacy_loads=adequacy,
@@ -331,7 +332,7 @@ class TestSharedCircuitsDefaultIsANoOp(unittest.TestCase):
         plan_empty = build_plan(
             periods=periods,
             grid=grid,
-            battery=battery,
+            batteries=[battery],
             solar=solar,
             loads=[],
             adequacy_loads=adequacy,

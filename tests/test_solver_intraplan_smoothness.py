@@ -71,6 +71,7 @@ def _flat_price_scenario():
         export_limit_kw=44.0,
     )
     battery = BatteryConfig(
+        name="battery",
         capacity_kwh=122.2,
         initial_soc_kwh=112.2,
         min_soc_kwh=2.44,
@@ -116,6 +117,7 @@ def _price_step_scenario():
         export_limit_kw=44.0,
     )
     battery = BatteryConfig(
+        name="battery",
         capacity_kwh=122.2,
         initial_soc_kwh=90.0,
         min_soc_kwh=2.44,
@@ -152,7 +154,7 @@ class TestIntraplanSmoothness(unittest.TestCase):
         plan = build_plan(
             periods=periods,
             grid=grid,
-            battery=battery,
+            batteries=[battery],
             solar=solar,
             loads=loads,
             smoothness_weight=0.0,
@@ -174,7 +176,7 @@ class TestIntraplanSmoothness(unittest.TestCase):
         plan_off = build_plan(
             periods=periods,
             grid=grid,
-            battery=battery,
+            batteries=[battery],
             solar=solar,
             loads=loads,
             smoothness_weight=0.0,
@@ -182,7 +184,7 @@ class TestIntraplanSmoothness(unittest.TestCase):
         plan_on = build_plan(
             periods=periods,
             grid=grid,
-            battery=battery,
+            batteries=[battery],
             solar=solar,
             loads=loads,
             smoothness_weight=0.005,
@@ -208,7 +210,7 @@ class TestIntraplanSmoothness(unittest.TestCase):
         plan_off = build_plan(
             periods=periods,
             grid=grid,
-            battery=battery,
+            batteries=[battery],
             solar=solar,
             loads=loads,
             smoothness_weight=0.0,
@@ -216,7 +218,7 @@ class TestIntraplanSmoothness(unittest.TestCase):
         plan_on = build_plan(
             periods=periods,
             grid=grid,
-            battery=battery,
+            batteries=[battery],
             solar=solar,
             loads=loads,
             smoothness_weight=0.005,

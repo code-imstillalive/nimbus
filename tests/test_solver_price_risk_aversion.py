@@ -57,6 +57,7 @@ def _scenario(import_price_upper=None, export_price_lower=None):
         export_price_lower=export_price_lower,
     )
     battery = BatteryConfig(
+        name="battery",
         capacity_kwh=122.2,
         initial_soc_kwh=122.2 * 0.5,
         min_soc_kwh=122.2 * 0.05,
@@ -87,7 +88,7 @@ class TestPriceRiskAversion(unittest.TestCase):
         plan_a = build_plan(
             periods=periods,
             grid=grid_a,
-            battery=battery,
+            batteries=[battery],
             solar=solar,
             loads=loads,
             import_price_risk_aversion=0.0,
@@ -96,7 +97,7 @@ class TestPriceRiskAversion(unittest.TestCase):
         plan_b = build_plan(
             periods=periods_b,
             grid=grid_b,
-            battery=battery,
+            batteries=[battery],
             solar=solar,
             loads=loads,
             import_price_risk_aversion=0.0,
@@ -116,7 +117,7 @@ class TestPriceRiskAversion(unittest.TestCase):
         plan_a = build_plan(
             periods=periods,
             grid=grid,
-            battery=battery,
+            batteries=[battery],
             solar=solar,
             loads=loads,
             import_price_risk_aversion=1.0,
@@ -125,7 +126,7 @@ class TestPriceRiskAversion(unittest.TestCase):
         plan_b = build_plan(
             periods=periods_b,
             grid=grid_b,
-            battery=battery,
+            batteries=[battery],
             solar=solar,
             loads=loads,
             import_price_risk_aversion=0.0,
@@ -147,7 +148,7 @@ class TestPriceRiskAversion(unittest.TestCase):
         plan0 = build_plan(
             periods=periods0,
             grid=grid0,
-            battery=battery,
+            batteries=[battery],
             solar=solar,
             loads=loads,
             import_price_risk_aversion=0.0,
@@ -156,7 +157,7 @@ class TestPriceRiskAversion(unittest.TestCase):
         plan1 = build_plan(
             periods=periods1,
             grid=grid1,
-            battery=battery,
+            batteries=[battery],
             solar=solar,
             loads=loads,
             import_price_risk_aversion=1.0,
@@ -184,7 +185,7 @@ class TestPriceRiskAversion(unittest.TestCase):
         plan0 = build_plan(
             periods=periods0,
             grid=grid0,
-            battery=battery,
+            batteries=[battery],
             solar=solar,
             loads=loads,
             import_price_risk_aversion=0.0,
@@ -193,7 +194,7 @@ class TestPriceRiskAversion(unittest.TestCase):
         plan1 = build_plan(
             periods=periods1,
             grid=grid1,
-            battery=battery,
+            batteries=[battery],
             solar=solar,
             loads=loads,
             import_price_risk_aversion=0.0,
@@ -215,7 +216,7 @@ class TestPriceRiskAversion(unittest.TestCase):
         plan_a = build_plan(
             periods=periods,
             grid=grid,
-            battery=battery,
+            batteries=[battery],
             solar=solar,
             loads=loads,
             import_price_risk_aversion=1.0,
@@ -224,7 +225,7 @@ class TestPriceRiskAversion(unittest.TestCase):
         plan_b = build_plan(
             periods=periods_b,
             grid=grid_b,
-            battery=battery,
+            batteries=[battery],
             solar=solar,
             loads=loads,
             import_price_risk_aversion=0.0,
@@ -258,7 +259,7 @@ class TestPriceRiskAversion(unittest.TestCase):
             plan_with = build_plan(
                 periods=periods_with,
                 grid=grid_with,
-                battery=battery,
+                batteries=[battery],
                 solar=solar,
                 loads=loads,
                 import_price_risk_aversion=import_risk,
@@ -267,7 +268,7 @@ class TestPriceRiskAversion(unittest.TestCase):
             plan_without = build_plan(
                 periods=periods_without,
                 grid=grid_without,
-                battery=battery,
+                batteries=[battery],
                 solar=solar,
                 loads=loads,
                 import_price_risk_aversion=import_risk,
@@ -297,7 +298,7 @@ class TestPriceRiskAversion(unittest.TestCase):
             plan_with = build_plan(
                 periods=periods_with,
                 grid=grid_with,
-                battery=battery,
+                batteries=[battery],
                 solar=solar,
                 loads=loads,
                 import_price_risk_aversion=0.0,
@@ -306,7 +307,7 @@ class TestPriceRiskAversion(unittest.TestCase):
             plan_without = build_plan(
                 periods=periods_without,
                 grid=grid_without,
-                battery=battery,
+                batteries=[battery],
                 solar=solar,
                 loads=loads,
                 import_price_risk_aversion=0.0,
@@ -334,7 +335,7 @@ class TestPriceRiskAversion(unittest.TestCase):
         plan_imp_on = build_plan(
             periods=periods_imp_on,
             grid=grid_imp_on,
-            battery=battery,
+            batteries=[battery],
             solar=solar,
             loads=loads,
             import_price_risk_aversion=1.0,
@@ -343,7 +344,7 @@ class TestPriceRiskAversion(unittest.TestCase):
         plan_imp_off = build_plan(
             periods=periods_imp_off,
             grid=grid_imp_off,
-            battery=battery,
+            batteries=[battery],
             solar=solar,
             loads=loads,
             import_price_risk_aversion=0.0,
@@ -373,7 +374,7 @@ class TestEffectiveValuesExposedOnPlan(unittest.TestCase):
         plan = build_plan(
             periods=periods,
             grid=grid,
-            battery=battery,
+            batteries=[battery],
             solar=solar,
             loads=loads,
             import_price_risk_aversion=0.4,
@@ -392,7 +393,7 @@ class TestEffectiveValuesExposedOnPlan(unittest.TestCase):
         plan = build_plan(
             periods=periods,
             grid=grid,
-            battery=battery,
+            batteries=[battery],
             solar=solar,
             loads=loads,
             export_price_risk_aversion=0.5,
@@ -412,7 +413,7 @@ class TestEffectiveValuesExposedOnPlan(unittest.TestCase):
         plan = build_plan(
             periods=periods,
             grid=grid,
-            battery=battery,
+            batteries=[battery],
             solar=solar,
             loads=loads,
             risk_aversion=0.6,
@@ -436,7 +437,7 @@ class TestEffectiveValuesExposedOnPlan(unittest.TestCase):
         plan = build_plan(
             periods=periods,
             grid=grid,
-            battery=battery,
+            batteries=[battery],
             solar=solar,
             loads=loads,
             risk_aversion=0.8,

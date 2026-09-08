@@ -301,7 +301,7 @@ def compute_quality_report(
     oracle_plan = build_plan(
         periods=periods,
         grid=grid_oracle,
-        battery=battery_scoring,
+        batteries=[battery_scoring],
         solar=solar,
         loads=[load],
     )

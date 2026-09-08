@@ -69,6 +69,7 @@ def _scenario(initial_soc_kwh: float, terminal_value_breakpoints=None):
         export_limit_kw=44.0,
     )
     battery = BatteryConfig(
+        name="battery",
         capacity_kwh=CAPACITY,
         initial_soc_kwh=initial_soc_kwh,
         min_soc_kwh=MIN_SOC,
@@ -104,7 +105,7 @@ class TestBelowFloorSolvesWithoutCrash(unittest.TestCase):
         # BatteryConfig construction (Mark's issue, item 1).
         periods, grid, battery, solar, loads = _scenario(initial_soc_kwh=0.04)
         plan = build_plan(
-            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+            periods=periods, grid=grid, batteries=[battery], solar=solar, loads=loads
         )
         self.assertEqual(plan.status, "optimal")
 
@@ -113,7 +114,7 @@ class TestBelowFloorSolvesWithoutCrash(unittest.TestCase):
         # max (e.g. a hardware ramp overshoot).
         periods, grid, battery, solar, loads = _scenario(initial_soc_kwh=CAPACITY)
         plan = build_plan(
-            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+            periods=periods, grid=grid, batteries=[battery], solar=solar, loads=loads
         )
         self.assertEqual(plan.status, "optimal")
 
@@ -122,7 +123,7 @@ class TestScheduleRecoversTowardFloor(unittest.TestCase):
     def test_net_charges_over_first_periods_when_starting_below_floor(self):
         periods, grid, battery, solar, loads = _scenario(initial_soc_kwh=0.04)
         plan = build_plan(
-            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+            periods=periods, grid=grid, batteries=[battery], solar=solar, loads=loads
         )
         self.assertEqual(plan.status, "optimal")
         # The LP should genuinely recover toward the floor rather than
@@ -141,12 +142,12 @@ class TestAboveFloorBackwardCompatibility(unittest.TestCase):
         # perturbs the optimum) for the common, healthy case.
         periods, grid, battery, solar, loads = _scenario(initial_soc_kwh=MAX_SOC / 2)
         plan_default = build_plan(
-            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+            periods=periods, grid=grid, batteries=[battery], solar=solar, loads=loads
         )
         plan_explicit_tiny = build_plan(
             periods=periods,
             grid=grid,
-            battery=battery,
+            batteries=[battery],
             solar=solar,
             loads=loads,
             soft_soc_penalty_per_kwh=1e9,  # absurdly dominant -- must still be a no-op
@@ -199,7 +200,7 @@ class TestUnderfillNotGameable(unittest.TestCase):
             terminal_value_breakpoints=_terminal_curve(0.15, MIN_SOC, MAX_SOC),
         )
         plan = build_plan(
-            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+            periods=periods, grid=grid, batteries=[battery], solar=solar, loads=loads
         )
         self.assertEqual(plan.status, "optimal")
         # If underfill were gameable, the cheapest way to "earn" more of
@@ -239,6 +240,7 @@ class TestDischargeConstraintNoLongerForcesFloor(unittest.TestCase):
             export_limit_kw=44.0,
         )
         battery = BatteryConfig(
+            name="battery",
             capacity_kwh=CAPACITY,
             initial_soc_kwh=0.04,
             min_soc_kwh=MIN_SOC,
@@ -254,7 +256,7 @@ class TestDischargeConstraintNoLongerForcesFloor(unittest.TestCase):
         solar = SolarConfig(forecast_kw=np.zeros(N))
         loads = [LoadConfig(name="house", forecast_kw=np.full(N, 1.0))]
         plan = build_plan(
-            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+            periods=periods, grid=grid, batteries=[battery], solar=solar, loads=loads
         )
         self.assertEqual(plan.status, "optimal")
         # Real physical floor (0) must still hold even though the
@@ -276,6 +278,6 @@ class TestTerminalValueSegmentFillStaysFeasible(unittest.TestCase):
             terminal_value_breakpoints=_terminal_curve(0.15, MIN_SOC, MAX_SOC),
         )
         plan = build_plan(
-            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+            periods=periods, grid=grid, batteries=[battery], solar=solar, loads=loads
         )
         self.assertEqual(plan.status, "optimal")

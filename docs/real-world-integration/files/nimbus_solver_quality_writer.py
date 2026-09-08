@@ -931,6 +931,7 @@ def main() -> None:
     final_soc_kwh_actual = capacity_kwh * final_pct / 100.0
 
     battery_cfg = elements.BatteryConfig(
+        name="home",  # nimbus issue #467: single real household battery
         capacity_kwh=capacity_kwh,
         initial_soc_kwh=initial_soc_kwh,
         min_soc_kwh=capacity_kwh * min_pct / 100.0,

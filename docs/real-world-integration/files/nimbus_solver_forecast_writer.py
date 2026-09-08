@@ -2674,11 +2674,21 @@ def load_previous_plan() -> network.Plan | None:
         periods = elements.PeriodGrid(
             hours=hours_arr, start=parse_iso(data["period_start"])
         )
+        battery_charge_kw = np.array(data["battery_charge_kw"])
+        battery_discharge_kw = np.array(data["battery_discharge_kw"])
+        # nimbus issue #467: reconstruct a single-entry Plan.batteries
+        # too, so network.py's own per-participant cross-solve stability
+        # (matched by name) keeps working across a restart -- this
+        # writer only ever solves one real battery, so its aggregate
+        # arrays above ARE that one battery's own arrays. A state file
+        # saved before #467 (no "battery_name" key) falls back to
+        # "home", matching the real BatteryConfig name this writer uses.
+        battery_name = data.get("battery_name", "home")
         return network.Plan(
             status="optimal",
             periods=periods,
-            battery_charge_kw=np.array(data["battery_charge_kw"]),
-            battery_discharge_kw=np.array(data["battery_discharge_kw"]),
+            battery_charge_kw=battery_charge_kw,
+            battery_discharge_kw=battery_discharge_kw,
             battery_soc_kwh=np.zeros(
                 n
             ),  # not read by the stability mechanisms, zero-fill is fine
@@ -2693,6 +2703,14 @@ def load_previous_plan() -> network.Plan | None:
             adequacy_loads=[],
             total_cost=None,
             iterations=0,
+            batteries=[
+                network.BatteryPlan(
+                    name=battery_name,
+                    charge_kw=battery_charge_kw,
+                    discharge_kw=battery_discharge_kw,
+                    soc_kwh=np.zeros(n),
+                )
+            ],
         )
     except (KeyError, ValueError):
         return None
@@ -2715,6 +2733,12 @@ def save_plan_state(
                     "battery_discharge_kw": plan.battery_discharge_kw.tolist(),
                     "grid_import_kw": plan.grid_import_kw.tolist(),
                     "grid_export_kw": plan.grid_export_kw.tolist(),
+                    # nimbus issue #467: see load_previous_plan()'s own
+                    # comment above -- persists this single real
+                    # battery's own name for cross-solve stability.
+                    "battery_name": plan.batteries[0].name
+                    if plan.batteries
+                    else "home",
                 },
                 f,
             )
@@ -4076,6 +4100,7 @@ def main() -> None:
             file=sys.stderr,
         )
     battery = elements.BatteryConfig(
+        name="home",  # nimbus issue #467: single real household battery
         capacity_kwh=capacity_kwh,
         initial_soc_kwh=initial_soc_kwh,
         min_soc_kwh=min_soc_kwh_val,
@@ -4215,7 +4240,7 @@ def main() -> None:
     plan = network.build_plan(
         periods=periods,
         grid=grid,
-        battery=battery,
+        batteries=[battery],
         solar=solar,
         loads=loads,
         previous_plan=previous_plan,

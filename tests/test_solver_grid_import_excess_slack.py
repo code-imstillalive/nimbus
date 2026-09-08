@@ -45,6 +45,7 @@ class TestGridImportExcessSlack(unittest.TestCase):
         )
         solar = SolarConfig(forecast_kw=np.zeros(n))
         battery = BatteryConfig(
+            name="battery",
             capacity_kwh=100.0,
             initial_soc_kwh=45.0,
             min_soc_kwh=5.0,
@@ -65,7 +66,7 @@ class TestGridImportExcessSlack(unittest.TestCase):
         loads = [LoadConfig(name="whole_house", forecast_kw=np.full(n, 40.0))]
 
         plan = build_plan(
-            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+            periods=periods, grid=grid, batteries=[battery], solar=solar, loads=loads
         )
 
         self.assertEqual(
@@ -107,6 +108,7 @@ class TestGridImportExcessSlack(unittest.TestCase):
         )
         solar = SolarConfig(forecast_kw=np.zeros(n))
         battery = BatteryConfig(
+            name="battery",
             capacity_kwh=20.0,
             initial_soc_kwh=10.0,
             min_soc_kwh=2.0,
@@ -122,7 +124,7 @@ class TestGridImportExcessSlack(unittest.TestCase):
         loads = [LoadConfig(name="whole_house", forecast_kw=np.full(n, 5.0))]
 
         plan = build_plan(
-            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+            periods=periods, grid=grid, batteries=[battery], solar=solar, loads=loads
         )
 
         self.assertEqual(plan.status, "optimal")

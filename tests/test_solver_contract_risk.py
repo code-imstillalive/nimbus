@@ -38,6 +38,7 @@ def _flat_grid(n: int, hours: float = 1.0) -> PeriodGrid:
 
 def _base_battery(**overrides) -> BatteryConfig:
     defaults = {
+        "name": "battery",
         "capacity_kwh": 30.0,
         "initial_soc_kwh": 25.0,
         "min_soc_kwh": 2.0,
@@ -83,7 +84,7 @@ class TestSolverStabilityUnderWrongContractAssumption(unittest.TestCase):
         plan = build_plan(
             periods=periods,
             grid=grid,
-            battery=_base_battery(),
+            batteries=[_base_battery()],
             solar=solar,
             loads=loads,
         )
