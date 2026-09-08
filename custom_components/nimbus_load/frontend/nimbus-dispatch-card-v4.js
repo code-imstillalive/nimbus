@@ -359,7 +359,17 @@ class NimbusDispatchCardV4 extends HTMLElement {
       if (p0) {
       bkw = parseFloat(p0.battery_kw) || 0;
       const sellLabel = this._fmtSell(p0);
-      const imp = p0.import_price_raw * 100;
+      // nimbus issue TBD (real household finding, 2026-09-09): this used
+      // to read import_price_raw (the wholesale-only component, no TOU/
+      // network fees) -- every "at Xc/kWh" sentence below explains the
+      // LP's own real dispatch decision, which is made against the full
+      // all-in import_price (the same figure Control Panel's own reading
+      // must match what actually governs the plan), not the raw
+      // wholesale sliver of it. That mismatch is exactly what a
+      // household saw as "Control Panel shows 13.9c, Cost Flex shows
+      // 7c" on the same period -- two real numbers, but the wrong one
+      // was driving the explanation of a decision made on the other.
+      const imp = p0.import_price * 100;
       const solarKw = parseFloat(p0.solar_kw) || 0;
       const loadKw = parseFloat(p0.load_kw) || 0;
       const dischargeKw = bkw > 0 ? bkw : 0;
