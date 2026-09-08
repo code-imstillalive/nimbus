@@ -156,6 +156,17 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # reasoning, not a separate gap, even though it has no HA
         # dependency of its own.
         "_parse_done_when",
+        # nimbus issue #592: dual-mode-capable (has its own REST fallback
+        # branch, same shape as fetch_entity_history_range()), but its
+        # only real caller is apply_commanded_state_guard()'s own thermal-
+        # forecast wiring -- already INTENTIONAL_NATIVE_ONLY above, since
+        # Controllable Loads have no standalone/cron existence at all
+        # (build_controllable_loads() returns ([], []) unconditionally
+        # there). Same "only ever invoked from native mode, and does
+        # nothing at all when it isn't" reasoning as dispatch_
+        # commanded_state() above -- not a fresh gap to add to the real,
+        # tracked porting debt in KNOWN_OPEN_DRIFT_INTEGRATION_ONLY below.
+        "fetch_entity_attribute_history_range",
         # nimbus issue #563: reads real battery_participant ConfigSubentries
         # (_NATIVE_HASS.config_entries.async_entries(...).subentries), same
         # no-standalone-equivalent reasoning as build_controllable_loads()

@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.195] — 2026-09-09
+
+### Added
+- **Controllable Load device page: a projected tank/room temperature forecast** (nimbus issue #592, part of #589 — Mark Purcell's own ask: "will the tank be at 60 by lunchtime?"). New `sensor.nimbus_<load>_temperature_forecast` on a water_heater/climate load's own device page, in the same `forecast: [{time, value}]` shape every other Nimbus forecast sensor already publishes. Two rates — heating (°C gained per kWh delivered while genuinely heating) and idle decay (°C lost per hour while off) — are learned from the load's own recent recorder history once per calendar day (a real DB query, throttled rather than run every solve), falling back to #592's own cited real-household figures (8°C/kWh, 0.5°C/h) when there isn't yet enough history to learn from. The forecast itself is projected fresh every solve cycle from the live current_temperature reading and the load's own already-published plan_forecast (#581) — cheap arithmetic, no additional DB access. A heating segment shorter than 6 minutes (the pump never really started) is never learned from, per the issue's own caveat. New `thermal_forecast.py` module, HA-import-free like `done_condition.py`, naming its two rates after EMHASS's own `thermal_config` vocabulary (`heating_rate`, `cooling_constant`) per nimbus issue #603's new standing rule to check EMHASS/HAEO for prior art before inventing new mechanisms.
+- **Deliberately deferred out of this change**: marking the forecast as "model-based" when the temperature source is a power-based estimate rather than a real thermistor (#592's own caveat) — there is no reliable, non-hardcoded way to tell the two apart from a `done_entity`'s own existing config, and #592 doesn't ask for a new wizard field to disambiguate. Also deferred: using the projected crossing of the done temperature to shorten the LP's own schedule ahead of time — #592's own closing paragraph frames this as a future consequence of publishing the forecast, not a requirement of this change.
+
 ## [0.94.194] — 2026-09-09
 
 ### Fixed

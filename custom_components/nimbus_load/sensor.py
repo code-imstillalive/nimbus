@@ -659,6 +659,9 @@ async def async_setup_entry(
                     hass, entry, subentry, sw_version
                 ),
                 NimbusControllableLoadStatusSensor(hass, entry, subentry, sw_version),
+                NimbusControllableLoadTemperatureForecastSensor(
+                    hass, entry, subentry, sw_version
+                ),
             ],
             config_subentry_id=subentry.subentry_id,
         )
@@ -1619,6 +1622,88 @@ class NimbusControllableLoadStatusSensor(_NimbusControllableLoadScheduleSensorBa
 
     def _extract_value(self, view: load_run_state.ScheduleView) -> object:
         return view.status
+
+
+class NimbusControllableLoadTemperatureForecastSensor(SensorEntity):
+    """nimbus issue #592 (Mark Purcell, part of #589 -- "will the tank
+    be at 60 by lunchtime?"): a water_heater/climate load's own
+    projected temperature series, from thermal_forecast.py's
+    project_temperature_forecast() -- learned heating rate (degC/kWh)
+    and idle decay rate (degC/h) from recorder history, applied period
+    by period over the same plan_forecast every other Controllable Load
+    forecast sensor already publishes.
+
+    Deliberately its own standalone SensorEntity, NOT built on top of
+    _NimbusControllableLoadScheduleSensorBase like #590/#591's sensors
+    -- this one genuinely needs BOTH a native_value AND a real
+    extra_state_attributes (the {"forecast": [...]} series, this
+    project's own ATTR_FORECAST convention, see NimbusForecastSensor's
+    own use of it), which that shared base's single-value
+    _extract_value() contract doesn't support. Duplicating its
+    __init__/device_info wiring here rather than extending the shared
+    base is the deliberately lower-risk choice: modifying that base
+    touches all eight already-shipped #590/#591 sensors at once.
+
+    None (never a fabricated flat line) whenever no done_entity is
+    configured, the entity isn't a water_heater/climate domain, the live
+    current_temperature attribute isn't readable this cycle, or no plan
+    exists yet to project over -- see solver_writer.py's own
+    apply_commanded_state_guard() for exactly which of those gates a
+    given cycle's absence of data means."""
+
+    _attr_has_entity_name = True
+    _attr_name = "Temperature Forecast"
+    _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_entity_category = None
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: NimbusConfigEntry,
+        subentry: ConfigSubentry,
+        sw_version: str | None,
+    ) -> None:
+        self._hass = hass
+        self._entry = entry
+        self._subentry = subentry
+        self._attr_unique_id = f"{subentry.subentry_id}_temperature_forecast"
+        self.entity_id = (
+            f"sensor.nimbus_{_slug_for_entity_id(subentry.title)}_temperature_forecast"
+        )
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, subentry.subentry_id)},
+            name=subentry.title,
+            manufacturer="Nimbus",
+            model="Controllable Load",
+            sw_version=sw_version,
+        )
+        self._native_value: object = None
+        self._forecast: list[dict] = []
+
+    @property
+    def native_value(self) -> object:
+        return self._native_value
+
+    # nimbus issue #581's own churns-every-cycle exclusion (same
+    # reasoning as plan_forecast/plan_cost_forecast) -- a fresh
+    # projection every solve is the whole point, never worth recording
+    # long-term history for.
+    _unrecorded_attributes = frozenset({ATTR_FORECAST})
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {ATTR_FORECAST: self._forecast}
+
+    async def async_update(self) -> None:
+        store = load_run_state.LoadRunStateStore(
+            store=Store(
+                self._hass, 1, f"{DOMAIN}_{self._entry.entry_id}_load_run_state"
+            )
+        )
+        state = await store.async_read(self._subentry.subentry_id)
+        self._forecast = state.temperature_forecast or []
+        self._native_value = self._forecast[0]["value"] if self._forecast else None
 
 
 class NimbusSolverConfigSensor(SensorEntity):

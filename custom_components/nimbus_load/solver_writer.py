@@ -4303,6 +4303,93 @@ def fetch_entity_history_range(
     return sorted(out, key=lambda x: x[0])
 
 
+def fetch_entity_attribute_history_range(
+    entity_id: str, attribute: str, start: datetime, end: datetime
+) -> list[tuple[datetime, float]]:
+    """nimbus issue #592: same shape as fetch_entity_history_range()
+    just above, for the real case that function can't cover -- a
+    water_heater/climate done_entity's own STATE is a mode string
+    ("eco"/"performance"), never a number; the value that matters
+    (current_temperature) lives on the ATTRIBUTE instead (see
+    done_condition.py's own read_current_temperature() for the live-
+    read equivalent of this same fact). Fetches WITH attributes (unlike
+    fetch_entity_history_range()'s own no_attributes=True), reads
+    `attribute` off each historical state instead of the state itself.
+    Same dual native/REST mode, same degrade-to-[]-on-any-failure
+    discipline as every other real-data fetch in this file.
+    """
+    if _NATIVE_HASS is not None:
+        try:
+            import asyncio
+
+            from homeassistant.components.recorder import (
+                get_instance as _recorder_get_instance,
+            )
+            from homeassistant.components.recorder import history as _recorder_history
+
+            async def _fetch() -> dict:
+                return await _recorder_get_instance(
+                    _NATIVE_HASS
+                ).async_add_executor_job(
+                    _recorder_history.state_changes_during_period,
+                    _NATIVE_HASS,
+                    start,
+                    end,
+                    entity_id,
+                    False,  # no_attributes -- must be False, the whole point here
+                )
+
+            future = asyncio.run_coroutine_threadsafe(_fetch(), _NATIVE_HASS.loop)
+            changes = future.result(timeout=30)
+            states = changes.get(entity_id, [])
+        except Exception:
+            _LOGGER.debug(
+                "Nimbus Solver: fetch_entity_attribute_history_range(%s, %s) "
+                "recorder read failed",
+                entity_id,
+                attribute,
+                exc_info=True,
+            )
+            return []
+        out: list[tuple[datetime, float]] = []
+        for s in states:
+            raw = s.attributes.get(attribute)
+            if raw is None:
+                continue
+            try:
+                v = float(raw)
+            except (TypeError, ValueError):
+                continue
+            out.append((s.last_changed.astimezone(LOCAL_TZ), v))
+        return sorted(out, key=lambda x: x[0])
+    url = (
+        f"{HA_BASE}/api/history/period/{start.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z"
+        f"?filter_entity_id={entity_id}"
+        f"&end_time={end.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z"
+    )
+    req = urllib.request.Request(
+        url, headers={"Authorization": f"Bearer {_load_token()}"}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read())
+    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError):
+        return []
+    if not data or not data[0]:
+        return []
+    out = []
+    for p in data[0]:
+        raw = (p.get("attributes") or {}).get(attribute)
+        if raw is None:
+            continue
+        try:
+            v = float(raw)
+        except (TypeError, ValueError):
+            continue
+        out.append((parse_iso(p["last_changed"]).astimezone(LOCAL_TZ), v))
+    return sorted(out, key=lambda x: x[0])
+
+
 def resample_history_nearest(
     pts: list[tuple[datetime, float]], grid_times: list[datetime], default: float = 0.0
 ) -> list[float]:
@@ -8109,24 +8196,30 @@ def apply_commanded_state_guard(
         from homeassistant.helpers.storage import Store as _Store
 
         try:
-            from . import load_run_state
+            from . import done_condition, load_run_state, thermal_forecast
             from .const import (
                 CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY,
                 CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY,
                 CONF_CONTROLLABLE_LOAD_MIN_HOLD_MINUTES,
+                CONF_CONTROLLABLE_LOAD_POWER_SENSOR,
                 CONF_DEFERRABLE_DEADLINE_HOUR,
+                CONF_DEFERRABLE_DONE_ENTITY,
                 CONF_DEFERRABLE_EARLIEST_HOUR,
                 CONF_DEFERRABLE_TARGET_KWH,
                 CONF_SHEDDABLE_NOMINAL_KW,
                 DOMAIN,
             )
         except ImportError:
+            import done_condition
             import load_run_state
+            import thermal_forecast
             from const import (
                 CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY,
                 CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY,
                 CONF_CONTROLLABLE_LOAD_MIN_HOLD_MINUTES,
+                CONF_CONTROLLABLE_LOAD_POWER_SENSOR,
                 CONF_DEFERRABLE_DEADLINE_HOUR,
+                CONF_DEFERRABLE_DONE_ENTITY,
                 CONF_DEFERRABLE_EARLIEST_HOUR,
                 CONF_DEFERRABLE_TARGET_KWH,
                 CONF_SHEDDABLE_NOMINAL_KW,
@@ -8169,6 +8262,88 @@ def apply_commanded_state_guard(
                 for i in range(n)
             ]
             return load_run_state.build_time_value_series(grid_times[:n], cost_values)
+
+        async def _async_fetch_thermal_history(
+            done_entity: str, power_sensor: str, start: datetime, end: datetime
+        ) -> list[tuple[datetime, float, float]]:
+            # nimbus issue #592: the async-native sibling of
+            # fetch_entity_attribute_history_range()/fetch_entity_
+            # history_range() (this file, near resample_history_nearest())
+            # -- those two are SYNC wrappers that internally dispatch onto
+            # _NATIVE_HASS.loop via run_coroutine_threadsafe().result(),
+            # correct for a sync caller running in an executor thread
+            # (_sample_load_run_state()'s own caller context) but a real
+            # deadlock risk called from HERE: _update_all() is itself a
+            # coroutine already running ON that same loop (dispatched via
+            # run_coroutine_threadsafe further down this function), so a
+            # blocking .result() call from inside it would wait on the
+            # loop it's blocking. Awaits the recorder's own executor job
+            # directly instead -- safe from an already-async context.
+            try:
+                from homeassistant.components.recorder import (
+                    get_instance as _recorder_get_instance,
+                )
+                from homeassistant.components.recorder import (
+                    history as _recorder_history,
+                )
+            except ImportError:
+                return []
+            try:
+                temp_changes = await _recorder_get_instance(
+                    _NATIVE_HASS
+                ).async_add_executor_job(
+                    _recorder_history.state_changes_during_period,
+                    _NATIVE_HASS,
+                    start,
+                    end,
+                    done_entity,
+                    False,  # no_attributes=False -- current_temperature lives there
+                )
+                power_changes = await _recorder_get_instance(
+                    _NATIVE_HASS
+                ).async_add_executor_job(
+                    _recorder_history.state_changes_during_period,
+                    _NATIVE_HASS,
+                    start,
+                    end,
+                    power_sensor,
+                    True,  # no_attributes -- plain numeric state is enough
+                )
+            except Exception:
+                _LOGGER.debug(
+                    "Nimbus: #592 thermal history fetch failed for %s/%s",
+                    done_entity,
+                    power_sensor,
+                    exc_info=True,
+                )
+                return []
+            temp_points: list[tuple[datetime, float]] = []
+            for s in temp_changes.get(done_entity, []):
+                raw = s.attributes.get("current_temperature")
+                if raw is None:
+                    continue
+                try:
+                    temp_points.append(
+                        (s.last_changed.astimezone(LOCAL_TZ), float(raw))
+                    )
+                except (TypeError, ValueError):
+                    continue
+            temp_points.sort(key=lambda x: x[0])
+            power_points: list[tuple[datetime, float]] = []
+            for s in power_changes.get(power_sensor, []):
+                try:
+                    v = float(s.state)
+                except (TypeError, ValueError):
+                    continue
+                unit = s.attributes.get("unit_of_measurement")
+                if unit == "W":
+                    v = v / 1000.0
+                power_points.append((s.last_changed.astimezone(LOCAL_TZ), v))
+            power_points.sort(key=lambda x: x[0])
+            power_resampled = resample_history_nearest(
+                power_points, [t for t, _ in temp_points]
+            )
+            return [(t, temp, p) for (t, temp), p in zip(temp_points, power_resampled)]
 
         async def _update_all() -> None:
             store = load_run_state.LoadRunStateStore(
@@ -8328,6 +8503,72 @@ def apply_commanded_state_guard(
                         plan_earliest_period=earliest_period,
                         plan_deadline_period=deadline_period,
                     )
+                    # nimbus issue #592 (Mark Purcell, part of #589 --
+                    # "will the tank be at 60 by lunchtime?"): a
+                    # water_heater/climate load with a real done_entity
+                    # and power_sensor configured gets a projected
+                    # temperature forecast, groundwork for the full #481
+                    # thermal kind. See thermal_forecast.py's own module
+                    # docstring for the full design and what's
+                    # deliberately NOT part of this (model-based source
+                    # marking, using the crossing to shorten the LP's
+                    # own schedule ahead of time).
+                    done_entity = data.get(CONF_DEFERRABLE_DONE_ENTITY)
+                    power_sensor = data.get(CONF_CONTROLLABLE_LOAD_POWER_SENSOR)
+                    if (
+                        done_entity
+                        and power_sensor
+                        and done_entity.split(".", 1)[0]
+                        in done_condition.ATTRIBUTE_DONE_DOMAINS
+                    ):
+                        current_temperature = done_condition.read_current_temperature(
+                            _NATIVE_HASS, done_entity
+                        )
+                        if current_temperature is not None:
+                            heating_rate = new.thermal_heating_rate_c_per_kwh
+                            decay_rate = new.thermal_idle_decay_c_per_hour
+                            # Recorder history is a real DB query -- only
+                            # relearn once per calendar day (#592's own
+                            # "on each retrain" ask), not every solve.
+                            if new.thermal_rates_learned_day_key != day_key:
+                                history_end = now
+                                history_start = now - timedelta(days=3)
+                                thermal_history = await _async_fetch_thermal_history(
+                                    done_entity,
+                                    power_sensor,
+                                    history_start,
+                                    history_end,
+                                )
+                                learned = thermal_forecast.learn_thermal_rates(
+                                    thermal_history,
+                                    on_threshold_kw=load_run_state.DEFAULT_ON_THRESHOLD_KW,
+                                )
+                                heating_rate = learned.heating_rate_c_per_kwh
+                                decay_rate = learned.idle_decay_c_per_hour
+                                new = replace(
+                                    new,
+                                    thermal_heating_rate_c_per_kwh=heating_rate,
+                                    thermal_idle_decay_c_per_hour=decay_rate,
+                                    thermal_rates_learned_day_key=day_key,
+                                )
+                            new = replace(
+                                new,
+                                temperature_forecast=thermal_forecast.project_temperature_forecast(
+                                    new.plan_forecast or [],
+                                    start_temperature=current_temperature,
+                                    heating_rate_c_per_kwh=(
+                                        heating_rate
+                                        if heating_rate is not None
+                                        else thermal_forecast.DEFAULT_HEATING_RATE_C_PER_KWH
+                                    ),
+                                    idle_decay_c_per_hour=(
+                                        decay_rate
+                                        if decay_rate is not None
+                                        else thermal_forecast.DEFAULT_IDLE_DECAY_C_PER_HOUR
+                                    ),
+                                    on_threshold_kw=load_run_state.DEFAULT_ON_THRESHOLD_KW,
+                                ),
+                            )
                 device_entity = data.get(CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY)
                 if device_entity and new.commanded_state != prev.commanded_state:
                     if new.commanded_state:
