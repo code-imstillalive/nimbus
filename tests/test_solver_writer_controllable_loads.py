@@ -196,6 +196,116 @@ class TestBuildControllableLoads(unittest.TestCase):
         self.assertEqual(load.earliest_period, 2)
         self.assertEqual(load.deadline_period, 12)
 
+    def test_deferrable_load_is_scheduled_when_now_is_inside_its_daytime_window(self):
+        # nimbus issue #582 (Mark Purcell, first live morning of #534):
+        # exact real repro -- earliest=6, deadline=16, now=06:01, on a
+        # REAL build_tiered_grid() per the issue's own suggested test.
+        # Before the fix, earliest_period resolved to TOMORROW 06:00
+        # (the next occurrence of 6am strictly after 06:01) while
+        # deadline_period stayed at TODAY 16:00, so deadline_period <
+        # earliest_period and the load was skipped for the entire
+        # window it was supposed to be active in.
+        now = datetime(2026, 9, 9, 6, 1, tzinfo=_TZ)
+        grid_times, _ = solver_writer.build_tiered_grid(now)
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [
+                _fake_subentry(
+                    "s1",
+                    "controllable_load",
+                    {
+                        "controllable_load_name": "Hot Water Heat Pump",
+                        "controllable_load_kind": "deferrable",
+                        "deferrable_max_power_kw": 0.65,
+                        "deferrable_target_kwh": 2.0,
+                        "deferrable_earliest_hour": 6.0,
+                        "deferrable_deadline_hour": 16.0,
+                    },
+                )
+            ]
+        )
+        sheddable, adequacy = solver_writer.build_controllable_loads(
+            now, grid_times, len(grid_times)
+        )
+        self.assertEqual(sheddable, [])
+        self.assertEqual(len(adequacy), 1, "load must not be skipped this cycle")
+        load = adequacy[0]
+        self.assertEqual(load.name, "Hot Water Heat Pump")
+        # Window is already open -- earliest is "right now" (period 0),
+        # not tomorrow.
+        self.assertEqual(load.earliest_period, 0)
+        # Deadline still resolves to today's 16:00, completely unaffected.
+        deadline_target = datetime(2026, 9, 9, 16, 0, tzinfo=_TZ)
+        self.assertLessEqual(grid_times[load.deadline_period], deadline_target)
+        self.assertGreater(
+            grid_times[min(load.deadline_period + 1, len(grid_times) - 1)],
+            deadline_target,
+        )
+
+    def test_deferrable_daytime_window_resolves_normally_before_it_opens(self):
+        # Same-day window, but `now` is well before it opens -- confirms
+        # the #582 fix doesn't change the already-correct ahead-of-window
+        # case (earliest resolves to later today, deadline also today,
+        # in the natural order -- no skip should ever have been at risk
+        # here, this just guards the fix didn't introduce one).
+        now = datetime(2026, 9, 9, 3, 0, tzinfo=_TZ)
+        grid_times, _ = solver_writer.build_tiered_grid(now)
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [
+                _fake_subentry(
+                    "s1",
+                    "controllable_load",
+                    {
+                        "controllable_load_name": "Hot Water Heat Pump",
+                        "controllable_load_kind": "deferrable",
+                        "deferrable_max_power_kw": 0.65,
+                        "deferrable_target_kwh": 2.0,
+                        "deferrable_earliest_hour": 6.0,
+                        "deferrable_deadline_hour": 16.0,
+                    },
+                )
+            ]
+        )
+        _, adequacy = solver_writer.build_controllable_loads(
+            now, grid_times, len(grid_times)
+        )
+        self.assertEqual(len(adequacy), 1)
+        # earliest_period is real today-06:00, not the "right now" (0)
+        # override -- the window hasn't opened yet, so no override should
+        # fire.
+        self.assertGreater(adequacy[0].earliest_period, 0)
+        earliest_target = datetime(2026, 9, 9, 6, 0, tzinfo=_TZ)
+        self.assertLessEqual(grid_times[adequacy[0].earliest_period], earliest_target)
+
+    def test_overnight_window_still_resolves_normally_before_it_opens(self):
+        # The genuine overnight case (earliest=22, deadline=6) the
+        # original skip branch's own comment describes, at a `now` well
+        # before tonight's window opens -- must keep working exactly as
+        # before the #582 fix (deadline correctly rolls to tomorrow,
+        # ahead of tonight's still-pending earliest).
+        now = datetime(2026, 9, 9, 10, 0, tzinfo=_TZ)
+        grid_times, _ = solver_writer.build_tiered_grid(now)
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [
+                _fake_subentry(
+                    "s1",
+                    "controllable_load",
+                    {
+                        "controllable_load_name": "Overnight EV Charge",
+                        "controllable_load_kind": "deferrable",
+                        "deferrable_max_power_kw": 7.0,
+                        "deferrable_target_kwh": 10.0,
+                        "deferrable_earliest_hour": 22.0,
+                        "deferrable_deadline_hour": 6.0,
+                    },
+                )
+            ]
+        )
+        _, adequacy = solver_writer.build_controllable_loads(
+            now, grid_times, len(grid_times)
+        )
+        self.assertEqual(len(adequacy), 1, "genuine overnight case must still resolve")
+        self.assertLess(adequacy[0].earliest_period, adequacy[0].deadline_period)
+
     def test_deferrable_value_per_kwh_carried_through_when_set(self):
         now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
         grid_times = _grid(now, 8)

@@ -7471,6 +7471,31 @@ def build_controllable_loads(
                 if deadline_hour is not None
                 else n_periods - 1
             )
+            # nimbus issue #582 (Mark Purcell, first live morning of #534):
+            # _resolve_hour_to_period_index() always resolves "the next
+            # occurrence from now" independently for each hour -- once
+            # `now` is past today's earliest_hour, earliest rolls forward
+            # to TOMORROW even though today's window (earliest through
+            # deadline) is still open and in progress right now. Correct
+            # for the genuine overnight case (earliest=22, deadline=6,
+            # `now` between midnight and 6am) but wrong for a same-day
+            # window once the day has started (earliest=6, deadline=16,
+            # `now`=06:01 -- exactly Mark's real repro). Detect the
+            # same-day-in-progress case directly, before the ordering
+            # check below: today's own (unrolled) earliest and deadline
+            # instants both fall on today, and `now` sits between them --
+            # if so the window opened earlier today and is still active,
+            # so earliest_period is simply "right now" (0), not tomorrow.
+            if (
+                earliest_hour is not None
+                and deadline_hour is not None
+                and deadline_period < earliest_period
+            ):
+                midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                earliest_today = midnight + timedelta(hours=float(earliest_hour))
+                deadline_today = midnight + timedelta(hours=float(deadline_hour))
+                if earliest_today <= now <= deadline_today:
+                    earliest_period = 0
             if deadline_period < earliest_period:
                 # A real, live-possible edge: e.g. earliest=22.0 (10pm),
                 # deadline=6.0 (6am) both resolve relative to `now` (see
