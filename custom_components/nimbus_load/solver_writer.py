@@ -2430,6 +2430,74 @@ def resample_forecast(
     return out
 
 
+# nimbus issue #546 (Mark Purcell, real regression on his own v0.94.169
+# install, found the SAME day #542/#543 shipped): the known-integration
+# entity IDs fetch_open_meteo_solar_raw()/fetch_solcast_solar_raw()
+# already read, hoisted to real module-level constants (previously
+# duplicated as a local list inside each function) so the caller-site
+# dedup logic below can check against the SAME single source of truth,
+# never two lists that could silently drift apart.
+_KNOWN_OPEN_METEO_SOLAR_ENTITY_IDS: frozenset[str] = frozenset(
+    {
+        "sensor.home_energy_production_today",
+        "sensor.home_energy_production_tomorrow",
+        "sensor.home_energy_production_d2",
+        "sensor.home_energy_production_d3",
+        "sensor.home_energy_production_d4",
+        "sensor.home_energy_production_d5",
+        "sensor.home_energy_production_d6",
+        "sensor.home_energy_production_d7",
+    }
+)
+_KNOWN_SOLCAST_SOLAR_ENTITY_IDS: frozenset[str] = frozenset(
+    {
+        "sensor.solcast_pv_forecast_forecast_today",
+        "sensor.solcast_pv_forecast_forecast_tomorrow",
+    }
+)
+
+
+def _is_known_solar_integration_entity(entity_id: str) -> bool:
+    """True when `entity_id` is one of Open-Meteo Solar Forecast's or
+    Solcast's own native entities -- i.e. one the auto-include path
+    (fetch_open_meteo_solar_raw()/fetch_solcast_solar_raw()) already
+    reads together with the REST of that integration's own entities.
+
+    nimbus issue #546 (Mark Purcell, real regression, same day #542
+    shipped): #542's own first fix taught a *configured*
+    solver_solar_forecast_sensor_1/2/3 to read Solcast's/Open-Meteo's
+    real shapes -- but its own dedup (an entity-level skip_entities set
+    threaded into the auto-include fetchers) turned one coverage gap
+    into three. Solcast's native detailedForecast entity only ever
+    covers ONE day (today, or tomorrow) -- skipping just the ONE
+    entity that's also configured left the auto-include fetch reading
+    only the OTHER day, and resample_forecast() holds the nearest real
+    point for every grid time outside a series' own native coverage
+    (its own first point for times before it, its own last point for
+    times after) -- so BOTH the standalone configured member (covering
+    only its one native day) and the now-fragmented auto-include member
+    (covering only the OTHER day) held a near-zero value (a series'
+    own dawn/dusk edge point) across most of the 96h grid, and the
+    unweighted blend mean dragged every day's own solar down by a
+    third on Mark's real 8 Sep plan (252.8 kWh -> 172.4 kWh, same real
+    forecasts). The real fix is dedup at the INTEGRATION level, not the
+    entity level: when a configured source is one of a KNOWN
+    integration's own entities and that integration's auto-include
+    path is going to run anyway, skip the configured source as a
+    standalone member entirely -- the auto-include fetch already reads
+    ALL of that integration's own entities together (Solcast's real
+    2-day coverage, Open-Meteo's real 8-day coverage), so it's the
+    sole, correctly-covered representative for that integration,
+    exactly restoring the same two-member blend structure v0.94.168
+    already had (Solcast 2-day + Open-Meteo 8-day), just with Solcast's
+    own shape now correctly read instead of silently dropped.
+    """
+    return (
+        entity_id in _KNOWN_OPEN_METEO_SOLAR_ENTITY_IDS
+        or entity_id in _KNOWN_SOLCAST_SOLAR_ENTITY_IDS
+    )
+
+
 # nimbus issue #542 item 1 (Mark Purcell, real household finding): a
 # solar-forecast entity configured directly as solver_solar_forecast_
 # sensor_1/2/3 was silently dropped from every solve whenever it wasn't
@@ -7596,9 +7664,9 @@ def main() -> None:
             _warn_solar_source_dropped_once(entity_id, "malformed", str(e))
             return None
 
-    def fetch_open_meteo_solar_raw(
-        skip_entities: frozenset[str] = frozenset(),
-    ) -> tuple[list[float], list[float], list[float]] | None:
+    def fetch_open_meteo_solar_raw() -> (
+        tuple[list[float], list[float], list[float]] | None
+    ):
         """Real, DIRECT read of Open-Meteo Solar Forecast's own 8 native
         entities (today/tomorrow/d2..d7) -- reshaped from their native
         watts={timestamp: value} dict shape via the same
@@ -7611,30 +7679,20 @@ def main() -> None:
         zero-width band), same honest default as every other
         no-uncertainty source.
 
-        skip_entities (nimbus issue #542 item 2): any of these 8 entities
-        already contributing to the blend via an EXPLICITLY configured
-        solver_solar_forecast_sensor_1/2/3 is excluded here, so a
-        household who points a configured source at (say) Open-Meteo's
-        own "today" entity AND has auto-include on doesn't have that one
-        entity double-weighted in the mean -- the other 7 entities this
-        function reads are unaffected.
+        nimbus issue #546: no skip_entities parameter -- dedup against a
+        configured solver_solar_forecast_sensor_1/2/3 pointed at one of
+        THESE SAME 8 entities happens at the caller, by skipping that
+        configured source's own standalone fetch entirely rather than
+        excluding one entity from THIS multi-entity read (see
+        _is_known_solar_integration_entity()'s own docstring for the
+        real regression an entity-level skip caused).
         """
         anchor = "sensor.home_energy_production_today"
         if not entity_exists(anchor):
             return None
-        entity_ids = [
-            "sensor.home_energy_production_today",
-            "sensor.home_energy_production_tomorrow",
-            "sensor.home_energy_production_d2",
-            "sensor.home_energy_production_d3",
-            "sensor.home_energy_production_d4",
-            "sensor.home_energy_production_d5",
-            "sensor.home_energy_production_d6",
-            "sensor.home_energy_production_d7",
-        ]
         entries: list[dict] = []
-        for eid in entity_ids:
-            if eid in skip_entities or not entity_exists(eid):
+        for eid in _KNOWN_OPEN_METEO_SOLAR_ENTITY_IDS:
+            if not entity_exists(eid):
                 continue
             fc = _solar_entries_from_attributes(ha_get(eid)["attributes"])
             if fc:
@@ -7645,9 +7703,9 @@ def main() -> None:
         value = [max(0.0, v) for v in resample_forecast(entries, "value", grid_times)]
         return value, list(value), list(value)
 
-    def fetch_solcast_solar_raw(
-        skip_entities: frozenset[str] = frozenset(),
-    ) -> tuple[list[float], list[float], list[float]] | None:
+    def fetch_solcast_solar_raw() -> (
+        tuple[list[float], list[float], list[float]] | None
+    ):
         """Real, DIRECT read of Solcast's own 2 native entities
         (today/tomorrow) -- reshaped from their native detailedForecast
         list shape (30-min resolution, period_start/pv_estimate/
@@ -7663,23 +7721,16 @@ def main() -> None:
         squarely between real measured solar and Open-Meteo's own kW
         value, not double that -- no unit conversion applied here.
 
-        skip_entities: see fetch_open_meteo_solar_raw()'s own docstring
-        -- same nimbus issue #542 item 2 dedup, e.g. a household who
-        points solver_solar_forecast_sensor_1 directly at
-        sensor.solcast_pv_forecast_forecast_today (Mark's own real case)
-        still gets sensor.solcast_pv_forecast_forecast_tomorrow's real
-        contribution from auto-include, just not today's counted twice.
+        nimbus issue #546: no skip_entities parameter -- see
+        fetch_open_meteo_solar_raw()'s own docstring for why the dedup
+        moved to the caller.
         """
         anchor = "sensor.solcast_pv_forecast_forecast_today"
         if not entity_exists(anchor):
             return None
-        entity_ids = [
-            "sensor.solcast_pv_forecast_forecast_today",
-            "sensor.solcast_pv_forecast_forecast_tomorrow",
-        ]
         entries: list[dict] = []
-        for eid in entity_ids:
-            if eid in skip_entities or not entity_exists(eid):
+        for eid in _KNOWN_SOLCAST_SOLAR_ENTITY_IDS:
+            if not entity_exists(eid):
                 continue
             fc = _solar_entries_from_attributes(ha_get(eid)["attributes"])
             if fc:
@@ -7696,29 +7747,27 @@ def main() -> None:
 
     solar_values, solar_lowers, solar_uppers = [], [], []
 
-    # nimbus issue #542 item 2 (Mark Purcell): every EXPLICITLY
-    # configured solar source (sources 1/2/3), gathered up front so the
-    # auto-include block below can skip re-reading the same entity --
-    # without this, a household who points a configured source directly
-    # at (say) Solcast's own "today" entity AND has auto-include on
-    # would have that one entity counted twice in the blend's mean once
-    # item 1 (below) taught the configured-source reader Solcast's own
-    # shape. Order-independent: computed before ANY source is fetched,
-    # not just the ones already fetched by this point.
-    configured_solar_entities = frozenset(
-        e
-        for e in (
-            cfg.get("solver_solar_forecast_sensor"),
-            cfg.get("solver_solar_forecast_sensor_2"),
-            cfg.get("solver_solar_forecast_sensor_3"),
+    # nimbus issue #546 (Mark Purcell, real regression the same day
+    # #542/#543 shipped): whether auto-include is on, computed once up
+    # front -- a configured source that resolves to a known Open-Meteo/
+    # Solcast entity is skipped as a STANDALONE member whenever the
+    # matching auto-include fetch is going to run anyway, so that
+    # integration is represented exactly once, by its own full-coverage
+    # multi-entity read, never by a second, narrower read of one of its
+    # own entities. See _is_known_solar_integration_entity()'s own
+    # docstring for the real regression the previous (entity-level
+    # skip_entities) dedup caused.
+    auto_include_known_solar = bool(cfg.get("solver_auto_include_known_solar"))
+
+    def _skip_as_standalone_source(entity_id: str) -> bool:
+        return auto_include_known_solar and _is_known_solar_integration_entity(
+            entity_id
         )
-        if e
-    )
 
     # Source 1: whatever's configured via the Solver settings wizard
     # (this household: Nimbus's own self-trained model).
     configured_entity = cfg.get("solver_solar_forecast_sensor")
-    if configured_entity:
+    if configured_entity and not _skip_as_standalone_source(configured_entity):
         result = fetch_solar_source_safe(configured_entity)
         if result is not None:
             v, lo, up = result
@@ -7736,9 +7785,9 @@ def main() -> None:
     # comment on CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR) -- a fresh
     # install gets exactly what's configured in sources 1/2/3, nothing
     # more, unless this switch is explicitly turned on.
-    if cfg.get("solver_auto_include_known_solar"):
+    if auto_include_known_solar:
         for fetcher in (fetch_open_meteo_solar_raw, fetch_solcast_solar_raw):
-            result = fetcher(configured_solar_entities)
+            result = fetcher()
             if result is not None:
                 v, lo, up = result
                 solar_values.append(np.array(v))
@@ -7755,7 +7804,7 @@ def main() -> None:
         cfg.get("solver_solar_forecast_sensor_2"),
         cfg.get("solver_solar_forecast_sensor_3"),
     ):
-        if not entity_id:
+        if not entity_id or _skip_as_standalone_source(entity_id):
             continue
         result = fetch_solar_source_safe(entity_id)
         if result is not None:

@@ -1,5 +1,5 @@
-"""Real regression tests for nimbus issues #542/#543 (Mark Purcell, real
-household finding on this repo's own v0.94.168 install):
+"""Real regression tests for nimbus issues #542/#543/#546 (Mark Purcell,
+real household findings on this repo's own v0.94.168/.169 installs):
 
 - #542 item 1: a solar-forecast entity configured directly as
   solver_solar_forecast_sensor_1/2/3 was silently dropped from every
@@ -11,27 +11,43 @@ household finding on this repo's own v0.94.168 install):
   fetch_open_meteo_solar_raw()), just not when a household pointed a
   *configured* source at them directly. _solar_entries_from_attributes()
   is the one shared reshape function closing that gap.
-- #542 item 2: once item 1 lands, a household with the same entity BOTH
-  explicitly configured AND auto-included would double-weight it in the
-  blend's mean -- the configured_solar_entities/skip_entities threading
-  through fetch_open_meteo_solar_raw()/fetch_solcast_solar_raw() closes
-  that.
 - #543: the "solar source ... dropped from this solve's blend" warning
   used to fire on every solve (205 copies in 4h on one real install) --
   now keyed once per (entity_id, reason), with a genuinely different
   reason ("unavailable" vs "shape not recognized" vs "malformed") each
   getting its own one-time log, and a recovery logged once at INFO.
+- #546: a REAL REGRESSION from #542's own first fix, found the same day
+  it shipped (v0.94.169). #542's own item 2 (avoid double-counting a
+  source that's both explicitly configured AND auto-included) skipped
+  just the ONE overlapping entity from the auto-include fetch -- but
+  Solcast's own native entity only ever covers ONE day, so skipping it
+  left the auto-include fetch reading only the OTHER day, fragmenting
+  a healthy 2-day Solcast member into two separate today-only/
+  tomorrow-only members. resample_forecast() holds the nearest real
+  point for every grid time outside a series' own native coverage, so
+  both fragments held a near-zero edge value across most of the 96h
+  grid -- on Mark's real 8 Sep plan, the same forecasts produced 172.4
+  kWh of next-24h solar instead of 252.8 kWh. Fixed by moving the dedup
+  from the ENTITY level to the INTEGRATION level:
+  _is_known_solar_integration_entity() decides whether a configured
+  source should be skipped as a standalone member entirely (because the
+  matching auto-include fetch is going to read ALL of that
+  integration's own entities together anyway), restoring the exact
+  same two-member (Solcast 2-day + Open-Meteo 8-day) blend structure
+  v0.94.168 already had, just with Solcast's own shape now correctly
+  read.
 
 _solar_entries_from_attributes()/_warn_solar_source_dropped_once()/
-_note_solar_source_recovered() are module-level and pure/near-pure
-beyond logging, so exercised directly (real functions, not a
-reimplementation). fetch_solar_source_safe()/fetch_open_meteo_solar_raw()/
-fetch_solcast_solar_raw() and the configured_solar_entities dedup wiring
-are nested closures inside main() (well over 1000 lines, live ha_get/
-ha_post_state calls throughout) -- too large to mock end-to-end for this
-one fix, so their wiring is verified source-inspection style, matching
-the existing precedent in tests/test_solver_writer_solar_fallback_not_
-crash.py and tests/test_stale_devices_cleanup.py.
+_note_solar_source_recovered()/_is_known_solar_integration_entity() are
+module-level and pure/near-pure beyond logging, so exercised directly
+(real functions, not a reimplementation). fetch_solar_source_safe()/
+fetch_open_meteo_solar_raw()/fetch_solcast_solar_raw() and the
+integration-level dedup wiring at the call site are nested closures
+inside main() (well over 1000 lines, live ha_get/ha_post_state calls
+throughout) -- too large to mock end-to-end for this one fix, so their
+wiring is verified source-inspection style, matching the existing
+precedent in tests/test_solver_writer_solar_fallback_not_crash.py and
+tests/test_stale_devices_cleanup.py.
 """
 
 from __future__ import annotations
@@ -104,6 +120,48 @@ class TestSolarEntriesFromAttributes(unittest.TestCase):
 
     def test_empty_attributes_returns_none(self):
         self.assertIsNone(solver_writer._solar_entries_from_attributes({}))
+
+
+class TestIsKnownSolarIntegrationEntity(unittest.TestCase):
+    """nimbus issue #546: the real dedup decision -- whether a configured
+    source should be skipped as a standalone member because it's one of
+    a known auto-included integration's own entities."""
+
+    def test_solcast_today_is_known(self):
+        self.assertTrue(
+            solver_writer._is_known_solar_integration_entity(
+                "sensor.solcast_pv_forecast_forecast_today"
+            )
+        )
+
+    def test_solcast_tomorrow_is_known(self):
+        self.assertTrue(
+            solver_writer._is_known_solar_integration_entity(
+                "sensor.solcast_pv_forecast_forecast_tomorrow"
+            )
+        )
+
+    def test_open_meteo_d7_is_known(self):
+        self.assertTrue(
+            solver_writer._is_known_solar_integration_entity(
+                "sensor.home_energy_production_d7"
+            )
+        )
+
+    def test_an_unrelated_entity_is_not_known(self):
+        self.assertFalse(
+            solver_writer._is_known_solar_integration_entity(
+                "sensor.nimbus_solar_forecast"
+            )
+        )
+
+    def test_similarly_named_but_different_entity_is_not_known(self):
+        # A real, plausible near-miss -- must not fuzzy-match.
+        self.assertFalse(
+            solver_writer._is_known_solar_integration_entity(
+                "sensor.solcast_pv_forecast_forecast_d2"
+            )
+        )
 
 
 class TestWarnSolarSourceDroppedOnce(unittest.TestCase):
@@ -212,10 +270,10 @@ def _extract_function_source(src: str, def_line: str, max_chars: int = 4000) -> 
 
 class TestSolarSourceWiringSourceInspection(unittest.TestCase):
     """fetch_solar_source_safe()/fetch_open_meteo_solar_raw()/
-    fetch_solcast_solar_raw() and the configured_solar_entities dedup
-    are nested closures inside main() -- see this file's own module
-    docstring for why source-inspection is the right tool here, matching
-    tests/test_solver_writer_solar_fallback_not_crash.py's own
+    fetch_solcast_solar_raw() and the integration-level dedup at the
+    call site are nested closures inside main() -- see this file's own
+    module docstring for why source-inspection is the right tool here,
+    matching tests/test_solver_writer_solar_fallback_not_crash.py's own
     precedent."""
 
     @classmethod
@@ -235,29 +293,49 @@ class TestSolarSourceWiringSourceInspection(unittest.TestCase):
         block = _extract_function_source(self.src, "    def fetch_solar_source_safe(")
         self.assertIn("_note_solar_source_recovered(entity_id)", block)
 
-    def test_open_meteo_raw_accepts_and_honours_skip_entities(self):
+    def test_open_meteo_raw_no_longer_takes_a_skip_entities_parameter(self):
+        # nimbus issue #546: the entity-level skip_entities parameter is
+        # exactly what fragmented Solcast's own 2-day coverage into two
+        # near-zero-holding halves -- it must be gone from the real
+        # SIGNATURE, not just unused (the function's own docstring below
+        # still legitimately mentions "skip_entities" by name to explain
+        # why it was removed, so only the signature itself is checked).
+        signature = _extract_function_source(
+            self.src, "    def fetch_open_meteo_solar_raw(", max_chars=80
+        )
+        self.assertNotIn("skip_entities", signature)
         block = _extract_function_source(
             self.src, "    def fetch_open_meteo_solar_raw("
         )
-        self.assertIn("skip_entities", block)
+        self.assertIn("_KNOWN_OPEN_METEO_SOLAR_ENTITY_IDS", block)
         self.assertIn("_solar_entries_from_attributes(", block)
 
-    def test_solcast_raw_accepts_and_honours_skip_entities(self):
+    def test_solcast_raw_no_longer_takes_a_skip_entities_parameter(self):
+        signature = _extract_function_source(
+            self.src, "    def fetch_solcast_solar_raw(", max_chars=70
+        )
+        self.assertNotIn("skip_entities", signature)
         block = _extract_function_source(self.src, "    def fetch_solcast_solar_raw(")
-        self.assertIn("skip_entities", block)
+        self.assertIn("_KNOWN_SOLCAST_SOLAR_ENTITY_IDS", block)
         self.assertIn("_solar_entries_from_attributes(", block)
 
-    def test_configured_solar_entities_is_computed_before_auto_include_and_passed_through(
+    def test_a_configured_source_is_skipped_as_standalone_when_auto_include_would_cover_it(
         self,
     ):
-        marker = "    configured_solar_entities = frozenset("
+        # nimbus issue #546's own real fix: the dedup decision at the
+        # call site, not inside the auto-include fetchers.
+        marker = "    def _skip_as_standalone_source(entity_id: str) -> bool:"
         self.assertIn(marker, self.src)
         start = self.src.index(marker)
-        # The auto-include call site (fetcher(configured_solar_entities))
-        # must appear AFTER configured_solar_entities is computed, and
-        # actually pass it through -- not just define it unused.
-        after = self.src[start:]
-        self.assertIn("fetcher(configured_solar_entities)", after)
+        after = self.src[start : start + 2500]
+        # Both the configured source-1 fetch and the source-2/3 loop
+        # must actually consult the skip decision, not just define it.
+        self.assertIn("_skip_as_standalone_source(configured_entity)", after)
+        self.assertIn("_skip_as_standalone_source(entity_id)", after)
+        # And the auto-include fetchers are called with NO arguments --
+        # they always read their own integration's FULL entity set now,
+        # never a partial one.
+        self.assertIn("result = fetcher()", after)
 
 
 if __name__ == "__main__":
