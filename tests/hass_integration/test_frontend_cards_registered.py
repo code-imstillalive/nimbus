@@ -140,3 +140,53 @@ async def test_every_shipped_cards_picker_identity_says_nimbus(
             f"{card.filename}'s picker type {fields.get('type')!r} doesn't "
             f"match _CARDS' own registered card_type {card.card_type!r}"
         )
+
+
+# nimbus issue #551 (Mark Purcell): HA's card picker inserts
+# `{ type: "custom:nimbus-topology-card" }` with no other keys when a
+# household adds a card from the picker -- with no getStubConfig() on
+# any of the three shipped cards, the topology card's own setConfig()
+# threw on that bare config, producing a red error card as the very
+# first thing a household saw right after #519 made the card findable
+# at all. Regex against the SERVED content (not source) for the same
+# reason _CUSTOM_CARDS_PUSH_RE above is: no JS test runner in this
+# project, and this confirms what a real browser actually receives,
+# not just what's in the repo.
+_GET_STUB_CONFIG_RE = re.compile(r"static\s+getStubConfig\s*\(")
+_TOPOLOGY_OLD_THROW_RE = re.compile(
+    r"if\s*\(\s*!config\.switchboard\s*\|\|\s*!config\.inverters\s*\)"
+)
+
+
+async def test_every_shipped_card_defines_a_stub_config(
+    hass: HomeAssistant, hass_client, nimbus_entry: MockConfigEntry
+):
+    """Every shipped card must define static getStubConfig() so HA's own
+    card picker never has to fall back to a bare `{ type: ... }` config."""
+    client = await hass_client()
+    for card in _CARDS:
+        resp = await client.get(f"/{DOMAIN}/{card.filename}")
+        body = await resp.text()
+        assert _GET_STUB_CONFIG_RE.search(body), (
+            f"{card.filename} has no static getStubConfig() -- HA's card "
+            f"picker will insert a bare config with none of this card's "
+            f"fields set"
+        )
+
+
+async def test_topology_card_no_longer_throws_on_a_missing_switchboard_or_inverters(
+    hass: HomeAssistant, hass_client, nimbus_entry: MockConfigEntry
+):
+    """The exact pre-#551 throw condition must be gone from the SERVED
+    topology card bundle -- a missing switchboard/inverters key now
+    defaults to {}/[] instead of erroring, matching the minimal config
+    docs/dashboards.md already tells a household to write by hand."""
+    client = await hass_client()
+    topology_card = next(c for c in _CARDS if "topology" in c.filename)
+    resp = await client.get(f"/{DOMAIN}/{topology_card.filename}")
+    body = await resp.text()
+    assert not _TOPOLOGY_OLD_THROW_RE.search(body), (
+        f"{topology_card.filename} still contains the pre-#551 "
+        f"'!config.switchboard || !config.inverters' throw condition -- "
+        f"a picker-added card with no config would still error"
+    )

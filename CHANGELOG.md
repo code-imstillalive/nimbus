@@ -6,6 +6,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.172] — 2026-09-08
+
+### Fixed
+- **A Topology card added from HA's card picker no longer errors out immediately** (nimbus issue #551, Mark Purcell). The picker inserts a bare `{ type: "custom:nimbus-topology-card" }` with no other keys — `setConfig()` used to throw on that (`config needs switchboard, inverters`), so the very first thing a household saw after #519 made the card findable at all was a red error card. `switchboard`/`inverters` now default to `{}`/`[]` when simply absent; the error is kept only for a genuinely wrong-typed value.
+
+### Added
+- All three shipped cards (Topology, Control Panel, Regret) now define `static getStubConfig()`, so the picker's default config is valid immediately. The dispatch card's stub pre-fills battery power/SoC/solar power entities from the Solver's own config (`sensor.nimbus_solver_config`) when available.
+
 ## [0.94.171] — 2026-09-08
 
 ### Changed
