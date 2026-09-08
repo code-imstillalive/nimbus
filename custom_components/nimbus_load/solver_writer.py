@@ -7480,6 +7480,197 @@ def build_controllable_loads(
     return sheddable_loads, adequacy_loads
 
 
+# nimbus issue #563: no wizard field exists yet for a battery
+# participant's own charge/discharge $/kWh cost, but BatteryConfig.
+# __post_init__ structurally requires the two to sum to at least
+# elements.MIN_CHARGE_DISCHARGE_COST_SPREAD (0.01 $/kWh, the HAEO
+# wash-trade-degeneracy guard). These are deliberately small (0.005 +
+# 0.01 = 0.015, clearing the floor with a real margin) so they never
+# meaningfully distort dispatch decisions -- a placeholder that clears
+# a structural validation floor, not a real household-specific cost.
+_DEFAULT_EXTRA_BATTERY_CHARGE_COST: float = 0.005
+_DEFAULT_EXTRA_BATTERY_DISCHARGE_COST: float = 0.01
+
+
+def build_extra_batteries() -> list:
+    """nimbus issue #563: the config surface for #467 stage 1's own
+    `batteries: list[BatteryConfig]` solver support. Builds ADDITIONAL
+    BatteryConfig entries from this hub's own `battery_participant`
+    subentries -- the household's existing single hub-level battery
+    (built separately in main()/compute_nimbus_only_soc_counterfactual(),
+    always name="home") is never touched or replaced by this function;
+    every caller does `batteries=[home_battery, *build_extra_batteries()]`.
+
+    Zero subentries (the default, and every install before #563) returns
+    [] -- a real no-op, `batteries` stays exactly `[home_battery]`,
+    byte-identical to v0.94.177's own single-battery behaviour. This is
+    the explicit "upgrade is a no-op" requirement from #563's own issue
+    body.
+
+    Native/in-process mode ONLY -- same reasoning as build_controllable_
+    loads() just above (ConfigSubentries aren't exposed over this
+    module's own plain-REST seam, and the standalone/cron deployment
+    doesn't have a wizard to configure these from anyway). Imported
+    locally for the same reason build_controllable_loads() does.
+
+    Deliberately NOT built here yet (nimbus issue #563's own items 2/3,
+    left as an explicit, clearly-scoped follow-up rather than rushed
+    into this PR): per-participant availability gating (a live
+    binary_sensor hard-zeroing charge/discharge while e.g. an EV is
+    away) and a shared-charger power constraint (two participants
+    sharing one physical charger's own kW ceiling) are both genuinely
+    new LP mechanisms, not config-surface work -- see this repo's own
+    worklog for the real scoping decision. Every participant built here
+    today gets its own independent, ungated power bounds -- correct for
+    a real second inverter (Mark's own #532 case), an honest partial
+    step for a shareable/sometimes-away EV (its full power bounds apply
+    even while it's not actually able to charge -- a real, known,
+    documented gap, not a silent one).
+    """
+    if _NATIVE_HASS is None:
+        return []
+    try:
+        from .const import (
+            CONF_BATTERY_PARTICIPANT_CAPACITY_KWH,
+            CONF_BATTERY_PARTICIPANT_CHARGE_LIMIT_ENTITY,
+            CONF_BATTERY_PARTICIPANT_DEGRADATION_COST_PER_KWH,
+            CONF_BATTERY_PARTICIPANT_EFFICIENCY_PERCENT,
+            CONF_BATTERY_PARTICIPANT_MAX_CHARGE_KW,
+            CONF_BATTERY_PARTICIPANT_MAX_DISCHARGE_KW,
+            CONF_BATTERY_PARTICIPANT_MAX_SOC_PERCENT,
+            CONF_BATTERY_PARTICIPANT_MIN_SOC_PERCENT,
+            CONF_BATTERY_PARTICIPANT_NAME,
+            CONF_BATTERY_PARTICIPANT_SALVAGE_VALUE,
+            CONF_BATTERY_PARTICIPANT_SOC_SENSOR,
+            DOMAIN,
+            SUBENTRY_TYPE_BATTERY_PARTICIPANT,
+        )
+    except ImportError:
+        from const import (
+            CONF_BATTERY_PARTICIPANT_CAPACITY_KWH,
+            CONF_BATTERY_PARTICIPANT_CHARGE_LIMIT_ENTITY,
+            CONF_BATTERY_PARTICIPANT_DEGRADATION_COST_PER_KWH,
+            CONF_BATTERY_PARTICIPANT_EFFICIENCY_PERCENT,
+            CONF_BATTERY_PARTICIPANT_MAX_CHARGE_KW,
+            CONF_BATTERY_PARTICIPANT_MAX_DISCHARGE_KW,
+            CONF_BATTERY_PARTICIPANT_MAX_SOC_PERCENT,
+            CONF_BATTERY_PARTICIPANT_MIN_SOC_PERCENT,
+            CONF_BATTERY_PARTICIPANT_NAME,
+            CONF_BATTERY_PARTICIPANT_SALVAGE_VALUE,
+            CONF_BATTERY_PARTICIPANT_SOC_SENSOR,
+            DOMAIN,
+            SUBENTRY_TYPE_BATTERY_PARTICIPANT,
+        )
+
+    batteries: list = []
+    entries = _NATIVE_HASS.config_entries.async_entries(DOMAIN)
+    if not entries:
+        return []
+    seen_names: set[str] = set()
+    for subentry in entries[0].subentries.values():
+        if subentry.subentry_type != SUBENTRY_TYPE_BATTERY_PARTICIPANT:
+            continue
+        data = subentry.data
+        name = data.get(CONF_BATTERY_PARTICIPANT_NAME) or subentry.subentry_id
+        if name in seen_names or name == "home":
+            # "home" is reserved for the hub's own single battery (see
+            # this function's own docstring) -- a household typing it
+            # in here by accident would otherwise silently collide with
+            # it across LP variable naming and cross-solve stability.
+            # A duplicate name between two subentries is the same real
+            # risk. Both skipped with a loud warning rather than crashing
+            # the whole solve cycle over one misconfigured subentry --
+            # same "skip, don't crash" discipline build_controllable_
+            # loads() above already uses.
+            _LOGGER.warning(
+                "Nimbus: battery participant subentry name '%s' is reserved "
+                "or duplicated -- skipping this cycle. Every battery "
+                "participant needs its own real name, and 'home' is "
+                "reserved for the hub's own single battery.",
+                name,
+            )
+            continue
+        seen_names.add(name)
+        capacity_kwh = float(data.get(CONF_BATTERY_PARTICIPANT_CAPACITY_KWH) or 0.0)
+        max_charge_kw = float(data.get(CONF_BATTERY_PARTICIPANT_MAX_CHARGE_KW) or 0.0)
+        max_discharge_kw = float(
+            data.get(CONF_BATTERY_PARTICIPANT_MAX_DISCHARGE_KW) or 0.0
+        )
+        soc_sensor = data.get(CONF_BATTERY_PARTICIPANT_SOC_SENSOR)
+        if capacity_kwh <= 0.0 or not soc_sensor:
+            _LOGGER.warning(
+                "Nimbus: battery participant '%s' is missing capacity_kwh "
+                "or its SoC sensor -- skipping this cycle",
+                name,
+            )
+            continue
+        min_soc_pct = float(data.get(CONF_BATTERY_PARTICIPANT_MIN_SOC_PERCENT) or 0.0)
+        max_soc_pct = float(data.get(CONF_BATTERY_PARTICIPANT_MAX_SOC_PERCENT) or 100.0)
+        # #563 item 4: a live number entity's CURRENT value, when
+        # configured, overrides the wizard's own static max_soc_percent
+        # for this solve -- see const.py's own comment on this field.
+        charge_limit_entity = data.get(CONF_BATTERY_PARTICIPANT_CHARGE_LIMIT_ENTITY)
+        if charge_limit_entity:
+            max_soc_pct = safe_num(charge_limit_entity, max_soc_pct)
+        min_soc_kwh = capacity_kwh * min_soc_pct / 100.0
+        max_soc_kwh = capacity_kwh * max_soc_pct / 100.0
+        # Same honest, no-crash-on-a-glitch-reading discipline as the
+        # home battery's own live SoC read in main() -- see that call
+        # site's own comment for the real "27+-crashes-per-window"
+        # incident this pattern fixes. safe_num() itself already
+        # degrades gracefully (WARN + fallback) on a non-numeric state.
+        initial_soc_pct = safe_num(soc_sensor, min_soc_pct)
+        initial_soc_kwh = capacity_kwh * initial_soc_pct / 100.0
+        initial_soc_kwh = min(max(initial_soc_kwh, 0.0), capacity_kwh)
+        efficiency = (
+            min(
+                float(data.get(CONF_BATTERY_PARTICIPANT_EFFICIENCY_PERCENT) or 95.0)
+                / 100.0,
+                0.999,
+            )
+            ** 0.5
+        )
+        # power_positive_is_charge (data key CONF_BATTERY_PARTICIPANT_
+        # POWER_POSITIVE_IS_CHARGE) is read live for future dashboard/
+        # monitoring wiring, not needed by BatteryConfig itself -- the
+        # LP's own charge[t]/discharge[t] are always two separate
+        # nonnegative variables (see BatteryConfig's own class
+        # docstring), never one signed reading.
+        salvage_value = float(data.get(CONF_BATTERY_PARTICIPANT_SALVAGE_VALUE) or 0.0)
+        degradation_cost_per_kwh = float(
+            data.get(CONF_BATTERY_PARTICIPANT_DEGRADATION_COST_PER_KWH) or 0.0
+        )
+        batteries.append(
+            elements.BatteryConfig(
+                name=name,
+                capacity_kwh=capacity_kwh,
+                initial_soc_kwh=initial_soc_kwh,
+                min_soc_kwh=min_soc_kwh,
+                max_soc_kwh=max_soc_kwh,
+                max_charge_kw=max_charge_kw,
+                max_discharge_kw=max_discharge_kw,
+                charge_efficiency=efficiency,
+                discharge_efficiency=efficiency,
+                # No wizard field for a real charge/discharge $/kWh cost
+                # per participant yet -- BatteryConfig.__post_init__
+                # structurally requires charge_cost + discharge_cost to
+                # clear elements.MIN_CHARGE_DISCHARGE_COST_SPREAD (the
+                # HAEO wash-trade-degeneracy guard, see that constant's
+                # own docstring), so a bare 0.0/0.0 is NOT a valid no-op
+                # here the way it is for degradation_cost_per_kwh just
+                # below. These two small reference constants clear that
+                # floor with margin while staying a genuinely small,
+                # non-distorting economic signal -- see their own
+                # module-level comment.
+                charge_cost=_DEFAULT_EXTRA_BATTERY_CHARGE_COST,
+                discharge_cost=_DEFAULT_EXTRA_BATTERY_DISCHARGE_COST,
+                salvage_value=salvage_value,
+                degradation_cost_per_kwh=degradation_cost_per_kwh,
+            )
+        )
+    return batteries
+
+
 def apply_commanded_state_guard(
     plan: network.Plan,
     now: datetime,
@@ -9004,10 +9195,20 @@ def main() -> None:
     sheddable_loads, adequacy_loads = build_controllable_loads(
         now, grid_times, n_periods
     )
+    # nimbus issue #563: real battery_participant subentries, in
+    # addition to the household's own single "home" battery above --
+    # see build_extra_batteries()'s own docstring for the full "upgrade
+    # is a no-op with zero subentries" story, and for what's
+    # deliberately NOT built here yet (availability gating, a shared-
+    # charger power constraint). "home" (batteries[0]) is the only
+    # participant this P2P fixed-export window logic below ever
+    # targets -- see BatteryConfig's own docstring / build_plan()'s own
+    # "batteries" docstring paragraph for that explicit #467 stage-1
+    # decision.
     plan = network.build_plan(
         periods=periods,
         grid=grid,
-        batteries=[battery],
+        batteries=[battery, *build_extra_batteries()],
         solar=solar,
         loads=loads,
         sheddable_loads=sheddable_loads,

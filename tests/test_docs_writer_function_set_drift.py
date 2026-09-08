@@ -148,6 +148,14 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # reasoning, not a separate gap, even though it has no HA
         # dependency of its own.
         "_parse_done_when",
+        # nimbus issue #563: reads real battery_participant ConfigSubentries
+        # (_NATIVE_HASS.config_entries.async_entries(...).subentries), same
+        # no-standalone-equivalent reasoning as build_controllable_loads()
+        # above -- no standalone/cron config surface exists for battery
+        # participant subentries, and #563's own spec doesn't ask for one.
+        # Returns [] unconditionally in standalone mode already (_NATIVE_
+        # HASS is None there), so there's nothing behavioural to port.
+        "build_extra_batteries",
     }
 )
 

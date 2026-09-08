@@ -200,6 +200,72 @@ CONF_DEFERRABLE_VALUE_PER_KWH: Final = "deferrable_value_per_kwh"
 # parsed explicitly).
 CONF_DEFERRABLE_DONE_ENTITY: Final = "deferrable_done_entity"
 CONF_DEFERRABLE_DONE_WHEN: Final = "deferrable_done_when"
+
+# Battery Participant fields (2026-09-08, nimbus issue #563 -- the
+# config surface for #467 stage 1's own `batteries: list[BatteryConfig]`
+# support). Deliberately a DIFFERENT subentry type from SUBENTRY_TYPE_
+# BATTERY_TOWER above -- a Battery Tower is pure topology/wiring
+# metadata for the dashboard's topology card, never read by the Solver
+# at all; a Battery Participant is a real, independently-metered LP
+# dispatch participant (a second inverter, an EV on a shared DC
+# charger -- see solver/elements.py's own BatteryConfig docstring,
+# "topology" note, for why these are genuinely different concerns).
+# Every field here maps directly onto one solver/elements.py
+# BatteryConfig field -- see build_extra_batteries() in solver_writer.py
+# for the real construction. The household's own single, existing
+# hub-level battery (CONF_SOLVER_BATTERY_* above) stays exactly as-is
+# and always becomes the "home" participant (batteries[0], keeping the
+# P2P fixed-export gate per nimbus issue #467's own stage-1 note) --
+# these subentries are ADDITIONAL participants on top of it, never a
+# replacement. Zero Battery Participant subentries configured is a
+# real no-op: solver_writer.py's own batteries list is then exactly
+# [home], byte-identical to v0.94.177's own single-battery behaviour --
+# the explicit "upgrade is a no-op" requirement from #563's own issue
+# body.
+SUBENTRY_TYPE_BATTERY_PARTICIPANT: Final = "battery_participant"
+CONF_BATTERY_PARTICIPANT_NAME: Final = "battery_participant_name"
+CONF_BATTERY_PARTICIPANT_CAPACITY_KWH: Final = "battery_participant_capacity_kwh"
+CONF_BATTERY_PARTICIPANT_MIN_SOC_PERCENT: Final = "battery_participant_min_soc_percent"
+CONF_BATTERY_PARTICIPANT_MAX_SOC_PERCENT: Final = "battery_participant_max_soc_percent"
+CONF_BATTERY_PARTICIPANT_MAX_CHARGE_KW: Final = "battery_participant_max_charge_kw"
+CONF_BATTERY_PARTICIPANT_MAX_DISCHARGE_KW: Final = (
+    "battery_participant_max_discharge_kw"
+)
+CONF_BATTERY_PARTICIPANT_SOC_SENSOR: Final = "battery_participant_soc_sensor"
+CONF_BATTERY_PARTICIPANT_POWER_SENSOR: Final = "battery_participant_power_sensor"
+# Same real-world variance BatteryConfig's own hub-level sibling
+# (CONF_SOLVER_BATTERY_POWER_POSITIVE_IS_CHARGE) already has to handle --
+# different real hardware/integrations publish the opposite sign
+# convention for "charging." Defaults True (positive=charge) to match
+# that existing hub-level field's own default, so a household already
+# used to that convention doesn't have to think about it again per
+# participant unless their SPECIFIC sensor genuinely differs (e.g. this
+# issue's own real case: Tesla's own DC-charging power sensors and the
+# Sigen inverter's own EV-charger channel do not necessarily share the
+# home pack's sign convention).
+CONF_BATTERY_PARTICIPANT_POWER_POSITIVE_IS_CHARGE: Final = (
+    "battery_participant_power_positive_is_charge"
+)
+CONF_BATTERY_PARTICIPANT_EFFICIENCY_PERCENT: Final = (
+    "battery_participant_efficiency_percent"
+)
+CONF_BATTERY_PARTICIPANT_DEGRADATION_COST_PER_KWH: Final = (
+    "battery_participant_degradation_cost_per_kwh"
+)
+CONF_BATTERY_PARTICIPANT_SALVAGE_VALUE: Final = "battery_participant_salvage_value"
+# #563 item 4: an optional live number entity (e.g. a real EV's own
+# `number.*_charge_limit`) whose CURRENT value overrides this
+# participant's own configured max_soc_percent for that solve -- the
+# household's own real, changeable charge-limit preference (a car
+# usually charged to 80% but occasionally set to 100% before a long
+# trip) rather than a static wizard field that would otherwise go stale
+# the next time they change it in the vehicle's own app. None (the
+# default, left blank) is a complete no-op -- max_soc_percent above is
+# used unconditionally, exactly like every other participant.
+CONF_BATTERY_PARTICIPANT_CHARGE_LIMIT_ENTITY: Final = (
+    "battery_participant_charge_limit_entity"
+)
+
 # 2026-09-03: a real household was guided to add a temperature/humidity
 # Power Signal using SIGNAL_ROLE_OTHER, since no dedicated role existed --
 # NimbusForecastSensor unconditionally builds every power-signal subentry

@@ -23,12 +23,16 @@ install_ha_stubs()
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from custom_components.nimbus_load.config_flow import NimbusConfigFlow
 from custom_components.nimbus_load.const import (
+    SUBENTRY_TYPE_BATTERY_PARTICIPANT,
     SUBENTRY_TYPE_BATTERY_TOWER,
     SUBENTRY_TYPE_CONTROLLABLE_LOAD,
     SUBENTRY_TYPE_LOAD,
     SUBENTRY_TYPE_POWER_SOURCE,
     SUBENTRY_TYPE_PV_STRING,
     SUBENTRY_TYPE_SIGNAL,
+)
+from custom_components.nimbus_load.flows.battery_participant_subentry import (
+    NimbusBatteryParticipantSubentryFlowHandler,
 )
 from custom_components.nimbus_load.flows.battery_tower_subentry import (
     NimbusBatteryTowerSubentryFlowHandler,
@@ -110,6 +114,7 @@ def test_supported_subentry_types_registers_every_type():
         SUBENTRY_TYPE_PV_STRING: NimbusPvStringSubentryFlowHandler,
         SUBENTRY_TYPE_BATTERY_TOWER: NimbusBatteryTowerSubentryFlowHandler,
         SUBENTRY_TYPE_CONTROLLABLE_LOAD: NimbusControllableLoadSubentryFlowHandler,
+        SUBENTRY_TYPE_BATTERY_PARTICIPANT: NimbusBatteryParticipantSubentryFlowHandler,
     }
 
 
