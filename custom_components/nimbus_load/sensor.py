@@ -927,16 +927,44 @@ async def async_setup_entry(
     # investigation (see that file's own comment above async_forward_
     # entry_setups). Cheap: only real work happens when a conflict is
     # actually found, which is the abnormal case this exists to catch.
+    #
+    # nimbus issue #570 (Mark Purcell, found within hours of this landing
+    # on his own install): the original version below fired 25 WARNINGs
+    # on EVERY ordinary config-entry reload (an options-flow save, or any
+    # subentry add/remove), not just the real collision it was written
+    # for -- `hass.states.get(candidate.entity_id) is not None` is true
+    # on every reload for every entity, because the unload a few hundred
+    # milliseconds earlier leaves the OLD entity's state behind as
+    # `unavailable, restored=True` -- the normal, expected state of any
+    # entity between an unload and its re-add, not evidence of a
+    # duplicate registration. Confirmed live: on Mark's install, two cold
+    # restarts produced zero warnings (by the time the sensor platform
+    # sets up post-restart, no leftover state exists yet), but three
+    # ordinary reloads produced 25 warnings each. Real collision evidence
+    # looks different: either NO restored flag on the leftover state (a
+    # genuine live ghost, not a normal unload artifact), or the registry
+    # already mapping this unique_id to a DIFFERENT entity_id than the
+    # one about to be added. Tightened to exactly that -- see Mark's own
+    # suggested condition on #570.
     _entity_registry = er.async_get(hass)
     for _candidate in _family_a_batch:
         _existing_state = hass.states.get(_candidate.entity_id)
         _existing_reg_entity_id = _entity_registry.async_get_entity_id(
             "sensor", DOMAIN, _candidate.unique_id
         )
-        if _existing_state is not None or (
-            _existing_reg_entity_id is not None
-            and _existing_reg_entity_id != _candidate.entity_id
-        ):
+        # Literal "restored" (== homeassistant.const.ATTR_RESTORED), not
+        # imported: the stub-based unit-test harness's fake
+        # homeassistant.const doesn't define every real HA constant, and
+        # this module runs under both that stub AND the real HA package
+        # -- see this repo's own CLAUDE.md "Testing" section for the
+        # dual-mode story.
+        _existing_state_is_real_ghost = _existing_state is not None and (
+            not _existing_state.attributes.get("restored")
+        )
+        _registry_points_elsewhere = _existing_reg_entity_id is not None and (
+            _existing_reg_entity_id != _candidate.entity_id
+        )
+        if _existing_state_is_real_ghost or _registry_points_elsewhere:
             _LOGGER.warning(
                 "Nimbus: about to add %s (unique_id=%s) but HA already has "
                 "a conflicting entry -- existing state: %s (restored=%s, "
@@ -947,17 +975,20 @@ async def async_setup_entry(
                 _candidate.entity_id,
                 _candidate.unique_id,
                 _existing_state.state if _existing_state is not None else None,
-                # Literal "restored" (== homeassistant.const.ATTR_RESTORED),
-                # not imported: the stub-based unit-test harness's fake
-                # homeassistant.const doesn't define every real HA
-                # constant, and this module runs under both that stub AND
-                # the real HA package -- see this repo's own CLAUDE.md
-                # "Testing" section for the dual-mode story.
                 _existing_state.attributes.get("restored")
                 if _existing_state is not None
                 else None,
                 _existing_state.last_updated if _existing_state is not None else None,
                 _existing_reg_entity_id,
+            )
+        elif _existing_state is not None:
+            # The routine, expected case (a `restored=True` leftover from
+            # the unload a moment ago) -- not worth a WARNING, but kept
+            # at DEBUG so a future deep-dive can still see it happened.
+            _LOGGER.debug(
+                "Nimbus: %s has a pre-existing restored state ahead of "
+                "add_entities (routine reload artifact, not a collision)",
+                _candidate.entity_id,
             )
 
     async_add_entities(_family_a_batch)

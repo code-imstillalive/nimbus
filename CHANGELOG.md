@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.180] — 2026-09-08
+
+### Fixed
+- **Multi-battery aggregate `soc_pct`/`equivalent_full_cycles` normalized by the home battery's capacity only** (nimbus issue #569, Mark Purcell, live-tested within hours of #563 landing). `plan.battery_soc_kwh` is the summed aggregate across every battery participant, but `soc_pct` (both the per-period forecast field and `sensor.nimbus_solver_current_soc_pct`, which reads `forecast[0]`) and `equivalent_full_cycles` were still dividing by `capacity_kwh` — the "home" battery alone. Real live symptom: with a 40.3 kWh home pack + two 60 kWh EVs (160.3 kWh fleet), `soc_pct` read 296% instead of ~75%, and a real household automation (`automation.nimbus_battery_soc_control_ecoflow`) started rejecting every write to `number.ecoflow_backup_reserve_level` (outside its valid 22-100 range) every solve. Fixed by computing a real fleet-total capacity from the same battery list `build_plan()` itself solved against, and using it everywhere an aggregate percentage is derived. No change for any single-battery install (fleet capacity == the home battery's own capacity when there are zero `battery_participant` subentries).
+- **v0.94.178's diagnostic logging fired 25 WARNINGs on every ordinary config-entry reload** (nimbus issue #570, Mark Purcell, found the same session #569 was). The pre-`async_add_entities` collision check treated ANY pre-existing state as suspicious — but a `restored=True` leftover state is the normal, expected artifact of the unload a few hundred milliseconds before a reload's own re-add, not evidence of a duplicate registration. Tightened to only warn when the existing state is genuinely NOT restored, or the registry already maps the unique_id to a different entity_id — the real collision shape, per Mark's own suggested fix. The routine case now logs at DEBUG instead of WARNING.
+
 ## [0.94.179] — 2026-09-08
 
 ### Added
