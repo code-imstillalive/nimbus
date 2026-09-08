@@ -7122,10 +7122,15 @@ def _sample_load_run_state(
     power_sensor: str,
     now: datetime,
     day_key: str,
+    import_price_now: float | None = None,
 ) -> None:
     """nimbus issue #479: reads one Controllable Load's real power sensor
     and folds a single solve-tick sample into its persisted LoadRunState
-    (custom_components/nimbus_load/load_run_state.py). Best-effort and
+    (custom_components/nimbus_load/load_run_state.py). `import_price_now`
+    (nimbus issue #591) is this cycle's own live blended import price,
+    passed straight through to apply_power_sample() so it can accumulate
+    the load's real actual-cost-today alongside delivered_today_kwh --
+    optional/None is a genuine no-op, not an error. Best-effort and
     silent on any failure (sensor unavailable, Store I/O error, HA not
     fully started) -- this bookkeeping isn't consumed by build_plan() at
     all yet (see #479's own scope note), so it must never be able to take
@@ -7183,7 +7188,11 @@ def _sample_load_run_state(
             )
             prev = await store.async_read(subentry_id)
             new = load_run_state.apply_power_sample(
-                prev, now=now, day_key=day_key, power_kw=power_kw
+                prev,
+                now=now,
+                day_key=day_key,
+                power_kw=power_kw,
+                import_price_now=import_price_now,
             )
             await store.async_write(subentry_id, new)
 
@@ -7338,7 +7347,10 @@ def _evaluate_done_condition(done_entity: str, done_when: str | None) -> bool | 
 
 
 def build_controllable_loads(
-    now: datetime, grid_times: list[datetime], n_periods: int
+    now: datetime,
+    grid_times: list[datetime],
+    n_periods: int,
+    import_price_arr: list[float] | None = None,
 ) -> tuple[list, list]:
     """nimbus issue #486: builds SheddableLoadConfig/AdequacyLoadConfig
     lists from this hub's own `controllable_load` subentries, for
@@ -7445,6 +7457,11 @@ def build_controllable_loads(
                 power_sensor,
                 now,
                 run_state_day_key,
+                import_price_now=(
+                    float(import_price_arr[0])
+                    if import_price_arr is not None and len(import_price_arr) > 0
+                    else None
+                ),
             )
         if kind == CONTROLLABLE_LOAD_KIND_SHEDDABLE:
             nominal_kw = float(data.get(CONF_SHEDDABLE_NOMINAL_KW) or 0.0)
@@ -7966,6 +7983,7 @@ def apply_commanded_state_guard(
     now: datetime,
     grid_times: list[datetime],
     period_hours_arr: NDArray[np.float64] | None = None,
+    import_price_arr: NDArray[np.float64] | list[float] | None = None,
 ) -> None:
     """nimbus issue #484/#534: the relay-chatter guard, now with a real
     output stage. Reads each Controllable Load's own real, just-solved
@@ -8080,6 +8098,26 @@ def apply_commanded_state_guard(
         day_key = now.strftime("%Y-%m-%d")
         n_periods = len(grid_times)
 
+        def _plan_cost_forecast(
+            power_series: NDArray[np.float64] | list[float],
+        ) -> list[dict[str, object]] | None:
+            # nimbus issue #591: per-period PLANNED cost (power_kw *
+            # period_hours * that period's own blended import_price),
+            # aligned one-to-one with plan_forecast -- None (not a
+            # zero-filled series) whenever either input this cycle needs
+            # isn't available, so derive_schedule_view() never mistakes
+            # "not computed" for "genuinely free."
+            if period_hours_arr is None or import_price_arr is None:
+                return None
+            n = min(len(power_series), len(period_hours_arr), len(import_price_arr))
+            cost_values = [
+                float(power_series[i])
+                * float(period_hours_arr[i])
+                * float(import_price_arr[i])
+                for i in range(n)
+            ]
+            return load_run_state.build_time_value_series(grid_times[:n], cost_values)
+
         async def _update_all() -> None:
             store = load_run_state.LoadRunStateStore(
                 store=_Store(_NATIVE_HASS, 1, f"{DOMAIN}_{hub_entry_id}_load_run_state")
@@ -8163,6 +8201,7 @@ def apply_commanded_state_guard(
                         plan_forecast=load_run_state.build_time_value_series(
                             grid_times, load_plan.served_kw
                         ),
+                        plan_cost_forecast=_plan_cost_forecast(load_plan.served_kw),
                         plan_nominal_kw=(
                             float(nominal_kw) if nominal_kw is not None else None
                         ),
@@ -8224,6 +8263,7 @@ def apply_commanded_state_guard(
                         plan_forecast=load_run_state.build_time_value_series(
                             grid_times, load_plan.power_kw
                         ),
+                        plan_cost_forecast=_plan_cost_forecast(load_plan.power_kw),
                         plan_delivered_kwh_forecast=(
                             load_run_state.build_time_value_series(
                                 grid_times, delivered_kwh_cumulative
@@ -9736,7 +9776,7 @@ def main() -> None:
     # to pass. Native-mode-only, a real no-op ([], []) in standalone/cron
     # mode -- see that function's own docstring for why.
     sheddable_loads, adequacy_loads = build_controllable_loads(
-        now, grid_times, n_periods
+        now, grid_times, n_periods, import_price
     )
     # nimbus issue #563: real battery_participant subentries, in
     # addition to the household's own single "home" battery above --
@@ -9786,7 +9826,7 @@ def main() -> None:
     # nimbus issue #484: the relay-chatter guard, run once per solve
     # right after the plan exists -- needs the plan's own just-solved
     # period-0 power per load, so it can't run any earlier than this.
-    apply_commanded_state_guard(plan, now, grid_times, period_hours_arr)
+    apply_commanded_state_guard(plan, now, grid_times, period_hours_arr, import_price)
     publish_plan(
         cfg=cfg,
         now=now,

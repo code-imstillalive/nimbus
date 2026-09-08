@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.193] — 2026-09-09
+
+### Added
+- **Controllable Load device page: two new cost entities answer "how much will it cost?"** (nimbus issue #591, part of #589 — Mark Purcell's own ask, direct follow-on from #590's schedule entities). `sensor.nimbus_<load>_planned_cost` sums the current/next scheduled run's own cost (power × each period's real duration × that period's own blended import price, the same price the solve itself read) over the same window `next_start`/`next_end`/`planned_energy` already use. `sensor.nimbus_<load>_cost_today` is the load-level version of the household's own hand-written `hot_water_marginal_cost_daily` template (#534 inventory) — accumulated live by `apply_power_sample()` from each real sample's own power reading times the live import price at that instant, resetting at local midnight alongside `delivered_today_kwh`. Both use `hass.config.currency`, never a hardcoded currency symbol. Both are honest `None` (never a fabricated $0.00) whenever the underlying price series wasn't published this cycle.
+- **Deliberately deferred out of this change**: `sensor.nimbus_<load>_cost_avoided_today` (#591's third ask) needs a clearly-defined "day's mean import price" this project doesn't have a single settled answer for yet — shipping a plausible-looking but under-verified number here is exactly the kind of claim nimbus issue #594 asks this project to stop making. Left for its own properly-scoped follow-up rather than guessed at under time pressure.
+
 ## [0.94.192] — 2026-09-09
 
 ### Fixed

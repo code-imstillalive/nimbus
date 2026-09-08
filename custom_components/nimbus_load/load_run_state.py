@@ -124,6 +124,21 @@ class LoadRunState:
     plan_earliest_period: int | None = None
     plan_deadline_period: int | None = None
     plan_nominal_kw: float | None = None
+    # nimbus issue #591 (Mark Purcell, part of #589 -- "how much will it
+    # cost?" has a direct answer in the plan and no entity to carry it).
+    # `plan_cost_forecast` is the per-period PLANNED cost series (power_kw
+    # * period_hours * that period's own blended import_price, the same
+    # price the solve itself read) in the same {"time", "value"} shape as
+    # plan_forecast -- published every cycle alongside it, same posture.
+    # `cost_today` is the ACTUAL cost accumulator: apply_power_sample()
+    # folds in power_kw * dt_hours * the live import price at sample time,
+    # the load-level version of the household's own hand-written
+    # `hot_water_marginal_cost_daily` template (#534 inventory), now
+    # computed by Nimbus from what it actually commanded. Resets to 0.0
+    # on the same local-midnight day_key rollover as delivered_today_kwh
+    # (see apply_power_sample()'s own day-rollover block).
+    plan_cost_forecast: list[dict[str, Any]] | None = None
+    cost_today: float = 0.0
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -146,6 +161,8 @@ class LoadRunState:
             "plan_earliest_period": self.plan_earliest_period,
             "plan_deadline_period": self.plan_deadline_period,
             "plan_nominal_kw": self.plan_nominal_kw,
+            "plan_cost_forecast": self.plan_cost_forecast,
+            "cost_today": self.cost_today,
         }
 
     @staticmethod
@@ -170,6 +187,8 @@ class LoadRunState:
             plan_earliest_period=data.get("plan_earliest_period"),
             plan_deadline_period=data.get("plan_deadline_period"),
             plan_nominal_kw=data.get("plan_nominal_kw"),
+            plan_cost_forecast=data.get("plan_cost_forecast"),
+            cost_today=float(data.get("cost_today", 0.0)),
         )
 
 
@@ -239,6 +258,7 @@ def apply_power_sample(
     on_threshold_kw: float = DEFAULT_ON_THRESHOLD_KW,
     quota_kwh_per_day: float | None = None,
     carry_cap_kwh: float = 0.0,
+    import_price_now: float | None = None,
 ) -> LoadRunState:
     """One solve-tick update. Rolls the day over first if `day_key` has
     changed since the last sample -- applying compute_rollover() only when
@@ -247,7 +267,17 @@ def apply_power_sample(
     benefit, but never accrues carry, since #486 has no quota kind to
     configure one against yet) and only when state.day_key is non-empty
     (a load's very first-ever sample has no real "yesterday" to roll from)
-    -- then folds in this sample's on/off transition and energy delta."""
+    -- then folds in this sample's on/off transition and energy delta.
+
+    nimbus issue #591: `import_price_now` is the live blended import price
+    at THIS sample's own instant (the same figure the solve itself reads,
+    solver_import_price_sensor) -- when given, this sample's own energy
+    delta is also priced and folded into `cost_today`, the actual-cost
+    counterpart to `delivered_today_kwh`, reset on the same rollover.
+    `None` (a caller with no live price on hand, or every existing test/
+    caller predating #591) is a genuine no-op: cost_today simply never
+    accrues for that sample, exactly like an unconfigured optional field
+    elsewhere in this project -- never a fabricated $0.00 claim."""
     now_ts = now.timestamp()
     if day_key != state.day_key:
         carry = (
@@ -261,7 +291,11 @@ def apply_power_sample(
             else 0.0
         )
         state = replace(
-            state, delivered_today_kwh=0.0, carry_kwh=carry, day_key=day_key
+            state,
+            delivered_today_kwh=0.0,
+            carry_kwh=carry,
+            day_key=day_key,
+            cost_today=0.0,
         )
 
     is_on = power_kw > on_threshold_kw
@@ -273,10 +307,13 @@ def apply_power_sample(
         off_since = now_ts
 
     delivered = state.delivered_today_kwh
+    cost_today = state.cost_today
     if state.last_sample_at is not None:
         dt_hours = (now_ts - state.last_sample_at) / 3600.0
         if 0.0 < dt_hours <= MAX_SAMPLE_GAP_HOURS:
             delivered += power_kw * dt_hours
+            if import_price_now is not None:
+                cost_today += power_kw * dt_hours * import_price_now
 
     return replace(
         state,
@@ -284,6 +321,7 @@ def apply_power_sample(
         on_since=on_since,
         off_since=off_since,
         delivered_today_kwh=delivered,
+        cost_today=cost_today,
         last_sample_at=now_ts,
     )
 
@@ -437,7 +475,9 @@ class ScheduleView:
     next_end: datetime | None
     planned_duration_h: float | None
     planned_energy_kwh: float | None
+    planned_cost: float | None
     delivered_today_kwh: float
+    cost_today: float
     target_today_kwh: float | None
     status: str
 
@@ -523,6 +563,7 @@ def derive_schedule_view(
     next_end: datetime | None = None
     planned_duration_h: float | None = None
     planned_energy_kwh: float | None = None
+    planned_cost: float | None = None
 
     if run is not None:
         start_idx, end_idx = run
@@ -552,6 +593,18 @@ def derive_schedule_view(
                 ),
                 3,
             )
+        # nimbus issue #591: plan_cost_forecast is a per-period series
+        # (power_kw * period_hours * that period's own blended
+        # import_price -- see solver_writer.py's own construction),
+        # aligned one-to-one with plan_forecast, so simply summing it
+        # over the same [start_idx, end_idx] run window answers "how
+        # much will THIS run cost" without any further price lookup
+        # here. None (not 0.0) whenever the series wasn't published this
+        # cycle -- an unpriced run is an honest "unknown", never a
+        # fabricated free run.
+        if state.plan_cost_forecast and end_idx < len(state.plan_cost_forecast):
+            cost_series = [float(e["value"]) for e in state.plan_cost_forecast]
+            planned_cost = round(sum(cost_series[start_idx : end_idx + 1]), 3)
 
     target_today_kwh = (
         state.plan_target_kwh if load_kind == _LOAD_KIND_DEFERRABLE else None
@@ -619,7 +672,9 @@ def derive_schedule_view(
             round(planned_duration_h, 3) if planned_duration_h is not None else None
         ),
         planned_energy_kwh=planned_energy_kwh,
+        planned_cost=planned_cost,
         delivered_today_kwh=state.delivered_today_kwh,
+        cost_today=round(state.cost_today, 3),
         target_today_kwh=target_today_kwh,
         status=status,
     )
