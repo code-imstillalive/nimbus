@@ -5068,6 +5068,18 @@ def _compute_report_for_window(
     }
 
 
+# nimbus issue #571 (Mark Purcell): how close the REAL SoC sensor must
+# sit to 0%/100% to excuse the achieved (integrated) trajectory's own
+# overshoot past that same boundary as real-physical-edge noise rather
+# than an out-of-range fault -- see _soc_discrepancy_stats()'s own
+# docstring for the full real-data investigation. A separate, deliberately
+# fixed concept from max_threshold_pct/mean_threshold_pct below (those
+# measure how far apart two in-range trajectories are allowed to be; this
+# measures how close to a physical edge counts as "at" that edge), so it
+# is not folded into either household-tunable threshold.
+_SOC_BOUNDARY_EDGE_TOLERANCE_PCT = 1.0
+
+
 def _soc_discrepancy_stats(
     soc_hist: list[tuple[datetime, float]],
     j_ach_hourly: dict[str, dict[str, float]],
@@ -5156,7 +5168,28 @@ def _soc_discrepancy_stats(
             continue
         hour_dt = datetime.fromisoformat(key_str)
         real_pct = resample_history_nearest(soc_hist, [hour_dt])[0]
-        if not (0.0 <= ach_pct <= 100.0) or not (0.0 <= real_pct <= 100.0):
+        ach_out_of_range = not (0.0 <= ach_pct <= 100.0)
+        real_out_of_range = not (0.0 <= real_pct <= 100.0)
+        if ach_out_of_range and not real_out_of_range:
+            # nimbus issue #571 (Mark Purcell, confirmed against real
+            # recorder data 8 Sep): a pack that genuinely runs down to
+            # its own physical cut-off (real_pct == 0.0, confirmed via
+            # the plant's own discharge_cut_off_soc reading, not a
+            # sensor fault) can still leave j_ach's round-trip-efficiency
+            # accounting a few points negative for the same hour -- the
+            # achieved trajectory's own integration loss landing right at
+            # a real physical edge, not evidence the two sensors describe
+            # different storage. Only flag this hour when the real sensor
+            # ISN'T itself already sitting within a small tolerance of the
+            # same boundary the achieved trajectory crossed; a real
+            # in-range sensor confirms the edge is genuine.
+            near_zero = ach_pct < 0.0 and real_pct <= _SOC_BOUNDARY_EDGE_TOLERANCE_PCT
+            near_hundred = (
+                ach_pct > 100.0 and real_pct >= 100.0 - _SOC_BOUNDARY_EDGE_TOLERANCE_PCT
+            )
+            if not (near_zero or near_hundred):
+                any_out_of_range = True
+        elif ach_out_of_range or real_out_of_range:
             any_out_of_range = True
         clamped_ach = min(100.0, max(0.0, ach_pct))
         clamped_real = min(100.0, max(0.0, real_pct))

@@ -498,6 +498,61 @@ class TestSocDiscrepancyOutOfRangeClampAndReliableFlag(unittest.TestCase):
         self.assertTrue(result["soc_discrepancy_reliable"])
 
 
+class TestSocDiscrepancyRealBoundaryEdgeTolerance(unittest.TestCase):
+    """nimbus issue #571 (Mark Purcell): confirmed against real recorder
+    data 8 Sep -- a pack that genuinely runs down to its own physical
+    cut-off (real SoC sensor reads 0.0%, verified against the plant's own
+    discharge_cut_off_soc, not a sensor fault) can still leave the
+    achieved trajectory's own round-trip-efficiency integration a few
+    points negative for that same hour (Mark's own real numbers: -2.3%
+    raw, about -9% with efficiency applied). That is integration loss
+    landing at a real physical edge, not evidence the two sensors
+    describe different storage, and should not flag the day unreliable
+    on its own. See _SOC_BOUNDARY_EDGE_TOLERANCE_PCT's own comment for
+    why this is a separate, fixed concept from the disagreement
+    thresholds tested above.
+    """
+
+    def test_ach_pct_slightly_negative_with_real_at_zero_is_not_out_of_range(self):
+        soc_hist = [(YESTERDAY_START, 0.0)]
+        j_ach_hourly = {YESTERDAY_START.isoformat(): {"soc_pct": -9.0}}
+        result = solver_writer._soc_discrepancy_stats(soc_hist, j_ach_hourly)
+        self.assertTrue(result["soc_discrepancy_reliable"])
+        self.assertIsNone(result["soc_discrepancy_reason"])
+        # -9.0 clamps to 0.0, same as the real 0.0 -- zero gap, exactly
+        # what "genuinely at the physical edge on both sides" should read.
+        self.assertEqual(result["soc_discrepancy_max_pct"], 0.0)
+
+    def test_ach_pct_slightly_over_100_with_real_at_100_is_not_out_of_range(self):
+        soc_hist = [(YESTERDAY_START, 100.0)]
+        j_ach_hourly = {YESTERDAY_START.isoformat(): {"soc_pct": 104.5}}
+        result = solver_writer._soc_discrepancy_stats(soc_hist, j_ach_hourly)
+        self.assertTrue(result["soc_discrepancy_reliable"])
+        self.assertIsNone(result["soc_discrepancy_reason"])
+
+    def test_real_just_outside_the_edge_tolerance_still_flags_out_of_range(self):
+        # real_pct=2.0 is more than _SOC_BOUNDARY_EDGE_TOLERANCE_PCT (1.0)
+        # away from 0 -- this is NOT the "genuinely at the physical edge"
+        # case, so the achieved trajectory's own excursion below 0 still
+        # needs explaining and stays flagged.
+        soc_hist = [(YESTERDAY_START, 2.0)]
+        j_ach_hourly = {YESTERDAY_START.isoformat(): {"soc_pct": -9.0}}
+        result = solver_writer._soc_discrepancy_stats(soc_hist, j_ach_hourly)
+        self.assertFalse(result["soc_discrepancy_reliable"])
+        self.assertEqual(result["soc_discrepancy_reason"], "out_of_range")
+
+    def test_real_sensor_itself_out_of_range_still_flags_regardless_of_edge(self):
+        # The real sensor reading -5.0 is itself impossible -- a genuine
+        # sensor fault, not a real physical edge -- so this must still
+        # flag even though it's near the same boundary the achieved
+        # trajectory also crossed.
+        soc_hist = [(YESTERDAY_START, -5.0)]
+        j_ach_hourly = {YESTERDAY_START.isoformat(): {"soc_pct": -9.0}}
+        result = solver_writer._soc_discrepancy_stats(soc_hist, j_ach_hourly)
+        self.assertFalse(result["soc_discrepancy_reliable"])
+        self.assertEqual(result["soc_discrepancy_reason"], "out_of_range")
+
+
 class TestSettlementHook(unittest.TestCase):
     def _fetch_side_effect(self, entity_id, start, end):
         if entity_id == "sensor.real_solar":
