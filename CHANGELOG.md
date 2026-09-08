@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.178] — 2026-09-08
+
+### Added
+- **Diagnostic-only logging for a real, unresolved live incident**: on this household's own NUC1, restarting the container back-to-back twice in quick succession produced a real HA-core `Platform nimbus_load does not generate unique IDs ... ignoring sensor.nimbus_solver_quality_report` error, self-recovered within ~3 minutes with no lasting damage. Root cause not found — confirmed the affected entity is constructed in exactly one place in this codebase, so the collision is happening at HA-core's own entity-registry layer, not in this integration's own code, and isn't inspectable without direct filesystem access to `.storage/core.entity_registry` (not available). Added a pre-`async_add_entities()` check, right before the exact call this error fires from, that logs (WARNING) whether HA already has a conflicting state or registry row for any entity in the Family-A quality/backtest/counterfactual batch — no behavior change, purely so a real recurrence is debuggable from evidence instead of another dead end.
+
 ## [0.94.177] — 2026-09-08
 
 ### Fixed
