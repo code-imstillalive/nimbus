@@ -254,11 +254,35 @@ function liveEntityFromForecast(forecastEntityId) {
 }
 
 class TopologyCard extends HTMLElement {
+  // nimbus issue #551 (Mark Purcell, real household finding): HA's own
+  // card picker inserts `{ type: "custom:nimbus-topology-card" }` with
+  // NO other keys when a household adds this card from the picker (no
+  // getStubConfig() below meant that was a red error card, the first
+  // thing a household saw right after #519 made the card findable at
+  // all). switchboard/inverters now default to {}/[] instead of
+  // throwing when simply absent -- exactly the "wizard-configured
+  // install overrides both keys wholesale anyway" shape #550/#551 both
+  // describe, and exactly what docs/dashboards.md already tells a
+  // household to write by hand (`switchboard: {}` / `inverters: []`).
+  // The throw is kept, renamed off the pre-#519 tag, for the one case
+  // that's still a real misconfiguration: a value of the WRONG TYPE
+  // (a typo'd string/number where an object/array belongs), not a
+  // missing key.
+  static getStubConfig() {
+    return { switchboard: {}, inverters: [] };
+  }
+
   setConfig(config) {
-    if (!config.switchboard || !config.inverters) {
-      throw new Error("switchboard-topology-card: config needs switchboard, inverters");
+    config = config || {};
+    const switchboard = config.switchboard !== undefined ? config.switchboard : {};
+    const inverters = config.inverters !== undefined ? config.inverters : [];
+    if (typeof switchboard !== "object" || switchboard === null || Array.isArray(switchboard)) {
+      throw new Error("nimbus-topology-card: switchboard must be an object");
     }
-    this._config = config;
+    if (!Array.isArray(inverters)) {
+      throw new Error("nimbus-topology-card: inverters must be an array");
+    }
+    this._config = { ...config, switchboard, inverters };
     if (!this.shadowRoot) this.attachShadow({ mode: "open" });
     this._buildStaticShell();
   }

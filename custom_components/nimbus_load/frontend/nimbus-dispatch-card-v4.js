@@ -1,5 +1,34 @@
 
 class NimbusDispatchCardV4 extends HTMLElement {
+  // nimbus issue #551 (Mark Purcell): this card's own setConfig() below
+  // already tolerates a missing/empty config -- every field degrades
+  // gracefully -- but a household adding it from HA's own card picker
+  // used to get a config with none of the six core entity fields set,
+  // which is technically valid but not actually USEFUL until they're
+  // filled in by hand. HA's picker calls getStubConfig(hass) with the
+  // real live hass object, so the three fields the Solver's own config
+  // wizard already collects (battery power/SoC/solar power -- see
+  // sensor.nimbus_solver_config's own attributes, docs/configuration-
+  // reference.md Step 1/3) can be pre-filled directly, on any install
+  // that's already run that wizard. grid_power_entity and the two
+  // input_select/input_boolean helper fields (mode_select_entity,
+  // armed_entity) have no Nimbus-known source -- see docs/dashboards.md,
+  // both are described there as household-created helpers with no
+  // fixed name -- so those three stay blank, same as an unconfigured
+  // field already degrades today.
+  static getStubConfig(hass) {
+    const cfg = hass && hass.states && hass.states["sensor.nimbus_solver_config"];
+    const attrs = (cfg && cfg.attributes) || {};
+    return {
+      mode_select_entity: "",
+      armed_entity: "",
+      battery_power_entity: attrs.solver_battery_power_sensor || "",
+      battery_soc_entity: attrs.solver_battery_soc_sensor || "",
+      grid_power_entity: "",
+      solar_power_entity: attrs.solver_solar_power_sensor || "",
+    };
+  }
+
   setConfig(config) {
     this.config = config || {};
     // Nimbus issue #364 (Mark Purcell): this card shipped with 8 real

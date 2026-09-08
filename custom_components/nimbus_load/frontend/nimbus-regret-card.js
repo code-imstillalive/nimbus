@@ -35,6 +35,16 @@
 // custom-card style.
 
 class NimbusRegretCard extends HTMLElement {
+  // nimbus issue #551 (Mark Purcell): this card's own setConfig() below
+  // already tolerates a missing config (`config || {}`) -- no config
+  // key is actually required -- but HA's card picker still checks for
+  // a getStubConfig() before inserting a bare `{ type: ... }`, so this
+  // is here for parity with the other two shipped cards and to make
+  // that "nothing required" contract explicit.
+  static getStubConfig() {
+    return {};
+  }
+
   setConfig(config) {
     this._config = config || {};
     if (!this.shadowRoot) this.attachShadow({ mode: "open" });
