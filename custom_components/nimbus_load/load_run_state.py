@@ -139,6 +139,23 @@ class LoadRunState:
     # (see apply_power_sample()'s own day-rollover block).
     plan_cost_forecast: list[dict[str, Any]] | None = None
     cost_today: float = 0.0
+    # nimbus issue #592 (Mark Purcell, part of #589 -- "will the tank be
+    # at 60 by lunchtime?"): the two rates thermal_forecast.py's own
+    # learn_thermal_rates() derives from recorder history, persisted so
+    # they only need relearning once per calendar day (a real recorder
+    # DB query, unlike the rest of a solve cycle) rather than every
+    # solve -- see thermal_rates_learned_day_key. temperature_forecast
+    # is the resulting projection (thermal_forecast.py's own
+    # project_temperature_forecast()), refreshed every cycle from the
+    # load's own already-current plan_forecast and live temperature,
+    # same "cheap to redo, no reason to throttle it separately" posture
+    # as every other per-cycle forecast field above. All None/""/0 for
+    # a load with no done_entity configured (no temperature to model),
+    # or one not (yet) of a kind this applies to.
+    thermal_heating_rate_c_per_kwh: float | None = None
+    thermal_idle_decay_c_per_hour: float | None = None
+    thermal_rates_learned_day_key: str = ""
+    temperature_forecast: list[dict[str, Any]] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -163,6 +180,10 @@ class LoadRunState:
             "plan_nominal_kw": self.plan_nominal_kw,
             "plan_cost_forecast": self.plan_cost_forecast,
             "cost_today": self.cost_today,
+            "thermal_heating_rate_c_per_kwh": self.thermal_heating_rate_c_per_kwh,
+            "thermal_idle_decay_c_per_hour": self.thermal_idle_decay_c_per_hour,
+            "thermal_rates_learned_day_key": self.thermal_rates_learned_day_key,
+            "temperature_forecast": self.temperature_forecast,
         }
 
     @staticmethod
@@ -189,6 +210,12 @@ class LoadRunState:
             plan_nominal_kw=data.get("plan_nominal_kw"),
             plan_cost_forecast=data.get("plan_cost_forecast"),
             cost_today=float(data.get("cost_today", 0.0)),
+            thermal_heating_rate_c_per_kwh=data.get("thermal_heating_rate_c_per_kwh"),
+            thermal_idle_decay_c_per_hour=data.get("thermal_idle_decay_c_per_hour"),
+            thermal_rates_learned_day_key=str(
+                data.get("thermal_rates_learned_day_key", "")
+            ),
+            temperature_forecast=data.get("temperature_forecast"),
         )
 
 
