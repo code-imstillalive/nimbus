@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.186] — 2026-09-08
+
+### Fixed
+- **`sensor.nimbus_<load>_commanded_state`'s entity_id is no longer built from the raw subentry_id** (nimbus issue #579, Mark Purcell — found on first live use of v0.94.185 within minutes of deploying). A subentry_id is a ULID (upper-case), and using it raw produced an invalid entity_id (`sensor.nimbus_01M20H3DYJ8DRBGP04KFSDBN6Z_commanded_state`) — HA only tolerates this today with a deprecation warning (removed in HA 2027.2.0), and lower-cases it into an unreadable, unfindable name. entity_id is now derived from the load's own title (`sensor.nimbus_hot_water_heat_pump_commanded_state`), the same "clean, predictable, source-derived slug" convention the forecast sensors already use — a title collision gets HA's own standard `_2` suffix. `unique_id` is unaffected (still the stable ULID), so existing installs migrate cleanly via HA's own unique-id-keyed registry update on next restart.
+
 ## [0.94.185] — 2026-09-08
 
 ### Added
