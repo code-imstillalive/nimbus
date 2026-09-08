@@ -6386,6 +6386,13 @@ def publish_plan(
     grid_times,
     n_periods,
     capacity_kwh,
+    # nimbus issue #569: the real fleet total across every battery
+    # participant (home + any battery_participant subentries) -- see
+    # main()'s own comment where this is computed for why this had to
+    # become its own parameter rather than overloading capacity_kwh
+    # (which stays the home battery's own capacity for existing callers
+    # that legitimately still need just that).
+    fleet_capacity_kwh,
     charge_discharge_efficiency,
     grid,
     import_limit_kw,
@@ -6494,8 +6501,15 @@ def publish_plan(
     # (manufacturer cycle-life ratings are quoted in full-equivalent-
     # cycles, not raw kWh moved), so this is directly comparable to a
     # real spec sheet, not an invented metric.
+    # nimbus issue #569: fleet_capacity_kwh (sum across every battery
+    # participant), not capacity_kwh (the home battery alone) -- a 60 kWh
+    # car and a 40 kWh pack do not share a cycle-life spec, and this is
+    # the whole-fleet throughput being related to the whole fleet's own
+    # capacity, same reasoning as soc_pct below.
     equivalent_full_cycles = (
-        total_throughput_kwh / (2.0 * capacity_kwh) if capacity_kwh > 0 else 0.0
+        total_throughput_kwh / (2.0 * fleet_capacity_kwh)
+        if fleet_capacity_kwh > 0
+        else 0.0
     )
 
     net_battery = plan.battery_discharge_kw - plan.battery_charge_kw
@@ -6630,7 +6644,16 @@ def publish_plan(
             "battery_kw_after_efficiency": round(
                 float(battery_kw_after_efficiency[i]), 3
             ),
-            "soc_pct": round(float(plan.battery_soc_kwh[i] / capacity_kwh * 100), 2),
+            # nimbus issue #569: fleet_capacity_kwh, not capacity_kwh --
+            # plan.battery_soc_kwh[i] is the summed aggregate across every
+            # battery participant (per #467 stage 1), so the denominator
+            # has to be the fleet total too, or this reads well over 100%
+            # the moment a second battery participant is configured.
+            "soc_pct": round(
+                float(plan.battery_soc_kwh[i] / fleet_capacity_kwh * 100), 2
+            )
+            if fleet_capacity_kwh > 0
+            else 0.0,
             # import side uses corrected_grid_import (see the defensive
             # clamp above) -- keeps this consistent with battery_kw
             # rather than silently reflecting the RAW, uncorrected import
@@ -9205,10 +9228,28 @@ def main() -> None:
     # targets -- see BatteryConfig's own docstring / build_plan()'s own
     # "batteries" docstring paragraph for that explicit #467 stage-1
     # decision.
+    all_batteries = [battery, *build_extra_batteries()]
+    # nimbus issue #569 (Mark Purcell, found live within hours of #563
+    # landing): plan.battery_soc_kwh is the SUMMED aggregate across every
+    # battery (per #467 stage 1's own contract), but every percentage
+    # derived from it downstream (soc_pct, equivalent_full_cycles) was
+    # still dividing by capacity_kwh -- the "home" battery ALONE, a
+    # holdover from before #563 ever existed. Real live symptom: with a
+    # 40.3 kWh home pack + two 60 kWh EVs (160.3 kWh fleet), soc_pct read
+    # 296% instead of ~75%, and a real household automation
+    # (automation.nimbus_battery_soc_control_ecoflow) started rejecting
+    # every write to number.ecoflow_backup_reserve_level (outside its
+    # valid 22-100 range) every single solve. Fixed at the source: a real
+    # fleet-total capacity, computed once here from the same battery list
+    # build_plan() itself just solved against, threaded through publish_
+    # plan() as its own parameter rather than overloading capacity_kwh
+    # (which stays the home battery's own capacity for whatever legitimately
+    # still needs just that -- see publish_plan()'s own parameter list).
+    fleet_capacity_kwh = sum(b.capacity_kwh for b in all_batteries)
     plan = network.build_plan(
         periods=periods,
         grid=grid,
-        batteries=[battery, *build_extra_batteries()],
+        batteries=all_batteries,
         solar=solar,
         loads=loads,
         sheddable_loads=sheddable_loads,
@@ -9234,6 +9275,7 @@ def main() -> None:
         grid_times=grid_times,
         n_periods=n_periods,
         capacity_kwh=capacity_kwh,
+        fleet_capacity_kwh=fleet_capacity_kwh,
         charge_discharge_efficiency=charge_discharge_efficiency,
         grid=grid,
         import_limit_kw=import_limit_kw,
