@@ -639,5 +639,247 @@ class TestLoadRunStatePlanForecastRoundTrip(unittest.TestCase):
         self.assertIsNone(restored.plan_nominal_kw)
 
 
+def _iso_grid(start: datetime, n: int, minutes: int = 30) -> list[datetime]:
+    return [start + timedelta(minutes=minutes * i) for i in range(n)]
+
+
+def _series(times: list[datetime], values: list[float]) -> list[dict]:
+    return lrs.build_time_value_series(times, values)
+
+
+class TestFindCurrentOrNextRun(unittest.TestCase):
+    """nimbus issue #590: _find_current_or_next_run() is the private
+    scan derive_schedule_view() itself relies on to locate next_start/
+    next_end -- tested directly, same "test the private helper directly"
+    convention this project already uses for _resolve_hour_to_period_
+    index() in test_solver_writer_controllable_loads.py."""
+
+    def setUp(self):
+        self.times = _iso_grid(datetime(2026, 9, 9, 6, 0, tzinfo=_TZ), 6)
+
+    def test_no_period_ever_exceeds_threshold_returns_none(self):
+        forecast = _series(self.times, [0.0] * 6)
+        self.assertIsNone(
+            lrs._find_current_or_next_run(
+                forecast, now=self.times[0], on_threshold_kw=0.05
+            )
+        )
+
+    def test_empty_forecast_returns_none(self):
+        self.assertIsNone(
+            lrs._find_current_or_next_run([], now=self.times[0], on_threshold_kw=0.05)
+        )
+
+    def test_upcoming_run_found_after_now(self):
+        forecast = _series(self.times, [0.0, 0.65, 0.65, 0.0, 0.0, 0.0])
+        run = lrs._find_current_or_next_run(
+            forecast, now=self.times[0], on_threshold_kw=0.05
+        )
+        self.assertEqual(run, (1, 2))
+
+    def test_run_already_in_progress_is_found_by_its_own_start(self):
+        # now falls INSIDE period 1's own span (06:30 <= now < 07:00) --
+        # the run is already running, not merely upcoming, but its own
+        # start_idx is still 1 (the period that's actually active).
+        forecast = _series(self.times, [0.0, 0.65, 0.65, 0.0, 0.0, 0.0])
+        now = self.times[1] + timedelta(minutes=10)
+        run = lrs._find_current_or_next_run(forecast, now=now, on_threshold_kw=0.05)
+        self.assertEqual(run, (1, 2))
+
+    def test_run_extending_to_the_end_of_the_published_horizon(self):
+        forecast = _series(self.times, [0.0, 0.0, 0.0, 0.0, 0.65, 0.65])
+        run = lrs._find_current_or_next_run(
+            forecast, now=self.times[0], on_threshold_kw=0.05
+        )
+        self.assertEqual(run, (4, 5))
+
+
+class TestDeriveScheduleView(unittest.TestCase):
+    """nimbus issue #590 (Mark Purcell, real ask on the #534 heat pump's
+    own device page: "I don't know if it is scheduled, what time and for
+    how long. how much will it cost, what are the forecasts..."): the
+    seven-entity view, derived entirely from what #479/#484/#581 already
+    persist."""
+
+    def setUp(self):
+        self.times = _iso_grid(datetime(2026, 9, 9, 6, 0, tzinfo=_TZ), 6)
+        # Periods 1-2 (06:30, 07:00) are the load's own scheduled run --
+        # 1.0h at 0.65 kW, 0.65 kWh, matching the delivered-kwh cumulative
+        # series below exactly (0.325 kWh credited per half-hour period).
+        self.forecast = _series(self.times, [0.0, 0.65, 0.65, 0.0, 0.0, 0.0])
+        self.delivered_forecast = _series(
+            self.times, [0.0, 0.325, 0.65, 0.65, 0.65, 0.65]
+        )
+
+    def test_scheduled_deferrable_run_reports_window_duration_and_energy(self):
+        state = lrs.LoadRunState(
+            plan_forecast=self.forecast,
+            plan_delivered_kwh_forecast=self.delivered_forecast,
+            plan_target_kwh=0.65,
+            plan_shortfall_kwh=0.0,
+            commanded_state=False,
+            delivered_today_kwh=0.0,
+            day_key="2026-09-09",
+        )
+        view = lrs.derive_schedule_view(
+            state, load_kind="deferrable", now=self.times[0]
+        )
+        self.assertEqual(view.next_start, self.times[1])
+        self.assertEqual(view.next_end, self.times[3])
+        self.assertAlmostEqual(view.planned_duration_h, 1.0)
+        self.assertAlmostEqual(view.planned_energy_kwh, 0.65)
+        self.assertEqual(view.target_today_kwh, 0.65)
+        self.assertEqual(view.status, "scheduled 06:30–07:30")
+
+    def test_running_takes_priority_over_every_other_status(self):
+        state = lrs.LoadRunState(
+            plan_forecast=self.forecast,
+            plan_delivered_kwh_forecast=self.delivered_forecast,
+            plan_target_kwh=0.65,
+            plan_shortfall_kwh=5.0,  # would otherwise say "will miss target"
+            commanded_state=True,
+            day_key="2026-09-09",
+        )
+        view = lrs.derive_schedule_view(
+            state, load_kind="deferrable", now=self.times[0]
+        )
+        self.assertEqual(view.status, "running")
+
+    def test_shortfall_reported_when_deferrable_load_will_miss_target(self):
+        state = lrs.LoadRunState(
+            plan_forecast=_series(self.times, [0.0] * 6),
+            plan_target_kwh=2.0,
+            plan_shortfall_kwh=0.5,
+            commanded_state=False,
+            day_key="2026-09-09",
+        )
+        view = lrs.derive_schedule_view(
+            state, load_kind="deferrable", now=self.times[0]
+        )
+        self.assertEqual(view.status, "will miss target by 0.50 kWh")
+
+    def test_capped_status_takes_priority_over_a_real_scheduled_run(self):
+        state = lrs.LoadRunState(
+            plan_forecast=self.forecast,
+            plan_delivered_kwh_forecast=self.delivered_forecast,
+            plan_target_kwh=0.65,
+            plan_shortfall_kwh=0.0,
+            commanded_state=False,
+            activations_today=3,
+            day_key="2026-09-09",
+        )
+        view = lrs.derive_schedule_view(
+            state,
+            load_kind="deferrable",
+            now=self.times[0],
+            max_activations_per_day=3,
+        )
+        self.assertEqual(view.status, "capped (3/3)")
+
+    def test_activations_from_a_prior_day_do_not_count_toward_todays_cap(self):
+        state = lrs.LoadRunState(
+            plan_forecast=self.forecast,
+            plan_delivered_kwh_forecast=self.delivered_forecast,
+            plan_target_kwh=0.65,
+            plan_shortfall_kwh=0.0,
+            commanded_state=False,
+            activations_today=5,
+            day_key="2026-09-08",  # yesterday, relative to `now` below
+        )
+        view = lrs.derive_schedule_view(
+            state,
+            load_kind="deferrable",
+            now=self.times[0],
+            max_activations_per_day=3,
+        )
+        self.assertNotEqual(view.status, "capped (3/3)")
+        self.assertEqual(view.status, "scheduled 06:30–07:30")
+
+    def test_done_status_without_a_tank_reading(self):
+        state = lrs.LoadRunState(
+            plan_forecast=_series(self.times, [0.0] * 6),
+            plan_target_kwh=2.0,
+            plan_shortfall_kwh=None,
+            commanded_state=False,
+            delivered_today_kwh=2.0,
+            day_key="2026-09-09",
+        )
+        view = lrs.derive_schedule_view(
+            state, load_kind="deferrable", now=self.times[0]
+        )
+        self.assertEqual(view.status, "done")
+
+    def test_done_status_includes_a_real_tank_reading_when_available(self):
+        state = lrs.LoadRunState(
+            plan_forecast=_series(self.times, [0.0] * 6),
+            plan_target_kwh=2.0,
+            plan_shortfall_kwh=None,
+            commanded_state=False,
+            delivered_today_kwh=2.0,
+            day_key="2026-09-09",
+        )
+        view = lrs.derive_schedule_view(
+            state,
+            load_kind="deferrable",
+            now=self.times[0],
+            tank_current_temperature=60.3,
+        )
+        self.assertEqual(view.status, "done (tank 60 °C)")
+
+    def test_sheddable_load_has_no_target_today(self):
+        state = lrs.LoadRunState(
+            plan_forecast=self.forecast,
+            plan_target_kwh=99.0,  # never populated for real sheddable loads
+            commanded_state=False,
+            day_key="2026-09-09",
+        )
+        view = lrs.derive_schedule_view(state, load_kind="sheddable", now=self.times[0])
+        self.assertIsNone(view.target_today_kwh)
+
+    def test_sheddable_load_reports_shed_energy_from_past_periods(self):
+        # Four half-hour periods, all already in the past relative to
+        # `now`, each served at 0.6 kW against a 1.0 kW nominal rate --
+        # 0.2 kW short x 0.5h x 4 periods = 0.8 kWh shed today.
+        past_times = _iso_grid(datetime(2026, 9, 9, 6, 0, tzinfo=_TZ), 4)
+        forecast = _series(past_times, [0.6, 0.6, 0.6, 0.6])
+        state = lrs.LoadRunState(
+            plan_forecast=forecast,
+            plan_nominal_kw=1.0,
+            commanded_state=False,
+            day_key="2026-09-09",
+        )
+        now = past_times[-1] + timedelta(hours=1)
+        view = lrs.derive_schedule_view(state, load_kind="sheddable", now=now)
+        self.assertEqual(view.status, "shed 0.80 kWh today")
+
+    def test_outside_window_is_the_honest_fallback(self):
+        state = lrs.LoadRunState(
+            plan_forecast=_series(self.times, [0.0] * 6),
+            plan_target_kwh=None,
+            plan_shortfall_kwh=None,
+            commanded_state=False,
+            day_key="2026-09-09",
+        )
+        view = lrs.derive_schedule_view(
+            state, load_kind="deferrable", now=self.times[0]
+        )
+        self.assertEqual(view.status, "outside window")
+        self.assertIsNone(view.next_start)
+        self.assertIsNone(view.next_end)
+        self.assertIsNone(view.planned_duration_h)
+        self.assertIsNone(view.planned_energy_kwh)
+
+    def test_no_plan_forecast_at_all_is_a_safe_empty_view(self):
+        # A load never yet solved this cycle (fresh subentry, or the
+        # store simply has nothing for it) -- LoadRunState()'s own
+        # all-None defaults must never raise.
+        state = lrs.LoadRunState()
+        view = lrs.derive_schedule_view(
+            state, load_kind="deferrable", now=self.times[0]
+        )
+        self.assertEqual(view.status, "outside window")
+        self.assertEqual(view.delivered_today_kwh, 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()

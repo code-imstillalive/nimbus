@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.190] — 2026-09-09
+
+### Added
+- **Controllable Load device page: the schedule is now real entities, not just attributes on one sensor** (nimbus issue #590, part of #589 — Mark Purcell's own household ask after #582 removed the error message the #534 heat pump used to show: "I don't know if it is scheduled, what time and for how long. how much will it cost, what are the forecasts for temp and power consumption?"). Seven new sensors join `sensor.nimbus_<load>_commanded_state` on the same device: `next_start`/`next_end` (timestamps), `planned_duration` (h), `planned_energy` (kWh), `delivered_today` (kWh, #479's own run-state field), `target_today` (kWh, deferrable only), and `status` — a plain-language line ("scheduled 11:00–14:00", "running", "will miss target by x kWh", "capped (3/3)", "done (tank 60 °C)", "shed x kWh today" for sheddable loads, or "outside window"). All seven are pure arithmetic (`load_run_state.derive_schedule_view()`) over what #479/#484/#581 already persist — no new solver work. The `done_when` water_heater/climate `current_temperature` read (#534) was factored out of `solver_writer.py` into a new, deliberately lightweight `done_condition.py` (no numpy/highspy) so this sensor can reuse the exact same reading without paying `solver_writer.py`'s own heavy import cost from a plain event-loop context. Cost (#591) and tank-temperature-forecast (#592) sub-issues are separate, not part of this change.
+
 ## [0.94.189] — 2026-09-09
 
 ### Added

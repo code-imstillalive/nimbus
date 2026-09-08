@@ -30,6 +30,7 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigSubentry
 from homeassistant.const import (
     EntityCategory,
+    UnitOfEnergy,
     UnitOfPower,
     UnitOfTemperature,
     UnitOfTime,
@@ -43,7 +44,7 @@ from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.loader import async_get_integration
 
-from . import health, load_run_state, sensor_flattened
+from . import done_condition, health, load_run_state, sensor_flattened
 from .const import (
     ATTR_FORECAST,
     ATTR_MASE_SCALE_POINTS,
@@ -68,8 +69,10 @@ from .const import (
     CONF_BATTERY_TOWER_TEMPERATURE_SENSOR,
     CONF_BATTERY_TOWER_VOLTAGE_SENSOR,
     CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY,
+    CONF_CONTROLLABLE_LOAD_KIND,
     CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY,
     CONF_CONTROLLABLE_LOAD_MIN_HOLD_MINUTES,
+    CONF_DEFERRABLE_DONE_ENTITY,
     CONF_LOAD_SENSOR,
     CONF_POWER_SOURCE_BATTERY_SENSOR,
     CONF_POWER_SOURCE_DC_SENSOR,
@@ -625,8 +628,32 @@ async def async_setup_entry(
     for subentry in entry.subentries.values():
         if subentry.subentry_type != SUBENTRY_TYPE_CONTROLLABLE_LOAD:
             continue
+        # nimbus issue #590: the seven schedule-view entities join
+        # Commanded State on the SAME device (config_subentry_id groups
+        # them all onto this one subentry's device page) -- real separate
+        # entities per the issue's own stated preference, not folded into
+        # attributes on one sensor the way plan_forecast/etc (#581) are.
         async_add_entities(
-            [NimbusControllableLoadStateSensor(hass, entry, subentry, sw_version)],
+            [
+                NimbusControllableLoadStateSensor(hass, entry, subentry, sw_version),
+                NimbusControllableLoadNextStartSensor(
+                    hass, entry, subentry, sw_version
+                ),
+                NimbusControllableLoadNextEndSensor(hass, entry, subentry, sw_version),
+                NimbusControllableLoadPlannedDurationSensor(
+                    hass, entry, subentry, sw_version
+                ),
+                NimbusControllableLoadPlannedEnergySensor(
+                    hass, entry, subentry, sw_version
+                ),
+                NimbusControllableLoadDeliveredTodaySensor(
+                    hass, entry, subentry, sw_version
+                ),
+                NimbusControllableLoadTargetTodaySensor(
+                    hass, entry, subentry, sw_version
+                ),
+                NimbusControllableLoadStatusSensor(hass, entry, subentry, sw_version),
+            ],
             config_subentry_id=subentry.subentry_id,
         )
 
@@ -1313,6 +1340,225 @@ class NimbusControllableLoadStateSensor(SensorEntity):
                 CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY
             ),
         }
+
+
+class _NimbusControllableLoadScheduleSensorBase(SensorEntity):
+    """nimbus issue #590 (Mark Purcell, real household ask reading the
+    #534 heat pump's own device page after #582 removed its error:
+    "removed the error message, but I don't know if it is scheduled,
+    what time and for how long. how much will it cost, what are the
+    forecasts..."): shared wiring for the seven schedule-view sensors
+    below. Same per-Controllable-Load device NimbusControllableLoadState
+    Sensor already registers onto (`identifiers={(DOMAIN, subentry.
+    subentry_id)}`) and the same title-derived entity_id convention
+    (#579 -- subentry_id is a ULID, unsafe raw in an entity_id).
+
+    Every one of the seven answers already exists inside the persisted
+    LoadRunState (#479's run-state store, #581's own published plan
+    series) -- nothing new is computed by the SOLVER for this issue, only
+    derived by load_run_state.derive_schedule_view() (pure arithmetic,
+    HA-import-free, fully unit-testable on its own) from what's already
+    there. Each subclass sets _ENTITY_ID_SUFFIX/_UNIQUE_ID_SUFFIX/
+    _attr_name and implements _extract_value(); the store read + derive
+    call itself is identical for all seven and happens once per poll in
+    async_update() here so there's exactly one place that logic lives.
+    """
+
+    _attr_has_entity_name = True
+    _attr_entity_category = None  # a real, actively-read data source
+    _ENTITY_ID_SUFFIX = ""  # overridden per subclass below
+    _UNIQUE_ID_SUFFIX = ""  # overridden per subclass below
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: NimbusConfigEntry,
+        subentry: ConfigSubentry,
+        sw_version: str | None,
+    ) -> None:
+        self._hass = hass
+        self._entry = entry
+        self._subentry = subentry
+        self._attr_unique_id = f"{subentry.subentry_id}_{self._UNIQUE_ID_SUFFIX}"
+        self.entity_id = (
+            f"sensor.nimbus_{_slug_for_entity_id(subentry.title)}_"
+            f"{self._ENTITY_ID_SUFFIX}"
+        )
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, subentry.subentry_id)},
+            name=subentry.title,
+            manufacturer="Nimbus",
+            model="Controllable Load",
+            sw_version=sw_version,
+        )
+        self._native_value: object = None
+
+    @property
+    def native_value(self) -> object:
+        return self._native_value
+
+    async def async_update(self) -> None:
+        store = load_run_state.LoadRunStateStore(
+            store=Store(
+                self._hass, 1, f"{DOMAIN}_{self._entry.entry_id}_load_run_state"
+            )
+        )
+        state = await store.async_read(self._subentry.subentry_id)
+        data = self._subentry.data
+        load_kind = data.get(CONF_CONTROLLABLE_LOAD_KIND)
+        done_entity = data.get(CONF_DEFERRABLE_DONE_ENTITY)
+        # nimbus issue #590's own directive: reuse the EXACT SAME
+        # current_temperature read solver_writer.py's own #534 done
+        # condition uses (done_condition.py, factored out for exactly
+        # this reason -- see that module's own top docstring) rather than
+        # inventing a second way to interpret a water_heater/climate
+        # done_entity here.
+        tank_temperature = (
+            done_condition.read_current_temperature(self._hass, done_entity)
+            if done_entity
+            else None
+        )
+        view = load_run_state.derive_schedule_view(
+            state,
+            load_kind=load_kind,
+            now=datetime.now(UTC),
+            max_activations_per_day=data.get(
+                CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY
+            ),
+            tank_current_temperature=tank_temperature,
+        )
+        self._native_value = self._extract_value(view)
+
+    def _extract_value(self, view: load_run_state.ScheduleView) -> object:
+        raise NotImplementedError
+
+
+class NimbusControllableLoadNextStartSensor(_NimbusControllableLoadScheduleSensorBase):
+    """nimbus issue #590: when the load's current or next scheduled run
+    starts -- the first period in its own published plan_forecast (#581)
+    above the on-threshold, at or after now."""
+
+    _attr_name = "Next Start"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _ENTITY_ID_SUFFIX = "next_start"
+    _UNIQUE_ID_SUFFIX = "next_start"
+
+    def _extract_value(self, view: load_run_state.ScheduleView) -> object:
+        return view.next_start
+
+
+class NimbusControllableLoadNextEndSensor(_NimbusControllableLoadScheduleSensorBase):
+    """nimbus issue #590: when that same run ends."""
+
+    _attr_name = "Next End"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _ENTITY_ID_SUFFIX = "next_end"
+    _UNIQUE_ID_SUFFIX = "next_end"
+
+    def _extract_value(self, view: load_run_state.ScheduleView) -> object:
+        return view.next_end
+
+
+class NimbusControllableLoadPlannedDurationSensor(
+    _NimbusControllableLoadScheduleSensorBase
+):
+    """nimbus issue #590: the run's own total scheduled duration, in
+    hours -- summed over the tiered grid's own real (non-uniform) period
+    lengths, not a flat period-count multiply."""
+
+    _attr_name = "Planned Duration"
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_native_unit_of_measurement = UnitOfTime.HOURS
+    _ENTITY_ID_SUFFIX = "planned_duration"
+    _UNIQUE_ID_SUFFIX = "planned_duration"
+
+    def _extract_value(self, view: load_run_state.ScheduleView) -> object:
+        return view.planned_duration_h
+
+
+class NimbusControllableLoadPlannedEnergySensor(
+    _NimbusControllableLoadScheduleSensorBase
+):
+    """nimbus issue #590: the run's own total planned energy, in kWh --
+    for a deferrable load, read from the same plan_delivered_kwh_forecast
+    cumulative series #581 already publishes (the authoritative,
+    tiered-grid-aware source); for a sheddable load (no cumulative
+    deadline series to lean on), integrated directly from the plan's own
+    per-period power values.
+
+    Deliberately no device_class/state_class -- this is a FORECAST value
+    that can legitimately jump around between solves as the plan
+    re-optimizes, not a monotonically-accumulating real energy meter
+    (delivered_today, below, is that; this isn't)."""
+
+    _attr_name = "Planned Energy"
+    _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
+    _ENTITY_ID_SUFFIX = "planned_energy"
+    _UNIQUE_ID_SUFFIX = "planned_energy"
+
+    def _extract_value(self, view: load_run_state.ScheduleView) -> object:
+        return view.planned_energy_kwh
+
+
+class NimbusControllableLoadDeliveredTodaySensor(
+    _NimbusControllableLoadScheduleSensorBase
+):
+    """nimbus issue #590: today's real delivered_today_kwh (#479's own
+    run-state store field, already sampled from the load's own real
+    power sensor every solve tick) as its own top-level entity, instead
+    of only an attribute on Commanded State a person has to know to open.
+
+    Deliberately no device_class/state_class: delivered_today_kwh
+    already resets to 0 at local midnight (#479's own rollover, see
+    apply_power_sample()) rather than accumulating forever, which is not
+    what HA's own `total_increasing` energy statistics expect (a
+    same-day reset without carrying to a `total`/`last_reset` pairing).
+    Real, current data worth reading live -- the same posture #362/#581
+    already established for this device's other churn-every-cycle
+    fields."""
+
+    _attr_name = "Delivered Today"
+    _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
+    _ENTITY_ID_SUFFIX = "delivered_today"
+    _UNIQUE_ID_SUFFIX = "delivered_today"
+
+    def _extract_value(self, view: load_run_state.ScheduleView) -> object:
+        return round(view.delivered_today_kwh, 3)
+
+
+class NimbusControllableLoadTargetTodaySensor(
+    _NimbusControllableLoadScheduleSensorBase
+):
+    """nimbus issue #590: today's real target, deferrable loads only
+    (plan_target_kwh -- the LP's own deadline target for the load, #581).
+    None for a sheddable load -- it has no daily kWh target concept in
+    this project's data model today (#486 never gave it one), and
+    inventing a number here would misrepresent what the load is actually
+    being asked to do."""
+
+    _attr_name = "Target Today"
+    _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
+    _ENTITY_ID_SUFFIX = "target_today"
+    _UNIQUE_ID_SUFFIX = "target_today"
+
+    def _extract_value(self, view: load_run_state.ScheduleView) -> object:
+        return view.target_today_kwh
+
+
+class NimbusControllableLoadStatusSensor(_NimbusControllableLoadScheduleSensorBase):
+    """nimbus issue #590: the one-line, plain-language answer to "what is
+    this load doing" -- "running", "scheduled HH:MM-HH:MM", "will miss
+    target by x kWh" (the #477 soft-shortfall decision made visible,
+    deadline pressure), "capped (n/n)", "done" (with a real tank
+    temperature suffix when a water_heater/climate done_entity is
+    configured), "shed x kWh today" (sheddable), or "outside window"."""
+
+    _attr_name = "Status"
+    _ENTITY_ID_SUFFIX = "status"
+    _UNIQUE_ID_SUFFIX = "status"
+
+    def _extract_value(self, view: load_run_state.ScheduleView) -> object:
+        return view.status
 
 
 class NimbusSolverConfigSensor(SensorEntity):
