@@ -122,11 +122,11 @@ Auto-discovers almost everything once the Nimbus hub's own Topology
 wizard (hub → Configure → Power Source / PV String / Battery Tower
 steps) has at least one Power Source subentry configured — its live
 data (`sensor.nimbus_topology_config`) wholesale-overrides whatever the
-card's own config says. `switchboard` and `inverters` are still
-**required keys in the card config itself** (the card throws without
-them), even though their actual content gets replaced by the live
-wizard data — so the minimal config for a wizard-configured household
-is:
+card's own config says. `switchboard` and `inverters` are both
+**optional** (nimbus issue #551 — a card added directly from HA's own
+card picker, with no config at all, no longer errors; both default to
+`{}`/`[]`), so the minimal config for a wizard-configured household is
+just:
 
 ```yaml
 type: custom:nimbus-topology-card
@@ -138,6 +138,16 @@ Every Nimbus **Load** subentry (HWS, pool, an individual circuit
 breaker — anything added via the hub's own "+ Add" → Load) appears on
 the diagram automatically, with no config at all — added the moment its
 forecast sensor exists, removed the moment it doesn't.
+
+**Empty state (nimbus issue #553):** until the Topology wizard has at
+least one Power Source subentry — or if `sensor.nimbus_topology_config`
+doesn't exist yet (an older integration version, or the entity
+disabled) — the card shows a banner reading *"No topology configured.
+Nimbus hub → Configure → add a Power Source, PV Strings and Battery
+Towers; this card fills in automatically."* Auto-discovered Loads and
+Power Signals still draw underneath the banner, so the card stays
+useful on a loads-only install even before the Topology wizard has
+been run at all.
 
 If you'd rather hand-author the topology instead of running the wizard
 (or are still migrating a static file from a hand-copied `www/`

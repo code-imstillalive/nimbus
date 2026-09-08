@@ -190,3 +190,41 @@ async def test_topology_card_no_longer_throws_on_a_missing_switchboard_or_invert
         f"'!config.switchboard || !config.inverters' throw condition -- "
         f"a picker-added card with no config would still error"
     )
+
+
+# nimbus issue #553 (Mark Purcell): with no Power Source/PV String/
+# Battery Tower subentries configured (or sensor.nimbus_topology_config
+# missing entirely), the card used to draw a near-empty diagram with no
+# hint the wizard hasn't been run. Regex against the SERVED bundle for
+# the same "no JS test runner" reason as every other check in this file.
+_EMPTY_STATE_DIV_RE = re.compile(r'id="empty-state"')
+_EMPTY_STATE_MESSAGE_RE = re.compile(r"No topology configured")
+_EMPTY_STATE_TOGGLE_RE = re.compile(
+    r'_emptyState\.classList\.toggle\(\s*["\']show["\']\s*,\s*cfg\.inverters\.length\s*===\s*0\s*\)'
+)
+
+
+async def test_topology_card_serves_an_empty_state_banner_and_its_toggle(
+    hass: HomeAssistant, hass_client, nimbus_entry: MockConfigEntry
+):
+    """The empty-state banner markup, its message, and the toggle logic
+    that shows it when cfg.inverters is empty must all be present in
+    the SERVED bundle -- confirms what a real browser actually receives,
+    not just what's in the repo."""
+    client = await hass_client()
+    topology_card = next(c for c in _CARDS if "topology" in c.filename)
+    resp = await client.get(f"/{DOMAIN}/{topology_card.filename}")
+    body = await resp.text()
+    assert _EMPTY_STATE_DIV_RE.search(body), (
+        f"{topology_card.filename} has no #empty-state element -- #553's "
+        f"own empty-state banner is missing from the served bundle"
+    )
+    assert _EMPTY_STATE_MESSAGE_RE.search(body), (
+        f"{topology_card.filename}'s empty-state banner is missing its "
+        f"own guidance message"
+    )
+    assert _EMPTY_STATE_TOGGLE_RE.search(body), (
+        f"{topology_card.filename} has no logic toggling the empty-state "
+        f"banner based on cfg.inverters.length -- the banner would never "
+        f"show or would always show"
+    )

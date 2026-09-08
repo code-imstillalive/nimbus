@@ -532,12 +532,42 @@ class TopologyCard extends HTMLElement {
         .flow-line { stroke-dasharray: 7 6; animation: flow 0.9s linear infinite; }
         @keyframes flow { to { stroke-dashoffset: -13; } }
         .glow { filter: url(#glow); }
+        /* nimbus issue #553 (Mark Purcell): a plain HTML banner ABOVE the
+           SVG, not drawn inside it -- this diagram's own coordinate math
+           (rowTop/cursorY/invZoneBottom etc. in _render()) has real,
+           documented history of layout-overlap bugs from stacking more
+           text than reserved space accounts for, and this card has no
+           way to visually test a new SVG text placement before shipping.
+           A sibling HTML element carries zero risk to that math and
+           costs nothing to toggle -- the SVG (Loads/signals included)
+           keeps rendering underneath exactly as it already does on a
+           loads-only install, satisfying #553's own "keep drawing the
+           discovered Loads and signals beneath the message" ask for
+           free, not as something this banner has to coordinate with. */
+        .empty-state {
+          display: none;
+          padding: 10px 12px;
+          margin-bottom: 10px;
+          border-radius: 8px;
+          background: #1a1a1f;
+          border: 1px solid #333;
+          color: var(--secondary-text-color, #9a9a9a);
+          font-size: 12.5px;
+          line-height: 1.4;
+        }
+        .empty-state.show { display: block; }
       </style>
       <ha-card>
+        <div id="empty-state" class="empty-state">
+          No topology configured. Nimbus hub → Configure → add a Power
+          Source, PV Strings and Battery Towers; this card fills in
+          automatically.
+        </div>
         <svg id="svg" viewBox="0 0 1600 800" xmlns="${NS}"></svg>
       </ha-card>
     `;
     this._svg = this.shadowRoot.getElementById("svg");
+    this._emptyState = this.shadowRoot.getElementById("empty-state");
   }
 
   _entityState(entityId) {
@@ -790,6 +820,20 @@ class TopologyCard extends HTMLElement {
           },
         }
       : this._config;
+    // nimbus issue #553 (Mark Purcell, real household finding): covers
+    // BOTH cases the issue asks for with one check, for free -- a
+    // missing/never-populated sensor.nimbus_topology_config entity (the
+    // early `if (!state) return null;` in _discoverTopologyConfig()
+    // above) and a wizard genuinely never run (`if (!powerSources.length)
+    // return null;` there) both leave liveTopology null, which falls
+    // back to cfg.inverters = this._config's own static inverters --
+    // empty for exactly the same "nothing configured yet" installs this
+    // issue describes. No live topology AND no static fallback either
+    // means cfg.inverters is empty here regardless of which of the two
+    // reasons caused it.
+    if (this._emptyState) {
+      this._emptyState.classList.toggle("show", cfg.inverters.length === 0);
+    }
     // Power Signal role auto-detection (2026-08-23) -- a completely
     // independent Nimbus mechanism from the topology wizard above, so
     // applied as its own separate override layer regardless of whether

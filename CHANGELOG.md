@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.173] — 2026-09-08
+
+### Added
+- **Topology card empty-state banner** (nimbus issue #553, Mark Purcell). Until the Topology wizard has at least one Power Source subentry configured — or if `sensor.nimbus_topology_config` doesn't exist yet — the card used to draw a near-empty diagram with no hint the wizard hasn't been run. It now shows a banner explaining exactly what to do (hub → Configure → add a Power Source, PV Strings, Battery Towers), while auto-discovered Loads and Power Signals keep drawing underneath it, so the card stays useful on a loads-only install.
+
 ## [0.94.172] — 2026-09-08
 
 ### Fixed
