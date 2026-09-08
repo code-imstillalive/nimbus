@@ -55,6 +55,11 @@ from .const import (
     ATTR_TRAINING_SPAN_DAYS,
     ATTR_VALIDATION_MAE,
     ATTR_VALIDATION_MASE,
+    CONF_BATTERY_PARTICIPANT_CAPACITY_KWH,
+    CONF_BATTERY_PARTICIPANT_NAME,
+    CONF_BATTERY_PARTICIPANT_POWER_SENSOR,
+    CONF_BATTERY_PARTICIPANT_SHARED_CHARGER_GROUP,
+    CONF_BATTERY_PARTICIPANT_SOC_SENSOR,
     CONF_BATTERY_TOWER_POWER_SOURCE,
     CONF_BATTERY_TOWER_SOC_SENSOR,
     CONF_BATTERY_TOWER_SOH_SENSOR,
@@ -153,6 +158,7 @@ from .const import (
     SIGNAL_ROLE_HUMIDITY,
     SIGNAL_ROLE_OTHER,
     SIGNAL_ROLE_TEMPERATURE,
+    SUBENTRY_TYPE_BATTERY_PARTICIPANT,
     SUBENTRY_TYPE_BATTERY_TOWER,
     SUBENTRY_TYPE_LOAD,
     SUBENTRY_TYPE_POWER_SOURCE,
@@ -1383,20 +1389,156 @@ class NimbusTopologyConfigSensor(SensorEntity):
             sw_version=sw_version,
         )
 
-    @property
-    def native_value(self) -> int:
-        """Count of configured Power Source (inverter) subentries --
-        the one number that answers "is there anything here at all"
-        without a caller needing to inspect the attribute lists
-        first."""
-        return sum(
-            1
-            for s in self._entry.subentries.values()
-            if s.subentry_type == SUBENTRY_TYPE_POWER_SOURCE
+    def _resolve_live_number(self, key: str) -> float | None:
+        """Real current value of a live number.nimbus_solver_* entity,
+        resolved via the entity registry's own unique_id lookup -- the
+        same technique/reasoning as NimbusSolverConfigSensor._resolve()
+        (nimbus issue #343): number.py pins its unique_id to
+        f"{entry.entry_id}_{key}" but its own self.entity_id to a
+        non-entry-scoped literal, so a name collision (a
+        remote_homeassistant mirror, an orphaned registry row) can bump
+        the real entity to a `_2`-suffixed name -- the registry lookup
+        still finds it correctly; the guessed literal wouldn't.
+        """
+        unique_id = f"{self._entry.entry_id}_{key}"
+        real_id = er.async_get(self.hass).async_get_entity_id(
+            "number", DOMAIN, unique_id
         )
+        entity_id = real_id if isinstance(real_id, str) else f"number.nimbus_{key}"
+        state = self.hass.states.get(entity_id)
+        if state is None or state.state in (None, "unknown", "unavailable"):
+            return None
+        try:
+            return float(state.state)
+        except ValueError:
+            return None
 
-    @property
-    def extra_state_attributes(self) -> dict:
+    def _derive_topology(self) -> tuple[list[dict], list[dict], list[dict]]:
+        """Synthesize a topology directly from the Solver's own config
+        and any `battery_participant` subentries when no real Topology
+        subentry exists yet -- nimbus issue #575 (Mark Purcell): every
+        entity this needs (battery power/SoC, solar, per-participant EV
+        batteries) is already sitting in the hub's own Solver config, so
+        a household shouldn't have to re-type all of it into the
+        Topology wizard just to get the card to draw something. Every
+        entry here carries `derived: true` (real entries never do) so a
+        consumer can label it, and so a real Topology subentry added
+        later for the same physical device is understood to replace the
+        derived stand-in rather than draw alongside it -- enforced by
+        this class only ever calling this method when there are zero
+        real Power Source subentries in the first place (see
+        extra_state_attributes below).
+
+        Grid is deliberately NOT derived here -- the Solver has no grid-
+        power input to derive from; #554 (Energy dashboard) or a real
+        `power_signal` subentry with signal_role "grid" are the only
+        legitimate future sources, per #575's own point 4.
+        """
+        options = self._entry.options
+        battery_sensor = options.get(CONF_SOLVER_BATTERY_POWER_SENSOR)
+        solar_sensor = options.get(CONF_SOLVER_SOLAR_POWER_SENSOR)
+        soc_sensor = options.get(CONF_SOLVER_BATTERY_SOC_SENSOR)
+
+        power_sources: list[dict] = []
+        pv_strings: list[dict] = []
+        battery_towers: list[dict] = []
+
+        # The home inverter -- only if the Solver actually holds at
+        # least one of the two power sensors this derives from; nothing
+        # to draw at all from a genuinely unconfigured Solver.
+        if battery_sensor or solar_sensor:
+            home_id = "derived_home"
+            power_sources.append(
+                {
+                    "subentry_id": home_id,
+                    CONF_POWER_SOURCE_NAME: "Nimbus",
+                    CONF_POWER_SOURCE_BATTERY_SENSOR: battery_sensor,
+                    CONF_POWER_SOURCE_DC_SENSOR: solar_sensor,
+                    "derived": True,
+                }
+            )
+            if solar_sensor:
+                pv_strings.append(
+                    {
+                        "subentry_id": "derived_home_pv",
+                        CONF_PV_STRING_ENTITY: solar_sensor,
+                        CONF_PV_STRING_LABEL: None,
+                        CONF_PV_STRING_POWER_SOURCE: home_id,
+                        "derived": True,
+                    }
+                )
+            if soc_sensor:
+                battery_towers.append(
+                    {
+                        "subentry_id": "derived_home_tower",
+                        "title": "Nimbus",
+                        CONF_BATTERY_TOWER_SOC_SENSOR: soc_sensor,
+                        CONF_BATTERY_TOWER_SOH_SENSOR: None,
+                        CONF_BATTERY_TOWER_VOLTAGE_SENSOR: None,
+                        CONF_BATTERY_TOWER_TEMPERATURE_SENSOR: None,
+                        CONF_BATTERY_TOWER_POWER_SOURCE: home_id,
+                        # Real Battery Tower subentries have no capacity
+                        # field of their own today (#575's own table) --
+                        # the derived tower's capacity comes from the
+                        # live solver number instead, per #575 point 1.
+                        "capacity_kwh": self._resolve_live_number(
+                            CONF_SOLVER_BATTERY_CAPACITY_KWH
+                        ),
+                        "derived": True,
+                    }
+                )
+
+        # One additional Power Source + Battery Tower pair per EV/
+        # battery_participant subentry (#563) -- the shared-charger
+        # group name is used as the derived source's name when set,
+        # since that's the real physical inverter/charger the
+        # participant shares, not the participant's own identity.
+        for subentry in self._entry.subentries.values():
+            if subentry.subentry_type != SUBENTRY_TYPE_BATTERY_PARTICIPANT:
+                continue
+            data = subentry.data
+            participant_id = subentry.subentry_id
+            participant_name = data.get(CONF_BATTERY_PARTICIPANT_NAME) or participant_id
+            source_name = (
+                data.get(CONF_BATTERY_PARTICIPANT_SHARED_CHARGER_GROUP)
+                or participant_name
+            )
+            source_id = f"derived_{participant_id}"
+            power_sources.append(
+                {
+                    "subentry_id": source_id,
+                    CONF_POWER_SOURCE_NAME: source_name,
+                    CONF_POWER_SOURCE_BATTERY_SENSOR: data.get(
+                        CONF_BATTERY_PARTICIPANT_POWER_SENSOR
+                    ),
+                    CONF_POWER_SOURCE_DC_SENSOR: None,
+                    "derived": True,
+                }
+            )
+            battery_towers.append(
+                {
+                    "subentry_id": f"{source_id}_tower",
+                    "title": participant_name,
+                    CONF_BATTERY_TOWER_SOC_SENSOR: data.get(
+                        CONF_BATTERY_PARTICIPANT_SOC_SENSOR
+                    ),
+                    CONF_BATTERY_TOWER_SOH_SENSOR: None,
+                    CONF_BATTERY_TOWER_VOLTAGE_SENSOR: None,
+                    CONF_BATTERY_TOWER_TEMPERATURE_SENSOR: None,
+                    CONF_BATTERY_TOWER_POWER_SOURCE: source_id,
+                    "capacity_kwh": data.get(CONF_BATTERY_PARTICIPANT_CAPACITY_KWH),
+                    "derived": True,
+                }
+            )
+
+        return power_sources, pv_strings, battery_towers
+
+    def _real_topology_lists(self) -> tuple[list[dict], list[dict], list[dict]]:
+        """The three real Topology-wizard-subentry lists, exactly as
+        grouped before nimbus issue #575 -- broken out on its own so
+        native_value and extra_state_attributes below share one real
+        computation and one real/derived gating decision instead of
+        two that could silently drift apart."""
         power_sources, pv_strings, battery_towers = [], [], []
         for subentry in self._entry.subentries.values():
             if subentry.subentry_type == SUBENTRY_TYPE_POWER_SOURCE:
@@ -1435,6 +1577,37 @@ class NimbusTopologyConfigSensor(SensorEntity):
                         **{k: subentry.data.get(k) for k in _BATTERY_TOWER_KEYS},
                     }
                 )
+        return power_sources, pv_strings, battery_towers
+
+    def _topology_lists(self) -> tuple[list[dict], list[dict], list[dict]]:
+        """Real Topology-wizard lists, or a derived topology (#575) when
+        NONE of the three real lists have anything at all -- a household
+        with even one real Power Source, PV String, or Battery Tower
+        keeps exactly today's behaviour, no mixing real + derived.
+        Gating on power_sources alone would wipe out a real (if
+        orphaned/wizard-in-progress) PV String or Battery Tower that
+        exists with no Power Source alongside it -- confirmed by a
+        pre-existing test in this file that has exactly that shape.
+        """
+        power_sources, pv_strings, battery_towers = self._real_topology_lists()
+        if not (power_sources or pv_strings or battery_towers):
+            return self._derive_topology()
+        return power_sources, pv_strings, battery_towers
+
+    @property
+    def native_value(self) -> int:
+        """Count of Power Source (inverter) entries currently presented
+        -- real if any real Topology subentry exists, derived otherwise
+        (#575) -- the one number that answers "is there anything here
+        at all" without a caller needing to inspect the attribute lists
+        first. Always matches extra_state_attributes' own power_sources
+        list below (same _topology_lists() call), never computed
+        separately."""
+        return len(self._topology_lists()[0])
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        power_sources, pv_strings, battery_towers = self._topology_lists()
         return {
             "power_sources": power_sources,
             "pv_strings": pv_strings,
