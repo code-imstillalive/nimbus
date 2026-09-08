@@ -131,6 +131,23 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # as build_controllable_loads() itself, which is this function's
         # only caller.
         "_sample_load_run_state",
+        # nimbus issue #484: the relay-chatter guard -- reads real
+        # ConfigSubentries and homeassistant.helpers.storage.Store, same
+        # no-standalone-equivalent reasoning as build_controllable_loads()
+        # and _sample_load_run_state() above. A real no-op in standalone
+        # mode anyway, since sheddable_loads/adequacy_loads are always
+        # empty lists there.
+        "apply_commanded_state_guard",
+        # nimbus issue #480: reads a real done_entity's live state off
+        # _NATIVE_HASS.states -- only ever called from build_
+        # controllable_loads() itself, which is native-only; Mark's own
+        # #480 spec doesn't ask for a standalone/cron config path either.
+        "_evaluate_done_condition",
+        # Pure comparison-DSL parser called only by _evaluate_done_
+        # condition (already listed above) -- same native-only
+        # reasoning, not a separate gap, even though it has no HA
+        # dependency of its own.
+        "_parse_done_when",
     }
 )
 

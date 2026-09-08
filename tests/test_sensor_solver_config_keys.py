@@ -34,7 +34,7 @@ from _ha_stubs import install_ha_stubs
 install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from custom_components.nimbus_load import sensor
+from custom_components.nimbus_load import number, sensor
 from custom_components.nimbus_load.const import (
     CONF_SOLVER_LOAD_FORECAST_ENTITIES,
     CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR,
@@ -60,3 +60,41 @@ def test_every_wizard_saveable_key_is_exposed_by_the_bridge_sensor():
 def test_the_two_specific_fields_from_the_real_2026_08_23_incident_are_present():
     assert CONF_SOLVER_LOAD_FORECAST_ENTITIES in sensor._SOLVER_ALL_KEYS
     assert CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR in sensor._SOLVER_ALL_KEYS
+
+
+def test_every_number_entity_key_is_resolved_as_a_live_number_not_entry_options():
+    """nimbus issue #538's own fix added two brand new number.py fields
+    (CONF_SOLVER_SOC_DISCREPANCY_MAX_THRESHOLD_PCT/_MEAN_THRESHOLD_PCT).
+    Auditing this exact "saved in one place, silently unreachable from
+    the writer" mistake class (same shape as the real 2026-08-23
+    incident above, just for a live number entity instead of a
+    wizard-only field) for every OTHER number.py field while adding
+    them found two real, pre-existing, live bugs: CONF_SOLVER_FIXED_
+    DAILY_CHARGE and CONF_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS were
+    both missing from _SOLVER_NUMBER_ENTITY_KEYS (and from
+    _SOLVER_ALL_KEYS entirely) -- any household adjusting "Fixed Daily
+    Charge" or "Post-Window Self-Consume Hours" from the dashboard had
+    ZERO effect on the actual solve, silently, forever. Both fixed
+    alongside this test. No test previously guarded this pairing at
+    all; if a future number.py field is added to _DESCRIPTIONS but the
+    matching sensor.py entry is missed, this fails immediately instead
+    of the field silently always resolving from (missing) entry.options
+    via sensor.py's own _resolve() fallback.
+
+    Deliberately NOT asserting every number.py key also appears in
+    _SOLVER_ALL_KEYS: CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S is a real,
+    legitimate exception -- __init__.py reads that one live entity
+    directly via hass.states.get(), never through fetch_solver_config(),
+    so its absence from the bridge sensor's own output is intentional,
+    not a bug.
+    """
+    all_number_keys = [desc.key for desc in number._DESCRIPTIONS]
+    missing_from_number_entity_keys = [
+        key for key in all_number_keys if key not in sensor._SOLVER_NUMBER_ENTITY_KEYS
+    ]
+    assert missing_from_number_entity_keys == [], (
+        f"{missing_from_number_entity_keys} are real number.nimbus_solver_* "
+        "entities (number.py's own _DESCRIPTIONS) but sensor.py's _resolve() "
+        "would read them from entry.options instead of the live entity -- "
+        "add them to sensor.py's own _SOLVER_NUMBER_ENTITY_KEYS."
+    )

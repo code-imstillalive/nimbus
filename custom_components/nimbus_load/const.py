@@ -190,6 +190,16 @@ CONF_DEFERRABLE_EARLIEST_HOUR: Final = "deferrable_earliest_hour"
 CONF_DEFERRABLE_DEADLINE_HOUR: Final = "deferrable_deadline_hour"
 CONF_DEFERRABLE_SHORTFALL_PRICE: Final = "deferrable_shortfall_price"
 CONF_DEFERRABLE_VALUE_PER_KWH: Final = "deferrable_value_per_kwh"
+# nimbus issue #480 (sub-issue 4 of #476): "hot water scheduled for 3h,
+# tank reaches setpoint after 2h -- the third hour is still bought."
+# Both optional; done_entity alone is enough for a binary_sensor (its
+# own "on" state IS the done condition). A numeric sensor (e.g. a tank
+# temperature) needs done_when too -- see solver_writer.py's own
+# _evaluate_done_condition() for the small, safe comparison-expression
+# parser this feeds (deliberately not eval() -- a fixed operator set
+# parsed explicitly).
+CONF_DEFERRABLE_DONE_ENTITY: Final = "deferrable_done_entity"
+CONF_DEFERRABLE_DONE_WHEN: Final = "deferrable_done_when"
 # 2026-09-03: a real household was guided to add a temperature/humidity
 # Power Signal using SIGNAL_ROLE_OTHER, since no dedicated role existed --
 # NimbusForecastSensor unconditionally builds every power-signal subentry
@@ -939,6 +949,26 @@ CONF_SOLVER_RISK_AVERSION: Final = "solver_risk_aversion"
 CONF_SOLVER_IMPORT_PRICE_RISK_AVERSION: Final = "solver_import_price_risk_aversion"
 CONF_SOLVER_EXPORT_PRICE_RISK_AVERSION: Final = "solver_export_price_risk_aversion"
 
+# Quality-report SoC-discrepancy reliability thresholds (nimbus issue
+# #538, Mark Purcell, real household finding on this repo's own
+# v0.94.166): _soc_discrepancy_stats() used to call a scored day
+# "reliable" purely on the achieved SoC integration staying inside the
+# physical [0, 100] range -- but a genuinely large, sustained
+# disagreement WITHIN that range (his own real case: raising the
+# configured battery capacity kept the trajectory in-range while the
+# gap against the real SoC sensor stayed at 40.7 points max / 10.85
+# mean) still flipped the flag to "reliable". These two thresholds are
+# the second, independent test: max/mean discrepancy in points beyond
+# which a day is called unreliable even though it never left [0, 100].
+# Same "never hardcoded, every value is a real config-flow/dashboard
+# field" discipline as every other Solver number.
+CONF_SOLVER_SOC_DISCREPANCY_MAX_THRESHOLD_PCT: Final = (
+    "solver_soc_discrepancy_max_threshold_pct"
+)
+CONF_SOLVER_SOC_DISCREPANCY_MEAN_THRESHOLD_PCT: Final = (
+    "solver_soc_discrepancy_mean_threshold_pct"
+)
+
 DEFAULT_SOLVER_SOH_PERCENT: Final = 100.0
 DEFAULT_SOLVER_MIN_SOC_PERCENT: Final = 5.0
 DEFAULT_SOLVER_MAX_SOC_PERCENT: Final = 100.0
@@ -976,6 +1006,14 @@ DEFAULT_SOLVER_FLAT_FEE_RATE: Final = 0.0
 DEFAULT_SOLVER_RISK_AVERSION: Final = 0.25
 DEFAULT_SOLVER_IMPORT_PRICE_RISK_AVERSION: Final = 0.0
 DEFAULT_SOLVER_EXPORT_PRICE_RISK_AVERSION: Final = 0.0
+# nimbus issue #538 (Mark Purcell): his own ask's suggested starting
+# point ("something like 15 points max, or 8 points mean") -- #427's own
+# first real measurement (22.5 max / 6.9 mean) was judged worth flagging
+# by that same household, so these sit just below it. Purely a starting
+# default; a household with noisier sensors tunes it via the dashboard
+# number, no release needed.
+DEFAULT_SOLVER_SOC_DISCREPANCY_MAX_THRESHOLD_PCT: Final = 15.0
+DEFAULT_SOLVER_SOC_DISCREPANCY_MEAN_THRESHOLD_PCT: Final = 8.0
 
 # Switchboard-level hub Configure step (2026-08-23) -- the topology
 # dashboard card's own top-of-diagram sensors (grid meter, current buy/

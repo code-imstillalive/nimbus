@@ -30,6 +30,8 @@ from custom_components.nimbus_load.const import (
     CONF_CONTROLLABLE_LOAD_NAME,
     CONF_CONTROLLABLE_LOAD_POWER_SENSOR,
     CONF_DEFERRABLE_DEADLINE_HOUR,
+    CONF_DEFERRABLE_DONE_ENTITY,
+    CONF_DEFERRABLE_DONE_WHEN,
     CONF_DEFERRABLE_EARLIEST_HOUR,
     CONF_DEFERRABLE_MAX_POWER_KW,
     CONF_DEFERRABLE_SHORTFALL_PRICE,
@@ -127,6 +129,15 @@ def test_deferrable_value_per_kwh_same_none_default_guard():
     assert marker.default is vol.UNDEFINED
 
 
+def test_deferrable_done_entity_and_done_when_same_none_default_guard():
+    # nimbus issue #480 -- both fields are optional, never defaulted to
+    # a real value once configured (same crash-avoidance reasoning as
+    # every other optional field on this schema).
+    schema = _schema({})
+    assert _find_marker(schema, CONF_DEFERRABLE_DONE_ENTITY).default is vol.UNDEFINED
+    assert _find_marker(schema, CONF_DEFERRABLE_DONE_WHEN).default is vol.UNDEFINED
+
+
 # -- async_step_user: reconfigure-vs-new routing, same pattern as Load ------
 
 
@@ -188,6 +199,8 @@ def test_reconfigure_with_no_input_prefills_every_field_from_existing_data():
         CONF_DEFERRABLE_DEADLINE_HOUR: 6.0,
         CONF_DEFERRABLE_SHORTFALL_PRICE: 12.0,
         CONF_DEFERRABLE_VALUE_PER_KWH: 0.08,
+        CONF_DEFERRABLE_DONE_ENTITY: "binary_sensor.hws_l1_at_temp",
+        CONF_DEFERRABLE_DONE_WHEN: ">= 60",
     }
     flow = _make_flow(source="reconfigure")
     flow._get_reconfigure_subentry = MagicMock(return_value=MagicMock(data=existing))

@@ -1470,6 +1470,153 @@ def resample_forecast(
     return out
 
 
+# nimbus issue #546 (Mark Purcell, real regression, same day #542/#543
+# shipped): the known-integration entity IDs fetch_open_meteo_solar_raw()/
+# fetch_solcast_solar_raw() already read, hoisted to real module-level
+# constants so the caller-site dedup logic below can check against the
+# SAME single source of truth. Ported verbatim from the native
+# integration's own solver_writer.py -- see this project's own #357
+# anti-drift discipline (docs/real-world-integration/README.md).
+_KNOWN_OPEN_METEO_SOLAR_ENTITY_IDS: frozenset[str] = frozenset(
+    {
+        "sensor.home_energy_production_today",
+        "sensor.home_energy_production_tomorrow",
+        "sensor.home_energy_production_d2",
+        "sensor.home_energy_production_d3",
+        "sensor.home_energy_production_d4",
+        "sensor.home_energy_production_d5",
+        "sensor.home_energy_production_d6",
+        "sensor.home_energy_production_d7",
+    }
+)
+_KNOWN_SOLCAST_SOLAR_ENTITY_IDS: frozenset[str] = frozenset(
+    {
+        "sensor.solcast_pv_forecast_forecast_today",
+        "sensor.solcast_pv_forecast_forecast_tomorrow",
+    }
+)
+
+
+def _is_known_solar_integration_entity(entity_id: str) -> bool:
+    """True when `entity_id` is one of Open-Meteo Solar Forecast's or
+    Solcast's own native entities -- i.e. one the auto-include path
+    (fetch_open_meteo_solar_raw()/fetch_solcast_solar_raw()) already
+    reads together with the REST of that integration's own entities.
+
+    nimbus issue #546: #542's own first fix taught a *configured*
+    solver_solar_forecast_sensor_1/2/3 to read Solcast's/Open-Meteo's
+    real shapes -- but its own dedup (an entity-level skip_entities set
+    threaded into the auto-include fetchers) turned one coverage gap
+    into three, since Solcast's native entity only ever covers ONE day.
+    The real fix is dedup at the INTEGRATION level: when a configured
+    source is one of a KNOWN integration's own entities and that
+    integration's auto-include path is going to run anyway, skip the
+    configured source as a standalone member entirely -- the
+    auto-include fetch already reads ALL of that integration's own
+    entities together, so it's the sole, correctly-covered
+    representative for that integration.
+    """
+    return (
+        entity_id in _KNOWN_OPEN_METEO_SOLAR_ENTITY_IDS
+        or entity_id in _KNOWN_SOLCAST_SOLAR_ENTITY_IDS
+    )
+
+
+# nimbus issue #542 item 1 (Mark Purcell, real household finding): a
+# solar-forecast entity configured directly as solver_solar_forecast_
+# sensor_1/2/3 was silently dropped from every solve whenever it wasn't
+# already shaped as the generic forecast=[{time,value,lower,upper}]
+# array every ML-produced Nimbus signal uses -- Solcast's own native
+# entities publish detailedForecast=[{period_start,pv_estimate,...}]
+# instead, and Open-Meteo Solar Forecast's own entities publish
+# watts={timestamp: value}. This writer already knew how to read BOTH
+# of those shapes (fetch_solcast_solar_raw()/fetch_open_meteo_solar_raw()
+# below), just not when the household pointed a *configured* source at
+# them directly rather than relying on the separate auto-include path --
+# so the two readers could (and did) disagree about the exact same
+# entity. One shared reshape function, used by every solar-source
+# reader in this file, closes that gap for good. Ported verbatim from
+# the native integration's own solver_writer.py -- see this project's
+# own #357 anti-drift discipline (docs/real-world-integration/README.md).
+def _solar_entries_from_attributes(attrs: dict) -> list[dict] | None:
+    """Reshapes one solar-forecast entity's raw attributes dict into the
+    standard forecast-entries list (each entry at least {"time",
+    "value"}, optionally "lower"/"upper"), trying every shape this file
+    already knows how to read, in priority order: the generic
+    forecast=[...] array, Solcast's own detailedForecast=[...] array
+    (period_start/pv_estimate/pv_estimate10/pv_estimate90 -- pv_estimate
+    is already kW average power for its 30-min period, not the parent
+    entity's own "kWh" unit tag, confirmed live 2026-08-22), and Open-
+    Meteo Solar Forecast's own watts={timestamp: value} dict (native
+    Watts, 15-min resolution -- scaled to kW here).
+
+    Returns None when none of these attributes are present at all --a
+    genuinely unrecognized shape, distinct from an HTTP/URL failure, so
+    the caller can report the real reason instead of a generic
+    "unavailable".
+    """
+    forecast = attrs.get("forecast")
+    if forecast:
+        return forecast
+    detailed = attrs.get("detailedForecast")
+    if detailed:
+        return [
+            {
+                "time": p["period_start"],
+                "value": float(p.get("pv_estimate", 0.0) or 0.0),
+                "lower": float(p.get("pv_estimate10", 0.0) or 0.0),
+                "upper": float(p.get("pv_estimate90", 0.0) or 0.0),
+            }
+            for p in detailed
+        ]
+    watts = attrs.get("watts")
+    if watts:
+        return [{"time": ts, "value": float(w) / 1000.0} for ts, w in watts.items()]
+    return None
+
+
+# nimbus issue #543 (Mark Purcell, real household finding): a solar
+# source dropped from the blend used to warn on EVERY solve -- 205
+# copies in 4 hours on one real install. Same #313/#314 "log once per
+# condition" discipline as this file's own other log-once dedup sets,
+# keyed on (entity_id, reason) so a genuinely NEW failure reason for the
+# same entity still gets its own one-time log. Recovery (the same
+# entity_id next succeeding) clears its entries and is reported once --
+# a solar source coming back after being down for hours is a real,
+# useful signal, unlike a misconfiguration that stays broken until a
+# human fixes it. This standalone script has no HA log to route into
+# (see this file's own established print(file=sys.stderr) convention
+# throughout, e.g. fetch_solar_source_safe() below) -- print(), not
+# _LOGGER, matching every other diagnostic in this file.
+_SOLAR_SOURCE_WARNED: set[tuple[str, str]] = set()
+
+
+def _warn_solar_source_dropped_once(entity_id: str, reason: str, detail: str) -> None:
+    key = (entity_id, reason)
+    if key in _SOLAR_SOURCE_WARNED:
+        return
+    _SOLAR_SOURCE_WARNED.add(key)
+    print(
+        f"WARN: solar source {entity_id} {reason} ({detail}) -- dropped from "
+        "this solve's blend (logged once per condition, not every solve)",
+        file=sys.stderr,
+    )
+
+
+def _note_solar_source_recovered(entity_id: str) -> None:
+    had_any = any(eid == entity_id for eid, _reason in _SOLAR_SOURCE_WARNED)
+    if not had_any:
+        return
+    _SOLAR_SOURCE_WARNED.difference_update(
+        {key for key in _SOLAR_SOURCE_WARNED if key[0] == entity_id}
+    )
+    print(
+        f"INFO: solar source {entity_id} is contributing to the blend again "
+        "(previously dropped)",
+        file=sys.stderr,
+    )
+
+
 def _validate_and_parse_load_forecast_attrs(
     entity_id: str, attrs: dict
 ) -> tuple[list[dict] | None, bool, str | None]:
@@ -3117,12 +3264,36 @@ def main() -> None:
     def fetch_solar_source_safe(
         entity_id: str,
     ) -> tuple[list[float], list[float], list[float]] | None:
-        """(value, lower, upper) kW arrays for ONE solar source that
-        already publishes a standard forecast:[{time,value,lower,upper}]
-        array, or None on any failure -- see this section's own comment
-        above for why a missing source is DROPPED, never zero-filled."""
+        """(value, lower, upper) kW arrays for ONE solar source -- reads
+        whichever shape _solar_entries_from_attributes() recognizes
+        (generic forecast=[...], Solcast's own detailedForecast=[...],
+        or Open-Meteo's own watts={...} -- nimbus issue #542), or None
+        on any failure. See this section's own comment above for why a
+        missing source is DROPPED, never zero-filled.
+
+        nimbus issue #543: distinguishes an entity that's genuinely
+        unreachable (HTTP/URL failure) from one that's healthy but
+        publishes a shape none of the three readers above recognize (a
+        real configuration fact, not a transient).
+        """
         try:
-            fc = ha_get(entity_id)["attributes"]["forecast"]
+            attrs = ha_get(entity_id)["attributes"]
+        except (
+            urllib.error.HTTPError,
+            urllib.error.URLError,
+            json.JSONDecodeError,
+        ) as e:
+            _warn_solar_source_dropped_once(entity_id, "unavailable", str(e))
+            return None
+        fc = _solar_entries_from_attributes(attrs)
+        if fc is None:
+            _warn_solar_source_dropped_once(
+                entity_id,
+                "shape not recognized",
+                "no forecast/detailedForecast/watts attribute",
+            )
+            return None
+        try:
             # Real, honest clamp: a ML forecaster can produce a tiny
             # negative excursion near zero (physically impossible for
             # solar) -- found live on this script's very first real run.
@@ -3140,17 +3311,10 @@ def main() -> None:
             else:
                 lower = list(value)
                 upper = list(value)
+            _note_solar_source_recovered(entity_id)
             return value, lower, upper
-        except (
-            urllib.error.HTTPError,
-            urllib.error.URLError,
-            KeyError,
-            json.JSONDecodeError,
-        ) as e:
-            print(
-                f"WARN: solar source {entity_id} unavailable ({e}) -- dropped from this solve's blend",
-                file=sys.stderr,
-            )
+        except KeyError as e:
+            _warn_solar_source_dropped_once(entity_id, "malformed", str(e))
             return None
 
     def fetch_open_meteo_solar_raw() -> (
@@ -3158,36 +3322,31 @@ def main() -> None:
     ):
         """Real, DIRECT read of Open-Meteo Solar Forecast's own 8 native
         entities (today/tomorrow/d2..d7) -- reshaped from their native
-        {timestamp: watts} dict shape (15-min resolution, Watts) into
-        the standard {time, value} shape right here, no intermediate HA
+        watts={timestamp: value} dict shape via the same
+        _solar_entries_from_attributes() every solar reader in this file
+        now shares (nimbus issue #542 item 1), no intermediate HA
         template sensor. Auto-detected via entity_exists() on the
         anchor entity -- a complete no-op, not an error, on any install
         without Open-Meteo Solar Forecast. No real per-point uncertainty
         data exists from this source -- lower/upper mirror value (a
         zero-width band), same honest default as every other
-        no-uncertainty source."""
+        no-uncertainty source.
+
+        nimbus issue #546: no skip_entities parameter -- dedup against a
+        configured solver_solar_forecast_sensor_1/2/3 pointed at one of
+        THESE SAME 8 entities happens at the caller, by skipping that
+        configured source's own standalone fetch entirely.
+        """
         anchor = "sensor.home_energy_production_today"
         if not entity_exists(anchor):
             return None
-        entity_ids = [
-            "sensor.home_energy_production_today",
-            "sensor.home_energy_production_tomorrow",
-            "sensor.home_energy_production_d2",
-            "sensor.home_energy_production_d3",
-            "sensor.home_energy_production_d4",
-            "sensor.home_energy_production_d5",
-            "sensor.home_energy_production_d6",
-            "sensor.home_energy_production_d7",
-        ]
         entries: list[dict] = []
-        for eid in entity_ids:
+        for eid in _KNOWN_OPEN_METEO_SOLAR_ENTITY_IDS:
             if not entity_exists(eid):
                 continue
-            watts = ha_get(eid)["attributes"].get("watts")
-            if not watts:
-                continue
-            for ts, w in watts.items():
-                entries.append({"time": ts, "value": float(w) / 1000.0})
+            fc = _solar_entries_from_attributes(ha_get(eid)["attributes"])
+            if fc:
+                entries.extend(fc)
         if not entries:
             return None
         entries.sort(key=lambda e: e["time"])
@@ -3200,7 +3359,9 @@ def main() -> None:
         """Real, DIRECT read of Solcast's own 2 native entities
         (today/tomorrow) -- reshaped from their native detailedForecast
         list shape (30-min resolution, period_start/pv_estimate/
-        pv_estimate10/pv_estimate90) right here, no intermediate HA
+        pv_estimate10/pv_estimate90) via the same
+        _solar_entries_from_attributes() every solar reader in this file
+        now shares (nimbus issue #542 item 1), no intermediate HA
         template sensor. Auto-detected, a complete no-op on any install
         without Solcast. Carries Solcast's own REAL p10/p90 as genuine
         lower/upper confidence bounds -- a real bonus over Open-Meteo,
@@ -3208,30 +3369,22 @@ def main() -> None:
         30-min period, NOT the parent entity's own "kWh" unit tag
         (confirmed live, 2026-08-22: a real midday pv_estimate landed
         squarely between real measured solar and Open-Meteo's own kW
-        value, not double that -- no unit conversion applied here."""
+        value, not double that -- no unit conversion applied here.
+
+        nimbus issue #546: no skip_entities parameter -- see
+        fetch_open_meteo_solar_raw()'s own docstring for why the dedup
+        moved to the caller.
+        """
         anchor = "sensor.solcast_pv_forecast_forecast_today"
         if not entity_exists(anchor):
             return None
-        entity_ids = [
-            "sensor.solcast_pv_forecast_forecast_today",
-            "sensor.solcast_pv_forecast_forecast_tomorrow",
-        ]
         entries: list[dict] = []
-        for eid in entity_ids:
+        for eid in _KNOWN_SOLCAST_SOLAR_ENTITY_IDS:
             if not entity_exists(eid):
                 continue
-            detailed = ha_get(eid)["attributes"].get("detailedForecast")
-            if not detailed:
-                continue
-            for p in detailed:
-                entries.append(
-                    {
-                        "time": p["period_start"],
-                        "value": float(p.get("pv_estimate", 0.0) or 0.0),
-                        "lower": float(p.get("pv_estimate10", 0.0) or 0.0),
-                        "upper": float(p.get("pv_estimate90", 0.0) or 0.0),
-                    }
-                )
+            fc = _solar_entries_from_attributes(ha_get(eid)["attributes"])
+            if fc:
+                entries.extend(fc)
         if not entries:
             return None
         entries.sort(key=lambda e: e["time"])
@@ -3244,10 +3397,27 @@ def main() -> None:
 
     solar_values, solar_lowers, solar_uppers = [], [], []
 
+    # nimbus issue #546 (Mark Purcell, real regression the same day
+    # #542/#543 shipped): whether auto-include is on, computed once up
+    # front -- a configured source that resolves to a known Open-Meteo/
+    # Solcast entity is skipped as a STANDALONE member whenever the
+    # matching auto-include fetch is going to run anyway, so that
+    # integration is represented exactly once, by its own full-coverage
+    # multi-entity read, never by a second, narrower read of one of its
+    # own entities. See _is_known_solar_integration_entity()'s own
+    # docstring for the real regression the previous (entity-level
+    # skip_entities) dedup caused.
+    auto_include_known_solar = bool(cfg.get("solver_auto_include_known_solar"))
+
+    def _skip_as_standalone_source(entity_id: str) -> bool:
+        return auto_include_known_solar and _is_known_solar_integration_entity(
+            entity_id
+        )
+
     # Source 1: whatever's configured via the Solver settings wizard
     # (this household: Nimbus's own self-trained model).
     configured_entity = cfg.get("solver_solar_forecast_sensor")
-    if configured_entity:
+    if configured_entity and not _skip_as_standalone_source(configured_entity):
         result = fetch_solar_source_safe(configured_entity)
         if result is not None:
             v, lo, up = result
@@ -3265,7 +3435,7 @@ def main() -> None:
     # comment on CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR) -- a fresh
     # install gets exactly what's configured in sources 1/2/3, nothing
     # more, unless this switch is explicitly turned on.
-    if cfg.get("solver_auto_include_known_solar"):
+    if auto_include_known_solar:
         for fetcher in (fetch_open_meteo_solar_raw, fetch_solcast_solar_raw):
             result = fetcher()
             if result is not None:
@@ -3284,7 +3454,7 @@ def main() -> None:
         cfg.get("solver_solar_forecast_sensor_2"),
         cfg.get("solver_solar_forecast_sensor_3"),
     ):
-        if not entity_id:
+        if not entity_id or _skip_as_standalone_source(entity_id):
             continue
         result = fetch_solar_source_safe(entity_id)
         if result is not None:

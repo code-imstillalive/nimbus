@@ -62,6 +62,8 @@ Reached the same way as every other subentry: the Nimbus hub's device page →
 | Deadline (24hr decimal, optional) | The real deadline — cumulative energy delivered must reach the target by this time of day. Blank = the whole 96h horizon is the window. |
 | Shortfall price ($/kWh) | The real cost the Solver pays for every kWh short of the target by the deadline. Defaults to `10.00` (`DEFAULT_ADEQUACY_SHORTFALL_PRICE`) — high enough that a genuinely reachable target still gets fully met at any real price; a genuinely unreachable one costs this instead of taking the whole plan infeasible (#477). |
 | Value credit (optional, $/kWh) | A utility credit per kWh served, beyond the bare target — makes this load also run wherever the switchboard's own live shadow price is at or below this value (#482 groundwork), not just enough to hit the deadline. |
+| Done sensor (optional) | A `binary_sensor`, numeric sensor, or `water_heater`/`climate` entity telling the Solver this load is genuinely finished — see "Early completion" below. Leave blank to always follow the target/deadline as configured. |
+| Done condition (optional) | For a numeric done sensor, e.g. `>= 60` for a tank reaching 60°C. Leave blank when the done sensor is a `binary_sensor` (its own `on` state is the done condition) or a `water_heater`/`climate` entity (defaults to its own live setpoint — see "`water_heater`/`climate` done sensors" below). |
 
 **Earliest/deadline hour resolution, in plain terms:** both fields are a
 24-hour decimal ("hour of day"), resolved against *the next real occurrence
@@ -76,24 +78,34 @@ crash — the next cycle's own "now" almost always resolves it correctly.
 
 Real, tracked gaps, not oversights being papered over:
 
-- **No per-load output.** The Solver's plan genuinely includes this load's
-  own scheduled power (visible in `sensor.nimbus_solver_battery_forecast`'s
-  own `adequacy_loads`/`sheddable_loads` internals if you inspect a solve
-  directly), but nothing publishes a per-load `commanded_state` sensor or
-  sub-device yet (#465's own pattern, not yet applied here). Until that
-  exists, there is nothing for a real household automation to read.
+- **No per-load output SENSOR yet.** The relay-chatter-guarded
+  `commanded_state`/`commanded_since` decision itself is now computed and
+  persisted every solve (see "Relay-chatter guard" below) — but nothing
+  publishes it as a real HA sensor or sub-device yet (#465's own pattern,
+  not yet applied here). Until that exists, there is still nothing for a
+  real household automation to actually READ, even though the guarded
+  decision genuinely exists in the run-state store.
 - **No reference automation.** Directly blocked on the point above — a
   chatter-guarded switch-call automation (the #484 sub-issue 8 pattern) needs
   a real published state to react to.
+- **No tracking-fidelity/monitoring sensors** (`scheduled_kw`, `actual_kw`,
+  `tracking_fidelity_24h`, `tracking_error_cost_24h`, the plain-language
+  `sensor.nimbus_<load>_status`, `delivered_today_kwh` vs `target_today_kwh`
+  display) — the rest of #484's own spec, deferred alongside the sensor
+  gap above since building the analytics layer before the entities exist
+  to show it would be built twice.
 - **No linked-Forecaster-load option.** A sheddable load's forecast is always
   flat (`nominal_kw`) — there's no way yet to point it at an existing Load
   subentry's own real per-period forecast instead.
 - **`quota`/`thermal`/`price_gated` kinds** aren't selectable — #481/#482
   need to land first, and #479's own daily-carry math (below) needs a
   `quota` wizard kind to actually attach to.
-- **No shadow costing, monitoring, or household-mode wiring** (#483/#484/#485)
-  — a Controllable Load's real running cost and tracking fidelity aren't
-  computed or exposed anywhere yet.
+- **No shadow costing or household-mode wiring** (#483/#485) — a
+  Controllable Load's real running cost isn't computed or exposed
+  anywhere yet.
+- **No `completed_early_periods`/`kwh_released` reporting, no EMA
+  learning hook** (#480's own remaining scope) — see "Early completion"
+  below for what IS built (the core stop-scheduling mechanic).
 
 ## Run-state store (nimbus issue #479, foundation only)
 
@@ -102,12 +114,20 @@ solve tick and folded into a small per-hub JSON store
 (`custom_components/nimbus_load/load_run_state.py`) tracking
 `currently_on`/`on_since`/`off_since`/`delivered_today_kwh` — real
 restart-survivable state, same durability pattern as the Solver's own
-`number.nimbus_solver_*` settings. This lands ahead of the things that
-actually need it (#484's relay-chatter guard needs `on_since`/
-`off_since` to hysteresis-guard `commanded_state`; #480's early
-completion needs `delivered_today_kwh`), rather than alongside them —
-scoped down the same way #486 was, building the shared foundation once
-instead of duplicating a state store per consuming feature.
+`number.nimbus_solver_*` settings. The sample is scaled to kW first if
+the sensor itself reports Watts (`unit_of_measurement: "W"`) — a real
+bug (nimbus issue #535, Mark Purcell) had a 4.6W standby reading read
+as 4.6 kW, making `currently_on` permanently true and
+`delivered_today_kwh` ~1000× too large for any load whose power sensor
+is a plug/CT sensor reporting native Watts, the common case. Fixed the
+same way `_kw_scale_factor()` already fixes it for the Solver's own
+solar/load/battery quality-report sensors; logs once per sensor
+(`#313`/`#314` discipline) when the scaling actually fires. This lands ahead of the things that
+actually need it (#484's relay-chatter guard, below, needs a place to
+persist its own guarded decision; #480's early completion needs
+`delivered_today_kwh`), rather than alongside them — scoped down the
+same way #486 was, building the shared foundation once instead of
+duplicating a state store per consuming feature.
 
 Also landed: the daily quota carry/rollover math itself
 (`compute_rollover()`/`effective_target_kwh()`/`remaining_kwh()`) —
@@ -117,6 +137,108 @@ selectable wizard kind (see above). **Nothing reads this store or this
 math today** — no sensor exposes `delivered_today_kwh`, no LP field
 consumes `remaining_kwh`. It exists so the next feature that needs it
 doesn't have to build it from scratch.
+
+## Relay-chatter guard (nimbus issue #484, decision layer only)
+
+Mark's own cited HAEO incident motivates this: "a plan re-solved every
+few seconds drove 131 spurious relay states in a night." Every solve
+now computes a raw on/off decision for each Controllable Load from its
+own just-solved period-0 scheduled power, and persists a GUARDED
+`commanded_state`/`commanded_since` in the same per-load run-state store
+above (`apply_commanded_state_guard()`, `solver_writer.py`) — genuinely
+separate from `currently_on`/`on_since`/`off_since`, which track what
+the load's real power sensor MEASURED, not what the Solver last decided
+to command.
+
+The guard is a real debounce, not a rate limit: a raw decision that
+disagrees with the currently-published `commanded_state` only gets
+adopted once it has held *consecutively* for `DEFAULT_MIN_HYSTERESIS_
+PERIODS` (2, the spec's own default — sub-issue 2/#478's own
+`min_on_periods` override doesn't exist yet, so this default always
+applies) real solve periods. A raw decision that flips back to agreeing
+with the current `commanded_state` — even once — clears any in-progress
+challenge entirely, rather than pausing it. This is what makes an
+"indifferent" load whose period-0 decision flips on literally every
+single re-solve produce **zero** real published changes across ten
+consecutive solves, not one every `min_hysteresis` window — the exact
+acceptance scenario #484 itself specifies. See
+`load_run_state.decide_commanded_state()`'s own docstring and
+`tests/test_load_run_state.py`'s `TestDecideCommandedState` for the
+full worked traces.
+
+**Status: decision layer only, same honest partial-scope pattern as
+everything else on this page.** The guarded `commanded_state` is real
+and persisted every solve — but, per "What's not built yet" above,
+nothing publishes it as an HA sensor yet, so there is still no automation
+this can actually drive today. `scheduled_kw`/`actual_kw`/
+`tracking_fidelity_24h`/`tracking_error_cost_24h`/the plain-language
+status sensor/`delivered_today_kwh` vs `target_today_kwh` display are
+all deferred to the same follow-up that builds the sensor/sub-device
+itself (#465's own pattern) — building the analytics layer with nothing
+to show it on would mean building it twice.
+
+## Early completion (nimbus issue #480, core mechanic only)
+
+"Hot water scheduled for 3h, tank reaches setpoint after 2h — the third
+hour is still bought." When a deferrable load's **Done sensor** reports
+done (see the wizard fields above), the Solver stops scheduling any
+further energy for it **this solve cycle onward** — the just-finished
+load simply doesn't appear in the LP's own adequacy-load list at all
+(`build_controllable_loads()`), the same way a misconfigured load is
+skipped, except this is the expected, successful case, logged at INFO
+rather than WARNING.
+
+A `binary_sensor` done sensor's own `on` state alone means done. Any
+other sensor (a tank-temperature reading, say) needs the **Done
+condition** field too — a small, fixed comparison (`>= 60`, `== 1`,
+etc.), deliberately not a free-form expression evaluator (a household-
+supplied config string never runs as code). **Fails open**: a missing
+entity, an `unknown`/`unavailable` state, or a malformed done condition
+is all treated as "not done" — the load keeps its normal schedule,
+exactly matching #480's own acceptance criterion.
+
+**Status: the core skip mechanic only.** Real and working — a load that
+reports done genuinely stops being scheduled. NOT built: the
+`completed_early_periods`/`kwh_released` reporting fields #480's own
+spec also asks for (needs a NEW per-requirement-window delivered-energy
+tracker — genuinely different from #479's own calendar-day-scoped
+`delivered_today_kwh`, since a deferrable load's own deadline window
+doesn't necessarily align with local midnight), and the optional EMA
+run-duration learning hook (explicitly marked optional in #480's own
+spec). Both are real, deferred follow-ups, not silently dropped.
+
+### `water_heater`/`climate` done sensors (nimbus issue #534, item 1 only)
+
+A `water_heater` or `climate` entity's own *state* is a mode string
+(`eco`, `heat`) — never a number — so the fixed comparison DSL above
+can't run against it directly the way it does for a plain numeric
+sensor. When the **Done sensor** is one of these two domains, the
+Solver instead reads its **`current_temperature`** attribute as the
+value to compare, and — if **Done condition** is left blank — defaults
+it to `>= <the entity's own "temperature" attribute>` (its live
+setpoint), instead of the `binary_sensor` "state == on" default every
+other domain uses. Concretely, pointing Done sensor at
+`water_heater.hot_water_heat_pump_hot_water_sg_ready` with no Done
+condition is enough on its own: the tank counts as done the moment
+`current_temperature >= temperature`, without a separate
+`sensor.*_current_temperature` helper entity. The same
+unavailable/malformed-condition fail-open and once-per-condition
+logging above apply unchanged — real value for this specific device:
+its bridge republishes MQTT availability roughly hourly, blipping every
+entity on it through `unavailable`/`unknown`, and each blip must be
+ignored rather than read as "not done, restart the schedule".
+
+**Status: this reading/evaluation piece only.** Real and working for
+`build_controllable_loads()`'s existing done-sensor check — no wizard
+change was needed, since the Done sensor field's `EntitySelector`
+already accepts any domain. NOT built (both explicitly deferred to
+their own issues by #534 itself): seeding a thermal-kind load's own
+`min_temp`/`max_temp`/`temperature` fields from the entity (#481, not
+started), and commanding a `water_heater`/`climate` load via
+`water_heater.set_operation_mode` with a per-load minimum-hold and
+daily-activation cap once per-load output exists (#484/#486's own
+still-undelivered "what's not built yet": no controllable load is
+actually commanded by Nimbus today, on any domain).
 
 ## Diagnostics
 

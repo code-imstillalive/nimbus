@@ -58,10 +58,81 @@ instead (table below) so you can tune it without re-running this wizard.
 
 | Field | Purpose |
 |---|---|
-| Solar generation forecast sensor | Solcast, Open-Meteo Solar Forecast, or a Nimbus Power Signal on your own inverter's DC power. |
+| Solar generation forecast sensor | Solcast, Open-Meteo Solar Forecast, or a Nimbus Power Signal on your own inverter's DC power — see the shape note below for exactly what's accepted. |
 | Household load forecast sensor | The single sensor treated as "total household load" — e.g. a Nimbus Power Signal on your whole-house meter. |
 | Individual circuit forecast sensors (optional) | Sum several per-circuit forecasts instead of one whole-house sensor — leave blank to use the field above. |
 | Whole-house cross-check sensor (optional) | A real, currently-measured (not forecast) whole-house sensor the Solver compares its own first forecast period against, as a live sanity check. Has no effect on the actual dispatch plan. |
+| Solar power sensor (optional) | Real, currently-*measured* solar power (not a forecast) — feeds the built-in daily EPR/regret quality score (`sensor.nimbus_solver_quality_report`). Leave blank to skip scoring entirely. |
+| Battery power sensor (optional) | Real, currently-measured net battery power (kW, positive = discharging) — same quality-score role as the solar sensor above; both are required together for a score to be published. |
+| Battery power sign flip (optional) | Tick only if your battery sensor reports the opposite convention (positive = *charging* — confirmed on SigEnergy plants). Getting this wrong silently inverts every charge/discharge decision the quality score sees. |
+
+**Solar source shape (nimbus issue #542, Mark Purcell — found from a real household
+install):** solar generation forecast sensor / sources 2 and 3 accept any entity
+whose attributes carry one of three real shapes — the Solver tries them in this
+order and uses whichever is present:
+
+1. The generic `forecast: [{time, value, lower, upper}]` array every Nimbus-produced
+   forecast (a Nimbus Power Signal, a self-trained model) already publishes.
+2. Solcast's own native `detailedForecast: [{period_start, pv_estimate, pv_estimate10,
+   pv_estimate90}]` array — point a source directly at
+   `sensor.solcast_pv_forecast_forecast_today` (or `_tomorrow`) and it's read
+   directly, real p10/p90 confidence bounds included.
+3. Open-Meteo Solar Forecast's own native `watts: {timestamp: value}` dict — point a
+   source directly at `sensor.home_energy_production_today` (or any of its
+   `_tomorrow`/`_d2` through `_d7` siblings) and it's read directly, scaled from
+   native Watts to kW.
+
+Before this, a source pointed directly at a Solcast or Open-Meteo entity (rather than
+relying on the separate "auto-include known solar" switch below) was silently
+dropped from every solve — the Solver only understood shape 1. If you have a source
+configured that's one of Solcast's or Open-Meteo's own known entities AND
+"auto-include known solar" is on, that source is skipped as its own standalone
+contributor — the auto-include path already reads every one of that integration's
+own entities together (Solcast's real 2-day coverage, Open-Meteo's real 8-day
+coverage), so it's the correctly-covered representative for that integration, not a
+narrower duplicate of it (nimbus issue #546 — an earlier version of this dedup
+excluded just the one overlapping entity, which fragmented Solcast's own 2-day
+coverage into two separate, mostly-empty single-day reads and made the plan's solar
+noticeably *worse*, not just double-counted).
+
+**⚠️ Real invariant (nimbus issue #532, Mark Purcell — found from real household
+data, not a hypothetical):** the battery power sensor above and
+`number.nimbus_solver_battery_capacity_kwh` must describe **exactly the same
+physical storage** — the power sensor must cover no more and no less than what
+the capacity figure represents. A real, confirmed-live counter-example: a
+household with a combined helper sensor summing the home battery pack *and* a
+shared EV DC-charger channel, feeding a single `capacity_kwh: 100` model. Real
+recorded energy through that combined sensor exceeded 100 kWh inside one
+calendar day (in and out), so the achieved SoC integration left the physical
+[0, 100] range — `soc_discrepancy_reliable` correctly reads `false`, and the
+quality report becomes unreliable by construction, not because of a bug in
+the scoring itself. The same logic applies to `solver_battery_soc_sensor`
+(Step 1): if you point it at a combined/helper sensor across multiple packs,
+that helper must be **capacity-weighted** (e.g. `Σ(pack_soc × pack_capacity) /
+Σ(pack_capacity)`), never a plain unweighted mean — an unweighted mean of two
+differently-sized packs at different charge levels does not correspond to any
+real, physical state of charge. If your own install has multiple independent
+batteries or a shared EV charger, see the multi-battery discussion on issue
+[#467](https://github.com/code-imstillalive/nimbus/issues/467) before wiring
+either sensor to a combined helper — a single-battery model is only ever
+correct for a genuinely single physical pack.
+
+**Two more dashboard numbers (nimbus issue #538, Mark Purcell — found the
+day after #532 shipped):** `soc_discrepancy_reliable` above only catches the
+achieved SoC integration leaving the physical [0, 100] range — it used to say
+"reliable" for a day where the integration stayed *inside* [0, 100] but still
+disagreed with the real SoC sensor by a large, sustained margin (his own real
+case: raising the configured capacity kept the trajectory in-range while the
+gap against the real sensor stayed at 40.7 points max / 10.85 mean). Two more
+dashboard-editable numbers close that gap: `number.nimbus_solver_soc_discrepancy_max_threshold_pct`
+(default 15) and `number.nimbus_solver_soc_discrepancy_mean_threshold_pct`
+(default 8) — a day whose max/mean gap against the real sensor exceeds either
+one is also called unreliable, even inside [0, 100]. The flattened
+`sensor.nimbus_quality_soc_discrepancy_reason` (and the parent report's own
+`soc_discrepancy_reason` attribute) names which test actually failed —
+`"out_of_range"` or `"disagreement"` — so this doesn't have to be re-derived
+from the raw numbers. Tune both up if your install's own sensors are known to
+be noisier than this default tolerates; tune them down for a tighter bar.
 
 ### Topology diagram: Switchboard
 

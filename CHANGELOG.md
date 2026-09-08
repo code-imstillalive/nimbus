@@ -6,7 +6,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
-## [0.94.163] — 2026-09-07
+## [0.94.171] — 2026-09-08
 
 ### Changed
 - **Compact forecast-table format redesigned to match the trader-view target sample.** Follow-up on [#459](https://github.com/code-imstillalive/nimbus/issues/459) after Mark Purcell shared a target render. Whole-integer rounding introduced in v0.94.161 is reverted; one-decimal precision is preserved everywhere (`36.2`, `-0.1`, `3.3`). The compact `@container` block now hides four columns entirely (source, fees, p2p, net) leaving eight: TIME, BUY`¢`, SELL`¢`, LOAD kW, PV kW, BATT kW, GRID kW, SOC%. Column headers use two-line stacked spans (`.hdr-name` + `.hdr-unit`) so the name sits above the unit, matching the target sample. Table switches to `table-layout: auto` at 100% width so the browser sizes columns to their content; numerics right-align inside cells with visible vertical rules between columns. Compact-only colour: buy red (`#e04a3f`), sell green (`#3ddc84`), and a trader-convention grid colour (positive = import = green, negative = export = red) that overrides the wide-format solver-perspective colour. Wide-card rendering is unchanged.
@@ -17,6 +17,56 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ### Verified
 - Real Chromium headless render at 350px card width shows the target layout: two-line stacked headers, buy red, sell green, grid coloured by sign, NOW badge on the current-period row, no column collision. Wide render at 1900px dashboard (table-col 605px) is byte-identical to v0.94.158 output.
+
+## [0.94.170] — 2026-09-08
+
+### Fixed
+- **Regression in v0.94.169's own #542 fix, found the same day (nimbus issue #546, Mark Purcell, real household finding)**: pointing a Controllable Load's solar source directly at a Solcast entity, with "auto-include known solar" also on, made the plan's solar noticeably *worse* rather than merely double-counted — on the same real forecasts, next-24h plan solar dropped from 252.8 kWh to 172.4 kWh. Root cause: v0.94.169's own dedup excluded the one overlapping entity from Solcast's auto-included pair, but Solcast's own native entity only ever covers one day, so removing it left the auto-include read covering only the *other* day — the blend went from a healthy 2-member mean to a 3-member mean with a near-zero holdover member on every day. Fixed by moving the dedup from the entity level to the integration level: a configured source that resolves to a known Solcast/Open-Meteo entity is now skipped as a standalone member entirely when auto-include is on, restoring the exact two-member blend structure v0.94.168 already had, with Solcast's shape now correctly read.
+
+## [0.94.169] — 2026-09-08
+
+### Fixed
+- **A solar-forecast sensor configured directly at Solcast or Open-Meteo Solar Forecast's own entities is no longer silently dropped from every solve** (nimbus issue #542, Mark Purcell). Solcast's own entities publish a `detailedForecast=[...]` array and Open-Meteo's own entities publish `watts={...}`, not the generic `forecast=[...]` shape the Solver only used to recognize when a source was pointed at one directly — a healthy entity was reported "unavailable" and contributed nothing. All three solar-source readers in this file now share one reshape function that tries all three shapes. Also fixes the direct consequence of that landing: a household with the same entity both explicitly configured AND auto-included no longer double-weights it in the blend's mean. Ported to the standalone/cron deployment script too (`docs/real-world-integration/files/nimbus_solver_forecast_writer.py`) — same bug, same fix.
+- **"Solar source ... dropped from this solve's blend" now warns once per condition, not every solve** (nimbus issue #543, Mark Purcell — 205 copies in 4 hours on one real install). The three real, distinct reasons (`unavailable`, `shape not recognized`, `malformed`) each get their own one-time log; a source recovering after being down is now also logged once at INFO.
+
+### Added
+- `docs/configuration-reference.md` documents the three solar-source attribute shapes the Solver accepts directly.
+
+## [0.94.168] — 2026-09-08
+
+### Fixed
+- **`soc_discrepancy_reliable`/`epr_reliable` now also test agreement with the real SoC sensor, not just the physical [0, 100] range** (nimbus issue #538, Mark Purcell, found the day after v0.94.166 shipped). A day whose achieved SoC integration stayed inside [0, 100] but disagreed with the real SoC sensor by a large, sustained margin (his own real case: raising the configured battery capacity kept the trajectory in-range while the gap stayed at 40.7 points max / 10.85 mean) used to still read "reliable". Two new dashboard-editable numbers, `number.nimbus_solver_soc_discrepancy_max_threshold_pct` (default 15) and `number.nimbus_solver_soc_discrepancy_mean_threshold_pct` (default 8), are the second, independent test. The once-per-day WARNING and the new flattened `sensor.nimbus_quality_soc_discrepancy_reason` (`"out_of_range"` or `"disagreement"`) both name which test actually failed.
+- **Two real, pre-existing, live Solver-config bugs found while auditing the class of mistake above**: `number.nimbus_solver_fixed_daily_charge` and `number.nimbus_solver_post_window_self_consume_hours` were both missing from the bridge sensor's own live-entity resolution list — any household adjusting either from the dashboard had **zero effect on the actual solve**, silently, since the writer always read the stale/absent wizard-time value instead. New regression test (`tests/test_sensor_solver_config_keys.py`) guards every current and future `number.nimbus_solver_*` field against this exact class of bug.
+
+### Added
+- `docs/configuration-reference.md` documents the two new threshold numbers and `soc_discrepancy_reason`.
+
+## [0.94.167] — 2026-09-08
+
+### Added
+- **Controllable Load "Done sensor" now accepts a `water_heater` or `climate` entity directly** (nimbus issue #534, item 1, Mark Purcell, real SG-Ready heat-pump HWS install). These domains' own *state* is a mode string (`eco`/`performance`), not a number, so the existing done-condition comparison couldn't read it — a household had to find a separate `sensor.*_current_temperature` helper instead. The Solver now reads the entity's own `current_temperature` attribute, and if **Done condition** is left blank, defaults it to `>= <the entity's own "temperature" attribute>` (its live setpoint) instead of the `binary_sensor` "state == on" default every other domain uses. Same fail-open behaviour as #480 for a missing entity, an `unavailable`/`unknown` state, or a malformed condition. No wizard change was needed — the Done sensor field already accepts any entity domain.
+- Seeding a thermal-kind load's temperature fields from the entity (#481) and commanding it via `water_heater.set_operation_mode` (needs #484/#486's own still-undelivered per-load output) are real, deferred follow-ups — see `docs/controllable-loads.md`.
+
+## [0.94.166] — 2026-09-07
+
+### Fixed
+- **Controllable Load run-state sampling no longer misreads a Watts power sensor as kilowatts** (nimbus issue #535, Mark Purcell, real household finding). A 4.6W standby reading on a real heat-pump HWS power sensor was read as 4.6 kW — `currently_on` permanently true, `delivered_today_kwh` accruing ~1000× too fast — for any load whose power sensor reports native Watts (the common case for plug/CT power sensors). Same `unit_of_measurement` check the Solver's own solar/load/battery quality-report sensors already use; logs once per sensor when the correction fires.
+
+### Added
+- **Quality report: `achieved_energy_in_kwh`/`achieved_energy_out_kwh`** now published alongside `soc_discrepancy_reliable` (nimbus issue #532, Mark Purcell, real household finding) — lets a household compare the real energy that moved through their configured battery power sensor against their own `solver_battery_capacity_kwh` and tell a recorder history gap from a sensor covering more physical storage than the capacity figure describes (Mark's own real case: a combined sensor summing the home pack and a shared EV DC charger into a 100 kWh single-battery model), without a manual recorder pull.
+- **`epr_reliable`, plus the three `soc_discrepancy_*` fields, are now flattened onto the Nimbus Quality sub-device** (nimbus issue #533, Mark Purcell) — the EPR headline used to publish a clean-looking percentage even when the underlying SoC integration was unreliable, with the qualifying flag visible only in the parent sensor's own attributes. `sensor.nimbus_quality_epr_reliable`, `sensor.nimbus_quality_soc_discrepancy_max`, `sensor.nimbus_quality_soc_discrepancy_mean`, and `sensor.nimbus_quality_soc_discrepancy_reliable` are new diagnostic entities.
+- `publish_daily_quality_report()` now logs once per scored day (not every cycle) at WARNING when a day's own report is unreliable, naming the max/mean discrepancy.
+- `docs/configuration-reference.md` documents the real invariant behind #532: the battery power sensor and `solver_battery_capacity_kwh` must describe exactly the same physical storage, and a combined SoC sensor must be capacity-weighted, never a plain mean.
+
+## [0.94.165] — 2026-09-07
+
+### Fixed
+- **A malformed `done_when`/non-numeric done-sensor reading on a deferrable Controllable Load now warns once per condition, not every solve** (direct finding from Mark Purcell's own live review of #480) — matches this project's own #313/#314 "log once" discipline instead of repeating the same warning every ~5 minutes for as long as the condition persists.
+
+## [0.94.164] — 2026-09-07
+
+### Added
+- **Early completion for deferrable Controllable Loads** (nimbus issue #480, Mark Purcell) — "hot water scheduled for 3h, tank reaches setpoint after 2h, the third hour is still bought." Two new optional wizard fields on a deferrable load, **Done sensor** and **Done condition**: once the done sensor reports finished (a `binary_sensor`'s own `on` state, or a numeric sensor compared against a fixed threshold like `>= 60`), the Solver stops scheduling any further energy for that load from the very next solve onward. Fails open on a missing/unavailable done sensor or a malformed condition — the load just keeps its normal schedule. Core stop-scheduling mechanic only; `completed_early_periods`/`kwh_released` reporting and the optional EMA run-duration learning hook are real, deferred follow-ups (see `docs/controllable-loads.md`).
 
 ## [0.94.162] — 2026-09-07
 

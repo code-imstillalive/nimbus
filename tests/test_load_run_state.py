@@ -266,6 +266,173 @@ class TestApplyPowerSample(unittest.TestCase):
         self.assertEqual(new.delivered_today_kwh, 0.0)
 
 
+class TestDecideCommandedState(unittest.TestCase):
+    _MIN_HYST = 600.0  # 2 periods @ 5 min, matches #484's own default
+
+    def test_first_ever_decision_adopts_immediately(self):
+        state = lrs.LoadRunState()  # commanded_since=None -- never guarded
+        now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+        new = lrs.decide_commanded_state(
+            state,
+            raw_new_state=True,
+            now=now,
+            min_hysteresis_seconds=self._MIN_HYST,
+        )
+        self.assertTrue(new.commanded_state)
+        self.assertEqual(new.commanded_since, now.timestamp())
+        self.assertIsNone(new.pending_state)
+
+    def test_a_raw_value_that_agrees_never_starts_a_challenge(self):
+        state = lrs.LoadRunState(
+            commanded_state=True,
+            commanded_since=datetime(2026, 9, 7, 7, 0, tzinfo=_TZ).timestamp(),
+        )
+        new = lrs.decide_commanded_state(
+            state,
+            raw_new_state=True,
+            now=datetime(2026, 9, 7, 8, 0, tzinfo=_TZ),
+            min_hysteresis_seconds=self._MIN_HYST,
+        )
+        self.assertEqual(new, state)
+
+    def test_a_disagreeing_value_starts_a_challenge_without_flipping_yet(self):
+        state = lrs.LoadRunState(
+            commanded_state=False,
+            commanded_since=datetime(2026, 9, 7, 7, 0, tzinfo=_TZ).timestamp(),
+        )
+        now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+        new = lrs.decide_commanded_state(
+            state, raw_new_state=True, now=now, min_hysteresis_seconds=self._MIN_HYST
+        )
+        self.assertFalse(new.commanded_state)  # not adopted yet
+        self.assertTrue(new.pending_state)
+        self.assertEqual(new.pending_since, now.timestamp())
+
+    def test_a_challenge_held_short_of_the_threshold_does_not_flip(self):
+        challenge_start = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+        state = lrs.LoadRunState(
+            commanded_state=False,
+            commanded_since=datetime(2026, 9, 7, 7, 0, tzinfo=_TZ).timestamp(),
+            pending_state=True,
+            pending_since=challenge_start.timestamp(),
+        )
+        # Same challenger, but only 5 minutes in -- short of the 10-minute
+        # (2-period) default threshold.
+        now = datetime(2026, 9, 7, 8, 5, tzinfo=_TZ)
+        new = lrs.decide_commanded_state(
+            state, raw_new_state=True, now=now, min_hysteresis_seconds=self._MIN_HYST
+        )
+        self.assertFalse(new.commanded_state)
+        self.assertTrue(new.pending_state)
+        self.assertEqual(new.pending_since, challenge_start.timestamp())  # unchanged
+
+    def test_a_challenge_held_past_the_threshold_flips(self):
+        challenge_start = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+        state = lrs.LoadRunState(
+            commanded_state=False,
+            commanded_since=datetime(2026, 9, 7, 7, 0, tzinfo=_TZ).timestamp(),
+            pending_state=True,
+            pending_since=challenge_start.timestamp(),
+        )
+        now = datetime(2026, 9, 7, 8, 10, tzinfo=_TZ)  # exactly 10 min later
+        new = lrs.decide_commanded_state(
+            state, raw_new_state=True, now=now, min_hysteresis_seconds=self._MIN_HYST
+        )
+        self.assertTrue(new.commanded_state)
+        self.assertEqual(new.commanded_since, now.timestamp())
+        self.assertIsNone(new.pending_state)
+        self.assertIsNone(new.pending_since)
+
+    def test_reverting_to_agree_clears_the_challenge_entirely(self):
+        state = lrs.LoadRunState(
+            commanded_state=False,
+            commanded_since=datetime(2026, 9, 7, 7, 0, tzinfo=_TZ).timestamp(),
+            pending_state=True,
+            pending_since=datetime(2026, 9, 7, 8, 5, tzinfo=_TZ).timestamp(),
+        )
+        # raw_new_state now agrees with commanded_state again -- the
+        # in-progress challenge must be dropped, not paused.
+        new = lrs.decide_commanded_state(
+            state,
+            raw_new_state=False,
+            now=datetime(2026, 9, 7, 8, 6, tzinfo=_TZ),
+            min_hysteresis_seconds=self._MIN_HYST,
+        )
+        self.assertFalse(new.commanded_state)
+        self.assertIsNone(new.pending_state)
+        self.assertIsNone(new.pending_since)
+
+    def test_re_challenging_after_reverting_needs_a_full_fresh_window(self):
+        # A challenge that almost settled (9 of 10 minutes in), then
+        # reverts to agree for one tick, then challenges again -- must
+        # need a FULL fresh min_hysteresis_seconds from the restart, not
+        # resume from the 9 minutes it had already accumulated. Real
+        # scenario this guards against: a load hovering right at its own
+        # economic indifference point shouldn't get to "bank" partial
+        # progress across separate noise-driven excursions.
+        state = lrs.LoadRunState(
+            commanded_state=False,
+            commanded_since=datetime(2026, 9, 7, 7, 0, tzinfo=_TZ).timestamp(),
+            pending_state=True,
+            pending_since=datetime(2026, 9, 7, 8, 0, tzinfo=_TZ).timestamp(),
+        )
+        # Reverts to agree at 8:09 (1 minute short of the 10-minute
+        # threshold) -- clears the challenge.
+        state = lrs.decide_commanded_state(
+            state,
+            raw_new_state=False,
+            now=datetime(2026, 9, 7, 8, 9, tzinfo=_TZ),
+            min_hysteresis_seconds=self._MIN_HYST,
+        )
+        self.assertIsNone(state.pending_state)
+        # Challenges again at 8:10 -- a NEW challenge, not a resumption.
+        restart = datetime(2026, 9, 7, 8, 10, tzinfo=_TZ)
+        state = lrs.decide_commanded_state(
+            state,
+            raw_new_state=True,
+            now=restart,
+            min_hysteresis_seconds=self._MIN_HYST,
+        )
+        self.assertEqual(state.pending_since, restart.timestamp())
+        # 9 minutes after the restart (18 min after the ORIGINAL
+        # challenge began) -- still short of a fresh 10-minute window,
+        # must not have flipped yet.
+        new = lrs.decide_commanded_state(
+            state,
+            raw_new_state=True,
+            now=restart + timedelta(minutes=9),
+            min_hysteresis_seconds=self._MIN_HYST,
+        )
+        self.assertFalse(new.commanded_state)
+
+    def test_484s_own_acceptance_scenario_ten_alternating_solves_produce_at_most_one_change(
+        self,
+    ):
+        # #484's own acceptance criterion, verbatim: "Ten consecutive
+        # solves that flip an indifferent load's period-0 decision
+        # produce <= 1 commanded-state change." Solves 5 minutes apart
+        # (a real solve-tick cadence), raw_new_state alternating every
+        # single solve -- the load is genuinely indifferent, LP-level
+        # numerical noise decides period-0 each time.
+        state = lrs.LoadRunState(
+            commanded_state=False,
+            commanded_since=datetime(2026, 9, 7, 6, 0, tzinfo=_TZ).timestamp(),
+        )
+        start = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+        real_changes = 0
+        raw = True
+        for i in range(10):
+            now = start + timedelta(minutes=5 * i)
+            new = lrs.decide_commanded_state(
+                state, raw_new_state=raw, now=now, min_hysteresis_seconds=self._MIN_HYST
+            )
+            if new.commanded_state != state.commanded_state:
+                real_changes += 1
+            state = new
+            raw = not raw
+        self.assertLessEqual(real_changes, 1)
+
+
 class _FakeStore:
     """Real in-memory stand-in for homeassistant.helpers.storage.Store,
     same shape/reasoning as tests/_ha_stubs.py's own _StubStore -- keyed

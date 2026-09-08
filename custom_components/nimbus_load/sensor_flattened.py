@@ -1017,6 +1017,31 @@ FLATTENED_ATTRS_QUALITY: tuple[FlattenedAttrSpec, ...] = (
         unit_of_measurement=_PERCENT,
         suggested_display_precision=1,
     ),
+    # nimbus issue #533 (Mark Purcell, real household finding): the EPR
+    # headline used to publish a clean-looking percentage even when
+    # soc_discrepancy_reliable said the underlying SoC integration was
+    # out of the physically real [0, 100] range for part of the window
+    # -- the flag lived only as a parent attribute, invisible to any
+    # consumer reading the flattened EPR sensor alone. Flattened right
+    # next to Quality EPR itself (not buried in the diagnostic section
+    # below) so the qualifier is visible wherever the EPR is, matching
+    # the issue's own explicit ask. The parent's own value is a plain
+    # Python bool (True/False) or None ("no scored day yet" -- neither
+    # J_ach nor a real SoC sensor available) -- passed straight through
+    # to native_value the same as every other row here; HA's SensorEntity
+    # base class publishes None as its own "unknown" state and str()s a
+    # bool ("True"/"False") when writing state, so this needs no extra
+    # coercion, just a plain scalar row like any other.
+    FlattenedAttrSpec(
+        source_key="epr_reliable",
+        name="Quality EPR Reliable",
+        entity_id_suffix="epr_reliable",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=None,
+        state_class=None,
+        unit_of_measurement=None,
+        suggested_display_precision=None,
+    ),
     # --- Yield / value captured / uplift available (diagnostic, monetary) ------
     FlattenedAttrSpec(
         source_key="theoretical_maximum_yield",
@@ -1178,6 +1203,98 @@ FLATTENED_ATTRS_QUALITY: tuple[FlattenedAttrSpec, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_AUD,
         suggested_display_precision=3,
+    ),
+    # --- SoC discrepancy (diagnostic) -- nimbus issue #533 -----------------------
+    # Real household finding (#532/#533, Mark Purcell, 7 Sep 2026): none
+    # of these three existed anywhere but the parent sensor's own
+    # attributes -- a dashboard or LTS graph reading the flattened EPR
+    # sensor alone had no way to know its own reliability without
+    # opening the parent's attribute dict. Flattened here so they're
+    # real, independently-graphable diagnostic entities on the Quality
+    # sub-device, matching this file's own established pattern for every
+    # other quality-report scalar.
+    FlattenedAttrSpec(
+        source_key="soc_discrepancy_max_pct",
+        name="Quality SoC Discrepancy Max",
+        entity_id_suffix="soc_discrepancy_max_pct",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=None,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_PERCENT,
+        suggested_display_precision=1,
+    ),
+    FlattenedAttrSpec(
+        source_key="soc_discrepancy_mean_pct",
+        name="Quality SoC Discrepancy Mean",
+        entity_id_suffix="soc_discrepancy_mean_pct",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=None,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_PERCENT,
+        suggested_display_precision=1,
+    ),
+    # Same bool-or-None passthrough as Quality EPR Reliable above -- this
+    # IS that same underlying value (epr_reliable is a named alias of
+    # it), flattened separately too since #533's own ask was specific
+    # about it appearing here, not just next to EPR.
+    FlattenedAttrSpec(
+        source_key="soc_discrepancy_reliable",
+        name="Quality SoC Discrepancy Reliable",
+        entity_id_suffix="soc_discrepancy_reliable",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=None,
+        state_class=None,
+        unit_of_measurement=None,
+        suggested_display_precision=None,
+    ),
+    # nimbus issue #538 (Mark Purcell, item 3): a string-or-None
+    # passthrough naming WHICH test failed when soc_discrepancy_reliable
+    # is False -- "out_of_range" or "disagreement" -- so this flattened
+    # sensor is self-explanatory without a household having to open the
+    # parent entity's attributes or read the HA log. None (native_value's
+    # own "unknown" state, same as every other None-valued row on this
+    # sub-device) when reliable or when there's no data for the window.
+    FlattenedAttrSpec(
+        source_key="soc_discrepancy_reason",
+        name="Quality SoC Discrepancy Reason",
+        entity_id_suffix="soc_discrepancy_reason",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=None,
+        state_class=None,
+        unit_of_measurement=None,
+        suggested_display_precision=None,
+    ),
+    # nimbus issue #532: the real energy the achieved trajectory moved
+    # through the configured battery_power sensor over the whole scored
+    # window -- lets a household compare against their own configured
+    # solver_battery_capacity_kwh and see for themselves whether an
+    # unreliable SoC discrepancy is a history gap (#445) or a sensor
+    # covering more physical storage than the capacity figure describes
+    # (#532's own real case: a combined sensor summing the home pack and
+    # a shared EV DC charger into a 100 kWh single-battery model).
+    # Deliberately two raw numbers, not an automatic cause classifier --
+    # see solver_writer.py's own comment at the achieved_energy_in_kwh/
+    # achieved_energy_out_kwh construction for why that's out of scope
+    # this pass.
+    FlattenedAttrSpec(
+        source_key="achieved_energy_in_kwh",
+        name="Quality Achieved Energy In",
+        entity_id_suffix="achieved_energy_in_kwh",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=None,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_KWH,
+        suggested_display_precision=2,
+    ),
+    FlattenedAttrSpec(
+        source_key="achieved_energy_out_kwh",
+        name="Quality Achieved Energy Out",
+        entity_id_suffix="achieved_energy_out_kwh",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=None,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_KWH,
+        suggested_display_precision=2,
     ),
 )
 

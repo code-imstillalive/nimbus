@@ -91,11 +91,27 @@ def _fake_subentry(subentry_id: str, subentry_type: str, data: dict):
     )
 
 
-def _fake_native_hass(subentries: list):
+def _fake_native_hass(subentries: list, states: dict | None = None):
     entry = SimpleNamespace(subentries={s.subentry_id: s for s in subentries})
-    return SimpleNamespace(
+    fake = SimpleNamespace(
         config_entries=SimpleNamespace(async_entries=lambda domain: [entry])
     )
+    if states is not None:
+        fake.states = SimpleNamespace(get=lambda eid: states.get(eid))
+    return fake
+
+
+def _fake_state(value, unit=None):
+    return SimpleNamespace(state=value, attributes={"unit_of_measurement": unit})
+
+
+def _fake_water_heater_state(mode="eco", current_temperature=None, temperature=None):
+    attrs = {}
+    if current_temperature is not None:
+        attrs["current_temperature"] = current_temperature
+    if temperature is not None:
+        attrs["temperature"] = temperature
+    return SimpleNamespace(state=mode, attributes=attrs)
 
 
 class TestBuildControllableLoads(unittest.TestCase):
@@ -302,6 +318,392 @@ class TestBuildControllableLoads(unittest.TestCase):
         self.assertEqual({a.name for a in adequacy}, {"HWS L1", "HWS L3"})
 
 
+class TestParseDoneWhen(unittest.TestCase):
+    """nimbus issue #480: _parse_done_when()'s own small, fixed
+    comparison DSL -- deliberately not eval()."""
+
+    def test_ge(self):
+        op_fn, threshold = solver_writer._parse_done_when(">= 60")
+        self.assertTrue(op_fn(60.0, threshold))
+        self.assertFalse(op_fn(59.9, threshold))
+
+    def test_le(self):
+        op_fn, threshold = solver_writer._parse_done_when("<=20")
+        self.assertTrue(op_fn(20.0, threshold))
+        self.assertFalse(op_fn(20.1, threshold))
+
+    def test_longer_operators_checked_before_shorter_ones(self):
+        # ">= 60" must not be misparsed as "> = 60" (which would fail to
+        # float-parse " = 60" and raise).
+        _, threshold = solver_writer._parse_done_when(">= 60")
+        self.assertEqual(threshold, 60.0)
+
+    def test_eq_and_ne(self):
+        op_fn, threshold = solver_writer._parse_done_when("==1")
+        self.assertTrue(op_fn(1.0, threshold))
+        op_fn, threshold = solver_writer._parse_done_when("!= 0")
+        self.assertTrue(op_fn(1.0, threshold))
+        self.assertFalse(op_fn(0.0, threshold))
+
+    def test_no_recognized_operator_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            solver_writer._parse_done_when("60")
+
+    def test_non_numeric_threshold_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            solver_writer._parse_done_when(">= hot")
+
+
+class TestEvaluateDoneCondition(unittest.TestCase):
+    def setUp(self):
+        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._orig_warned = set(solver_writer._DONE_CONDITION_WARNED)
+        solver_writer._DONE_CONDITION_WARNED.clear()
+
+    def tearDown(self):
+        solver_writer._NATIVE_HASS = self._orig_native_hass
+        solver_writer._DONE_CONDITION_WARNED.clear()
+        solver_writer._DONE_CONDITION_WARNED.update(self._orig_warned)
+
+    def test_no_native_hass_returns_none(self):
+        solver_writer._NATIVE_HASS = None
+        result = solver_writer._evaluate_done_condition("binary_sensor.x", None)
+        self.assertIsNone(result)
+
+    def test_missing_entity_returns_none(self):
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            states=SimpleNamespace(get=lambda eid: None)
+        )
+        result = solver_writer._evaluate_done_condition("binary_sensor.x", None)
+        self.assertIsNone(result)
+
+    def test_unavailable_entity_returns_none(self):
+        states = {"binary_sensor.x": _fake_state("unavailable")}
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            states=SimpleNamespace(get=lambda eid: states.get(eid))
+        )
+        result = solver_writer._evaluate_done_condition("binary_sensor.x", None)
+        self.assertIsNone(result)
+
+    def test_binary_sensor_on_with_no_done_when_is_done(self):
+        states = {"binary_sensor.x": _fake_state("on")}
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            states=SimpleNamespace(get=lambda eid: states.get(eid))
+        )
+        self.assertTrue(solver_writer._evaluate_done_condition("binary_sensor.x", None))
+
+    def test_binary_sensor_off_with_no_done_when_is_not_done(self):
+        states = {"binary_sensor.x": _fake_state("off")}
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            states=SimpleNamespace(get=lambda eid: states.get(eid))
+        )
+        self.assertFalse(
+            solver_writer._evaluate_done_condition("binary_sensor.x", None)
+        )
+
+    def test_numeric_sensor_with_done_when_met_is_done(self):
+        states = {"sensor.tank_temp": _fake_state("62.5")}
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            states=SimpleNamespace(get=lambda eid: states.get(eid))
+        )
+        self.assertTrue(
+            solver_writer._evaluate_done_condition("sensor.tank_temp", ">= 60")
+        )
+
+    def test_numeric_sensor_with_done_when_not_met_is_not_done(self):
+        states = {"sensor.tank_temp": _fake_state("45.0")}
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            states=SimpleNamespace(get=lambda eid: states.get(eid))
+        )
+        self.assertFalse(
+            solver_writer._evaluate_done_condition("sensor.tank_temp", ">= 60")
+        )
+
+    def test_malformed_done_when_returns_none_not_raise(self):
+        states = {"sensor.tank_temp": _fake_state("62.5")}
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            states=SimpleNamespace(get=lambda eid: states.get(eid))
+        )
+        result = solver_writer._evaluate_done_condition("sensor.tank_temp", "hot")
+        self.assertIsNone(result)
+
+    def test_non_numeric_state_with_done_when_returns_none_not_raise(self):
+        states = {"sensor.tank_temp": _fake_state("not_a_number")}
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            states=SimpleNamespace(get=lambda eid: states.get(eid))
+        )
+        result = solver_writer._evaluate_done_condition("sensor.tank_temp", ">= 60")
+        self.assertIsNone(result)
+
+    def test_the_same_bad_condition_only_warns_once(self):
+        # nimbus issue #480, Mark Purcell's own live review: this used
+        # to warn on every single solve tick (~5 min) for as long as the
+        # same bad condition persisted -- the #313/#314 "log once per
+        # condition" discipline this project already follows elsewhere.
+        states = {"sensor.tank_temp": _fake_state("not_a_number")}
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            states=SimpleNamespace(get=lambda eid: states.get(eid))
+        )
+        with self.assertLogs(solver_writer._LOGGER, level="WARNING") as captured:
+            solver_writer._evaluate_done_condition("sensor.tank_temp", ">= 60")
+        self.assertEqual(len(captured.records), 1)
+        # Second call, same exact (entity, done_when, state) triple --
+        # must NOT log again. assertNoLogs would raise AssertionError on
+        # zero records, which is exactly what "no second warning" means.
+        with (
+            self.assertRaises(AssertionError),
+            self.assertLogs(solver_writer._LOGGER, level="WARNING"),
+        ):
+            solver_writer._evaluate_done_condition("sensor.tank_temp", ">= 60")
+
+    def test_a_genuinely_different_bad_state_warns_again(self):
+        # A DIFFERENT bad reading on the same entity/done_when is a real,
+        # new diagnostic event -- must still get its own one-time log,
+        # not be suppressed by the earlier condition's own dedup key.
+        states = {"sensor.tank_temp": _fake_state("still_not_a_number")}
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            states=SimpleNamespace(get=lambda eid: states.get(eid))
+        )
+        solver_writer._DONE_CONDITION_WARNED.add(
+            ("sensor.tank_temp", ">= 60", "not_a_number")
+        )
+        with self.assertLogs(solver_writer._LOGGER, level="WARNING") as captured:
+            solver_writer._evaluate_done_condition("sensor.tank_temp", ">= 60")
+        self.assertEqual(len(captured.records), 1)
+
+
+class TestEvaluateDoneConditionAttributeDomains(unittest.TestCase):
+    """nimbus issue #534 (Mark Purcell, real SG-Ready heat-pump HWS
+    install): water_heater/climate's own state is a mode string ("eco"),
+    not a number -- done_when has to read current_temperature (an
+    attribute) instead, and an unset done_when falls back to the
+    entity's own temperature (setpoint) attribute rather than the
+    binary_sensor "state == on" default every other domain uses."""
+
+    def setUp(self):
+        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._orig_warned = set(solver_writer._DONE_CONDITION_WARNED)
+        solver_writer._DONE_CONDITION_WARNED.clear()
+
+    def tearDown(self):
+        solver_writer._NATIVE_HASS = self._orig_native_hass
+        solver_writer._DONE_CONDITION_WARNED.clear()
+        solver_writer._DONE_CONDITION_WARNED.update(self._orig_warned)
+
+    def _hass(self, entity_id, state_obj):
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            states=SimpleNamespace(get=lambda eid: {entity_id: state_obj}.get(eid))
+        )
+
+    def test_no_done_when_defaults_to_current_temperature_ge_temperature_attr(self):
+        # #534's own real 7 Sep case: tank at 61C, setpoint (temperature
+        # attribute) 45C in eco -- already past setpoint, so done.
+        self._hass(
+            "water_heater.hws",
+            _fake_water_heater_state(current_temperature=61.0, temperature=45.0),
+        )
+        self.assertTrue(
+            solver_writer._evaluate_done_condition("water_heater.hws", None)
+        )
+
+    def test_no_done_when_below_temperature_attr_is_not_done(self):
+        self._hass(
+            "water_heater.hws",
+            _fake_water_heater_state(current_temperature=48.0, temperature=65.0),
+        )
+        self.assertFalse(
+            solver_writer._evaluate_done_condition("water_heater.hws", None)
+        )
+
+    def test_explicit_done_when_reads_current_temperature_not_the_mode_state(self):
+        # state is "eco" (not numeric) -- must not be parsed as the
+        # comparison value; current_temperature attribute is used instead.
+        self._hass(
+            "water_heater.hws",
+            _fake_water_heater_state(mode="eco", current_temperature=62.5),
+        )
+        self.assertTrue(
+            solver_writer._evaluate_done_condition("water_heater.hws", ">= 60")
+        )
+
+    def test_climate_domain_gets_the_same_attribute_based_evaluation(self):
+        self._hass(
+            "climate.zone1",
+            _fake_water_heater_state(mode="heat", current_temperature=22.0),
+        )
+        self.assertTrue(
+            solver_writer._evaluate_done_condition("climate.zone1", ">= 21")
+        )
+
+    def test_missing_current_temperature_attribute_returns_none(self):
+        self._hass("water_heater.hws", _fake_water_heater_state(mode="eco"))
+        result = solver_writer._evaluate_done_condition("water_heater.hws", None)
+        self.assertIsNone(result)
+
+    def test_no_done_when_and_missing_temperature_attr_returns_none(self):
+        self._hass(
+            "water_heater.hws",
+            _fake_water_heater_state(current_temperature=55.0),
+        )
+        result = solver_writer._evaluate_done_condition("water_heater.hws", None)
+        self.assertIsNone(result)
+
+    def test_unavailable_water_heater_fails_open_returns_none(self):
+        # Same #480 fail-open contract -- #534's own real install
+        # republishes MQTT availability roughly hourly, blipping every
+        # entity through unavailable/unknown; must never be read as
+        # "not done, restart the schedule".
+        self._hass("water_heater.hws", _fake_state("unavailable"))
+        result = solver_writer._evaluate_done_condition("water_heater.hws", None)
+        self.assertIsNone(result)
+
+    def test_malformed_done_when_on_a_water_heater_warns_once_not_every_cycle(self):
+        self._hass(
+            "water_heater.hws",
+            _fake_water_heater_state(current_temperature=62.5),
+        )
+        with self.assertLogs(solver_writer._LOGGER, level="WARNING") as captured:
+            solver_writer._evaluate_done_condition("water_heater.hws", "hot")
+        self.assertEqual(len(captured.records), 1)
+        with (
+            self.assertRaises(AssertionError),
+            self.assertLogs(solver_writer._LOGGER, level="WARNING"),
+        ):
+            solver_writer._evaluate_done_condition("water_heater.hws", "hot")
+
+
+class TestBuildControllableLoadsEarlyCompletion(unittest.TestCase):
+    """nimbus issue #480: real tests for build_controllable_loads()'s own
+    done_entity wiring on deferrable loads."""
+
+    def setUp(self):
+        self._orig_native_hass = solver_writer._NATIVE_HASS
+
+    def tearDown(self):
+        solver_writer._NATIVE_HASS = self._orig_native_hass
+
+    def test_a_done_binary_sensor_releases_the_load_this_cycle(self):
+        now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
+        grid_times = _grid(now, 8)
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [
+                _fake_subentry(
+                    "s1",
+                    "controllable_load",
+                    {
+                        "controllable_load_name": "HWS L1",
+                        "controllable_load_kind": "deferrable",
+                        "deferrable_max_power_kw": 3.7,
+                        "deferrable_target_kwh": 5.0,
+                        "deferrable_done_entity": "binary_sensor.hws_at_temp",
+                    },
+                )
+            ],
+            states={"binary_sensor.hws_at_temp": _fake_state("on")},
+        )
+        _, adequacy = solver_writer.build_controllable_loads(
+            now, grid_times, len(grid_times)
+        )
+        self.assertEqual(adequacy, [])
+
+    def test_a_not_yet_done_binary_sensor_schedules_normally(self):
+        now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
+        grid_times = _grid(now, 8)
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [
+                _fake_subentry(
+                    "s1",
+                    "controllable_load",
+                    {
+                        "controllable_load_name": "HWS L1",
+                        "controllable_load_kind": "deferrable",
+                        "deferrable_max_power_kw": 3.7,
+                        "deferrable_target_kwh": 5.0,
+                        "deferrable_done_entity": "binary_sensor.hws_at_temp",
+                    },
+                )
+            ],
+            states={"binary_sensor.hws_at_temp": _fake_state("off")},
+        )
+        _, adequacy = solver_writer.build_controllable_loads(
+            now, grid_times, len(grid_times)
+        )
+        self.assertEqual(len(adequacy), 1)
+
+    def test_an_unavailable_done_entity_fails_open_and_schedules_normally(self):
+        # #480's own acceptance criterion: "a done-sensor going
+        # unavailable is ignored (fail open: keep the schedule)."
+        now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
+        grid_times = _grid(now, 8)
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [
+                _fake_subentry(
+                    "s1",
+                    "controllable_load",
+                    {
+                        "controllable_load_name": "HWS L1",
+                        "controllable_load_kind": "deferrable",
+                        "deferrable_max_power_kw": 3.7,
+                        "deferrable_target_kwh": 5.0,
+                        "deferrable_done_entity": "binary_sensor.hws_at_temp",
+                    },
+                )
+            ],
+            states={"binary_sensor.hws_at_temp": _fake_state("unavailable")},
+        )
+        _, adequacy = solver_writer.build_controllable_loads(
+            now, grid_times, len(grid_times)
+        )
+        self.assertEqual(len(adequacy), 1)
+
+    def test_a_numeric_done_sensor_with_done_when_releases_the_load(self):
+        now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
+        grid_times = _grid(now, 8)
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [
+                _fake_subentry(
+                    "s1",
+                    "controllable_load",
+                    {
+                        "controllable_load_name": "HWS L1",
+                        "controllable_load_kind": "deferrable",
+                        "deferrable_max_power_kw": 3.7,
+                        "deferrable_target_kwh": 5.0,
+                        "deferrable_done_entity": "sensor.tank_temp",
+                        "deferrable_done_when": ">= 60",
+                    },
+                )
+            ],
+            states={"sensor.tank_temp": _fake_state("65.0")},
+        )
+        _, adequacy = solver_writer.build_controllable_loads(
+            now, grid_times, len(grid_times)
+        )
+        self.assertEqual(adequacy, [])
+
+    def test_no_done_entity_configured_is_unaffected(self):
+        now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
+        grid_times = _grid(now, 8)
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [
+                _fake_subentry(
+                    "s1",
+                    "controllable_load",
+                    {
+                        "controllable_load_name": "HWS L1",
+                        "controllable_load_kind": "deferrable",
+                        "deferrable_max_power_kw": 3.7,
+                        "deferrable_target_kwh": 5.0,
+                    },
+                )
+            ]
+        )
+        _, adequacy = solver_writer.build_controllable_loads(
+            now, grid_times, len(grid_times)
+        )
+        self.assertEqual(len(adequacy), 1)
+
+
 # nimbus issue #479: tests for _sample_load_run_state() and its wiring
 # into build_controllable_loads() -- the one seam solver_writer.py's own
 # top-of-file try/except pattern doesn't cover, since this function
@@ -362,10 +764,6 @@ def _make_running_loop() -> tuple[asyncio.AbstractEventLoop, threading.Thread]:
     return loop, thread
 
 
-def _fake_state(value):
-    return SimpleNamespace(state=value)
-
-
 class TestSampleLoadRunState(unittest.TestCase):
     def setUp(self):
         self._orig_native_hass = solver_writer._NATIVE_HASS
@@ -411,6 +809,102 @@ class TestSampleLoadRunState(unittest.TestCase):
         solver_writer._sample_load_run_state(
             "entry_1", "s_missing", "sensor.pool_pump_power", now, "2026-09-07"
         )
+
+    def _read_state(self, hub_entry_id, subentry_id):
+        async def _read():
+            store = load_run_state.LoadRunStateStore(
+                store=_FakeRunStateStore(
+                    None, 1, f"nimbus_load_{hub_entry_id}_load_run_state"
+                )
+            )
+            return await store.async_read(subentry_id)
+
+        return asyncio.run(_read())
+
+    def test_a_watts_sensor_is_scaled_down_to_kw(self):
+        # nimbus issue #535 (Mark Purcell, real household finding): a
+        # 4.6W standby reading on a real heat-pump HWS power sensor used
+        # to be read as 4.6 kW -- currently_on permanently true. Same
+        # reading, correctly scaled, must read as OFF (4.6W is well
+        # under DEFAULT_ON_THRESHOLD_KW=0.05 kW = 50W).
+        states = {
+            "sensor.hws_power": _fake_state("4.6", unit="W"),
+        }
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            states=SimpleNamespace(get=lambda eid: states.get(eid)),
+            loop=self._loop,
+        )
+        now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+        solver_writer._sample_load_run_state(
+            "entry_w", "s_hws", "sensor.hws_power", now, "2026-09-07"
+        )
+        result = self._read_state("entry_w", "s_hws")
+        self.assertFalse(result.currently_on)
+
+    def test_a_watts_sensor_heating_reading_scales_delivered_kwh_correctly(self):
+        # 550W heating for 30 minutes must accrue 0.275 kWh, not 275 kWh
+        # (#535's own worked example: "~550 kWh per hour instead of
+        # 0.55").
+        states = {"sensor.hws_power": _fake_state("550", unit="W")}
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            states=SimpleNamespace(get=lambda eid: states.get(eid)),
+            loop=self._loop,
+        )
+        t0 = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+        solver_writer._sample_load_run_state(
+            "entry_w2", "s_hws2", "sensor.hws_power", t0, "2026-09-07"
+        )
+        t1 = datetime(2026, 9, 7, 8, 30, tzinfo=_TZ)
+        solver_writer._sample_load_run_state(
+            "entry_w2", "s_hws2", "sensor.hws_power", t1, "2026-09-07"
+        )
+        result = self._read_state("entry_w2", "s_hws2")
+        self.assertTrue(result.currently_on)
+        self.assertAlmostEqual(result.delivered_today_kwh, 0.275, places=3)
+
+    def test_a_kw_sensor_is_unaffected_by_the_scale_check(self):
+        # Explicit kW unit -- no scaling, same as the no-unit default.
+        states = {"sensor.pool_pump_power": _fake_state("1.5", unit="kW")}
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            states=SimpleNamespace(get=lambda eid: states.get(eid)),
+            loop=self._loop,
+        )
+        now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+        solver_writer._sample_load_run_state(
+            "entry_kw", "s_kw", "sensor.pool_pump_power", now, "2026-09-07"
+        )
+        result = self._read_state("entry_kw", "s_kw")
+        self.assertTrue(result.currently_on)
+
+    def test_watt_scaling_hint_logs_once_per_entity(self):
+        states = {"sensor.hws_power": _fake_state("550", unit="W")}
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            states=SimpleNamespace(get=lambda eid: states.get(eid)),
+            loop=self._loop,
+        )
+        orig_logged = set(solver_writer._LOAD_POWER_SENSOR_UNIT_HINT_LOGGED)
+        solver_writer._LOAD_POWER_SENSOR_UNIT_HINT_LOGGED.clear()
+        try:
+            now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+            with self.assertLogs(solver_writer._LOGGER, level="INFO") as first:
+                solver_writer._sample_load_run_state(
+                    "entry_log", "s_log", "sensor.hws_power", now, "2026-09-07"
+                )
+            self.assertTrue(any("reports Watts" in r.message for r in first.records))
+            with (
+                self.assertRaises(AssertionError),
+                self.assertLogs(solver_writer._LOGGER, level="INFO"),
+            ):
+                solver_writer._sample_load_run_state(
+                    "entry_log",
+                    "s_log",
+                    "sensor.hws_power",
+                    now + timedelta(minutes=5),
+                    "2026-09-07",
+                )
+        finally:
+            solver_writer._LOAD_POWER_SENSOR_UNIT_HINT_LOGGED.clear()
+            solver_writer._LOAD_POWER_SENSOR_UNIT_HINT_LOGGED.update(orig_logged)
 
     def test_a_missing_sensor_is_silently_skipped(self):
         solver_writer._NATIVE_HASS = SimpleNamespace(
@@ -458,6 +952,116 @@ class TestSampleLoadRunState(unittest.TestCase):
 
         result = asyncio.run(_read())
         self.assertTrue(result.currently_on)
+
+
+def _fake_plan(sheddable=(), adequacy=()):
+    return SimpleNamespace(
+        sheddable_loads=list(sheddable), adequacy_loads=list(adequacy)
+    )
+
+
+def _fake_load_plan(subentry_id, kw_array, *, adequacy=False):
+    """A stand-in for SheddableLoadPlan/AdequacyLoadPlan -- only the
+    fields apply_commanded_state_guard() actually reads."""
+    if adequacy:
+        return SimpleNamespace(subentry_id=subentry_id, power_kw=kw_array)
+    return SimpleNamespace(subentry_id=subentry_id, served_kw=kw_array)
+
+
+class TestApplyCommandedStateGuard(unittest.TestCase):
+    """nimbus issue #484: real tests for apply_commanded_state_guard()'s
+    own wiring -- reading period-0 power off a real Plan-shaped object,
+    reaching the same fake Store as TestSampleLoadRunState above (same
+    reasoning: no stub exists for homeassistant.helpers.storage in this
+    bare-module harness)."""
+
+    def setUp(self):
+        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._loop, self._loop_thread = _make_running_loop()
+        _FakeRunStateStore._shared_data.clear()
+
+    def tearDown(self):
+        solver_writer._NATIVE_HASS = self._orig_native_hass
+        self._loop.call_soon_threadsafe(self._loop.stop)
+        self._loop_thread.join(timeout=5)
+        self._loop.close()
+
+    def _read_state(self, hub_entry_id, subentry_id):
+        async def _read():
+            store = load_run_state.LoadRunStateStore(
+                store=_FakeRunStateStore(
+                    None, 1, f"nimbus_load_{hub_entry_id}_load_run_state"
+                )
+            )
+            return await store.async_read(subentry_id)
+
+        return asyncio.run(_read())
+
+    def test_a_sheddable_loads_first_ever_decision_is_persisted_immediately(self):
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            config_entries=SimpleNamespace(
+                async_entries=lambda domain: [SimpleNamespace(entry_id="entry_a")]
+            ),
+            loop=self._loop,
+        )
+        import numpy as np
+
+        plan = _fake_plan(sheddable=[_fake_load_plan("s1", np.array([1.5, 1.5]))])
+        now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+        grid_times = _grid(now, 4, minutes=5)
+        solver_writer.apply_commanded_state_guard(plan, now, grid_times)
+        result = self._read_state("entry_a", "s1")
+        self.assertTrue(result.commanded_state)
+        self.assertEqual(result.commanded_since, now.timestamp())
+
+    def test_an_adequacy_loads_period_0_power_below_threshold_commands_off(self):
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            config_entries=SimpleNamespace(
+                async_entries=lambda domain: [SimpleNamespace(entry_id="entry_b")]
+            ),
+            loop=self._loop,
+        )
+        import numpy as np
+
+        plan = _fake_plan(
+            adequacy=[_fake_load_plan("s2", np.array([0.0, 3.7]), adequacy=True)]
+        )
+        now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+        grid_times = _grid(now, 4, minutes=5)
+        solver_writer.apply_commanded_state_guard(plan, now, grid_times)
+        result = self._read_state("entry_b", "s2")
+        self.assertFalse(result.commanded_state)
+
+    def test_ten_alternating_solves_produce_at_most_one_real_commanded_change(self):
+        # #484's own acceptance criterion, exercised through the real
+        # solver_writer.py wiring (not just load_run_state.py's own pure
+        # function -- test_load_run_state.py already covers that
+        # directly; this confirms the wiring passes the right
+        # min_hysteresis_seconds through from the real grid period).
+        import numpy as np
+
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            config_entries=SimpleNamespace(
+                async_entries=lambda domain: [SimpleNamespace(entry_id="entry_c")]
+            ),
+            loop=self._loop,
+        )
+        start = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+        grid_times = _grid(start, 4, minutes=5)  # 5-min periods
+        raw_high = np.array([1.5, 1.5])
+        raw_low = np.array([0.0, 0.0])
+        real_changes = 0
+        prev_commanded = None
+        for i in range(10):
+            now = start + timedelta(minutes=5 * i)
+            kw = raw_high if i % 2 == 0 else raw_low
+            plan = _fake_plan(sheddable=[_fake_load_plan("s3", kw)])
+            solver_writer.apply_commanded_state_guard(plan, now, grid_times)
+            state = self._read_state("entry_c", "s3")
+            if prev_commanded is not None and state.commanded_state != prev_commanded:
+                real_changes += 1
+            prev_commanded = state.commanded_state
+        self.assertLessEqual(real_changes, 1)
 
 
 if __name__ == "__main__":

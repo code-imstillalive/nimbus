@@ -20,6 +20,72 @@ Dated work-in-progress notes live in `docs/worklog/`, one file per date — this
 the "CURRENT STATE" journal that used to live directly in this file now lives. Each
 file is not re-summarized here; read it directly for the full detail. Most recent 5:
 
+- [2026-09-08](docs/worklog/2026-09-08.md) — Continuation of the 09-07 marathon.
+  Household re-engaged after the quiet overnight monitoring stretch; confirmed #519's
+  topology-card fix genuinely ships (Mark's install just needed a client-side cache
+  clear, not a code fix). Mark's own Claude Code posted a full day-ahead dispatch
+  report (#531) with three real findings, all fixed same day: **#535** (most severe) —
+  `_sample_load_run_state()` (#479) read a Watts power sensor as already being kW,
+  making `currently_on` permanently true and `delivered_today_kwh` ~1000× too large
+  for any Controllable Load with a plug/CT power sensor; fixed with the same
+  `unit_of_measurement` check `_kw_scale_factor()` already applies elsewhere. **#532**
+  — exposed `achieved_energy_in_kwh`/`achieved_energy_out_kwh` on the quality report
+  (Mark's real case: a combined battery-power sensor summing the home pack + a shared
+  EV DC charger fed a 100 kWh single-battery model, moving >100 kWh through it in one
+  day) — deliberately NOT an automatic cause-classifier, just the honest numbers.
+  **#533** — `epr_reliable` and the three `soc_discrepancy_*` fields flattened onto the
+  Quality sub-device (previously invisible parent-only attributes), plus a log-once-
+  per-scored-day warning. 32 new tests, zero regressions across the full pre-existing
+  quality-report suite. Released as v0.94.166 — real, immediately impactful fixes, not
+  foundation-only. Still deliberately NOT built: the #465-pattern per-load sensor
+  platform every one of #479/#480/#484/#486's own gaps still points at — same
+  verifiability reasoning as the day before (no real `hass_integration` harness
+  available locally). **Continued same day**: #534 item 1 — a Controllable Load's Done
+  sensor now accepts a `water_heater`/`climate` entity directly (reads
+  `current_temperature` attribute, not the mode-string state; defaults an unset Done
+  condition to the entity's own live setpoint), v0.94.167, no wizard change needed.
+  Then **#538** (Mark, found the day after v0.94.166 shipped): `soc_discrepancy_
+  reliable`/`epr_reliable` used to test ONLY the [0, 100] range — his own real case
+  (raising configured capacity kept a 40.7pt/10.85pt real disagreement in-range) still
+  read "reliable". Added a second, independent agreement test via two new dashboard
+  numbers (`number.nimbus_solver_soc_discrepancy_max_threshold_pct`=15/`_mean_
+  threshold_pct`=8, never hardcoded), plus `soc_discrepancy_reason` (`"out_of_range"`
+  vs `"disagreement"`) on the report/WARNING/flattened sensor. **Auditing that same
+  bug class while wiring the two new number entities found two more real, live,
+  pre-existing instances**: `solver_fixed_daily_charge`/`solver_post_window_self_
+  consume_hours` were both missing from `sensor.py`'s own live-entity resolution list
+  — any household adjusting either from the dashboard had **zero effect on the actual
+  solve**, silently, forever; fixed alongside #538, plus a new generic regression test
+  guarding every `number.py` field against this pairing going forward. CI caught a
+  real thing local verification missed (a pre-existing test asserting the exact
+  behaviour #538 changes — this repo's own `pytest-asyncio` plugin conflict means
+  this file's pytest-style tests aren't exercised locally at all); fixed, re-pushed,
+  merged. Released as v0.94.168, deployed to devhub, verified live — the new
+  reason-aware WARNING fired for real on devhub's own data
+  (`reason=disagreement, max discrepancy 20.4 pt, mean 9.6 pt`). **Then #542/#543**
+  (Mark, found reading the real log right after verifying v0.94.168): a solar source
+  configured directly at Solcast/Open-Meteo's own entities was silently dropped every
+  solve (the configured-source reader only recognized the generic `forecast=[...]`
+  shape, not Solcast's `detailedForecast`/Open-Meteo's `watts`) — one shared
+  `_solar_entries_from_attributes()` reshape function now backs every solar reader,
+  ported to the standalone/cron docs copy too (caught by the anti-drift test when
+  the port was still missing); also fixed the resulting double-weighting risk when
+  the same entity is both configured AND auto-included. Plus the warning itself now
+  logs once per `(entity_id, reason)` with a recovery INFO log — first of this
+  project's log-once dedup sets to add that. 20 new tests, released as v0.94.169,
+  deployed to devhub, restart verified clean (devhub's own source didn't happen to
+  hit either path this cycle, so live confirmation rests on the unit tests here).
+  **Then a real regression, found within minutes on Mark's own install (#546)**:
+  v0.94.169's own dedup excluded just the ONE overlapping entity from the
+  auto-include Solcast pair — but Solcast's own entity only ever covers ONE day, so
+  the auto-include fetch was left reading only the OTHER day, fragmenting a healthy
+  2-member blend into a 3-member blend with a near-zero holdover member every day
+  (same real forecasts, 252.8 kWh → 172.4 kWh next-24h plan solar). Fixed by moving
+  the dedup from the entity level to the integration level — a configured source
+  that's one of Solcast's/Open-Meteo's own known entities is now skipped as a
+  standalone member ENTIRELY when auto-include is on, restoring v0.94.168's own
+  correct two-member structure. 5 new tests, ported to the docs copy, released as
+  v0.94.170, deployed to devhub, restart verified clean.
 - [2026-09-07](docs/worklog/2026-09-07.md) — #445/#453/#451 real bug fixes; dispatch-card
   risk-aversion live-effect proof, Solve Now button, nimbus_status sensor. Chart/table
   layout saga ran through SEVEN CSS iterations (four content-aware formulas, then two
@@ -31,17 +97,30 @@ file is not re-summarized here; read it directly for the full detail. Most recen
   another guess. Real NUC1 incident: battery charged instead of discharging at the
   17:00 P2P boundary; root cause NOT confirmed after three theories each disproven/
   unconfirmed by live evidence; reverted to HAEO for the night, live trace planned
-  before next P2P window. #477, #486, AND #479 (controllable-loads foundation +
-  config surface + per-load run-state store) all completed and merged — real,
-  honestly-documented gap left open: no per-load output sensor yet, next real
-  target is #483/#484, now that #479's state store exists for #484's chatter-guard
-  to use. Household went to bed partway through with explicit authorization to
-  keep working solo — everything after that point in the entry happened
-  unsupervised, including Mark Purcell's own Claude Code becoming concurrently
-  active on the repo (opened/merged #516 for #459's mobile-clipping regression
-  after a CI-lint assist, filed and got #519's topology-card discoverability fix
-  merged, #522 left as his own active follow-up). Version reaches v0.94.162,
-  nineteen releases.
+  before next P2P window. #477, #486, #479, #484, AND #480 (controllable-loads
+  foundation + config surface + per-load run-state store + relay-chatter guard
+  decision layer + early completion) all completed and merged. #480 is real
+  and RELEASED (v0.94.164) — a household can configure a deferrable load's
+  Done sensor today and see the Solver stop scheduling once it fires. The
+  other four remain foundation-only: real, honestly-documented gap left
+  open — no per-load output SENSOR yet (#465's own sub-device pattern), so
+  #484's own guarded commanded_state has nowhere real to be read from yet.
+  Deliberately did NOT build that sensor platform next despite it being the
+  clear blocker every prior section flags — a real new HA entity-registry
+  lifecycle feature is exactly the kind of change the local dev venv can't
+  fully verify (`hass_integration` tests need a newer `homeassistant`
+  package than this machine has); picked #480 instead for its
+  fully-verifiable, #479-shaped risk profile (reads an existing external
+  entity, no new entity lifecycle). Household went to bed partway through
+  with explicit authorization to keep working solo — everything after that
+  point in the entry happened unsupervised, including Mark Purcell's own
+  Claude Code becoming concurrently active on the repo (opened/merged #516
+  for #459's mobile-clipping regression after a CI-lint assist, filed and
+  got #519's topology-card discoverability fix merged, #522 left as his own
+  active follow-up, reviewed #486 and confirmed it solid). Version reaches
+  v0.94.165, twenty-one releases (v0.94.165 itself is a same-session follow-up:
+  Mark's own review caught a real log-spam gap in #480's own done_when warning,
+  fixed the same night).
 - [2026-09-06](docs/worklog/2026-09-06.md) — #391/regression/#400 dispatch-card layout
   (three passes, root-caused with a shared CSS variable); #389 solver crash and #390
   whole-horizon infeasibility (penalized grid_import_excess slack); EPR-consistency fix
@@ -53,16 +132,8 @@ file is not re-summarized here; read it directly for the full detail. Most recen
 - [2026-09-02](docs/worklog/2026-09-02.md) — `solver_p2p_settlement_history_sensor`
   confirmed working end-to-end on devhub; the Solver wizard's cross-step field-wiping
   mechanics confirmed directly by reading `flows/hub_options.py`.
-- [2026-09-01](docs/worklog/2026-09-01.md) — Two genuinely separate #312 platform-collision
-  causes found and fixed (a real unload/unregister race, and an unrelated devhub
-  `remote_homeassistant` mirror entity-id namespace clash); NUC1's v0.94.40/41
-  concurrent-`async_setup_entry` race root-caused and fixed.
-- [2026-08-31](docs/worklog/2026-08-31.md) — #307 SigEnergy sign-convention wizard-schema
-  bug fixed; the `number.py` restore-on-restart bug found and left open; the stochastic-P2P
-  solver extension shipped (v0.94.39).
-
-Earlier history: `docs/worklog/2026-08-27.md`, `docs/worklog/2026-08-26.md`,
-`docs/worklog/2026-08-17.md`.
+Earlier history: `docs/worklog/2026-09-01.md`, `docs/worklog/2026-08-31.md`,
+`docs/worklog/2026-08-27.md`, `docs/worklog/2026-08-26.md`, `docs/worklog/2026-08-17.md`.
 
 ---
 

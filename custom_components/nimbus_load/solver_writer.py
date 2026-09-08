@@ -153,6 +153,7 @@ import functools
 import io
 import json
 import logging
+import operator
 import os
 import re
 import statistics
@@ -2427,6 +2428,178 @@ def resample_forecast(
                 break
         out.append(float(val))
     return out
+
+
+# nimbus issue #546 (Mark Purcell, real regression on his own v0.94.169
+# install, found the SAME day #542/#543 shipped): the known-integration
+# entity IDs fetch_open_meteo_solar_raw()/fetch_solcast_solar_raw()
+# already read, hoisted to real module-level constants (previously
+# duplicated as a local list inside each function) so the caller-site
+# dedup logic below can check against the SAME single source of truth,
+# never two lists that could silently drift apart.
+_KNOWN_OPEN_METEO_SOLAR_ENTITY_IDS: frozenset[str] = frozenset(
+    {
+        "sensor.home_energy_production_today",
+        "sensor.home_energy_production_tomorrow",
+        "sensor.home_energy_production_d2",
+        "sensor.home_energy_production_d3",
+        "sensor.home_energy_production_d4",
+        "sensor.home_energy_production_d5",
+        "sensor.home_energy_production_d6",
+        "sensor.home_energy_production_d7",
+    }
+)
+_KNOWN_SOLCAST_SOLAR_ENTITY_IDS: frozenset[str] = frozenset(
+    {
+        "sensor.solcast_pv_forecast_forecast_today",
+        "sensor.solcast_pv_forecast_forecast_tomorrow",
+    }
+)
+
+
+def _is_known_solar_integration_entity(entity_id: str) -> bool:
+    """True when `entity_id` is one of Open-Meteo Solar Forecast's or
+    Solcast's own native entities -- i.e. one the auto-include path
+    (fetch_open_meteo_solar_raw()/fetch_solcast_solar_raw()) already
+    reads together with the REST of that integration's own entities.
+
+    nimbus issue #546 (Mark Purcell, real regression, same day #542
+    shipped): #542's own first fix taught a *configured*
+    solver_solar_forecast_sensor_1/2/3 to read Solcast's/Open-Meteo's
+    real shapes -- but its own dedup (an entity-level skip_entities set
+    threaded into the auto-include fetchers) turned one coverage gap
+    into three. Solcast's native detailedForecast entity only ever
+    covers ONE day (today, or tomorrow) -- skipping just the ONE
+    entity that's also configured left the auto-include fetch reading
+    only the OTHER day, and resample_forecast() holds the nearest real
+    point for every grid time outside a series' own native coverage
+    (its own first point for times before it, its own last point for
+    times after) -- so BOTH the standalone configured member (covering
+    only its one native day) and the now-fragmented auto-include member
+    (covering only the OTHER day) held a near-zero value (a series'
+    own dawn/dusk edge point) across most of the 96h grid, and the
+    unweighted blend mean dragged every day's own solar down by a
+    third on Mark's real 8 Sep plan (252.8 kWh -> 172.4 kWh, same real
+    forecasts). The real fix is dedup at the INTEGRATION level, not the
+    entity level: when a configured source is one of a KNOWN
+    integration's own entities and that integration's auto-include
+    path is going to run anyway, skip the configured source as a
+    standalone member entirely -- the auto-include fetch already reads
+    ALL of that integration's own entities together (Solcast's real
+    2-day coverage, Open-Meteo's real 8-day coverage), so it's the
+    sole, correctly-covered representative for that integration,
+    exactly restoring the same two-member blend structure v0.94.168
+    already had (Solcast 2-day + Open-Meteo 8-day), just with Solcast's
+    own shape now correctly read instead of silently dropped.
+    """
+    return (
+        entity_id in _KNOWN_OPEN_METEO_SOLAR_ENTITY_IDS
+        or entity_id in _KNOWN_SOLCAST_SOLAR_ENTITY_IDS
+    )
+
+
+# nimbus issue #542 item 1 (Mark Purcell, real household finding): a
+# solar-forecast entity configured directly as solver_solar_forecast_
+# sensor_1/2/3 was silently dropped from every solve whenever it wasn't
+# already shaped as the generic forecast=[{time,value,lower,upper}]
+# array every ML-produced Nimbus signal uses -- Solcast's own native
+# entities publish detailedForecast=[{period_start,pv_estimate,...}]
+# instead, and Open-Meteo Solar Forecast's own entities publish
+# watts={timestamp: value}. This writer already knew how to read BOTH
+# of those shapes (fetch_solcast_solar_raw()/fetch_open_meteo_solar_raw()
+# below), just not when the household pointed a *configured* source at
+# them directly rather than relying on the separate auto-include path --
+# so the two readers could (and did) disagree about the exact same
+# entity. One shared reshape function, used by every solar-source
+# reader in this file, closes that gap for good.
+def _solar_entries_from_attributes(attrs: dict) -> list[dict] | None:
+    """Reshapes one solar-forecast entity's raw attributes dict into the
+    standard forecast-entries list (each entry at least {"time",
+    "value"}, optionally "lower"/"upper"), trying every shape this file
+    already knows how to read, in priority order: the generic
+    forecast=[...] array, Solcast's own detailedForecast=[...] array
+    (period_start/pv_estimate/pv_estimate10/pv_estimate90 -- pv_estimate
+    is already kW average power for its 30-min period, not the parent
+    entity's own "kWh" unit tag, confirmed live 2026-08-22), and Open-
+    Meteo Solar Forecast's own watts={timestamp: value} dict (native
+    Watts, 15-min resolution -- scaled to kW here).
+
+    Returns None when none of these attributes are present at all --a
+    genuinely unrecognized shape, distinct from an HTTP/URL failure, so
+    the caller can report the real reason instead of a generic
+    "unavailable".
+    """
+    forecast = attrs.get("forecast")
+    if forecast:
+        return forecast
+    detailed = attrs.get("detailedForecast")
+    if detailed:
+        return [
+            {
+                "time": p["period_start"],
+                "value": float(p.get("pv_estimate", 0.0) or 0.0),
+                "lower": float(p.get("pv_estimate10", 0.0) or 0.0),
+                "upper": float(p.get("pv_estimate90", 0.0) or 0.0),
+            }
+            for p in detailed
+        ]
+    watts = attrs.get("watts")
+    if watts:
+        return [{"time": ts, "value": float(w) / 1000.0} for ts, w in watts.items()]
+    return None
+
+
+# nimbus issue #543 (Mark Purcell, real household finding): a solar
+# source dropped from the blend used to warn on EVERY solve -- 205
+# copies in 4 hours on one real install (three per 5-min cycle: the
+# scheduled solve plus price-change solves), burying the once-per-day
+# quality warning (#538) and every genuine transient in the same
+# logger. Same #313/#314 "log once per condition" discipline as
+# _DONE_CONDITION_WARNED/_LOAD_POWER_SENSOR_UNIT_HINT_LOGGED, keyed on
+# (entity_id, reason) so a genuinely NEW failure reason for the same
+# entity still gets its own one-time log. Unlike those two, THIS
+# condition is worth reporting recovery from (#543's own explicit ask)
+# -- a solar source coming back after being down for hours is a real,
+# useful signal a household would want to see without grepping the
+# log, unlike a misconfiguration that stays broken until a human fixes
+# it -- so entries are cleared (not kept forever) the moment the same
+# entity_id next succeeds, and that recovery is logged once at INFO.
+_SOLAR_SOURCE_WARNED: set[tuple[str, str]] = set()
+
+
+def _warn_solar_source_dropped_once(entity_id: str, reason: str, detail: str) -> None:
+    key = (entity_id, reason)
+    if key in _SOLAR_SOURCE_WARNED:
+        _LOGGER.debug(
+            "Nimbus: solar source %s still %s (%s) -- dropped from this "
+            "solve's blend (logged once per condition, not every solve)",
+            entity_id,
+            reason,
+            detail,
+        )
+        return
+    _SOLAR_SOURCE_WARNED.add(key)
+    _LOGGER.warning(
+        "Nimbus: solar source %s %s (%s) -- dropped from this solve's "
+        "blend (logged once per condition, not every solve)",
+        entity_id,
+        reason,
+        detail,
+    )
+
+
+def _note_solar_source_recovered(entity_id: str) -> None:
+    had_any = any(eid == entity_id for eid, _reason in _SOLAR_SOURCE_WARNED)
+    if not had_any:
+        return
+    _SOLAR_SOURCE_WARNED.difference_update(
+        {key for key in _SOLAR_SOURCE_WARNED if key[0] == entity_id}
+    )
+    _LOGGER.info(
+        "Nimbus: solar source %s is contributing to the blend again "
+        "(previously dropped)",
+        entity_id,
+    )
 
 
 def _validate_and_parse_load_forecast_attrs(
@@ -4747,6 +4920,31 @@ def _compute_report_for_window(
         return None
 
     regret_dollars = report.j_ach - report.j_star
+    # nimbus issue #538 (Mark Purcell, real household finding): these two
+    # dashboard-editable thresholds are the "agreement" half of the
+    # reliability test -- see _soc_discrepancy_stats()'s own docstring.
+    # Same _cfg_num() convention as risk_aversion/etc above (real 0.0 is
+    # a legitimate, if unusual, household setting -- never silently
+    # swapped for the default).
+    # Literal fallback defaults (not an imported const.py DEFAULT_ symbol)
+    # -- matches this file's own established convention for a cfg.get()
+    # fallback (see import_price_risk_aversion/export_price_risk_aversion
+    # above); const.py's DEFAULT_SOLVER_SOC_DISCREPANCY_*_THRESHOLD_PCT
+    # is the single source of truth for the NUMBER ENTITY's own seeded
+    # default, these two literals are that same value mirrored for the
+    # rare case a household's dashboard number hasn't restored yet.
+    soc_discrepancy_max_threshold_pct = _cfg_num(
+        cfg, "solver_soc_discrepancy_max_threshold_pct", 15.0
+    )
+    soc_discrepancy_mean_threshold_pct = _cfg_num(
+        cfg, "solver_soc_discrepancy_mean_threshold_pct", 8.0
+    )
+    soc_discrepancy = _soc_discrepancy_stats(
+        soc_hist,
+        report.j_ach_hourly,
+        max_threshold_pct=soc_discrepancy_max_threshold_pct,
+        mean_threshold_pct=soc_discrepancy_mean_threshold_pct,
+    )
     return {
         # Fractional EPR (0..1). Canonical downstream contract: the OpEd
         # hero chart, the compute_quality_report service payload, and the
@@ -4799,13 +4997,47 @@ def _compute_report_for_window(
         "j_ref_hourly": report.j_ref_hourly,
         "j_ach_hourly": report.j_ach_hourly,
         "j_star_hourly": report.j_star_hourly,
-        **_soc_discrepancy_stats(soc_hist, report.j_ach_hourly),
+        **soc_discrepancy,
+        # nimbus issue #532 (Mark Purcell, real household data, 7 Sep):
+        # the real energy that moved through actual_charge_kw/
+        # actual_discharge_kw over the whole scored window -- exposed
+        # alongside soc_discrepancy_reliable so a household can tell
+        # "history gap" from "this sensor covers more storage than
+        # capacity_kwh describes" from the sensor's own attributes,
+        # without a manual recorder pull (Mark's own case: a combined
+        # battery-power sensor summing the home pack + a shared EV DC
+        # charger, feeding a 100 kWh single-battery model -- achieved_
+        # energy_in_kwh/achieved_energy_out_kwh alone made this
+        # diagnosable by eye once he had them). Deliberately NOT an
+        # automatic cause classifier (history-gap vs model-mismatch) --
+        # that needs a real recorder-gap detector this pass doesn't
+        # build; the two raw numbers are honest and sufficient on their
+        # own for a human (or a future automated check) to draw the
+        # same conclusion.
+        "achieved_energy_in_kwh": round(
+            float(np.sum(actual_charge_kw * period_hours_arr)), 3
+        ),
+        "achieved_energy_out_kwh": round(
+            float(np.sum(actual_discharge_kw * period_hours_arr)), 3
+        ),
+        # nimbus issue #533: the EPR headline's own reliability
+        # qualifier, named for what it qualifies (today identical to
+        # soc_discrepancy_reliable -- EPR is driven directly by J_ach's
+        # own SoC-integration, so the same out-of-range condition that
+        # makes the SoC discrepancy unreliable makes EPR unreliable too
+        # -- kept as its own named field rather than asking a consumer
+        # to know that link, and so a future second EPR-reliability
+        # signal has somewhere to fold in without a rename).
+        "epr_reliable": soc_discrepancy["soc_discrepancy_reliable"],
     }
 
 
 def _soc_discrepancy_stats(
-    soc_hist: list[tuple[datetime, float]], j_ach_hourly: dict[str, dict[str, float]]
-) -> dict[str, float | bool | None]:
+    soc_hist: list[tuple[datetime, float]],
+    j_ach_hourly: dict[str, dict[str, float]],
+    max_threshold_pct: float = 15.0,
+    mean_threshold_pct: float = 8.0,
+) -> dict[str, float | bool | str | None]:
     """nimbus issue #427 (Mark Purcell): the achieved trajectory's own
     SoC is *integrated* from real battery-power history through the
     efficiency model (see compute_quality_report()'s own j_ach_soc_kwh
@@ -4853,12 +5085,32 @@ def _soc_discrepancy_stats(
     condition explicitly so a caller doesn't have to infer "this looks
     like a data-continuity gap, not a real dispatch problem" from the
     number's own magnitude.
+
+    nimbus issue #538 (Mark Purcell, real household finding on this
+    repo's own v0.94.166): the range test above catches one failure
+    mode (the integration leaving [0, 100]) but is blind to the other
+    -- a genuinely large, sustained disagreement that never leaves the
+    range. Mark's own real case: raising the configured battery
+    capacity kept the trajectory in-range while the gap against the
+    real SoC sensor stayed at 40.7 points max / 10.85 mean, and the
+    flag read "reliable" regardless. max_threshold_pct/mean_threshold_
+    pct are the second, independent test -- a household-tunable
+    dashboard number (see number.py), not a fixed constant, since what
+    counts as "too far apart" genuinely depends on how well-matched
+    that household's own power/SoC sensors are to its capacity model.
+    soc_discrepancy_reason names WHICH test failed ("out_of_range" takes
+    priority when both would fail, since it's the more fundamental
+    problem -- a trajectory that left the physical range at all makes
+    the disagreement numbers themselves suspect), so a consumer (or the
+    once-per-day WARNING below) doesn't have to re-derive the cause from
+    the raw numbers.
     """
     if not soc_hist or not j_ach_hourly:
         return {
             "soc_discrepancy_max_pct": None,
             "soc_discrepancy_mean_pct": None,
             "soc_discrepancy_reliable": None,
+            "soc_discrepancy_reason": None,
         }
     gaps: list[float] = []
     any_out_of_range = False
@@ -4878,12 +5130,34 @@ def _soc_discrepancy_stats(
             "soc_discrepancy_max_pct": None,
             "soc_discrepancy_mean_pct": None,
             "soc_discrepancy_reliable": None,
+            "soc_discrepancy_reason": None,
         }
+    max_gap = max(gaps)
+    mean_gap = sum(gaps) / len(gaps)
+    if any_out_of_range:
+        reliable = False
+        reason: str | None = "out_of_range"
+    elif max_gap > max_threshold_pct or mean_gap > mean_threshold_pct:
+        reliable = False
+        reason = "disagreement"
+    else:
+        reliable = True
+        reason = None
     return {
-        "soc_discrepancy_max_pct": round(max(gaps), 2),
-        "soc_discrepancy_mean_pct": round(sum(gaps) / len(gaps), 2),
-        "soc_discrepancy_reliable": not any_out_of_range,
+        "soc_discrepancy_max_pct": round(max_gap, 2),
+        "soc_discrepancy_mean_pct": round(mean_gap, 2),
+        "soc_discrepancy_reliable": reliable,
+        "soc_discrepancy_reason": reason,
     }
+
+
+# nimbus issue #533 (Mark Purcell's own item 3): log once per SCORED
+# DAY, not every cycle that happens to re-publish it -- same #313/#314
+# "log once, with the number" discipline already applied elsewhere this
+# session (#480's own done_when warning). Keyed by the scored date
+# string (yesterday_key) so a genuinely NEW day's own unreliable score
+# gets its own warning even if a PRIOR day's was already logged.
+_QUALITY_REPORT_UNRELIABLE_WARNED: set[str] = set()
 
 
 def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
@@ -4965,6 +5239,48 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
             yesterday_key,
         )
         return
+    if (
+        day_entry.get("soc_discrepancy_reliable") is False
+        and yesterday_key not in _QUALITY_REPORT_UNRELIABLE_WARNED
+    ):
+        _QUALITY_REPORT_UNRELIABLE_WARNED.add(yesterday_key)
+        # nimbus issue #538 (Mark Purcell, item 2): two genuinely
+        # different causes now share this flag -- name which one this
+        # day actually hit, instead of a single message that always
+        # reads as the out-of-range case even when it was a plain
+        # threshold disagreement.
+        reason = day_entry.get("soc_discrepancy_reason")
+        if reason == "out_of_range":
+            cause = (
+                "the achieved SoC integration went outside the physically "
+                "real [0, 100] range for at least one hour this day (a real "
+                "recorder history gap, or the configured battery power/"
+                "capacity sensors not matching what they physically "
+                "describe -- compare this report's own achieved_energy_in_"
+                "kwh/achieved_energy_out_kwh against solver_battery_"
+                "capacity_kwh to tell the two apart)"
+            )
+        else:
+            cause = (
+                "the achieved SoC integration stayed inside [0, 100] but "
+                "disagreed with the real SoC sensor by more than this "
+                "install's configured threshold (number.nimbus_solver_"
+                "soc_discrepancy_max_threshold_pct/_mean_threshold_pct) -- "
+                "usually the SoC sensor covering different physical "
+                "storage than the power sensor/capacity model (see nimbus "
+                "issue #532)"
+            )
+        _LOGGER.warning(
+            "Nimbus quality: %s scored with soc_discrepancy_reliable=False "
+            "(reason=%s, max discrepancy %.1f pt, mean %.1f pt) -- %s. EPR "
+            "and every other figure on this day's report are unreliable "
+            "until this is understood.",
+            yesterday_key,
+            reason,
+            day_entry.get("soc_discrepancy_max_pct") or 0.0,
+            day_entry.get("soc_discrepancy_mean_pct") or 0.0,
+            cause,
+        )
     ha_post_state(
         QUALITY_ENTITY_ID,
         # State channel gets the percent-scaled value (0..100) so it
@@ -6668,6 +6984,13 @@ def _resolve_hour_to_period_index(
     return n - 1
 
 
+# nimbus issue #535: log the W->kW scaling hint once per power_sensor
+# entity_id, not every solve tick -- same #313/#314 discipline as every
+# other log-once dedup this session (_DONE_CONDITION_WARNED,
+# _QUALITY_REPORT_UNRELIABLE_WARNED). Module-level, lives for the process.
+_LOAD_POWER_SENSOR_UNIT_HINT_LOGGED: set[str] = set()
+
+
 def _sample_load_run_state(
     hub_entry_id: str,
     subentry_id: str,
@@ -6695,7 +7018,32 @@ def _sample_load_run_state(
         state_obj = _NATIVE_HASS.states.get(power_sensor)
         if state_obj is None or state_obj.state in (None, "unknown", "unavailable"):
             return
-        power_kw = float(state_obj.state)
+        # nimbus issue #535 (Mark Purcell, real household finding): this
+        # used to treat state_obj.state as already being kW, with no
+        # check against what the sensor itself declares -- the same
+        # real class of bug _kw_scale_factor() (this file, near
+        # compute_daily_quality_report()) was already found and fixed
+        # for the solar/load/battery quality-report sensors. A real
+        # power/CT-clamp sensor reporting Watts (Mark's own case: a
+        # 4.6W standby reading on a heat-pump HWS) was silently read as
+        # 4.6 kW -- currently_on permanently true, delivered_today_kwh
+        # ~1000x too large. Same fix, read directly off the already-
+        # fetched state_obj's own attributes rather than a second
+        # ha_get() round-trip (native mode only here, unlike
+        # _kw_scale_factor()'s own REST-shaped caller).
+        unit = state_obj.attributes.get("unit_of_measurement")
+        scale = 0.001 if unit == "W" else 1.0
+        if scale != 1.0 and power_sensor not in _LOAD_POWER_SENSOR_UNIT_HINT_LOGGED:
+            _LOAD_POWER_SENSOR_UNIT_HINT_LOGGED.add(power_sensor)
+            _LOGGER.info(
+                "Nimbus: controllable load power sensor %s reports Watts "
+                "(unit_of_measurement=%r) -- scaling by %.3f to kW for "
+                "run-state sampling (logged once per entity)",
+                power_sensor,
+                unit,
+                scale,
+            )
+        power_kw = float(state_obj.state) * scale
 
         try:
             from . import load_run_state
@@ -6725,6 +7073,137 @@ def _sample_load_run_state(
             power_sensor,
             exc_info=True,
         )
+
+
+# nimbus issue #480: a small, FIXED comparison DSL for a deferrable
+# load's own done_when field (e.g. ">= 60") -- deliberately not eval(),
+# since a household-supplied config string must never run as code.
+# Longer operator strings checked first (">="/"<="/"=="/"!=" before the
+# single-char ">"/"<"), so ">= 60" is never misparsed as "> = 60".
+_DONE_WHEN_OPERATORS: dict[str, object] = {
+    ">=": operator.ge,
+    "<=": operator.le,
+    "==": operator.eq,
+    "!=": operator.ne,
+    ">": operator.gt,
+    "<": operator.lt,
+}
+_DONE_WHEN_OPERATOR_ORDER = (">=", "<=", "==", "!=", ">", "<")
+
+# nimbus issue #480 (Mark Purcell's own live review): the malformed-
+# done_when/non-numeric-state warning below used to fire on every solve
+# tick (~5 min) for as long as the same bad condition persisted -- the
+# #313/#314 "log once per condition" discipline this project already
+# follows elsewhere (e.g. _log_active_household_specific_overrides_once
+# above), not "every cycle". Keyed by the exact (entity, done_when,
+# state) triple so a genuinely NEW bad reading (a different malformed
+# done_when, or the entity settling on a different bad value) still
+# gets its own one-time log -- only the identical, already-reported
+# combination is suppressed. Module-level, same "lives for the process"
+# scope as _household_specific_overrides_logged; never cleared, since a
+# household fixing the misconfiguration changes the triple anyway.
+_DONE_CONDITION_WARNED: set[tuple[str, str | None, str]] = set()
+
+# nimbus issue #534 (Mark Purcell, real SG-Ready heat-pump HWS install):
+# a water_heater's/climate's own *state* is a mode string ("eco"), not a
+# number -- done_when can never be evaluated against it. Both domains
+# instead carry the live reading as the current_temperature attribute
+# and the active setpoint as the temperature attribute, so a done
+# condition on one of these entities reads current_temperature (not
+# state), and an unset done_when defaults to ">= <temperature
+# attribute>" (the household's own already-configured setpoint) rather
+# than the binary_sensor "state == on" default used for every other
+# domain.
+_ATTRIBUTE_DONE_DOMAINS = ("water_heater", "climate")
+
+
+def _parse_done_when(done_when: str) -> tuple:
+    """Parses done_when into (operator_fn, threshold). Raises ValueError
+    for anything that doesn't match `<op><number>` (whitespace-tolerant)
+    -- the caller treats that as a misconfiguration, not a crash."""
+    stripped = done_when.strip()
+    for op_str in _DONE_WHEN_OPERATOR_ORDER:
+        if stripped.startswith(op_str):
+            threshold_str = stripped[len(op_str) :].strip()
+            return _DONE_WHEN_OPERATORS[op_str], float(threshold_str)
+    msg = (
+        f"done_when {done_when!r} doesn't start with a recognized operator "
+        f"({', '.join(_DONE_WHEN_OPERATOR_ORDER)})"
+    )
+    raise ValueError(msg)
+
+
+def _evaluate_done_condition(done_entity: str, done_when: str | None) -> bool | None:
+    """nimbus issue #480: reads done_entity's real live state and decides
+    whether a deferrable load counts as DONE. Returns True/False, or
+    None for "can't tell right now" (entity missing/unavailable/unknown,
+    or a genuinely malformed done_when) -- the caller's own fail-open
+    contract (#480's acceptance: "a done-sensor going unavailable is
+    ignored... same discipline as #313/#314") treats None as "not done,
+    keep the normal schedule", never as an error.
+
+    done_when=None means done_entity is treated as a binary_sensor --
+    its own "on" state alone is the done condition, the same convention
+    a plain HA automation trigger would use. Any other domain (a numeric
+    tank-temperature sensor, say) needs done_when to say what "done"
+    means for that reading -- except water_heater/climate (#534), whose
+    own state is a mode string: those read current_temperature instead,
+    and an unset done_when falls back to the entity's own temperature
+    (setpoint) attribute rather than the binary_sensor "on" convention.
+    """
+    if _NATIVE_HASS is None:
+        return None
+    state_obj = _NATIVE_HASS.states.get(done_entity)
+    if state_obj is None or state_obj.state in (None, "unknown", "unavailable"):
+        return None
+    domain = done_entity.split(".", 1)[0]
+    if domain in _ATTRIBUTE_DONE_DOMAINS:
+        current = state_obj.attributes.get("current_temperature")
+        if current is None:
+            return None
+        if done_when is None:
+            target = state_obj.attributes.get("temperature")
+            if target is None:
+                return None
+            try:
+                return float(current) >= float(target)
+            except (ValueError, TypeError):
+                return None
+        try:
+            op_fn, threshold = _parse_done_when(done_when)
+            return bool(op_fn(float(current), threshold))
+        except (ValueError, TypeError):
+            condition_key = (done_entity, done_when, str(current))
+            if condition_key not in _DONE_CONDITION_WARNED:
+                _DONE_CONDITION_WARNED.add(condition_key)
+                _LOGGER.warning(
+                    "Nimbus: controllable load done_entity %s / done_when %r "
+                    "could not be evaluated (current_temperature %r) -- "
+                    "treating as not done until this changes (logged once "
+                    "per condition, not every solve)",
+                    done_entity,
+                    done_when,
+                    current,
+                )
+            return None
+    if done_when is None:
+        return state_obj.state == "on"
+    try:
+        op_fn, threshold = _parse_done_when(done_when)
+        return bool(op_fn(float(state_obj.state), threshold))
+    except (ValueError, TypeError):
+        condition_key = (done_entity, done_when, state_obj.state)
+        if condition_key not in _DONE_CONDITION_WARNED:
+            _DONE_CONDITION_WARNED.add(condition_key)
+            _LOGGER.warning(
+                "Nimbus: controllable load done_entity %s / done_when %r could "
+                "not be evaluated (state %r) -- treating as not done until this "
+                "changes (logged once per condition, not every solve)",
+                done_entity,
+                done_when,
+                state_obj.state,
+            )
+        return None
 
 
 def build_controllable_loads(
@@ -6767,6 +7246,8 @@ def build_controllable_loads(
             CONF_CONTROLLABLE_LOAD_NAME,
             CONF_CONTROLLABLE_LOAD_POWER_SENSOR,
             CONF_DEFERRABLE_DEADLINE_HOUR,
+            CONF_DEFERRABLE_DONE_ENTITY,
+            CONF_DEFERRABLE_DONE_WHEN,
             CONF_DEFERRABLE_EARLIEST_HOUR,
             CONF_DEFERRABLE_MAX_POWER_KW,
             CONF_DEFERRABLE_SHORTFALL_PRICE,
@@ -6786,6 +7267,8 @@ def build_controllable_loads(
             CONF_CONTROLLABLE_LOAD_NAME,
             CONF_CONTROLLABLE_LOAD_POWER_SENSOR,
             CONF_DEFERRABLE_DEADLINE_HOUR,
+            CONF_DEFERRABLE_DONE_ENTITY,
+            CONF_DEFERRABLE_DONE_WHEN,
             CONF_DEFERRABLE_EARLIEST_HOUR,
             CONF_DEFERRABLE_MAX_POWER_KW,
             CONF_DEFERRABLE_SHORTFALL_PRICE,
@@ -6854,6 +7337,7 @@ def build_controllable_loads(
                         data.get(CONF_SHEDDABLE_SHED_COST) or elements.DEFAULT_SHED_COST
                     ),
                     min_fraction=float(data.get(CONF_SHEDDABLE_MIN_FRACTION) or 0.0),
+                    subentry_id=subentry.subentry_id,
                 )
             )
         elif kind == CONTROLLABLE_LOAD_KIND_DEFERRABLE:
@@ -6905,6 +7389,27 @@ def build_controllable_loads(
                     earliest_period,
                 )
                 continue
+            # nimbus issue #480: a done_entity that currently reports DONE
+            # means this window's real requirement is already satisfied --
+            # skip this cycle entirely rather than let the LP keep buying
+            # energy this load no longer needs (the issue's own worked
+            # example: HWS scheduled for 3h, reaches setpoint after 2h,
+            # "the third hour is still bought"). Fail-open on anything
+            # else (no done_entity configured, entity unavailable, a
+            # malformed done_when) -- _evaluate_done_condition() only
+            # ever returns True when it's genuinely confident.
+            done_entity = data.get(CONF_DEFERRABLE_DONE_ENTITY)
+            if done_entity and _evaluate_done_condition(
+                done_entity, data.get(CONF_DEFERRABLE_DONE_WHEN)
+            ):
+                _LOGGER.info(
+                    "Nimbus: controllable load '%s' (deferrable) reports "
+                    "done via %s -- releasing the remainder of this "
+                    "window's schedule",
+                    name,
+                    done_entity,
+                )
+                continue
             value_per_kwh = data.get(CONF_DEFERRABLE_VALUE_PER_KWH)
             adequacy_loads.append(
                 elements.AdequacyLoadConfig(
@@ -6920,9 +7425,98 @@ def build_controllable_loads(
                     value_per_kwh=float(value_per_kwh)
                     if value_per_kwh is not None
                     else None,
+                    subentry_id=subentry.subentry_id,
                 )
             )
     return sheddable_loads, adequacy_loads
+
+
+def apply_commanded_state_guard(
+    plan: network.Plan,
+    now: datetime,
+    grid_times: list[datetime],
+) -> None:
+    """nimbus issue #484: the relay-chatter guard itself. Reads each
+    Controllable Load's own real, just-solved period-0 power off `plan`
+    (its `subentry_id`, threaded through from build_controllable_loads()'s
+    own config objects via elements.py/network.py), decides the raw new
+    commanded state (on if period-0 power exceeds the same on-threshold
+    load_run_state.py's own power sampling uses, for a consistent
+    on/off reading between the measured and the commanded side), and
+    persists the DEBOUNCED result via load_run_state.decide_commanded_state()
+    -- see that function's own docstring for the actual guarantee (a
+    disagreeing raw value must hold consecutively for
+    DEFAULT_MIN_HYSTERESIS_PERIODS periods before a real change publishes).
+
+    Best-effort and silent on any failure, same posture as
+    _sample_load_run_state() -- this bookkeeping has no consumer yet
+    (see #484's own scope note in docs/controllable-loads.md: no sensor
+    exposes commanded_state today), so it must never be able to take the
+    actual solve cycle down. Native mode only, same reasoning as
+    build_controllable_loads() itself -- a no-op when _NATIVE_HASS is
+    None (standalone/cron mode, or plan.sheddable_loads/adequacy_loads
+    are always empty there anyway since build_controllable_loads()
+    already returns ([], []) unconditionally in that mode).
+    """
+    if _NATIVE_HASS is None or len(grid_times) < 2:
+        return
+    entries_with_ids = [
+        (sl.subentry_id, sl.served_kw[0] if len(sl.served_kw) else 0.0)
+        for sl in plan.sheddable_loads
+        if sl.subentry_id is not None
+    ] + [
+        (al.subentry_id, al.power_kw[0] if len(al.power_kw) else 0.0)
+        for al in plan.adequacy_loads
+        if al.subentry_id is not None
+    ]
+    if not entries_with_ids:
+        return
+    try:
+        from homeassistant.helpers.storage import Store as _Store
+
+        try:
+            from . import load_run_state
+            from .const import DOMAIN
+        except ImportError:
+            import load_run_state
+            from const import DOMAIN
+
+        entries = _NATIVE_HASS.config_entries.async_entries(DOMAIN)
+        if not entries:
+            return
+        hub_entry_id = entries[0].entry_id
+        period_seconds = (grid_times[1] - grid_times[0]).total_seconds()
+        min_hysteresis_seconds = (
+            period_seconds * load_run_state.DEFAULT_MIN_HYSTERESIS_PERIODS
+        )
+
+        async def _update_all() -> None:
+            store = load_run_state.LoadRunStateStore(
+                store=_Store(_NATIVE_HASS, 1, f"{DOMAIN}_{hub_entry_id}_load_run_state")
+            )
+            for subentry_id, period0_kw in entries_with_ids:
+                raw_new_state = (
+                    float(period0_kw) > load_run_state.DEFAULT_ON_THRESHOLD_KW
+                )
+                prev = await store.async_read(subentry_id)
+                new = load_run_state.decide_commanded_state(
+                    prev,
+                    raw_new_state=raw_new_state,
+                    now=now,
+                    min_hysteresis_seconds=min_hysteresis_seconds,
+                )
+                if new is not prev:
+                    await store.async_write(subentry_id, new)
+
+        import asyncio as _asyncio
+
+        future = _asyncio.run_coroutine_threadsafe(_update_all(), _NATIVE_HASS.loop)
+        future.result(timeout=10)
+    except Exception:
+        _LOGGER.debug(
+            "Nimbus: commanded-state guard failed for this solve cycle",
+            exc_info=True,
+        )
 
 
 def main() -> None:
@@ -6997,12 +7591,39 @@ def main() -> None:
     def fetch_solar_source_safe(
         entity_id: str,
     ) -> tuple[list[float], list[float], list[float]] | None:
-        """(value, lower, upper) kW arrays for ONE solar source that
-        already publishes a standard forecast:[{time,value,lower,upper}]
-        array, or None on any failure -- see this section's own comment
-        above for why a missing source is DROPPED, never zero-filled."""
+        """(value, lower, upper) kW arrays for ONE solar source -- reads
+        whichever shape _solar_entries_from_attributes() recognizes
+        (generic forecast=[...], Solcast's own detailedForecast=[...],
+        or Open-Meteo's own watts={...} -- nimbus issue #542), or None
+        on any failure. See this section's own comment above for why a
+        missing source is DROPPED, never zero-filled.
+
+        nimbus issue #543 (Mark Purcell): distinguishes an entity that's
+        genuinely unreachable (HTTP/URL failure) from one that's healthy
+        but publishes a shape none of the three readers above recognize
+        (a real configuration fact, not a transient) -- the two used to
+        share one generic "unavailable" message, which sent a household
+        looking for a network/entity problem that didn't exist. Both
+        reasons still drop the source from this cycle's blend either way.
+        """
         try:
-            fc = ha_get(entity_id)["attributes"]["forecast"]
+            attrs = ha_get(entity_id)["attributes"]
+        except (
+            urllib.error.HTTPError,
+            urllib.error.URLError,
+            json.JSONDecodeError,
+        ) as e:
+            _warn_solar_source_dropped_once(entity_id, "unavailable", str(e))
+            return None
+        fc = _solar_entries_from_attributes(attrs)
+        if fc is None:
+            _warn_solar_source_dropped_once(
+                entity_id,
+                "shape not recognized",
+                "no forecast/detailedForecast/watts attribute",
+            )
+            return None
+        try:
             # Real, honest clamp: a ML forecaster can produce a tiny
             # negative excursion near zero (physically impossible for
             # solar) -- found live on this script's very first real run.
@@ -7020,12 +7641,10 @@ def main() -> None:
             else:
                 lower = list(value)
                 upper = list(value)
+            _note_solar_source_recovered(entity_id)
             return value, lower, upper
         except (
-            urllib.error.HTTPError,
-            urllib.error.URLError,
             KeyError,
-            json.JSONDecodeError,
             # nimbus issue #363 (Mark Purcell): parse_iso() now normalizes
             # a naive timestamp to UTC rather than raising, but a source
             # publishing a genuinely unparseable (non-ISO) time string
@@ -7042,11 +7661,7 @@ def main() -> None:
             # error_log, so this operationally-relevant warning (a real
             # solar source dropping out of the blend) was invisible to
             # anyone using the HA UI or `ha_get_logs`.
-            _LOGGER.warning(
-                "Nimbus: solar source %s unavailable (%s) -- dropped from this solve's blend",
-                entity_id,
-                e,
-            )
+            _warn_solar_source_dropped_once(entity_id, "malformed", str(e))
             return None
 
     def fetch_open_meteo_solar_raw() -> (
@@ -7054,36 +7669,34 @@ def main() -> None:
     ):
         """Real, DIRECT read of Open-Meteo Solar Forecast's own 8 native
         entities (today/tomorrow/d2..d7) -- reshaped from their native
-        {timestamp: watts} dict shape (15-min resolution, Watts) into
-        the standard {time, value} shape right here, no intermediate HA
+        watts={timestamp: value} dict shape via the same
+        _solar_entries_from_attributes() every solar reader in this file
+        now shares (nimbus issue #542 item 1), no intermediate HA
         template sensor. Auto-detected via entity_exists() on the
         anchor entity -- a complete no-op, not an error, on any install
         without Open-Meteo Solar Forecast. No real per-point uncertainty
         data exists from this source -- lower/upper mirror value (a
         zero-width band), same honest default as every other
-        no-uncertainty source."""
+        no-uncertainty source.
+
+        nimbus issue #546: no skip_entities parameter -- dedup against a
+        configured solver_solar_forecast_sensor_1/2/3 pointed at one of
+        THESE SAME 8 entities happens at the caller, by skipping that
+        configured source's own standalone fetch entirely rather than
+        excluding one entity from THIS multi-entity read (see
+        _is_known_solar_integration_entity()'s own docstring for the
+        real regression an entity-level skip caused).
+        """
         anchor = "sensor.home_energy_production_today"
         if not entity_exists(anchor):
             return None
-        entity_ids = [
-            "sensor.home_energy_production_today",
-            "sensor.home_energy_production_tomorrow",
-            "sensor.home_energy_production_d2",
-            "sensor.home_energy_production_d3",
-            "sensor.home_energy_production_d4",
-            "sensor.home_energy_production_d5",
-            "sensor.home_energy_production_d6",
-            "sensor.home_energy_production_d7",
-        ]
         entries: list[dict] = []
-        for eid in entity_ids:
+        for eid in _KNOWN_OPEN_METEO_SOLAR_ENTITY_IDS:
             if not entity_exists(eid):
                 continue
-            watts = ha_get(eid)["attributes"].get("watts")
-            if not watts:
-                continue
-            for ts, w in watts.items():
-                entries.append({"time": ts, "value": float(w) / 1000.0})
+            fc = _solar_entries_from_attributes(ha_get(eid)["attributes"])
+            if fc:
+                entries.extend(fc)
         if not entries:
             return None
         entries.sort(key=lambda e: e["time"])
@@ -7096,7 +7709,9 @@ def main() -> None:
         """Real, DIRECT read of Solcast's own 2 native entities
         (today/tomorrow) -- reshaped from their native detailedForecast
         list shape (30-min resolution, period_start/pv_estimate/
-        pv_estimate10/pv_estimate90) right here, no intermediate HA
+        pv_estimate10/pv_estimate90) via the same
+        _solar_entries_from_attributes() every solar reader in this file
+        now shares (nimbus issue #542 item 1), no intermediate HA
         template sensor. Auto-detected, a complete no-op on any install
         without Solcast. Carries Solcast's own REAL p10/p90 as genuine
         lower/upper confidence bounds -- a real bonus over Open-Meteo,
@@ -7104,30 +7719,22 @@ def main() -> None:
         30-min period, NOT the parent entity's own "kWh" unit tag
         (confirmed live, 2026-08-22: a real midday pv_estimate landed
         squarely between real measured solar and Open-Meteo's own kW
-        value, not double that -- no unit conversion applied here."""
+        value, not double that -- no unit conversion applied here.
+
+        nimbus issue #546: no skip_entities parameter -- see
+        fetch_open_meteo_solar_raw()'s own docstring for why the dedup
+        moved to the caller.
+        """
         anchor = "sensor.solcast_pv_forecast_forecast_today"
         if not entity_exists(anchor):
             return None
-        entity_ids = [
-            "sensor.solcast_pv_forecast_forecast_today",
-            "sensor.solcast_pv_forecast_forecast_tomorrow",
-        ]
         entries: list[dict] = []
-        for eid in entity_ids:
+        for eid in _KNOWN_SOLCAST_SOLAR_ENTITY_IDS:
             if not entity_exists(eid):
                 continue
-            detailed = ha_get(eid)["attributes"].get("detailedForecast")
-            if not detailed:
-                continue
-            for p in detailed:
-                entries.append(
-                    {
-                        "time": p["period_start"],
-                        "value": float(p.get("pv_estimate", 0.0) or 0.0),
-                        "lower": float(p.get("pv_estimate10", 0.0) or 0.0),
-                        "upper": float(p.get("pv_estimate90", 0.0) or 0.0),
-                    }
-                )
+            fc = _solar_entries_from_attributes(ha_get(eid)["attributes"])
+            if fc:
+                entries.extend(fc)
         if not entries:
             return None
         entries.sort(key=lambda e: e["time"])
@@ -7140,10 +7747,27 @@ def main() -> None:
 
     solar_values, solar_lowers, solar_uppers = [], [], []
 
+    # nimbus issue #546 (Mark Purcell, real regression the same day
+    # #542/#543 shipped): whether auto-include is on, computed once up
+    # front -- a configured source that resolves to a known Open-Meteo/
+    # Solcast entity is skipped as a STANDALONE member whenever the
+    # matching auto-include fetch is going to run anyway, so that
+    # integration is represented exactly once, by its own full-coverage
+    # multi-entity read, never by a second, narrower read of one of its
+    # own entities. See _is_known_solar_integration_entity()'s own
+    # docstring for the real regression the previous (entity-level
+    # skip_entities) dedup caused.
+    auto_include_known_solar = bool(cfg.get("solver_auto_include_known_solar"))
+
+    def _skip_as_standalone_source(entity_id: str) -> bool:
+        return auto_include_known_solar and _is_known_solar_integration_entity(
+            entity_id
+        )
+
     # Source 1: whatever's configured via the Solver settings wizard
     # (this household: Nimbus's own self-trained model).
     configured_entity = cfg.get("solver_solar_forecast_sensor")
-    if configured_entity:
+    if configured_entity and not _skip_as_standalone_source(configured_entity):
         result = fetch_solar_source_safe(configured_entity)
         if result is not None:
             v, lo, up = result
@@ -7161,7 +7785,7 @@ def main() -> None:
     # comment on CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR) -- a fresh
     # install gets exactly what's configured in sources 1/2/3, nothing
     # more, unless this switch is explicitly turned on.
-    if cfg.get("solver_auto_include_known_solar"):
+    if auto_include_known_solar:
         for fetcher in (fetch_open_meteo_solar_raw, fetch_solcast_solar_raw):
             result = fetcher()
             if result is not None:
@@ -7180,7 +7804,7 @@ def main() -> None:
         cfg.get("solver_solar_forecast_sensor_2"),
         cfg.get("solver_solar_forecast_sensor_3"),
     ):
-        if not entity_id:
+        if not entity_id or _skip_as_standalone_source(entity_id):
             continue
         result = fetch_solar_source_safe(entity_id)
         if result is not None:
@@ -8327,6 +8951,10 @@ def main() -> None:
         export_price_risk_aversion=export_price_risk_aversion,
         smoothness_weight=network.DEFAULT_SMOOTHNESS_WEIGHT_KW,
     )
+    # nimbus issue #484: the relay-chatter guard, run once per solve
+    # right after the plan exists -- needs the plan's own just-solved
+    # period-0 power per load, so it can't run any earlier than this.
+    apply_commanded_state_guard(plan, now, grid_times)
     publish_plan(
         cfg=cfg,
         now=now,
