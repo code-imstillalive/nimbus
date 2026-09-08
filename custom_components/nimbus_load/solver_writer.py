@@ -8097,6 +8097,56 @@ def apply_commanded_state_guard(
                     else default_min_hysteresis_seconds
                 )
                 prev = await store.async_read(subentry_id)
+                # nimbus issue #595 (Mark Purcell, real finding: a 0.65kW
+                # heat pump cycled on/off every 15-35 min the first live
+                # morning, burning the daily activation cap before the
+                # cheap window even arrived). The LP's own adequacy-load
+                # plan is jagged at 5-minute resolution -- unlike the
+                # battery, it has no switching cost/smoothness term, so a
+                # single dip below threshold is common even while the
+                # load is genuinely still wanted "on" a few periods
+                # later. A dip that resumes within this load's own hold
+                # window should never register as a real OFF at all:
+                # committing to OFF and immediately re-arming ON a few
+                # minutes later defeats the entire point of the
+                # hysteresis guard below, and burns a real activation for
+                # nothing. Look ahead through the SAME plan already in
+                # hand this cycle (load_plan.power_kw/served_kw) for up
+                # to min_hysteresis_seconds -- if the load wants on again
+                # inside that window, treat this dip as noise (stay "raw
+                # on") rather than a genuine sustained off.
+                #
+                # Deliberately one-sided: only suppresses OFF when
+                # already commanded ON. Never accelerates an OFF->ON
+                # transition -- pre-empting "on" early would risk an
+                # activation the plan hasn't actually committed to yet.
+                if (
+                    prev.commanded_state
+                    and not raw_new_state
+                    and period_hours_arr is not None
+                ):
+                    period_series = (
+                        load_plan.served_kw
+                        if load_kind == "sheddable"
+                        else load_plan.power_kw
+                    )
+                    lookahead_hours_needed = min_hysteresis_seconds / 3600.0
+                    hours_elapsed = 0.0
+                    for i in range(1, len(period_series)):
+                        prior_hours = (
+                            float(period_hours_arr[i - 1])
+                            if i - 1 < len(period_hours_arr)
+                            else 0.0
+                        )
+                        hours_elapsed += prior_hours
+                        if hours_elapsed > lookahead_hours_needed:
+                            break
+                        if (
+                            float(period_series[i])
+                            > load_run_state.DEFAULT_ON_THRESHOLD_KW
+                        ):
+                            raw_new_state = True
+                            break
                 new = load_run_state.decide_commanded_state(
                     prev,
                     raw_new_state=raw_new_state,

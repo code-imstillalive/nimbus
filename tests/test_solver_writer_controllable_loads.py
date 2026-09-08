@@ -1175,6 +1175,86 @@ class TestApplyCommandedStateGuard(unittest.TestCase):
             prev_commanded = state.commanded_state
         self.assertLessEqual(real_changes, 1)
 
+    def test_a_brief_dip_that_resumes_within_the_hold_window_never_commands_off(self):
+        # nimbus issue #595 (Mark Purcell, real finding: the #534 heat
+        # pump cycled on/off every 15-35 min the first live morning,
+        # burning the daily activation cap, because a jagged adequacy
+        # plan dips below threshold for one period even while the load
+        # is genuinely still wanted on a few periods later). Real repro
+        # shape: period 0 (now) dips to 0.0 kW, but period 1 (5 min
+        # later, well inside the default 10-min hold window) is back up
+        # to 0.65 kW -- this must never register as a real OFF.
+        import numpy as np
+
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            config_entries=SimpleNamespace(
+                async_entries=lambda domain: [SimpleNamespace(entry_id="entry_d")]
+            ),
+            loop=self._loop,
+        )
+        start = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+        grid_times = _grid(start, 6, minutes=5)  # 5-min periods
+        period_hours_arr = np.full(5, 5.0 / 60.0)
+
+        # First solve: load genuinely wants on, establishes commanded ON.
+        plan_on = _fake_plan(
+            adequacy=[
+                _fake_load_plan(
+                    "s4", np.array([0.65, 0.65, 0.65, 0.65, 0.65]), adequacy=True
+                )
+            ]
+        )
+        solver_writer.apply_commanded_state_guard(
+            plan_on, start, grid_times, period_hours_arr
+        )
+        self.assertTrue(self._read_state("entry_d", "s4").commanded_state)
+
+        # Second solve, 5 min later: period 0 dips to 0.0, but period 1
+        # (5 min ahead, inside the 10-min default hold window) is back
+        # to 0.65 -- must stay commanded ON, not flip off.
+        now2 = start + timedelta(minutes=5)
+        plan_dip = _fake_plan(
+            adequacy=[
+                _fake_load_plan(
+                    "s4", np.array([0.0, 0.65, 0.0, 0.65, 0.0]), adequacy=True
+                )
+            ]
+        )
+        solver_writer.apply_commanded_state_guard(
+            plan_dip, now2, grid_times, period_hours_arr
+        )
+        self.assertTrue(self._read_state("entry_d", "s4").commanded_state)
+
+    def test_lookahead_never_accelerates_an_off_to_on_transition(self):
+        # One-sidedness check: the #595 lookahead only suppresses a
+        # premature OFF while already commanded ON. A load that is
+        # currently OFF must not be pre-emptively commanded ON just
+        # because a later period in the same plan wants it on soon.
+        import numpy as np
+
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            config_entries=SimpleNamespace(
+                async_entries=lambda domain: [SimpleNamespace(entry_id="entry_e")]
+            ),
+            loop=self._loop,
+        )
+        start = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+        grid_times = _grid(start, 6, minutes=5)
+        period_hours_arr = np.full(5, 5.0 / 60.0)
+
+        # First solve: load genuinely off right now, establishes OFF.
+        plan_off = _fake_plan(
+            adequacy=[
+                _fake_load_plan(
+                    "s5", np.array([0.0, 0.0, 0.65, 0.65, 0.65]), adequacy=True
+                )
+            ]
+        )
+        solver_writer.apply_commanded_state_guard(
+            plan_off, start, grid_times, period_hours_arr
+        )
+        self.assertFalse(self._read_state("entry_e", "s5").commanded_state)
+
 
 class TestApplyCommandedStateGuardPlanForecast(unittest.TestCase):
     """nimbus issue #581: apply_commanded_state_guard() also publishes

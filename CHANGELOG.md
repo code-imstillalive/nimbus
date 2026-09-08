@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.192] — 2026-09-09
+
+### Fixed
+- **A jagged adequacy-load plan no longer commands a Controllable Load off just because it will want on again within its own hold window** (nimbus issue #595, Mark Purcell — real finding on the first live morning of the #534 heat pump: it cycled on/off every 15–35 minutes, burning 2 of its 3 daily activation-cap slots by 08:21, before the plan's own cheap 11:00–13:00 window ever arrived). The LP's own per-period adequacy-load plan is jagged at 5-minute resolution — unlike the battery, it carries no switching cost or smoothness term — so a single period dipping below the on-threshold is common even while the load is genuinely still wanted on a few periods later. `apply_commanded_state_guard()` previously read only period 0 to decide the raw on/off signal fed into the relay-chatter hysteresis guard, so a brief dip that happened to persist long enough could still trip a real OFF, immediately followed by the very next solve wanting it back ON. Fixed by looking ahead through the load's own plan (`power_kw`/`served_kw`, already in hand this cycle) for up to the load's own hold window before committing to OFF — if it wants on again inside that window, the dip is treated as noise, not a genuine sustained off. Deliberately one-sided: only suppresses a premature OFF while already commanded ON, never accelerates an OFF→ON transition (which would risk an early, possibly wasted activation). 2 new tests, full existing hysteresis/acceptance suite unaffected. `min_run_minutes`/switching-cost as a real LP constraint (issue #595's own item 1, a larger solver-model change) and the "capped (n/n), x kWh short" status message (item 3) remain open, not part of this fix.
+
 ## [0.94.191] — 2026-09-09
 
 ### Fixed
