@@ -29,18 +29,23 @@ from homeassistant.config_entries import (
 from homeassistant.helpers import selector
 
 from ..const import (
+    CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY,
     CONF_BATTERY_PARTICIPANT_CAPACITY_KWH,
     CONF_BATTERY_PARTICIPANT_CHARGE_LIMIT_ENTITY,
     CONF_BATTERY_PARTICIPANT_DEGRADATION_COST_PER_KWH,
+    CONF_BATTERY_PARTICIPANT_DEPARTURE_HOUR,
     CONF_BATTERY_PARTICIPANT_EFFICIENCY_PERCENT,
     CONF_BATTERY_PARTICIPANT_MAX_CHARGE_KW,
     CONF_BATTERY_PARTICIPANT_MAX_DISCHARGE_KW,
     CONF_BATTERY_PARTICIPANT_MAX_SOC_PERCENT,
     CONF_BATTERY_PARTICIPANT_MIN_SOC_PERCENT,
+    CONF_BATTERY_PARTICIPANT_MUST_HAVE_SOC_BY_DEPARTURE_PERCENT,
     CONF_BATTERY_PARTICIPANT_NAME,
     CONF_BATTERY_PARTICIPANT_POWER_POSITIVE_IS_CHARGE,
     CONF_BATTERY_PARTICIPANT_POWER_SENSOR,
     CONF_BATTERY_PARTICIPANT_SALVAGE_VALUE,
+    CONF_BATTERY_PARTICIPANT_SHARED_CHARGER_GROUP,
+    CONF_BATTERY_PARTICIPANT_SHARED_CHARGER_MAX_KW,
     CONF_BATTERY_PARTICIPANT_SOC_SENSOR,
 )
 
@@ -66,6 +71,18 @@ _PERCENT_SELECTOR = selector.NumberSelector(
 _DOLLAR_PER_KWH_SELECTOR = selector.NumberSelector(
     selector.NumberSelectorConfig(
         min=0, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="$/kWh"
+    )
+)
+# Same convention as the existing Solver P2P block start/end hour
+# fields (number.py's own P2P Block N Start/End Hour) -- a plain
+# whole-hour integer, 0-23.
+_HOUR_SELECTOR = selector.NumberSelector(
+    selector.NumberSelectorConfig(
+        min=0,
+        max=23,
+        step=1,
+        mode=selector.NumberSelectorMode.BOX,
+        unit_of_measurement="hour",
     )
 )
 
@@ -148,6 +165,51 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
         CONF_BATTERY_PARTICIPANT_CHARGE_LIMIT_ENTITY,
         defaults.get(CONF_BATTERY_PARTICIPANT_CHARGE_LIMIT_ENTITY),
         selector.EntitySelector(selector.EntitySelectorConfig(domain="number")),
+    )
+    # #563 item 2: availability gating -- an optional binary_sensor
+    # (e.g. "located at home", "charge cable connected") whose CURRENT
+    # state gates this participant's whole-solve charge/discharge -- see
+    # const.py's own comment on this field for the real EV case this
+    # exists for.
+    _optional_field(
+        schema_dict,
+        CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY,
+        defaults.get(CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY),
+        selector.EntitySelector(selector.EntitySelectorConfig(domain="binary_sensor")),
+    )
+    # #563 item 2, the departure-deadline half -- both fields optional,
+    # and must be set together (see build_extra_batteries()'s own
+    # reconciliation -- setting only one is treated as "neither set",
+    # not an error, since BatteryConfig.__post_init__ itself requires
+    # both-or-neither).
+    _optional_field(
+        schema_dict,
+        CONF_BATTERY_PARTICIPANT_DEPARTURE_HOUR,
+        defaults.get(CONF_BATTERY_PARTICIPANT_DEPARTURE_HOUR),
+        _HOUR_SELECTOR,
+    )
+    _optional_field(
+        schema_dict,
+        CONF_BATTERY_PARTICIPANT_MUST_HAVE_SOC_BY_DEPARTURE_PERCENT,
+        defaults.get(CONF_BATTERY_PARTICIPANT_MUST_HAVE_SOC_BY_DEPARTURE_PERCENT),
+        _PERCENT_SELECTOR,
+    )
+    # #563 item 3: the shared-charger power constraint -- a free-text
+    # group name (two participants with the SAME name share one real
+    # physical charger) plus that group's own kW ceiling. See const.py's
+    # own comment on these fields for the real "two Teslas on one Sigen
+    # DC charger" case.
+    _optional_field(
+        schema_dict,
+        CONF_BATTERY_PARTICIPANT_SHARED_CHARGER_GROUP,
+        defaults.get(CONF_BATTERY_PARTICIPANT_SHARED_CHARGER_GROUP),
+        selector.TextSelector(),
+    )
+    _optional_field(
+        schema_dict,
+        CONF_BATTERY_PARTICIPANT_SHARED_CHARGER_MAX_KW,
+        defaults.get(CONF_BATTERY_PARTICIPANT_SHARED_CHARGER_MAX_KW),
+        _KW_SELECTOR,
     )
     return vol.Schema(schema_dict)
 

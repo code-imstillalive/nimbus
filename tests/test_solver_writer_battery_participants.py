@@ -202,5 +202,212 @@ class TestBuildExtraBatteries(unittest.TestCase):
         self.assertEqual(b.initial_soc_kwh, b.capacity_kwh)
 
 
+class TestAvailabilityGateWiring(unittest.TestCase):
+    """nimbus issue #563 item 2: build_extra_batteries() reading a live
+    available_entity into BatteryConfig.available. The LP mechanics
+    themselves (ub=0.0 for a whole solve) are covered by
+    test_solver_battery_participant_gating_and_shared_charger.py -- this
+    file only proves the config-surface -> BatteryConfig wiring."""
+
+    def setUp(self):
+        self._orig_native_hass = solver_writer._NATIVE_HASS
+
+    def tearDown(self):
+        solver_writer._NATIVE_HASS = self._orig_native_hass
+
+    def test_no_available_entity_configured_defaults_available_true(self):
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [_fake_subentry("s1", "battery_participant", dict(_TESLA_DATA))],
+            states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
+        )
+        b = solver_writer.build_extra_batteries()[0]
+        self.assertTrue(b.available)
+
+    def test_available_entity_on_means_available(self):
+        data = dict(_TESLA_DATA)
+        data["battery_participant_available_entity"] = (
+            "binary_sensor.m3p_t_located_at_home"
+        )
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [_fake_subentry("s1", "battery_participant", data)],
+            states={
+                "sensor.m3p_t_battery_level": _fake_state("55.0"),
+                "binary_sensor.m3p_t_located_at_home": _fake_state("on"),
+            },
+        )
+        b = solver_writer.build_extra_batteries()[0]
+        self.assertTrue(b.available)
+
+    def test_available_entity_off_means_unavailable(self):
+        data = dict(_TESLA_DATA)
+        data["battery_participant_available_entity"] = (
+            "binary_sensor.m3p_t_located_at_home"
+        )
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [_fake_subentry("s1", "battery_participant", data)],
+            states={
+                "sensor.m3p_t_battery_level": _fake_state("55.0"),
+                "binary_sensor.m3p_t_located_at_home": _fake_state("off"),
+            },
+        )
+        b = solver_writer.build_extra_batteries()[0]
+        self.assertFalse(b.available)
+
+    def test_missing_available_entity_state_is_conservatively_unavailable(self):
+        # Real case: the configured entity_id doesn't currently resolve
+        # to any state (renamed, integration reloading) -- must not
+        # crash, and must be treated as NOT available (the conservative
+        # reading for a live safety-relevant gate), not silently True.
+        data = dict(_TESLA_DATA)
+        data["battery_participant_available_entity"] = "binary_sensor.does_not_exist"
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [_fake_subentry("s1", "battery_participant", data)],
+            states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
+        )
+        b = solver_writer.build_extra_batteries()[0]
+        self.assertFalse(b.available)
+
+
+class TestDepartureDeadlineWiring(unittest.TestCase):
+    def setUp(self):
+        self._orig_native_hass = solver_writer._NATIVE_HASS
+
+    def tearDown(self):
+        solver_writer._NATIVE_HASS = self._orig_native_hass
+
+    def _periods(self, start_hour: int, n: int):
+        from datetime import UTC, datetime
+
+        import numpy as np
+        from solver.elements import PeriodGrid
+
+        return PeriodGrid(
+            hours=np.array([1.0] * n),
+            start=datetime(2026, 9, 8, start_hour, 0, tzinfo=UTC),
+        )
+
+    def test_both_fields_set_resolves_to_a_real_period_index(self):
+        data = dict(_TESLA_DATA)
+        data["battery_participant_departure_hour"] = 8
+        data["battery_participant_must_have_soc_by_departure_percent"] = 90.0
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [_fake_subentry("s1", "battery_participant", data)],
+            states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
+        )
+        periods = self._periods(start_hour=6, n=6)  # 06:00..11:00, hour 8 is index 2
+        b = solver_writer.build_extra_batteries(periods)[0]
+        self.assertEqual(b.must_have_soc_by_period_index, 2)
+        self.assertAlmostEqual(b.must_have_soc_kwh, 60.0 * 0.90)
+
+    def test_no_matching_hour_in_horizon_is_a_silent_no_op(self):
+        data = dict(_TESLA_DATA)
+        data["battery_participant_departure_hour"] = 20
+        data["battery_participant_must_have_soc_by_departure_percent"] = 90.0
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [_fake_subentry("s1", "battery_participant", data)],
+            states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
+        )
+        periods = self._periods(
+            start_hour=6, n=4
+        )  # 06:00..09:00, hour 20 never appears
+        b = solver_writer.build_extra_batteries(periods)[0]
+        self.assertIsNone(b.must_have_soc_by_period_index)
+        self.assertIsNone(b.must_have_soc_kwh)
+
+    def test_only_departure_hour_set_is_treated_as_neither_set(self):
+        data = dict(_TESLA_DATA)
+        data["battery_participant_departure_hour"] = 8
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [_fake_subentry("s1", "battery_participant", data)],
+            states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
+        )
+        periods = self._periods(start_hour=6, n=6)
+        b = solver_writer.build_extra_batteries(periods)[0]
+        self.assertIsNone(b.must_have_soc_by_period_index)
+        self.assertIsNone(b.must_have_soc_kwh)
+
+    def test_no_periods_argument_is_a_real_no_op(self):
+        # Every pre-#563-items-2/3 caller (and every other test in this
+        # file) calls build_extra_batteries() with zero arguments --
+        # must keep working exactly as before.
+        data = dict(_TESLA_DATA)
+        data["battery_participant_departure_hour"] = 8
+        data["battery_participant_must_have_soc_by_departure_percent"] = 90.0
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [_fake_subentry("s1", "battery_participant", data)],
+            states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
+        )
+        b = solver_writer.build_extra_batteries()[0]
+        self.assertIsNone(b.must_have_soc_by_period_index)
+        self.assertIsNone(b.must_have_soc_kwh)
+
+
+class TestSharedChargerWiring(unittest.TestCase):
+    def setUp(self):
+        self._orig_native_hass = solver_writer._NATIVE_HASS
+
+    def tearDown(self):
+        solver_writer._NATIVE_HASS = self._orig_native_hass
+
+    def test_group_and_ceiling_pass_through_to_batteryconfig(self):
+        data = dict(_TESLA_DATA)
+        data["battery_participant_shared_charger_group"] = "dc_charger"
+        data["battery_participant_shared_charger_max_kw"] = 25.0
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [_fake_subentry("s1", "battery_participant", data)],
+            states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
+        )
+        b = solver_writer.build_extra_batteries()[0]
+        self.assertEqual(b.shared_charger_group, "dc_charger")
+        self.assertEqual(b.shared_charger_max_kw, 25.0)
+
+    def test_ungrouped_by_default(self):
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [_fake_subentry("s1", "battery_participant", dict(_TESLA_DATA))],
+            states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
+        )
+        b = solver_writer.build_extra_batteries()[0]
+        self.assertIsNone(b.shared_charger_group)
+        self.assertIsNone(b.shared_charger_max_kw)
+
+
+class TestOutOfRangeSocWarningParity(unittest.TestCase):
+    """Mark Purcell's own live-tested #563 review flagged a real
+    asymmetry: the home battery's own live SoC read in main() logs a
+    WARNING when it sits outside [min, max]; build_extra_batteries()
+    didn't. Proves the fix -- doesn't crash, doesn't clamp away the real
+    value (soft overfill/underfill slack still handles it downstream),
+    just now also logs."""
+
+    def setUp(self):
+        self._orig_native_hass = solver_writer._NATIVE_HASS
+
+    def tearDown(self):
+        solver_writer._NATIVE_HASS = self._orig_native_hass
+
+    def test_soc_above_configured_ceiling_logs_a_warning(self):
+        data = dict(_TESLA_DATA)  # max_soc_percent=95.0
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [_fake_subentry("s1", "battery_participant", data)],
+            states={"sensor.m3p_t_battery_level": _fake_state("100.0")},
+        )
+        with self.assertLogs(solver_writer._LOGGER, level="WARNING") as cm:
+            b = solver_writer.build_extra_batteries()[0]
+        self.assertTrue(
+            any("outside its own configured floor/ceiling" in msg for msg in cm.output)
+        )
+        # Real value passes through honestly -- no silent clamp-and-pretend.
+        self.assertAlmostEqual(b.initial_soc_kwh, 60.0)
+
+    def test_soc_within_range_does_not_log(self):
+        data = dict(_TESLA_DATA)
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [_fake_subentry("s1", "battery_participant", data)],
+            states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
+        )
+        with self.assertNoLogs(solver_writer._LOGGER, level="WARNING"):
+            solver_writer.build_extra_batteries()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -349,7 +349,12 @@
             "battery_participant_efficiency_percent": "Round-trip efficiency (%)",
             "battery_participant_salvage_value": "Salvage value (optional, $/kWh)",
             "battery_participant_degradation_cost_per_kwh": "Degradation cost (optional, $/kWh)",
-            "battery_participant_charge_limit_entity": "Live charge-limit entity (optional)"
+            "battery_participant_charge_limit_entity": "Live charge-limit entity (optional)",
+            "battery_participant_available_entity": "Availability sensor (optional)",
+            "battery_participant_departure_hour": "Departure hour (optional)",
+            "battery_participant_must_have_soc_by_departure_percent": "Required SoC by departure (optional, %)",
+            "battery_participant_shared_charger_group": "Shared charger group (optional)",
+            "battery_participant_shared_charger_max_kw": "Shared charger max power (optional, kW)"
           },
           "data_description": {
             "battery_participant_name": "A short, real name for this participant (e.g. \"Tesla Model Y\", \"Second Inverter\") -- becomes this subentry's device title and identifies it in the Solver's own per-battery output.",
@@ -364,7 +369,12 @@
             "battery_participant_efficiency_percent": "This participant's own real combined round-trip efficiency (battery chemistry + any inverter/charger conversion loss).",
             "battery_participant_salvage_value": "A real $/kWh credit for energy remaining in THIS participant at the end of a solve's horizon. Leave blank for none (0.0) -- a genuine no-op, same convention as Degradation cost below.",
             "battery_participant_degradation_cost_per_kwh": "A real $/kWh cycle-wear cost for THIS participant. Leave blank for none.",
-            "battery_participant_charge_limit_entity": "An optional live number entity (e.g. an EV's own charge-limit slider) whose CURRENT value overrides Maximum SoC above for every solve -- so a household changing this in the vehicle's own app doesn't also have to update this wizard."
+            "battery_participant_charge_limit_entity": "An optional live number entity (e.g. an EV's own charge-limit slider) whose CURRENT value overrides Maximum SoC above for every solve -- so a household changing this in the vehicle's own app doesn't also have to update this wizard.",
+            "battery_participant_available_entity": "An optional binary_sensor (e.g. \"located at home\", \"charge cable connected\") -- while it's off, this participant cannot charge or discharge at all for the whole solve. Leave blank if this participant is always available (a real second inverter).",
+            "battery_participant_departure_hour": "The wall-clock hour (0-23) this participant needs to be ready by. Leave blank for no deadline. Must be set together with Required SoC by departure below.",
+            "battery_participant_must_have_soc_by_departure_percent": "The SoC this participant must reach by Departure hour above -- a real hard requirement, not a preference (e.g. a car needs to be drivable in the morning). Must be set together with Departure hour above.",
+            "battery_participant_shared_charger_group": "A short name shared by every participant drawing from the SAME physical charger (e.g. two EVs on one DC charger) -- leave blank if this participant has its own dedicated charger.",
+            "battery_participant_shared_charger_max_kw": "The shared charger's own real combined power ceiling -- only meaningful when Shared charger group above is set. If more than one participant in the group sets this, the lowest value is used."
           }
         }
       }

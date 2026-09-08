@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.181] — 2026-09-08
+
+### Added
+- **Battery Participant availability gating and shared-charger power constraint** (nimbus issue #563, items 2 and 3 — the two pieces explicitly deferred out of the config-surface PR #566, addressing Mark Purcell's own live-tested blockers on his real 3-battery fleet). `BatteryConfig` gains `available` (bool, default `True`), `must_have_soc_by_period_index`/`must_have_soc_kwh` (a hard departure-deadline floor), and `shared_charger_group`/`shared_charger_max_kw`. `available=False` makes charge AND discharge mathematically impossible (`ub=0.0`) for the whole solve — the same "hard-impossible" technique the P2P fixed-window charge gate already uses — re-evaluated fresh every 5-minute solve cycle from a live `binary_sensor`'s current state, deliberately not predicting a mid-horizon arrival/departure. The departure deadline forces `soc[idx] >= target` at a resolved period index — a real hard floor, not a priced preference. The shared-charger constraint adds `Σ(charge+discharge)` across every participant in a named group `<= ` the group's own kW ceiling (the minimum declared value when participants disagree) — strictly additional to, never replacing, the existing per-participant wash-trade cap (#245/#467, which stays per-battery: two independent batteries legitimately charging/discharging at once is real, not a wash trade). New wizard fields on the `battery_participant` subentry: an availability `binary_sensor`, a departure hour + required SoC-by-departure pair, and a shared-charger group name + max kW. All five new fields are optional and default to a real no-op — byte-identical behavior for every existing participant and for the household's own single "home" battery. Also fixes a small asymmetry Mark's review flagged: a battery participant's live SoC outside its own configured floor/ceiling now logs the same WARNING the home battery's own path already does, instead of recovering silently.
+
 ## [0.94.180] — 2026-09-08
 
 ### Fixed

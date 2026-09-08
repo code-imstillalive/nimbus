@@ -668,6 +668,64 @@ class BatteryConfig:
     # conservative direction, not a gap.
     degradation_cost_per_kwh: float = 0.0
 
+    # nimbus issue #563 item 2: whole-horizon availability gate
+    # (2026-09-08). True (the default) is fully backward compatible --
+    # charge/discharge stay bounded only by max_charge_kw/max_discharge_kw,
+    # byte-identical to every scenario before this field existed. False
+    # makes both directions mathematically impossible for this WHOLE
+    # solve (ub=0.0 at variable construction in network.py, the same
+    # "hard-impossible, not just costed against" technique already used
+    # for the P2P fixed-window charge gate -- see that constraint's own
+    # comment in network.py).
+    #
+    # Deliberately WHOLE-HORIZON, not a per-period mask: the caller
+    # (solver_writer.py's build_extra_batteries()) reads a live
+    # binary_sensor's CURRENT state once per solve -- there is no real
+    # forecast for WHEN an away EV will return mid-horizon, so pretending
+    # to predict a future arrival/departure time inside a single solve
+    # would be fabricating information nobody has. Re-evaluated fresh
+    # every solve cycle (the periodic 5-min cron) instead -- the plan
+    # self-corrects the moment the real sensor flips, which is the
+    # honest way to handle a state with no real forecast.
+    available: bool = True
+
+    # nimbus issue #563 item 2, the departure-deadline half: pushes the
+    # LP to reach must_have_soc_kwh BY must_have_soc_by_period_index, the
+    # same "cumulative energy... plus target" mechanism adequacy loads
+    # already use (network.py's own "Adequacy deadline constraints"
+    # section) -- HARD, not soft: a real EV genuinely needs a real SoC by
+    # a real time, not a priced preference. Both None (the default) is a
+    # real no-op. Both must be set together -- see __post_init__.
+    #
+    # No-op for a solve whose own horizon doesn't reach the deadline
+    # period yet (network.py skips the constraint entirely when the
+    # index is out of range for THIS solve, not an error -- a household
+    # setting a departure hour that's simply beyond a short manual solve
+    # window is a normal, expected case, not a misconfiguration).
+    must_have_soc_by_period_index: int | None = None
+    must_have_soc_kwh: float | None = None
+
+    # nimbus issue #563 item 3: an optional shared-charger group. Two or
+    # more participants sharing the SAME non-None shared_charger_group
+    # name get an ADDITIONAL joint constraint in network.py:
+    # sum(charge[t]+discharge[t]) across the group <= the group's own
+    # shared_charger_max_kw for that period -- e.g. two EVs on one
+    # physical DC charger cannot both draw 25kW at once, even though each
+    # EV's own max_charge_kw individually allows it. This is SEPARATE
+    # from and does not touch the existing PER-BATTERY wash-trade cap
+    # (nimbus issue #245/#467 -- kept strictly per-participant, two
+    # independent batteries legitimately charging/discharging at the
+    # same time is real, not a wash trade). None (the default, both
+    # fields) is a real no-op -- an ungrouped battery is completely
+    # unaffected, byte-identical to every scenario before this field
+    # existed. When multiple participants in the same group each set
+    # shared_charger_max_kw, network.py uses the MINIMUM non-None value
+    # declared -- the conservative, physically-safe reading when a
+    # household's config is momentarily inconsistent across two
+    # subentries describing the one real charger.
+    shared_charger_group: str | None = None
+    shared_charger_max_kw: float | None = None
+
     def __post_init__(self) -> None:
         # nimbus issue #328 (Mark Purcell): min_soc is a SCHEDULING
         # PREFERENCE the LP tries to respect and recover toward (see
@@ -808,6 +866,32 @@ class BatteryConfig:
             )
         if self.degradation_cost_per_kwh < 0:
             msg = f"degradation_cost_per_kwh must be >= 0 (got {self.degradation_cost_per_kwh}) -- a negative value would mean cycling the battery PAYS the household, which is not a real cost"
+            raise ValueError(msg)
+        # nimbus issue #563 item 2: must_have_soc_by_period_index and
+        # must_have_soc_kwh are a pair -- one without the other is
+        # ambiguous (a deadline with no target, or a target with no
+        # deadline) and almost certainly a caller bug, not a real config.
+        if (self.must_have_soc_by_period_index is None) != (
+            self.must_have_soc_kwh is None
+        ):
+            msg = (
+                "must_have_soc_by_period_index and must_have_soc_kwh must both be "
+                "set together, or both left None"
+            )
+            raise ValueError(msg)
+        if (
+            self.must_have_soc_by_period_index is not None
+            and self.must_have_soc_by_period_index < 0
+        ):
+            msg = f"must_have_soc_by_period_index must be >= 0 (got {self.must_have_soc_by_period_index})"
+            raise ValueError(msg)
+        if self.must_have_soc_kwh is not None and not (
+            0.0 <= self.must_have_soc_kwh <= self.capacity_kwh
+        ):
+            msg = f"must_have_soc_kwh ({self.must_have_soc_kwh}) must be within physical bounds [0, capacity_kwh={self.capacity_kwh}]"
+            raise ValueError(msg)
+        if self.shared_charger_max_kw is not None and self.shared_charger_max_kw < 0.0:
+            msg = f"shared_charger_max_kw ({self.shared_charger_max_kw}) cannot be negative"
             raise ValueError(msg)
 
 
