@@ -8,6 +8,104 @@ served and registered. All three are findable in the card picker by
 searching "nimbus" (issue #519) — each `type` starts with `nimbus-` and
 each picker entry's name says Nimbus.
 
+**Registering a card is not the same as it reaching a screen (issue
+#550/#552, Mark Purcell)**: a household that never hand-authors dashboard
+YAML has no way to discover a card exists just because HACS installed
+it — confirmed live on Mark's own install, where the Topology card
+shipped for several releases before ever reaching a view. The three
+sections below (one per card) are the field reference; the full
+copy-paste dashboard right here is the fastest path to actually seeing
+all three cards on screen.
+
+## Full three-view "Nimbus" dashboard (copy-paste)
+
+One complete dashboard — Control Panel / Regret / Topology, one view
+each — using the same `sections` layout and `max_columns: 4` this doc
+already recommends per-card below (see the Control Panel section's own
+"Sections-view width gotcha" for why). Replace every
+`sensor.your_*`/`input_select.nimbus_dispatch_mode`/
+`input_boolean.nimbus_live_dispatch_armed` placeholder with your own
+real entity IDs — none of these are Nimbus's own hub-level entities, see
+each card's own field table below for what's required vs. optional.
+Add this as a new dashboard (Settings -> Dashboards -> **+ Add
+Dashboard** -> **New dashboard from scratch**, then Edit -> raw
+configuration editor) or a new view on an existing one:
+
+```yaml
+title: Nimbus
+views:
+  - title: Control Panel
+    path: control
+    icon: mdi:battery-charging-100
+    type: sections
+    max_columns: 4
+    sections:
+      - type: grid
+        column_span: 4
+        cards:
+          - type: custom:nimbus-dispatch-card-v4
+            mode_select_entity: input_select.nimbus_dispatch_mode
+            armed_entity: input_boolean.nimbus_live_dispatch_armed
+            battery_power_entity: sensor.your_battery_power_sensor
+            battery_soc_entity: sensor.your_battery_soc_sensor
+            grid_power_entity: sensor.your_grid_meter_sensor
+            solar_power_entity: sensor.your_solar_power_sensor
+            grid_options:
+              columns: full
+              rows: auto
+  - title: Regret
+    path: regret
+    icon: mdi:chart-bell-curve
+    type: sections
+    max_columns: 4
+    sections:
+      - type: grid
+        column_span: 4
+        cards:
+          - type: heading
+            heading: Yesterday
+          - type: custom:nimbus-regret-card
+            days_ago: 1
+            grid_options:
+              columns: full
+              rows: auto
+      - type: grid
+        column_span: 4
+        cards:
+          - type: heading
+            heading: 2 Days Ago
+          - type: custom:nimbus-regret-card
+            days_ago: 2
+            grid_options:
+              columns: full
+              rows: auto
+  - title: Topology
+    path: topology
+    icon: mdi:transmission-tower
+    type: sections
+    max_columns: 4
+    sections:
+      - type: grid
+        column_span: 4
+        cards:
+          - type: heading
+            heading: Nimbus Topology
+            icon: mdi:sitemap
+          - type: custom:nimbus-topology-card
+            switchboard: {}
+            inverters: []
+            grid_options:
+              columns: full
+              rows: auto
+```
+
+The Topology view's minimal `switchboard: {}`/`inverters: []` config is
+correct as-is for a wizard-configured household (issue #551 — both
+default and auto-fill from `sensor.nimbus_topology_config`); see the
+Topology card's own section below for hand-authoring instead of running
+the wizard, and its empty-state banner (issue #553) if the wizard
+hasn't been run yet.
+
 ## Nimbus Dispatch Card (`custom:nimbus-dispatch-card-v4`) — "Control Panel"
 
 A single card: mode selector + kill switch, a SoC gauge with live
