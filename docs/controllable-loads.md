@@ -104,12 +104,13 @@ Real, tracked gaps, not oversights being papered over:
   to 60°C by 17:00" as a real temperature-band target. #481 (thermal kind) is
   the largest unbuilt piece of the whole spec — a genuine new LP model
   (heat-transfer dynamics, a comfort-band construction), not a wiring task.
-- **No tracking-fidelity/monitoring sensors** (`scheduled_kw`, `actual_kw`,
-  `tracking_fidelity_24h`, `tracking_error_cost_24h`, the plain-language
-  `sensor.nimbus_<load>_status`, `delivered_today_kwh` vs `target_today_kwh`
-  display) — the rest of #484's own spec. `sensor.nimbus_<load>_commanded_
-  state` (below) covers the real on/off decision and its own run-state
-  fields; the analytics layer on top is still deferred.
+- **No tracking-fidelity/monitoring sensors comparing plan to reality**
+  (`actual_kw`, `tracking_fidelity_24h`, `tracking_error_cost_24h`, the
+  plain-language `sensor.nimbus_<load>_status`, `delivered_today_kwh` vs
+  `target_today_kwh` display) — the rest of #484's own spec. The PLAN half
+  (`scheduled_kw`, i.e. `plan_forecast`) is real now (#581, see "Plan
+  forecast" above); comparing it against the load's own real MEASURED power
+  is still deferred.
 - **No linked-Forecaster-load option.** A sheddable load's forecast is always
   flat (`nominal_kw`) — there's no way yet to point it at an existing Load
   subentry's own real per-period forecast instead.
@@ -183,13 +184,15 @@ acceptance scenario #484 itself specifies. See
 full worked traces.
 
 **Status: decision layer, now with a real output stage (see "Output /
-dispatch" below).** The guarded `commanded_state` is computed and persisted
+dispatch" below) and the full day-ahead plan published too (see "Plan
+forecast" below).** The guarded `commanded_state` is computed and persisted
 every solve, published as `sensor.nimbus_<load>_commanded_state`, and — when
 Device entity is configured — actually dispatched to a real HA service.
-`scheduled_kw`/`actual_kw`/`tracking_fidelity_24h`/`tracking_error_cost_24h`/
-the plain-language status sensor/`delivered_today_kwh` vs `target_today_kwh`
-display remain deferred (see "What's not built yet") — the analytics layer on
-top of the now-real dispatch mechanism, not a blocker for it.
+`actual_kw`/`tracking_fidelity_24h`/`tracking_error_cost_24h`/ the
+plain-language status sensor/`delivered_today_kwh` vs `target_today_kwh`
+display (comparing the plan against real MEASURED power) remain deferred
+(see "What's not built yet") — the analytics layer on top of the now-real
+plan/dispatch, not a blocker for either.
 
 ## Output / dispatch (nimbus issue #476/#534, real device commanding)
 
@@ -235,7 +238,47 @@ subentry's own forecaster sensor): state is `"on"`/`"off"` reflecting
 `activations_today`, `commanded_since`, and this load's own configured
 `device_entity`/`min_hold_minutes`/`max_activations_per_day`) — everything
 needed to see WHY a value is what it is without cross-referencing the
-wizard.
+wizard. See "Plan forecast" below for the additional `plan_*` attributes.
+
+## Plan forecast (nimbus issue #581, real household ask: "chart the
+day-ahead plan for the heat pump")
+
+The LP already computes a full per-period plan for every Controllable Load
+every solve (`AdequacyLoadPlan`/`SheddableLoadPlan`, `solver/network.py`) —
+`apply_commanded_state_guard()` used to read only period 0 of it (to decide
+the current on/off state) and discard the rest. That's published now, as
+more attributes on the same `sensor.nimbus_<load>_commanded_state` entity,
+refreshed every solve cycle regardless of whether `commanded_state` itself
+changed (a stale day-ahead schedule would defeat the point):
+
+- **`plan_forecast`**: the per-period series itself — `power_kw` for a
+  deferrable load, `served_kw` for a sheddable one — in the same
+  `[{"time": ..., "value": ...}]` shape every other Nimbus forecast sensor
+  already publishes.
+- **Deferrable-only**: `plan_delivered_kwh_forecast` (same shape, the
+  CUMULATIVE energy delivered through each period), `plan_target_kwh`,
+  `plan_shortfall_kwh` (0.0 whenever the target was genuinely reachable —
+  see `AdequacyLoadPlan`'s own docstring), `plan_earliest_period`/
+  `plan_deadline_period` (the resolved window, as real period indices into
+  this solve's own grid).
+- **Sheddable-only**: `plan_nominal_kw` — the flat forecast this load was
+  shed from.
+
+A load kind's own non-applicable fields (e.g. `plan_target_kwh` for a
+sheddable load) are simply `null`, never a fabricated value. A load not
+currently in the plan at all this solve (done, skipped, misconfigured)
+leaves whatever was last persisted untouched, same "stale is fine, this
+bookkeeping is best-effort" posture `commanded_state` itself already has.
+All seven `plan_*` attributes are excluded from long-term recorder history
+(`_unrecorded_attributes`, `sensor.py`) — they churn every solve cycle by
+design, the same #362 reasoning already applied to
+`NimbusHealthReportSensor`'s own per-poll fields.
+
+**Status: the plan itself, published.** Not built: any chart/card actually
+rendering it (dispatch card or otherwise — out of scope for #581, which was
+scoped to "the data exists so a chart *could* show it"), and comparing this
+plan against real measured power (`actual_kw`/`tracking_fidelity_24h` — see
+"What's not built yet").
 
 ## Early completion (nimbus issue #480, core mechanic only)
 

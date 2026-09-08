@@ -1070,11 +1070,13 @@ def _fake_plan(sheddable=(), adequacy=()):
     )
 
 
-def _fake_load_plan(subentry_id, kw_array, *, adequacy=False):
+def _fake_load_plan(subentry_id, kw_array, *, adequacy=False, shortfall_kwh=0.0):
     """A stand-in for SheddableLoadPlan/AdequacyLoadPlan -- only the
     fields apply_commanded_state_guard() actually reads."""
     if adequacy:
-        return SimpleNamespace(subentry_id=subentry_id, power_kw=kw_array)
+        return SimpleNamespace(
+            subentry_id=subentry_id, power_kw=kw_array, shortfall_kwh=shortfall_kwh
+        )
     return SimpleNamespace(subentry_id=subentry_id, served_kw=kw_array)
 
 
@@ -1172,6 +1174,234 @@ class TestApplyCommandedStateGuard(unittest.TestCase):
                 real_changes += 1
             prev_commanded = state.commanded_state
         self.assertLessEqual(real_changes, 1)
+
+
+class TestApplyCommandedStateGuardPlanForecast(unittest.TestCase):
+    """nimbus issue #581: apply_commanded_state_guard() also publishes
+    each load's own full per-period plan now, when period_hours_arr is
+    given -- see LoadRunState's own plan_forecast/plan_delivered_kwh_
+    forecast/plan_target_kwh/plan_shortfall_kwh/plan_earliest_period/
+    plan_deadline_period/plan_nominal_kw fields."""
+
+    def setUp(self):
+        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._loop, self._loop_thread = _make_running_loop()
+        _FakeRunStateStore._shared_data.clear()
+
+    def tearDown(self):
+        solver_writer._NATIVE_HASS = self._orig_native_hass
+        self._loop.call_soon_threadsafe(self._loop.stop)
+        self._loop_thread.join(timeout=5)
+        self._loop.close()
+
+    def _read_state(self, hub_entry_id, subentry_id):
+        async def _read():
+            store = load_run_state.LoadRunStateStore(
+                store=_FakeRunStateStore(
+                    None, 1, f"nimbus_load_{hub_entry_id}_load_run_state"
+                )
+            )
+            return await store.async_read(subentry_id)
+
+        return asyncio.run(_read())
+
+    def test_deferrable_load_publishes_its_full_plan(self):
+        import numpy as np
+
+        sub = _fake_subentry(
+            "s_defer",
+            "controllable_load",
+            {
+                "deferrable_target_kwh": 5.0,
+                "deferrable_earliest_hour": 1.0,
+                "deferrable_deadline_hour": 6.0,
+            },
+        )
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            config_entries=SimpleNamespace(
+                async_entries=lambda domain: [
+                    SimpleNamespace(entry_id="entry_pf", subentries={"s_defer": sub})
+                ]
+            ),
+            loop=self._loop,
+        )
+        now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
+        grid_times = _grid(now, 48, minutes=30)  # 24h @ 30min
+        period_hours_arr = np.full(len(grid_times), 0.5)
+        power_kw = np.array([2.0, 2.0] + [0.0] * (len(grid_times) - 2))
+        plan = _fake_plan(
+            adequacy=[
+                _fake_load_plan("s_defer", power_kw, adequacy=True, shortfall_kwh=0.3)
+            ]
+        )
+        solver_writer.apply_commanded_state_guard(
+            plan, now, grid_times, period_hours_arr
+        )
+        result = self._read_state("entry_pf", "s_defer")
+
+        self.assertEqual(len(result.plan_forecast), len(grid_times))
+        self.assertEqual(result.plan_forecast[0]["time"], grid_times[0].isoformat())
+        self.assertEqual(result.plan_forecast[0]["value"], 2.0)
+        self.assertEqual(result.plan_forecast[2]["value"], 0.0)
+
+        # Cumulative delivered kWh: 2.0kW * 0.5h = 1.0 each of the first
+        # two periods, flat after that.
+        self.assertEqual(len(result.plan_delivered_kwh_forecast), len(grid_times))
+        self.assertAlmostEqual(result.plan_delivered_kwh_forecast[0]["value"], 1.0)
+        self.assertAlmostEqual(result.plan_delivered_kwh_forecast[1]["value"], 2.0)
+        self.assertAlmostEqual(result.plan_delivered_kwh_forecast[-1]["value"], 2.0)
+
+        self.assertEqual(result.plan_target_kwh, 5.0)
+        self.assertEqual(result.plan_shortfall_kwh, 0.3)
+        # 1.0 (1am) -> period 2, 6.0 (6am) -> period 12, same resolution
+        # as build_controllable_loads()'s own test above.
+        self.assertEqual(result.plan_earliest_period, 2)
+        self.assertEqual(result.plan_deadline_period, 12)
+        self.assertIsNone(result.plan_nominal_kw)
+
+    def test_a_same_day_window_already_open_reports_earliest_period_zero(self):
+        # nimbus issue #582's own real repro, re-verified against THIS
+        # function's own duplicated window-resolution logic (see its own
+        # comment on the known drift risk): earliest=6am, deadline=4pm,
+        # `now`=06:01 -- _resolve_hour_to_period_index() alone would roll
+        # earliest_period to TOMORROW 6am while deadline stays today,
+        # which must not leak into plan_earliest_period even though the
+        # window is genuinely open right now.
+        import numpy as np
+
+        sub = _fake_subentry(
+            "s_inprogress",
+            "controllable_load",
+            {
+                "deferrable_target_kwh": 2.0,
+                "deferrable_earliest_hour": 6.0,
+                "deferrable_deadline_hour": 16.0,
+            },
+        )
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            config_entries=SimpleNamespace(
+                async_entries=lambda domain: [
+                    SimpleNamespace(
+                        entry_id="entry_pf5", subentries={"s_inprogress": sub}
+                    )
+                ]
+            ),
+            loop=self._loop,
+        )
+        now = datetime(2026, 9, 7, 6, 1, tzinfo=_TZ)  # just past 6am
+        grid_times = _grid(
+            now.replace(hour=0, minute=0), 96, minutes=15
+        )  # 24h @ 15min from midnight
+        period_hours_arr = np.full(len(grid_times), 0.25)
+        power_kw = np.full(len(grid_times), 0.65)
+        plan = _fake_plan(
+            adequacy=[_fake_load_plan("s_inprogress", power_kw, adequacy=True)]
+        )
+        solver_writer.apply_commanded_state_guard(
+            plan, now, grid_times, period_hours_arr
+        )
+        result = self._read_state("entry_pf5", "s_inprogress")
+        self.assertEqual(result.plan_earliest_period, 0)
+        self.assertGreater(result.plan_deadline_period, 0)
+
+    def test_sheddable_load_publishes_served_kw_and_its_nominal(self):
+        import numpy as np
+
+        sub = _fake_subentry(
+            "s_shed", "controllable_load", {"sheddable_nominal_kw": 1.5}
+        )
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            config_entries=SimpleNamespace(
+                async_entries=lambda domain: [
+                    SimpleNamespace(entry_id="entry_pf2", subentries={"s_shed": sub})
+                ]
+            ),
+            loop=self._loop,
+        )
+        now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
+        grid_times = _grid(now, 4, minutes=5)
+        period_hours_arr = np.full(len(grid_times), 5 / 60)
+        served_kw = np.array([1.5, 0.8, 0.0, 1.5])
+        plan = _fake_plan(sheddable=[_fake_load_plan("s_shed", served_kw)])
+        solver_writer.apply_commanded_state_guard(
+            plan, now, grid_times, period_hours_arr
+        )
+        result = self._read_state("entry_pf2", "s_shed")
+
+        self.assertEqual(len(result.plan_forecast), 4)
+        self.assertEqual(result.plan_forecast[1]["value"], 0.8)
+        self.assertEqual(result.plan_nominal_kw, 1.5)
+        # Deferrable-only fields stay untouched for a sheddable load.
+        self.assertIsNone(result.plan_target_kwh)
+        self.assertIsNone(result.plan_earliest_period)
+
+    def test_forecast_refreshes_even_when_commanded_state_is_unchanged(self):
+        # The real point of #581: unlike commanded_state's own change-
+        # gated write, the plan forecast must be current every cycle.
+        import numpy as np
+
+        sub = _fake_subentry(
+            "s_refresh", "controllable_load", {"sheddable_nominal_kw": 1.5}
+        )
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            config_entries=SimpleNamespace(
+                async_entries=lambda domain: [
+                    SimpleNamespace(entry_id="entry_pf3", subentries={"s_refresh": sub})
+                ]
+            ),
+            loop=self._loop,
+        )
+        now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
+        grid_times = _grid(now, 4, minutes=5)
+        period_hours_arr = np.full(len(grid_times), 5 / 60)
+
+        plan1 = _fake_plan(
+            sheddable=[_fake_load_plan("s_refresh", np.array([1.5, 1.5, 1.5, 1.5]))]
+        )
+        solver_writer.apply_commanded_state_guard(
+            plan1, now, grid_times, period_hours_arr
+        )
+        first = self._read_state("entry_pf3", "s_refresh")
+
+        # Same on/off decision (stays ON), but a genuinely different
+        # period-1 value in the new solve's own plan.
+        plan2 = _fake_plan(
+            sheddable=[_fake_load_plan("s_refresh", np.array([1.5, 0.9, 1.5, 1.5]))]
+        )
+        solver_writer.apply_commanded_state_guard(
+            plan2, now + timedelta(minutes=5), grid_times, period_hours_arr
+        )
+        second = self._read_state("entry_pf3", "s_refresh")
+
+        self.assertEqual(first.commanded_state, second.commanded_state)
+        self.assertNotEqual(
+            first.plan_forecast[1]["value"], second.plan_forecast[1]["value"]
+        )
+        self.assertEqual(second.plan_forecast[1]["value"], 0.9)
+
+    def test_no_period_hours_arr_skips_plan_publishing_entirely(self):
+        # Every pre-#581 caller (and every existing test in this file)
+        # invokes apply_commanded_state_guard() with exactly 3 args --
+        # confirms that remains a complete, unchanged no-op for the new
+        # fields, not just "doesn't crash".
+        import numpy as np
+
+        sub = _fake_subentry("s_old", "controllable_load", {})
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            config_entries=SimpleNamespace(
+                async_entries=lambda domain: [
+                    SimpleNamespace(entry_id="entry_pf4", subentries={"s_old": sub})
+                ]
+            ),
+            loop=self._loop,
+        )
+        now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
+        grid_times = _grid(now, 4, minutes=5)
+        plan = _fake_plan(sheddable=[_fake_load_plan("s_old", np.array([1.5, 1.5]))])
+        solver_writer.apply_commanded_state_guard(plan, now, grid_times)
+        result = self._read_state("entry_pf4", "s_old")
+        self.assertIsNone(result.plan_forecast)
+        self.assertTrue(result.commanded_state)
 
 
 class _FakeServiceCalls:

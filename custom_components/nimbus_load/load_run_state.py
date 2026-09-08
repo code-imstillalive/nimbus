@@ -96,6 +96,34 @@ class LoadRunState:
     # since activations are counted at DISPATCH time (a real service call
     # actually issued), not at every solve tick's power sample.
     activations_today: int = 0
+    # nimbus issue #581 (Mark Purcell, real use the day after #578/#579
+    # shipped): the LP already computes each load's own full per-period
+    # plan every solve (AdequacyLoadPlan.power_kw / SheddableLoadPlan.
+    # served_kw in solver/network.py) -- apply_commanded_state_guard() in
+    # solver_writer.py used to read only period 0 of it, to decide the
+    # current on/off state, and discard the rest every cycle. These seven
+    # fields are that discarded series, persisted so NimbusControllable
+    # LoadStateSensor can publish it. All default None -- a load kind this
+    # doesn't apply to (plan_nominal_kw for a deferrable load, the four
+    # plan_target_kwh/plan_shortfall_kwh/plan_earliest_period/plan_
+    # deadline_period fields for a sheddable one), or a load not currently
+    # in the plan at all this cycle (done, skipped, misconfigured), simply
+    # never has these fields touched -- the sensor reads whatever was last
+    # persisted, same "stale is fine, this bookkeeping is best-effort"
+    # posture as commanded_state's own read path. `plan_forecast` is the
+    # per-period series itself (power_kw for deferrable, served_kw for
+    # sheddable) in the same {"time", "value"} shape every other Nimbus
+    # forecast sensor already publishes (see build_time_value_series()
+    # below); `plan_delivered_kwh_forecast` is the same shape but the
+    # CUMULATIVE energy delivered through each period (deferrable only --
+    # a sheddable load has no cumulative deadline target to track against).
+    plan_forecast: list[dict[str, Any]] | None = None
+    plan_delivered_kwh_forecast: list[dict[str, Any]] | None = None
+    plan_target_kwh: float | None = None
+    plan_shortfall_kwh: float | None = None
+    plan_earliest_period: int | None = None
+    plan_deadline_period: int | None = None
+    plan_nominal_kw: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -111,6 +139,13 @@ class LoadRunState:
             "pending_state": self.pending_state,
             "pending_since": self.pending_since,
             "activations_today": self.activations_today,
+            "plan_forecast": self.plan_forecast,
+            "plan_delivered_kwh_forecast": self.plan_delivered_kwh_forecast,
+            "plan_target_kwh": self.plan_target_kwh,
+            "plan_shortfall_kwh": self.plan_shortfall_kwh,
+            "plan_earliest_period": self.plan_earliest_period,
+            "plan_deadline_period": self.plan_deadline_period,
+            "plan_nominal_kw": self.plan_nominal_kw,
         }
 
     @staticmethod
@@ -128,7 +163,31 @@ class LoadRunState:
             pending_state=data.get("pending_state"),
             pending_since=data.get("pending_since"),
             activations_today=int(data.get("activations_today", 0)),
+            plan_forecast=data.get("plan_forecast"),
+            plan_delivered_kwh_forecast=data.get("plan_delivered_kwh_forecast"),
+            plan_target_kwh=data.get("plan_target_kwh"),
+            plan_shortfall_kwh=data.get("plan_shortfall_kwh"),
+            plan_earliest_period=data.get("plan_earliest_period"),
+            plan_deadline_period=data.get("plan_deadline_period"),
+            plan_nominal_kw=data.get("plan_nominal_kw"),
         )
+
+
+def build_time_value_series(
+    grid_times: list[datetime], values: Any, *, round_ndigits: int = 3
+) -> list[dict[str, Any]]:
+    """nimbus issue #581: the standard {"time": ..., "value": ...} shape
+    every other Nimbus forecast sensor already publishes (see coordinator.
+    py's own per-signal forecast construction) -- one shared builder so a
+    Controllable Load's own plan series is byte-shape-identical to every
+    other forecast a household or dashboard already knows how to read,
+    not a bespoke shape invented for this one sensor. `values` is any
+    real-valued sequence the same length as `grid_times` (a numpy array
+    or a plain list -- `float()` handles both)."""
+    return [
+        {"time": t.isoformat(), "value": round(float(v), round_ndigits)}
+        for t, v in zip(grid_times, values)
+    ]
 
 
 def compute_rollover(

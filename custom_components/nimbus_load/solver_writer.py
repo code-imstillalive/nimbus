@@ -161,6 +161,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -7939,6 +7940,7 @@ def apply_commanded_state_guard(
     plan: network.Plan,
     now: datetime,
     grid_times: list[datetime],
+    period_hours_arr: NDArray[np.float64] | None = None,
 ) -> None:
     """nimbus issue #484/#534: the relay-chatter guard, now with a real
     output stage. Reads each Controllable Load's own real, just-solved
@@ -7968,6 +7970,24 @@ def apply_commanded_state_guard(
     one. An OFF transition is never capped -- #534's own cap is
     specifically on "performance activations", not on releasing a load.
 
+    nimbus issue #581 (Mark Purcell, real use the day after #578/#579
+    shipped): also now persists each load's own FULL per-period plan
+    (not just period 0) -- the household's own real ask was "chart the
+    day-ahead plan for the heat pump," and the LP already computes this
+    every cycle, it was simply being discarded. See LoadRunState's own
+    plan_forecast/plan_delivered_kwh_forecast/plan_target_kwh/plan_
+    shortfall_kwh/plan_earliest_period/plan_deadline_period/plan_
+    nominal_kw fields (load_run_state.py) for exactly what's persisted
+    per kind. This refreshes every solve cycle regardless of whether
+    commanded_state itself changed (a fresh day-ahead schedule is the
+    whole point), unlike the change-gated dispatch/write logic above --
+    NimbusControllableLoadStateSensor (sensor.py) excludes these fields
+    from long-term recorder history via _unrecorded_attributes (same
+    #362 "churns every poll, not worth recording" reasoning already
+    applied to NimbusHealthReportSensor's own generated_at/subentry_
+    status), so this does not create #362's own class of recorder-churn
+    bug.
+
     Best-effort and silent on any WHOLE-FUNCTION failure (a device_entity
     dispatch failure for one load is caught per-load below and does not
     escalate here) -- same posture as _sample_load_run_state(). Native
@@ -7980,11 +8000,11 @@ def apply_commanded_state_guard(
     if _NATIVE_HASS is None or len(grid_times) < 2:
         return
     entries_with_ids = [
-        (sl.subentry_id, sl.served_kw[0] if len(sl.served_kw) else 0.0)
+        (sl.subentry_id, sl.served_kw[0] if len(sl.served_kw) else 0.0, "sheddable", sl)
         for sl in plan.sheddable_loads
         if sl.subentry_id is not None
     ] + [
-        (al.subentry_id, al.power_kw[0] if len(al.power_kw) else 0.0)
+        (al.subentry_id, al.power_kw[0] if len(al.power_kw) else 0.0, "adequacy", al)
         for al in plan.adequacy_loads
         if al.subentry_id is not None
     ]
@@ -7999,6 +8019,10 @@ def apply_commanded_state_guard(
                 CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY,
                 CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY,
                 CONF_CONTROLLABLE_LOAD_MIN_HOLD_MINUTES,
+                CONF_DEFERRABLE_DEADLINE_HOUR,
+                CONF_DEFERRABLE_EARLIEST_HOUR,
+                CONF_DEFERRABLE_TARGET_KWH,
+                CONF_SHEDDABLE_NOMINAL_KW,
                 DOMAIN,
             )
         except ImportError:
@@ -8007,6 +8031,10 @@ def apply_commanded_state_guard(
                 CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY,
                 CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY,
                 CONF_CONTROLLABLE_LOAD_MIN_HOLD_MINUTES,
+                CONF_DEFERRABLE_DEADLINE_HOUR,
+                CONF_DEFERRABLE_EARLIEST_HOUR,
+                CONF_DEFERRABLE_TARGET_KWH,
+                CONF_SHEDDABLE_NOMINAL_KW,
                 DOMAIN,
             )
 
@@ -8025,12 +8053,13 @@ def apply_commanded_state_guard(
             period_seconds * load_run_state.DEFAULT_MIN_HYSTERESIS_PERIODS
         )
         day_key = now.strftime("%Y-%m-%d")
+        n_periods = len(grid_times)
 
         async def _update_all() -> None:
             store = load_run_state.LoadRunStateStore(
                 store=_Store(_NATIVE_HASS, 1, f"{DOMAIN}_{hub_entry_id}_load_run_state")
             )
-            for subentry_id, period0_kw in entries_with_ids:
+            for subentry_id, period0_kw, load_kind, load_plan in entries_with_ids:
                 raw_new_state = (
                     float(period0_kw) > load_run_state.DEFAULT_ON_THRESHOLD_KW
                 )
@@ -8049,6 +8078,89 @@ def apply_commanded_state_guard(
                     now=now,
                     min_hysteresis_seconds=min_hysteresis_seconds,
                 )
+                # nimbus issue #581: publish this cycle's own full plan
+                # series regardless of whether commanded_state itself
+                # changed -- see this function's own docstring.
+                if load_kind == "sheddable" and period_hours_arr is not None:
+                    nominal_kw = data.get(CONF_SHEDDABLE_NOMINAL_KW)
+                    new = replace(
+                        new,
+                        plan_forecast=load_run_state.build_time_value_series(
+                            grid_times, load_plan.served_kw
+                        ),
+                        plan_nominal_kw=(
+                            float(nominal_kw) if nominal_kw is not None else None
+                        ),
+                    )
+                elif load_kind == "adequacy" and period_hours_arr is not None:
+                    earliest_hour = data.get(CONF_DEFERRABLE_EARLIEST_HOUR)
+                    deadline_hour = data.get(CONF_DEFERRABLE_DEADLINE_HOUR)
+                    earliest_period = (
+                        _resolve_hour_to_period_index(
+                            grid_times, now, float(earliest_hour), is_deadline=False
+                        )
+                        if earliest_hour is not None
+                        else 0
+                    )
+                    deadline_period = (
+                        _resolve_hour_to_period_index(
+                            grid_times, now, float(deadline_hour), is_deadline=True
+                        )
+                        if deadline_hour is not None
+                        else n_periods - 1
+                    )
+                    # nimbus issue #582's own same-day-in-progress fix,
+                    # duplicated here rather than shared -- this function
+                    # resolves its OWN copy of earliest/deadline_period
+                    # (for display only, not for the actual LP window,
+                    # which build_controllable_loads() resolves
+                    # separately) and would otherwise report the wrong
+                    # (tomorrow) earliest_period for the exact same real
+                    # case #582 fixed for the LP's own window: a same-day
+                    # window already open right now. See that function's
+                    # own comment for the full reasoning. KNOWN DRIFT
+                    # RISK, flagged rather than silently left inconsistent:
+                    # a future change to #582's own logic needs to be
+                    # ported here too, or better, both call sites should
+                    # be refactored onto one shared helper.
+                    if (
+                        earliest_hour is not None
+                        and deadline_hour is not None
+                        and deadline_period < earliest_period
+                    ):
+                        midnight = now.replace(
+                            hour=0, minute=0, second=0, microsecond=0
+                        )
+                        earliest_today = midnight + timedelta(
+                            hours=float(earliest_hour)
+                        )
+                        deadline_today = midnight + timedelta(
+                            hours=float(deadline_hour)
+                        )
+                        if earliest_today <= now <= deadline_today:
+                            earliest_period = 0
+                    target_kwh = data.get(CONF_DEFERRABLE_TARGET_KWH)
+                    delivered_kwh_cumulative = np.cumsum(
+                        np.asarray(load_plan.power_kw, dtype=np.float64)
+                        * np.asarray(period_hours_arr[: len(load_plan.power_kw)])
+                    )
+                    new = replace(
+                        new,
+                        plan_forecast=load_run_state.build_time_value_series(
+                            grid_times, load_plan.power_kw
+                        ),
+                        plan_delivered_kwh_forecast=(
+                            load_run_state.build_time_value_series(
+                                grid_times, delivered_kwh_cumulative
+                            )
+                        ),
+                        plan_target_kwh=(
+                            float(target_kwh) if target_kwh is not None else None
+                        ),
+                        plan_shortfall_kwh=float(load_plan.shortfall_kwh),
+                        plan_earliest_period=earliest_period,
+                        plan_deadline_period=deadline_period,
+                    )
                 device_entity = data.get(CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY)
                 if device_entity and new.commanded_state != prev.commanded_state:
                     if new.commanded_state:
@@ -9599,7 +9711,7 @@ def main() -> None:
     # nimbus issue #484: the relay-chatter guard, run once per solve
     # right after the plan exists -- needs the plan's own just-solved
     # period-0 power per load, so it can't run any earlier than this.
-    apply_commanded_state_guard(plan, now, grid_times)
+    apply_commanded_state_guard(plan, now, grid_times, period_hours_arr)
     publish_plan(
         cfg=cfg,
         now=now,
