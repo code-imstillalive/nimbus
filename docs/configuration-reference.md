@@ -84,9 +84,16 @@ order and uses whichever is present:
 
 Before this, a source pointed directly at a Solcast or Open-Meteo entity (rather than
 relying on the separate "auto-include known solar" switch below) was silently
-dropped from every solve — the Solver only understood shape 1. If you have both a
-source configured AND "auto-include known solar" on, and they resolve to the same
-underlying entity, it's counted once, not double-weighted in the blend's mean.
+dropped from every solve — the Solver only understood shape 1. If you have a source
+configured that's one of Solcast's or Open-Meteo's own known entities AND
+"auto-include known solar" is on, that source is skipped as its own standalone
+contributor — the auto-include path already reads every one of that integration's
+own entities together (Solcast's real 2-day coverage, Open-Meteo's real 8-day
+coverage), so it's the correctly-covered representative for that integration, not a
+narrower duplicate of it (nimbus issue #546 — an earlier version of this dedup
+excluded just the one overlapping entity, which fragmented Solcast's own 2-day
+coverage into two separate, mostly-empty single-day reads and made the plan's solar
+noticeably *worse*, not just double-counted).
 
 **⚠️ Real invariant (nimbus issue #532, Mark Purcell — found from real household
 data, not a hypothetical):** the battery power sensor above and

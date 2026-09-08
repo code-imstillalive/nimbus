@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.170] — 2026-09-08
+
+### Fixed
+- **Regression in v0.94.169's own #542 fix, found the same day (nimbus issue #546, Mark Purcell, real household finding)**: pointing a Controllable Load's solar source directly at a Solcast entity, with "auto-include known solar" also on, made the plan's solar noticeably *worse* rather than merely double-counted — on the same real forecasts, next-24h plan solar dropped from 252.8 kWh to 172.4 kWh. Root cause: v0.94.169's own dedup excluded the one overlapping entity from Solcast's auto-included pair, but Solcast's own native entity only ever covers one day, so removing it left the auto-include read covering only the *other* day — the blend went from a healthy 2-member mean to a 3-member mean with a near-zero holdover member on every day. Fixed by moving the dedup from the entity level to the integration level: a configured source that resolves to a known Solcast/Open-Meteo entity is now skipped as a standalone member entirely when auto-include is on, restoring the exact two-member blend structure v0.94.168 already had, with Solcast's shape now correctly read.
+
 ## [0.94.169] — 2026-09-08
 
 ### Fixed
