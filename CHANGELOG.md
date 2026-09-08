@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.174] — 2026-09-08
+
+### Added
+- **Full three-view "Nimbus" dashboard, ready to copy-paste** (nimbus issue #552, Mark Purcell). Nothing previously placed the three shipped cards (Control Panel, Regret, Topology) on an actual screen — a household had to hand-author the YAML themselves, and on Mark's own install the Topology card shipped for several releases before ever reaching a view. `docs/dashboards.md` now has one complete dashboard YAML block (all three views, using the same `sections`/`max_columns: 4` layout the docs already recommend per-card) linked from the README's own install steps.
+
 ## [0.94.173] — 2026-09-08
 
 ### Added

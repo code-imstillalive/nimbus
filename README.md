@@ -10,7 +10,7 @@
 > been found and fixed in the days around this repo going public. If you install
 > this, please open a GitHub issue rather than expect a polished, plug-and-play experience.
 
-**Current version: `0.92.2`.** See [`CHANGELOG.md`](CHANGELOG.md) for the release history.
+See [`CHANGELOG.md`](CHANGELOG.md) for the release history and current version — versioned from `custom_components/nimbus_load/manifest.json`, not restated here to avoid drifting stale again (this line previously read a hardcoded `0.92.2` for many releases after `manifest.json` had moved well past v0.94).
 
 Nimbus is the first open-source load Forecaster and LP battery-dispatch Solver that ships as a single HACS integration and runs in Home Assistant's own process. Two cooperating pieces under one hub:
 
@@ -87,6 +87,8 @@ know whether it's helping.
    towers, no restart or repeat wizard needed.
 
 **Verify.** Open Developer Tools → States and confirm `sensor.nimbus_solver_config` reads `configured`, and that at least one `sensor.nimbus_<your_load>_forecast` has a non-null `forecast` attribute. If either is missing, see the two gotchas below (`nimbus_load` naming, and the aggregator trap).
+
+7. **See it on a dashboard.** The wizard above configures Nimbus's own entities — it doesn't place any Lovelace cards. [`docs/dashboards.md`](docs/dashboards.md) has a full copy-paste three-view dashboard (Control Panel / Regret / Topology) to add next.
 
 **New to Nimbus and want the plain-English walkthrough instead of this section?** See [`docs/setup-guide.md`](docs/setup-guide.md) — same steps, explained without the jargon. [`docs/configuration-reference.md`](docs/configuration-reference.md) is the field-by-field lookup table for after you've set it up once.
 
