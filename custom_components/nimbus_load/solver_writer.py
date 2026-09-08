@@ -165,6 +165,25 @@ from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+# nimbus issue #590: same dual-mode try/except shape as every other
+# project-internal import elsewhere in this file (e.g. _sample_load_run_
+# state's own load_run_state import) -- this file is loaded BOTH as part
+# of the real package (`from . import ...` resolves) and as a bare
+# top-level module by this project's own test harness and the
+# standalone/cron deployment (plain `import ...` resolves instead, see
+# tests/_solver_path.py). Only the domain tuple is needed at module
+# scope here (_evaluate_done_condition's own membership check below);
+# aliased at import time so the rest of this file never has to know
+# which of the two import paths actually resolved.
+try:
+    from .done_condition import (
+        ATTRIBUTE_DONE_DOMAINS as _done_condition_attribute_domains,
+    )
+except ImportError:
+    from done_condition import (
+        ATTRIBUTE_DONE_DOMAINS as _done_condition_attribute_domains,
+    )
+
 # Real, confirmed-live bug (2026-08-17): this script's own docstrings
 # used to assert "this NUC runs Australia/Brisbane" and relied on plain
 # `.astimezone()` (no argument -- converts to whatever the SYSTEM's own
@@ -7220,7 +7239,13 @@ _DONE_CONDITION_WARNED: set[tuple[str, str | None, str]] = set()
 # attribute>" (the household's own already-configured setpoint) rather
 # than the binary_sensor "state == on" default used for every other
 # domain.
-_ATTRIBUTE_DONE_DOMAINS = ("water_heater", "climate")
+# nimbus issue #590: the water_heater/climate domain list now lives in
+# done_condition.py (see that module's own top docstring for why) so
+# sensor.py's own schedule-view sensors can read the identical domain
+# list/attribute without importing THIS module -- solver_writer.py's
+# numpy/highspy imports make it unsafe to import from a plain event-loop
+# context before the first real solve has already paid that cost once.
+_ATTRIBUTE_DONE_DOMAINS = _done_condition_attribute_domains
 
 
 def _parse_done_when(done_when: str) -> tuple:

@@ -462,6 +462,12 @@ def install_ha_stubs() -> None:
         # level, so it must exist on the stub for every test that imports
         # sensor.py, whether or not it exercises that specific class.
         UnitOfTime=types.SimpleNamespace(SECONDS="s", MINUTES="min", HOURS="h"),
+        # Added nimbus issue #590 -- same minimal, real-string-value stub
+        # pattern as UnitOfPower/UnitOfTemperature/UnitOfTime above. The
+        # new Controllable Load schedule-view sensors (planned_energy/
+        # delivered_today/target_today) import this at module level, so
+        # it must exist on the stub for every test that imports sensor.py.
+        UnitOfEnergy=types.SimpleNamespace(KILO_WATT_HOUR="kWh", WATT_HOUR="Wh"),
         Platform=MagicMock(),
         # Real string values, not a MagicMock -- confirmed against HA
         # core's own current source (2026-08-23, Gold entity-category

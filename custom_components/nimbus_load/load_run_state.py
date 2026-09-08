@@ -406,6 +406,225 @@ def record_activation(state: LoadRunState, *, day_key: str) -> LoadRunState:
     return replace(base, activations_today=base.activations_today + 1)
 
 
+_SHORTFALL_EPSILON_KWH = 0.01
+_TARGET_REACHED_EPSILON_KWH = 0.01
+_SHED_EPSILON_KWH = 0.01
+
+# Mirrors const.py's CONTROLLABLE_LOAD_KIND_DEFERRABLE/_SHEDDABLE string
+# values without importing const.py -- this module stays free of any
+# project-internal import, not just HA ones, so it keeps resolving
+# identically under the standalone/cron deployment's own bare-module
+# import shape (see this file's own top docstring).
+_LOAD_KIND_DEFERRABLE = "deferrable"
+_LOAD_KIND_SHEDDABLE = "sheddable"
+
+
+@dataclass(frozen=True)
+class ScheduleView:
+    """nimbus issue #590 (Mark Purcell, real household ask: "I don't know
+    if it is scheduled, what time and for how long. how much will it
+    cost, what are the forecasts... "): the seven device-page answers
+    derived from one load's own already-persisted LoadRunState, computed
+    fresh on every read rather than persisted themselves -- unlike
+    plan_forecast/plan_target_kwh/etc (#581), which genuinely need to
+    survive a restart because they're written once per solve cycle and
+    read many times between solves, this view is cheap pure arithmetic
+    over fields already in memory, so recomputing it per sensor poll is
+    simpler and can't drift from whatever the state store currently
+    holds."""
+
+    next_start: datetime | None
+    next_end: datetime | None
+    planned_duration_h: float | None
+    planned_energy_kwh: float | None
+    delivered_today_kwh: float
+    target_today_kwh: float | None
+    status: str
+
+
+def _find_current_or_next_run(
+    forecast: list[dict[str, Any]], *, now: datetime, on_threshold_kw: float
+) -> tuple[int, int] | None:
+    """Scans `plan_forecast` (already time-ordered, one entry per solved
+    period -- see build_time_value_series() above) for the first
+    contiguous run of periods above `on_threshold_kw` that is either
+    already in progress (its own period start <= now, and either it's
+    the last published period or the next one hasn't started yet) or
+    still upcoming (period start > now). Returns the run's own
+    (start_idx, end_idx) inclusive, or None if nothing in the published
+    horizon ever exceeds the threshold (a load that's fully idle for the
+    whole forecast -- done, capped, or genuinely has nothing scheduled)."""
+    n = len(forecast)
+    if n == 0:
+        return None
+    times = [datetime.fromisoformat(e["time"]) for e in forecast]
+    values = [float(e["value"]) for e in forecast]
+    start_idx = None
+    for i in range(n):
+        if values[i] <= on_threshold_kw:
+            continue
+        period_start = times[i]
+        period_end = times[i + 1] if i + 1 < n else None
+        active_now = period_start <= now and (period_end is None or now < period_end)
+        if active_now or period_start > now:
+            start_idx = i
+            break
+    if start_idx is None:
+        return None
+    end_idx = start_idx
+    while end_idx + 1 < n and values[end_idx + 1] > on_threshold_kw:
+        end_idx += 1
+    return start_idx, end_idx
+
+
+def _period_duration_hours(times: list[datetime], i: int) -> float:
+    """This tiered grid's own periods aren't a uniform length -- the real
+    duration of period i is the gap to period i+1. The very last
+    published period has no "next" to measure against; falls back to the
+    PRECEDING gap (or 30 minutes if there's only one period total) as the
+    best available estimate rather than treating it as zero-length, which
+    would silently truncate a run's own final period out of its planned
+    duration/energy."""
+    if i + 1 < len(times):
+        return (times[i + 1] - times[i]).total_seconds() / 3600.0
+    if i > 0:
+        return (times[i] - times[i - 1]).total_seconds() / 3600.0
+    return 0.5
+
+
+def derive_schedule_view(
+    state: LoadRunState,
+    *,
+    load_kind: str,
+    now: datetime,
+    on_threshold_kw: float = DEFAULT_ON_THRESHOLD_KW,
+    max_activations_per_day: int | None = None,
+    tank_current_temperature: float | None = None,
+) -> ScheduleView:
+    """nimbus issue #590: the seven-entity device-page view, computed
+    entirely from what #479/#484/#581 already persist -- no new solver
+    plumbing needed. `load_kind` selects which of the deferrable-only
+    (plan_target_kwh/plan_shortfall_kwh) vs sheddable-only (plan_nominal_kw)
+    fields are meaningful; the other kind's fields are simply None on the
+    state already (#581's own convention), so this function never has to
+    special-case "field wasn't populated this cycle" beyond that.
+
+    `tank_current_temperature` is deliberately the CALLER's job to have
+    already read (via the exact same _evaluate_done_condition()-style
+    current_temperature attribute read solver_writer.py uses for #534's
+    own done condition, see that function's own docstring) -- this
+    function never touches hass.states itself, keeping it HA-import-free
+    like the rest of this module.
+    """
+    forecast = state.plan_forecast or []
+    run = _find_current_or_next_run(forecast, now=now, on_threshold_kw=on_threshold_kw)
+
+    next_start: datetime | None = None
+    next_end: datetime | None = None
+    planned_duration_h: float | None = None
+    planned_energy_kwh: float | None = None
+
+    if run is not None:
+        start_idx, end_idx = run
+        times = [datetime.fromisoformat(e["time"]) for e in forecast]
+        values = [float(e["value"]) for e in forecast]
+        next_start = times[start_idx]
+        next_end = times[end_idx + 1] if end_idx + 1 < len(times) else None
+        planned_duration_h = sum(
+            _period_duration_hours(times, i) for i in range(start_idx, end_idx + 1)
+        )
+        if load_kind == _LOAD_KIND_DEFERRABLE and state.plan_delivered_kwh_forecast:
+            delivered_series = [
+                float(e["value"]) for e in state.plan_delivered_kwh_forecast
+            ]
+            if end_idx < len(delivered_series):
+                before = delivered_series[start_idx - 1] if start_idx > 0 else 0.0
+                planned_energy_kwh = round(delivered_series[end_idx] - before, 3)
+        if planned_energy_kwh is None:
+            # Sheddable (no cumulative deadline series to lean on), or a
+            # deferrable load whose delivered-kwh series wasn't published
+            # this cycle (stale/partial state) -- fall back to integrating
+            # the plan's own power values directly over the run.
+            planned_energy_kwh = round(
+                sum(
+                    values[i] * _period_duration_hours(times, i)
+                    for i in range(start_idx, end_idx + 1)
+                ),
+                3,
+            )
+
+    target_today_kwh = (
+        state.plan_target_kwh if load_kind == _LOAD_KIND_DEFERRABLE else None
+    )
+
+    day_key = now.strftime("%Y-%m-%d")
+    activations_today = state.activations_today if state.day_key == day_key else 0
+
+    status: str
+    if state.commanded_state:
+        status = "running"
+    elif (
+        load_kind == _LOAD_KIND_DEFERRABLE
+        and state.plan_shortfall_kwh is not None
+        and state.plan_shortfall_kwh > _SHORTFALL_EPSILON_KWH
+    ):
+        status = f"will miss target by {state.plan_shortfall_kwh:.2f} kWh"
+    elif (
+        max_activations_per_day is not None
+        and activations_today >= max_activations_per_day
+    ):
+        status = f"capped ({activations_today}/{max_activations_per_day})"
+    elif (
+        target_today_kwh is not None
+        and target_today_kwh > 0.0
+        and state.delivered_today_kwh >= target_today_kwh - _TARGET_REACHED_EPSILON_KWH
+    ):
+        status = (
+            f"done (tank {tank_current_temperature:.0f} °C)"
+            if tank_current_temperature is not None
+            else "done"
+        )
+    elif load_kind == _LOAD_KIND_SHEDDABLE and forecast and state.plan_nominal_kw:
+        times_all = [datetime.fromisoformat(e["time"]) for e in forecast]
+        values_all = [float(e["value"]) for e in forecast]
+        shed_kwh = sum(
+            max(0.0, state.plan_nominal_kw - values_all[i])
+            * _period_duration_hours(times_all, i)
+            for i in range(len(forecast))
+            if times_all[i] <= now
+        )
+        if shed_kwh > _SHED_EPSILON_KWH:
+            status = f"shed {shed_kwh:.2f} kWh today"
+        elif run is not None:
+            status = (
+                f"scheduled {next_start:%H:%M}–{next_end:%H:%M}"
+                if next_end
+                else f"scheduled from {next_start:%H:%M}"
+            )
+        else:
+            status = "outside window"
+    elif run is not None:
+        status = (
+            f"scheduled {next_start:%H:%M}–{next_end:%H:%M}"
+            if next_end is not None
+            else f"scheduled from {next_start:%H:%M}"
+        )
+    else:
+        status = "outside window"
+
+    return ScheduleView(
+        next_start=next_start,
+        next_end=next_end,
+        planned_duration_h=(
+            round(planned_duration_h, 3) if planned_duration_h is not None else None
+        ),
+        planned_energy_kwh=planned_energy_kwh,
+        delivered_today_kwh=state.delivered_today_kwh,
+        target_today_kwh=target_today_kwh,
+        status=status,
+    )
+
+
 @dataclass
 class LoadRunStateStore:
     """One Store per hub -- every configured Controllable Load's own
