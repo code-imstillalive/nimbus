@@ -58,6 +58,7 @@ def _flat_grid(n: int, hours: float = 1.0) -> PeriodGrid:
 
 def _base_battery(**overrides) -> BatteryConfig:
     defaults = {
+        "name": "battery",
         "capacity_kwh": 100.0,
         "initial_soc_kwh": 40.0,
         "min_soc_kwh": 5.0,
@@ -105,7 +106,7 @@ class TestBackwardCompatibility(unittest.TestCase):
         battery = _base_battery(
             salvage_value=0.05
         )  # real, unambiguous reason to end with more charge
-        plan = build_plan(periods=periods, grid=grid, battery=battery, solar=solar)
+        plan = build_plan(periods=periods, grid=grid, batteries=[battery], solar=solar)
         self.assertEqual(plan.status, "optimal")
         self.assertAlmostEqual(plan.battery_charge_kw[0], 10.0, places=3)
 
@@ -174,7 +175,7 @@ class TestChargeCurveGenuinelyBinds(unittest.TestCase):
             charge_power_curve=curve,
             salvage_value=0.05,
         )
-        return build_plan(periods=periods, grid=grid, battery=battery, solar=solar)
+        return build_plan(periods=periods, grid=grid, batteries=[battery], solar=solar)
 
     def test_low_soc_charges_at_full_flat_rate(self):
         """soc=40 is inside CHARGE_CURVE's own flat first segment
@@ -221,7 +222,7 @@ class TestDischargeCurveGenuinelyBinds(unittest.TestCase):
         battery = _base_battery(
             initial_soc_kwh=initial_soc_kwh, discharge_power_curve=curve
         )
-        return build_plan(periods=periods, grid=grid, battery=battery, solar=solar)
+        return build_plan(periods=periods, grid=grid, batteries=[battery], solar=solar)
 
     def test_near_floor_discharge_is_tapered(self):
         """soc=30 is inside DISCHARGE_CURVE's own ramp segment [5,50] ->
@@ -278,7 +279,7 @@ class TestSolveTimeStaysCheap(unittest.TestCase):
             discharge_power_curve=[(2.4, 3.0), (18.3, 40.0), (122.2, 40.0)],
         )
         start = time.perf_counter()
-        plan = build_plan(periods=periods, grid=grid, battery=battery, solar=solar)
+        plan = build_plan(periods=periods, grid=grid, batteries=[battery], solar=solar)
         elapsed = time.perf_counter() - start
         self.assertEqual(plan.status, "optimal")
         # Generous ceiling -- this project's own real production solves

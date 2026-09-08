@@ -61,6 +61,7 @@ def _same_day_branch_scenario():
         export_bonus_volume_kwh=_CAP_KWH,
     )
     battery = BatteryConfig(
+        name="battery",
         capacity_kwh=100.0,
         initial_soc_kwh=90.0,
         min_soc_kwh=5.0,

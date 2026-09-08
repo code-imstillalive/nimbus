@@ -73,6 +73,7 @@ def _scenario():
         export_bonus_volume_kwh=60.0,
     )
     battery = BatteryConfig(
+        name="battery",
         capacity_kwh=200.0,
         initial_soc_kwh=200.0,
         min_soc_kwh=10.0,
@@ -99,7 +100,7 @@ class TestExportBonusTieBreak(unittest.TestCase):
     def test_flat_bonus_price_produces_a_clean_single_transition_not_a_flicker(self):
         periods, grid, battery, solar, loads = _scenario()
         plan = build_plan(
-            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+            periods=periods, grid=grid, batteries=[battery], solar=solar, loads=loads
         )
         self.assertEqual(plan.status, "optimal")
 
@@ -145,7 +146,7 @@ class TestExportBonusTieBreak(unittest.TestCase):
         """
         periods, grid, battery, solar, loads = _scenario()
         plan = build_plan(
-            periods=periods, grid=grid, battery=battery, solar=solar, loads=loads
+            periods=periods, grid=grid, batteries=[battery], solar=solar, loads=loads
         )
         self.assertEqual(plan.status, "optimal")
         # The real, expected optimum for this exact scenario (base

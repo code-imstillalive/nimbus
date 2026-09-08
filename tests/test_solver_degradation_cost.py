@@ -52,6 +52,7 @@ def _base_battery(**overrides) -> BatteryConfig:
     # isolate. Starting empty forces any real discharge to have been
     # funded by a real, priced charge earlier in the same horizon.
     defaults = {
+        "name": "battery",
         "capacity_kwh": 100.0,
         "initial_soc_kwh": 5.0,
         "min_soc_kwh": 5.0,
@@ -91,12 +92,12 @@ class TestBackwardCompatibility(unittest.TestCase):
         grid = _arbitrage_grid(n)
         solar = SolarConfig(forecast_kw=np.zeros(n))
         plan_default = build_plan(
-            periods=periods, grid=grid, battery=_base_battery(), solar=solar
+            periods=periods, grid=grid, batteries=[_base_battery()], solar=solar
         )
         plan_explicit = build_plan(
             periods=periods,
             grid=grid,
-            battery=_base_battery(degradation_cost_per_kwh=0.0),
+            batteries=[_base_battery(degradation_cost_per_kwh=0.0)],
             solar=solar,
         )
         self.assertEqual(plan_default.status, "optimal")
@@ -139,12 +140,12 @@ class TestModerateDegradationCostPaidNotJustConfigured(unittest.TestCase):
         grid = _arbitrage_grid(n)
         solar = SolarConfig(forecast_kw=np.zeros(n))
         plan_zero = build_plan(
-            periods=periods, grid=grid, battery=_base_battery(), solar=solar
+            periods=periods, grid=grid, batteries=[_base_battery()], solar=solar
         )
         plan_moderate = build_plan(
             periods=periods,
             grid=grid,
-            battery=_base_battery(degradation_cost_per_kwh=0.05),
+            batteries=[_base_battery(degradation_cost_per_kwh=0.05)],
             solar=solar,
         )
         self.assertEqual(plan_zero.status, "optimal")
@@ -202,7 +203,7 @@ class TestLargeDegradationCostStopsCycling(unittest.TestCase):
         plan_large = build_plan(
             periods=periods,
             grid=grid,
-            battery=_base_battery(degradation_cost_per_kwh=1.0),
+            batteries=[_base_battery(degradation_cost_per_kwh=1.0)],
             solar=solar,
         )
         self.assertEqual(plan_large.status, "optimal")

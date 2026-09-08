@@ -244,7 +244,7 @@ def run_rolling_refinement(
         plan = build_plan(
             periods=inputs.periods,
             grid=inputs.grid,
-            battery=battery,
+            batteries=[battery],
             solar=inputs.solar,
             loads=inputs.loads,
             sheddable_loads=inputs.sheddable_loads,

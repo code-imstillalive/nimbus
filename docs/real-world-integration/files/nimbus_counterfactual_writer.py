@@ -486,6 +486,7 @@ def run_counterfactual(day: datetime) -> dict:
             fixed_export_kw=fixed_export_kw,
         )
         battery = elements.BatteryConfig(
+            name="home",  # nimbus issue #467: single real household battery
             capacity_kwh=CAPACITY_KWH,
             initial_soc_kwh=min(max(sim_soc_kwh, min_soc_kwh), max_soc_kwh),
             min_soc_kwh=min_soc_kwh,
@@ -510,7 +511,7 @@ def run_counterfactual(day: datetime) -> dict:
         plan = network.build_plan(
             periods=periods,
             grid=grid,
-            battery=battery,
+            batteries=[battery],
             solar=solar,
             loads=loads,
             smoothness_weight=network.DEFAULT_SMOOTHNESS_WEIGHT_KW,

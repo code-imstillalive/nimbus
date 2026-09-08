@@ -43,6 +43,7 @@ def _plan(hours_per_period: float, *, initial_soc: float, export_price: float):
         export_limit_kw=44.0,
     )
     battery = BatteryConfig(
+        name="battery",
         capacity_kwh=100.0,
         initial_soc_kwh=initial_soc,
         min_soc_kwh=20.0,
@@ -62,7 +63,7 @@ def _plan(hours_per_period: float, *, initial_soc: float, export_price: float):
     plan = build_plan(
         periods=periods,
         grid=grid,
-        battery=battery,
+        batteries=[battery],
         solar=SolarConfig(forecast_kw=np.zeros(n)),
         loads=[LoadConfig(name="house", forecast_kw=np.zeros(n))],
     )

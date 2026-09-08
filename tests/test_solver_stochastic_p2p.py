@@ -108,6 +108,7 @@ def _scenario(
         export_bonus_volume_kwh=export_bonus_volume_kwh,
     )
     battery = BatteryConfig(
+        name="battery",
         capacity_kwh=122.2,
         initial_soc_kwh=122.2 * 0.20,
         min_soc_kwh=122.2 * 0.05,

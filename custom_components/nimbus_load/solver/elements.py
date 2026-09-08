@@ -423,6 +423,25 @@ class BatteryConfig:
     not something narrower that only fits this one installation's own
     2-inverter layout.
 
+    **nimbus issue #467 stage 1 (2026-09-08, Mark Purcell's own spec,
+    household re-scoped to "just multi-battery build_plan() support"):
+    network.py's own build_plan() now DOES accept a `batteries: list[
+    BatteryConfig]` -- this does NOT reopen or contradict the #8 finding
+    above.** That finding is about physical packs sharing ONE inverter's
+    own internal routing/load-sharing/SoC-balancing -- still correctly
+    modeled as ONE aggregate BatteryConfig, still the EMS/BMS firmware's
+    own job, not this LP's. A `batteries` list entry is for a genuinely
+    SEPARATE, independently-metered participant instead -- a second real
+    inverter, or (the concrete #467/#532 case) a Sigen DC EV charger
+    acting as its own storage channel with its own SoC the household's
+    own combined_battery_power sensor was already, wrongly, being summed
+    into a single-battery model for (see #532). `name` (below) is what
+    keys each participant across LP variables/constraints/cross-solve
+    stability and in the output Plan.batteries list -- required (no
+    default) so every list entry is genuinely identifiable, matching the
+    same convention LoadConfig/SheddableLoadConfig/AdequacyLoadConfig
+    already use.
+
     salvage_value / headroom_value (2026-08-16, direct response to real
     feedback -- Mark Purcell, on three of his own four reported failure
     scenarios: "Failure to price the forward option value of stored
@@ -466,6 +485,14 @@ class BatteryConfig:
     simple linear credit already solves.
     """
 
+    # nimbus issue #467: identifies this participant across the
+    # `batteries` list -- keys its own LP variable families
+    # (battery_charge_{name}_{t} etc.), its own entry in
+    # Plan.batteries, and its own cross-solve continuity (matched by
+    # name against the PREVIOUS solve's Plan.batteries, not position).
+    # Required, no default -- same convention as LoadConfig/
+    # SheddableLoadConfig/AdequacyLoadConfig's own `name` field.
+    name: str
     capacity_kwh: float
     initial_soc_kwh: float
     min_soc_kwh: float

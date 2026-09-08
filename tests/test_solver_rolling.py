@@ -40,6 +40,7 @@ def _flat_grid(n: int, start: datetime, hours: float = 1.0) -> PeriodGrid:
 
 def _battery(**overrides) -> BatteryConfig:
     defaults = {
+        "name": "battery",
         "capacity_kwh": 20.0,
         "initial_soc_kwh": 10.0,
         "min_soc_kwh": 2.0,

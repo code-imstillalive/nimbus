@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.176] — 2026-09-08
+
+### Added
+- **Multi-battery `build_plan()` support** (nimbus issue #467, stage 1 — Mark Purcell's own spec, household re-scoped to "just multi-battery `build_plan()` support"). `build_plan()`'s own `battery: BatteryConfig` parameter is now `batteries: list[BatteryConfig]` — a real signature change, no compatibility shim. `BatteryConfig` gains a required `name` field. Each battery in the list gets its own independent LP variable families, SoC recursion, terminal-value/salvage treatment, and same-period wash-trade cap (two batteries legitimately charging and discharging simultaneously is real, not a wash trade, so that cap stays strictly per-participant — never pooled). Cross-solve stability (proximal weight, rate limiting, intra-plan smoothness) is now matched per-battery by `name` against the previous solve's own `Plan.batteries`, the real net-new plumbing this stage needed. `Plan.battery_charge_kw`/`battery_discharge_kw`/`battery_soc_kwh` stay the exact same SUMMED AGGREGATE across every battery — every existing reader (dashboard cards, quality-report scoring, the dispatch writer) needs zero changes. A new `Plan.batteries: list[BatteryPlan]` field carries the per-participant breakdown. This does **not** reopen the settled `#8` audit finding — multiple physical packs behind one real inverter still correctly collapse to a single aggregate `BatteryConfig`; a `batteries` list entry is for a genuinely separate, independently-metered participant (a second real inverter, or the `#532` Sigen DC EV-charger case). **Open household decision, not yet ruled on**: the P2P `fixed_export_kw` charge gate applies to `batteries[0]` only (Mark's own suggested default) — every other battery in the list charges/discharges under its own plain power bounds with no P2P-window gating; revisit if/when a real second battery is configured. This household's own single real battery (`solver_writer.py`) keeps its exact existing behaviour, now named `"home"`.
+
 ## [0.94.175] — 2026-09-08
 
 ### Added

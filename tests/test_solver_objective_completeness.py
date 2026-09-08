@@ -38,6 +38,7 @@ def _flat_grid(n: int, hours: float = 1.0) -> PeriodGrid:
 
 def _base_battery(**overrides) -> BatteryConfig:
     defaults = {
+        "name": "battery",
         "capacity_kwh": 20.0,
         "initial_soc_kwh": 10.0,
         "min_soc_kwh": 2.0,
@@ -100,14 +101,14 @@ class TestSalvageValue(unittest.TestCase):
         plan_no_salvage = build_plan(
             periods=periods,
             grid=grid,
-            battery=_base_battery(salvage_value=0.0),
+            batteries=[_base_battery(salvage_value=0.0)],
             solar=solar,
             loads=loads,
         )
         plan_with_salvage = build_plan(
             periods=periods,
             grid=grid,
-            battery=_base_battery(salvage_value=0.50),
+            batteries=[_base_battery(salvage_value=0.50)],
             solar=solar,
             loads=loads,
         )
@@ -152,14 +153,14 @@ class TestHeadroomValue(unittest.TestCase):
         plan_salvage_wins = build_plan(
             periods=periods,
             grid=grid,
-            battery=_base_battery(salvage_value=0.10, headroom_value=0.05),
+            batteries=[_base_battery(salvage_value=0.10, headroom_value=0.05)],
             solar=solar,
             loads=loads,
         )
         plan_headroom_wins = build_plan(
             periods=periods,
             grid=grid,
-            battery=_base_battery(salvage_value=0.10, headroom_value=0.15),
+            batteries=[_base_battery(salvage_value=0.10, headroom_value=0.15)],
             solar=solar,
             loads=loads,
         )
@@ -243,14 +244,14 @@ class TestExportBonus(unittest.TestCase):
         plan_no_bonus = build_plan(
             periods=periods,
             grid=grid_no_bonus,
-            battery=battery,
+            batteries=[battery],
             solar=solar,
             loads=loads,
         )
         plan_with_bonus = build_plan(
             periods=periods,
             grid=grid_with_bonus,
-            battery=battery,
+            batteries=[battery],
             solar=solar,
             loads=loads,
         )
@@ -322,7 +323,7 @@ class TestShedCost(unittest.TestCase):
         plan_cheap_shed = build_plan(
             periods=periods,
             grid=grid,
-            battery=battery,
+            batteries=[battery],
             solar=solar,
             loads=[],
             sheddable_loads=sheddable_cheap,
@@ -330,7 +331,7 @@ class TestShedCost(unittest.TestCase):
         plan_expensive_shed = build_plan(
             periods=periods,
             grid=grid,
-            battery=battery,
+            batteries=[battery],
             solar=solar,
             loads=[],
             sheddable_loads=sheddable_expensive,

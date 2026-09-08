@@ -56,6 +56,7 @@ class TestMarksExactRealRepro(unittest.TestCase):
         # unreachable, not just papered over by the 0.05% floor below.
         try:
             bc = BatteryConfig(
+                name="battery",
                 capacity_kwh=40.0,
                 initial_soc_kwh=20.0,
                 min_soc_kwh=0.0,
@@ -90,6 +91,7 @@ class TestMarksExactRealRepro(unittest.TestCase):
         )
         try:
             bc = BatteryConfig(
+                name="battery",
                 capacity_kwh=40.0,
                 initial_soc_kwh=min_soc_kwh,  # worst case: SoC right at the new floor
                 min_soc_kwh=min_soc_kwh,

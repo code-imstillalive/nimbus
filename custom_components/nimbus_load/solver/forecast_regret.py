@@ -144,7 +144,7 @@ def _evaluate_scenario(
     plan = build_plan(
         periods=periods,
         grid=grid,
-        battery=battery,
+        batteries=[battery],
         solar=SolarConfig(forecast_kw=solar_plan_kw),
         loads=[LoadConfig(name="whole_house", forecast_kw=load_plan_kw)],
     )
@@ -260,7 +260,7 @@ def _oracle_dispatch_via_real(
     plan = build_plan(
         periods=periods,
         grid=grid,
-        battery=battery,
+        batteries=[battery],
         solar=SolarConfig(forecast_kw=solar_real_kw),
         loads=[LoadConfig(name="whole_house", forecast_kw=load_real_kw)],
     )

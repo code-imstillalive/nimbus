@@ -94,7 +94,15 @@ _EXPECTED_ATTRS = {
     "signal_role": "battery",
     "source_sensor": "sensor.fake_soc",
     "status": "optimal",
-    "total_cost": 26.695680199029063,
+    # nimbus issue #467: regenerated from a fresh real run after
+    # build_plan()'s battery/batteries restructuring -- the LP itself is
+    # mathematically unchanged for this single-"home"-battery fixture
+    # (same variable bounds/costs/constraints, just per-battery-keyed
+    # variable names and dict construction order), and HiGHS's own
+    # floating-point accumulation order is genuinely sensitive to that;
+    # the drift is in the 14th significant digit (...029034 vs the prior
+    # ...029063), noise, not a real behavior change.
+    "total_cost": 26.695680199029034,
     "total_cost_with_fixed_costs": 34.4957,
     "cost_breakdown": {
         "grid_net": 33.5867,

@@ -3953,11 +3953,21 @@ def load_previous_plan() -> network.Plan | None:
         periods = elements.PeriodGrid(
             hours=hours_arr, start=parse_iso(data["period_start"])
         )
+        battery_charge_kw = np.array(data["battery_charge_kw"])
+        battery_discharge_kw = np.array(data["battery_discharge_kw"])
+        # nimbus issue #467: reconstruct a single-entry Plan.batteries
+        # too, so network.py's own per-participant cross-solve stability
+        # (matched by name) keeps working across a restart -- this
+        # writer only ever solves one real battery, so its aggregate
+        # arrays above ARE that one battery's own arrays. A state file
+        # saved before #467 (no "battery_name" key) falls back to
+        # "home", matching the real BatteryConfig name this writer uses.
+        battery_name = data.get("battery_name", "home")
         return network.Plan(
             status="optimal",
             periods=periods,
-            battery_charge_kw=np.array(data["battery_charge_kw"]),
-            battery_discharge_kw=np.array(data["battery_discharge_kw"]),
+            battery_charge_kw=battery_charge_kw,
+            battery_discharge_kw=battery_discharge_kw,
             battery_soc_kwh=np.zeros(
                 n
             ),  # not read by the stability mechanisms, zero-fill is fine
@@ -3972,6 +3982,14 @@ def load_previous_plan() -> network.Plan | None:
             adequacy_loads=[],
             total_cost=None,
             iterations=0,
+            batteries=[
+                network.BatteryPlan(
+                    name=battery_name,
+                    charge_kw=battery_charge_kw,
+                    discharge_kw=battery_discharge_kw,
+                    soc_kwh=np.zeros(n),
+                )
+            ],
         )
     except (KeyError, ValueError):
         return None
@@ -3994,6 +4012,18 @@ def save_plan_state(
                     "battery_discharge_kw": plan.battery_discharge_kw.tolist(),
                     "grid_import_kw": plan.grid_import_kw.tolist(),
                     "grid_export_kw": plan.grid_export_kw.tolist(),
+                    # nimbus issue #467: this writer only ever solves one
+                    # real battery ("home", see battery_cfg's own
+                    # comment above) -- persisting its own name alongside
+                    # the (already single-battery) aggregate arrays above
+                    # is enough for load_previous_plan() to reconstruct a
+                    # real Plan.batteries entry that keeps per-participant
+                    # cross-solve stability (network.py's own #467
+                    # plumbing) working across a restart, not just the
+                    # pre-#467 aggregate-only continuity.
+                    "battery_name": plan.batteries[0].name
+                    if plan.batteries
+                    else "home",
                 },
                 f,
             )
@@ -4720,6 +4750,12 @@ def _compute_report_for_window(
     min_soc_kwh = min_soc_kwh_bound
     max_soc_kwh = max_soc_kwh_bound
     battery_cfg = elements.BatteryConfig(
+        # nimbus issue #467: this writer only ever configures the one
+        # real household battery today -- "home" is a plain, stable
+        # identifier, not yet a config-flow field (a genuine multi-
+        # battery config surface is later #467 work, out of scope for
+        # this stage).
+        name="home",
         capacity_kwh=capacity_kwh,
         initial_soc_kwh=initial_soc_kwh,
         min_soc_kwh=min_soc_kwh,
@@ -5461,6 +5497,7 @@ def compute_efficiency_backtest_report(cfg: dict, now: datetime) -> dict | None:
     initial_soc_kwh = capacity_kwh * 0.5
 
     base_battery = elements.BatteryConfig(
+        name="home",  # nimbus issue #467: single real household battery, see battery_cfg's own comment above
         capacity_kwh=capacity_kwh,
         initial_soc_kwh=initial_soc_kwh,
         min_soc_kwh=_min_soc_kwh,
@@ -5760,6 +5797,7 @@ def compute_nimbus_only_soc_counterfactual(cfg: dict, day: datetime) -> dict | N
             else None,
         )
         battery = elements.BatteryConfig(
+            name="home",  # nimbus issue #467: single real household battery, see battery_cfg's own comment above
             capacity_kwh=capacity_kwh,
             initial_soc_kwh=sim_soc_kwh,  # nimbus issue #328: honest, no envelope clamp -- see this loop's own seed comment above
             min_soc_kwh=min_soc_kwh,
@@ -5791,7 +5829,7 @@ def compute_nimbus_only_soc_counterfactual(cfg: dict, day: datetime) -> dict | N
             plan = network.build_plan(
                 periods=periods,
                 grid=grid,
-                battery=battery,
+                batteries=[battery],
                 solar=solar,
                 loads=loads,
                 smoothness_weight=_cfg_num(
@@ -8820,6 +8858,7 @@ def main() -> None:
         min(_cfg_num(cfg, "solver_efficiency_percent", 95.0) / 100.0, 0.999) ** 0.5
     )
     battery = elements.BatteryConfig(
+        name="home",  # nimbus issue #467: single real household battery, see battery_cfg's own comment above
         capacity_kwh=capacity_kwh,
         initial_soc_kwh=initial_soc_kwh,
         min_soc_kwh=min_soc_kwh_val,
@@ -8968,7 +9007,7 @@ def main() -> None:
     plan = network.build_plan(
         periods=periods,
         grid=grid,
-        battery=battery,
+        batteries=[battery],
         solar=solar,
         loads=loads,
         sheddable_loads=sheddable_loads,
