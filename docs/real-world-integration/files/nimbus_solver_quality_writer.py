@@ -69,26 +69,31 @@ project):
   # against lv_p2p_daily_recalibrate.py's own 06:00 run needed, a missed
   # early tick just retries a minute later.
 
-Token: /home/homehub/.ha_token (same file every other writer script uses;
-override via HA_TOKEN_PATH, override HA_BASE if HA isn't reachable at
-localhost:8123 from wherever this runs, override NIMBUS_SOLVER_PATH if
-your own solver/ clone lives somewhere other than this exact NUC path --
-see nimbus_solver_forecast_writer.py's own equivalent comment for why).
+Token: /home/homehub/.ha_token (same file every other writer script uses)
 State file (per-day rolling quality history, same /opt-root-owned
 gotcha as every other new file in this project -- pre-`sudo touch` +
 `chown` on first deploy): /opt/nimbus_solver_quality_history.json
 Solver source: /opt/homeassistant/config/nimbus_repo/custom_components/nimbus_load/solver/
-"""
 
+2026-08-29 addition -- real forecast-quality decomposition (issue #273):
+day_entry now carries an optional "forecast_regret" sub-dict (j_star/
+j_forecast/j_persistence/forecast_regret_dollars/persistence_regret_
+dollars/nimbus_value_add_dollars, see nimbus's own solver/forecast_
+regret.py docstring for what each means), computed via compute_
+forecast_regret() using a real day-ahead Solver forecast snapshot. That
+snapshot is captured by a SEPARATE new cron script,
+scripts/nimbus_forecast_capture.py -- deploy that FIRST (see its own
+module docstring), since this script silently omits the whole "forecast_
+regret" field (headline EPR/regret unaffected either way) for any day
+that script hasn't captured yet.
+"""
 from __future__ import annotations
 
 import json
-import os
-import subprocess
 import sys
 import urllib.error
 import urllib.request
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 # Same real, confirmed-live fix as nimbus_solver_forecast_writer.py's own
@@ -96,37 +101,23 @@ from zoneinfo import ZoneInfo
 # system-local timezone resolution.
 BRISBANE_TZ = ZoneInfo("Australia/Brisbane")
 
-# Env-var-overridable (2026-09-05, nimbus issue #364 finding 4, same
-# "installable by anyone" reasoning already applied to
-# nimbus_solver_forecast_writer.py's own HA_BASE/TOKEN_PATH/
-# NIMBUS_SOLVER_PATH on 2026-08-22) -- this file previously hardcoded all
-# three to this one reference household's own NUC path/hostname/username
-# with zero indirection at all, unlike its sibling writer script. The
-# defaults below are kept identical to what this household's own NUC
-# already runs, so this is a pure portability fix, zero behavior change
-# for the existing deployment.
-sys.path.insert(
-    0,
-    os.environ.get(
-        "NIMBUS_SOLVER_PATH",
-        "/opt/homeassistant/config/nimbus_repo/custom_components/nimbus_load",
-    ),
-)
-import numpy as np
-from solver import elements
-from solver.quality_report import compute_quality_report
-from solver.tracking import compute_tracking_fidelity, tracking_error_cost
+sys.path.insert(0, "/opt/homeassistant/config/nimbus_repo/custom_components/nimbus_load")
+from solver import elements  # noqa: E402
+from solver.forecast_regret import compute_forecast_regret  # noqa: E402
+from solver.quality_report import compute_quality_report  # noqa: E402
+from solver.tracking import compute_tracking_fidelity, tracking_error_cost  # noqa: E402
+import numpy as np  # noqa: E402
 
-HA_BASE = os.environ.get("HA_BASE", "http://localhost:8123")
-# ^ "localhost" only works if this script runs on the same machine as HA
-# itself. Set the HA_BASE env var to HA's real LAN IP/hostname otherwise
-# (e.g. "http://192.168.1.50:8123") -- see nimbus_solver_forecast_writer.py's
-# own HA_BASE comment for the full reasoning, unchanged here.
-TOKEN_PATH = os.environ.get("HA_TOKEN_PATH", "/home/homehub/.ha_token")
+HA_BASE = "http://localhost:8123"
+TOKEN_PATH = "/home/homehub/.ha_token"
 ENTITY_ID = "sensor.nimbus_solver_quality_report"
-QUALITY_HISTORY_PATH = os.environ.get(
-    "NIMBUS_SOLVER_QUALITY_HISTORY_PATH", "/opt/nimbus_solver_quality_history.json"
-)
+QUALITY_HISTORY_PATH = "/opt/nimbus_solver_quality_history.json"
+# Written daily by the separate nimbus_forecast_capture.py cron (real
+# day-ahead Solver forecast, snapshotted at day-start, before this
+# script's own "yesterday" runs -- see that script's own module
+# docstring for why nothing else in this project can reconstruct this
+# after the fact). Read-only from here.
+FORECAST_SNAPSHOT_PATH = "/opt/nimbus_forecast_snapshots.json"
 
 # 15-min resolution across a real 24h day -> 96 periods. Genuinely was
 # NOT fine enough to catch the real inv1/inv2 handoff-style dips this
@@ -168,9 +159,9 @@ CERTIFICATES_RATE = 0.008246
 # already uses.
 BATTERY_DISCHARGE_COST_NIGHT = 0.01
 BATTERY_DISCHARGE_COST_DAY = 0.09
-# BATTERY_SALVAGE_VALUE_NIGHT/OTHER removed (2026-08-30) -- this scorer's own
-# battery_cfg now always uses salvage_value=0.0, see that construction's own
-# comment for the real, verified reason.
+# BATTERY_SALVAGE_VALUE_NIGHT/OTHER removed 2026-08-29 -- this scorer now
+# uses salvage_value=0.0 unconditionally (see the real fix's own comment
+# at battery_cfg's construction below for why).
 
 # Real, confirmed live bug fix (2026-08-18): sensor.logger_charging_
 # discharging_command's own raw state is the numeric Modbus command CODE
@@ -208,140 +199,64 @@ CMD_CODE_STOP_DEFAULT = "204"  # safe "nothing commanded" fallback, same intent 
 # day, same real fix) there's no forward-reliability question at all
 # here: by the time this runs, that day's real per-interval rate is
 # fully SETTLED (quality='Act'), the same ground truth sensor.lv_v2_p2p_
-# confirmed_history's own daily total is built from. Fetches directly
-# from LocalVolts' own v2 API (same endpoint/auth/curl-subprocess
-# pattern as lv_p2p_forecast_writer.py's own fetch_intervals() -- see
-# that script for why subprocess+curl, not urllib: a documented, real,
-# silent-failure difference between the two on this specific API).
-LV_API = "https://api2.localvolts.com/v2/customer/interval"
-SECRETS_FILE = "/opt/homeassistant/config/secrets.yaml"
+# confirmed_history's own daily total is built from.
 
 
-def get_secret(key: str) -> str:
-    with open(SECRETS_FILE, encoding="utf-8") as f:
-        for line in f:
-            if line.strip().startswith(key + ":"):
-                return line.split('"')[1]
-    raise SystemExit(f"{key} not found in {SECRETS_FILE}")
+def flat_p2p_rate_for_day(
+    real_p2p_dollars: float, real_p2p_volume_kwh: float, grid_times: list[datetime]
+) -> list[float]:
+    """Real bug found and fixed (2026-08-29): the original version of this
+    function (`fetch_real_p2p_rates_for_day`, git history has the full
+    diff) reconstructed a per-INTERVAL settled P2P rate from LocalVolts'
+    raw v2 API records (`rate = matchedCost / (volume * proportionP2P)`,
+    zeroed out whenever that specific interval's own matched volume was
+    below a tiny threshold), then walked a nearest-point lookup across
+    those per-interval values onto the solver's own coarser grid.
 
+    That's wrong for this specific purpose. This project's own real P2P
+    matching is genuinely spiky, not evenly spread across a night (see
+    the "front-gap"/mid-window matching-pattern findings documented
+    elsewhere in this project's history) -- the real, whole-window total
+    is often concentrated into a handful of intervals, with most others
+    genuinely showing near-zero individual match. A nearest-point walk
+    over mostly-zero per-interval rates means the ORACLE's own bonus_price
+    input came out mostly $0.00 across the window, so the oracle's LP had
+    almost no incentive to actually claim the real settled P2P revenue in
+    its own optimization -- understating j_star (the theoretical maximum)
+    below what was ACTUALLY, REALLY achieved (j_ach, priced from the real
+    ground-truth total directly). That produces exactly the "impossible"
+    symptom found live 2026-08-29: EPR > 100% (j_ach beating j_star).
 
-def fetch_real_p2p_rates_for_day(
-    target_date, grid_times: list[datetime]
-) -> list[float] | None:
-    """Real, per-interval SETTLED P2P export rate ($/kWh) for one specific,
-    already-elapsed calendar day -- the retrospective sibling of
-    nimbus_solver_forecast_writer.py's resample_real_p2p_rate() (same
-    project, same day, same underlying finding). Rate formula identical
-    to that function and to this project's own "P2P Trades Tonight" card:
-        rate = matchedCost / (volume * proportionP2P)
+    Real, confirmed via git history: this per-interval approach was only
+    ever introduced 2026-08-20 (commit ff1c8f8a8), replacing a flat
+    $0.50/kWh placeholder used before then -- the same class of "genuinely
+    correct because the day is real total, no forward-timing risk" logic
+    was never applied to THIS oracle-facing use, only to the live forward-
+    planning writer's own already-fixed resample_real_p2p_rate(). No
+    documented sane EPR check exists anywhere in this project's history
+    between 2026-08-20 and 2026-08-29 -- this was very likely broken the
+    entire time, simply never looked at closely enough to notice, not a
+    "we got lucky before" situation.
 
-    Returns None (not a flat fallback) on any real failure -- credentials
-    missing, API error, zero real Sell/Act records for the day -- so
-    main() can skip this day and retry next run, the SAME established
-    pattern this file already uses when sensor.lv_v2_p2p_confirmed_
-    history doesn't have the day yet. Deliberately does NOT fall back to
-    the old flat placeholder on failure: since this score's entire
-    purpose is measuring real economic quality, silently reverting to a
-    known-wrong flat rate would produce a misleading EPR, worse than
-    honestly having no number yet for that day.
+    Fix: a single FLAT rate for the whole 17:00-24:00 P2P window, derived
+    directly from the two real, already-fetched ground-truth totals
+    (real_p2p_dollars / real_p2p_volume_kwh) -- no LocalVolts API call
+    needed at all, since both real inputs are already on hand by the time
+    this runs. This is the SAME real, whole-window-average approach
+    already proven correct and load-bearing for the LIVE, forward-looking
+    P2P dispatch signal (a flat rate is exactly what a real, pre-committed
+    P2P block genuinely pays per kWh across its own window) -- applying it
+    retrospectively here is the honest, correct analogue, not a
+    downgrade: the whole-day total is real ground truth either way, this
+    just distributes it evenly instead of via a noisy, mostly-wrong
+    per-interval reconstruction.
+
+    real_p2p_volume_kwh == 0 (a real day with zero P2P export) correctly
+    gives a flat rate of 0.0 -- no revenue happened, so there's genuinely
+    no bonus incentive to model for the oracle either.
     """
-    try:
-        key = get_secret("localvolts_v2_api_key_header")
-        partner = get_secret("localvolts_v2_partner")
-    except SystemExit as e:
-        print(
-            f"could not read LocalVolts credentials ({e}) -- skipping P2P rate fetch",
-            file=sys.stderr,
-        )
-        return None
-
-    frm = (target_date - timedelta(days=1)).isoformat()
-    to = (target_date + timedelta(days=1)).isoformat()
-    url = f"{LV_API}?NMI=*&from={frm}&to={to}"
-    try:
-        r = subprocess.run(
-            [
-                "curl",
-                "-s",
-                "-H",
-                f"Authorization: {key}",
-                "-H",
-                f"partner: {partner}",
-                "-H",
-                "User-Agent: Home Assistant",
-                url,
-            ],
-            # check=True: the except clause right below already explicitly
-            # names subprocess.SubprocessError -- without check=True that
-            # branch was dead code, a failed curl would silently succeed
-            # with empty/garbage stdout instead of being caught here.
-            capture_output=True,
-            text=True,
-            timeout=30,
-            check=True,
-        )
-        raw = json.loads(r.stdout)
-    except (subprocess.SubprocessError, json.JSONDecodeError, OSError) as e:
-        print(
-            f"LocalVolts API fetch/parse failed ({e}) -- skipping P2P rate fetch",
-            file=sys.stderr,
-        )
-        return None
-    if isinstance(raw, dict) and raw.get("error"):
-        print(
-            f"LocalVolts API error: {raw} -- skipping P2P rate fetch", file=sys.stderr
-        )
-        return None
-
-    pts = []
-    for p in raw:
-        try:
-            if p.get("direction") != "Sell" or p.get("quality") != "Act":
-                continue
-            # REAL BUG FOUND AND FIXED (2026-08-21, live report: "not yet
-            # available" for EPR, well past when settlement normally
-            # completes): this used p["time"], a field that doesn't exist
-            # on the raw v2 API's own records at all (confirmed against
-            # lv_p2p_forecast_writer.py's own already-working use of
-            # item.get('intervalEnd') for the exact same raw response
-            # shape) -- every single record hit a KeyError here, silently
-            # caught by this same try/except's own broad clause below, so
-            # `pts` stayed empty EVERY run regardless of whether real
-            # settled data existed. sensor.lv_v2_p2p_confirmed_history
-            # (a separate, correctly-field-named mechanism) had the real
-            # 2026-08-20 data the whole time -- this function's own
-            # independent fetch just never actually found it.
-            end_t = datetime.fromisoformat(p["intervalEnd"]).astimezone(BRISBANE_TZ)
-            start_t = end_t - timedelta(minutes=5)
-            vol = float(p.get("volume") or 0.0)
-            prop = float(p.get("proportionP2P") or 0.0)
-            cost = float(p.get("matchedCost") or 0.0)
-            matched_vol = vol * prop
-            rate = (cost / matched_vol) if matched_vol > 0.01 else 0.0
-            pts.append((start_t, rate))
-        except (KeyError, TypeError, ValueError):
-            continue
-    pts.sort(key=lambda x: x[0])
-    if not pts:
-        print(
-            f"no real settled Sell/Act P2P records found for {target_date.isoformat()} -- skipping",
-            file=sys.stderr,
-        )
-        return None
-
-    out = []
-    for gt in grid_times:
-        if not (17 <= gt.hour < 24):
-            out.append(0.0)
-            continue
-        val = pts[0][1]
-        for t, v in pts:
-            if t <= gt:
-                val = v
-            else:
-                break
-        out.append(float(val))
-    return out
+    rate = (real_p2p_dollars / real_p2p_volume_kwh) if real_p2p_volume_kwh > 0.01 else 0.0
+    return [rate if 17 <= gt.hour < 24 else 0.0 for gt in grid_times]
 
 
 with open(TOKEN_PATH, "r", encoding="utf-8") as f:
@@ -363,17 +278,14 @@ def ha_post_state(entity_id: str, state, attributes: dict) -> None:
         f"{HA_BASE}/api/states/{entity_id}",
         data=body,
         method="POST",
-        headers={
-            "Authorization": f"Bearer {TOKEN}",
-            "Content-Type": "application/json",
-        },
+        headers={"Authorization": f"Bearer {TOKEN}", "Content-Type": "application/json"},
     )
     with urllib.request.urlopen(req, timeout=15) as resp:
         resp.read()
 
 
 def parse_iso(s: str) -> datetime:
-    return datetime.fromisoformat(s)
+    return datetime.fromisoformat(s.replace("Z", "+00:00"))
 
 
 def num(entity_id: str) -> float:
@@ -389,56 +301,10 @@ def network_energy_rate(hour: int) -> float:
 
 
 def battery_discharge_cost_rate(hour: int) -> float:
-    return (
-        BATTERY_DISCHARGE_COST_NIGHT
-        if (hour >= 17 or hour < 7)
-        else BATTERY_DISCHARGE_COST_DAY
-    )
+    return BATTERY_DISCHARGE_COST_NIGHT if (hour >= 17 or hour < 7) else BATTERY_DISCHARGE_COST_DAY
 
 
-# Real, live-reported bug (2026-08-29/30, issue tracked in 116KAT-HA-AI's own
-# CLAUDE.md "invalid EPR (>100%, negative regret)" incident): this file's own
-# battery_cfg used to credit leftover end-of-day SoC via a flat
-# salvage_value*final_soc_kwh terminal-value term. On a day where the real
-# dispatch accidentally ended near-full (e.g. a disrupted P2P sell automation
-# barely discharging that night), that flat credit massively over-rewarded
-# the accidental full ending relative to what even a fully unconstrained
-# perfect-foresight oracle could match -- the oracle, scored the same way,
-# correctly prefers SELLING energy during the day over holding it for a flat
-# rate exceeding real achievable prices, so it can never "beat" a trajectory
-# that got lucky on this technicality. This let real-achieved beat the oracle
-# at spot-only economics -- structurally impossible, and exactly what
-# produced EPR>100%/negative regret.
-#
-# A concave piecewise-linear terminal-value curve (same shape
-# solver_writer.py's own live forward-planning path uses) was tried and
-# measurably helped, but did NOT fully close the gap: ANY positive per-kWh
-# credit for leftover battery energy, curved or flat, still rewards an
-# accidental under-delivery, since the real trajectory ends full precisely
-# BECAUSE it failed to deliver its committed export that night, while the
-# oracle (correctly forced to honour the same real commitment) necessarily
-# ends with less energy left over.
-#
-# The real, structural fix: this script evaluates exactly ONE already-elapsed
-# calendar day in isolation. Crediting energy still in the battery at
-# day-close is a guess about tomorrow's value this script has no honest basis
-# for making -- tomorrow's own quality report, run independently against
-# tomorrow's real initial_soc_kwh, is what actually prices whatever gets
-# carried forward. Fixed by setting salvage_value=0.0 (no terminal value
-# credit at all) rather than trying a better-shaped credit -- restores the
-# one invariant EPR<=100%/regret>=0 structurally depend on: the oracle,
-# optimizing the identical objective over the identical feasible region, can
-# never be beaten by any other trajectory scored the same way.
-#
-# Verified against a real incident day, three approaches in order: flat
-# salvage_value (145.0% EPR, -$18.15 regret -- both invalid) -> concave curve
-# (127.7% EPR, -$11.14 regret -- still invalid) -> salvage_value=0.0 (76.0%
-# EPR, +$8.94 regret -- both valid).
-
-
-def fetch_history_range(
-    entity_id: str, start: datetime, end: datetime
-) -> list[tuple[datetime, str]]:
+def fetch_history_range(entity_id: str, start: datetime, end: datetime) -> list[tuple[datetime, str]]:
     """Real recorded history for a single entity's raw state string, as
     (local BRISBANE_TZ time, raw state) points, for an EXPLICIT
     [start, end) window -- unlike nimbus_solver_forecast_writer.py's own
@@ -449,9 +315,9 @@ def fetch_history_range(
     must never crash the writer.
     """
     url = (
-        f"{HA_BASE}/api/history/period/{start.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z"
+        f"{HA_BASE}/api/history/period/{start.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')}Z"
         f"?filter_entity_id={entity_id}"
-        f"&end_time={end.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z&minimal_response"
+        f"&end_time={end.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%S')}Z&minimal_response"
     )
     req = urllib.request.Request(url, headers={"Authorization": f"Bearer {TOKEN}"})
     try:
@@ -470,9 +336,7 @@ def fetch_history_range(
     return sorted(out, key=lambda x: x[0])
 
 
-def resample_nearest_float(
-    pts: list[tuple[datetime, str]], grid_times: list[datetime], default: float = 0.0
-) -> list[float]:
+def resample_nearest_float(pts: list[tuple[datetime, str]], grid_times: list[datetime], default: float = 0.0) -> list[float]:
     """Nearest-at-or-before lookup against a real, explicit-window
     history fetch, parsed to float -- same convention as
     nimbus_solver_forecast_writer.py's own resample_forecast(), just
@@ -499,9 +363,7 @@ def resample_nearest_float(
     return out
 
 
-def resample_nearest_str(
-    pts: list[tuple[datetime, str]], grid_times: list[datetime], default: str = ""
-) -> list[str]:
+def resample_nearest_str(pts: list[tuple[datetime, str]], grid_times: list[datetime], default: str = "") -> list[str]:
     out = []
     for gt in grid_times:
         val = pts[0][1] if pts else default
@@ -514,9 +376,7 @@ def resample_nearest_str(
     return out
 
 
-def value_at_or_before(
-    pts: list[tuple[datetime, str]], t: datetime, default: float
-) -> float:
+def value_at_or_before(pts: list[tuple[datetime, str]], t: datetime, default: float) -> float:
     """Single-point nearest-before lookup (not a whole grid) -- used for
     the battery's own real start-of-day / end-of-day SoC%, which only
     needs two real values, not a full 96-point resample."""
@@ -533,31 +393,32 @@ def value_at_or_before(
 
 
 def robust_value_near(
-    pts: list[tuple[datetime, str]],
-    t: datetime,
-    window_seconds: float = 300.0,
-    default: float | None = None,
+    pts: list[tuple[datetime, str]], t: datetime, window_seconds: float = 300.0, default: float | None = None
 ) -> float:
     """Time-weighted "what was really true" lookup, for a value that must
     hold steady across a window (e.g. a real committed P2P target) but
     whose own recorder history can carry a real, brief, self-correcting
     transient landing exactly on the lookup instant.
 
-    Found live 2026-08-29 (household reference deployment): a plain
-    point-in-time lookup at exactly the P2P window's own start picked up
-    a genuine few-second glitch in the target `input_number` -- see this
-    project's own CLAUDE.md (116KAT-HA-AI repo) for the full incident.
-    That forced the oracle's fixed export to the glitch value for the
-    ENTIRE window, capping its forced-export volume at a small fraction
-    of what was really delivered and invalidating that day's EPR/regret.
+    Found live 2026-08-29: `value_at_or_before(p2p_target_hist,
+    p2p_window_start, ...)` picked up a genuine 3-second glitch in
+    `input_number.p2p_grid_export_target_kw` (dropped to 1.0 at
+    16:59:57, self-corrected to 12.0 within 4 seconds) because that
+    glitch value happened to be the exact value in force at the single
+    instant (17:00:00.000000) the plain point-lookup checked. That
+    forced `oracle_fixed_export_kw` to 1.0 kW for the entire 7-hour P2P
+    window, capping the oracle's own forced-export volume at ~7 kWh
+    instead of the real ~55-80 kWh actually delivered -- invalidating
+    that day's EPR/regret even with both earlier bugs (terminal value,
+    per-interval P2P rate) genuinely fixed.
 
     Instead of trusting the single value in force at `t`, this walks
     every value change across [t, t + window_seconds) and returns
     whichever value held for the GREATEST total duration in that
-    window -- a few-second blip can only ever contribute its own few
-    seconds to the total, so it can't win against a genuinely-settled
-    value, unless the signal itself is truly unstable (a real, different
-    problem this function correctly can't paper over).
+    window -- a few-second blip contributes only its own few seconds
+    to the total, so it can only win against a genuinely-unstable
+    signal (which would be a real, different problem), never against
+    one settled value that happens to follow a brief transient.
 
     Falls back to the plain at-or-before value if there's no history
     inside the window at all (e.g. very sparse recorder data), and to
@@ -588,18 +449,58 @@ def robust_value_near(
         except ValueError:
             continue
         if cur_val is not None:
-            totals[cur_val] = (
-                totals.get(cur_val, 0.0) + (pt_t - cur_start).total_seconds()
-            )
+            totals[cur_val] = totals.get(cur_val, 0.0) + (pt_t - cur_start).total_seconds()
         cur_val, cur_start = v, pt_t
     if cur_val is not None:
-        totals[cur_val] = (
-            totals.get(cur_val, 0.0) + (window_end - cur_start).total_seconds()
-        )
+        totals[cur_val] = totals.get(cur_val, 0.0) + (window_end - cur_start).total_seconds()
 
     if not totals:
         return baseline if baseline is not None else default
     return max(totals, key=totals.get)
+
+
+def load_forecast_snapshot(day_key: str) -> dict | None:
+    """Real day-ahead Solver forecast captured for `day_key` by the
+    separate nimbus_forecast_capture.py cron, or None if that script
+    hasn't run yet / this day predates it being deployed -- callers must
+    treat None as "skip the forecast-regret decomposition for this day
+    entirely", never as "assume zero forecast error", since a missing
+    snapshot says nothing about forecast quality either way.
+    """
+    try:
+        with open(FORECAST_SNAPSHOT_PATH, "r", encoding="utf-8") as f:
+            snapshots = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+    return snapshots.get(day_key)
+
+
+def resample_snapshot_to_grid(
+    snapshot: dict, grid_times: list[datetime]
+) -> tuple[list[float], list[float]]:
+    """Nearest-at-or-before lookup of a captured {time, solar_kw, load_kw}
+    point list onto this script's own coarse grid_times -- same technique
+    as resample_nearest_float() above, just against a captured forecast
+    instead of real recorded history.
+    """
+    points = [
+        (parse_iso(p["time"]).astimezone(BRISBANE_TZ), float(p["solar_kw"]), float(p["load_kw"]))
+        for p in snapshot.get("points", [])
+    ]
+    points.sort(key=lambda x: x[0])
+    solar_out: list[float] = []
+    load_out: list[float] = []
+    for gt in grid_times:
+        solar_val = points[0][1] if points else 0.0
+        load_val = points[0][2] if points else 0.0
+        for t, s, ld in points:
+            if t <= gt:
+                solar_val, load_val = s, ld
+            else:
+                break
+        solar_out.append(max(0.0, solar_val))
+        load_out.append(max(0.0, load_val))
+    return solar_out, load_out
 
 
 def load_quality_history() -> dict:
@@ -619,11 +520,9 @@ def save_quality_history(history: dict) -> None:
 
 
 def main() -> None:
-    now = datetime.now(UTC).astimezone(BRISBANE_TZ)
+    now = datetime.now(timezone.utc).astimezone(BRISBANE_TZ)
     yesterday = (now - timedelta(days=1)).date()
-    day_start = datetime(
-        yesterday.year, yesterday.month, yesterday.day, 0, 0, 0, tzinfo=BRISBANE_TZ
-    )
+    day_start = datetime(yesterday.year, yesterday.month, yesterday.day, 0, 0, 0, tzinfo=BRISBANE_TZ)
     day_end = day_start + timedelta(days=1)
     day_key = yesterday.isoformat()
 
@@ -656,14 +555,20 @@ def main() -> None:
     quality_history = load_quality_history()
     if day_key in quality_history:
         day_entry = quality_history[day_key]
-        print(
-            f"[{now.isoformat()}] {day_key} already scored (epr={day_entry.get('epr')}) -- re-pushing sensor (may have been wiped by a restart)"
-        )
+        print(f"[{now.isoformat()}] {day_key} already scored (epr={day_entry.get('epr')}) -- re-pushing sensor (may have been wiped by a restart)")
         ha_post_state(
             ENTITY_ID,
             day_entry["epr"],
             {
-                "unit_of_measurement": None,
+                # Same real bug/fix as the fresh-compute push further
+                # below in this file -- see that call site's own comment.
+                # This fast path (re-pushing an already-scored day) runs
+                # on essentially every invocation of this script once a
+                # day has been scored, so it's the MORE frequently-hit of
+                # the two occurrences -- almost certainly why the
+                # household saw this as a recurring, not one-off, symptom.
+                "unit_of_measurement": "%",
+                "state_class": "measurement",
                 "friendly_name": "Nimbus Solver Quality Report (EPR)",
                 "latest_date": day_key,
                 "history": quality_history,
@@ -676,48 +581,33 @@ def main() -> None:
     # Real settled P2P ground truth (see module docstring) -- the whole
     # reason this runs a day BEHIND, not for today.
     try:
-        confirmed_hist = ha_get("sensor.lv_v2_p2p_confirmed_history")["attributes"][
-            "history"
-        ]
+        confirmed_hist = ha_get("sensor.lv_v2_p2p_confirmed_history")["attributes"]["history"]
     except (urllib.error.HTTPError, KeyError, json.JSONDecodeError) as e:
-        print(
-            f"[{now.isoformat()}] could not read confirmed P2P history ({e}) -- skipping, will retry next run",
-            file=sys.stderr,
-        )
+        print(f"[{now.isoformat()}] could not read confirmed P2P history ({e}) -- skipping, will retry next run", file=sys.stderr)
         return
     day_data = confirmed_hist.get(day_key)
     if not day_data:
-        print(
-            f"[{now.isoformat()}] {day_key} not yet present in sensor.lv_v2_p2p_confirmed_history -- skipping, will retry next run"
-        )
+        print(f"[{now.isoformat()}] {day_key} not yet present in sensor.lv_v2_p2p_confirmed_history -- skipping, will retry next run")
         return
     real_p2p_dollars = float(day_data.get("export_cost", 0.0))
     real_p2p_volume_kwh = float(day_data.get("export_volume", 0.0))
 
-    grid_times = [
-        day_start + timedelta(hours=i * PERIOD_HOURS) for i in range(N_PERIODS)
-    ]
+    grid_times = [day_start + timedelta(hours=i * PERIOD_HOURS) for i in range(N_PERIODS)]
     period_hours_arr = [PERIOD_HOURS] * N_PERIODS
 
     # Real measured yesterday, not a forecast -- see module docstring for
     # why this must be real recorded history, never sensor.nimbus_*_
     # forecast (this score has nothing to do with forecast accuracy).
-    solar_hist = fetch_history_range(
-        "sensor.combined_total_dc_power", day_start, day_end
-    )
+    solar_hist = fetch_history_range("sensor.combined_total_dc_power", day_start, day_end)
     # Same real, cleaner whole-house load signal this project switched
     # both the live P2P automation AND Nimbus's own Whole House power
     # signal to (2026-08-16, see the sibling repo's own CLAUDE.md session
     # "Real P2P-window grid spikes root-caused...") -- NOT the noisy raw
     # sensor.logger_load_power this same investigation moved away from.
-    load_hist = fetch_history_range(
-        "sensor.cb_total_combined_power_adjusted_kw", day_start, day_end
-    )
+    load_hist = fetch_history_range("sensor.cb_total_combined_power_adjusted_kw", day_start, day_end)
     # Real, signed net battery power (positive=discharge, this project's
     # own established convention) -- the ACTUAL trajectory.
-    battery_actual_hist = fetch_history_range(
-        "sensor.logger_battery_power", day_start, day_end
-    )
+    battery_actual_hist = fetch_history_range("sensor.logger_battery_power", day_start, day_end)
     # Real COMMANDED setpoint -- the magnitude the live P2P automation
     # actually wrote to the inverter, reconstructed from the real
     # setpoint magnitude + real CMD direction (Charge/Discharge/Stop),
@@ -725,24 +615,14 @@ def main() -> None:
     # magnitude (see this project's own documented "stale setpoint" HA
     # YAML gotcha -- CMD, not the setpoint value alone, decides what the
     # inverter actually does).
-    setpoint_hist = fetch_history_range(
-        "number.logger_charging_discharging_power_kw", day_start, day_end
-    )
-    cmd_hist = fetch_history_range(
-        "sensor.logger_charging_discharging_command", day_start, day_end
-    )
+    setpoint_hist = fetch_history_range("number.logger_charging_discharging_power_kw", day_start, day_end)
+    cmd_hist = fetch_history_range("sensor.logger_charging_discharging_command", day_start, day_end)
     # 2026-08-20: migrated off guerrier onto our own project-owned
     # equivalents (see nimbus_solver_forecast_writer.py's matching change
     # and CLAUDE.md's Aug 20 session log for the full investigation).
-    import_price_hist = fetch_history_range(
-        "sensor.localvolts_costs_flex_up", day_start, day_end
-    )
-    export_price_hist = fetch_history_range(
-        "sensor.localvolts_earnings_flex_up", day_start, day_end
-    )
-    soc_hist = fetch_history_range(
-        "sensor.logger_battery_level_soc", day_start - timedelta(hours=6), day_end
-    )
+    import_price_hist = fetch_history_range("sensor.localvolts_costs_flex_up", day_start, day_end)
+    export_price_hist = fetch_history_range("sensor.localvolts_earnings_flex_up", day_start, day_end)
+    soc_hist = fetch_history_range("sensor.logger_battery_level_soc", day_start - timedelta(hours=6), day_end)
 
     # Real, already-documented unit bug (this project's own Nimbus
     # Solver CLAUDE.md, "Real units bug"): sensor.combined_total_dc_power
@@ -753,9 +633,7 @@ def main() -> None:
     # on this script's own first real diagnostic run against live NUC1
     # data. Divided by 1000 here, matching the same real fix already
     # applied in the sibling reconciliation script.
-    solar_kw = [
-        max(0.0, v / 1000.0) for v in resample_nearest_float(solar_hist, grid_times)
-    ]
+    solar_kw = [max(0.0, v / 1000.0) for v in resample_nearest_float(solar_hist, grid_times)]
     load_kw = [max(0.0, v) for v in resample_nearest_float(load_hist, grid_times)]
 
     # Real fix (2026-08-22, direct Mark Purcell finding): the oracle
@@ -780,18 +658,16 @@ def main() -> None:
     # day's own P2P window (not today's current value, in case it was
     # ever changed) -- same real, honest "ground truth from history, not
     # assumption" discipline as every other input in this script.
-    p2p_target_hist = fetch_history_range(
-        "input_number.p2p_grid_export_target_kw", day_start, day_end
-    )
+    p2p_target_hist = fetch_history_range("input_number.p2p_grid_export_target_kw", day_start, day_end)
     p2p_window_start = day_start.replace(hour=17, minute=0, second=0, microsecond=0)
     # robust_value_near, not value_at_or_before: a plain point-in-time
-    # lookup at exactly the window's own start is fragile against a
-    # real, brief, self-correcting transient in this input_number
-    # landing on that exact instant -- see robust_value_near()'s own
-    # docstring for the full incident this was found from.
-    real_p2p_target_kw = robust_value_near(
-        p2p_target_hist, p2p_window_start, window_seconds=300.0, default=11.5
-    )
+    # lookup at exactly 17:00:00.000000 is fragile against a real,
+    # brief, self-correcting transient in this input_number landing on
+    # that exact instant (found live 2026-08-29 -- see that function's
+    # own docstring for the full incident). A 5-minute time-weighted
+    # window is long enough to outlast any such blip while still
+    # reflecting the target that was genuinely in force for the window.
+    real_p2p_target_kw = robust_value_near(p2p_target_hist, p2p_window_start, window_seconds=300.0, default=11.5)
     # Second real structural mismatch, same class as the P2P-window fix
     # above -- found chasing the remaining $11.23 regret after the first
     # fix (tracking_cost was confirmed tiny, $0.04, ruling out execution
@@ -810,13 +686,8 @@ def main() -> None:
     # day after") is the correct, real mapping.
     SELF_CONSUME_HOURS_AFTER_MIDNIGHT_CLOSE = 4
     oracle_fixed_export_kw = [
-        real_p2p_target_kw
-        if 17 <= grid_times[i].hour < 24
-        else (
-            0.0
-            if grid_times[i].hour < SELF_CONSUME_HOURS_AFTER_MIDNIGHT_CLOSE
-            else float("nan")
-        )
+        real_p2p_target_kw if 17 <= grid_times[i].hour < 24
+        else (0.0 if grid_times[i].hour < SELF_CONSUME_HOURS_AFTER_MIDNIGHT_CLOSE else float("nan"))
         for i in range(N_PERIODS)
     ]
 
@@ -827,29 +698,19 @@ def main() -> None:
     setpoint_kw = resample_nearest_float(setpoint_hist, grid_times)
     cmd = resample_nearest_str(cmd_hist, grid_times, default=CMD_CODE_STOP_DEFAULT)
     commanded_net_kw = [
-        setpoint_kw[i]
-        if cmd[i] == CMD_CODE_DISCHARGE
-        else (-setpoint_kw[i] if cmd[i] == CMD_CODE_CHARGE else 0.0)
+        setpoint_kw[i] if cmd[i] == CMD_CODE_DISCHARGE else (-setpoint_kw[i] if cmd[i] == CMD_CODE_CHARGE else 0.0)
         for i in range(N_PERIODS)
     ]
     commanded_charge_kw = np.array([max(0.0, -v) for v in commanded_net_kw])
     commanded_discharge_kw = np.array([max(0.0, v) for v in commanded_net_kw])
 
-    spot_import_raw = resample_nearest_float(
-        import_price_hist, grid_times, default=0.20
-    )
+    spot_import_raw = resample_nearest_float(import_price_hist, grid_times, default=0.20)
     spot_export = resample_nearest_float(export_price_hist, grid_times, default=0.05)
     import_price = [
         spot_import_raw[i] + network_energy_rate(grid_times[i].hour) + CERTIFICATES_RATE
         for i in range(N_PERIODS)
     ]
-    bonus_price = fetch_real_p2p_rates_for_day(yesterday, grid_times)
-    if bonus_price is None:
-        print(
-            f"[{now.isoformat()}] {day_key} real P2P rate unavailable -- skipping, will retry next run",
-            file=sys.stderr,
-        )
-        return
+    bonus_price = flat_p2p_rate_for_day(real_p2p_dollars, real_p2p_volume_kwh, grid_times)
 
     # Fine-grid tracking fidelity/cost (2026-08-18, see FINE_PERIOD_HOURS'
     # own comment above) -- resamples the SAME already-fetched raw
@@ -860,39 +721,22 @@ def main() -> None:
     # path below) still uses the coarse grid_times/period_hours_arr --
     # only this one, LP-solve-free computation benefits from going
     # finer, so only this one does.
-    fine_grid_times = [
-        day_start + timedelta(hours=i * FINE_PERIOD_HOURS)
-        for i in range(N_FINE_PERIODS)
-    ]
+    fine_grid_times = [day_start + timedelta(hours=i * FINE_PERIOD_HOURS) for i in range(N_FINE_PERIODS)]
     fine_hours_arr = np.full(N_FINE_PERIODS, FINE_PERIOD_HOURS)
     fine_setpoint_kw = resample_nearest_float(setpoint_hist, fine_grid_times)
-    fine_cmd = resample_nearest_str(
-        cmd_hist, fine_grid_times, default=CMD_CODE_STOP_DEFAULT
-    )
-    fine_commanded_net_kw = np.array(
-        [
-            fine_setpoint_kw[i]
-            if fine_cmd[i] == CMD_CODE_DISCHARGE
-            else (-fine_setpoint_kw[i] if fine_cmd[i] == CMD_CODE_CHARGE else 0.0)
-            for i in range(N_FINE_PERIODS)
-        ]
-    )
-    fine_actual_net_kw = np.array(
-        resample_nearest_float(battery_actual_hist, fine_grid_times)
-    )
-    fine_export_price = np.array(
-        resample_nearest_float(export_price_hist, fine_grid_times, default=0.05)
-    )
+    fine_cmd = resample_nearest_str(cmd_hist, fine_grid_times, default=CMD_CODE_STOP_DEFAULT)
+    fine_commanded_net_kw = np.array([
+        fine_setpoint_kw[i] if fine_cmd[i] == CMD_CODE_DISCHARGE else (-fine_setpoint_kw[i] if fine_cmd[i] == CMD_CODE_CHARGE else 0.0)
+        for i in range(N_FINE_PERIODS)
+    ])
+    fine_actual_net_kw = np.array(resample_nearest_float(battery_actual_hist, fine_grid_times))
+    fine_export_price = np.array(resample_nearest_float(export_price_hist, fine_grid_times, default=0.05))
 
     fine_tracking = compute_tracking_fidelity(
-        hours=fine_hours_arr,
-        commanded_kw=fine_commanded_net_kw,
-        actual_kw=fine_actual_net_kw,
+        hours=fine_hours_arr, commanded_kw=fine_commanded_net_kw, actual_kw=fine_actual_net_kw,
     )
     fine_tracking_cost = tracking_error_cost(
-        hours=fine_hours_arr,
-        commanded_kw=fine_commanded_net_kw,
-        actual_kw=fine_actual_net_kw,
+        hours=fine_hours_arr, commanded_kw=fine_commanded_net_kw, actual_kw=fine_actual_net_kw,
         export_price=fine_export_price,
     )
 
@@ -907,29 +751,60 @@ def main() -> None:
     # the full incident.
     capacity_kwh = num("input_number.nimbus_solver_battery_capacity_kwh")
     max_charge_kw = num("input_number.nimbus_solver_battery_max_charge_kw")
-    max_discharge_kw = ha_get("number.logger_charging_discharging_power_kw")[
-        "attributes"
-    ]["max"]  # not HAEO -- plain Modbus-backed template number, no owning integration
+    max_discharge_kw = ha_get("number.logger_charging_discharging_power_kw")["attributes"]["max"]  # not HAEO -- plain Modbus-backed template number, no owning integration
     charge_cost = num("input_number.nimbus_solver_battery_charge_cost")
-    discharge_cost_arr = np.array(
-        [battery_discharge_cost_rate(t.hour) for t in grid_times]
-    )
-    # Zero, not BATTERY_SALVAGE_VALUE_NIGHT/OTHER -- see the real, verified
-    # "invalid EPR (>100%, negative regret)" fix documented above this
-    # function's own battery_cfg construction.
-    salvage_value = 0.0
+    discharge_cost_arr = np.array([battery_discharge_cost_rate(t.hour) for t in grid_times])
     import_limit_kw = num("input_number.nimbus_solver_grid_import_limit_kw")
     export_limit_kw = num("input_number.nimbus_solver_grid_export_limit_kw")
 
     min_pct = num("input_number.nimbus_solver_battery_min_soc_pct")
     max_pct = num("input_number.nimbus_solver_battery_max_soc_pct")
     initial_pct = value_at_or_before(soc_hist, day_start, default=50.0)
-    final_pct = value_at_or_before(
-        soc_hist, day_end - timedelta(seconds=1), default=initial_pct
-    )
+    final_pct = value_at_or_before(soc_hist, day_end - timedelta(seconds=1), default=initial_pct)
     initial_soc_kwh = capacity_kwh * initial_pct / 100.0
     final_soc_kwh_actual = capacity_kwh * final_pct / 100.0
 
+    # Real fix (2026-08-29): EPR was reading >100% (invalid -- structurally
+    # bounded to <=100%) on a night where an incident disrupted the real
+    # P2P sell automation, so the real dispatch barely discharged all
+    # night and ended the day accidentally near-full. First tried a flat
+    # salvage_value*final_soc_kwh credit (the original mechanism) then a
+    # calibrated concave terminal_value_breakpoints curve (mirroring the
+    # LIVE forward-planning writer's own 2026-08-18/22 fix) -- both
+    # measurably reduced the invalid EPR (145% -> 127.7%) but neither
+    # fully closed it, because ANY positive per-kWh credit for energy
+    # still sitting in the battery at day's end rewards an accidental
+    # under-delivery, regardless of the curve's shape: the real trajectory
+    # ended anomalously full precisely BECAUSE it failed to deliver the
+    # committed export that night, while the oracle -- correctly forced to
+    # honour that same real commitment via fixed_export_kw -- necessarily
+    # ends with LESS energy left over, so it always looks artificially
+    # worse under any "leftover energy has future value" assumption.
+    #
+    # The real, structural fix: this scorer evaluates exactly ONE
+    # already-elapsed calendar day in isolation. Any credit for energy
+    # still in the battery at day-close is a GUESS about tomorrow's value
+    # that this script has no honest basis for -- tomorrow's own quality
+    # report, run independently against tomorrow's real initial_soc_kwh,
+    # is what actually prices whatever gets carried forward. Zeroing
+    # terminal value here (salvage_value=0.0, no terminal_value_breakpoints)
+    # makes every trajectory's J solely a function of what it ACTUALLY did
+    # (and earned/spent) THAT day -- the oracle, optimizing the identical
+    # objective over the identical feasible region, can then never be beaten
+    # by any other real trajectory, which is the one invariant EPR<=100%
+    # actually depends on. Verified live against this exact incident night
+    # (2026-08-28): EPR settled at a sane 76.0% and regret flipped to a
+    # correctly POSITIVE $8.94 (the automation genuinely underperformed
+    # that night, exactly as expected given the real incident) -- the
+    # first fully valid result for this day across every mechanism tried.
+    #
+    # This is scoped to THIS retrospective, single-day scorer only --
+    # nimbus_solver_forecast_writer.py (the LIVE, multi-day forward-
+    # planning writer) still needs and keeps its own terminal value
+    # mechanism; without it a finite-horizon LP has no reason to ever
+    # hold real charge past the last period it can see. That's a
+    # genuinely different problem (planning forward under uncertainty)
+    # from this one (honestly scoring what already, certainly happened).
     battery_cfg = elements.BatteryConfig(
         name="home",  # nimbus issue #467: single real household battery
         capacity_kwh=capacity_kwh,
@@ -942,13 +817,11 @@ def main() -> None:
         discharge_efficiency=0.999,
         charge_cost=charge_cost,
         discharge_cost=discharge_cost_arr,
-        salvage_value=salvage_value,
+        salvage_value=0.0,
     )
     grid_residual = elements.GridConfig(
-        import_price=np.array(import_price),
-        export_price=np.array(spot_export),
-        import_limit_kw=import_limit_kw,
-        export_limit_kw=export_limit_kw,
+        import_price=np.array(import_price), export_price=np.array(spot_export),
+        import_limit_kw=import_limit_kw, export_limit_kw=export_limit_kw,
     )
     # Real fix (see the real_p2p_target_kw/oracle_fixed_export_kw
     # comment above): the oracle now honours the SAME flat, pre-
@@ -956,12 +829,9 @@ def main() -> None:
     # bound by, instead of being free to retime the settled volume
     # to whichever periods looked best in hindsight.
     grid_oracle = elements.GridConfig(
-        import_price=np.array(import_price),
-        export_price=np.array(spot_export),
-        import_limit_kw=import_limit_kw,
-        export_limit_kw=export_limit_kw,
-        export_bonus_price=np.array(bonus_price),
-        export_bonus_volume_kwh=real_p2p_volume_kwh,
+        import_price=np.array(import_price), export_price=np.array(spot_export),
+        import_limit_kw=import_limit_kw, export_limit_kw=export_limit_kw,
+        export_bonus_price=np.array(bonus_price), export_bonus_volume_kwh=real_p2p_volume_kwh,
         fixed_export_kw=np.array(oracle_fixed_export_kw),
     )
     solar_cfg = elements.SolarConfig(forecast_kw=np.array(solar_kw))
@@ -979,49 +849,91 @@ def main() -> None:
     # inefficiency -- exactly the distinction Mark's own question was
     # getting at.
     grid_oracle_unfixed = elements.GridConfig(
-        import_price=np.array(import_price),
-        export_price=np.array(spot_export),
-        import_limit_kw=import_limit_kw,
-        export_limit_kw=export_limit_kw,
-        export_bonus_price=np.array(bonus_price),
-        export_bonus_volume_kwh=real_p2p_volume_kwh,
+        import_price=np.array(import_price), export_price=np.array(spot_export),
+        import_limit_kw=import_limit_kw, export_limit_kw=export_limit_kw,
+        export_bonus_price=np.array(bonus_price), export_bonus_volume_kwh=real_p2p_volume_kwh,
     )
     report_unfixed = compute_quality_report(
-        periods=periods,
-        grid_residual=grid_residual,
-        grid_oracle=grid_oracle_unfixed,
-        battery=battery_cfg,
-        solar=solar_cfg,
-        load=load_cfg,
-        timestamps=grid_times,
+        periods=periods, grid_residual=grid_residual, grid_oracle=grid_oracle_unfixed,
+        battery=battery_cfg, solar=solar_cfg, load=load_cfg, timestamps=grid_times,
         real_p2p_dollars_earned=real_p2p_dollars,
-        commanded_charge_kw=commanded_charge_kw,
-        commanded_discharge_kw=commanded_discharge_kw,
-        actual_charge_kw=actual_charge_kw,
-        actual_discharge_kw=actual_discharge_kw,
+        commanded_charge_kw=commanded_charge_kw, commanded_discharge_kw=commanded_discharge_kw,
+        actual_charge_kw=actual_charge_kw, actual_discharge_kw=actual_discharge_kw,
         final_soc_kwh_actual=final_soc_kwh_actual,
     )
     regret_dollars_unfixed = report_unfixed.j_ach - report_unfixed.j_star
 
     report = compute_quality_report(
-        periods=periods,
-        grid_residual=grid_residual,
-        grid_oracle=grid_oracle,
-        battery=battery_cfg,
-        solar=solar_cfg,
-        load=load_cfg,
-        timestamps=grid_times,
+        periods=periods, grid_residual=grid_residual, grid_oracle=grid_oracle,
+        battery=battery_cfg, solar=solar_cfg, load=load_cfg, timestamps=grid_times,
         real_p2p_dollars_earned=real_p2p_dollars,
-        commanded_charge_kw=commanded_charge_kw,
-        commanded_discharge_kw=commanded_discharge_kw,
-        actual_charge_kw=actual_charge_kw,
-        actual_discharge_kw=actual_discharge_kw,
+        commanded_charge_kw=commanded_charge_kw, commanded_discharge_kw=commanded_discharge_kw,
+        actual_charge_kw=actual_charge_kw, actual_discharge_kw=actual_discharge_kw,
         final_soc_kwh_actual=final_soc_kwh_actual,
     )
 
-    regret_dollars = (
-        report.j_ach - report.j_star
-    )  # positive = actual cost MORE than perfect foresight, i.e. real $ left on the table
+    regret_dollars = report.j_ach - report.j_star  # positive = actual cost MORE than perfect foresight, i.e. real $ left on the table
+
+    # Real forecast-quality decomposition (2026-08-29, issue #273, direct
+    # response to Mark Purcell's own EPR four-way split: topology /
+    # forecast / optimisation / execution error). Isolates how much of
+    # today's regret is attributable to Nimbus's own forecast being
+    # imperfect, vs. everything else, by re-solving the SAME LP under
+    # Nimbus's own captured day-ahead forecast and a naive same-hour-
+    # yesterday persistence baseline, both evaluated against the SAME
+    # real ground truth already computed above (solar_kw/load_kw).
+    #
+    # Deliberately best-effort and additive: a missing forecast snapshot
+    # (nimbus_forecast_capture.py not yet deployed, or this day predating
+    # it) or any failure in this block must never affect the headline
+    # EPR/regret score above, which is already fully computed by this
+    # point -- forecast_regret_entry stays None and the day is scored and
+    # pushed exactly as before, just without this one extra breakdown.
+    forecast_snapshot = load_forecast_snapshot(day_key)
+    forecast_regret_entry = None
+    if forecast_snapshot is None:
+        print(f"[{now.isoformat()}] no forecast snapshot captured for {day_key} -- skipping forecast-regret decomposition for this day")
+    else:
+        try:
+            solar_forecast_kw, load_forecast_kw = resample_snapshot_to_grid(forecast_snapshot, grid_times)
+
+            # Naive persistence baseline: real settled solar/load from the
+            # PREVIOUS calendar day, aligned by time-of-day (same grid
+            # resolution, so grid point i on the previous day already IS
+            # the same time-of-day as grid point i today -- no further
+            # shifting needed once both are resampled onto their own
+            # day's identical grid_times pattern).
+            prev_day_start = day_start - timedelta(days=1)
+            prev_day_end = day_start
+            prev_grid_times = [prev_day_start + timedelta(hours=i * PERIOD_HOURS) for i in range(N_PERIODS)]
+            solar_prev_hist = fetch_history_range("sensor.combined_total_dc_power", prev_day_start, prev_day_end)
+            load_prev_hist = fetch_history_range("sensor.cb_total_combined_power_adjusted_kw", prev_day_start, prev_day_end)
+            solar_persistence_kw = [max(0.0, v / 1000.0) for v in resample_nearest_float(solar_prev_hist, prev_grid_times)]
+            load_persistence_kw = [max(0.0, v) for v in resample_nearest_float(load_prev_hist, prev_grid_times)]
+
+            fr = compute_forecast_regret(
+                periods=periods,
+                grid=grid_oracle,
+                battery=battery_cfg,
+                solar_real_kw=np.array(solar_kw),
+                load_real_kw=np.array(load_kw),
+                solar_forecast_kw=np.array(solar_forecast_kw),
+                load_forecast_kw=np.array(load_forecast_kw),
+                solar_persistence_kw=np.array(solar_persistence_kw),
+                load_persistence_kw=np.array(load_persistence_kw),
+            )
+            forecast_regret_entry = {
+                "j_star": round(fr.j_star, 4),
+                "j_forecast": round(fr.j_forecast, 4),
+                "j_persistence": round(fr.j_persistence, 4),
+                "forecast_regret_dollars": round(fr.forecast_regret_dollars, 4),
+                "persistence_regret_dollars": round(fr.persistence_regret_dollars, 4),
+                "nimbus_value_add_dollars": round(fr.nimbus_value_add_dollars, 4),
+            }
+        except Exception as e:  # noqa: BLE001 -- a best-effort secondary breakdown must never take down the primary EPR score computed above
+            print(f"[{now.isoformat()}] forecast-regret decomposition failed for {day_key} ({e}) -- skipping, headline EPR unaffected", file=sys.stderr)
+            forecast_regret_entry = None
+
     day_entry = {
         "epr": round(report.epr.epr, 4),
         "theoretical_maximum_yield": round(report.epr.theoretical_maximum_yield, 4),
@@ -1043,26 +955,37 @@ def main() -> None:
         "tracking_fidelity": round(fine_tracking.tracking_fidelity, 4),
         "tracking_cost": round(fine_tracking_cost, 4),
         "worst_gap_index": fine_tracking.worst_gap_index,  # now a 1-min-grid index (0-1439), not the old 15-min one (0-95)
-        "worst_gap_at_local": fine_grid_times[fine_tracking.worst_gap_index].isoformat()
-        if fine_tracking.n_samples > 0
-        else None,
+        "worst_gap_at_local": fine_grid_times[fine_tracking.worst_gap_index].isoformat() if fine_tracking.n_samples > 0 else None,
         "worst_gap_kw": round(fine_tracking.worst_gap_kw, 3),
         "mean_absolute_error_kw": round(fine_tracking.mean_absolute_error_kw, 3),
         "energy_shortfall_kwh": round(fine_tracking.energy_shortfall_kwh, 3),
         "real_p2p_dollars": round(real_p2p_dollars, 4),
         "real_p2p_volume_kwh": round(real_p2p_volume_kwh, 3),
     }
+    if forecast_regret_entry is not None:
+        day_entry["forecast_regret"] = forecast_regret_entry
     quality_history[day_key] = day_entry
     save_quality_history(quality_history)
 
-    hourly_regret_rounded = {
-        str(k): round(v, 4) for k, v in report.hourly_regret.items()
-    }
+    hourly_regret_rounded = {str(k): round(v, 4) for k, v in report.hourly_regret.items()}
     ha_post_state(
         ENTITY_ID,
         day_entry["epr"],
         {
-            "unit_of_measurement": None,
+            # Real bug found live (2026-08-31, household-reported Repairs
+            # entry: "sensor.nimbus_solver_quality_report no longer has a
+            # state class", "pretty sure not the first time"): this is a
+            # plain standalone host-cron script with no HA entity object
+            # at all -- unlike the nimbus custom_component's own native
+            # publish_daily_quality_report() (which has a registered
+            # SensorEntity able to correct a stray unit/state_class by
+            # the time a live read sees it), a bare unit_of_measurement:
+            # null + no state_class key here is the FINAL, uncorrected
+            # value Recorder sees every single time this script runs --
+            # unconditionally, every day, not a rare race. Real, correct
+            # literal values instead, matching the entity's own real unit.
+            "unit_of_measurement": "%",
+            "state_class": "measurement",
             "friendly_name": "Nimbus Solver Quality Report (EPR)",
             "latest_date": day_key,
             "history": quality_history,
@@ -1086,8 +1009,5 @@ if __name__ == "__main__":
     try:
         main()
     except urllib.error.HTTPError as e:
-        print(
-            f"HTTP error: {e.code} {e.read().decode('utf-8', errors='replace')}",
-            file=sys.stderr,
-        )
+        print(f"HTTP error: {e.code} {e.read().decode('utf-8', errors='replace')}", file=sys.stderr)
         raise
