@@ -646,7 +646,13 @@ async def async_setup_entry(
                 NimbusControllableLoadPlannedEnergySensor(
                     hass, entry, subentry, sw_version
                 ),
+                NimbusControllableLoadPlannedCostSensor(
+                    hass, entry, subentry, sw_version
+                ),
                 NimbusControllableLoadDeliveredTodaySensor(
+                    hass, entry, subentry, sw_version
+                ),
+                NimbusControllableLoadCostTodaySensor(
                     hass, entry, subentry, sw_version
                 ),
                 NimbusControllableLoadTargetTodaySensor(
@@ -1543,6 +1549,60 @@ class NimbusControllableLoadTargetTodaySensor(
 
     def _extract_value(self, view: load_run_state.ScheduleView) -> object:
         return view.target_today_kwh
+
+
+class NimbusControllableLoadPlannedCostSensor(
+    _NimbusControllableLoadScheduleSensorBase
+):
+    """nimbus issue #591 (Mark Purcell, part of #589 -- "how much will it
+    cost?"): the current/next scheduled run's own planned cost, summed
+    over the same window planned_energy/next_start/next_end already use
+    -- power_kw (or served_kw) times each period's own real duration
+    times that period's own blended import_price (load_run_state.
+    derive_schedule_view()'s own plan_cost_forecast summation). Currency
+    read from hass.config.currency -- never hardcoded, this project's own
+    standing convention (no entity/retailer/value baked into code that a
+    config-flow field or HA's own settings should supply instead). None
+    (not $0.00) whenever plan_cost_forecast wasn't published this cycle,
+    or the run's own window falls outside it -- an unpriced run is an
+    honest "unknown," never a fabricated free run."""
+
+    _attr_name = "Planned Cost"
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _ENTITY_ID_SUFFIX = "planned_cost"
+    _UNIQUE_ID_SUFFIX = "planned_cost"
+
+    @property
+    def native_unit_of_measurement(self) -> str | None:
+        return self._hass.config.currency
+
+    def _extract_value(self, view: load_run_state.ScheduleView) -> object:
+        return view.planned_cost
+
+
+class NimbusControllableLoadCostTodaySensor(_NimbusControllableLoadScheduleSensorBase):
+    """nimbus issue #591: the load-level version of the household's own
+    hand-written `hot_water_marginal_cost_daily` template (#534
+    inventory) -- delivered_today_kwh's own real cost, accumulated live
+    by apply_power_sample() from each sample's own power reading times
+    the live import price at that instant (the SAME price the solve
+    itself reads, solver_import_price_sensor), not a single day-average
+    estimate. Resets to 0.0 on the same local-midnight rollover as
+    delivered_today_kwh. Deliberately no state_class -- same posture as
+    delivered_today (#590): a same-day reset without a `last_reset`
+    pairing is not what HA's own `total_increasing` statistics expect."""
+
+    _attr_name = "Cost Today"
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _ENTITY_ID_SUFFIX = "cost_today"
+    _UNIQUE_ID_SUFFIX = "cost_today"
+
+    @property
+    def native_unit_of_measurement(self) -> str | None:
+        return self._hass.config.currency
+
+    def _extract_value(self, view: load_run_state.ScheduleView) -> object:
+        return view.cost_today
 
 
 class NimbusControllableLoadStatusSensor(_NimbusControllableLoadScheduleSensorBase):

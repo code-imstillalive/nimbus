@@ -265,6 +265,54 @@ class TestApplyPowerSample(unittest.TestCase):
         # first-sample-of-new-day) energy delta.
         self.assertEqual(new.delivered_today_kwh, 0.0)
 
+    def test_import_price_now_accumulates_cost_today_alongside_delivered_energy(self):
+        # nimbus issue #591: 0.75 kWh delivered (same shape as the
+        # existing 30-min-gap test above) at a real 20c/kWh live price
+        # must accumulate exactly 0.15 into cost_today.
+        state = lrs.LoadRunState(
+            currently_on=True,
+            day_key="2026-09-07",
+            last_sample_at=datetime(2026, 9, 7, 8, 0, tzinfo=_TZ).timestamp(),
+        )
+        now = datetime(2026, 9, 7, 8, 30, tzinfo=_TZ)
+        new = lrs.apply_power_sample(
+            state,
+            now=now,
+            day_key="2026-09-07",
+            power_kw=1.5,
+            import_price_now=0.20,
+        )
+        self.assertAlmostEqual(new.delivered_today_kwh, 0.75)
+        self.assertAlmostEqual(new.cost_today, 0.15)
+
+    def test_import_price_now_omitted_leaves_cost_today_untouched(self):
+        # A caller with no live price on hand (or every pre-#591 test/
+        # caller) must be a genuine no-op on cost_today, not an error and
+        # not a silently-wrong $0.00 claim overwriting a real prior value.
+        state = lrs.LoadRunState(
+            currently_on=True,
+            day_key="2026-09-07",
+            cost_today=0.42,
+            last_sample_at=datetime(2026, 9, 7, 8, 0, tzinfo=_TZ).timestamp(),
+        )
+        now = datetime(2026, 9, 7, 8, 30, tzinfo=_TZ)
+        new = lrs.apply_power_sample(state, now=now, day_key="2026-09-07", power_kw=1.5)
+        self.assertAlmostEqual(new.cost_today, 0.42)
+
+    def test_cost_today_resets_to_zero_on_the_same_rollover_as_delivered_today(self):
+        state = lrs.LoadRunState(
+            delivered_today_kwh=3.2, cost_today=0.87, day_key="2026-09-07"
+        )
+        new = lrs.apply_power_sample(
+            state,
+            now=datetime(2026, 9, 8, 0, 5, tzinfo=_TZ),
+            day_key="2026-09-08",
+            power_kw=0.5,
+            import_price_now=0.20,
+        )
+        self.assertEqual(new.cost_today, 0.0)
+        self.assertEqual(new.day_key, "2026-09-08")
+
 
 class TestDecideCommandedState(unittest.TestCase):
     _MIN_HYST = 600.0  # 2 periods @ 5 min, matches #484's own default
@@ -730,6 +778,52 @@ class TestDeriveScheduleView(unittest.TestCase):
         self.assertAlmostEqual(view.planned_energy_kwh, 0.65)
         self.assertEqual(view.target_today_kwh, 0.65)
         self.assertEqual(view.status, "scheduled 06:30–07:30")
+
+    def test_planned_cost_sums_the_cost_forecast_over_the_run_window(self):
+        # nimbus issue #591: same run window as the test above (periods
+        # 1-2, 0.65 kW for 1.0h total) at a flat 0.10 $/kWh -- 0.65 kWh *
+        # $0.10 = $0.065 planned cost.
+        cost_forecast = _series(self.times, [0.0, 0.0325, 0.0325, 0.0, 0.0, 0.0])
+        state = lrs.LoadRunState(
+            plan_forecast=self.forecast,
+            plan_cost_forecast=cost_forecast,
+            plan_delivered_kwh_forecast=self.delivered_forecast,
+            plan_target_kwh=0.65,
+            commanded_state=False,
+            day_key="2026-09-09",
+        )
+        view = lrs.derive_schedule_view(
+            state, load_kind="deferrable", now=self.times[0]
+        )
+        self.assertAlmostEqual(view.planned_cost, 0.065)
+
+    def test_planned_cost_is_none_when_the_cost_forecast_was_not_published(self):
+        # An unpriced run must read as an honest "unknown," never a
+        # fabricated $0.00.
+        state = lrs.LoadRunState(
+            plan_forecast=self.forecast,
+            plan_delivered_kwh_forecast=self.delivered_forecast,
+            plan_target_kwh=0.65,
+            commanded_state=False,
+            day_key="2026-09-09",
+        )
+        view = lrs.derive_schedule_view(
+            state, load_kind="deferrable", now=self.times[0]
+        )
+        self.assertIsNone(view.planned_cost)
+
+    def test_cost_today_passes_through_the_states_own_live_accumulator(self):
+        state = lrs.LoadRunState(
+            plan_forecast=self.forecast,
+            commanded_state=False,
+            delivered_today_kwh=0.325,
+            cost_today=0.046,
+            day_key="2026-09-09",
+        )
+        view = lrs.derive_schedule_view(
+            state, load_kind="deferrable", now=self.times[0]
+        )
+        self.assertAlmostEqual(view.cost_today, 0.046)
 
     def test_running_takes_priority_over_every_other_status(self):
         state = lrs.LoadRunState(
