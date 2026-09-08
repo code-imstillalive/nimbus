@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.191] — 2026-09-09
+
+### Fixed
+- **Control Panel's live dispatch reasoning cited the wrong price** (nimbus issue #597, real household finding: Control Panel read "13.9c/kWh" in its own explanation text while the Cost Flex sensor showed 7c/kWh for the exact same period/solve). `nimbus-dispatch-card-v4.js` built every "...prefers discharging over holding charge here at Xc/kWh"-style sentence from `import_price_raw` (the wholesale-only commodity price, no TOU/network fees) instead of `import_price` (the full, all-in blended rate the solver actually dispatches against — the same figure `sensor.localvolts_costs_flex_up` and the Forecaster view show). Changed to `import_price` so the card's explanation always matches the number that actually governed the decision it's describing. Cosmetic/display-only: the solver itself never read the raw field for real dispatch decisions, so this does not change any battery behavior, only the accuracy of why it's explained. The card's separate full-day Buy/Fees breakdown table (a deliberate, different feature splitting raw price from added fees) is unaffected.
+
 ## [0.94.190] — 2026-09-09
 
 ### Added
