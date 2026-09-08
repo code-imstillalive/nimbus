@@ -898,12 +898,69 @@ async def async_setup_entry(
     efficiency_backtest._flattened_entities = flattened_backtest
     counterfactual_soc._flattened_entities = flattened_counterfactual
 
-    async_add_entities(
+    _family_a_batch = (
         [quality_report, efficiency_backtest, counterfactual_soc]
         + flattened_quality
         + flattened_backtest
         + flattened_counterfactual
     )
+
+    # Diagnostic only, no behaviour change (2026-09-08, real live incident:
+    # "Platform nimbus_load does not generate unique IDs ... ignoring
+    # sensor.nimbus_solver_quality_report" fired on this household's own
+    # NUC1 during a restart, self-recovered within ~3 minutes with no
+    # lasting damage). Root cause NOT found -- confirmed
+    # NimbusSolverQualityReportSensor is constructed in exactly ONE place
+    # in this whole file (right above), so this file's own code cannot be
+    # duplicating the entity itself; the collision has to be happening at
+    # HA-core's own EntityPlatform/registry layer, which isn't inspectable
+    # without direct filesystem access to .storage/core.entity_registry --
+    # not available for NUC1 (see this repo's own CLAUDE.md deploy section
+    # and the sibling 116KAT-HA-AI repo's own access rules). This block
+    # logs, right before the add_entities call that's the exact point the
+    # real collision fires at, whether HA already has a conflicting state
+    # or registry row for any entity in this batch -- if this ever
+    # recurs, THIS log line (not another restart-and-guess) is what
+    # actually answers "was something already there before we tried to
+    # add it, and what was it." Same "diagnostic logging kept in place
+    # for next time" pattern already used in __init__.py's own #312
+    # investigation (see that file's own comment above async_forward_
+    # entry_setups). Cheap: only real work happens when a conflict is
+    # actually found, which is the abnormal case this exists to catch.
+    _entity_registry = er.async_get(hass)
+    for _candidate in _family_a_batch:
+        _existing_state = hass.states.get(_candidate.entity_id)
+        _existing_reg_entity_id = _entity_registry.async_get_entity_id(
+            "sensor", DOMAIN, _candidate.unique_id
+        )
+        if _existing_state is not None or (
+            _existing_reg_entity_id is not None
+            and _existing_reg_entity_id != _candidate.entity_id
+        ):
+            _LOGGER.warning(
+                "Nimbus: about to add %s (unique_id=%s) but HA already has "
+                "a conflicting entry -- existing state: %s (restored=%s, "
+                "last_updated=%s), existing registry entity_id for this "
+                "unique_id: %s. This is the real pre-collision evidence "
+                "for the 2026-09-08 duplicate-unique-id incident if it "
+                "recurs.",
+                _candidate.entity_id,
+                _candidate.unique_id,
+                _existing_state.state if _existing_state is not None else None,
+                # Literal "restored" (== homeassistant.const.ATTR_RESTORED),
+                # not imported: the stub-based unit-test harness's fake
+                # homeassistant.const doesn't define every real HA
+                # constant, and this module runs under both that stub AND
+                # the real HA package -- see this repo's own CLAUDE.md
+                # "Testing" section for the dual-mode story.
+                _existing_state.attributes.get("restored")
+                if _existing_state is not None
+                else None,
+                _existing_state.last_updated if _existing_state is not None else None,
+                _existing_reg_entity_id,
+            )
+
+    async_add_entities(_family_a_batch)
 
     # real_entity_id= -- see the matching comment on the five
     # register_entity_handler() calls above; same fix, same reason.
