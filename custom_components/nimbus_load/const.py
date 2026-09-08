@@ -266,6 +266,62 @@ CONF_BATTERY_PARTICIPANT_CHARGE_LIMIT_ENTITY: Final = (
     "battery_participant_charge_limit_entity"
 )
 
+# #563 item 2 (2026-09-08): availability gating -- the EV-specific half
+# left explicitly deferred out of the original config-surface PR (#566)
+# per Mark Purcell's own live-tested review on issue #563 ("today's
+# state shows it concretely: the Model 3 is away while the Model Y is
+# home... configuring the three participants now would make the plan
+# LESS physical than the interim virtual pack"). An optional binary_
+# sensor (e.g. `binary_sensor.m3p_t_located_at_home`) whose CURRENT
+# state gates this participant's charge/discharge for the WHOLE solve
+# (solver_writer.py's build_extra_batteries() reads it once per solve
+# cycle and sets solver.elements.BatteryConfig.available accordingly --
+# see that field's own docstring for why this is whole-horizon, not a
+# mid-horizon prediction of when the car will return). None (the
+# default, left blank) is a complete no-op -- the participant is always
+# available, exactly like a real second inverter with no away state.
+CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY: Final = (
+    "battery_participant_available_entity"
+)
+# Optional departure deadline pair (#563 item 2, the second half) --
+# the LP is pushed to reach must_have_soc_by_departure_percent BY
+# departure_hour, the same "cumulative energy... plus target" HARD
+# mechanism adequacy loads already use (see solver.elements.BatteryConfig.
+# must_have_soc_by_period_index/must_have_soc_kwh's own docstring).
+# Household enters a wall-clock hour (0-23, same convention as the
+# existing Solver P2P block start/end hour fields); build_extra_
+# batteries() resolves that hour to a real period index against THIS
+# solve's own PeriodGrid, silently a no-op if the departure hour falls
+# outside the current horizon (a normal case, not a misconfiguration --
+# see BatteryConfig's own docstring). Both None (the default) is a
+# real no-op -- no deadline is ever enforced.
+CONF_BATTERY_PARTICIPANT_DEPARTURE_HOUR: Final = "battery_participant_departure_hour"
+CONF_BATTERY_PARTICIPANT_MUST_HAVE_SOC_BY_DEPARTURE_PERCENT: Final = (
+    "battery_participant_must_have_soc_by_departure_percent"
+)
+
+# #563 item 3 (2026-09-08): the shared-charger power constraint, the
+# other half deferred out of #566. An optional free-text group name --
+# two or more Battery Participant subentries sharing the SAME non-empty
+# group name draw from one real physical charger (Mark's own real case:
+# two Teslas on one shared Sigen DC charger). None/empty (the default)
+# is a real no-op -- an ungrouped participant is unaffected, see
+# solver.elements.BatteryConfig.shared_charger_group's own docstring.
+CONF_BATTERY_PARTICIPANT_SHARED_CHARGER_GROUP: Final = (
+    "battery_participant_shared_charger_group"
+)
+# The group's own real kW ceiling -- only meaningful when shared_
+# charger_group is also set. When multiple participants in the same
+# group each declare a value, network.py uses the MINIMUM non-None
+# value found (see BatteryConfig.shared_charger_max_kw's own docstring
+# for why that's the conservative, physically-safe reading). None (the
+# default) on every member of a group means the group name alone has
+# nothing to constrain against -- an honest partial config, silently
+# skipped, not an error.
+CONF_BATTERY_PARTICIPANT_SHARED_CHARGER_MAX_KW: Final = (
+    "battery_participant_shared_charger_max_kw"
+)
+
 # 2026-09-03: a real household was guided to add a temperature/humidity
 # Power Signal using SIGNAL_ROLE_OTHER, since no dedicated role existed --
 # NimbusForecastSensor unconditionally builds every power-signal subentry

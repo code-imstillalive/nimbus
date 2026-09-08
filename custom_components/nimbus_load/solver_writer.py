@@ -7514,15 +7514,23 @@ def build_controllable_loads(
 _DEFAULT_EXTRA_BATTERY_CHARGE_COST: float = 0.005
 _DEFAULT_EXTRA_BATTERY_DISCHARGE_COST: float = 0.01
 
+# nimbus issue #563 item 2: log-once-per-participant dedup for the
+# "departure_hour/must_have_soc_by_departure_percent set alone" partial-
+# config warning below -- same log-once-per-condition discipline this
+# module already uses elsewhere (see _DONE_CONDITION_WARNED further up
+# this file), kept as its own set rather than reusing that one since the
+# two track genuinely different condition shapes.
+_BATTERY_PARTICIPANT_WARNED: set[str] = set()
 
-def build_extra_batteries() -> list:
+
+def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
     """nimbus issue #563: the config surface for #467 stage 1's own
     `batteries: list[BatteryConfig]` solver support. Builds ADDITIONAL
     BatteryConfig entries from this hub's own `battery_participant`
     subentries -- the household's existing single hub-level battery
     (built separately in main()/compute_nimbus_only_soc_counterfactual(),
     always name="home") is never touched or replaced by this function;
-    every caller does `batteries=[home_battery, *build_extra_batteries()]`.
+    every caller does `batteries=[home_battery, *build_extra_batteries(periods)]`.
 
     Zero subentries (the default, and every install before #563) returns
     [] -- a real no-op, `batteries` stays exactly `[home_battery]`,
@@ -7536,50 +7544,82 @@ def build_extra_batteries() -> list:
     doesn't have a wizard to configure these from anyway). Imported
     locally for the same reason build_controllable_loads() does.
 
-    Deliberately NOT built here yet (nimbus issue #563's own items 2/3,
-    left as an explicit, clearly-scoped follow-up rather than rushed
-    into this PR): per-participant availability gating (a live
-    binary_sensor hard-zeroing charge/discharge while e.g. an EV is
-    away) and a shared-charger power constraint (two participants
-    sharing one physical charger's own kW ceiling) are both genuinely
-    new LP mechanisms, not config-surface work -- see this repo's own
-    worklog for the real scoping decision. Every participant built here
-    today gets its own independent, ungated power bounds -- correct for
-    a real second inverter (Mark's own #532 case), an honest partial
-    step for a shareable/sometimes-away EV (its full power bounds apply
-    even while it's not actually able to charge -- a real, known,
-    documented gap, not a silent one).
+    `periods` (2026-09-08, nimbus issue #563 items 2/3, following up on
+    PR #566's own explicit deferral): THIS solve's own PeriodGrid, needed
+    only to resolve a configured departure_hour into a real period index
+    for the departure-deadline mechanism below (see BatteryConfig.must_
+    have_soc_by_period_index's own docstring for why network.py itself
+    stays grid-agnostic and only ever receives an already-resolved
+    index). Optional and defaults to None so every existing test/caller
+    that predates #563 items 2/3 keeps working unchanged; a real caller
+    always passes the real periods (see main()'s own call site).
+
+    Availability gating (item 2, the binary_sensor half): reads
+    available_entity's CURRENT state once per solve -- 'on' (or no
+    entity configured at all) means available, anything else ('off',
+    missing, unavailable/unknown) means not available for this WHOLE
+    solve. See BatteryConfig.available's own docstring for why this is
+    a whole-horizon snapshot, not a mid-horizon prediction of when an
+    away EV will return -- there is no real forecast for that, and
+    fabricating one would be worse than the honest "re-evaluate fresh
+    every 5-minute solve cycle" answer.
+
+    Availability gating (item 2, the departure-deadline half): resolves
+    departure_hour to the FIRST period in THIS horizon whose own real
+    wall-clock start hour matches (via periods.period_starts) -- a
+    departure hour with no matching period in this particular solve's
+    horizon (a short manual solve, or the hour has already passed today
+    with no later occurrence in range) is a real, expected no-op, not an
+    error. Both departure_hour and must_have_soc_by_departure_percent
+    must be configured together to do anything -- either one alone is
+    treated as neither set (logged once, not every solve).
+
+    Shared-charger group (item 3): shared_charger_group/shared_charger_
+    max_kw pass straight through to BatteryConfig -- the actual LP
+    constraint (grouping participants by name, taking the minimum
+    declared ceiling) lives entirely in network.py's own build_plan(),
+    this function only carries the two raw config values across.
     """
     if _NATIVE_HASS is None:
         return []
     try:
         from .const import (
+            CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY,
             CONF_BATTERY_PARTICIPANT_CAPACITY_KWH,
             CONF_BATTERY_PARTICIPANT_CHARGE_LIMIT_ENTITY,
             CONF_BATTERY_PARTICIPANT_DEGRADATION_COST_PER_KWH,
+            CONF_BATTERY_PARTICIPANT_DEPARTURE_HOUR,
             CONF_BATTERY_PARTICIPANT_EFFICIENCY_PERCENT,
             CONF_BATTERY_PARTICIPANT_MAX_CHARGE_KW,
             CONF_BATTERY_PARTICIPANT_MAX_DISCHARGE_KW,
             CONF_BATTERY_PARTICIPANT_MAX_SOC_PERCENT,
             CONF_BATTERY_PARTICIPANT_MIN_SOC_PERCENT,
+            CONF_BATTERY_PARTICIPANT_MUST_HAVE_SOC_BY_DEPARTURE_PERCENT,
             CONF_BATTERY_PARTICIPANT_NAME,
             CONF_BATTERY_PARTICIPANT_SALVAGE_VALUE,
+            CONF_BATTERY_PARTICIPANT_SHARED_CHARGER_GROUP,
+            CONF_BATTERY_PARTICIPANT_SHARED_CHARGER_MAX_KW,
             CONF_BATTERY_PARTICIPANT_SOC_SENSOR,
             DOMAIN,
             SUBENTRY_TYPE_BATTERY_PARTICIPANT,
         )
     except ImportError:
         from const import (
+            CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY,
             CONF_BATTERY_PARTICIPANT_CAPACITY_KWH,
             CONF_BATTERY_PARTICIPANT_CHARGE_LIMIT_ENTITY,
             CONF_BATTERY_PARTICIPANT_DEGRADATION_COST_PER_KWH,
+            CONF_BATTERY_PARTICIPANT_DEPARTURE_HOUR,
             CONF_BATTERY_PARTICIPANT_EFFICIENCY_PERCENT,
             CONF_BATTERY_PARTICIPANT_MAX_CHARGE_KW,
             CONF_BATTERY_PARTICIPANT_MAX_DISCHARGE_KW,
             CONF_BATTERY_PARTICIPANT_MAX_SOC_PERCENT,
             CONF_BATTERY_PARTICIPANT_MIN_SOC_PERCENT,
+            CONF_BATTERY_PARTICIPANT_MUST_HAVE_SOC_BY_DEPARTURE_PERCENT,
             CONF_BATTERY_PARTICIPANT_NAME,
             CONF_BATTERY_PARTICIPANT_SALVAGE_VALUE,
+            CONF_BATTERY_PARTICIPANT_SHARED_CHARGER_GROUP,
+            CONF_BATTERY_PARTICIPANT_SHARED_CHARGER_MAX_KW,
             CONF_BATTERY_PARTICIPANT_SOC_SENSOR,
             DOMAIN,
             SUBENTRY_TYPE_BATTERY_PARTICIPANT,
@@ -7645,6 +7685,86 @@ def build_extra_batteries() -> list:
         initial_soc_pct = safe_num(soc_sensor, min_soc_pct)
         initial_soc_kwh = capacity_kwh * initial_soc_pct / 100.0
         initial_soc_kwh = min(max(initial_soc_kwh, 0.0), capacity_kwh)
+        # Parity fix (2026-09-08, Mark Purcell's own live-tested #563
+        # review): the home battery's own live SoC read in main() logs a
+        # WARNING when it sits outside its configured [min, max] --
+        # "if this repeats every period the real battery is stuck
+        # outside its own configured range... investigate rather than
+        # lower the floor." This path previously recovered silently (an
+        # EV arriving above its own charge limit landing in the soft
+        # `overfill` slack with nothing logged) -- same real signal,
+        # same real reason to surface it, now the same warning.
+        if not (min_soc_kwh <= initial_soc_kwh <= max_soc_kwh):
+            _LOGGER.warning(
+                "Nimbus: battery participant '%s' live SoC %.2f%% is outside "
+                "its own configured floor/ceiling [%.2f%%, %.2f%%] -- the LP "
+                "is scheduling real recovery this cycle rather than having "
+                "this state clamped away. If this repeats every period, "
+                "investigate rather than adjust the floor/ceiling.",
+                name,
+                initial_soc_pct,
+                min_soc_pct,
+                max_soc_pct,
+            )
+        # nimbus issue #563 item 2 (2026-09-08): availability gating.
+        # No entity configured -- always available, byte-identical to
+        # every scenario before this field existed. An entity that's
+        # missing/unavailable/unknown is treated the same as 'off' (not
+        # available) -- the conservative reading for a live safety-
+        # relevant gate: if we can't confirm the car/resource is really
+        # there, don't plan to dispatch it.
+        available_entity = data.get(CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY)
+        available = True
+        if available_entity:
+            state_obj = _NATIVE_HASS.states.get(available_entity)
+            available = state_obj is not None and state_obj.state == "on"
+        # nimbus issue #563 item 2, the departure-deadline half. Both
+        # fields must be set together to do anything -- either one alone
+        # is treated as neither set (a real, expected partial config,
+        # logged once so it's visible without being noisy every solve).
+        departure_hour = data.get(CONF_BATTERY_PARTICIPANT_DEPARTURE_HOUR)
+        must_have_soc_pct = data.get(
+            CONF_BATTERY_PARTICIPANT_MUST_HAVE_SOC_BY_DEPARTURE_PERCENT
+        )
+        must_have_soc_by_period_index: int | None = None
+        must_have_soc_kwh: float | None = None
+        if (departure_hour is not None) != (must_have_soc_pct is not None):
+            _partial_key = f"{name}:departure_deadline_partial"
+            if _partial_key not in _BATTERY_PARTICIPANT_WARNED:
+                _BATTERY_PARTICIPANT_WARNED.add(_partial_key)
+                _LOGGER.warning(
+                    "Nimbus: battery participant '%s' has only one of "
+                    "departure_hour/must_have_soc_by_departure_percent set -- "
+                    "both are required together, treating as neither set "
+                    "this cycle (logged once, not every solve).",
+                    name,
+                )
+        elif departure_hour is not None and periods is not None:
+            period_starts = periods.period_starts
+            if period_starts is not None:
+                for idx, start in enumerate(period_starts):
+                    if start.hour == int(departure_hour):
+                        must_have_soc_by_period_index = idx
+                        must_have_soc_kwh = (
+                            capacity_kwh * float(must_have_soc_pct) / 100.0
+                        )
+                        break
+                # No matching period in THIS horizon -- a real, expected
+                # no-op (short manual solve, or the hour already passed
+                # today with no later occurrence in range), not an error.
+        # nimbus issue #563 item 3: passed straight through to
+        # BatteryConfig -- the actual LP constraint lives in network.py.
+        shared_charger_group = (
+            data.get(CONF_BATTERY_PARTICIPANT_SHARED_CHARGER_GROUP) or None
+        )
+        shared_charger_max_kw_raw = data.get(
+            CONF_BATTERY_PARTICIPANT_SHARED_CHARGER_MAX_KW
+        )
+        shared_charger_max_kw = (
+            float(shared_charger_max_kw_raw)
+            if shared_charger_max_kw_raw is not None
+            else None
+        )
         efficiency = (
             min(
                 float(data.get(CONF_BATTERY_PARTICIPANT_EFFICIENCY_PERCENT) or 95.0)
@@ -7689,6 +7809,11 @@ def build_extra_batteries() -> list:
                 discharge_cost=_DEFAULT_EXTRA_BATTERY_DISCHARGE_COST,
                 salvage_value=salvage_value,
                 degradation_cost_per_kwh=degradation_cost_per_kwh,
+                available=available,
+                must_have_soc_by_period_index=must_have_soc_by_period_index,
+                must_have_soc_kwh=must_have_soc_kwh,
+                shared_charger_group=shared_charger_group,
+                shared_charger_max_kw=shared_charger_max_kw,
             )
         )
     return batteries
@@ -9221,14 +9346,16 @@ def main() -> None:
     # nimbus issue #563: real battery_participant subentries, in
     # addition to the household's own single "home" battery above --
     # see build_extra_batteries()'s own docstring for the full "upgrade
-    # is a no-op with zero subentries" story, and for what's
-    # deliberately NOT built here yet (availability gating, a shared-
-    # charger power constraint). "home" (batteries[0]) is the only
-    # participant this P2P fixed-export window logic below ever
+    # is a no-op with zero subentries" story. Availability gating and the
+    # shared-charger power constraint (items 2/3, deferred out of #566)
+    # now live in BatteryConfig/network.py -- periods is passed through
+    # so a configured departure_hour can be resolved to a real period
+    # index against THIS solve's own horizon. "home" (batteries[0]) is
+    # the only participant this P2P fixed-export window logic below ever
     # targets -- see BatteryConfig's own docstring / build_plan()'s own
     # "batteries" docstring paragraph for that explicit #467 stage-1
     # decision.
-    all_batteries = [battery, *build_extra_batteries()]
+    all_batteries = [battery, *build_extra_batteries(periods)]
     # nimbus issue #569 (Mark Purcell, found live within hours of #563
     # landing): plan.battery_soc_kwh is the SUMMED aggregate across every
     # battery (per #467 stage 1's own contract), but every percentage

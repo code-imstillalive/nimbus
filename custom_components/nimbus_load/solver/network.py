@@ -978,19 +978,31 @@ def build_plan(
     underfill_vars: dict[str, list[str]] = {}
     overfill_vars: dict[str, list[str]] = {}
     for b_idx, b in enumerate(batteries):
+        # nimbus issue #563 item 2: b.available=False makes both
+        # directions mathematically impossible for this WHOLE solve
+        # (ub=0.0), the same "hard-impossible" technique the P2P fixed-
+        # window charge gate below already uses -- see BatteryConfig's
+        # own `available` docstring for why this is whole-horizon, not a
+        # per-period mask.
         charge_vars[b.name] = [
             p.add_variable(
                 f"battery_charge_{b.name}_{t}",
                 lb=0.0,
-                ub=p2p_export.charging_ub_during_fixed_window(t, grid, b.max_charge_kw)
-                if b_idx == 0
-                else b.max_charge_kw,
+                ub=0.0
+                if not b.available
+                else (
+                    p2p_export.charging_ub_during_fixed_window(t, grid, b.max_charge_kw)
+                    if b_idx == 0
+                    else b.max_charge_kw
+                ),
             )
             for t in range(n)
         ]
         discharge_vars[b.name] = [
             p.add_variable(
-                f"battery_discharge_{b.name}_{t}", lb=0.0, ub=b.max_discharge_kw
+                f"battery_discharge_{b.name}_{t}",
+                lb=0.0,
+                ub=0.0 if not b.available else b.max_discharge_kw,
             )
             for t in range(n)
         ]
@@ -1514,6 +1526,80 @@ def build_plan(
                 p.add_eq_constraint(terms, 0.0)
             else:
                 p.add_eq_constraint(terms, prev)
+
+    # ---- Departure-deadline hard floor (nimbus issue #563 item 2) ----
+    # soc[idx] >= must_have_soc_kwh, expressed as -soc[idx] <= -target
+    # (LPProblem only has <=, same negation technique the adequacy
+    # deadline constraint further below uses). HARD, not soft, on
+    # purpose -- a real EV genuinely needs a real SoC by a real
+    # departure time, not a priced preference the LP can trade away.
+    # No-op when either field is None (BatteryConfig.__post_init__
+    # already guarantees both-or-neither) OR when this solve's own
+    # horizon doesn't reach that period index yet -- a household's
+    # departure hour simply being beyond a short manual solve window is
+    # a normal, expected case, not a misconfiguration; silently skipping
+    # here (not raising) is deliberate, matching this file's own
+    # terminal_value_period_indices validation, which only rejects an
+    # index beyond the horizon at build_plan()'s own top-level guard,
+    # never here mid-construction.
+    for b in batteries:
+        if b.must_have_soc_by_period_index is None:
+            continue
+        if b.must_have_soc_by_period_index >= n:
+            continue
+        p.add_ub_constraint(
+            {soc_vars[b.name][b.must_have_soc_by_period_index]: -1.0},
+            -b.must_have_soc_kwh,
+            name=f"battery_departure_deadline_{b.name}",
+        )
+
+    # ---- Shared-charger group cap (nimbus issue #563 item 3) ----
+    # Two or more participants sharing the SAME non-None
+    # shared_charger_group name draw from one real physical charger --
+    # sum(charge[t]+discharge[t]) across the group <= that group's own
+    # ceiling, per period. Deliberately SEPARATE from the per-battery
+    # wash-trade cap just above (#245/#467, kept strictly per-
+    # participant -- two independent batteries legitimately charging/
+    # discharging at the same time is real, not a wash trade); this is
+    # an ADDITIONAL constraint on top, only for participants that
+    # explicitly opt into sharing one real resource. An ungrouped
+    # battery (shared_charger_group=None, the default) never appears in
+    # any group here -- zero effect, byte-identical to every scenario
+    # before this mechanism existed.
+    _charger_groups: dict[str, list[BatteryConfig]] = {}
+    for b in batteries:
+        if b.shared_charger_group is not None:
+            _charger_groups.setdefault(b.shared_charger_group, []).append(b)
+    for group_name, members in _charger_groups.items():
+        # Conservative reading when a household's config disagrees with
+        # itself across two subentries describing the one real charger
+        # (see BatteryConfig.shared_charger_max_kw's own docstring) --
+        # the MINIMUM non-None value declared. A group where NO member
+        # declared a ceiling has nothing to constrain against and is
+        # silently skipped, not an error -- the shared_charger_group
+        # name alone with no kW figure is an honest partial config, the
+        # same "skip, don't crash" posture solver_writer.py's own
+        # build_extra_batteries() already uses for a missing field.
+        declared = [
+            m.shared_charger_max_kw
+            for m in members
+            if m.shared_charger_max_kw is not None
+        ]
+        if not declared:
+            continue
+        ceiling = min(declared)
+        for t in range(n):
+            terms = {}
+            for m in members:
+                terms[charge_vars[m.name][t]] = (
+                    terms.get(charge_vars[m.name][t], 0.0) + 1.0
+                )
+                terms[discharge_vars[m.name][t]] = (
+                    terms.get(discharge_vars[m.name][t], 0.0) + 1.0
+                )
+            p.add_ub_constraint(
+                terms, ceiling, name=f"shared_charger_{group_name}_t{t}"
+            )
 
     # ---- Power balance at the switchboard, every period ----
     # Mechanism 3 continued: plain loads' own effective (pessimistic-
