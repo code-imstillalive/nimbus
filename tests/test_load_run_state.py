@@ -711,6 +711,23 @@ class TestLoadRunStateThermalAnchorRoundTrip(unittest.TestCase):
         self.assertEqual(restored.thermal_rates_source, "")
 
 
+class TestLoadRunStateShadowPriceForecastRoundTrip(unittest.TestCase):
+    """nimbus issue #613 (Mark Purcell, item 1 of 3 -- exposure only):
+    plan_shadow_price_forecast round-trips through to_dict()/from_dict()
+    the same way #591's own plan_cost_forecast already does."""
+
+    def test_to_dict_and_from_dict_round_trip(self):
+        series = [{"time": "t0", "value": 0.0013}, {"time": "t1", "value": 0.0006}]
+        state = lrs.LoadRunState(plan_shadow_price_forecast=series)
+        restored = lrs.LoadRunState.from_dict(state.to_dict())
+        self.assertEqual(restored.plan_shadow_price_forecast, series)
+
+    def test_from_dict_defaults_to_none_for_old_data(self):
+        old_data = {"currently_on": True}
+        restored = lrs.LoadRunState.from_dict(old_data)
+        self.assertIsNone(restored.plan_shadow_price_forecast)
+
+
 def _iso_grid(start: datetime, n: int, minutes: int = 30) -> list[datetime]:
     return [start + timedelta(minutes=minutes * i) for i in range(n)]
 

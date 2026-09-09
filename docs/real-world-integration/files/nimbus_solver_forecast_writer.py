@@ -4413,6 +4413,15 @@ def main() -> None:
             # landed, not just infer it (see nimbus's own network.py
             # Plan.export_bonus_kw docstring).
             "export_bonus_kw": round(float(plan.export_bonus_kw[i]), 3),
+            # nimbus issue #613 (Mark Purcell, item 1 of 3 -- exposure
+            # only, NOT the earliness-timing behavior change items 2/3
+            # describe): the whole-system marginal cost of a kWh in THIS
+            # period, per the LP's own power_balance_t{i} dual -- "already
+            # extracts duals... this is exposure, not new solver work."
+            # Same 0.0 default-on-missing convention energy_shadow_
+            # price_now (period 0's own copy of this same number, kept
+            # for backward compatibility) already uses.
+            "shadow_price": round(plan.duals.get(f"power_balance_t{i}", 0.0), 4),
             "import_price": round(import_price[i], 4),
             # The raw commodity/spot price ALONE, before network TOU +
             # certificates are added on (2026-08-22, direct household

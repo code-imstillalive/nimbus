@@ -1484,6 +1484,86 @@ class TestApplyCommandedStateGuardPlanForecast(unittest.TestCase):
         self.assertIsNone(result.plan_forecast)
         self.assertTrue(result.commanded_state)
 
+    def test_plan_shadow_price_forecast_reads_the_lp_power_balance_duals(self):
+        # nimbus issue #613 (Mark Purcell, item 1 of 3 -- exposure only):
+        # each load's own plan_shadow_price_forecast is lambda(t) for
+        # every period, straight off plan.duals's own power_balance_t{i}
+        # keys -- real per-period values, not a flat copy of period 0.
+        import numpy as np
+
+        sub = _fake_subentry(
+            "s_shadow", "controllable_load", {"deferrable_target_kwh": 5.0}
+        )
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            config_entries=SimpleNamespace(
+                async_entries=lambda domain: [
+                    SimpleNamespace(entry_id="entry_pf6", subentries={"s_shadow": sub})
+                ]
+            ),
+            loop=self._loop,
+        )
+        now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
+        grid_times = _grid(now, 4, minutes=5)
+        period_hours_arr = np.full(len(grid_times), 5 / 60)
+        plan = _fake_plan(
+            adequacy=[
+                _fake_load_plan("s_shadow", np.array([2.0, 2.0, 2.0, 2.0]), adequacy=True)
+            ]
+        )
+        plan.duals = {
+            "power_balance_t0": 0.0013,
+            "power_balance_t1": 0.0006,
+            "power_balance_t2": 0.0021,
+            # period 3 deliberately absent -- must default to 0.0, not
+            # raise or repeat the last real value.
+        }
+        solver_writer.apply_commanded_state_guard(
+            plan, now, grid_times, period_hours_arr
+        )
+        result = self._read_state("entry_pf6", "s_shadow")
+        self.assertEqual(len(result.plan_shadow_price_forecast), 4)
+        self.assertAlmostEqual(
+            result.plan_shadow_price_forecast[0]["value"], 0.0013
+        )
+        self.assertAlmostEqual(
+            result.plan_shadow_price_forecast[1]["value"], 0.0006
+        )
+        self.assertAlmostEqual(
+            result.plan_shadow_price_forecast[2]["value"], 0.0021
+        )
+        self.assertEqual(result.plan_shadow_price_forecast[3]["value"], 0.0)
+
+    def test_plan_shadow_price_forecast_defaults_to_all_zero_when_plan_has_no_duals(
+        self,
+    ):
+        # The bare SimpleNamespace test fakes every other test in this
+        # file already uses never set .duals at all -- must degrade to
+        # an honest all-zero series, never raise AttributeError.
+        import numpy as np
+
+        sub = _fake_subentry("s_noduals", "controllable_load", {})
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            config_entries=SimpleNamespace(
+                async_entries=lambda domain: [
+                    SimpleNamespace(entry_id="entry_pf7", subentries={"s_noduals": sub})
+                ]
+            ),
+            loop=self._loop,
+        )
+        now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
+        grid_times = _grid(now, 4, minutes=5)
+        period_hours_arr = np.full(len(grid_times), 5 / 60)
+        plan = _fake_plan(
+            sheddable=[_fake_load_plan("s_noduals", np.array([1.5, 1.5, 1.5, 1.5]))]
+        )
+        solver_writer.apply_commanded_state_guard(
+            plan, now, grid_times, period_hours_arr
+        )
+        result = self._read_state("entry_pf7", "s_noduals")
+        self.assertEqual(
+            [e["value"] for e in result.plan_shadow_price_forecast], [0.0] * 4
+        )
+
 
 class TestApplyCommandedStateGuardThermalForecast(unittest.TestCase):
     """nimbus issues #609/#610/#611 (Mark Purcell, real production
