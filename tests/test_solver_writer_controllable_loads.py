@@ -1203,6 +1203,7 @@ class TestSampleLoadRunState(unittest.TestCase):
         sheddable, adequacy = solver_writer.build_controllable_loads(
             now, grid_times, len(grid_times)
         )
+        self.assertEqual(sheddable, [])
         self.assertEqual(len(adequacy), 1)
         # Rolled over to a new day (day_key changes to today as part of
         # this very cycle's own sample) -- today's real target is the
