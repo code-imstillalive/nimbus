@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.199] — 2026-09-09
+
+### Fixed
+- **A Controllable Load created before #579's own fix (v0.94.185) keeps a stale, unreadable `sensor.nimbus_<ulid>_commanded_state` entity_id forever, even after upgrading past v0.94.186** (nimbus issue #614, Mark Purcell — re-filed from a comment on the closed #579, real finding: still true on his own install as of v0.94.196, `sensor.nimbus_01m20h3dyj8drbgp04kfsdbn6z_commanded_state` sitting alongside eight readable sibling sensors on the same device page). `self.entity_id` set in a `SensorEntity.__init__` is only a suggestion on an entity's genuinely first-ever registration — once a registry row already exists for a `unique_id`, Home Assistant's own `entity_platform` reuses that row's stored entity_id on every later add, so #579's fix never retroactively reached a load that already existed before it shipped. Fixed exactly as Mark's own issue comment suggested: the registry row is now moved explicitly (`entity_registry.async_update_entity()`) right before the entity is (re)added, guarded to the *exact* pre-#579 shape (`sensor.nimbus_<raw-ulid-lowercased>_commanded_state`) so a household's own later rename of this entity is never touched, and left alone entirely if the desired slug-based id is already claimed by something else. 5 new tests against a real (not `MagicMock`) fake entity registry.
+
 ## [0.94.198] — 2026-09-09
 
 ### Fixed

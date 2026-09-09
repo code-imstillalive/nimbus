@@ -460,6 +460,50 @@ def _slug_for_entity_id(title: str) -> str:
     return slug or "load"
 
 
+def _migrate_stale_commanded_state_entity_id(
+    hass: HomeAssistant, subentry: ConfigSubentry
+) -> None:
+    """nimbus issue #614 (Mark Purcell, real finding, re-filed from a
+    comment on the closed #579): a Controllable Load created before
+    #579's own fix (v0.94.185, entity_id built directly from the raw
+    subentry_id) keeps its stale sensor.nimbus_<ulid>_commanded_state
+    entity_id forever, even after upgrading past v0.94.186 -- self.
+    entity_id is only a suggestion on an entity's FIRST-ever
+    registration; once a registry row exists for a unique_id, HA's own
+    entity_platform reuses that row's stored entity_id on every later
+    add, so #579's fix never retroactively reaches a load that already
+    existed. Confirmed live on Mark's install, still true on v0.94.196.
+
+    Moves the registry row directly (same approach Mark's own issue
+    comment suggested), guarded to the EXACT pre-#579 shape -- built the
+    same way the old buggy code built it, `subentry.subentry_id` raw
+    (HA's registry itself lowercases it on write, hence `.lower()` here)
+    -- so a household's own later rename of this entity is never
+    touched, and a desired entity_id already claimed by something else
+    is left alone rather than forced into a collision."""
+    unique_id = f"{subentry.subentry_id}_commanded_state"
+    desired_entity_id = (
+        f"sensor.nimbus_{_slug_for_entity_id(subentry.title)}_commanded_state"
+    )
+    stale_entity_id = f"sensor.nimbus_{subentry.subentry_id.lower()}_commanded_state"
+    registry = er.async_get(hass)
+    current_entity_id = registry.async_get_entity_id("sensor", DOMAIN, unique_id)
+    if (
+        current_entity_id is None
+        or current_entity_id != stale_entity_id
+        or current_entity_id == desired_entity_id
+        or registry.async_get(desired_entity_id) is not None
+    ):
+        return
+    registry.async_update_entity(current_entity_id, new_entity_id=desired_entity_id)
+    _LOGGER.info(
+        "Nimbus: migrated %s to %s (nimbus issue #614 -- stale pre-#579 "
+        "entity_id from before this load's own registry row existed)",
+        current_entity_id,
+        desired_entity_id,
+    )
+
+
 def object_id_from_source(load_sensor_entity_id: str) -> str:
     """Turn 'sensor.logger_load_power' into
     'nimbus_logger_load_power_forecast' -- a clean, predictable,
@@ -628,6 +672,12 @@ async def async_setup_entry(
     for subentry in entry.subentries.values():
         if subentry.subentry_type != SUBENTRY_TYPE_CONTROLLABLE_LOAD:
             continue
+        # nimbus issue #614: retroactively move a pre-#579 load's own
+        # Commanded State entity_id off its stale raw-ULID form BEFORE
+        # constructing the entity below -- self.entity_id in __init__
+        # only takes effect on a genuinely first-ever registration, so
+        # this has to happen here, not inside the sensor class itself.
+        _migrate_stale_commanded_state_entity_id(hass, subentry)
         # nimbus issue #590: the seven schedule-view entities join
         # Commanded State on the SAME device (config_subentry_id groups
         # them all onto this one subentry's device page) -- real separate
