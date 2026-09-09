@@ -20,7 +20,7 @@ from _ha_stubs import install_ha_stubs
 install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from custom_components.nimbus_load import diagnostics
+from custom_components.nimbus_load import diagnostics, load_run_state
 
 
 def _fake_subentry(
@@ -44,11 +44,29 @@ def _fake_coordinator(
     return c
 
 
-def _fake_entry(coordinators: dict, options: dict, title: str = "Nimbus") -> MagicMock:
+def _fake_entry(
+    coordinators: dict,
+    options: dict,
+    title: str = "Nimbus",
+    extra_subentries: dict | None = None,
+    entry_id: str = "test_entry",
+) -> MagicMock:
+    # nimbus issue #623: entry.subentries is now read directly (every
+    # real subentry, coordinator or not), not just derived from
+    # coordinators.items() -- built here from the coordinators' own
+    # .subentry plus any extra (no-coordinator) subentries a test wants
+    # to add, so every pre-#623 test in this file keeps working
+    # unchanged while new tests can add a controllable_load/battery_
+    # participant subentry with no coordinator at all.
     entry = MagicMock()
     entry.title = title
     entry.options = options
+    entry.entry_id = entry_id
     entry.runtime_data = coordinators
+    subentries = {sid: c.subentry for sid, c in coordinators.items()}
+    if extra_subentries:
+        subentries.update(extra_subentries)
+    entry.subentries = subentries
     return entry
 
 
@@ -341,3 +359,139 @@ def test_get_config_entry_diagnostics_redacts_configured_fields():
         assert result["entry"]["options"]["safe_field"] == "visible"
     finally:
         diagnostics.TO_REDACT = original
+
+
+# -- nimbus issue #623: subentries with no forecast coordinator ---------------
+
+
+def test_get_config_entry_diagnostics_includes_a_controllable_load_with_no_coordinator():
+    # nimbus issue #623 (Mark Purcell, real finding: his own six-
+    # subentry install only ever showed 3 -- the controllable_load and
+    # both battery_participant subentries were entirely absent because
+    # they have no forecast coordinator). This is the real fix: the
+    # subentry now appears, with its own persisted LoadRunState in place
+    # of a coordinator block.
+    import asyncio
+
+    cl = _fake_subentry(
+        "cl1",
+        "controllable_load",
+        {"controllable_load_name": "Hot Water Heat Pump"},
+        title="Hot Water Heat Pump",
+    )
+    entry = _fake_entry({}, {}, entry_id="entry_623", extra_subentries={"cl1": cl})
+
+    async def _seed_and_run():
+        store = load_run_state.LoadRunStateStore(
+            store=diagnostics.Store(None, 1, "nimbus_load_entry_623_load_run_state")
+        )
+        await store.async_write(
+            "cl1",
+            load_run_state.LoadRunState(
+                commanded_state=True,
+                delivered_today_kwh=1.6,
+                thermal_heating_rate_c_per_kwh=1.2,
+                plan_forecast=[{"time": "t0", "value": 0.65}],
+            ),
+        )
+        hass = MagicMock()
+        hass.states.get.return_value = None
+        return await diagnostics.async_get_config_entry_diagnostics(hass, entry)
+
+    result = asyncio.run(_seed_and_run())
+
+    assert len(result["subentries"]) == 1
+    sub = result["subentries"][0]
+    assert sub["subentry_id"] == "cl1"
+    assert sub["subentry_type"] == "controllable_load"
+    assert "coordinator" not in sub
+    assert sub["load_run_state"]["commanded_state"] is True
+    assert sub["load_run_state"]["delivered_today_kwh"] == 1.6
+    assert sub["load_run_state"]["thermal_heating_rate_c_per_kwh"] == 1.2
+    assert sub["load_run_state"]["plan_forecast"] == [{"time": "t0", "value": 0.65}]
+
+
+def test_get_config_entry_diagnostics_controllable_load_never_solved_is_a_safe_default():
+    # A load subentry that was just created, before its first solve --
+    # LoadRunStateStore's own honest all-defaults fresh state, not a
+    # crash or a missing key.
+    import asyncio
+
+    cl = _fake_subentry("cl2", "controllable_load", {}, title="Pool Pump")
+    entry = _fake_entry({}, {}, entry_id="entry_623b", extra_subentries={"cl2": cl})
+    hass = MagicMock()
+    hass.states.get.return_value = None
+
+    result = asyncio.run(diagnostics.async_get_config_entry_diagnostics(hass, entry))
+
+    sub = result["subentries"][0]
+    assert sub["load_run_state"]["commanded_state"] is False
+    assert sub["load_run_state"]["delivered_today_kwh"] == 0.0
+    assert sub["load_run_state"]["plan_forecast"] is None
+
+
+def test_get_config_entry_diagnostics_includes_battery_participant_live_resolution():
+    # nimbus issue #623: a battery_participant has no persisted store
+    # (build_extra_batteries() reads its soc_sensor/available_entity
+    # live every solve) -- the diagnostic reads the same two entities
+    # live, right here.
+    import asyncio
+
+    from custom_components.nimbus_load.const import (
+        CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY,
+        CONF_BATTERY_PARTICIPANT_SOC_SENSOR,
+    )
+
+    bp = _fake_subentry(
+        "bp1",
+        "battery_participant",
+        {
+            CONF_BATTERY_PARTICIPANT_SOC_SENSOR: "sensor.model_3_soc",
+            CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY: "binary_sensor.model_3_home",
+        },
+        title="Model 3",
+    )
+    entry = _fake_entry({}, {}, entry_id="entry_623c", extra_subentries={"bp1": bp})
+    hass = MagicMock()
+
+    def fake_get(entity_id):
+        if entity_id == "sensor.model_3_soc":
+            return _fake_state("62.5", {})
+        if entity_id == "binary_sensor.model_3_home":
+            return _fake_state("on", {})
+        return None
+
+    hass.states.get.side_effect = fake_get
+
+    result = asyncio.run(diagnostics.async_get_config_entry_diagnostics(hass, entry))
+
+    sub = result["subentries"][0]
+    assert "coordinator" not in sub
+    assert sub["live_resolution"]["soc_sensor"] == "sensor.model_3_soc"
+    assert sub["live_resolution"]["soc_sensor_state"] == "62.5"
+    assert sub["live_resolution"]["available"] is True
+
+
+def test_battery_participant_diagnostics_unavailable_when_entity_is_off():
+    hass = MagicMock()
+    hass.states.get.return_value = _fake_state("off", {})
+    result = diagnostics._battery_participant_diagnostics(
+        hass,
+        {
+            "battery_participant_available_entity": "binary_sensor.away",
+            "battery_participant_soc_sensor": "sensor.soc",
+        },
+    )
+    assert result["available"] is False
+
+
+def test_battery_participant_diagnostics_available_true_with_no_entity_configured():
+    # No available_entity configured at all -- always available, matching
+    # build_extra_batteries()'s own convention.
+    hass = MagicMock()
+    hass.states.get.return_value = None
+    result = diagnostics._battery_participant_diagnostics(
+        hass, {"battery_participant_soc_sensor": "sensor.soc"}
+    )
+    assert result["available"] is True
+    assert result["available_entity"] is None

@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.203] — 2026-09-09
+
+### Fixed
+- **Diagnostics dump omitted every subentry without a forecast coordinator** (nimbus issue #623, Mark Purcell — real finding on his own six-subentry install: only 3 of 6 subentries ever appeared, since `async_get_config_entry_diagnostics()` iterated `entry.runtime_data`, the forecast-coordinator dict, which only has entries for `load`/`power_signal` subentries. His own Hot Water Heat Pump `controllable_load` and both `battery_participant` subentries were invisible — reconfiguring the heat pump had to reconstruct its current values from notes rather than reading them from the dump). Now iterates `entry.subentries.values()` directly (every real subentry, every type), attaching a `coordinator` block only where one actually exists. A `controllable_load` subentry gets its full persisted `load_run_state` instead (commanded state, hold, activations, delivered today, thermal rates, the last-published `plan_forecast` — the same store `NimbusControllableLoadStateSensor` itself reads). A `battery_participant` subentry gets `live_resolution` — its `soc_sensor`/`available_entity`/`charge_limit_entity`'s current live state, the same two live reads `build_extra_batteries()` itself makes every solve (no persisted store exists for these, so this is the honest equivalent). 6 new tests, all pre-existing diagnostics tests still green.
+
 ## [0.94.202] — 2026-09-09
 
 ### Added
