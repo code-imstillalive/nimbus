@@ -529,6 +529,15 @@ class ScheduleView:
     delivered_today_kwh: float
     cost_today: float
     target_today_kwh: float | None
+    # nimbus issue #615 (Mark Purcell, real household ask: "will it get
+    # there today" -- planned_energy_kwh above is only the NEXT block,
+    # so read next to target_today_kwh/delivered_today_kwh it answers a
+    # different question ("it will only do 0.27 of 2.0") than the one
+    # the household is actually asking. Sum, over EVERY remaining
+    # scheduled period still today (not just the next contiguous run),
+    # of power_kw x hours -- so delivered_today_kwh + planned_today_kwh
+    # vs target_today_kwh reads directly as "will it get there."
+    planned_today_kwh: float | None
     status: str
 
 
@@ -656,6 +665,27 @@ def derive_schedule_view(
             cost_series = [float(e["value"]) for e in state.plan_cost_forecast]
             planned_cost = round(sum(cost_series[start_idx : end_idx + 1]), 3)
 
+    # nimbus issue #615: every remaining period still today (not just
+    # the next contiguous run above -- a load can have more than one
+    # separate scheduled block in the same day), summed the same
+    # power_kw x real-period-duration way planned_energy_kwh's own
+    # fallback path already does. None (not 0.0) only when there's no
+    # published plan at all this cycle -- an honest "not computed", same
+    # convention as planned_cost above.
+    planned_today_kwh: float | None = None
+    if forecast:
+        times_all = [datetime.fromisoformat(e["time"]) for e in forecast]
+        values_all = [float(e["value"]) for e in forecast]
+        today = now.date()
+        planned_today_kwh = round(
+            sum(
+                values_all[i] * _period_duration_hours(times_all, i)
+                for i in range(len(forecast))
+                if times_all[i] >= now and times_all[i].date() == today
+            ),
+            3,
+        )
+
     target_today_kwh = (
         state.plan_target_kwh if load_kind == _LOAD_KIND_DEFERRABLE else None
     )
@@ -726,6 +756,7 @@ def derive_schedule_view(
         delivered_today_kwh=state.delivered_today_kwh,
         cost_today=round(state.cost_today, 3),
         target_today_kwh=target_today_kwh,
+        planned_today_kwh=planned_today_kwh,
         status=status,
     )
 

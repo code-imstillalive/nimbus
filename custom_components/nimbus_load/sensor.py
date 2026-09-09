@@ -696,6 +696,9 @@ async def async_setup_entry(
                 NimbusControllableLoadPlannedEnergySensor(
                     hass, entry, subentry, sw_version
                 ),
+                NimbusControllableLoadPlannedTodaySensor(
+                    hass, entry, subentry, sw_version
+                ),
                 NimbusControllableLoadPlannedCostSensor(
                     hass, entry, subentry, sw_version
                 ),
@@ -1557,6 +1560,30 @@ class NimbusControllableLoadPlannedEnergySensor(
 
     def _extract_value(self, view: load_run_state.ScheduleView) -> object:
         return view.planned_energy_kwh
+
+
+class NimbusControllableLoadPlannedTodaySensor(
+    _NimbusControllableLoadScheduleSensorBase
+):
+    """nimbus issue #615 (Mark Purcell, real household ask reading his
+    own device page: Planned Energy is only the NEXT block, so read next
+    to Target Today/Delivered Today it answers "it will only do 0.27 of
+    2.0" rather than the question actually being asked, "will it get
+    there today?"). Summed over EVERY remaining scheduled period still
+    today, not just the next contiguous run -- delivered_today +
+    planned_today vs target_today reads directly.
+
+    Deliberately no device_class/state_class, same reasoning as Planned
+    Energy above -- a forecast value that can legitimately jump around
+    between solves, not a monotonically-accumulating real meter."""
+
+    _attr_name = "Planned Today"
+    _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
+    _ENTITY_ID_SUFFIX = "planned_today"
+    _UNIQUE_ID_SUFFIX = "planned_today"
+
+    def _extract_value(self, view: load_run_state.ScheduleView) -> object:
+        return view.planned_today_kwh
 
 
 class NimbusControllableLoadDeliveredTodaySensor(
