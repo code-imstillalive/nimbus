@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.225] — 2026-09-09
+
+### Added
+- **Controllable Load tuning values are now live-editable number entities, not wizard-only config** (nimbus issue #645). Every Controllable Load gains up to 7 new `number.nimbus_<load>_*` entities on its own device page — `deferrable_target_kwh`, `deferrable_max_power_kw`, `deferrable_earliest_hour`, `deferrable_deadline_hour`, `deferrable_shortfall_price` (deferrable loads only), plus `controllable_load_min_hold_minutes`/`controllable_load_max_activations_per_day` (both kinds) — the same "wizard for first-time setup, live entity for day-to-day tuning" split the hub-level Solver settings already use. Each entity restores its last value across restarts through the same `RestoreNumber` + durable `_SharedNumberStore` backstop chain, seeded from the wizard's own saved value the first time it's ever added so rolling this out onto an already-configured load never silently resets it.
+- The solver itself now reads these live values automatically: `_resolve_controllable_load_tuning()` overlays whichever of the 7 fields have a live number entity on top of the load's own wizard-saved config, with the merged result flowing through every existing config lookup unchanged — no downstream call site needed to change. Fails open (falls back to the wizard value) on a missing, unknown, unavailable, or non-numeric live entity.
+
 ## [0.94.224] — 2026-09-09
 
 ### Added

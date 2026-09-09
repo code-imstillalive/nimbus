@@ -40,6 +40,7 @@ already-configured household (like this one, which just finished the old
 from __future__ import annotations
 
 import asyncio
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
@@ -50,7 +51,7 @@ from homeassistant.components.number import (
     NumberMode,
     RestoreNumber,
 )
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.const import EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import DeviceInfo
@@ -60,6 +61,14 @@ from homeassistant.loader import async_get_integration
 
 from . import sensor_flattened
 from .const import (
+    CONF_CONTROLLABLE_LOAD_KIND,
+    CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY,
+    CONF_CONTROLLABLE_LOAD_MIN_HOLD_MINUTES,
+    CONF_DEFERRABLE_DEADLINE_HOUR,
+    CONF_DEFERRABLE_EARLIEST_HOUR,
+    CONF_DEFERRABLE_MAX_POWER_KW,
+    CONF_DEFERRABLE_SHORTFALL_PRICE,
+    CONF_DEFERRABLE_TARGET_KWH,
     CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
     CONF_SOLVER_BATTERY_CAPACITY_KWH,
     CONF_SOLVER_BATTERY_MAX_SOC_PERCENT,
@@ -109,6 +118,8 @@ from .const import (
     CONF_SOLVER_SALVAGE_VALUE,
     CONF_SOLVER_SOC_DISCREPANCY_MAX_THRESHOLD_PCT,
     CONF_SOLVER_SOC_DISCREPANCY_MEAN_THRESHOLD_PCT,
+    CONTROLLABLE_LOAD_KIND_DEFERRABLE,
+    CONTROLLABLE_LOAD_KIND_SHEDDABLE,
     DEFAULT_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
     DEFAULT_SOLVER_CHARGE_COST,
     DEFAULT_SOLVER_DEGRADATION_COST_PER_KWH,
@@ -141,6 +152,7 @@ from .const import (
     DEFAULT_SOLVER_SOC_DISCREPANCY_MEAN_THRESHOLD_PCT,
     DEFAULT_SOLVER_SOH_PERCENT,
     DOMAIN,
+    SUBENTRY_TYPE_CONTROLLABLE_LOAD,
 )
 
 # These entities are plain, locally-restored settings (RestoreNumber) --
@@ -909,6 +921,23 @@ async def async_setup_entry(
             for desc in _DESCRIPTIONS
         ]
     )
+    # nimbus issue #645: same live-dashboard-editable pattern as the
+    # Solver hub-level numbers above, applied per Controllable Load --
+    # see NimbusControllableLoadNumber's own docstring for the full
+    # mechanism. Reuses the SAME shared_store instance (keyed by
+    # subentry_id + field, so no collision with the hub-level keys
+    # above, which are never subentry-ULID-prefixed) rather than a
+    # second Store file -- one JSON file, one lock, for every number
+    # this config entry owns.
+    controllable_load_entities = [
+        NimbusControllableLoadNumber(entry, subentry, desc, sw_version, shared_store)
+        for subentry in entry.subentries.values()
+        if subentry.subentry_type == SUBENTRY_TYPE_CONTROLLABLE_LOAD
+        for desc in _CONTROLLABLE_LOAD_DESCRIPTIONS
+        if subentry.data.get(CONF_CONTROLLABLE_LOAD_KIND) in desc.kinds
+    ]
+    if controllable_load_entities:
+        async_add_entities(controllable_load_entities)
 
 
 class NimbusSolverNumber(RestoreNumber, NumberEntity):
@@ -1061,3 +1090,263 @@ class NimbusSolverNumber(RestoreNumber, NumberEntity):
             from . import _configure_price_watcher
 
             _configure_price_watcher(self.hass, self._entry)
+
+
+def _slug_for_entity_id(title: str) -> str:
+    """A plain, predictable slug for a human-typed title -- deliberately
+    a verbatim duplicate of sensor.py's own private helper of the same
+    name, not an import from it. sensor.py and number.py are independent
+    platform modules with no existing import dependency between them in
+    either direction (only via the shared sensor_flattened.py); reaching
+    into another platform module's own underscore-prefixed helper would
+    create exactly the kind of cross-platform coupling this project's
+    own established pattern (small pure helpers duplicated where a
+    genuine import boundary exists -- done_condition.py's own module
+    docstring covers the same reasoning) deliberately avoids. Keep in
+    sync with sensor.py's own copy if the slugging rule itself ever
+    changes -- both must produce the SAME entity_id for the SAME title,
+    since sensor.py's own commanded_state entity and this module's
+    number entities live on the same load device and are meant to read
+    as one obviously-related family."""
+    slug = re.sub(r"[^a-z0-9]+", "_", title.lower()).strip("_")
+    return slug or "load"
+
+
+@dataclass(frozen=True)
+class _ControllableLoadNumberDescription:
+    """One live, dashboard-editable Controllable Load tuning field --
+    nimbus issue #645, the exact same "wizard for first-time setup,
+    live entity for day-to-day tuning" split #603 already documents for
+    the hub-level Solver settings above, applied per load instead of
+    once per hub."""
+
+    key: str  # CONF_DEFERRABLE_*/CONF_CONTROLLABLE_LOAD_* -- also this
+    # entity's own entity_id suffix and the field build_controllable_
+    # loads()/apply_commanded_state_guard() read via solver_writer.py's
+    # own _resolve_controllable_load_tuning().
+    name: str
+    default: float
+    min_value: float
+    max_value: float
+    step: float
+    unit: str | None
+    device_class: NumberDeviceClass | None = None
+    # Which Controllable Load kind(s) this field applies to -- a
+    # sheddable load has no earliest_hour/deadline_hour/target_kwh/
+    # max_power_kw/shortfall_price concept at all (those are deferrable-
+    # only, per flows/controllable_load_subentry.py's own schema), while
+    # min_hold_minutes/max_activations_per_day are genuinely shared by
+    # both kinds (the relay-chatter guard applies uniformly). Defaults
+    # to "both kinds" so a shared field doesn't need to repeat itself.
+    kinds: tuple[str, ...] = (
+        CONTROLLABLE_LOAD_KIND_SHEDDABLE,
+        CONTROLLABLE_LOAD_KIND_DEFERRABLE,
+    )
+
+
+# Real bounds mirrored exactly from flows/controllable_load_subentry.py's
+# own selector configs for these same fields (_HOUR_SELECTOR's 0-23.75/
+# step 0.25, _KW_SELECTOR's min=0, _KWH_SELECTOR's min=0, _DOLLAR_PER_
+# KWH_SELECTOR's min=0) -- a live dashboard slider should offer the
+# identical real range the wizard already validated, not a
+# independently-invented one. min_hold_minutes/max_activations_per_day
+# have no wizard-specified max (a plain NumberSelector with no upper
+# bound); the values here are generous, real headroom, not an
+# architectural limit.
+#
+# nimbus issue #645's own explicit scope: does NOT include the 3
+# sheddable-only fields (nominal_kw/min_fraction/shed_cost) -- not named
+# in the issue's own proposal list, left for a future, separate ask
+# rather than guessed into scope here.
+_CONTROLLABLE_LOAD_DESCRIPTIONS: tuple[_ControllableLoadNumberDescription, ...] = (
+    _ControllableLoadNumberDescription(
+        CONF_DEFERRABLE_TARGET_KWH,
+        "Target",
+        0.0,
+        0,
+        1000,
+        0.1,
+        "kWh",
+        device_class=NumberDeviceClass.ENERGY,
+        kinds=(CONTROLLABLE_LOAD_KIND_DEFERRABLE,),
+    ),
+    _ControllableLoadNumberDescription(
+        CONF_DEFERRABLE_MAX_POWER_KW,
+        "Max Power",
+        0.0,
+        0,
+        1000,
+        0.1,
+        "kW",
+        device_class=NumberDeviceClass.POWER,
+        kinds=(CONTROLLABLE_LOAD_KIND_DEFERRABLE,),
+    ),
+    _ControllableLoadNumberDescription(
+        CONF_DEFERRABLE_EARLIEST_HOUR,
+        "Earliest Hour",
+        0.0,
+        0,
+        23.75,
+        0.25,
+        "24hr decimal",
+        kinds=(CONTROLLABLE_LOAD_KIND_DEFERRABLE,),
+    ),
+    _ControllableLoadNumberDescription(
+        CONF_DEFERRABLE_DEADLINE_HOUR,
+        "Deadline Hour",
+        23.75,
+        0,
+        23.75,
+        0.25,
+        "24hr decimal",
+        kinds=(CONTROLLABLE_LOAD_KIND_DEFERRABLE,),
+    ),
+    _ControllableLoadNumberDescription(
+        CONF_DEFERRABLE_SHORTFALL_PRICE,
+        "Shortfall Price",
+        10.0,
+        0,
+        1000,
+        0.01,
+        "$/kWh",
+        kinds=(CONTROLLABLE_LOAD_KIND_DEFERRABLE,),
+    ),
+    _ControllableLoadNumberDescription(
+        CONF_CONTROLLABLE_LOAD_MIN_HOLD_MINUTES,
+        "Min Hold Minutes",
+        0.0,
+        0,
+        1440,
+        1,
+        "min",
+    ),
+    # nimbus issue #645: a genuine, deliberate behaviour nuance vs the
+    # wizard's own field -- the wizard's None (unset) means "no activation
+    # cap at all" (load_run_state.activation_allowed()'s own contract),
+    # a state a live NumberEntity structurally cannot represent (it
+    # always carries SOME real number). Once this live entity exists for
+    # a load, "unlimited" is no longer expressible through it -- a real,
+    # generous default (10/day) stands in instead. A household that
+    # genuinely wants no cap at all is not yet served by the live entity
+    # path; documented here rather than silently changing behaviour with
+    # no explanation.
+    _ControllableLoadNumberDescription(
+        CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY,
+        "Max Activations Per Day",
+        10.0,
+        1,
+        100,
+        1,
+        None,
+    ),
+)
+
+
+class NimbusControllableLoadNumber(RestoreNumber, NumberEntity):
+    """One live, dashboard-editable Controllable Load tuning field --
+    nimbus issue #645. Same restore-and-seed-once, durable-Store-backstop
+    mechanism as NimbusSolverNumber above (see that class's own
+    docstring and this module's own top docstring for the full "why not
+    written back into the subentry" reasoning -- identical here: a
+    dashboard slider on a Controllable Load must never trigger a hub
+    reload either), keyed per (subentry, field) instead of per (entry,
+    field), living on the load's own device instead of the hub.
+
+    Reuses the SAME _SharedNumberStore instance the hub-level numbers
+    already use (see async_setup_entry()'s own comment for why this is
+    safe -- the key namespace never collides).
+    """
+
+    _attr_has_entity_name = True
+    _attr_mode = NumberMode.BOX
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(
+        self,
+        entry: ConfigEntry,
+        subentry: ConfigSubentry,
+        desc: _ControllableLoadNumberDescription,
+        sw_version: str | None,
+        shared_store: _SharedNumberStore,
+    ) -> None:
+        self._entry = entry
+        self._subentry = subentry
+        self._desc = desc
+        # Store/unique_id key -- subentry_id (a ULID) + field, so this
+        # never collides with the hub-level keys (plain CONF_SOLVER_*
+        # strings) or with another load's own same-named field.
+        self._store_key = f"{subentry.subentry_id}_{desc.key}"
+        self._shared_store = shared_store
+        self._attr_unique_id = self._store_key
+        # nimbus issue #579's own real, live lesson (see sensor.py's own
+        # commanded_state entity_id comment): a raw ULID in entity_id is
+        # both invalid (HA-deprecated) and unreadable -- derive from the
+        # load's own title instead, same _slug_for_entity_id() technique.
+        self.entity_id = (
+            f"number.nimbus_{_slug_for_entity_id(subentry.title)}_{desc.key}"
+        )
+        self._attr_name = desc.name
+        self._attr_native_min_value = desc.min_value
+        self._attr_native_max_value = desc.max_value
+        self._attr_native_step = desc.step
+        self._attr_native_unit_of_measurement = desc.unit
+        self._attr_device_class = desc.device_class
+        # Same per-load sub-device every other Controllable Load entity
+        # (commanded_state, the #590 schedule-view sensors) already
+        # attaches to -- (DOMAIN, subentry.subentry_id) groups all of
+        # them onto that one load's own device page.
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, subentry.subentry_id)},
+            name=subentry.title,
+            manufacturer="Nimbus",
+            model="Controllable Load",
+            sw_version=sw_version,
+        )
+        self._attr_native_value = desc.default
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        restored = await self.async_get_last_number_data()
+        if restored is not None and restored.native_value is not None:
+            # Same freshness-compare-against-the-Store logic as
+            # NimbusSolverNumber's own async_added_to_hass() -- see that
+            # method's own comment for the full 2026-09-02 incident this
+            # protects against.
+            restored_state = await self.async_get_last_state()
+            restored_at = (
+                restored_state.last_updated.timestamp()
+                if restored_state is not None
+                else 0.0
+            )
+            stored_entry = await self._shared_store._async_read_entry(self._store_key)
+            if stored_entry is not None and stored_entry[1] > restored_at:
+                self._attr_native_value = stored_entry[0]
+                return
+            self._attr_native_value = restored.native_value
+            await self._shared_store.async_write(self._store_key, restored.native_value)
+            return
+        stored_value = await self._shared_store.async_read(self._store_key)
+        if stored_value is not None:
+            self._attr_native_value = stored_value
+            return
+        # No RestoreNumber state AND no Store entry -- this entity has
+        # never existed before on this install. Seed from whatever's
+        # already in the subentry's own wizard-saved data, so rolling
+        # this platform out onto an already-configured load doesn't
+        # silently reset its real values back to a generic default. A
+        # genuinely fresh load (field never set in the wizard either)
+        # falls through to desc.default, set in __init__ above.
+        seeded = self._subentry.data.get(self._desc.key)
+        if seeded is not None:
+            try:
+                self._attr_native_value = float(seeded)
+            except (TypeError, ValueError):
+                return
+            await self._shared_store.async_write(
+                self._store_key, self._attr_native_value
+            )
+
+    async def async_set_native_value(self, value: float) -> None:
+        self._attr_native_value = value
+        self.async_write_ha_state()
+        await self._shared_store.async_write(self._store_key, value)

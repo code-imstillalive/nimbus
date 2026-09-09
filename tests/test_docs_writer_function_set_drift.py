@@ -185,6 +185,22 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # Returns [] unconditionally in standalone mode already (_NATIVE_
         # HASS is None there), so there's nothing behavioural to port.
         "build_extra_batteries",
+        # nimbus issue #645: overlays a Controllable Load's live
+        # number.nimbus_<load>_<key> entity values on top of its own
+        # subentry.data, same no-standalone-equivalent reasoning as
+        # build_controllable_loads() above -- reads real ConfigSubentries
+        # (via the subentry passed in) and _NATIVE_HASS.states, neither of
+        # which exist in standalone/cron mode. Returns `data` completely
+        # unchanged in standalone mode already (_NATIVE_HASS is None
+        # there), so there's nothing behavioural to port.
+        "_resolve_controllable_load_tuning",
+        # Pure slug helper called only by _resolve_controllable_load_
+        # tuning (already listed above) -- same native-only reasoning as
+        # _parse_done_when's own listing above, even though it has no HA
+        # dependency of its own. Deliberately duplicated (not imported)
+        # from sensor.py's/number.py's own _slug_for_entity_id, per this
+        # project's established small-pure-helper duplication convention.
+        "_slug_for_controllable_load_entity_id",
     }
 )
 
