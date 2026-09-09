@@ -211,6 +211,7 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "compute_cost_band",
         "compute_cost_breakdown",
         "fetch_entity_history_range",
+        "periods_within_hours",
         "resample_generic_price_forecast_with_coverage",
         "resample_history_nearest",
         "resolve_load_forecast_source_label",

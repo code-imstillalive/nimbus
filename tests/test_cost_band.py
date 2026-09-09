@@ -58,6 +58,43 @@ class TestComputeCostBand(unittest.TestCase):
         self.assertIsNotNone(band)
         self.assertAlmostEqual(band["width"], 0.0, places=6)
 
+
+class TestPeriodsWithinHours(unittest.TestCase):
+    """nimbus issue #630: periods_within_hours() slices
+    compute_cost_band()'s own inputs down to "the next 24 real hours"
+    for a household-scaled band, distinct from the full 96h one."""
+
+    def test_uniform_grid_picks_the_exact_boundary_count(self):
+        # 24 periods of 1h each == exactly 24h -- searchsorted's own
+        # side="right" includes the period whose cumulative sum lands
+        # exactly ON the boundary, not just strictly under it.
+        hours = np.full(30, 1.0)
+        self.assertEqual(solver_writer.periods_within_hours(hours, 24.0), 24)
+
+    def test_a_tiered_grid_mixes_fine_and_coarse_periods_correctly(self):
+        # Same shape as this project's own real tiered grid: 1-hour
+        # periods near "now", then coarser ones -- 20 x 1h (20h) + 2 x
+        # 4h (28h total) crosses the 24h mark inside the coarse tier's
+        # first period (20h + 4h = 24h exactly).
+        hours = np.concatenate([np.full(20, 1.0), np.full(2, 4.0)])
+        self.assertEqual(solver_writer.periods_within_hours(hours, 24.0), 21)
+
+    def test_a_single_period_longer_than_the_window_still_returns_one(self):
+        # A pathological (or genuinely coarse-only) grid whose very
+        # first period alone already exceeds the window -- must not
+        # return 0 (an empty slice would crash compute_cost_band()'s
+        # own re-costing on a zero-length array).
+        hours = np.array([48.0])
+        self.assertEqual(solver_writer.periods_within_hours(hours, 24.0), 1)
+
+    def test_window_shorter_than_the_first_period_still_returns_one(self):
+        hours = np.array([0.5, 0.5, 0.5])
+        self.assertEqual(solver_writer.periods_within_hours(hours, 0.1), 1)
+
+    def test_window_longer_than_the_whole_grid_returns_every_period(self):
+        hours = np.full(5, 1.0)
+        self.assertEqual(solver_writer.periods_within_hours(hours, 100.0), 5)
+
     def test_returns_none_on_internal_failure_not_a_crash(self):
         # Mismatched array lengths -- a real internal failure mode this
         # function must degrade gracefully from, since it's a read-only

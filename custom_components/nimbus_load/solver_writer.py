@@ -1133,6 +1133,19 @@ def compute_cost_breakdown(
     }
 
 
+def periods_within_hours(period_hours: NDArray[np.float64], hours: float) -> int:
+    """nimbus issue #630: the number of leading periods (from "now")
+    whose cumulative duration is at most `hours` -- e.g. how many of a
+    tiered grid's own periods fall inside the next 24 real hours, used
+    to slice compute_cost_band()'s own inputs down to a shorter-horizon
+    band. Always at least 1, so a grid whose very first period alone
+    already exceeds `hours` (a coarse, late-horizon-only grid, or a
+    pathological single-period plan) still gets a real, non-empty
+    slice rather than an empty array."""
+    cum = np.cumsum(period_hours)
+    return max(1, int(np.searchsorted(cum, hours, side="right")))
+
+
 def compute_cost_band(
     *,
     period_hours: NDArray[np.float64],
@@ -7119,6 +7132,46 @@ def publish_plan(
         import_limit_kw=import_limit_kw,
         export_limit_kw=export_limit_kw,
     )
+    # nimbus issue #630 (Mark Purcell: "a band 75 times wider than the
+    # day's bill tells a household nothing" -- the full 96h band is real
+    # (its own width is earned from the load forecast's own confidence
+    # interval widening the further out a period sits), but a household
+    # reading it next to "the next 24 hours cost $4.67" has no way to
+    # tell that the $349 width is mostly coming from periods 2-4 days
+    # out. Same compute_cost_band(), same inputs, just sliced to
+    # whichever periods fall inside the first 24 real hours -- an
+    # honest, cheap re-use of the exact same re-costing machinery, not a
+    # new band formula. final_soc_kwh is the plan's own SoC AT the 24h
+    # mark (not the 96h terminal SoC) so the salvage-value term prices
+    # what the battery is actually worth at THIS band's own horizon end.
+    n_24h = periods_within_hours(period_hours_arr, 24.0)
+    cost_band_24h = compute_cost_band(
+        period_hours=period_hours_arr[:n_24h],
+        load_lower_kw=np.array(load_lower_kw)[:n_24h],
+        load_upper_kw=np.array(load_upper_kw)[:n_24h],
+        solar_kw=np.array(solar_kw)[:n_24h],
+        import_price=np.array(import_price)[:n_24h],
+        export_price=np.array(export_price)[:n_24h],
+        charge_committed_kw=plan.battery_charge_kw[:n_24h],
+        discharge_committed_kw=plan.battery_discharge_kw[:n_24h],
+        charge_cost=charge_cost,
+        discharge_cost_arr=discharge_cost_arr[:n_24h],
+        final_soc_kwh=float(plan.battery_soc_kwh[n_24h - 1]),
+        salvage_value=salvage_value,
+        import_limit_kw=import_limit_kw,
+        export_limit_kw=export_limit_kw,
+    )
+    # nimbus issue #630's second ask ("say on the sensor whether any
+    # risk-aversion term is active"): a plain, honest boolean -- true
+    # only when at least one of the three configured weights is genuinely
+    # nonzero, so a reader doesn't have to cross-reference three separate
+    # published numbers to answer "is anything actually being hedged
+    # against right now."
+    risk_aversion_active = bool(
+        risk_aversion > 0.0
+        or import_price_risk_aversion > 0.0
+        or export_price_risk_aversion > 0.0
+    )
 
     # Binding-constraint diagnostics (2026-08-18, Mark Purcell's audit
     # item #3; relabelled 2026-08-24, see compute_binding_constraint_
@@ -7170,10 +7223,24 @@ def publish_plan(
             "total_cost_with_fixed_costs": round(total_cost_with_fixed_costs, 4),
             "cost_breakdown": cost_breakdown,
             "cost_band": cost_band,
+            # nimbus issue #630: the same band, real-costed against only
+            # the periods inside the next 24 real hours -- see this
+            # sensor's own construction above for why the 96h band alone
+            # is uninformative next to a household's own "what will
+            # today cost" question. None whenever the 96h band's own
+            # re-costing failed (same honest-diagnostic contract as
+            # cost_band itself).
+            "cost_band_24h": cost_band_24h,
             "p2p_match_fraction": round(match_fraction, 4),
             "risk_aversion": risk_aversion,
             "import_price_risk_aversion": import_price_risk_aversion,
             "export_price_risk_aversion": export_price_risk_aversion,
+            # nimbus issue #630's second ask: whether any of the three
+            # risk-aversion weights immediately above is actually
+            # nonzero right now -- so a reader can tell "these numbers
+            # are shown but inactive" from "these numbers are shaping
+            # the plan" without doing that comparison themselves.
+            "risk_aversion_active": risk_aversion_active,
             # Nimbus issue #205 (Mark Purcell, 2026-08-26): asked for an
             # entity exposing the terminal-value stack so overnight
             # reserve size can be regressed against price data without

@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.214] — 2026-09-09
+
+### Added
+- **A next-24h cost band (`cost_band_24h`) and a `risk_aversion_active` flag published alongside the existing 96h `cost_band`** (nimbus issue #630, Mark Purcell: "a band 75 times wider than the day's bill tells a household nothing" — `total_cost: $21.26` for the 96h horizon carried a `cost_band` of $−16.59 to $332.87, width $349, next to a real $4.67 next-24h grid bill; the price-risk term dominates the KPI while both `import_price_risk_aversion`/`export_price_risk_aversion` sat at 0). The 96h band's own width is real and earned (the load forecast's confidence interval genuinely widens the further out a period sits) — the problem was showing only that one number next to a much shorter-horizon dollar figure.
+
+  `cost_band_24h` re-uses the exact same `compute_cost_band()` re-costing machinery, sliced to whichever leading periods fall inside the next 24 real hours (new `periods_within_hours()` helper, independently unit-tested) — not a new band formula, so it carries the same honest "lower bound, not the full picture" caveat as the 96h one. `risk_aversion_active` is a plain boolean: true only when at least one of the three published risk-aversion weights is genuinely nonzero, so a reader doesn't have to cross-reference three numbers to answer "is anything actually being hedged against right now."
+
+  Item 2 of #630's own ask (labeling `cost_band` explicitly as sourced from primary/secondary disagreement) is served by #631's own new `import_price_source`/`export_price_source` fields, shipped in v0.94.213 immediately before this release.
+
 ## [0.94.213] — 2026-09-09
 
 ### Added
