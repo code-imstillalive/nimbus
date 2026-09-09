@@ -92,13 +92,19 @@ def _fake_subentry(subentry_id: str, subentry_type: str, data: dict):
     )
 
 
-def _fake_native_hass(subentries: list, states: dict | None = None):
-    entry = SimpleNamespace(subentries={s.subentry_id: s for s in subentries})
+def _fake_native_hass(
+    subentries: list, states: dict | None = None, entry_id: str = "entry_1", loop=None
+):
+    entry = SimpleNamespace(
+        entry_id=entry_id, subentries={s.subentry_id: s for s in subentries}
+    )
     fake = SimpleNamespace(
         config_entries=SimpleNamespace(async_entries=lambda domain: [entry])
     )
     if states is not None:
         fake.states = SimpleNamespace(get=lambda eid: states.get(eid))
+    if loop is not None:
+        fake.loop = loop
     return fake
 
 
@@ -1063,6 +1069,145 @@ class TestSampleLoadRunState(unittest.TestCase):
 
         result = asyncio.run(_read())
         self.assertTrue(result.currently_on)
+
+    def _seed_run_state(self, hub_entry_id, subentry_id, state):
+        async def _write():
+            store = load_run_state.LoadRunStateStore(
+                store=_FakeRunStateStore(
+                    None, 1, f"nimbus_load_{hub_entry_id}_load_run_state"
+                )
+            )
+            await store.async_write(subentry_id, state)
+
+        asyncio.run(_write())
+
+    def test_deferrable_target_kwh_is_reduced_by_energy_already_delivered_today(self):
+        # nimbus issue #626 (Mark Purcell, real repro): 1.48 of a 2.0 kWh
+        # target already delivered at 13:05 -- the LP must only be asked
+        # for the REMAINING 0.52 kWh, not the full 2.0 kWh on top of it.
+        now = datetime(2026, 9, 7, 13, 5, tzinfo=_TZ)
+        day_key = "2026-09-07"
+        self._seed_run_state(
+            "entry_626",
+            "s1",
+            load_run_state.LoadRunState(
+                delivered_today_kwh=1.48,
+                day_key=day_key,
+                last_sample_at=now.timestamp(),  # dt_hours=0 this sample
+            ),
+        )
+        states = {"sensor.hws_power": _fake_state("0.65")}
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [
+                _fake_subentry(
+                    "s1",
+                    "controllable_load",
+                    {
+                        "controllable_load_name": "Hot Water Heat Pump",
+                        "controllable_load_kind": "deferrable",
+                        "controllable_load_power_sensor": "sensor.hws_power",
+                        "deferrable_max_power_kw": 0.65,
+                        "deferrable_target_kwh": 2.0,
+                    },
+                )
+            ],
+            states=states,
+            entry_id="entry_626",
+            loop=self._loop,
+        )
+        grid_times = _grid(now, 8, minutes=30)
+        sheddable, adequacy = solver_writer.build_controllable_loads(
+            now, grid_times, len(grid_times)
+        )
+        self.assertEqual(sheddable, [])
+        self.assertEqual(len(adequacy), 1)
+        self.assertAlmostEqual(adequacy[0].target_kwh, 0.52, places=6)
+
+    def test_deferrable_load_released_entirely_once_todays_target_is_met(self):
+        # nimbus issue #626's own follow-up comment: delivered_today_kwh
+        # (2.165) already exceeds target_today_kwh (2.0) -- the load must
+        # be released for the rest of today's window, not merely reduced
+        # to a near-zero-but-still-nonzero remaining target that keeps
+        # the LP scheduling it anyway.
+        now = datetime(2026, 9, 7, 14, 21, tzinfo=_TZ)
+        day_key = "2026-09-07"
+        self._seed_run_state(
+            "entry_626b",
+            "s1",
+            load_run_state.LoadRunState(
+                delivered_today_kwh=2.165,
+                day_key=day_key,
+                last_sample_at=now.timestamp(),
+            ),
+        )
+        states = {"sensor.hws_power": _fake_state("0.65")}
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [
+                _fake_subentry(
+                    "s1",
+                    "controllable_load",
+                    {
+                        "controllable_load_name": "Hot Water Heat Pump",
+                        "controllable_load_kind": "deferrable",
+                        "controllable_load_power_sensor": "sensor.hws_power",
+                        "deferrable_max_power_kw": 0.65,
+                        "deferrable_target_kwh": 2.0,
+                    },
+                )
+            ],
+            states=states,
+            entry_id="entry_626b",
+            loop=self._loop,
+        )
+        grid_times = _grid(now, 8, minutes=30)
+        sheddable, adequacy = solver_writer.build_controllable_loads(
+            now, grid_times, len(grid_times)
+        )
+        self.assertEqual(sheddable, [])
+        self.assertEqual(adequacy, [])
+
+    def test_deferrable_target_kwh_unaffected_by_a_stale_prior_days_delivery(self):
+        # A run-state left over from a PRIOR day (day_key mismatch --
+        # apply_power_sample()'s own rollover hasn't been exercised by
+        # this fake seed) must never suppress today's real, fresh target.
+        now = datetime(2026, 9, 7, 13, 5, tzinfo=_TZ)
+        self._seed_run_state(
+            "entry_626c",
+            "s1",
+            load_run_state.LoadRunState(
+                delivered_today_kwh=1.9,
+                day_key="2026-09-06",
+                last_sample_at=(now - timedelta(hours=20)).timestamp(),
+            ),
+        )
+        states = {"sensor.hws_power": _fake_state("0.65")}
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [
+                _fake_subentry(
+                    "s1",
+                    "controllable_load",
+                    {
+                        "controllable_load_name": "Hot Water Heat Pump",
+                        "controllable_load_kind": "deferrable",
+                        "controllable_load_power_sensor": "sensor.hws_power",
+                        "deferrable_max_power_kw": 0.65,
+                        "deferrable_target_kwh": 2.0,
+                    },
+                )
+            ],
+            states=states,
+            entry_id="entry_626c",
+            loop=self._loop,
+        )
+        grid_times = _grid(now, 8, minutes=30)
+        sheddable, adequacy = solver_writer.build_controllable_loads(
+            now, grid_times, len(grid_times)
+        )
+        self.assertEqual(len(adequacy), 1)
+        # Rolled over to a new day (day_key changes to today as part of
+        # this very cycle's own sample) -- today's real target is the
+        # full 2.0 kWh, not artificially suppressed by yesterday's number.
+        self.assertAlmostEqual(adequacy[0].target_kwh, 2.0, places=6)
 
 
 def _fake_plan(sheddable=(), adequacy=()):

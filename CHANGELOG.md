@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.205] — 2026-09-09
+
+### Fixed
+- **Deferrable load target ignored energy already delivered today, over-running the load by the whole target every re-solve** (nimbus issue #626, Mark Purcell — real repro: with 1.48 of a 2.0 kWh target already delivered at 13:05, the plan still scheduled 1.99 kWh more; a follow-up data point on the same install showed the heat pump still running 3 hours past the target with `delivered_today_kwh` (2.165 kWh) already past `target_today_kwh` (2.0 kWh), with nothing in the plan or guard reacting). `load_run_state.remaining_kwh()` existed and was unit-tested since #479 but was never actually called from `build_controllable_loads()` — every solve passed the raw configured `target_kwh` straight to the LP regardless of what the run-state store already showed was delivered today. Now reduces `target_kwh` by today's real `delivered_today_kwh` before building the load's `AdequacyLoadConfig`, and releases the load for the rest of today's window entirely once the remaining amount reaches zero — the same "done" treatment #480's `done_entity` mechanism already gives a load with no done-sensor configured. 3 new tests, all pre-existing tests still green (1645 passed, full suite).
+
 ## [0.94.204] — 2026-09-09
 
 ### Fixed
