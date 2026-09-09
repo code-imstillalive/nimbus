@@ -8584,7 +8584,28 @@ def apply_commanded_state_guard(
                             # Recorder history is a real DB query -- only
                             # relearn once per calendar day (#592's own
                             # "on each retrain" ask), not every solve.
-                            if new.thermal_rates_learned_day_key != day_key:
+                            # nimbus issue #618 (Mark Purcell, real finding
+                            # the day the #609/#610/#611 learner redesign
+                            # shipped): thermal_rates_learned_day_key was
+                            # already stamped today by the OLD (#592-era)
+                            # learner before this cycle's code even landed,
+                            # so the day-key gate alone silently skipped
+                            # relearning under the NEW idle-to-idle logic
+                            # until tomorrow -- thermal_rates_source stayed
+                            # at its "never learned" "" default and the
+                            # stale 8 C/kWh figure carried forward despite
+                            # today's recorder already having everything
+                            # the new learner needs. A never-yet-labeled
+                            # thermal_rates_source ("" -- #610's own
+                            # contract is only ever "learned"/"fallback"
+                            # after a real run) also forces a relearn, so
+                            # any future learner-logic change self-heals
+                            # on its very next solve instead of waiting up
+                            # to a full day.
+                            if (
+                                new.thermal_rates_learned_day_key != day_key
+                                or not new.thermal_rates_source
+                            ):
                                 history_end = now
                                 history_start = now - timedelta(days=3)
                                 thermal_history = await _async_fetch_thermal_history(
