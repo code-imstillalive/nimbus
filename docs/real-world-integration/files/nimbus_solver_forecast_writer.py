@@ -1203,6 +1203,45 @@ def ha_call_service(domain: str, service: str, data: dict) -> None:
         resp.read()
 
 
+def publish_offer_curve(plan) -> None:
+    """nimbus issue #494 (Signals 5/7 of #489): pushes sensor.nimbus_
+    offer_curve when build_plan() actually computed one this cycle
+    (switch.nimbus_solver_offer_curve_enabled on) -- no-op otherwise,
+    same "None means not computed this cycle" convention Plan.grid_
+    signals already uses for #491. Called from main() right after the
+    main plan push -- deliberately a small standalone push rather than
+    inlined into that push, since this needs nothing beyond the plan
+    itself.
+
+    State is period 0's own real grid_import_kw -- a live, dashboard-
+    visible instance of #494's own "curve at the current retail price
+    equals the main plan's period-0 import" consistency check, not a
+    separately-derived figure that could silently drift from it.
+    """
+    if plan.offer_curve_import is None or plan.offer_curve_export is None:
+        return
+    import_curve = [
+        [round(price, 4), round(kw, 3)] for price, kw in plan.offer_curve_import
+    ]
+    export_curve = [
+        [round(price, 4), round(kw, 3)] for price, kw in plan.offer_curve_export
+    ]
+    ha_post_state(
+        "sensor.nimbus_offer_curve",
+        round(float(plan.grid_import_kw[0]), 3),
+        {
+            "unit_of_measurement": "kW",
+            "friendly_name": "Nimbus Offer Curve",
+            "import_curve": import_curve,
+            "export_curve": export_curve,
+            "sweep_seconds": round(plan.offer_curve_sweep_seconds, 4)
+            if plan.offer_curve_sweep_seconds is not None
+            else None,
+            "generated_at": datetime.now(UTC).astimezone(BRISBANE_TZ).isoformat(),
+        },
+    )
+
+
 def parse_iso(s) -> datetime:
     # Real bug, confirmed live 2026-08-22 (first-ever native-mode run):
     # every call site here was written and only ever tested against
@@ -4343,6 +4382,11 @@ def main() -> None:
         "solver_intraplan_smoothness_weight_kw",
         network.DEFAULT_SMOOTHNESS_WEIGHT_KW,
     )
+    # nimbus issue #494 (Signals 5/7 of #489): opt-in, off by default --
+    # see the integration copy's own const.py comment on CONF_SOLVER_
+    # OFFER_CURVE_ENABLED for why. Same live-switch-first read as every
+    # other cfg.get() boolean in this function.
+    offer_curve_enabled = bool(cfg.get("solver_offer_curve_enabled"))
     plan = network.build_plan(
         periods=periods,
         grid=grid,
@@ -4355,6 +4399,7 @@ def main() -> None:
         export_price_risk_aversion=export_price_risk_aversion,
         proximal_weight=proximal_weight,
         smoothness_weight=smoothness_weight,
+        compute_offer_curve=offer_curve_enabled,
     )
     solve_seconds = time.monotonic() - solve_started
     if plan.status == "optimal":
@@ -4712,6 +4757,10 @@ def main() -> None:
         f"binding_now={binding_now!r} energy_shadow_price_now={plan.duals.get('power_balance_t0', 0.0):.4f} "
         f"p2p_volume_cap_shadow_price={p2p_volume_cap_shadow_price}"
     )
+    # nimbus issue #494: no-op unless offer_curve_enabled was true above
+    # (plan.offer_curve_import stays None otherwise) -- see publish_
+    # offer_curve()'s own docstring.
+    publish_offer_curve(plan)
 
 
 if __name__ == "__main__":
