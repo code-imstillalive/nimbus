@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.201] — 2026-09-09
+
+### Added
+- **Controllable Load device: `sensor.nimbus_<load>_planned_today`** (nimbus issue #615, Mark Purcell — real household ask reading his own device page: Planned Energy is only the *next* scheduled block, so read next to Target Today/Delivered Today it answered "it will only do 0.27 of 2.0" rather than the question actually being asked, "will it get there today?"). New sensor sums power_kw × real period duration over *every* remaining scheduled period still today — not just the next contiguous run, a real distinction on a load with more than one separate block in the same day — so `Delivered Today + Planned Today` versus `Target Today` reads directly. Pure arithmetic over the already-published `plan_forecast` (`load_run_state.derive_schedule_view()`'s own new `planned_today_kwh` field), same posture as every other #590/#591 schedule-view sensor. `Planned Energy` is unchanged (still the next-block-only figure the dispatch card uses). 4 new tests.
+
 ## [0.94.200] — 2026-09-09
 
 ### Fixed

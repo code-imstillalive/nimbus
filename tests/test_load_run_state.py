@@ -841,6 +841,65 @@ class TestDeriveScheduleView(unittest.TestCase):
         )
         self.assertIsNone(view.planned_cost)
 
+    def test_planned_today_sums_every_remaining_period_today_not_just_the_next_run(
+        self,
+    ):
+        # nimbus issue #615: TWO separate scheduled blocks today -- the
+        # next-run-only planned_energy_kwh must see only the first
+        # (period 1, 0.325 kWh), while planned_today_kwh sums both.
+        forecast = _series(self.times, [0.0, 0.65, 0.0, 0.65, 0.0, 0.0])
+        state = lrs.LoadRunState(
+            plan_forecast=forecast,
+            plan_target_kwh=1.0,
+            commanded_state=False,
+            day_key="2026-09-09",
+        )
+        view = lrs.derive_schedule_view(
+            state, load_kind="deferrable", now=self.times[0]
+        )
+        self.assertAlmostEqual(view.planned_energy_kwh, 0.325)  # next block only
+        self.assertAlmostEqual(view.planned_today_kwh, 0.65)  # both blocks
+
+    def test_planned_today_excludes_periods_already_in_the_past(self):
+        # "now" sits after period 1's own scheduled run -- only period 3
+        # (still ahead) counts toward planned_today.
+        forecast = _series(self.times, [0.0, 0.65, 0.0, 0.65, 0.0, 0.0])
+        state = lrs.LoadRunState(
+            plan_forecast=forecast,
+            plan_target_kwh=1.0,
+            commanded_state=False,
+            day_key="2026-09-09",
+        )
+        view = lrs.derive_schedule_view(
+            state, load_kind="deferrable", now=self.times[3]
+        )
+        self.assertAlmostEqual(view.planned_today_kwh, 0.325)
+
+    def test_planned_today_excludes_periods_past_midnight(self):
+        # A period genuinely on TOMORROW's calendar date, still inside
+        # the published forecast horizon, must not count toward "today."
+        tomorrow_times = _iso_grid(self.times[0] + timedelta(days=1), 2)
+        forecast = _series(
+            self.times + tomorrow_times, [0.0, 0.65, 0.0, 0.0, 0.0, 0.0, 0.65, 0.0]
+        )
+        state = lrs.LoadRunState(
+            plan_forecast=forecast,
+            plan_target_kwh=1.0,
+            commanded_state=False,
+            day_key="2026-09-09",
+        )
+        view = lrs.derive_schedule_view(
+            state, load_kind="deferrable", now=self.times[0]
+        )
+        self.assertAlmostEqual(view.planned_today_kwh, 0.325)  # only today's period
+
+    def test_planned_today_is_none_with_no_plan_forecast_at_all(self):
+        state = lrs.LoadRunState(commanded_state=False, day_key="2026-09-09")
+        view = lrs.derive_schedule_view(
+            state, load_kind="deferrable", now=self.times[0]
+        )
+        self.assertIsNone(view.planned_today_kwh)
+
     def test_cost_today_passes_through_the_states_own_live_accumulator(self):
         state = lrs.LoadRunState(
             plan_forecast=self.forecast,
