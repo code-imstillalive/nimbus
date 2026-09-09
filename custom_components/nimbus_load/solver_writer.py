@@ -2185,6 +2185,45 @@ def publish_weather_forecast_mirrors(cfg: dict) -> None:
         )
 
 
+def publish_offer_curve(plan) -> None:
+    """nimbus issue #494 (Signals 5/7 of #489): pushes sensor.nimbus_
+    offer_curve when build_plan() actually computed one this cycle
+    (switch.nimbus_solver_offer_curve_enabled on) -- no-op otherwise,
+    same "None means not computed this cycle" convention Plan.grid_
+    signals already uses for #491. Called from main() right after
+    publish_plan() -- deliberately a small standalone push rather than
+    threaded through publish_plan()'s own already-long parameter list,
+    since this needs nothing beyond the plan itself.
+
+    State is period 0's own real grid_import_kw -- a live, dashboard-
+    visible instance of #494's own "curve at the current retail price
+    equals the main plan's period-0 import" consistency check, not a
+    separately-derived figure that could silently drift from it.
+    """
+    if plan.offer_curve_import is None or plan.offer_curve_export is None:
+        return
+    import_curve = [
+        [round(price, 4), round(kw, 3)] for price, kw in plan.offer_curve_import
+    ]
+    export_curve = [
+        [round(price, 4), round(kw, 3)] for price, kw in plan.offer_curve_export
+    ]
+    ha_post_state(
+        "sensor.nimbus_offer_curve",
+        round(float(plan.grid_import_kw[0]), 3),
+        {
+            "unit_of_measurement": "kW",
+            "friendly_name": "Nimbus Offer Curve",
+            "import_curve": import_curve,
+            "export_curve": export_curve,
+            "sweep_seconds": round(plan.offer_curve_sweep_seconds, 4)
+            if plan.offer_curve_sweep_seconds is not None
+            else None,
+            "generated_at": datetime.now(UTC).astimezone(LOCAL_TZ).isoformat(),
+        },
+    )
+
+
 def parse_iso(s) -> datetime:
     # Real bug, confirmed live 2026-08-22 (first-ever native-mode run):
     # every call site here was written and only ever tested against
@@ -10778,6 +10817,10 @@ def main() -> None:
     # (which stays the home battery's own capacity for whatever legitimately
     # still needs just that -- see publish_plan()'s own parameter list).
     fleet_capacity_kwh = sum(b.capacity_kwh for b in all_batteries)
+    # nimbus issue #494 (Signals 5/7 of #489): opt-in, off by default --
+    # see const.py's own comment on CONF_SOLVER_OFFER_CURVE_ENABLED for
+    # why. Same live-switch-first read as auto_include_known_solar above.
+    offer_curve_enabled = bool(cfg.get("solver_offer_curve_enabled"))
     plan = network.build_plan(
         periods=periods,
         grid=grid,
@@ -10792,6 +10835,7 @@ def main() -> None:
         export_price_risk_aversion=export_price_risk_aversion,
         proximal_weight=proximal_weight,
         smoothness_weight=smoothness_weight,
+        compute_offer_curve=offer_curve_enabled,
     )
     # nimbus issue #484: the relay-chatter guard, run once per solve
     # right after the plan exists -- needs the plan's own just-solved
@@ -10845,6 +10889,10 @@ def main() -> None:
         solar_delivery=solar_delivery,
         p2p_recent_volume_kwh=p2p_recent_volume_kwh,
     )
+    # nimbus issue #494 (Signals 5/7 of #489): no-op unless offer_curve_
+    # enabled was true above (plan.offer_curve_import stays None
+    # otherwise) -- see publish_offer_curve()'s own docstring.
+    publish_offer_curve(plan)
 
 
 if __name__ == "__main__":

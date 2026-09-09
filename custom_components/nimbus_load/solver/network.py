@@ -267,6 +267,8 @@ are completely unaffected regardless of `risk_aversion`'s value.
 
 from __future__ import annotations
 
+import logging
+import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
@@ -285,6 +287,8 @@ from .elements import (
     SolarConfig,
 )
 from .lp import LPProblem, LPResult
+
+_LOGGER = logging.getLogger(__name__)
 
 # Half of MIN_CHARGE_DISCHARGE_COST_SPREAD (elements.py) -- deliberately
 # small enough that it can NEVER be mistaken for or override a genuine
@@ -611,6 +615,26 @@ class Plan:
     # field on this class.
     grid_signals: GridSignals | None = None
     battery_signals: list[BatterySignals] = field(default_factory=list)
+    # nimbus issue #494 (Signals 5/7 of #489): a period-0 demand-response
+    # offer ladder -- several (price, kW) steps swept via LPResult.
+    # sweep_cost(), not just one (band_min, band_max) at the current
+    # price. None (the default) whenever `compute_offer_curve=False`
+    # (the common case -- see build_plan()'s own parameter docstring),
+    # the plan is non-optimal, or the sweep otherwise wasn't run -- same
+    # "represent honestly, no fabricated data" posture as grid_signals
+    # above. Each list is sorted ascending by price when populated;
+    # `import`'s own kW values are non-increasing in price (a real LP
+    # sensitivity property -- raising a variable's own cost coefficient
+    # can only keep its optimal value the same or push it down, never
+    # up), `export`'s mirror that (non-decreasing, since a HIGHER export
+    # price makes exporting more attractive).
+    offer_curve_import: list[tuple[float, float]] | None = None
+    offer_curve_export: list[tuple[float, float]] | None = None
+    # How long the sweep itself took (nimbus issue #494's own "total sweep
+    # time logged and under 0.5s on the reference grid" acceptance
+    # criterion) -- same None-when-not-computed convention as the two
+    # curve fields above.
+    offer_curve_sweep_seconds: float | None = None
 
     @property
     def is_optimal(self) -> bool:
@@ -916,6 +940,29 @@ def _infeasible_plan(
     )
 
 
+def _offer_curve_price_grid(retail: float) -> list[float]:
+    """The 7-point $/kWh sweep grid nimbus issue #494 specifies, anchored
+    on `retail` (the real cost/revenue coefficient this solve's own LP
+    already used for period 0 -- `effective_import_price[0]` for the
+    import curve, `effective_export_price[0]` for the export curve --
+    NOT the raw unadjusted price, so the "curve at the current retail
+    price equals the main plan's own period-0 dispatch" acceptance check
+    holds by construction: re-solving at exactly the coefficient already
+    loaded reproduces the same optimal vertex).
+
+    `[-1.00, retail*-3, retail*-1, 0.0, retail, retail*3, 20.00]`, sorted
+    ascending with exact duplicates collapsed (a degenerate `retail<=0`
+    input, e.g. a free/negative-price period, can otherwise repeat the
+    same value at several of the 7 nominal steps) -- sorting also makes
+    the grid's own construction robust to a `retail` value the raw
+    formula wasn't designed around, since `sweep_cost()`'s real
+    monotonicity guarantee comes from the LP's own sensitivity property,
+    not from the grid happening to be pre-sorted.
+    """
+    raw = [-1.00, retail * -3, retail * -1, 0.0, retail, retail * 3, 20.00]
+    return sorted(set(raw))
+
+
 def build_plan(
     *,
     periods: PeriodGrid,
@@ -935,6 +982,7 @@ def build_plan(
     export_price_risk_aversion: float = 0.0,
     soft_soc_penalty_per_kwh: float | None = None,
     compute_signals: bool = False,
+    compute_offer_curve: bool = False,
 ) -> Plan:
     """Build and solve one LP for the given horizon/inputs. Pure function --
     no I/O, no HA dependency, safe to call from anywhere including a plain
@@ -1052,6 +1100,25 @@ def build_plan(
     re-measure its own real timing budget at ITS OWN real problem scale
     before doing so, rather than trust this docstring's own single
     measured data point as universal.
+
+    `compute_offer_curve` (nimbus issue #494, Signals 5/7 of #489):
+    opt-in (default `False`) -- when `True`, requests `LPProblem.solve(
+    keep_basis=True)` and, on an optimal result, sweeps period 0's
+    `grid_import`/`grid_export` cost coefficients over a fixed 7-point
+    price grid (`_OFFER_CURVE_PRICE_STEPS`) via `LPResult.sweep_cost()`,
+    populating `Plan.offer_curve_import`/`offer_curve_export` -- a real
+    (price, kW) demand-response bid ladder for period 0, not just one
+    (band_min, band_max) at the CURRENT price the way `compute_signals`
+    above already gives. Each sweep step is a warm-started re-solve from
+    period 0's own already-loaded optimal basis (milliseconds, not a
+    fresh cold solve) -- unlike `compute_signals`'s own ranging pass,
+    this has NOT been measured to carry a meaningful cost at this
+    project's production scale (7 extra simplex re-solves from a warm
+    basis vs. one genuinely expensive ranging pass), but stays opt-in
+    anyway, matching #494's own explicit cadence requirement ("not every
+    5-minute solve by default") and this module's own established
+    "extra solver capability is opt-in" convention. Every existing
+    caller is unaffected either way.
     """
     loads = loads or []
     sheddable_loads = sheddable_loads or []
@@ -2252,7 +2319,7 @@ def build_plan(
     # build_plan()'s own docstring for why this isn't unconditional --
     # a real measured timing regression on this project's own most
     # LP-structurally-complex real scenario).
-    result: LPResult = p.solve(ranging=compute_signals)
+    result: LPResult = p.solve(ranging=compute_signals, keep_basis=compute_offer_curve)
     if result.status != "optimal":
         return _infeasible_plan(
             periods, result.status, result.iterations, raw_status=result.raw_status
@@ -2431,6 +2498,46 @@ def build_plan(
         for i, b in enumerate(batteries)
     ]
 
+    # nimbus issue #494 (Signals 5/7 of #489): the period-0 offer-curve
+    # price sweep, opt-in via compute_offer_curve -- see build_plan()'s
+    # own docstring for the full mechanism/reasoning. `keep_basis=
+    # compute_offer_curve` above (the p.solve() call) is what makes
+    # result.sweep_cost() available at all here; still guarded on
+    # `compute_offer_curve` explicitly (not just "does the LPResult
+    # happen to have a live basis") so this block reads as a plain,
+    # self-contained opt-in the same way the ranging block above does.
+    if compute_offer_curve:
+        _offer_curve_start = time.monotonic()
+        import_prices = _offer_curve_price_grid(float(effective_import_price[0]))
+        export_prices = _offer_curve_price_grid(float(effective_export_price[0]))
+        import_kw = result.sweep_cost(
+            grid_import[0], [price * hours[0] for price in import_prices]
+        )
+        # Export earns revenue -- p.set_cost(grid_export[t], -price*hours[t])
+        # above (the same construction this sweep must mirror exactly for
+        # the at-retail consistency check to hold), so the swept cost
+        # coefficient here is likewise negated.
+        export_kw = result.sweep_cost(
+            grid_export[0], [-price * hours[0] for price in export_prices]
+        )
+        offer_curve_import: list[tuple[float, float]] | None = list(
+            zip(import_prices, import_kw, strict=True)
+        )
+        offer_curve_export: list[tuple[float, float]] | None = list(
+            zip(export_prices, export_kw, strict=True)
+        )
+        offer_curve_sweep_seconds: float | None = time.monotonic() - _offer_curve_start
+        _LOGGER.debug(
+            "Nimbus network.py: offer curve sweep took %.4fs (%d import + %d export steps)",
+            offer_curve_sweep_seconds,
+            len(import_prices),
+            len(export_prices),
+        )
+    else:
+        offer_curve_import = None
+        offer_curve_export = None
+        offer_curve_sweep_seconds = None
+
     solar_used_arr = _get(solar_used)
     grid_import_excess_arr = _get(grid_import_excess)
     # mypy issue #384: export_bonus is list[str] | None -- restructured
@@ -2469,4 +2576,7 @@ def build_plan(
         batteries=plan_batteries,
         grid_signals=grid_signals,
         battery_signals=plan_battery_signals,
+        offer_curve_import=offer_curve_import,
+        offer_curve_export=offer_curve_export,
+        offer_curve_sweep_seconds=offer_curve_sweep_seconds,
     )

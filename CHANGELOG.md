@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.221] — 2026-09-09
+
+### Added
+- **Offer curve: a real period-0 demand-response bid ladder** (nimbus issue #494, Signals 5/7 of #489, Mark Purcell's own proposal from HAEO #433). Opt-in via a new `switch.nimbus_solver_offer_curve_enabled` toggle (default off — this is a real extra solver pass, not free). When on, sweeps period 0's import/export cost coefficients over a 7-point $/kWh grid (`-1.00`, `retail×-3`, `retail×-1`, `0`, `retail`, `retail×3`, `20.00`) via a new warm-started re-solve mechanism (`solver/lp.py`'s `LPResult.sweep_cost()`, `LPProblem.solve(keep_basis=True)`) — several real `(price, kW)` steps, not just one `(band_min, band_max)` at the current price the way #491's own signals already give. Published on `sensor.nimbus_offer_curve` (`import_curve`/`export_curve`/`sweep_seconds` attributes) and `Plan.offer_curve_import`/`offer_curve_export`/`offer_curve_sweep_seconds`.
+
+  Verified directly against #494's own acceptance text: the import curve reads 0 kW at $20, monotonically non-increasing as price rises (mirrored for export, non-decreasing); the curve's own value at the current retail price equals the main plan's real period-0 import/export exactly (by construction — the sweep's "retail" anchor is the same `effective_import_price[0]`/`effective_export_price[0]` coefficient the LP's own main solve already used); total sweep time measured well under the 0.5s reference-grid budget (a handful of milliseconds — each step is a warm-started re-optimize from the already-loaded optimal basis, not a cold solve); the switch off leaves `Plan.offer_curve_import`/`export` at `None` with zero extra solves.
+
 ## [0.94.220] — 2026-09-09
 
 ### Added
