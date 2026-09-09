@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.219] — 2026-09-09
+
+### Fixed
+- **Price-triggered on-demand solves now watch only the primary import price sensor, not every configured price sensor** (nimbus issue #651, Mark Purcell — sub-issue of #635, closes #635's own remaining residual). Secondary/tertiary import and export price sources (`_2`/`_3` and export slots) update on their own schedule, typically offset by a minute or so from the primary retailer's real settlement boundary — watching them for the solve trigger created an extra, off-boundary solve every cycle whose sub-5-minute (tier-0) periods have no proximal tether to the plan before or after them, landing on an arbitrary LP vertex. Confirmed live on Mark's install: `sensor.nimbus_solver_energy_shadow_price_now` and the battery setpoint swinging hard (10-30 kW, 5x shadow-price change) for 3-4 minutes every 5-minute slot with no real price change behind it. Those secondary/tertiary sources still feed the LP as real inputs on every regular solve — this only changes what triggers an *extra*, off-cycle one. Removes the off-boundary solve entirely, so there's no tier-0 grid left to misalign in the first place; also reduces the "three solves per slot" cadence documented in #633.
+
 ## [0.94.218] — 2026-09-09
 
 ### Added

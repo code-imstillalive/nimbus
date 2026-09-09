@@ -72,7 +72,6 @@ from custom_components.nimbus_load.const import (
     CONF_SOLVER_EXPORT_PRICE_SENSOR_2,
     CONF_SOLVER_IMPORT_PRICE_SENSOR,
     CONF_SOLVER_IMPORT_PRICE_SENSOR_2,
-    CONF_SOLVER_IMPORT_PRICE_SENSOR_3,
 )
 
 
@@ -120,23 +119,25 @@ def _reset_module_state() -> None:
     _price_watcher_unload_hooked.clear()
 
 
-def test_configured_price_sensors_returns_only_populated_entries():
+def test_configured_price_sensors_returns_only_the_primary_import_sensor():
+    """nimbus issue #651 (Mark Purcell): secondary/tertiary import and
+    ALL export price sensors must NOT trigger the on-demand solve --
+    only the primary import sensor does. Those secondary sources still
+    feed the LP as inputs on every regular solve; watching them here too
+    was creating an extra, off-boundary solve whose tier-0 periods land
+    on an arbitrary untethered vertex (issue #635's own residual).
+    """
     entry = _fake_entry(
         "e",
         {
             CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_a",
-            CONF_SOLVER_IMPORT_PRICE_SENSOR_2: None,  # unset
-            CONF_SOLVER_IMPORT_PRICE_SENSOR_3: "",  # cleared
+            CONF_SOLVER_IMPORT_PRICE_SENSOR_2: "sensor.import_b",
             CONF_SOLVER_EXPORT_PRICE_SENSOR: "sensor.export_a",
             CONF_SOLVER_EXPORT_PRICE_SENSOR_2: "sensor.export_b",
         },
     )
 
-    assert _configured_price_sensors(entry) == (
-        "sensor.import_a",
-        "sensor.export_a",
-        "sensor.export_b",
-    )
+    assert _configured_price_sensors(entry) == ("sensor.import_a",)
 
 
 def test_configured_price_sensors_returns_empty_tuple_when_nothing_set():
@@ -181,7 +182,7 @@ def test_toggle_off_with_no_price_sensors_configured_is_a_noop():
     entry.async_on_unload.assert_not_called()
 
 
-def test_toggle_on_registers_a_listener_on_every_configured_price_sensor():
+def test_toggle_on_registers_a_listener_on_only_the_primary_import_sensor():
     _reset_module_state()
     hass = _fake_hass()
     entry = _fake_entry(
@@ -204,21 +205,13 @@ def test_toggle_on_registers_a_listener_on_every_configured_price_sensor():
     track_event.assert_called_once()
     called_hass, called_entities, called_callback = track_event.call_args.args
     assert called_hass is hass
-    assert called_entities == [
-        "sensor.import_a",
-        "sensor.import_b",
-        "sensor.export_a",
-    ]
+    assert called_entities == ["sensor.import_a"]
     assert callable(called_callback)
     # The unsub registered with entry.async_on_unload wraps fake_unsub;
     # it isn't the raw one, but the combined wrapper that also cancels
     # any pending debounced solve on unload.
     assert entry.async_on_unload.call_count == 1
-    assert _price_watcher_entities["entry_on"] == (
-        "sensor.import_a",
-        "sensor.import_b",
-        "sensor.export_a",
-    )
+    assert _price_watcher_entities["entry_on"] == ("sensor.import_a",)
 
 
 def test_reconfigure_with_same_entities_is_a_noop_no_reregister():
@@ -306,8 +299,7 @@ def test_reconfigure_with_new_price_sensor_tears_down_and_re_registers():
             _fake_entry(
                 "entry_changed_sensors",
                 {
-                    CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_a",
-                    CONF_SOLVER_IMPORT_PRICE_SENSOR_2: "sensor.import_b",  # new
+                    CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_b",  # new
                     CONF_SOLVE_ON_PRICE_CHANGE: True,
                 },
             ),
@@ -315,10 +307,47 @@ def test_reconfigure_with_new_price_sensor_tears_down_and_re_registers():
 
     assert track_event.call_count == 2
     old_unsub.assert_called_once()
-    assert _price_watcher_entities["entry_changed_sensors"] == (
-        "sensor.import_a",
-        "sensor.import_b",
-    )
+    assert _price_watcher_entities["entry_changed_sensors"] == ("sensor.import_b",)
+
+
+def test_reconfigure_with_only_secondary_import_sensor_changed_is_a_noop():
+    """nimbus issue #651: the _2 secondary import sensor still feeds the
+    LP as a real input, it just doesn't drive the on-demand-solve
+    trigger set any more -- changing ONLY it must not tear down and
+    re-register the listener.
+    """
+    _reset_module_state()
+    hass = _fake_hass()
+    fake_unsub = MagicMock()
+
+    with patch(
+        "custom_components.nimbus_load.async_track_state_change_event",
+        return_value=fake_unsub,
+    ) as track_event:
+        _configure_price_watcher(
+            hass,
+            _fake_entry(
+                "entry_secondary_only",
+                {
+                    CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_a",
+                    CONF_SOLVE_ON_PRICE_CHANGE: True,
+                },
+            ),
+        )
+        _configure_price_watcher(
+            hass,
+            _fake_entry(
+                "entry_secondary_only",
+                {
+                    CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_a",
+                    CONF_SOLVER_IMPORT_PRICE_SENSOR_2: "sensor.import_b",
+                    CONF_SOLVE_ON_PRICE_CHANGE: True,
+                },
+            ),
+        )
+
+    track_event.assert_called_once()
+    fake_unsub.assert_not_called()
 
 
 def test_debounce_coalesces_a_burst_of_state_changes_into_one_solve():
