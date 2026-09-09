@@ -124,6 +124,16 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # Private helper called only by build_controllable_loads (already
         # listed above) -- same native-only reasoning, not a separate gap.
         "_resolve_hour_to_period_index",
+        # nimbus issue #612: same native-only reasoning as
+        # _resolve_hour_to_period_index just above -- both are called
+        # only from build_controllable_loads()'s own deferrable-load
+        # branch (reads real ConfigSubentries), which already has no
+        # standalone/cron equivalent. _period_index_for_instant is
+        # _resolve_hour_to_period_index's own factored-out index-search
+        # core; _build_daily_adequacy_windows builds the repeating daily
+        # windows a same-day-shaped deferrable load now gets.
+        "_period_index_for_instant",
+        "_build_daily_adequacy_windows",
         # nimbus issue #479: samples a Controllable Load's real power
         # sensor into custom_components/nimbus_load/load_run_state.py's
         # own Store -- reads homeassistant.helpers.storage.Store and

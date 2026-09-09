@@ -7187,6 +7187,32 @@ def publish_plan(
     )
 
 
+def _period_index_for_instant(
+    grid_times: list[datetime], target: datetime, *, is_deadline: bool
+) -> int:
+    """The real index-search core of _resolve_hour_to_period_index() --
+    factored out (nimbus issue #612) so a caller that already has a
+    concrete instant in hand (a specific calendar day's own earliest/
+    deadline moment, not "the next occurrence from now") can reuse the
+    exact same search/clamp semantics without going through that
+    function's own "roll to the next occurrence from now" step first.
+    See _resolve_hour_to_period_index's own docstring for what
+    is_deadline=True/False each mean and why -- unchanged here."""
+    n = len(grid_times)
+    if is_deadline:
+        idx = 0
+        for i, t in enumerate(grid_times):
+            if t <= target:
+                idx = i
+            else:
+                break
+        return idx
+    for i, t in enumerate(grid_times):
+        if t >= target:
+            return i
+    return n - 1
+
+
 def _resolve_hour_to_period_index(
     grid_times: list[datetime], now: datetime, hour: float, *, is_deadline: bool
 ) -> int:
@@ -7216,19 +7242,7 @@ def _resolve_hour_to_period_index(
     )
     if target < now:
         target += timedelta(days=1)
-    n = len(grid_times)
-    if is_deadline:
-        idx = 0
-        for i, t in enumerate(grid_times):
-            if t <= target:
-                idx = i
-            else:
-                break
-        return idx
-    for i, t in enumerate(grid_times):
-        if t >= target:
-            return i
-    return n - 1
+    return _period_index_for_instant(grid_times, target, is_deadline=is_deadline)
 
 
 # nimbus issue #535: log the W->kW scaling hint once per power_sensor
@@ -7477,6 +7491,88 @@ def _evaluate_done_condition(done_entity: str, done_when: str | None) -> bool | 
         return None
 
 
+def _build_daily_adequacy_windows(
+    grid_times: list[datetime],
+    now: datetime,
+    earliest_hour: float,
+    deadline_hour: float,
+    target_kwh: float,
+    *,
+    today_delivered_kwh: float,
+    today_done: bool,
+) -> list:
+    """nimbus issue #612: builds one elements.AdequacyWindow per real
+    calendar-day occurrence of [earliest_hour, deadline_hour] that fits
+    (even partially) within grid_times' own horizon -- so a deferrable
+    load owes its own target_kwh FRESH every day, not just once wherever
+    the single "next occurrence from now" window happens to land (the
+    bug: `plan_forecast` reading 0.0 for every day past the first).
+
+    Only ever called for the same-day window shape (deadline_hour >=
+    earliest_hour) -- see this function's own caller for why a genuine
+    overnight window falls through to the pre-#612 single-window path
+    instead.
+
+    Day 0 (today) gets the #582 same-day-in-progress treatment (earliest
+    resolves to "right now" if the window already opened) plus the
+    #626/#480 treatment (today_delivered_kwh reduces its own target;
+    today_done, or today's window having already fully closed for the
+    day, drops it from the list entirely). Day 1 onward always get the
+    FULL, unreduced target_kwh -- "delivered today"/"done" only ever
+    speak to today's own run, never a future day's.
+    """
+    try:
+        from . import load_run_state
+        from .solver import elements
+    except ImportError:
+        import load_run_state
+        from solver import elements
+
+    windows: list = []
+    if not grid_times:
+        return windows
+    last_grid_time = grid_times[-1]
+    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    day = 0
+    while True:
+        earliest_today = midnight + timedelta(days=day, hours=earliest_hour)
+        if earliest_today > last_grid_time:
+            break
+        deadline_today = midnight + timedelta(days=day, hours=deadline_hour)
+        if day == 0:
+            day_target_kwh = load_run_state.remaining_kwh(
+                target_kwh=target_kwh, delivered_today_kwh=today_delivered_kwh
+            )
+            if now > deadline_today or today_done or day_target_kwh <= 0.0:
+                day += 1
+                continue
+            earliest_period = (
+                0
+                if earliest_today <= now <= deadline_today
+                else _period_index_for_instant(
+                    grid_times, earliest_today, is_deadline=False
+                )
+            )
+        else:
+            earliest_period = _period_index_for_instant(
+                grid_times, earliest_today, is_deadline=False
+            )
+            day_target_kwh = target_kwh
+        deadline_period = _period_index_for_instant(
+            grid_times, deadline_today, is_deadline=True
+        )
+        if deadline_period >= earliest_period:
+            windows.append(
+                elements.AdequacyWindow(
+                    earliest_period=earliest_period,
+                    deadline_period=deadline_period,
+                    target_kwh=day_target_kwh,
+                )
+            )
+        day += 1
+    return windows
+
+
 def build_controllable_loads(
     now: datetime,
     grid_times: list[datetime],
@@ -7629,8 +7725,8 @@ def build_controllable_loads(
             )
         elif kind == CONTROLLABLE_LOAD_KIND_DEFERRABLE:
             max_power_kw = float(data.get(CONF_DEFERRABLE_MAX_POWER_KW) or 0.0)
-            target_kwh = float(data.get(CONF_DEFERRABLE_TARGET_KWH) or 0.0)
-            if max_power_kw <= 0.0 or target_kwh <= 0.0:
+            target_kwh_config = float(data.get(CONF_DEFERRABLE_TARGET_KWH) or 0.0)
+            if max_power_kw <= 0.0 or target_kwh_config <= 0.0:
                 _LOGGER.warning(
                     "Nimbus: controllable load '%s' (deferrable) is missing "
                     "max_power_kw/target_kwh -- skipping this cycle",
@@ -7639,10 +7735,10 @@ def build_controllable_loads(
                 continue
             # nimbus issue #626 (Mark Purcell, real repro: 1.48 of 2.0 kWh
             # already delivered at 13:05, plan still scheduled 1.99 kWh
-            # more): this branch used to pass the raw configured
-            # target_kwh straight to AdequacyLoadConfig on every solve,
-            # with nothing anywhere reducing it by what run_state_sample
-            # (just taken, above) already shows was delivered today --
+            # more): this used to pass the raw configured target_kwh
+            # straight to AdequacyLoadConfig on every solve, with nothing
+            # anywhere reducing it by what run_state_sample (just taken,
+            # above) already shows was delivered today --
             # `load_run_state.remaining_kwh()` existed and was unit-
             # tested since #479 but was never actually called from here.
             # Only trust run_state_sample's own delivered_today_kwh when
@@ -7651,15 +7747,98 @@ def build_controllable_loads(
             # day change, so a mismatch here only means the sample call
             # above failed/no-op'd (see its own docstring), and 0.0
             # (today's config-target behaviour, unchanged) is the correct
-            # fail-open default rather than guessing.
+            # fail-open default rather than guessing. Only ever speaks to
+            # TODAY's own run -- see _build_daily_adequacy_windows() for
+            # why a future day's window always gets the full,
+            # config-configured target_kwh regardless of this value.
             delivered_today_kwh = (
                 run_state_sample.delivered_today_kwh
                 if run_state_sample is not None
                 and run_state_sample.day_key == run_state_day_key
                 else 0.0
             )
+            earliest_hour = data.get(CONF_DEFERRABLE_EARLIEST_HOUR)
+            deadline_hour = data.get(CONF_DEFERRABLE_DEADLINE_HOUR)
+            # nimbus issue #480: a done_entity that currently reports DONE
+            # means TODAY's real requirement is already satisfied -- fail-
+            # open (None/malformed/unavailable) is treated as NOT done,
+            # same as _evaluate_done_condition()'s own contract; only ever
+            # speaks to today, same reasoning as delivered_today_kwh above.
+            done_entity = data.get(CONF_DEFERRABLE_DONE_ENTITY)
+            today_done = bool(
+                done_entity
+                and _evaluate_done_condition(
+                    done_entity, data.get(CONF_DEFERRABLE_DONE_WHEN)
+                )
+            )
+            value_per_kwh = data.get(CONF_DEFERRABLE_VALUE_PER_KWH)
+            shortfall_price = float(
+                data.get(CONF_DEFERRABLE_SHORTFALL_PRICE)
+                or elements.DEFAULT_ADEQUACY_SHORTFALL_PRICE
+            )
+
+            # nimbus issue #612 (Mark Purcell, real repro: plan_forecast
+            # is 0.0 for 10-13 Sep because a load's target only ever
+            # applied to whichever single day the "next occurrence from
+            # now" window happened to land on): a load with BOTH
+            # earliest/deadline hours set, in the ordinary same-day shape
+            # (deadline_hour >= earliest_hour), owes its own fresh
+            # target_kwh EVERY calendar day within the horizon, not just
+            # once. A genuine overnight window (deadline_hour <
+            # earliest_hour, e.g. earliest=22/deadline=6) is a different,
+            # not-yet-validated recurring shape -- falls through to the
+            # single-window path below unchanged, same as a load missing
+            # either hour entirely.
+            if (
+                earliest_hour is not None
+                and deadline_hour is not None
+                and float(deadline_hour) >= float(earliest_hour)
+            ):
+                windows = _build_daily_adequacy_windows(
+                    grid_times,
+                    now,
+                    float(earliest_hour),
+                    float(deadline_hour),
+                    target_kwh_config,
+                    today_delivered_kwh=delivered_today_kwh,
+                    today_done=today_done,
+                )
+                if not windows:
+                    _LOGGER.info(
+                        "Nimbus: controllable load '%s' (deferrable) has no "
+                        "real window left in this cycle's own horizon -- "
+                        "skipping (today's own target already met/done, and "
+                        "no future day's window fits inside the horizon)",
+                        name,
+                    )
+                    continue
+                first = windows[0]
+                adequacy_loads.append(
+                    elements.AdequacyLoadConfig(
+                        name=name,
+                        max_power_kw=max_power_kw,
+                        # Required legacy fields, unused for LP construction
+                        # once `windows` is set (see AdequacyLoadConfig's own
+                        # docstring) -- populated from the first real window
+                        # so they still describe something true rather than
+                        # an arbitrary placeholder.
+                        target_kwh=first.target_kwh,
+                        deadline_period=first.deadline_period,
+                        earliest_period=first.earliest_period,
+                        shortfall_price=shortfall_price,
+                        value_per_kwh=float(value_per_kwh)
+                        if value_per_kwh is not None
+                        else None,
+                        subentry_id=subentry.subentry_id,
+                        windows=tuple(windows),
+                    )
+                )
+                continue
+
+            # ---- Single-window path: a load missing one/both hours, or
+            # a genuine overnight window -- unchanged from before #612.
             target_kwh = load_run_state.remaining_kwh(
-                target_kwh=target_kwh, delivered_today_kwh=delivered_today_kwh
+                target_kwh=target_kwh_config, delivered_today_kwh=delivered_today_kwh
             )
             if target_kwh <= 0.0:
                 _LOGGER.info(
@@ -7668,11 +7847,9 @@ def build_controllable_loads(
                     "-- releasing the remainder of this window's schedule",
                     name,
                     delivered_today_kwh,
-                    float(data.get(CONF_DEFERRABLE_TARGET_KWH) or 0.0),
+                    target_kwh_config,
                 )
                 continue
-            earliest_hour = data.get(CONF_DEFERRABLE_EARLIEST_HOUR)
-            deadline_hour = data.get(CONF_DEFERRABLE_DEADLINE_HOUR)
             earliest_period = (
                 _resolve_hour_to_period_index(
                     grid_times, now, float(earliest_hour), is_deadline=False
@@ -7744,10 +7921,7 @@ def build_controllable_loads(
             # else (no done_entity configured, entity unavailable, a
             # malformed done_when) -- _evaluate_done_condition() only
             # ever returns True when it's genuinely confident.
-            done_entity = data.get(CONF_DEFERRABLE_DONE_ENTITY)
-            if done_entity and _evaluate_done_condition(
-                done_entity, data.get(CONF_DEFERRABLE_DONE_WHEN)
-            ):
+            if today_done:
                 _LOGGER.info(
                     "Nimbus: controllable load '%s' (deferrable) reports "
                     "done via %s -- releasing the remainder of this "
@@ -7756,7 +7930,6 @@ def build_controllable_loads(
                     done_entity,
                 )
                 continue
-            value_per_kwh = data.get(CONF_DEFERRABLE_VALUE_PER_KWH)
             adequacy_loads.append(
                 elements.AdequacyLoadConfig(
                     name=name,
@@ -7764,10 +7937,7 @@ def build_controllable_loads(
                     target_kwh=target_kwh,
                     deadline_period=deadline_period,
                     earliest_period=earliest_period,
-                    shortfall_price=float(
-                        data.get(CONF_DEFERRABLE_SHORTFALL_PRICE)
-                        or elements.DEFAULT_ADEQUACY_SHORTFALL_PRICE
-                    ),
+                    shortfall_price=shortfall_price,
                     value_per_kwh=float(value_per_kwh)
                     if value_per_kwh is not None
                     else None,
