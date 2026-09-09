@@ -37,12 +37,18 @@ BASE = datetime(2026, 1, 1, tzinfo=UTC)
 
 
 def _reference_align(periods: PeriodGrid, previous_plan: Plan | None) -> dict[int, int]:
-    """Independent reimplementation of the ORIGINAL nested-loop algorithm
-    -- the correctness oracle this test compares the real, optimized
-    `_align_previous_periods()` against. Deliberately duplicated here
-    (not imported) so a future accidental change to BOTH the real
-    function and this file in the same way can't silently agree with
-    itself.
+    """Independent reimplementation of the CURRENT algorithm's own
+    selection rule (nimbus issue #635: overlap/containment, not exact-
+    start matching -- see _align_previous_periods()'s own docstring for
+    the full "why") as a plain O(n*m) restart-from-zero scan, not the
+    real two-pointer merge -- the correctness oracle this test compares
+    the real, optimized `_align_previous_periods()` against. Deliberately
+    duplicated here (not imported) so a future accidental change to BOTH
+    the real function and this file in the same way can't silently agree
+    with itself. Restarting `old_idx` from 0 for every new period (rather
+    than carrying it forward like the real two-pointer does) is what
+    keeps this a genuinely independent-of-the-optimization check, while
+    still selecting exactly the same old period the real function would.
     """
     if previous_plan is None or not previous_plan.is_optimal:
         return {}
@@ -50,12 +56,24 @@ def _reference_align(periods: PeriodGrid, previous_plan: Plan | None) -> dict[in
     old_starts = previous_plan.periods.period_starts
     if new_starts is None or old_starts is None:
         return {}
+    old_hours = previous_plan.periods.hours
     mapping: dict[int, int] = {}
+    n_old = len(old_starts)
     for new_idx, new_t in enumerate(new_starts):
-        for old_idx, old_t in enumerate(old_starts):
-            if abs(new_t - old_t) <= _ALIGNMENT_TOLERANCE:
-                mapping[new_idx] = old_idx
-                break
+        old_idx = 0
+        while (
+            old_idx < n_old - 1
+            and old_starts[old_idx] + timedelta(hours=float(old_hours[old_idx]))
+            <= new_t + _ALIGNMENT_TOLERANCE
+        ):
+            old_idx += 1
+        old_end = old_starts[old_idx] + timedelta(hours=float(old_hours[old_idx]))
+        if (
+            old_starts[old_idx] - _ALIGNMENT_TOLERANCE
+            <= new_t
+            < old_end + _ALIGNMENT_TOLERANCE
+        ):
+            mapping[new_idx] = old_idx
     return mapping
 
 
@@ -149,14 +167,70 @@ class TestMatchesReferenceNestedLoop(unittest.TestCase):
         self.assertEqual(actual, expected)
         self.assertEqual(actual, {i: i for i in range(10)})
 
-    def test_just_past_tolerance_boundary_does_not_match(self):
+    def test_just_past_start_tolerance_still_matches_via_containment(self):
+        # nimbus issue #635: a shift just past _ALIGNMENT_TOLERANCE used
+        # to produce NO match at all under the old exact-start-only rule
+        # -- under overlap/containment, a ~1-second-off period start is
+        # still well within the same 5-minute old period's own interval,
+        # so it correctly tethers to it instead of going untethered.
         old = _grid(10, BASE)
         new = _grid(10, BASE + _ALIGNMENT_TOLERANCE + timedelta(microseconds=1))
         prev = _optimal_plan(old)
         expected = _reference_align(new, prev)
         actual = _align_previous_periods(new, prev)
         self.assertEqual(actual, expected)
-        self.assertEqual(actual, {})
+        self.assertEqual(actual, {i: i for i in range(10)})
+
+    def test_shift_beyond_a_whole_period_width_produces_no_match(self):
+        # A genuinely different real period, well past containment: the
+        # boundary this project's own alignment tolerance is actually
+        # meant to guard.
+        old = _grid(10, BASE, step_minutes=5.0)
+        new = _grid(10, BASE + timedelta(minutes=5), step_minutes=5.0)
+        prev = _optimal_plan(old)
+        expected = _reference_align(new, prev)
+        actual = _align_previous_periods(new, prev)
+        self.assertEqual(actual, expected)
+        # new[0] aligns to old[1] (exact next-period start), not old[0].
+        self.assertEqual(actual[0], 1)
+
+    def test_tier0_mid_slot_periods_tether_to_the_5min_period_they_fall_inside(self):
+        """nimbus issue #635 (Mark Purcell): the actual reported bug,
+        reconstructed from two real consecutive captured plans. Plan A
+        (cron-triggered, boundary-aligned): 5-minute periods starting
+        17:25, 17:30, ... Plan B (mid-slot, triggered a minute later by
+        a second price source per #633): tier-0 1-minute periods 17:26,
+        17:27, 17:28, 17:29, THEN back onto the 5-minute grid at 17:30.
+
+        Before this fix, 17:26-17:29 got no alignment entry at all (no
+        old period started at those exact instants) -- proximal
+        regularization was silently off for exactly them, and the LP
+        parked an arbitrary vertex (the 25 kW power limit) there. After
+        the fix, all four now tether to Plan A's own 17:25 period (the
+        5-minute window they each fall inside), the same stabilizing
+        pressure every boundary-aligned period already gets.
+        """
+        old = PeriodGrid(
+            hours=np.full(4, 5.0 / 60.0), start=datetime(2026, 9, 9, 17, 25, tzinfo=UTC)
+        )
+        new_hours = np.array(
+            [1.0 / 60.0, 1.0 / 60.0, 1.0 / 60.0, 1.0 / 60.0, 5.0 / 60.0]
+        )
+        new = PeriodGrid(
+            hours=new_hours, start=datetime(2026, 9, 9, 17, 26, tzinfo=UTC)
+        )
+        prev = _optimal_plan(old)
+        expected = _reference_align(new, prev)
+        actual = _align_previous_periods(new, prev)
+        self.assertEqual(actual, expected)
+        # 17:26, 17:27, 17:28, 17:29 all fall inside old period 0
+        # (17:25-17:30) -- all four tether to it.
+        self.assertEqual(actual[0], 0)
+        self.assertEqual(actual[1], 0)
+        self.assertEqual(actual[2], 0)
+        self.assertEqual(actual[3], 0)
+        # 17:30 exact-matches old period 1 (17:30-17:35), same as before.
+        self.assertEqual(actual[4], 1)
 
     def test_random_shifts_agree_with_reference_across_many_trials(self):
         rng = random.Random(42)
