@@ -129,20 +129,14 @@ class TestIsTankDone(unittest.TestCase):
         self.assertIsNone(dc.is_tank_done(52.0, "sixty"))
 
     def test_unset_done_when_falls_back_to_setpoint(self):
-        self.assertTrue(
-            dc.is_tank_done(60.0, None, setpoint_temperature=60.0)
-        )
-        self.assertFalse(
-            dc.is_tank_done(52.0, None, setpoint_temperature=60.0)
-        )
+        self.assertTrue(dc.is_tank_done(60.0, None, setpoint_temperature=60.0))
+        self.assertFalse(dc.is_tank_done(52.0, None, setpoint_temperature=60.0))
 
     def test_unset_done_when_and_no_setpoint_is_unknown(self):
         self.assertIsNone(dc.is_tank_done(52.0, None))
 
     def test_non_numeric_setpoint_is_unknown_not_a_crash(self):
-        self.assertIsNone(
-            dc.is_tank_done(52.0, None, setpoint_temperature="unknown")
-        )
+        self.assertIsNone(dc.is_tank_done(52.0, None, setpoint_temperature="unknown"))
 
 
 if __name__ == "__main__":
