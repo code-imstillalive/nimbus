@@ -6,6 +6,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.206] — 2026-09-09
+
+### Fixed
+- **Deferrable load target applied only to the first day of the 96h horizon** (nimbus issue #612, Mark Purcell — real repro: `plan_forecast` reads 0.0 for 10–13 Sep on a load with a same-day 6am–4pm window, so the tank temperature forecast decays to 12°C by Sunday and later days' battery plans ignore the daily 2 kWh target entirely; the 4th and final finding of the #608 umbrella, deliberately deferred out of #609/#610/#611's own fix pass as a separate, larger architectural gap). Root cause: `_resolve_hour_to_period_index()` always resolves "the next real occurrence of this hour from `now`" — so a load's `earliest_period`/`deadline_period`/`target_kwh` only ever covered ONE day somewhere in the horizon, never a second, third, or fourth occurrence.
+
+  `AdequacyLoadConfig` gains an optional `windows` field (a tuple of `AdequacyWindow(earliest_period, deadline_period, target_kwh)`) that, when set, replaces the single earliest/deadline/target triple for both the LP's per-period power bound and its deadline constraint — one independent cumulative-energy constraint and shortfall slack PER window, so a later day's target can never be satisfied by an earlier day's already-delivered energy (verified directly: forcing day 1 to overshoot its own target does not excuse day 2 from independently meeting its own). `build_controllable_loads()` now builds one window per real calendar-day occurrence of a same-day-shaped window (`deadline_hour >= earliest_hour`) that fits within the horizon, applying the #626 delivered-today reduction and #480 done-entity release to TODAY's window only — a future day's target is always the full, unreduced configured amount. A genuine overnight window (`deadline_hour < earliest_hour`) or a load missing either hour falls through to the pre-#612 single-window path completely unchanged.
+
+  As a direct consequence, this also resolves #608's own 4th finding — `thermal_forecast.py` already walks `plan_forecast` directly, so a load's tank-temperature forecast now shows real projected reheat activity on future days instead of decaying to nothing, with no changes needed in that module at all.
+
+  22 new tests (LP-level independence/shortfall/credit-cap proofs in `network.py`, `AdequacyWindow`/`AdequacyLoadConfig` validation, and the `build_controllable_loads()`/`_build_daily_adequacy_windows()` wiring), plus assertions added to existing tests confirming the pre-#612 single-window path (overnight windows, a load missing one hour) is completely unaffected. Full suite green, zero regressions.
+
 ## [0.94.205] — 2026-09-09
 
 ### Fixed

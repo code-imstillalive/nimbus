@@ -202,6 +202,17 @@ class TestBuildControllableLoads(unittest.TestCase):
         # period index 12 (00:00 + 12*30min).
         self.assertEqual(load.earliest_period, 2)
         self.assertEqual(load.deadline_period, 12)
+        # nimbus issue #612: earliest/deadline hours both set (same-day
+        # shape) -- this load now goes through the recurring-window
+        # path. Only one real window fits in this 24h-only synthetic
+        # grid (day+1's own 1am earliest is beyond it), but `windows`
+        # must still be populated (not None) rather than silently
+        # falling back to the pre-#612 single-window shape.
+        self.assertIsNotNone(load.windows)
+        self.assertEqual(len(load.windows), 1)
+        self.assertEqual(load.windows[0].earliest_period, 2)
+        self.assertEqual(load.windows[0].deadline_period, 12)
+        self.assertEqual(load.windows[0].target_kwh, 5.0)
 
     def test_deferrable_load_is_scheduled_when_now_is_inside_its_daytime_window(self):
         # nimbus issue #582 (Mark Purcell, first live morning of #534):
@@ -282,6 +293,11 @@ class TestBuildControllableLoads(unittest.TestCase):
         self.assertGreater(adequacy[0].earliest_period, 0)
         earliest_target = datetime(2026, 9, 9, 6, 0, tzinfo=_TZ)
         self.assertLessEqual(grid_times[adequacy[0].earliest_period], earliest_target)
+        # nimbus issue #612: a real 96h tiered grid fits multiple days of
+        # this same-day-shaped window -- windows must be populated with
+        # more than just today's.
+        self.assertIsNotNone(adequacy[0].windows)
+        self.assertGreaterEqual(len(adequacy[0].windows), 3)
 
     def test_overnight_window_still_resolves_normally_before_it_opens(self):
         # The genuine overnight case (earliest=22, deadline=6) the
@@ -312,6 +328,11 @@ class TestBuildControllableLoads(unittest.TestCase):
         )
         self.assertEqual(len(adequacy), 1, "genuine overnight case must still resolve")
         self.assertLess(adequacy[0].earliest_period, adequacy[0].deadline_period)
+        # nimbus issue #612: an overnight window (deadline < earliest)
+        # falls through to the pre-#612 single-window path unchanged --
+        # windows must stay None, not attempt the same-day recurring
+        # treatment on a shape it was never validated against.
+        self.assertIsNone(adequacy[0].windows)
 
     def test_deferrable_value_per_kwh_carried_through_when_set(self):
         now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
@@ -378,6 +399,36 @@ class TestBuildControllableLoads(unittest.TestCase):
         )
         self.assertEqual(sheddable, [])
         self.assertEqual(adequacy, [])
+
+    def test_deferrable_load_missing_deadline_hour_stays_single_window(self):
+        # nimbus issue #612: only earliest_hour set, no deadline_hour --
+        # no real day-boundary shape to repeat, must fall through to the
+        # pre-#612 single-window path (deadline_period defaults to the
+        # last period of the whole horizon) rather than attempting a
+        # recurring-window treatment with an undefined deadline.
+        now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
+        grid_times = _grid(now, 48, minutes=30)
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [
+                _fake_subentry(
+                    "s1",
+                    "controllable_load",
+                    {
+                        "controllable_load_name": "No Deadline",
+                        "controllable_load_kind": "deferrable",
+                        "deferrable_max_power_kw": 3.7,
+                        "deferrable_target_kwh": 5.0,
+                        "deferrable_earliest_hour": 1.0,
+                    },
+                )
+            ]
+        )
+        _, adequacy = solver_writer.build_controllable_loads(
+            now, grid_times, len(grid_times)
+        )
+        self.assertEqual(len(adequacy), 1)
+        self.assertIsNone(adequacy[0].windows)
+        self.assertEqual(adequacy[0].deadline_period, len(grid_times) - 1)
 
     def test_non_controllable_load_subentries_are_ignored(self):
         now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
@@ -687,6 +738,105 @@ class TestEvaluateDoneConditionAttributeDomains(unittest.TestCase):
             self.assertLogs(solver_writer._LOGGER, level="WARNING"),
         ):
             solver_writer._evaluate_done_condition("water_heater.hws", "hot")
+
+
+class TestBuildDailyAdequacyWindows(unittest.TestCase):
+    """nimbus issue #612: direct tests for _build_daily_adequacy_windows(),
+    the helper that gives a same-day-shaped deferrable load a fresh
+    target_kwh every calendar day within the horizon instead of once."""
+
+    def test_a_96h_horizon_produces_one_window_per_day(self):
+        now = datetime(2026, 9, 9, 3, 0, tzinfo=_TZ)  # before today's window opens
+        grid_times, _ = solver_writer.build_tiered_grid(now)
+        windows = solver_writer._build_daily_adequacy_windows(
+            grid_times,
+            now,
+            6.0,
+            16.0,
+            2.0,
+            today_delivered_kwh=0.0,
+            today_done=False,
+        )
+        # A 96h horizon starting at 03:00 covers today's window fully,
+        # plus 3 more full days -- 4 windows total.
+        self.assertEqual(len(windows), 4)
+        for w in windows:
+            self.assertEqual(w.target_kwh, 2.0)
+            self.assertGreaterEqual(w.deadline_period, w.earliest_period)
+
+    def test_todays_window_still_open_resolves_to_right_now(self):
+        # Same real repro as #582's own test: earliest=6, deadline=16,
+        # now=06:01 -- today's own window must start at period 0.
+        now = datetime(2026, 9, 9, 6, 1, tzinfo=_TZ)
+        grid_times, _ = solver_writer.build_tiered_grid(now)
+        windows = solver_writer._build_daily_adequacy_windows(
+            grid_times, now, 6.0, 16.0, 2.0, today_delivered_kwh=0.0, today_done=False
+        )
+        self.assertEqual(windows[0].earliest_period, 0)
+
+    def test_todays_window_already_closed_skips_to_tomorrow(self):
+        now = datetime(
+            2026, 9, 9, 20, 0, tzinfo=_TZ
+        )  # well past today's 16:00 deadline
+        grid_times, _ = solver_writer.build_tiered_grid(now)
+        windows = solver_writer._build_daily_adequacy_windows(
+            grid_times, now, 6.0, 16.0, 2.0, today_delivered_kwh=0.0, today_done=False
+        )
+        # First real window is TOMORROW's, not today's (which is gone).
+        first_window_start = grid_times[windows[0].earliest_period]
+        self.assertEqual(
+            first_window_start.date(), datetime(2026, 9, 10, tzinfo=_TZ).date()
+        )
+
+    def test_todays_delivered_energy_reduces_only_todays_window(self):
+        now = datetime(2026, 9, 9, 13, 5, tzinfo=_TZ)
+        grid_times, _ = solver_writer.build_tiered_grid(now)
+        windows = solver_writer._build_daily_adequacy_windows(
+            grid_times, now, 6.0, 16.0, 2.0, today_delivered_kwh=1.48, today_done=False
+        )
+        self.assertAlmostEqual(windows[0].target_kwh, 0.52, places=6)
+        # Every future day keeps the FULL, unreduced target.
+        for w in windows[1:]:
+            self.assertEqual(w.target_kwh, 2.0)
+
+    def test_todays_target_fully_met_drops_only_todays_window(self):
+        now = datetime(2026, 9, 9, 13, 5, tzinfo=_TZ)
+        grid_times, _ = solver_writer.build_tiered_grid(now)
+        windows = solver_writer._build_daily_adequacy_windows(
+            grid_times, now, 6.0, 16.0, 2.0, today_delivered_kwh=2.5, today_done=False
+        )
+        # No window starts on today's own date -- every one is a real
+        # future day (a 96h horizon from 13:05 reaches far enough into
+        # day+4 for its own 06:00 earliest to still qualify, even though
+        # its own 16:00 deadline gets clamped to the horizon's end).
+        self.assertGreaterEqual(len(windows), 3)
+        for w in windows:
+            self.assertEqual(w.target_kwh, 2.0)
+            self.assertGreater(grid_times[w.earliest_period].date(), now.date())
+
+    def test_today_done_drops_only_todays_window(self):
+        now = datetime(2026, 9, 9, 13, 5, tzinfo=_TZ)
+        grid_times, _ = solver_writer.build_tiered_grid(now)
+        windows = solver_writer._build_daily_adequacy_windows(
+            grid_times, now, 6.0, 16.0, 2.0, today_delivered_kwh=0.0, today_done=True
+        )
+        self.assertGreaterEqual(len(windows), 3)
+        for w in windows:
+            self.assertGreater(grid_times[w.earliest_period].date(), now.date())
+
+    def test_last_window_partially_beyond_the_horizon_is_clamped_not_dropped(self):
+        now = datetime(2026, 9, 9, 3, 0, tzinfo=_TZ)
+        # A short 7h horizon: today's 06:00 earliest fits, but its own
+        # 16:00 deadline runs well past the grid's own last period --
+        # must clamp to the last real period, not drop the window.
+        grid_times = _grid(now, 8, minutes=60)
+        windows = solver_writer._build_daily_adequacy_windows(
+            grid_times, now, 6.0, 16.0, 2.0, today_delivered_kwh=0.0, today_done=False
+        )
+        # Only today's window fits at all (a second day's own 06:00
+        # earliest, tomorrow, is well beyond this short horizon).
+        self.assertEqual(len(windows), 1)
+        self.assertEqual(windows[0].deadline_period, len(grid_times) - 1)
 
 
 class TestBuildControllableLoadsEarlyCompletion(unittest.TestCase):

@@ -909,6 +909,17 @@ def build_plan(
         if al.deadline_period >= n:
             msg = f"Adequacy load '{al.name}': deadline_period ({al.deadline_period}) is outside this PeriodGrid (0..{n - 1})"
             raise ValueError(msg)
+        # nimbus issue #612: same bounds check, per window -- elements.py
+        # can't check this at construction time either (no PeriodGrid to
+        # check against there, same reasoning as deadline_period above).
+        if al.windows is not None:
+            for i, w in enumerate(al.windows):
+                if w.deadline_period >= n:
+                    msg = (
+                        f"Adequacy load '{al.name}': windows[{i}].deadline_period "
+                        f"({w.deadline_period}) is outside this PeriodGrid (0..{n - 1})"
+                    )
+                    raise ValueError(msg)
     # nimbus issue #356 (Mark Purcell): elements.py's own BatteryConfig
     # validation checks terminal_value_period_indices for >= 0 and
     # duplicates, but can't check `< n` there -- it has no PeriodGrid to
@@ -1199,8 +1210,27 @@ def build_plan(
     # earliest_period<=t<=deadline_period window for this bound only --
     # see AdequacyLoadConfig's own docstring on why the deadline
     # constraint below still sums through deadline_period regardless.
+    # nimbus issue #612: `windows`, when given, replaces BOTH the single
+    # earliest/deadline pair above AND `allowed` for this bound -- a
+    # period is allowed to draw power if it falls inside ANY of the
+    # load's own windows (they're already validated non-overlapping and
+    # in order in AdequacyLoadConfig.__post_init__), 0 otherwise.
     adequacy_vars: dict[str, list[str]] = {}
     for al in adequacy_loads:
+        if al.windows is not None:
+            adequacy_vars[al.name] = [
+                p.add_variable(
+                    f"adequacy_{al.name}_{t}",
+                    lb=0.0,
+                    ub=al.max_power_kw
+                    if any(
+                        w.earliest_period <= t <= w.deadline_period for w in al.windows
+                    )
+                    else 0.0,
+                )
+                for t in range(n)
+            ]
+            continue
         adequacy_vars[al.name] = [
             p.add_variable(
                 f"adequacy_{al.name}_{t}",
@@ -1220,14 +1250,36 @@ def build_plan(
     # AdequacyLoadConfig's own docstring for the full "why" (matches
     # #390's grid_import_excess pattern). Bounded [0, target_kwh]: the
     # LP can never claim a shortfall larger than the target itself.
+    #
+    # nimbus issue #612: a windowed load gets its OWN shortfall slack
+    # per window instead (adequacy_window_shortfall_vars below) -- one
+    # window's own slack must never let a LATER window's target be met
+    # for free, which sharing a single slack across windows would allow.
+    # No single-load slack is created for a windowed load at all (it
+    # would be a real, unused, always-slack variable -- harmless to
+    # HiGHS but pointless to add).
     adequacy_shortfall_vars: dict[str, str] = {
         al.name: p.add_variable(
             f"adequacy_shortfall_{al.name}", lb=0.0, ub=al.target_kwh
         )
         for al in adequacy_loads
+        if al.windows is None
     }
     for al in adequacy_loads:
-        p.set_cost(adequacy_shortfall_vars[al.name], al.shortfall_price)
+        if al.windows is None:
+            p.set_cost(adequacy_shortfall_vars[al.name], al.shortfall_price)
+    adequacy_window_shortfall_vars: dict[str, list[str]] = {}
+    for al in adequacy_loads:
+        if al.windows is None:
+            continue
+        adequacy_window_shortfall_vars[al.name] = [
+            p.add_variable(
+                f"adequacy_shortfall_{al.name}_w{i}", lb=0.0, ub=w.target_kwh
+            )
+            for i, w in enumerate(al.windows)
+        ]
+        for var in adequacy_window_shortfall_vars[al.name]:
+            p.set_cost(var, al.shortfall_price)
         if al.value_per_kwh is not None:
             # nimbus issue #606 (Mark Purcell, real finding: a 0.65kW
             # heat pump with value_per_kwh configured would have run at
@@ -1274,9 +1326,20 @@ def build_plan(
                     name=f"adequacy_credit_le_power_{al.name}_{t}",
                 )
                 p.set_cost(credit_vars[t], -float(value_arr[t]) * hours[t])
+            # nimbus issue #612: a windowed load's real cumulative target
+            # across the whole horizon is the SUM of its own windows, not
+            # the single legacy target_kwh field (which windows replaces
+            # for bounding/deadline purposes elsewhere in this function)
+            # -- capping credit at the single-window figure here would
+            # under-cap a multi-day load's real earned credit.
+            credit_cap = (
+                sum(w.target_kwh for w in al.windows)
+                if al.windows is not None
+                else al.target_kwh
+            )
             p.add_ub_constraint(
                 {credit_vars[t]: hours[t] for t in range(n)},
-                al.target_kwh,
+                credit_cap,
                 name=f"adequacy_credit_cap_{al.name}",
             )
 
@@ -1911,6 +1974,25 @@ def build_plan(
     # per kWh short instead, a real priced tradeoff visible in the
     # output rather than a solver-wide failure.
     for al in adequacy_loads:
+        if al.windows is not None:
+            # nimbus issue #612: one constraint PER WINDOW, each summed
+            # ONLY over that window's own [earliest_period, deadline_period]
+            # range -- not from 0 like the single-window case just below.
+            # Windows are chronologically disjoint (validated in
+            # AdequacyLoadConfig.__post_init__), so summing a later
+            # window from 0 would double-count an earlier window's own
+            # already-delivered energy toward a target it was never
+            # meant to satisfy -- the whole point of #612 is that EACH
+            # day owes its own fresh target, not one target amortized
+            # across the full horizon.
+            for i, w in enumerate(al.windows):
+                window_range = range(w.earliest_period, w.deadline_period + 1)
+                terms = {adequacy_vars[al.name][t]: -hours[t] for t in window_range}
+                terms[adequacy_window_shortfall_vars[al.name][i]] = -1.0
+                p.add_ub_constraint(
+                    terms, -w.target_kwh, name=f"adequacy_deadline_{al.name}_w{i}"
+                )
+            continue
         window = range(al.deadline_period + 1)
         terms = {adequacy_vars[al.name][t]: -hours[t] for t in window}
         terms[adequacy_shortfall_vars[al.name]] = -1.0
@@ -1991,21 +2073,40 @@ def build_plan(
         )
         for sl in sheddable_loads
     ]
-    plan_adequacy = [
-        AdequacyLoadPlan(
-            name=al.name,
-            power_kw=(power_arr := _get(adequacy_vars[al.name])),
-            delivered_by_deadline_kwh=float(
+    plan_adequacy = []
+    for al in adequacy_loads:
+        power_arr = _get(adequacy_vars[al.name])
+        if al.windows is not None:
+            # nimbus issue #612: no single "the deadline" any more --
+            # delivered_by_deadline_kwh becomes the real total delivered
+            # across the WHOLE horizon (every window combined), and
+            # shortfall_kwh sums every window's own independent slack.
+            # Neither field is consumed downstream of network.py today
+            # (checked directly) beyond this aggregate-total shape, so
+            # this is a safe, honest generalization of the single-window
+            # meaning rather than a behavior-preserving requirement.
+            delivered_by_deadline_kwh = float(np.sum(power_arr * hours))
+            shortfall_kwh = sum(
+                p.value_of(result, var)
+                for var in adequacy_window_shortfall_vars[al.name]
+            )
+        else:
+            delivered_by_deadline_kwh = float(
                 np.sum(
                     power_arr[0 : al.deadline_period + 1]
                     * hours[0 : al.deadline_period + 1]
                 )
-            ),
-            shortfall_kwh=p.value_of(result, adequacy_shortfall_vars[al.name]),
-            subentry_id=al.subentry_id,
+            )
+            shortfall_kwh = p.value_of(result, adequacy_shortfall_vars[al.name])
+        plan_adequacy.append(
+            AdequacyLoadPlan(
+                name=al.name,
+                power_kw=power_arr,
+                delivered_by_deadline_kwh=delivered_by_deadline_kwh,
+                shortfall_kwh=shortfall_kwh,
+                subentry_id=al.subentry_id,
+            )
         )
-        for al in adequacy_loads
-    ]
 
     # nimbus issue #467: per-battery arrays first, then the summed
     # aggregate from those SAME arrays -- guarantees battery_charge_kw/

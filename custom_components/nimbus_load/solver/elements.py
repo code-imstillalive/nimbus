@@ -1106,6 +1106,18 @@ DEFAULT_ADEQUACY_SHORTFALL_PRICE: float = 10.00
 
 
 @dataclass(frozen=True)
+class AdequacyWindow:
+    """nimbus issue #612: one calendar-day occurrence of an adequacy
+    load's own (earliest, deadline, target) triple -- see
+    AdequacyLoadConfig.windows's own docstring for why this exists
+    alongside (not instead of) that class's single-window fields."""
+
+    earliest_period: int
+    deadline_period: int
+    target_kwh: float
+
+
+@dataclass(frozen=True)
 class AdequacyLoadConfig:
     """A load with a real DEADLINE, not a per-period demand -- direct
     response to real feedback (Mark Purcell, on his own scenario 2, hot
@@ -1193,6 +1205,32 @@ class AdequacyLoadConfig:
     # a post-solve caller can map a plan entry back to its real
     # load_run_state.py store entry.
     subentry_id: str | None = None
+    # nimbus issue #612 (Mark Purcell, real repro: plan_forecast is 0.0
+    # for 10-13 Sep on a load whose earliest/deadline hour only ever
+    # resolves to a single day somewhere in the 96h horizon -- everything
+    # past that one window has zero requirement on it at all): an
+    # OPTIONAL repeating-window path, for the caller who wants the SAME
+    # load to owe a fresh target_kwh on each of several distinct
+    # calendar-day windows within one horizon (e.g. "2 kWh every day",
+    # not "2 kWh once, whenever it happens to fall").
+    #
+    # When given (non-None, non-empty), this REPLACES the single
+    # earliest_period/deadline_period/target_kwh triple above for BOTH
+    # the per-period power bound and the deadline constraint(s) below --
+    # those three fields stay in place, validated and usable exactly as
+    # before, purely so every existing single-window caller/test is
+    # completely unaffected (this field defaults to None, a real no-op).
+    # Windows are independent: each gets its own shortfall slack (bounded
+    # to that window's own target_kwh, not shared across windows -- a
+    # window's own slack must never let a LATER window's target be met
+    # for free) and its own deadline constraint summed ONLY over that
+    # window's own [earliest_period, deadline_period] range, not from
+    # period 0 -- unlike the single-window path's deadline constraint
+    # (see network.py's own comment on why THAT one deliberately sums
+    # from 0), summing a later window from 0 here would double-count an
+    # earlier window's already-delivered energy toward a target it was
+    # never meant to satisfy.
+    windows: tuple[AdequacyWindow, ...] | None = None
 
     def __post_init__(self) -> None:
         if self.max_power_kw <= 0.0:
@@ -1213,6 +1251,41 @@ class AdequacyLoadConfig:
         if self.max_cost_per_run is not None and self.max_cost_per_run < 0.0:
             msg = f"Adequacy load '{self.name}' max_cost_per_run must be >= 0"
             raise ValueError(msg)
+        if self.windows is not None:
+            if len(self.windows) == 0:
+                msg = f"Adequacy load '{self.name}' windows, when given, must be non-empty -- pass None instead for the single-window path"
+                raise ValueError(msg)
+            if self.allowed is not None:
+                msg = (
+                    f"Adequacy load '{self.name}' cannot set both windows and "
+                    "allowed -- windows already replaces allowed's own role of "
+                    "bounding which periods this load may draw power in; "
+                    "combining them would leave one silently ignored"
+                )
+                raise ValueError(msg)
+            prev_deadline = -1
+            for i, w in enumerate(self.windows):
+                if w.earliest_period < 0:
+                    msg = f"Adequacy load '{self.name}' windows[{i}].earliest_period must be >= 0"
+                    raise ValueError(msg)
+                if w.target_kwh <= 0.0:
+                    msg = f"Adequacy load '{self.name}' windows[{i}].target_kwh must be > 0"
+                    raise ValueError(msg)
+                if w.deadline_period < w.earliest_period:
+                    msg = (
+                        f"Adequacy load '{self.name}' windows[{i}].deadline_period "
+                        f"({w.deadline_period}) must be >= earliest_period ({w.earliest_period})"
+                    )
+                    raise ValueError(msg)
+                if w.earliest_period <= prev_deadline:
+                    msg = (
+                        f"Adequacy load '{self.name}' windows must be chronologically "
+                        f"non-overlapping and in order -- windows[{i}].earliest_period "
+                        f"({w.earliest_period}) overlaps the previous window's own "
+                        f"deadline_period ({prev_deadline})"
+                    )
+                    raise ValueError(msg)
+                prev_deadline = w.deadline_period
 
 
 @dataclass(frozen=True)
