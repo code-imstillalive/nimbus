@@ -17,6 +17,7 @@ is read directly off the class.
 
 from __future__ import annotations
 
+import dataclasses
 import sys
 from pathlib import Path
 
@@ -26,7 +27,7 @@ from _ha_stubs import install_ha_stubs
 install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from custom_components.nimbus_load import sensor
+from custom_components.nimbus_load import load_run_state, sensor
 
 
 def test_forecast_sensor_has_unrecorded_attributes_for_recorder_cap():
@@ -77,4 +78,62 @@ def test_quality_report_sensor_excludes_its_oversized_hourly_arrays():
     cls = sensor.NimbusSolverQualityReportSensor
     assert cls._unrecorded_attributes == frozenset(
         {"j_ref_hourly", "j_ach_hourly", "j_star_hourly", "hourly_regret"}
+    )
+
+
+def test_commanded_state_sensor_has_unrecorded_attributes_for_recorder_cap():
+    # nimbus issue #625 (Mark Purcell, real finding: "State attributes...
+    # exceed maximum size of 16384 bytes" firing every solve since
+    # v0.94.195 landed -- when the recorder hits this cap it drops the
+    # WHOLE state row's attributes, not just the oversized series, so
+    # delivered_today_kwh/activations_today/cost_today/last_idle_
+    # temperature and everything else in this row's history went with
+    # it too). plan_cost_forecast (#591, v0.94.193) and temperature_
+    # forecast (#592, v0.94.195) were both added to LoadRunState without
+    # ever being added here.
+    cls = sensor.NimbusControllableLoadStateSensor
+    assert cls._unrecorded_attributes == frozenset(
+        {
+            "plan_forecast",
+            "plan_delivered_kwh_forecast",
+            "plan_target_kwh",
+            "plan_shortfall_kwh",
+            "plan_earliest_period",
+            "plan_deadline_period",
+            "plan_nominal_kw",
+            "plan_cost_forecast",
+            "plan_shadow_price_forecast",
+            "temperature_forecast",
+        }
+    )
+
+
+def test_commanded_state_sensor_excludes_every_list_valued_load_run_state_field():
+    # nimbus issue #625's own suggested fix: a fixed-set check (like the
+    # one directly above) only catches a REGRESSION of an already-known
+    # field -- it says nothing about the NEXT new series (there have
+    # been four just this week: plan_cost_forecast, temperature_
+    # forecast, plan_shadow_price_forecast, and the one this fix adds
+    # coverage for). This instead introspects LoadRunState's own field
+    # list directly: any field whose type annotation is `list[...]`
+    # publishes a real per-period series onto this sensor (via
+    # LoadRunState.to_dict()'s own full spread, sensor.py's async_
+    # update()) and MUST be excluded from the recorder, or this test
+    # fails the moment a new one is added without also updating
+    # _unrecorded_attributes -- closing the whole class of bug #625 was,
+    # not just today's two missing fields.
+    list_valued_fields = {
+        f.name
+        for f in dataclasses.fields(load_run_state.LoadRunState)
+        if f.type.startswith("list[")
+    }
+    assert list_valued_fields, "sanity check: expected at least one list field"
+    missing = (
+        list_valued_fields
+        - sensor.NimbusControllableLoadStateSensor._unrecorded_attributes
+    )
+    assert not missing, (
+        f"{missing} are list-valued LoadRunState fields not excluded from "
+        "the recorder on NimbusControllableLoadStateSensor -- add them to "
+        "_unrecorded_attributes (nimbus issue #625)"
     )

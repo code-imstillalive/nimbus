@@ -1332,6 +1332,20 @@ class NimbusControllableLoadStateSensor(SensorEntity):
     _attr_has_entity_name = True
     _attr_name = "Commanded State"
     _attr_entity_category = None  # a real, actively-read data source
+    # nimbus issue #625 (Mark Purcell, real finding: the recorder logs
+    # "State attributes... exceed maximum size of 16384 bytes" every
+    # solve, dropping this ENTIRE state row's attributes -- not just the
+    # big series, also delivered_today_kwh/activations_today/cost_today/
+    # last_idle_temperature and everything else -- because plan_cost_
+    # forecast (#591, v0.94.193) and temperature_forecast (#592,
+    # v0.94.195) were never added here when they shipped, even though
+    # the class docstring above already describes the #362/#581 posture
+    # every per-cycle-churning series is supposed to follow). See
+    # test_sensor_commanded_state_unrecorded_attributes.py's own
+    # generic guard -- it asserts every list-valued field LoadRunState.
+    # to_dict() can produce is in this frozenset, specifically so the
+    # next new series (there have been four this week alone) can't
+    # regress this again the same way.
     _unrecorded_attributes = frozenset(
         {
             "plan_forecast",
@@ -1341,7 +1355,9 @@ class NimbusControllableLoadStateSensor(SensorEntity):
             "plan_earliest_period",
             "plan_deadline_period",
             "plan_nominal_kw",
+            "plan_cost_forecast",
             "plan_shadow_price_forecast",
+            "temperature_forecast",
         }
     )
 

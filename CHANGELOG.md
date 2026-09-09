@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.204] — 2026-09-09
+
+### Fixed
+- **Recorder dropped every attribute of `sensor.nimbus_<load>_commanded_state`, not just the oversized series** (nimbus issue #625, Mark Purcell — real finding, live logs measured: `plan_shadow_price_forecast`/`plan_delivered_kwh_forecast`/`plan_forecast` (11.3/10.7/10.7 kB) were already excluded, but `temperature_forecast` (#592, v0.94.195, 11.0 kB) and `plan_cost_forecast` (#591, v0.94.193, 10.7 kB) were never added to `_unrecorded_attributes` when they shipped — pushing the real payload to ~22 kB against the recorder's 16 kB cap, firing "exceed maximum size" on every solve since 10:24 that morning. When the recorder hits this cap it drops the **entire** state row's attributes, not just the big series — so `delivered_today_kwh`, `activations_today`, `cost_today`, `last_idle_temperature`, everything, silently lost their history too). Both fields added to the frozenset. Per Mark's own suggested fix, also added a generic guard test that introspects `LoadRunState`'s own field list for every `list[...]`-typed field and asserts each is excluded — a fixed-set check alone would only catch a regression of an already-known field, not the next new series (there have been four just this week).
+
 ## [0.94.203] — 2026-09-09
 
 ### Fixed
