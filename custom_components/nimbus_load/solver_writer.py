@@ -7245,7 +7245,7 @@ def _sample_load_run_state(
     now: datetime,
     day_key: str,
     import_price_now: float | None = None,
-) -> None:
+):
     """nimbus issue #479: reads one Controllable Load's real power sensor
     and folds a single solve-tick sample into its persisted LoadRunState
     (custom_components/nimbus_load/load_run_state.py). `import_price_now`
@@ -7258,18 +7258,25 @@ def _sample_load_run_state(
     all yet (see #479's own scope note), so it must never be able to take
     the actual solve cycle down. Native mode only, same reasoning as this
     function's own caller.
+
+    nimbus issue #626: returns the freshly-persisted LoadRunState (or
+    None on any failure/no-op path above) so build_controllable_loads()
+    can read this cycle's own just-updated delivered_today_kwh without a
+    second store round-trip -- this function already has the freshest
+    possible sample for this solve tick, taken moments before its own
+    caller resolves target_kwh.
     """
     if _NATIVE_HASS is None:
         # Not reachable from build_controllable_loads() (guarded at its
         # own entry), but this function has no other caller today either
         # -- a defensive, cheap-to-keep guard rather than an assumption.
-        return
+        return None
     try:
         from homeassistant.helpers.storage import Store as _Store
 
         state_obj = _NATIVE_HASS.states.get(power_sensor)
         if state_obj is None or state_obj.state in (None, "unknown", "unavailable"):
-            return
+            return None
         # nimbus issue #535 (Mark Purcell, real household finding): this
         # used to treat state_obj.state as already being kW, with no
         # check against what the sensor itself declares -- the same
@@ -7304,7 +7311,7 @@ def _sample_load_run_state(
             import load_run_state
             from const import DOMAIN
 
-        async def _update() -> None:
+        async def _update() -> load_run_state.LoadRunState:
             store = load_run_state.LoadRunStateStore(
                 store=_Store(_NATIVE_HASS, 1, f"{DOMAIN}_{hub_entry_id}_load_run_state")
             )
@@ -7317,11 +7324,12 @@ def _sample_load_run_state(
                 import_price_now=import_price_now,
             )
             await store.async_write(subentry_id, new)
+            return new
 
         import asyncio as _asyncio
 
         future = _asyncio.run_coroutine_threadsafe(_update(), _NATIVE_HASS.loop)
-        future.result(timeout=10)
+        return future.result(timeout=10)
     except Exception:
         _LOGGER.debug(
             "Nimbus: controllable load run-state sample failed for %s (%s)",
@@ -7329,6 +7337,7 @@ def _sample_load_run_state(
             power_sensor,
             exc_info=True,
         )
+        return None
 
 
 # nimbus issue #480: a small, FIXED comparison DSL for a deferrable
@@ -7506,6 +7515,7 @@ def build_controllable_loads(
     # tests do, to exercise this path without the full HA test harness)
     # hits the bare-module case, so both must actually work.
     try:
+        from . import load_run_state
         from .const import (
             CONF_CONTROLLABLE_LOAD_KIND,
             CONF_CONTROLLABLE_LOAD_NAME,
@@ -7527,6 +7537,7 @@ def build_controllable_loads(
             SUBENTRY_TYPE_CONTROLLABLE_LOAD,
         )
     except ImportError:
+        import load_run_state
         from const import (
             CONF_CONTROLLABLE_LOAD_KIND,
             CONF_CONTROLLABLE_LOAD_NAME,
@@ -7561,6 +7572,7 @@ def build_controllable_loads(
         name = data.get(CONF_CONTROLLABLE_LOAD_NAME) or subentry.subentry_id
         kind = data.get(CONF_CONTROLLABLE_LOAD_KIND)
         power_sensor = data.get(CONF_CONTROLLABLE_LOAD_POWER_SENSOR)
+        run_state_sample = None
         if power_sensor:
             # nimbus issue #479: every configured load's own currently_on/
             # on_since/off_since/delivered_today_kwh gets sampled here,
@@ -7573,7 +7585,12 @@ def build_controllable_loads(
             # file's own tests use for the sheddable/deferrable cases,
             # neither of which sets power_sensor -- never has to carry
             # one just to exercise the rest of this function.
-            _sample_load_run_state(
+            #
+            # nimbus issue #626: the return value (this cycle's own
+            # freshest delivered_today_kwh) is kept for the deferrable
+            # branch below, which needs it to stop scheduling the full
+            # target_kwh on top of what's already been delivered today.
+            run_state_sample = _sample_load_run_state(
                 entries[0].entry_id,
                 subentry.subentry_id,
                 power_sensor,
@@ -7618,6 +7635,40 @@ def build_controllable_loads(
                     "Nimbus: controllable load '%s' (deferrable) is missing "
                     "max_power_kw/target_kwh -- skipping this cycle",
                     name,
+                )
+                continue
+            # nimbus issue #626 (Mark Purcell, real repro: 1.48 of 2.0 kWh
+            # already delivered at 13:05, plan still scheduled 1.99 kWh
+            # more): this branch used to pass the raw configured
+            # target_kwh straight to AdequacyLoadConfig on every solve,
+            # with nothing anywhere reducing it by what run_state_sample
+            # (just taken, above) already shows was delivered today --
+            # `load_run_state.remaining_kwh()` existed and was unit-
+            # tested since #479 but was never actually called from here.
+            # Only trust run_state_sample's own delivered_today_kwh when
+            # its day_key matches THIS cycle's day -- apply_power_sample()
+            # already rolls delivered_today_kwh back to 0.0 on a genuine
+            # day change, so a mismatch here only means the sample call
+            # above failed/no-op'd (see its own docstring), and 0.0
+            # (today's config-target behaviour, unchanged) is the correct
+            # fail-open default rather than guessing.
+            delivered_today_kwh = (
+                run_state_sample.delivered_today_kwh
+                if run_state_sample is not None
+                and run_state_sample.day_key == run_state_day_key
+                else 0.0
+            )
+            target_kwh = load_run_state.remaining_kwh(
+                target_kwh=target_kwh, delivered_today_kwh=delivered_today_kwh
+            )
+            if target_kwh <= 0.0:
+                _LOGGER.info(
+                    "Nimbus: controllable load '%s' (deferrable) already "
+                    "delivered %.3f kWh today, meeting its %.3f kWh target "
+                    "-- releasing the remainder of this window's schedule",
+                    name,
+                    delivered_today_kwh,
+                    float(data.get(CONF_DEFERRABLE_TARGET_KWH) or 0.0),
                 )
                 continue
             earliest_hour = data.get(CONF_DEFERRABLE_EARLIEST_HOUR)
