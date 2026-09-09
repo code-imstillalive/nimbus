@@ -1055,6 +1055,18 @@ CONF_SOLVER_P2P_BLOCK_2_END_HOUR: Final = "solver_p2p_block_2_end_hour"
 CONF_SOLVER_P2P_BLOCK_3_RATE_KW: Final = "solver_p2p_block_3_rate_kw"
 CONF_SOLVER_P2P_BLOCK_3_START_HOUR: Final = "solver_p2p_block_3_start_hour"
 CONF_SOLVER_P2P_BLOCK_3_END_HOUR: Final = "solver_p2p_block_3_end_hour"
+# nimbus issue #565: real, live household observation -- the periodic
+# solve is deliberately phase-locked ~30s after the real NEM 5-minute
+# boundary (#244), but a P2P block's own rate is a fixed, pre-configured
+# $/kWh value with no live-price dependency at all, so there's no real
+# reason the block's own START needs to wait for the literal hour
+# boundary. Shared across all 3 blocks (this household's own real usage
+# is one active block at a time, and shaving dispatch lag is a systemic
+# concern, not a per-block one) -- shifts every configured block's own
+# effective start minute earlier by this many minutes. 0 (default) is a
+# complete no-op. See fetch_p2p_fixed_export_kw()'s own docstring
+# (solver_writer.py) for the exact minute-granularity mechanism.
+CONF_SOLVER_P2P_BLOCK_LEAD_TIME_MINUTES: Final = "solver_p2p_block_lead_time_minutes"
 
 # Real, per-kWh import FEES on top of the raw spot/commodity price --
 # network TOU tariff + any flat always-on charge (certificates, etc.)
@@ -1189,6 +1201,7 @@ DEFAULT_SOLVER_P2P_BONUS_VOLUME_KWH: Final = 0.0
 DEFAULT_SOLVER_P2P_BLOCK_RATE_KW: Final = 0.0
 DEFAULT_SOLVER_P2P_BLOCK_START_HOUR: Final = 0
 DEFAULT_SOLVER_P2P_BLOCK_END_HOUR: Final = 0
+DEFAULT_SOLVER_P2P_BLOCK_LEAD_TIME_MINUTES: Final = 0
 # Every fee field defaults to 0 -- deliberately NOT seeded with this
 # household's own real tariff (same "genuinely blank for anyone else"
 # principle as the P2P blocks above). This household's own real values

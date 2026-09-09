@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.222] — 2026-09-09
+
+### Added
+- **P2P fixed-export block start now has minute-granularity lead time** (nimbus issue #565). New `number.nimbus_solver_p2p_block_lead_time_minutes` (0-59, shared across all 3 blocks, default 0 — complete no-op) shifts each configured block's own effective START minute earlier by that amount, letting the fixed-rate window begin a minute or so before the literal hour boundary — absorbing real dispatch-side lag structurally instead of relying on tight solve/automation timing. Only the START shifts; the END is unchanged. Real observation this fixes: the periodic solve is deliberately phase-locked ~30s after the real NEM boundary (#244) for spot-price-dependent decisions, but a P2P block's own rate is a fixed, pre-configured value with no live-price dependency, so it never needed to wait for the hour boundary in the first place.
+
 ## [0.94.221] — 2026-09-09
 
 ### Added

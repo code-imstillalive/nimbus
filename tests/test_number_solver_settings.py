@@ -135,20 +135,25 @@ def test_entity_attribute_wiring():
 
 
 def test_p2p_fields_attach_to_the_p2p_sub_device_not_the_hub():
-    """nimbus issue #465: the 11 P2P number entities (2 bonus fields + 3
+    """nimbus issue #465: the P2P number entities (2 bonus fields + 3
     blocks x 3 fields each) move to the dedicated "Nimbus P2P" sub-device
     -- same real motivation and via_device mechanism as sensor.py's own
     P2P sensor children. unique_id/entity_id are untouched (only
     device_info differs) since these are pre-existing, already-deployed
     entities -- a rename would orphan real history/dashboards/
     automations.
+
+    12, not 11, since nimbus issue #565 added a 12th P2P field (`solver_
+    p2p_block_lead_time_minutes`, shared across all 3 blocks) onto the
+    same sub-device.
     """
     entry = MagicMock()
     entry.entry_id = "test_entry_id"
     p2p_descs = [d for d in _DESCRIPTIONS if d.sub_device == "p2p"]
-    assert len(p2p_descs) == 11, (
-        "expected exactly 11 P2P fields (2 bonus + 3 blocks x 3 fields); "
-        f"got {len(p2p_descs)} -- a field was added/removed/renamed?"
+    assert len(p2p_descs) == 12, (
+        "expected exactly 12 P2P fields (2 bonus + 3 blocks x 3 fields + "
+        f"1 shared lead-time field); got {len(p2p_descs)} -- a field was "
+        "added/removed/renamed?"
     )
 
     for desc in p2p_descs:
@@ -182,14 +187,17 @@ def test_p2p_fields_attach_to_the_p2p_sub_device_not_the_hub():
 
 
 def test_non_p2p_fields_still_attach_to_the_hub():
-    """The other 27 fields (sub_device=None, the dataclass default) must
+    """The other fields (sub_device=None, the dataclass default) must
     be completely unaffected by #465 -- still on the hub device, exactly
     as before this sub-device split existed.
     """
     entry = MagicMock()
     entry.entry_id = "test_entry_id"
     non_p2p_descs = [d for d in _DESCRIPTIONS if d.sub_device is None]
-    assert len(non_p2p_descs) == len(_DESCRIPTIONS) - 11
+    # -12, not -11, since nimbus issue #565 added a 12th P2P field --
+    # see test_p2p_fields_attach_to_the_p2p_sub_device_not_the_hub's own
+    # updated comment for the count.
+    assert len(non_p2p_descs) == len(_DESCRIPTIONS) - 12
 
     for desc in non_p2p_descs:
         entity = NimbusSolverNumber(

@@ -98,6 +98,7 @@ from .const import (
     CONF_SOLVER_P2P_BLOCK_3_END_HOUR,
     CONF_SOLVER_P2P_BLOCK_3_RATE_KW,
     CONF_SOLVER_P2P_BLOCK_3_START_HOUR,
+    CONF_SOLVER_P2P_BLOCK_LEAD_TIME_MINUTES,
     CONF_SOLVER_P2P_BONUS_PRICE,
     CONF_SOLVER_P2P_BONUS_VOLUME_KWH,
     CONF_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS,
@@ -123,6 +124,7 @@ from .const import (
     DEFAULT_SOLVER_NETWORK_FEE_RATE,
     DEFAULT_SOLVER_NETWORK_FEE_START_HOUR,
     DEFAULT_SOLVER_P2P_BLOCK_END_HOUR,
+    DEFAULT_SOLVER_P2P_BLOCK_LEAD_TIME_MINUTES,
     DEFAULT_SOLVER_P2P_BLOCK_RATE_KW,
     DEFAULT_SOLVER_P2P_BLOCK_START_HOUR,
     DEFAULT_SOLVER_P2P_BONUS_PRICE,
@@ -570,6 +572,26 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         24,
         1,
         "hour",
+        sub_device="p2p",
+    ),
+    # nimbus issue #565: shared across all 3 blocks (not per-block --
+    # this household's own real usage is one active P2P block at a
+    # time, and the issue itself proposes a single field, not a tripled
+    # one) -- shifts every configured block's own effective START minute
+    # earlier by this many minutes, absorbing real dispatch-side lag
+    # around the hour boundary structurally instead of chasing solve
+    # latency. 0 (default) is a complete no-op, byte-identical to every
+    # existing install's current whole-hour-only behaviour. See
+    # fetch_p2p_fixed_export_kw()'s own docstring (solver_writer.py) for
+    # the exact mechanism.
+    _SolverNumberDescription(
+        CONF_SOLVER_P2P_BLOCK_LEAD_TIME_MINUTES,
+        "P2P Block Lead Time",
+        DEFAULT_SOLVER_P2P_BLOCK_LEAD_TIME_MINUTES,
+        0,
+        59,
+        1,
+        "min",
         sub_device="p2p",
     ),
     # Real per-kWh import FEES on top of the raw spot price -- network
