@@ -1018,6 +1018,7 @@ def build_plan(
     compute_signals: bool = False,
     compute_offer_curve: bool = False,
     adequacy_earliness_budget_kw: float = DEFAULT_ADEQUACY_EARLINESS_BUDGET_KW,
+    adequacy_semi_continuous: bool = True,
 ) -> Plan:
     """Build and solve one LP for the given horizon/inputs. Pure function --
     no I/O, no HA dependency, safe to call from anywhere including a plain
@@ -1033,6 +1034,16 @@ def build_plan(
     BUDGET_KW's own docstring. Set to 0.0 to fully disable (every
     adequacy load reverts to today's "zero direct cost anywhere in its
     own window" behaviour).
+
+    `adequacy_semi_continuous` (nimbus issue #616) is also ON by
+    default -- see the semi-continuous/single-block constraint block's
+    own comment, right after adequacy_vars is built, for the full
+    reasoning. Set to False to revert every adequacy load to a
+    continuous relaxation (free to deliver any fractional power level
+    anywhere in its own window) -- this turns the whole problem back
+    into a pure LP (no binary variables), so it's also the fallback a
+    caller with a genuine performance concern on a very large horizon
+    can reach for.
 
     `shared_circuits` (SharedCircuitConfig, see its own docstring): caps
     the COMBINED power of two or more `adequacy_loads` sharing one real
@@ -1616,6 +1627,80 @@ def build_plan(
                     cost = earliness_rate * float(elapsed_hours[t]) * float(hours[t])
                     if cost != 0.0:
                         p.set_cost(adequacy_vars[al.name][t], cost)
+    # nimbus issue #616 (semi-continuous + single-block, prior art:
+    # EMHASS's treat_deferrable_load_as_semi_cont + set_deferrable_load_
+    # single_constant): every real Controllable Load in this project is
+    # commanded through a single on/off (or mode) service call --
+    # switch.turn_on/turn_off, water_heater.set_operation_mode -- see
+    # controllable_load_subentry.py's own device_entity selector comment
+    # ("switch/water_heater today, climate expected later"). There is no
+    # dimmer/number-domain dispatch path at all today, so letting an
+    # AdequacyLoadConfig deliver a fractional power level (Mark's own
+    # real report: 0.072, 0.384, 0.65, 0.65... kW across consecutive
+    # periods for a device that can only ever be fully on or fully off)
+    # was never a plan the household could actually execute -- not a
+    # modelling convenience being given up, a bug being fixed. Two
+    # constraints together: each period's power is EXACTLY 0 or EXACTLY
+    # max_power_kw (never in between), and across its own [earliest_
+    # period, deadline_period] window (or, for a #612 windowed load,
+    # independently within EACH window -- same per-window independence
+    # reasoning as the deadline constraint below) the load turns on at
+    # MOST ONCE, so a household sees one clean block instead of several
+    # short bursts burning #484's own daily activation cap on plan
+    # artefacts. set_deferrable_startup_penalty (the third EMHASS
+    # mechanism #616 names) is deliberately NOT implemented as a
+    # separate priced field: with at-most-one-start already a HARD
+    # constraint, there is nothing left for a penalty to discourage --
+    # it would be a constant added to the objective with zero effect on
+    # the solution. On by default, no household-facing field, same
+    # "no consumer parameter" posture as #613's own earliness term.
+    if adequacy_loads and adequacy_semi_continuous:
+        for al in adequacy_loads:
+            if al.windows is not None:
+                block_ranges = [
+                    list(range(w.earliest_period, w.deadline_period + 1))
+                    for w in al.windows
+                ]
+            elif al.allowed is not None:
+                block_ranges = [[t for t in range(n) if al.allowed[t]]]
+            else:
+                block_ranges = [list(range(al.earliest_period, al.deadline_period + 1))]
+            for idxs in block_ranges:
+                if not idxs:
+                    continue
+                on_vars = [
+                    p.add_variable(f"adequacy_on_{al.name}_{t}", binary=True)
+                    for t in idxs
+                ]
+                start_vars = [
+                    p.add_variable(f"adequacy_start_{al.name}_{t}", binary=True)
+                    for t in idxs
+                ]
+                for i, t in enumerate(idxs):
+                    p.add_eq_constraint(
+                        {
+                            adequacy_vars[al.name][t]: 1.0,
+                            on_vars[i]: -al.max_power_kw,
+                        },
+                        0.0,
+                        name=f"adequacy_semicont_{al.name}_{t}",
+                    )
+                    # start[t] >= on[t] - on[t-1] (on[t-1] treated as 0
+                    # when t-1 isn't itself part of this same contiguous
+                    # `idxs` run -- e.g. a genuinely non-contiguous
+                    # `allowed` mask -- so re-entering after a real gap
+                    # correctly registers as a fresh start).
+                    terms: dict[str, float] = {on_vars[i]: 1.0, start_vars[i]: -1.0}
+                    if i > 0 and idxs[i - 1] == t - 1:
+                        terms[on_vars[i - 1]] = -1.0
+                    p.add_ub_constraint(
+                        terms, 0.0, name=f"adequacy_start_link_{al.name}_{t}"
+                    )
+                p.add_ub_constraint(
+                    {sv: 1.0 for sv in start_vars},
+                    1.0,
+                    name=f"adequacy_single_block_{al.name}_{idxs[0]}",
+                )
     # nimbus issue #477: a soft shortfall slack per adequacy load,
     # replacing the old hard deadline constraint -- see
     # AdequacyLoadConfig's own docstring for the full "why" (matches

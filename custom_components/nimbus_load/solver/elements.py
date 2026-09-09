@@ -1198,20 +1198,35 @@ class AdequacyLoadConfig:
     period, zero flexibility) and SheddableLoadConfig (can be reduced
     below a FORECAST, per-period, still no deadline semantics at all --
     `min_fraction` is a per-period floor, not a cumulative-by-deadline
-    target). This class has no forecast at all: the LP is free to
-    deliver power to it at ANY level in [0, max_power_kw] during
-    [earliest_period, deadline_period] (or, when `allowed` is given,
-    whichever periods it marks True -- see that field's own docstring),
-    at zero direct PRICE cost (running it earlier or later than some
-    "expected" time never changes the real $/kWh it's charged -- only
-    failing to reach the real target by the real deadline does).
-    nimbus issue #613: network.py's own build_plan() DOES add one
-    deliberately tiny earliness preference on top of this (see that
-    function's own `adequacy_earliness_budget_kw` docstring) so a real
-    tie between two periods breaks toward the earlier one instead of an
-    arbitrary vertex -- by construction never large enough to be mistaken
-    for a genuine price difference, so this class's own real, priced
-    semantics stay exactly as described here. Constrained so the
+    target). This class has no forecast at all: at the LP LEVEL this
+    config describes a load free to deliver power at ANY level in [0,
+    max_power_kw] during [earliest_period, deadline_period] (or, when
+    `allowed` is given, whichever periods it marks True -- see that
+    field's own docstring), at zero direct PRICE cost (running it
+    earlier or later than some "expected" time never changes the real
+    $/kWh it's charged -- only failing to reach the real target by the
+    real deadline does).
+
+    Two real deviations from that pure description, both applied by
+    network.py's own build_plan(), both on by default, neither a field
+    on this class (network.py's own parameters control them):
+    - nimbus issue #613: a deliberately tiny earliness preference (see
+      `adequacy_earliness_budget_kw`'s own docstring) so a real tie
+      between two periods breaks toward the earlier one instead of an
+      arbitrary vertex -- by construction never large enough to be
+      mistaken for a genuine price difference.
+    - nimbus issue #616: semi-continuous + single-block (see
+      `adequacy_semi_continuous`'s own docstring) -- every period's
+      power is EXACTLY 0 or EXACTLY max_power_kw, never in between, and
+      the load turns on at most once per window, matching the real
+      on/off (or mode) dispatch mechanism every Controllable Load in
+      this project is actually commanded through today. This is the
+      bigger of the two deviations from the "any level" description
+      above -- disable via `adequacy_semi_continuous=False` for a
+      caller that genuinely wants the pure continuous relaxation (e.g.
+      a future dimmer-capable dispatch domain).
+
+    Constrained so the
     CUMULATIVE energy delivered by (and including) `deadline_period` is
     at least `target_kwh`. This is exactly the real, physical shape of
     HWS heating (must reach a target amount of stored heat by some time)
