@@ -2628,9 +2628,7 @@ def build_plan(
                     for t in range(n)
                 ]
             )
-            profit_horizon = float(
-                np.sum((value_arr - lambda_arr) * power_arr * hours)
-            )
+            profit_horizon = float(np.sum((value_arr - lambda_arr) * power_arr * hours))
         plan_adequacy.append(
             AdequacyLoadPlan(
                 name=al.name,
