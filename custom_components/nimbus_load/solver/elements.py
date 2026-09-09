@@ -757,6 +757,30 @@ class BatteryConfig:
     shared_charger_group: str | None = None
     shared_charger_max_kw: float | None = None
 
+    # nimbus issue #567: a household's own real-time "sell into a price
+    # spike, deliberately, right now" decision -- only ever set for
+    # batteries[0] (the same single-target convention #467's own P2P
+    # fixed-export charge gate already uses), only ever for THIS solve's
+    # own period 0 (the imminent dispatch decision, same "always period
+    # 0" convention apply_commanded_state_guard() and the P2P block
+    # mechanism both already use). None (the default) is a complete
+    # no-op. When set, network.py pins battery_discharge_{name}_0 to
+    # EXACTLY this kW (lb=ub, the same hard "mathematically impossible
+    # to choose otherwise" technique the P2P fixed-export pin already
+    # uses) and battery_charge_{name}_0 to 0 (can't simultaneously
+    # charge while forced to discharge). solver_writer.py's own
+    # responsibility, not this dataclass's: computing whether a spike is
+    # genuinely active (price threshold or an optional alert entity),
+    # whether the household has armed the override
+    # (switch.nimbus_solver_price_spike_override_armed), and the real
+    # exemption this issue's own design settled on -- the override never
+    # applies during an active P2P fixed-export commitment, since P2P's
+    # own "consistency of delivery is itself part of what earns the
+    # rate" reasoning takes priority. This field is deliberately just the
+    # LP-level mechanism; all of that real-world decision logic lives
+    # where the other cfg-driven decisions already do.
+    spike_override_discharge_kw: float | None = None
+
     def __post_init__(self) -> None:
         # nimbus issue #328 (Mark Purcell): min_soc is a SCHEDULING
         # PREFERENCE the LP tries to respect and recover toward (see
@@ -923,6 +947,19 @@ class BatteryConfig:
             raise ValueError(msg)
         if self.shared_charger_max_kw is not None and self.shared_charger_max_kw < 0.0:
             msg = f"shared_charger_max_kw ({self.shared_charger_max_kw}) cannot be negative"
+            raise ValueError(msg)
+        # nimbus issue #567: same physical ceiling as the plain discharge
+        # bound below -- a household-configured spike-response rate above
+        # the real max_discharge_kw ceiling is a config mistake worth
+        # rejecting loudly here, not silently clamped or left to surface
+        # as an opaque `lb=ub > max` error deep inside lp.py.
+        if self.spike_override_discharge_kw is not None and not (
+            0.0 <= self.spike_override_discharge_kw <= self.max_discharge_kw
+        ):
+            msg = (
+                f"spike_override_discharge_kw ({self.spike_override_discharge_kw}) "
+                f"must be within [0, max_discharge_kw={self.max_discharge_kw}]"
+            )
             raise ValueError(msg)
 
 

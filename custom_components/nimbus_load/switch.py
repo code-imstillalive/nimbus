@@ -46,10 +46,12 @@ from .const import (
     CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
     CONF_SOLVER_DISPATCH_DRY_RUN,
     CONF_SOLVER_OFFER_CURVE_ENABLED,
+    CONF_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED,
     DEFAULT_SOLVE_ON_PRICE_CHANGE,
     DEFAULT_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
     DEFAULT_SOLVER_DISPATCH_DRY_RUN,
     DEFAULT_SOLVER_OFFER_CURVE_ENABLED,
+    DEFAULT_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED,
     DOMAIN,
 )
 
@@ -161,6 +163,22 @@ async def async_setup_entry(
                 CONF_SOLVER_OFFER_CURVE_ENABLED,
                 "Offer Curve Enabled",
                 DEFAULT_SOLVER_OFFER_CURVE_ENABLED,
+                sw_version,
+                shared_store,
+            ),
+            # nimbus issue #567: the household's own explicit "arm" for
+            # the price-spike discharge override -- default off. Human
+            # stays in the loop for the actual discharge decision (see
+            # const.py's own comment on CONF_SOLVER_PRICE_SPIKE_
+            # OVERRIDE_ARMED for the full design). Same plain-toggle
+            # reasoning as CONF_SOLVER_OFFER_CURVE_ENABLED just above --
+            # solver_writer.py reads this switch's live state fresh on
+            # every solve cycle, no _reconfigure_dependents() needed.
+            NimbusSolverSwitch(
+                entry,
+                CONF_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED,
+                "Price Spike Override Armed",
+                DEFAULT_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED,
                 sw_version,
                 shared_store,
             ),

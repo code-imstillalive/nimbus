@@ -102,6 +102,7 @@
           "solver_regional_spot_forecast_sensor": "Optional: a regional wholesale spot-price FORECAST sensor (e.g. a NEM pre-dispatch forecast for your own region) -- Australian NEM markets only",
           "solver_regional_spot_current_price_sensor": "Optional: a regional wholesale spot-price HISTORY/current sensor, for a retail-markup-vs-wholesale offset -- a different sensor from the forecast one above",
           "solver_p2p_matched_rate_forecast_sensor": "Optional: a sensor publishing real per-interval P2P/community-trading matched-rate data, if your retailer has such a program",
+          "solver_price_spike_alert_entity": "Optional: a binary_sensor for a real named price-spike alert product (e.g. Amber's own Spike), if your retailer has one -- the plain $/kWh threshold (Solver settings, live number entity) works without this",
           "solver_weather_forecast_sensor": "Optional: a weather.* entity (e.g. weather.home, weather.pirateweather) or sensor.* forecast for the dashboard's own Temp/Humidity chart. Leave blank to skip."
         },
         "data_description": {
@@ -119,6 +120,7 @@
           "solver_regional_spot_forecast_sensor": "Optional -- a real regional wholesale spot-price forecast (Australian NEM markets only, e.g. a pre-dispatch forecast for your own state's region), used to extend the price plan further into the horizon than your retailer's own forecast reaches. Leave blank to skip this extrapolation -- a clean no-op.",
           "solver_regional_spot_current_price_sensor": "Optional -- a real, live/historical wholesale spot-price sensor, used to build a retail-markup-vs-wholesale offset from your own recorded history. A genuinely different sensor from the forecast one above, not a duplicate field. Leave blank to skip.",
           "solver_p2p_matched_rate_forecast_sensor": "Optional -- any entity whose own 'forecast' attribute lists real per-interval P2P-matching data (matched cost/volume/proportion), the empirical rate a community-trading/peer-export program actually paid. A household with no such program leaves this blank forever.",
+          "solver_price_spike_alert_entity": "Optional -- an ADDITIONAL/alternative trigger for the price-spike discharge override (Solver settings) if your retailer publishes a real named alert product. The plain $/kWh threshold (a live number entity, no wizard field needed) is the primary, fully generic mechanism and works with no retailer integration at all. Either condition triggers detection; the override itself still requires explicitly arming switch.nimbus_solver_price_spike_override_armed.",
           "solver_weather_forecast_sensor": "Optional, purely cosmetic -- feeds the dashboard's own Temp/Humidity chart only, never the actual LP solve. Accepts a weather.* entity directly (Nimbus calls weather.get_forecasts for you) or a sensor.* whose own 'forecast' attribute already carries datetime/temperature[/humidity] entries. Humidity is only published when your chosen source's own forecast actually carries a humidity field."
         }
       },

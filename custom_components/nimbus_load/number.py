@@ -102,6 +102,8 @@ from .const import (
     CONF_SOLVER_P2P_BONUS_PRICE,
     CONF_SOLVER_P2P_BONUS_VOLUME_KWH,
     CONF_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS,
+    CONF_SOLVER_PRICE_SPIKE_DISCHARGE_KW,
+    CONF_SOLVER_PRICE_SPIKE_THRESHOLD,
     CONF_SOLVER_PROXIMAL_WEIGHT_KW,
     CONF_SOLVER_RISK_AVERSION,
     CONF_SOLVER_SALVAGE_VALUE,
@@ -130,6 +132,8 @@ from .const import (
     DEFAULT_SOLVER_P2P_BONUS_PRICE,
     DEFAULT_SOLVER_P2P_BONUS_VOLUME_KWH,
     DEFAULT_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS,
+    DEFAULT_SOLVER_PRICE_SPIKE_DISCHARGE_KW,
+    DEFAULT_SOLVER_PRICE_SPIKE_THRESHOLD,
     DEFAULT_SOLVER_PROXIMAL_WEIGHT_KW,
     DEFAULT_SOLVER_RISK_AVERSION,
     DEFAULT_SOLVER_SALVAGE_VALUE,
@@ -828,6 +832,49 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0.1,
         0.001,
         "$/kWh",
+    ),
+    # nimbus issue #567: the PRIMARY price-spike trigger -- compared
+    # directly against the household's own already-configured live
+    # import price, no external alert integration required. 0 (default)
+    # is off -- see const.py's own comment on CONF_SOLVER_PRICE_SPIKE_
+    # THRESHOLD for the full mechanism (an optional binary_sensor alert
+    # entity, wizard-only, can trigger alongside/instead of this).
+    _SolverNumberDescription(
+        CONF_SOLVER_PRICE_SPIKE_THRESHOLD,
+        "Price Spike Threshold",
+        DEFAULT_SOLVER_PRICE_SPIKE_THRESHOLD,
+        0,
+        20,
+        0.01,
+        "$/kWh",
+        # device_class left at its None default -- same "no real
+        # matching NumberDeviceClass for a $/kWh rate" reasoning as
+        # every other $/kWh field in this table (see _SolverNumber
+        # Description's own device_class docstring above).
+    ),
+    # nimbus issue #567: the real, live-adjustable discharge-rate slider
+    # -- the household's own real point, "during spikes... the long
+    # dragging ones it's always best to control the output cos u could
+    # sell too fast," argues against a plain max/off toggle. 0 (default)
+    # means the override, even if armed and a spike is detected, forces
+    # nothing (a genuinely inert 0kW pin) until the household sets a
+    # real rate -- same "off by default, explicit opt-in" convention as
+    # every other threshold/armed field this issue introduces. Max
+    # bound is a generous headroom ceiling, not tied to any one
+    # household's own real max_discharge_kw (a plain number entity has
+    # no way to read another entity's live value as its own bound);
+    # BatteryConfig.spike_override_discharge_kw's own __post_init__
+    # validation is the real, authoritative ceiling check against the
+    # actual configured battery.
+    _SolverNumberDescription(
+        CONF_SOLVER_PRICE_SPIKE_DISCHARGE_KW,
+        "Price Spike Discharge Rate",
+        DEFAULT_SOLVER_PRICE_SPIKE_DISCHARGE_KW,
+        0,
+        100,
+        0.1,
+        "kW",
+        device_class=NumberDeviceClass.POWER,
     ),
 )
 

@@ -158,6 +158,10 @@ _EXPECTED_ATTRS = {
     "binding_constraint_shadow_price": 0.2827,
     "energy_shadow_price_now": 0.3,
     "p2p_volume_cap_shadow_price": -0.0,
+    # nimbus issue #567: this fixture configures no spike threshold/
+    # alert entity -- honest, expected False, matching every other
+    # "unconfigured means off" field in this fixture.
+    "price_spike_active": False,
     "p2p_recent_avg_volume_kwh": 0.0,
     "load_forecast_source_used": f"single sensor: {_LOAD_SENSOR}",
     "load_forecast_source_error": None,

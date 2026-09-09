@@ -2300,6 +2300,66 @@ def fetch_p2p_fixed_export_kw(
     return result
 
 
+def resolve_price_spike_override(
+    cfg: dict, import_price_now: float, grid_times: list[datetime]
+) -> tuple[float | None, bool]:
+    """nimbus issue #567: a real-time "sell into a price spike,
+    deliberately, right now" household decision. Returns
+    `(effective_override_kw, spike_detected)`:
+
+    - `spike_detected` is True whenever EITHER trigger condition holds
+      (a price >= the configured threshold, OR the optional alert
+      entity reads "on") -- this is the real-time visibility signal for
+      the dashboard's own "$$$" indicator, published REGARDLESS of
+      whether the household has armed the override. A household should
+      be able to see a spike is happening before deciding to act on it.
+    - `effective_override_kw` is the value that actually gets passed
+      into BatteryConfig.spike_override_discharge_kw -- None unless
+      EVERY one of these holds: the household has explicitly armed the
+      override (switch.nimbus_solver_price_spike_override_armed), a
+      spike is genuinely detected, a real rate > 0 is configured
+      (number.nimbus_solver_price_spike_discharge_kw), AND period 0
+      does NOT fall under an active P2P fixed-export commitment (the
+      household's own explicit scope decision: P2P's "consistency of
+      delivery is itself part of what earns the rate" reasoning takes
+      priority over a spike response). Human stays in the loop for the
+      actual discharge decision -- arming is a deliberate, explicit
+      action, not inferred from the threshold/alert alone.
+
+    threshold<=0 (the default) means "no threshold configured" -- never
+    fires on its own. The alert entity is optional and read
+    defensively (unavailable/missing/fetch-failure all fail open to
+    "no alert").
+    """
+    threshold = _cfg_num(cfg, "solver_price_spike_threshold", 0.0)
+    spike_by_threshold = threshold > 0 and import_price_now >= threshold
+
+    spike_by_alert = False
+    alert_entity = cfg.get("solver_price_spike_alert_entity")
+    if alert_entity:
+        try:
+            state = ha_get(alert_entity)
+            spike_by_alert = state.get("state") == "on"
+        except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError):
+            spike_by_alert = False
+
+    spike_detected = spike_by_threshold or spike_by_alert
+
+    armed = bool(cfg.get("solver_price_spike_override_armed"))
+    discharge_kw = _cfg_num(cfg, "solver_price_spike_discharge_kw", 0.0)
+    if not (armed and spike_detected and discharge_kw > 0):
+        return None, spike_detected
+
+    period_0_fixed_export = fetch_p2p_fixed_export_kw(cfg, grid_times[:1])
+    p2p_active_now = period_0_fixed_export is not None and not np.isnan(
+        period_0_fixed_export[0]
+    )
+    if p2p_active_now:
+        return None, spike_detected
+
+    return discharge_kw, spike_detected
+
+
 def fetch_price_history(entity_id: str, days: int = 5) -> list[tuple[datetime, float]]:
     """Real recorded history for a single sensor's numeric state, as
     (local time, value) points -- the shared building block for
@@ -4279,6 +4339,13 @@ def main() -> None:
             f"-- investigate rather than lower the floor.",
             file=sys.stderr,
         )
+    # nimbus issue #567: real-time "sell into a price spike, right now"
+    # override -- see resolve_price_spike_override()'s own docstring for
+    # the full mechanism. spike_detected is pushed below regardless of
+    # whether spike_override_kw ends up armed/active.
+    spike_override_kw, price_spike_active = resolve_price_spike_override(
+        cfg, import_price[0], grid_times
+    )
     battery = elements.BatteryConfig(
         name="home",  # nimbus issue #467: single real household battery
         capacity_kwh=capacity_kwh,
@@ -4324,6 +4391,7 @@ def main() -> None:
         # (unconfigured, the default) is a genuine no-op -- see
         # BatteryConfig's own degradation_cost_per_kwh docstring.
         degradation_cost_per_kwh=_cfg_num(cfg, "solver_degradation_cost_per_kwh", 0.0),
+        spike_override_discharge_kw=spike_override_kw,
     )
     fixed_export_kw = fetch_p2p_fixed_export_kw(cfg, grid_times)
     grid = elements.GridConfig(
@@ -4786,6 +4854,10 @@ def main() -> None:
                 plan.duals.get("power_balance_t0", 0.0) / period_hours_arr[0], 4
             ),
             "p2p_volume_cap_shadow_price": p2p_volume_cap_shadow_price,
+            # nimbus issue #567: real-time visibility for the dashboard's
+            # own "$$$" spike indicator -- True whenever a spike is
+            # DETECTED, independent of whether the override is armed.
+            "price_spike_active": price_spike_active,
             **_risk_aversion_effect_now(plan, solar_kw, import_price, export_price),
         },
     )
