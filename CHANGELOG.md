@@ -6,6 +6,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.198] — 2026-09-09
+
+### Fixed
+- **The tank temperature forecast (#592) was reading a corrupted live value, ignoring the load's own currently-commanded power, and had no ceiling** (nimbus issues #609/#610/#611, Mark Purcell — real production findings against #592's own first shipment, made within hours of it going live). Three related bugs, one fix pass:
+  - **#609**: `current_temperature` reads ~10-11°C LOW on the #534 SG Ready bridge while the compressor is actively running — a device-side reporting artifact (every idle reading immediately before/after a run agrees with itself; every in-run reading is depressed), not a real physical drop. The projection now only trusts a live reading once the load is confirmed idle AND has been off for at least 5 minutes (`thermal_forecast.SETTLING_MINUTES`, matching the real settling time Mark's own runs showed) — otherwise it anchors from the last known-good idle reading (`LoadRunState.last_idle_temperature`, new field) instead. `thermal_forecast.learn_thermal_rates()` was also redesigned the same way: the heating rate is now learned from the idle-to-idle pair bracketing a run (last idle reading before, first *settled* idle reading after), never from the heating segment's own start/end samples, which #610's own investigation confirmed are the corrupted ones.
+  - **#611**: the forecast projected from `plan_forecast[0]` even when #595's own hold-window guard kept `commanded_state` ON despite this cycle's freshly-solved plan already dipping to 0 kW — showing the tank cooling while it was actually still being heated. Period 0 of the projection now uses the load's own configured `deferrable_max_power_kw` whenever `commanded_state` is genuinely ON this cycle; every later period still projects from the real plan.
+  - **#610**: the projection had no ceiling at all, continuing to add `heating_rate × kWh` past the heater's own setpoint. Now clamped to the water_heater/climate entity's own live `temperature` (falling back to `max_temp`) attribute — read directly, never a new wizard field. Also: `sensor.nimbus_<load>_temperature_forecast` now publishes `thermal_rates_source` (`"learned"` vs `"fallback"`) plus the two rates themselves as attributes, so a household can tell "learned from real history" from "still on the #592-cited defaults" instead of the two looking identical.
+  - 7 new wiring tests (`TestApplyCommandedStateGuardThermalForecast`) plus a full redesign of `thermal_forecast.py`'s own 15-test suite (idle-to-idle pairing, settling window, ceiling, override) — none of this wiring had a dedicated test before this pass, only the pure functions.
+- **Not this release**: #612 (a deferrable load whose real window spans more than one solve horizon — `build_controllable_loads()` only ever builds one window per load) is a separate, larger architectural gap, not touched here.
+
 ## [0.94.197] — 2026-09-09
 
 ### Fixed

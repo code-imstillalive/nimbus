@@ -8229,6 +8229,7 @@ def apply_commanded_state_guard(
                 CONF_DEFERRABLE_DEADLINE_HOUR,
                 CONF_DEFERRABLE_DONE_ENTITY,
                 CONF_DEFERRABLE_EARLIEST_HOUR,
+                CONF_DEFERRABLE_MAX_POWER_KW,
                 CONF_DEFERRABLE_TARGET_KWH,
                 CONF_SHEDDABLE_NOMINAL_KW,
                 DOMAIN,
@@ -8245,6 +8246,7 @@ def apply_commanded_state_guard(
                 CONF_DEFERRABLE_DEADLINE_HOUR,
                 CONF_DEFERRABLE_DONE_ENTITY,
                 CONF_DEFERRABLE_EARLIEST_HOUR,
+                CONF_DEFERRABLE_MAX_POWER_KW,
                 CONF_DEFERRABLE_TARGET_KWH,
                 CONF_SHEDDABLE_NOMINAL_KW,
                 DOMAIN,
@@ -8545,10 +8547,38 @@ def apply_commanded_state_guard(
                         and done_entity.split(".", 1)[0]
                         in done_condition.ATTRIBUTE_DONE_DOMAINS
                     ):
-                        current_temperature = done_condition.read_current_temperature(
+                        live_temperature = done_condition.read_current_temperature(
                             _NATIVE_HASS, done_entity
                         )
-                        if current_temperature is not None:
+                        # nimbus issue #609 (Mark Purcell, real finding:
+                        # current_temperature reads ~10-11 degC LOW while
+                        # the compressor is actively running on the #534
+                        # SG Ready bridge -- a device-side reporting
+                        # artifact, not a real physical drop, confirmed
+                        # by every idle reading before/after a run
+                        # agreeing with itself while every in-run reading
+                        # is depressed). A live reading is only trusted
+                        # once the load is confirmed idle AND has been
+                        # off for at least thermal_forecast.SETTLING_
+                        # MINUTES -- otherwise the last known-good idle
+                        # reading anchors the projection instead.
+                        settled = not new.currently_on and (
+                            new.off_since is None
+                            or (now.timestamp() - new.off_since)
+                            >= thermal_forecast.SETTLING_MINUTES * 60.0
+                        )
+                        if settled and live_temperature is not None:
+                            new = replace(new, last_idle_temperature=live_temperature)
+                        start_temperature = (
+                            live_temperature
+                            if settled
+                            else (
+                                new.last_idle_temperature
+                                if new.last_idle_temperature is not None
+                                else live_temperature
+                            )
+                        )
+                        if start_temperature is not None:
                             heating_rate = new.thermal_heating_rate_c_per_kwh
                             decay_rate = new.thermal_idle_decay_c_per_hour
                             # Recorder history is a real DB query -- only
@@ -8574,12 +8604,54 @@ def apply_commanded_state_guard(
                                     thermal_heating_rate_c_per_kwh=heating_rate,
                                     thermal_idle_decay_c_per_hour=decay_rate,
                                     thermal_rates_learned_day_key=day_key,
+                                    # nimbus issue #610: "the published
+                                    # attributes do not say which [a
+                                    # learned rate from a default]."
+                                    thermal_rates_source=(
+                                        "learned" if learned.is_learned else "fallback"
+                                    ),
                                 )
+                            # nimbus issue #611 (Mark Purcell: "the
+                            # forecast is projected from plan_forecast,
+                            # so it shows [cooling] ... while [real
+                            # power] is actually going into the tank" --
+                            # #595's own guard can hold commanded_state
+                            # ON through a hold window a fresh solve's
+                            # own plan_forecast[0] doesn't yet reflect).
+                            # Only period 0 is overridden with the
+                            # load's own configured max_power_kw when
+                            # actually commanded on -- every later
+                            # period still projects from the real plan.
+                            max_power_kw = data.get(CONF_DEFERRABLE_MAX_POWER_KW)
+                            override_power = (
+                                float(max_power_kw)
+                                if new.commanded_state and max_power_kw is not None
+                                else None
+                            )
+                            # nimbus issue #610: clamp at the
+                            # water_heater/climate entity's own
+                            # configured setpoint -- never invented,
+                            # read straight off its live attributes
+                            # ("temperature" first, the real HA
+                            # water_heater target-temperature attribute;
+                            # "max_temp" as a fallback for an entity
+                            # that only publishes that).
+                            ceiling_temperature = None
+                            done_state_obj = _NATIVE_HASS.states.get(done_entity)
+                            if done_state_obj is not None:
+                                for _attr in ("temperature", "max_temp"):
+                                    _raw = done_state_obj.attributes.get(_attr)
+                                    if _raw is not None:
+                                        try:
+                                            ceiling_temperature = float(_raw)
+                                        except (TypeError, ValueError):
+                                            ceiling_temperature = None
+                                        break
                             new = replace(
                                 new,
                                 temperature_forecast=thermal_forecast.project_temperature_forecast(
                                     new.plan_forecast or [],
-                                    start_temperature=current_temperature,
+                                    start_temperature=start_temperature,
                                     heating_rate_c_per_kwh=(
                                         heating_rate
                                         if heating_rate is not None
@@ -8591,6 +8663,8 @@ def apply_commanded_state_guard(
                                         else thermal_forecast.DEFAULT_IDLE_DECAY_C_PER_HOUR
                                     ),
                                     on_threshold_kw=load_run_state.DEFAULT_ON_THRESHOLD_KW,
+                                    ceiling_temperature=ceiling_temperature,
+                                    override_first_period_power_kw=override_power,
                                 ),
                             )
                 device_entity = data.get(CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY)

@@ -156,6 +156,25 @@ class LoadRunState:
     thermal_idle_decay_c_per_hour: float | None = None
     thermal_rates_learned_day_key: str = ""
     temperature_forecast: list[dict[str, Any]] | None = None
+    # nimbus issue #610 (Mark Purcell, real finding on the #534 SG Ready
+    # bridge: current_temperature reads ~10-11 degC LOW while the
+    # compressor is actively running -- a device-side reporting
+    # artifact, confirmed by every idle reading before/after a run
+    # agreeing with itself while every in-run reading is depressed).
+    # The last real, trustworthy idle reading -- updated only when the
+    # load is confirmed idle AND settled (see solver_writer.py's own
+    # wiring for the settling-window logic) -- used as the temperature
+    # projection's own starting point whenever the load is currently on
+    # or has stopped too recently to trust a fresh live reading. None
+    # for a load that has never yet had a trustworthy idle sample.
+    last_idle_temperature: float | None = None
+    # "learned" once at least one real idle-to-idle heating-rate sample
+    # and one real idle-decay sample were found in recorder history;
+    # "fallback" whenever either rate fell back to thermal_forecast.py's
+    # own #592-cited defaults. "" for a load that has never yet run the
+    # thermal-rate learner at all. nimbus issue #610: "the published
+    # attributes do not say which [a learned rate from a default]."
+    thermal_rates_source: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -184,6 +203,8 @@ class LoadRunState:
             "thermal_idle_decay_c_per_hour": self.thermal_idle_decay_c_per_hour,
             "thermal_rates_learned_day_key": self.thermal_rates_learned_day_key,
             "temperature_forecast": self.temperature_forecast,
+            "last_idle_temperature": self.last_idle_temperature,
+            "thermal_rates_source": self.thermal_rates_source,
         }
 
     @staticmethod
@@ -216,6 +237,8 @@ class LoadRunState:
                 data.get("thermal_rates_learned_day_key", "")
             ),
             temperature_forecast=data.get("temperature_forecast"),
+            last_idle_temperature=data.get("last_idle_temperature"),
+            thermal_rates_source=str(data.get("thermal_rates_source", "")),
         )
 
 
