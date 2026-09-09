@@ -620,6 +620,228 @@ def test_debounced_solve_records_completion_with_triggering_entity_and_timestamp
     asyncio.run(_run())
 
 
+# -- nimbus issue #633 (Mark Purcell): attribute-only refreshes must not
+# be measured as if they were a real price change --
+
+
+def test_attribute_only_refresh_is_tagged_price_attributes_not_price_change():
+    """The actual reported bug: a state_changed event where old_state.state
+    == new_state.state (an attribute-only refresh, e.g. a price
+    integration's coordinator updating its own forecast attributes a few
+    seconds before the interval price itself changes) must not be
+    recorded as trigger_source="price_change" -- solver_runtime.record_
+    solve_completed() already treats anything else as a no-op for the
+    latency sensor, so tagging it price_attributes is what actually stops
+    the phantom sample."""
+    _reset_module_state()
+
+    async def _run() -> None:
+        loop = asyncio.get_event_loop()
+        hass = MagicMock()
+        hass.loop = loop
+        hass.states.get = MagicMock(return_value=None)
+        hass.async_create_task = lambda coro: asyncio.ensure_future(coro)
+        fake_solve = AsyncMock(return_value=True)
+        fake_record = MagicMock()
+        entry = _fake_entry(
+            "entry_attr_only",
+            {
+                CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_a",
+                CONF_SOLVE_ON_PRICE_CHANGE: True,
+                CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S: 0.05,
+            },
+        )
+
+        captured: dict[str, object] = {}
+
+        def _capture(_hass, _entities, callback):
+            captured["callback"] = callback
+            return MagicMock()
+
+        with (
+            patch(
+                "custom_components.nimbus_load.async_track_state_change_event",
+                side_effect=_capture,
+            ),
+            patch(
+                "custom_components.nimbus_load.solver_runtime.async_run_solve",
+                fake_solve,
+            ),
+            patch(
+                "custom_components.nimbus_load.solver_runtime.record_solve_completed",
+                fake_record,
+            ),
+        ):
+            _configure_price_watcher(hass, entry)
+
+            cb = captured["callback"]
+            # A stale real price (last_changed 300s ago) with an
+            # attribute-only refresh RIGHT NOW (last_updated) -- the
+            # exact shape of Mark's own reported 280-600s spikes.
+            fake_event = MagicMock()
+            fake_event.data = {
+                "entity_id": "sensor.import_a",
+                "old_state": SimpleNamespace(state="0.30"),
+                "new_state": SimpleNamespace(
+                    state="0.30",  # same value -- attribute-only
+                    last_changed="2026-09-09T13:00:25+00:00",
+                    last_updated="2026-09-09T13:05:14+00:00",
+                ),
+            }
+            cb(fake_event)
+
+            await _wait_until(lambda: fake_solve.called)
+
+        fake_record.assert_called_once_with(
+            trigger_source="price_attributes",
+            triggering_entity="sensor.import_a",
+            price_change_at="2026-09-09T13:05:14+00:00",
+            debounce_s=0.05,
+        )
+
+    asyncio.run(_run())
+
+
+def test_real_price_change_is_still_tagged_price_change():
+    """Regression guard: a genuine value change (old_state.state !=
+    new_state.state) must keep using last_changed and the real
+    trigger_source, completely unaffected by the #633 fix."""
+    _reset_module_state()
+
+    async def _run() -> None:
+        loop = asyncio.get_event_loop()
+        hass = MagicMock()
+        hass.loop = loop
+        hass.states.get = MagicMock(return_value=None)
+        hass.async_create_task = lambda coro: asyncio.ensure_future(coro)
+        fake_solve = AsyncMock(return_value=True)
+        fake_record = MagicMock()
+        entry = _fake_entry(
+            "entry_real_change",
+            {
+                CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_a",
+                CONF_SOLVE_ON_PRICE_CHANGE: True,
+                CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S: 0.05,
+            },
+        )
+
+        captured: dict[str, object] = {}
+
+        def _capture(_hass, _entities, callback):
+            captured["callback"] = callback
+            return MagicMock()
+
+        with (
+            patch(
+                "custom_components.nimbus_load.async_track_state_change_event",
+                side_effect=_capture,
+            ),
+            patch(
+                "custom_components.nimbus_load.solver_runtime.async_run_solve",
+                fake_solve,
+            ),
+            patch(
+                "custom_components.nimbus_load.solver_runtime.record_solve_completed",
+                fake_record,
+            ),
+        ):
+            _configure_price_watcher(hass, entry)
+
+            cb = captured["callback"]
+            fake_event = MagicMock()
+            fake_event.data = {
+                "entity_id": "sensor.import_a",
+                "old_state": SimpleNamespace(state="0.30"),
+                "new_state": SimpleNamespace(
+                    state="0.32",
+                    last_changed="2026-09-09T13:05:27+00:00",
+                    last_updated="2026-09-09T13:05:27+00:00",
+                ),
+            }
+            cb(fake_event)
+
+            await _wait_until(lambda: fake_solve.called)
+
+        fake_record.assert_called_once_with(
+            trigger_source="price_change",
+            triggering_entity="sensor.import_a",
+            price_change_at="2026-09-09T13:05:27+00:00",
+            debounce_s=0.05,
+        )
+
+    asyncio.run(_run())
+
+
+def test_missing_old_state_is_treated_as_a_real_change():
+    """The very first event this listener has ever seen for an entity
+    (no old_state at all) has nothing to compare against -- fail-open to
+    "real change" (record the sample) rather than silently dropping the
+    very first sample forever."""
+    _reset_module_state()
+
+    async def _run() -> None:
+        loop = asyncio.get_event_loop()
+        hass = MagicMock()
+        hass.loop = loop
+        hass.states.get = MagicMock(return_value=None)
+        hass.async_create_task = lambda coro: asyncio.ensure_future(coro)
+        fake_solve = AsyncMock(return_value=True)
+        fake_record = MagicMock()
+        entry = _fake_entry(
+            "entry_no_old_state",
+            {
+                CONF_SOLVER_IMPORT_PRICE_SENSOR: "sensor.import_a",
+                CONF_SOLVE_ON_PRICE_CHANGE: True,
+                CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S: 0.05,
+            },
+        )
+
+        captured: dict[str, object] = {}
+
+        def _capture(_hass, _entities, callback):
+            captured["callback"] = callback
+            return MagicMock()
+
+        with (
+            patch(
+                "custom_components.nimbus_load.async_track_state_change_event",
+                side_effect=_capture,
+            ),
+            patch(
+                "custom_components.nimbus_load.solver_runtime.async_run_solve",
+                fake_solve,
+            ),
+            patch(
+                "custom_components.nimbus_load.solver_runtime.record_solve_completed",
+                fake_record,
+            ),
+        ):
+            _configure_price_watcher(hass, entry)
+
+            cb = captured["callback"]
+            fake_event = MagicMock()
+            fake_event.data = {
+                "entity_id": "sensor.import_a",
+                "new_state": SimpleNamespace(
+                    state="0.30",
+                    last_changed="2026-09-09T13:05:27+00:00",
+                    last_updated="2026-09-09T13:05:27+00:00",
+                ),
+            }
+            cb(fake_event)
+
+            await _wait_until(lambda: fake_solve.called)
+
+        fake_record.assert_called_once_with(
+            trigger_source="price_change",
+            triggering_entity="sensor.import_a",
+            price_change_at="2026-09-09T13:05:27+00:00",
+            debounce_s=0.05,
+        )
+
+    asyncio.run(_run())
+
+
 # -- nimbus issue #337: the state-change unsub is NOT safe to call twice --
 
 

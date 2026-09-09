@@ -807,14 +807,22 @@ def _configure_price_watcher(hass: HomeAssistant, entry: NimbusConfigEntry) -> N
     # LAST (most recent) triggering event in whatever burst caused the
     # eventual solve -- the same coalescing the debounce itself already
     # does for the solve trigger.
-    pending: dict[str, object] = {"handle": None, "entity_id": None, "changed_at": None}
+    # "trigger_kind" (nimbus issue #633, Mark Purcell): see _on_price_
+    # change's own comment below for why this isn't always "price_change".
+    pending: dict[str, object] = {
+        "handle": None,
+        "entity_id": None,
+        "changed_at": None,
+        "trigger_kind": "price_change",
+    }
 
     async def _run_price_change_solve() -> None:
         triggering_entity = pending.get("entity_id")
         price_change_at = pending.get("changed_at")
+        trigger_kind = pending.get("trigger_kind", "price_change")
         if await solver_runtime.async_run_solve(hass):
             solver_runtime.record_solve_completed(
-                trigger_source="price_change",
+                trigger_source=trigger_kind,
                 triggering_entity=triggering_entity,
                 price_change_at=price_change_at,
                 debounce_s=debounce_s,
@@ -834,11 +842,42 @@ def _configure_price_watcher(hass: HomeAssistant, entry: NimbusConfigEntry) -> N
         handle = pending.get("handle")
         if handle is not None:
             handle.cancel()  # type: ignore[attr-defined]
+        old_state = event.data.get("old_state")
         new_state = event.data.get("new_state")
-        pending["entity_id"] = event.data.get("entity_id")
-        pending["changed_at"] = (
-            new_state.last_changed if new_state is not None else None
+        # nimbus issue #633 (Mark Purcell, real repro: latency spikes to
+        # 280-600s every 5 minutes, matching "solve time minus the last
+        # REAL price change" to the second): HA fires state_changed for
+        # attribute-only updates too (a configured price integration's
+        # own coordinator often refreshes forecast attributes a few
+        # seconds before the interval price itself changes). On such an
+        # event, new_state.last_changed still points at the PREVIOUS
+        # real value change -- using it here would make this solve's own
+        # latency sample measure "how stale was the last real price",
+        # not "how fast did the solver respond to this event". A missing
+        # old_state (the very first event this listener has ever seen
+        # for this entity) is treated as a real change -- there's no
+        # prior value to compare against, and the conservative default
+        # (record the sample) matches this project's own fail-open
+        # convention elsewhere rather than silently dropping it.
+        is_real_price_change = (
+            old_state is None or new_state is None or old_state.state != new_state.state
         )
+        pending["entity_id"] = event.data.get("entity_id")
+        pending["trigger_kind"] = (
+            "price_change" if is_real_price_change else "price_attributes"
+        )
+        if new_state is None:
+            pending["changed_at"] = None
+        elif is_real_price_change:
+            pending["changed_at"] = new_state.last_changed
+        else:
+            # solver_runtime.record_solve_completed() already treats any
+            # trigger_source other than "price_change" as a no-op for
+            # the latency sensor -- price_change_at is never read for
+            # this branch, but last_updated (this event's own real
+            # timestamp, not a stale prior value) is still the honest
+            # choice over last_changed if that ever changes.
+            pending["changed_at"] = new_state.last_updated
         pending["handle"] = hass.loop.call_later(debounce_s, _fire_solve)
 
     listener_unsub: Callable[[], None] | None = async_track_state_change_event(
