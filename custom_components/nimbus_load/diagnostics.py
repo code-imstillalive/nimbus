@@ -42,7 +42,17 @@ from typing import Any
 
 from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.storage import Store
 
+from . import load_run_state
+from .const import (
+    CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY,
+    CONF_BATTERY_PARTICIPANT_CHARGE_LIMIT_ENTITY,
+    CONF_BATTERY_PARTICIPANT_SOC_SENSOR,
+    DOMAIN,
+    SUBENTRY_TYPE_BATTERY_PARTICIPANT,
+    SUBENTRY_TYPE_CONTROLLABLE_LOAD,
+)
 from .coordinator import NimbusConfigEntry
 
 TO_REDACT: tuple[str, ...] = ()
@@ -51,6 +61,70 @@ TO_REDACT: tuple[str, ...] = ()
 _SOLVER_ENTITY_ID = "sensor.nimbus_solver_battery_forecast"
 _HOUSEHOLD_LOAD_ENTITY_ID = "sensor.nimbus_household_load_total_forecast"
 _SOLVER_CONFIG_ENTITY_ID = "sensor.nimbus_solver_config"
+
+
+async def _controllable_load_diagnostics(
+    hass: HomeAssistant, entry: NimbusConfigEntry, subentry_id: str
+) -> dict[str, Any]:
+    """nimbus issue #623 (Mark Purcell, real finding: reconfiguring the
+    Hot Water Heat Pump had to reconstruct its current values from notes
+    and entity attributes, because a controllable_load subentry has no
+    forecast coordinator and was therefore entirely absent from this
+    dump). The full persisted LoadRunState -- commanded state, hold,
+    activations, delivered today, thermal rates, and the last-published
+    plan_forecast -- IS this load's own durable, inspectable state, the
+    same store NimbusControllableLoadStateSensor's own attributes read
+    from (sensor.py). Reads the SAME Store apply_commanded_state_guard()
+    writes to. A load that's never been solved yet (subentry just
+    created) reads back LoadRunStateStore's own honest all-defaults
+    fresh state, not a crash."""
+    store = load_run_state.LoadRunStateStore(
+        store=Store(hass, 1, f"{DOMAIN}_{entry.entry_id}_load_run_state")
+    )
+    state = await store.async_read(subentry_id)
+    return state.to_dict()
+
+
+def _battery_participant_diagnostics(
+    hass: HomeAssistant, data: dict[str, Any]
+) -> dict[str, Any]:
+    """nimbus issue #623: a battery_participant subentry has no
+    persisted store the way a controllable_load does (build_extra_
+    batteries() in solver_writer.py reads its soc_sensor/available_
+    entity fresh from hass.states every solve, nothing durable) -- so
+    "the last resolved availability/SoC the solve used" means reading
+    those same two live entities the same way, right here. Deliberately
+    NOT a duplicate of build_extra_batteries()'s own full BatteryConfig
+    resolution (capacity clamping, departure-deadline period resolution,
+    shared-charger grouping) -- this is a diagnostic read-out of the raw
+    inputs a support request needs to see, not a second copy of the LP
+    config builder to keep in sync with the real one."""
+    soc_sensor = data.get(CONF_BATTERY_PARTICIPANT_SOC_SENSOR)
+    soc_state = hass.states.get(soc_sensor) if soc_sensor else None
+    available_entity = data.get(CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY)
+    available_state = hass.states.get(available_entity) if available_entity else None
+    charge_limit_entity = data.get(CONF_BATTERY_PARTICIPANT_CHARGE_LIMIT_ENTITY)
+    charge_limit_state = (
+        hass.states.get(charge_limit_entity) if charge_limit_entity else None
+    )
+    return {
+        "soc_sensor": soc_sensor,
+        "soc_sensor_state": soc_state.state if soc_state else None,
+        "available_entity": available_entity,
+        "available_entity_state": available_state.state if available_state else None,
+        # Same resolution build_extra_batteries() itself uses: no entity
+        # configured -> always available; anything but a live 'on' ->
+        # not available.
+        "available": (
+            True
+            if not available_entity
+            else available_state is not None and available_state.state == "on"
+        ),
+        "charge_limit_entity": charge_limit_entity,
+        "charge_limit_entity_state": (
+            charge_limit_state.state if charge_limit_state else None
+        ),
+    }
 
 
 def _solver_config_diagnostics(hass: HomeAssistant) -> dict[str, Any]:
@@ -144,40 +218,61 @@ def _solver_diagnostics(hass: HomeAssistant) -> dict[str, Any]:
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: NimbusConfigEntry
 ) -> dict[str, Any]:
-    """Return diagnostics for a Nimbus hub config entry."""
+    """Return diagnostics for a Nimbus hub config entry.
+
+    nimbus issue #623 (Mark Purcell, real finding on his own six-
+    subentry install): this used to iterate `entry.runtime_data` (the
+    forecast coordinators) directly, so `controllable_load`, `battery_
+    participant`, `power_source`, `pv_string`, and `battery_tower`
+    subentries -- every one of which has no forecast coordinator --
+    never appeared at all. Now iterates `entry.subentries.values()`
+    directly (every real subentry, regardless of type), and attaches a
+    `coordinator` block only where `runtime_data` actually has one for
+    that id -- byte-identical output for the two coordinator-backed
+    types (`load`/`power_signal`), a real one for every other type
+    instead of total silence."""
     coordinators = entry.runtime_data
 
     subentries: list[dict[str, Any]] = []
-    for subentry_id, coordinator in coordinators.items():
-        subentry = coordinator.subentry
-        data = coordinator.data or {}
-        # Full real forecast array, not just point-count/first/last time
-        # (2026-08-24 -- see this module's own top docstring for why the
-        # earlier "already visible on the entity, would bloat this dump"
-        # exclusion didn't hold up). first/last time kept alongside the
-        # full array as a cheap, still-useful at-a-glance summary.
-        forecast = data.get("forecast") or []
-        subentries.append(
-            {
-                "subentry_id": subentry_id,
-                "subentry_type": subentry.subentry_type,
-                "title": subentry.title,
-                "config": async_redact_data(dict(subentry.data), TO_REDACT),
-                "coordinator": {
-                    "last_update_success": coordinator.last_update_success,
-                    "mode": data.get("mode"),
-                    "trained_at": data.get("trained_at"),
-                    "training_points": data.get("training_points"),
-                    "model_type": data.get("model_type"),
-                    "validation_mae": data.get("validation_mae"),
-                    "validation_mase": data.get("validation_mase"),
-                    "forecast_point_count": len(forecast),
-                    "forecast_first_time": forecast[0]["time"] if forecast else None,
-                    "forecast_last_time": forecast[-1]["time"] if forecast else None,
-                    "forecast": forecast,
-                },
+    for subentry_id, subentry in entry.subentries.items():
+        entry_diag: dict[str, Any] = {
+            "subentry_id": subentry_id,
+            "subentry_type": subentry.subentry_type,
+            "title": subentry.title,
+            "config": async_redact_data(dict(subentry.data), TO_REDACT),
+        }
+        coordinator = coordinators.get(subentry_id)
+        if coordinator is not None:
+            data = coordinator.data or {}
+            # Full real forecast array, not just point-count/first/last
+            # time (2026-08-24 -- see this module's own top docstring
+            # for why the earlier "already visible on the entity, would
+            # bloat this dump" exclusion didn't hold up). first/last
+            # time kept alongside the full array as a cheap, still-
+            # useful at-a-glance summary.
+            forecast = data.get("forecast") or []
+            entry_diag["coordinator"] = {
+                "last_update_success": coordinator.last_update_success,
+                "mode": data.get("mode"),
+                "trained_at": data.get("trained_at"),
+                "training_points": data.get("training_points"),
+                "model_type": data.get("model_type"),
+                "validation_mae": data.get("validation_mae"),
+                "validation_mase": data.get("validation_mase"),
+                "forecast_point_count": len(forecast),
+                "forecast_first_time": forecast[0]["time"] if forecast else None,
+                "forecast_last_time": forecast[-1]["time"] if forecast else None,
+                "forecast": forecast,
             }
-        )
+        elif subentry.subentry_type == SUBENTRY_TYPE_CONTROLLABLE_LOAD:
+            entry_diag["load_run_state"] = await _controllable_load_diagnostics(
+                hass, entry, subentry_id
+            )
+        elif subentry.subentry_type == SUBENTRY_TYPE_BATTERY_PARTICIPANT:
+            entry_diag["live_resolution"] = _battery_participant_diagnostics(
+                hass, subentry.data
+            )
+        subentries.append(entry_diag)
 
     return {
         "entry": {
