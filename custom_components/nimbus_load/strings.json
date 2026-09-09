@@ -305,7 +305,7 @@
             "deferrable_earliest_hour": "Deferrable: earliest start (24hr decimal)",
             "deferrable_deadline_hour": "Deferrable: deadline (24hr decimal)",
             "deferrable_shortfall_price": "Deferrable: shortfall price ($/kWh)",
-            "deferrable_value_per_kwh": "Deferrable: value credit (optional, $/kWh)",
+            "deferrable_value_per_kwh": "Deferrable: run as soon as it's this cheap (optional, $/kWh)",
             "deferrable_done_entity": "Deferrable: done sensor (optional)",
             "deferrable_done_when": "Deferrable: done condition (optional, e.g. \">= 60\")"
           },
@@ -324,7 +324,7 @@
             "deferrable_earliest_hour": "The earliest time of day this load may run at all. 0 = midnight. Leave blank for no restriction.",
             "deferrable_deadline_hour": "The real deadline -- cumulative energy delivered must reach the target by this time of day.",
             "deferrable_shortfall_price": "A real $/kWh cost the Solver pays for every kWh short of the target by the deadline. Set high enough (the default) that a genuinely reachable target is always fully met; a genuinely unreachable one costs this instead of breaking the whole plan.",
-            "deferrable_value_per_kwh": "Optional utility credit per kWh served, beyond the bare target -- makes this load also run whenever the switchboard's own live price is at or below this value, not just enough to hit the deadline.",
+            "deferrable_value_per_kwh": "Optional -- for a comfort load like hot water: run as soon as the price is at or below this, instead of waiting for the single cheapest hour on paper. The Solver still only ever delivers up to your real target (never more), just prefers to deliver it early and cheaply when it can, rather than defer it into a battery that would fill anyway.",
             "deferrable_done_entity": "A binary_sensor, numeric sensor, or water_heater/climate entity that tells the Solver this load is genuinely finished (a tank-at-temperature sensor, a dishwasher's own \"done\" binary_sensor, or the heat pump/HVAC entity itself). Once done, the Solver stops scheduling more energy for it this window, even if the target/deadline hasn't been reached yet. Leave blank to always follow the target/deadline as configured above. A binary_sensor's own \"on\" state alone means done; a water_heater/climate entity compares its own current_temperature attribute and defaults to its own live setpoint if the done condition below is left blank; any other domain needs the done condition field below.",
             "deferrable_done_when": "For a numeric done sensor: the comparison that means \"done\", e.g. \">= 60\" for a tank temperature reaching 60°C. For a water_heater/climate done sensor, this compares against its current_temperature attribute instead of its state. Leave blank when the done sensor above is a binary_sensor (its own \"on\" state is the done condition) or a water_heater/climate entity (defaults to its own live setpoint)."
           }
