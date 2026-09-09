@@ -145,8 +145,18 @@ _EXPECTED_ATTRS = {
     "horizon_hours": 96.0,
     "solve_seconds": 0.0,  # excluded from comparison -- see test body
     "binding_constraint_now": "Grid export at zero (not economical right now)",
-    "binding_constraint_shadow_price": 0.0236,
-    "energy_shadow_price_now": 0.025,
+    # nimbus issue #662 (Mark Purcell): both regenerated from a fresh
+    # real run after fixing the missing period_hours_arr[0] division --
+    # power_balance_t0's own row dual (and the 4 variable-bound reduced
+    # costs compute_binding_constraint_label() reads) come out of the LP
+    # in "$ per kW of RHS/bound," carrying an implicit x hours[0] factor
+    # relative to the true $/kWh marginal price, exactly the same
+    # correction forced_import_cost already applied. A real, deliberate,
+    # understood value change (both now ~12x larger, matching this
+    # fixture's own 5-minute tier1 period at generation time), not
+    # drift.
+    "binding_constraint_shadow_price": 0.2827,
+    "energy_shadow_price_now": 0.3,
     "p2p_volume_cap_shadow_price": -0.0,
     "p2p_recent_avg_volume_kwh": 0.0,
     "load_forecast_source_used": f"single sensor: {_LOAD_SENSOR}",
@@ -196,6 +206,11 @@ _EXPECTED_FORECAST_SAMPLE = {
         "soc_pct": 56.02,
         "import_price": 0.3,
         "export_price": 0.05,
+        # nimbus issue #662: direct per-period coverage of the same
+        # period_hours_arr[i] correction verified at the top-level
+        # energy_shadow_price_now (this period's own copy of the same
+        # power_balance_t0 dual, same value by construction).
+        "shadow_price": 0.3,
     },
     1: {
         "battery_kw": -5.0,
@@ -206,6 +221,7 @@ _EXPECTED_FORECAST_SAMPLE = {
         "soc_pct": 57.03,
         "import_price": 0.3,
         "export_price": 0.05,
+        "shadow_price": 0.3,
     },
     -1: {
         "battery_kw": 1.3,
@@ -216,6 +232,11 @@ _EXPECTED_FORECAST_SAMPLE = {
         "soc_pct": 19.25,
         "import_price": 0.3,
         "export_price": 0.05,
+        # A genuinely different value from period 0/1 above (a coarser,
+        # later-horizon tier's own real duals) -- real, direct proof the
+        # per-period division uses THAT period's own hours[i], not a
+        # single shared/period-0 value applied everywhere.
+        "shadow_price": 0.2815,
     },
 }
 

@@ -72,9 +72,18 @@ _IMPORT_LIMIT_KW = 40.0
 _EXPORT_LIMIT_KW = 40.0
 
 
-def _label(plan):
+def _label(plan, period_0_hours=1.0):
+    # period_0_hours=1.0 (nimbus issue #662's own correction, `val /
+    # period_0_hours`) keeps every existing assertion below unchanged --
+    # dividing by 1.0 is a no-op. See TestPeriod0HoursCorrection below
+    # for dedicated coverage of the real, non-1.0 case.
     return solver_writer.compute_binding_constraint_label(
-        plan, _EXPORT_LIMIT_KW, _IMPORT_LIMIT_KW, _MAX_CHARGE_KW, _MAX_DISCHARGE_KW
+        plan,
+        _EXPORT_LIMIT_KW,
+        _IMPORT_LIMIT_KW,
+        _MAX_CHARGE_KW,
+        _MAX_DISCHARGE_KW,
+        period_0_hours,
     )
 
 
@@ -226,6 +235,35 @@ class TestUnexpectedNeitherBoundDegradesHonestly(unittest.TestCase):
             grid_export_kw=(0.0,),
         )
         label, _ = solver_writer.compute_binding_constraint_label(
-            plan, 0.0, _IMPORT_LIMIT_KW, _MAX_CHARGE_KW, _MAX_DISCHARGE_KW
+            plan, 0.0, _IMPORT_LIMIT_KW, _MAX_CHARGE_KW, _MAX_DISCHARGE_KW, 1.0
         )
         self.assertEqual(label, "Grid export at zero (not economical right now)")
+
+
+class TestPeriod0HoursCorrection(unittest.TestCase):
+    """nimbus issue #662 (Mark Purcell): the 4 variable families here
+    have their own LP objective coefficients scaled by period 0's own
+    duration, so their raw reduced cost is "$ per kW of bound" -- the
+    real $/kWh marginal value needs dividing by period_0_hours, the
+    exact same correction #662 itself found missing on shadow_price/
+    energy_shadow_price_now (network.py's own power_balance_t0 row
+    dual). Verified directly against #662's own real numbers: a raw
+    value of 0.0186 at a real 5-minute (5/60 h) period recovers 0.223,
+    matching the real contemporaneous import price of 0.2134.
+    """
+
+    def test_five_minute_period_divides_by_five_sixtieths(self):
+        plan = _fake_plan(
+            reduced_costs={"grid_export_0": 0.0186},
+            grid_export_kw=(_EXPORT_LIMIT_KW,),
+        )
+        _label_out, shadow_price = _label(plan, period_0_hours=5 / 60)
+        self.assertAlmostEqual(shadow_price, 0.223, places=3)
+
+    def test_one_hour_period_is_a_no_op(self):
+        plan = _fake_plan(
+            reduced_costs={"grid_export_0": 0.05},
+            grid_export_kw=(_EXPORT_LIMIT_KW,),
+        )
+        _label_out, shadow_price = _label(plan, period_0_hours=1.0)
+        self.assertEqual(shadow_price, 0.05)
