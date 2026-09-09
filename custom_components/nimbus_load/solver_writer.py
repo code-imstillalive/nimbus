@@ -3318,6 +3318,26 @@ def fetch_p2p_fixed_export_kw(
     Python's own datetime.hour never returns 24 -- any real hour (0-23)
     satisfies `< 24`.
 
+    nimbus issue #565 (real live household observation, 8 Sep ~17:00
+    P2P boundary): a P2P block's own rate is a fixed, pre-configured
+    $/kWh value with no live-price dependency -- there's no real reason
+    the block's own START needs to wait for the literal hour boundary
+    the way a spot-price-dependent decision genuinely does. `number.
+    nimbus_solver_p2p_block_lead_time_minutes` (shared across all 3
+    blocks, 0 default = complete no-op) shifts each block's own
+    effective START minute earlier by that many minutes, so the fixed-
+    rate window can begin a minute or so before the configured hour,
+    absorbing real dispatch-side lag structurally instead of relying on
+    tight solve/automation timing. Only the START shifts -- the END
+    stays exactly at end_hour*60, unchanged, matching the issue's own
+    scope ("begin a minute or so before"). Clamped to not go below
+    0 minutes into the calendar day (`max(0, ...)`) -- a block
+    configured to start at hour 0 with a nonzero lead time stays a
+    same-day-only comparison, same as every other block, rather than
+    reaching back into the previous day's own final periods (a real but
+    rare edge case, not worth the added wrap-around complexity for a
+    "begin a minute early" feature).
+
     Real, direct fix (2026-08-22, see SELF_CONSUME_HOURS_AFTER_MIDNIGHT_
     CLOSE's own comment above for the full "why a soft nudge alone
     wasn't enough" story): for any block that runs THROUGH midnight
@@ -3331,6 +3351,8 @@ def fetch_p2p_fixed_export_kw(
     separate, still-LP-free decision; only the GRID-EXPORT variable
     itself is pinned here).
     """
+    lead_time_minutes = _cfg_int(cfg, "solver_p2p_block_lead_time_minutes", 0)
+
     blocks: list[tuple[float, int, int]] = []
     for rate_key, start_key, end_key in P2P_BLOCK_KEYS:
         try:
@@ -3341,21 +3363,23 @@ def fetch_p2p_fixed_export_kw(
             continue
         if rate_kw <= 0 or end_hour <= start_hour:
             continue
-        blocks.append((rate_kw, start_hour, end_hour))
+        start_minute = max(0, start_hour * 60 - lead_time_minutes)
+        blocks.append((rate_kw, start_minute, end_hour * 60))
 
     if not blocks:
         return None
 
     runs_through_midnight = any(
-        end_hour == 24 for _rate_kw, _start_hour, end_hour in blocks
+        end_minute == 24 * 60 for _rate_kw, _start_minute, end_minute in blocks
     )
     self_consume_hours = _cfg_int(cfg, "solver_post_window_self_consume_hours", 4)
 
     result: list[float] = []
     for gt in grid_times:
+        gt_minute = gt.hour * 60 + gt.minute
         matched_rate = float("nan")
-        for rate_kw, start_hour, end_hour in blocks:
-            if start_hour <= gt.hour < end_hour:
+        for rate_kw, start_minute, end_minute in blocks:
+            if start_minute <= gt_minute < end_minute:
                 matched_rate = rate_kw
                 break
         if runs_through_midnight and gt.hour < self_consume_hours:
