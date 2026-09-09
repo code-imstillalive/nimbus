@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.216] — 2026-09-09
+
+### Added
+- **`build_plan()` gains opt-in grid-operator and per-battery headroom signals, `Plan.grid_signals`/`Plan.battery_signals`** (nimbus issue #491, Signals 2/7 of #489, built on #490's ranging plumbing). `grid_import_headroom_kw`/`grid_export_headroom_kw` (and `_kwh`) say how far the grid import/export cap could be relaxed before the plan's own optimal basis would change; `forced_import_cost`/`forced_export_cost` say what one more forced kWh would cost the plan, straight from the LP's own reduced costs. Each battery gets both a PHYSICAL headroom (`available_up_kw`/`available_down_kw` — hardware envelope alone, `nem-flex-telemetry`'s own existing convention) and a PLAN-CONSISTENT one (`available_up_ranging_kw`/`available_down_ranging_kw` — how much more the LP would actually accept at the same marginal price).
+
+  `compute_signals: bool = False` on `build_plan()` — deliberately opt-in, not automatic: a real timing regression found while building this (a 288-period battery-power-curve scenario, this project's own most LP-structurally-complex real shape, went from ~0.6s to ~5.6s with ranging on) means ranging is nowhere near the "cheap post-solve pass" a plain LP's own ranging is at this project's production scale. Every existing caller is completely unaffected; battery signals' own physical fields need no ranging at all and stay populated regardless. `None`/empty on any non-optimal `Plan`, same honest-diagnostic convention as `duals`/`reduced_costs`. Internal groundwork only — not yet wired into `solver_writer.py`'s own published sensors (a deliberately deferred, honestly-scoped next step, same foundation-first precedent this project already set for #476/#480/#484). 8 new tests, including real hand-verified scenarios (a genuinely zero-headroom export cap vs. one with real surplus beyond it, and the general ranging-headroom-never-exceeds-physical-headroom property against real solved numbers).
+
 ## [0.94.215] — 2026-09-09
 
 ### Added

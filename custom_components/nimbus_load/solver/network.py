@@ -374,6 +374,97 @@ class AdequacyLoadPlan:
 
 
 @dataclass(frozen=True)
+class GridSignals:
+    """Grid-operator signals from HiGHS ranging (nimbus issue #491,
+    Signals 2/7 of #489, built on #490's own ranging plumbing) -- real
+    numbers a grid operator/aggregator/the household's own telemetry
+    can use, distinct from the plan's own dispatch decision itself.
+
+    `grid_import_headroom_kw[t]`/`_kwh`: how much MORE import this
+    period could be forced at the SAME marginal price before the plan
+    itself would change -- `LPResult.bound_headroom("grid_import_{t}").up`,
+    i.e. real ranging, not a guess. Zero (not missing) whenever
+    `grid_import_excess_kw[t] > 0` (nimbus issue #390) -- the capped
+    `grid_import_{t}` variable is already pinned at its own bound in
+    that case, which ranging reports correctly by construction; no
+    special-casing needed here. `grid_export_headroom_kw`/`_kwh`
+    likewise for export.
+
+    `forced_import_cost[t]`/`forced_export_cost[t]`: what one more kWh
+    of forced import/export would cost the plan, $/kWh --
+    `reduced_costs["grid_import_{t}"] / hours[t]`. Unlike the headroom
+    fields above this does NOT strictly need ranging (reduced costs
+    are already computed on every optimal solve) -- gated on
+    `ranging_valid` anyway for one uniform, simple contract across this
+    whole dataclass (nimbus issue #491's own acceptance criterion:
+    "All signals None... when ranging_valid is false").
+
+    `flex_available_up_kw`/`down`: the household-level number an
+    aggregator could actually call on -- today simply the plan-
+    consistent import/export headroom above; nimbus issue #493's own
+    "min'd with the envelope" refinement is real, honestly-scoped
+    follow-up work, not yet built (there is no envelope to min against
+    until #493 lands), so these two fields are a real, useful signal on
+    their own already, just not the final envelope-aware version #489's
+    own design calls for.
+
+    The whole object is `None` on `Plan.grid_signals` whenever ranging
+    wasn't valid for that solve (a non-optimal Plan, or -- not expected
+    in practice, since build_plan() always requests ranging -- a HiGHS
+    version/edge case where ranging itself came back invalid) --
+    unambiguous "not available" for an array-shaped field, the same
+    reasoning `duals`/`reduced_costs` already apply via an empty dict,
+    adapted for numpy arrays (which can't hold a per-element "unknown"
+    the same way a dict entry simply not existing can).
+    """
+
+    grid_import_headroom_kw: NDArray[np.float64]
+    grid_import_headroom_kwh: NDArray[np.float64]
+    grid_export_headroom_kw: NDArray[np.float64]
+    grid_export_headroom_kwh: NDArray[np.float64]
+    forced_import_cost: NDArray[np.float64]
+    forced_export_cost: NDArray[np.float64]
+    flex_available_up_kw: NDArray[np.float64]
+    flex_available_down_kw: NDArray[np.float64]
+
+
+@dataclass(frozen=True)
+class BatterySignals:
+    """One battery participant's own available-headroom signals (nimbus
+    issue #491) -- name-matched against the same participant's own
+    `BatteryPlan` entry (mirrors that class's own `name`-keyed
+    precedent). Two figures per direction, deliberately both published
+    side by side rather than picking one:
+
+    `available_up_kw`/`available_down_kw` (PHYSICAL): `max_charge_kw -
+    charge[t] + discharge[t]` and the discharge-side mirror -- how much
+    this battery's own hardware envelope alone could still move,
+    ignoring economics entirely. This is `nem-flex-telemetry`'s own
+    existing `assets[].available_up_kw`/`down_kw` convention (#489's
+    own research doc) -- always computable, never `None`, needs no
+    ranging at all.
+
+    `available_up_ranging_kw`/`available_down_ranging_kw` (PLAN-
+    CONSISTENT): from `LPResult.bound_headroom()` on this battery's own
+    `battery_charge_{name}_{t}`/`battery_discharge_{name}_{t}`
+    variable -- how much more this specific direction the LP would
+    actually accept at the SAME marginal price before the optimal
+    basis changes. Always `<=` the physical figure (ranging headroom on
+    one variable can never exceed that variable's own remaining
+    physical bound, since HiGHS caps `col_bound_up` at the variable's
+    own ub) -- equal only when nothing about the plan's own economics
+    is the binding factor. `None` (the whole array) whenever ranging
+    wasn't valid for that solve, same convention as `GridSignals`.
+    """
+
+    name: str
+    available_up_kw: NDArray[np.float64]
+    available_down_kw: NDArray[np.float64]
+    available_up_ranging_kw: NDArray[np.float64] | None
+    available_down_ranging_kw: NDArray[np.float64] | None
+
+
+@dataclass(frozen=True)
 class BatteryPlan:
     """One battery participant's own real result (nimbus issue #467) --
     mirrors AdequacyLoadPlan's own shape/precedent above. Plan's own
@@ -484,6 +575,14 @@ class Plan:
     # graceful "nothing to align against" fallback _align_previous_
     # periods() already uses.
     batteries: list[BatteryPlan] = field(default_factory=list)
+    # nimbus issue #491: see GridSignals'/BatterySignals' own docstrings.
+    # None/empty (the default) on any Plan built before these fields
+    # existed, constructed directly by a test, non-optimal, or reached
+    # from a solve where ranging itself wasn't valid -- same "represent
+    # honestly, no fabricated data" posture as every other diagnostic
+    # field on this class.
+    grid_signals: GridSignals | None = None
+    battery_signals: list[BatterySignals] = field(default_factory=list)
 
     @property
     def is_optimal(self) -> bool:
@@ -807,6 +906,7 @@ def build_plan(
     import_price_risk_aversion: float = 0.0,
     export_price_risk_aversion: float = 0.0,
     soft_soc_penalty_per_kwh: float | None = None,
+    compute_signals: bool = False,
 ) -> Plan:
     """Build and solve one LP for the given horizon/inputs. Pure function --
     no I/O, no HA dependency, safe to call from anywhere including a plain
@@ -899,6 +999,31 @@ def build_plan(
     is the one actually feeding the committed export window; every other
     battery in the list charges/discharges under its own plain max_
     charge_kw/max_discharge_kw bounds with no P2P-window gating.
+
+    `compute_signals` (nimbus issue #491, Signals 2/7 of #489): opt-in
+    (default `False`) -- when `True`, requests HiGHS ranging on this
+    solve (`LPProblem.solve(ranging=True)`, #490) and populates `Plan.
+    grid_signals`/the ranging-derived half of `Plan.battery_signals`
+    from it. Deliberately NOT on by default: confirmed live via this
+    project's own real-scale timing regression test that ranging's own
+    cost is NOT uniformly "cheap, ~0.03s" the way a bare LP solve is at
+    this project's production scale -- a 288-period battery-power-curve
+    scenario (piecewise segment variables, this project's own most
+    LP-structurally-complex real shape) measured ranging adding ~5s on
+    top of a ~0.6s bare solve, nowhere near the "cheap post-solve pass"
+    #490's own module docstring describes for a plain LP. Every existing
+    caller (every test/caller predating this parameter) is completely
+    unaffected either way -- `Plan.battery_signals`' own PHYSICAL fields
+    (`available_up_kw`/`available_down_kw`, pure arithmetic on the
+    solved dispatch, no ranging needed) are still always populated
+    regardless of this flag; only the four ranging-derived fields
+    (`grid_signals` as a whole, and each `BatterySignals`'s own
+    `available_up_ranging_kw`/`available_down_ranging_kw`) are gated on
+    it. A caller that wants the real signals (e.g. a future dashboard
+    or telemetry feed, not yet built) opts in explicitly, and should
+    re-measure its own real timing budget at ITS OWN real problem scale
+    before doing so, rather than trust this docstring's own single
+    measured data point as universal.
     """
     loads = loads or []
     sheddable_loads = sheddable_loads or []
@@ -2080,7 +2205,11 @@ def build_plan(
             p, {t: export_bonus[t] for t in range(n)}, periods, grid
         )
 
-    result: LPResult = p.solve()
+    # nimbus issue #491: ranging is opt-in via `compute_signals` (see
+    # build_plan()'s own docstring for why this isn't unconditional --
+    # a real measured timing regression on this project's own most
+    # LP-structurally-complex real scenario).
+    result: LPResult = p.solve(ranging=compute_signals)
     if result.status != "optimal":
         return _infeasible_plan(
             periods, result.status, result.iterations, raw_status=result.raw_status
@@ -2163,6 +2292,87 @@ def build_plan(
         (bp.soc_kwh for bp in plan_batteries), np.zeros(n)
     ).astype(np.float64)
 
+    # nimbus issue #491 (Signals 2/7 of #489): grid-operator + per-battery
+    # headroom/forced-cost signals, straight off result's own ranging
+    # (see LPResult.bound_headroom()'s own docstring) and reduced costs.
+    # None (not 0/fabricated) whenever ranging itself wasn't valid for
+    # this solve -- same honest-diagnostic posture as duals/reduced_costs
+    # already use elsewhere on this class.
+    def _headroom_up(var: str) -> float:
+        h = result.bound_headroom(var)
+        return h.up if h is not None else 0.0
+
+    if result.ranging_valid:
+        grid_import_headroom_kw = np.array(
+            [_headroom_up(f"grid_import_{t}") for t in range(n)]
+        )
+        grid_export_headroom_kw = np.array(
+            [_headroom_up(f"grid_export_{t}") for t in range(n)]
+        )
+        forced_import_cost = np.array(
+            [
+                result.reduced_costs.get(f"grid_import_{t}", 0.0) / hours[t]
+                for t in range(n)
+            ]
+        )
+        forced_export_cost = np.array(
+            [
+                result.reduced_costs.get(f"grid_export_{t}", 0.0) / hours[t]
+                for t in range(n)
+            ]
+        )
+        grid_signals: GridSignals | None = GridSignals(
+            grid_import_headroom_kw=grid_import_headroom_kw,
+            grid_import_headroom_kwh=(grid_import_headroom_kw * hours).astype(
+                np.float64
+            ),
+            grid_export_headroom_kw=grid_export_headroom_kw,
+            grid_export_headroom_kwh=(grid_export_headroom_kw * hours).astype(
+                np.float64
+            ),
+            forced_import_cost=forced_import_cost,
+            forced_export_cost=forced_export_cost,
+            # nimbus issue #493 (not yet built): "min'd with the
+            # envelope" is real, honestly-scoped follow-up work -- there
+            # is no envelope to min against yet, so these two are simply
+            # the plan-consistent headroom on its own for now.
+            flex_available_up_kw=grid_import_headroom_kw,
+            flex_available_down_kw=grid_export_headroom_kw,
+        )
+    else:
+        grid_signals = None
+
+    plan_battery_signals = [
+        BatterySignals(
+            name=b.name,
+            available_up_kw=(
+                b.max_charge_kw
+                - plan_batteries[i].charge_kw
+                + plan_batteries[i].discharge_kw
+            ).astype(np.float64),
+            available_down_kw=(
+                b.max_discharge_kw
+                - plan_batteries[i].discharge_kw
+                + plan_batteries[i].charge_kw
+            ).astype(np.float64),
+            available_up_ranging_kw=(
+                np.array(
+                    [_headroom_up(f"battery_charge_{b.name}_{t}") for t in range(n)]
+                )
+                if result.ranging_valid
+                else None
+            ),
+            available_down_ranging_kw=(
+                np.array(
+                    [_headroom_up(f"battery_discharge_{b.name}_{t}") for t in range(n)]
+                )
+                if result.ranging_valid
+                else None
+            ),
+        )
+        for i, b in enumerate(batteries)
+    ]
+
     solar_used_arr = _get(solar_used)
     grid_import_excess_arr = _get(grid_import_excess)
     # mypy issue #384: export_bonus is list[str] | None -- restructured
@@ -2199,4 +2409,6 @@ def build_plan(
         effective_import_price=np.asarray(effective_import_price, dtype=np.float64),
         effective_export_price=np.asarray(effective_export_price, dtype=np.float64),
         batteries=plan_batteries,
+        grid_signals=grid_signals,
+        battery_signals=plan_battery_signals,
     )
