@@ -399,6 +399,17 @@ class AdequacyLoadPlan:
     is a real, priced decision now (see AdequacyLoadConfig's own
     docstring) rather than the whole plan going infeasible the way it
     used to before #477.
+
+    nimbus issue #482 (price-gated loads, e.g. a Bitcoin miner: "what
+    did the miner earn over what its energy was worth"): `profit_
+    horizon` is `sum((value_per_kwh[t] - lambda(t)) * power[t] *
+    hours[t])` across the whole solve horizon, where lambda(t) is the
+    real whole-system marginal cost of a kWh (the same power_balance_
+    t{t} dual #613's own shadow_price already exposes). None (not 0.0)
+    for a load with no `value_per_kwh` configured at all -- "profit" is
+    meaningless without a value to measure it against, same "never
+    fabricate a number that isn't real" posture as every other optional
+    field here.
     """
 
     name: str
@@ -409,6 +420,8 @@ class AdequacyLoadPlan:
     # AdequacyLoadConfig's own subentry_id -- see that field's own
     # docstring (elements.py) for why.
     subentry_id: str | None = None
+    # nimbus issue #482 -- see this class's own docstring above.
+    profit_horizon: float | None = None
 
 
 @dataclass(frozen=True)
@@ -2595,6 +2608,29 @@ def build_plan(
                 )
             )
             shortfall_kwh = p.value_of(result, adequacy_shortfall_vars[al.name])
+        # nimbus issue #482: "what did the miner earn over what its
+        # energy was worth" -- None (not 0.0) when this load has no
+        # value_per_kwh configured at all, same "never fabricate a
+        # number that isn't real" posture as AdequacyLoadPlan's own
+        # docstring. lambda(t) read straight from the same power_
+        # balance_t{t} dual #613's own per-period shadow_price exposes,
+        # with the identical #662 hours-scaling correction (the raw dual
+        # comes out in "$ per kW of RHS," not $/kWh, until divided by
+        # this period's own duration).
+        profit_horizon: float | None = None
+        if al.value_per_kwh is not None:
+            value_arr = np.broadcast_to(
+                np.asarray(al.value_per_kwh, dtype=np.float64), (n,)
+            )
+            lambda_arr = np.array(
+                [
+                    result.duals.get(f"power_balance_t{t}", 0.0) / hours[t]
+                    for t in range(n)
+                ]
+            )
+            profit_horizon = float(
+                np.sum((value_arr - lambda_arr) * power_arr * hours)
+            )
         plan_adequacy.append(
             AdequacyLoadPlan(
                 name=al.name,
@@ -2602,6 +2638,7 @@ def build_plan(
                 delivered_by_deadline_kwh=delivered_by_deadline_kwh,
                 shortfall_kwh=shortfall_kwh,
                 subentry_id=al.subentry_id,
+                profit_horizon=profit_horizon,
             )
         )
 

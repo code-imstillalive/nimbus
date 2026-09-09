@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.230] — 2026-09-10
+
+### Added
+- **Price-gated loads (e.g. a Bitcoin miner) now report their real realised profit** (nimbus issue #482, partial — the `profit_horizon` output only). A load configured with `value_per_kwh` already runs exactly where the switchboard's own marginal cost λ(t) is at or below that value; `AdequacyLoadPlan.profit_horizon` now reports the real number this earns — `sum((value_per_kwh[t] - λ(t)) * power[t] * hours[t])` across the whole solve horizon, using the same per-period marginal-cost dual #613's own `shadow_price` already exposes. `None` (never a fabricated number) for a load with no `value_per_kwh` configured at all. **Deliberately not done in this pass**: a dedicated "no `target_kwh`" pure price-gating API (today's mechanism already achieves the same real behaviour via a documented `target_kwh` workaround) and `max_kwh_per_day` (a real day-boundary-aware cap, genuinely separate scope) remain open.
+
 ## [0.94.229] — 2026-09-10
 
 ### Added
