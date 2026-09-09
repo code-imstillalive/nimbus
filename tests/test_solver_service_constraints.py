@@ -208,15 +208,28 @@ class TestAdequacyGenuineShortfall(unittest.TestCase):
 
 
 class TestAdequacyValuePerKwhPriceGating(unittest.TestCase):
-    """nimbus issue #482 (via #477's own value_per_kwh field): with no
-    real deadline pressure beyond a trivially-small target_kwh, a load
-    with value_per_kwh set becomes a pure price-gated load -- it runs
-    (at max_power_kw) exactly where the switchboard's own marginal cost
-    (the power_balance_t{t} dual, here just import_price since solar is
-    zero and the battery is disabled so grid import is the only real
-    marginal source) is at or below value_per_kwh, and sits idle where
-    it's above. Same mechanism HAEO's own consumption_cost uses (see
-    AdequacyLoadConfig's own docstring)."""
+    """nimbus issue #482 (via #477's own value_per_kwh field): a load
+    with value_per_kwh set becomes a price-gated load -- it runs exactly
+    where the switchboard's own marginal cost (the power_balance_t{t}
+    dual, here just import_price since solar is zero and the battery is
+    disabled so grid import is the only real marginal source) is at or
+    below value_per_kwh, and sits idle where it's above. Same mechanism
+    HAEO's own consumption_cost uses (see AdequacyLoadConfig's own
+    docstring).
+
+    nimbus issue #606 (Mark Purcell, real finding on his own heat pump:
+    a load with value_per_kwh set ran at MAX POWER in every period below
+    the gate price, well past its own real target_kwh, because the old
+    mechanism credited raw power[t] directly with no cap on the total
+    credited energy -- "the credit keeps the load on at max power in
+    every cheap period and the published plan overstates energy and
+    cost"). Fixed via a served_credit[t] variable capped both per-period
+    (<= power[t]) and in aggregate (<= target_kwh, network.py's own
+    adequacy_credit_cap_ constraint) -- these tests now lock in the
+    CORRECTED behavior: price-gating still works exactly as before, but
+    the load only ever delivers up to its real target, filling the
+    cheapest available periods first and stopping once met, never
+    running on past it just because the price is still low enough."""
 
     def test_load_runs_only_where_marginal_price_is_at_or_below_its_value(self):
         n = 3
@@ -239,10 +252,12 @@ class TestAdequacyValuePerKwhPriceGating(unittest.TestCase):
             AdequacyLoadConfig(
                 name="miner",
                 max_power_kw=5.0,
-                # Trivially small -- met by a fraction of one cheap
-                # period alone, so anything beyond it is pure
-                # value_per_kwh-driven demand, not deadline pressure.
-                target_kwh=0.5,
+                # Needs BOTH cheap periods together (5.0 + 1.0 = 6.0) to
+                # confirm the LP fills the cheapest period to its own
+                # max first, then only as much of the next-cheapest as
+                # still needed -- not #606's own old "runs at max
+                # everywhere it's allowed" behavior.
+                target_kwh=6.0,
                 earliest_period=0,
                 deadline_period=2,
                 shortfall_price=DEFAULT_ADEQUACY_SHORTFALL_PRICE,
@@ -260,11 +275,108 @@ class TestAdequacyValuePerKwhPriceGating(unittest.TestCase):
         self.assertEqual(plan.status, "optimal")
         power = plan.adequacy_loads[0].power_kw
         self.assertAlmostEqual(
-            power[0], 5.0, delta=1e-3, msg="0.03 <= 0.10 -- should run at full power"
+            power[0], 5.0, delta=1e-3, msg="0.03 <= 0.10 -- cheapest period, full power"
         )
         self.assertAlmostEqual(
-            power[1], 5.0, delta=1e-3, msg="0.07 <= 0.10 -- should run at full power"
+            power[1],
+            1.0,
+            delta=1e-3,
+            msg="0.07 <= 0.10 -- but only enough to reach the 6.0 kWh target",
         )
         self.assertAlmostEqual(
             power[2], 0.0, delta=1e-3, msg="0.15 > 0.10 -- should sit idle"
         )
+        self.assertAlmostEqual(plan.adequacy_loads[0].shortfall_kwh, 0.0, delta=1e-3)
+
+    def test_load_never_delivers_beyond_its_own_target_even_when_cheap(self):
+        # nimbus issue #606's own exact repro shape: a trivially small
+        # target met by a fraction of one cheap period -- the load must
+        # NOT keep running at max power through every other cheap
+        # period just because value_per_kwh still exceeds the price
+        # there (the pre-fix bug this test file's own git history shows
+        # this exact scenario used to assert as correct).
+        n = 3
+        periods = _flat_grid(n)
+        grid = GridConfig(
+            import_price=np.array([0.03, 0.07, 0.15]),
+            export_price=np.full(n, 0.0),
+            import_limit_kw=20.0,
+            export_limit_kw=20.0,
+        )
+        solar = SolarConfig(forecast_kw=np.zeros(n))
+        battery = _base_battery(max_charge_kw=0.0, max_discharge_kw=0.0)
+        adequacy = [
+            AdequacyLoadConfig(
+                name="miner",
+                max_power_kw=5.0,
+                target_kwh=0.5,
+                earliest_period=0,
+                deadline_period=2,
+                shortfall_price=DEFAULT_ADEQUACY_SHORTFALL_PRICE,
+                value_per_kwh=0.10,
+            )
+        ]
+        plan = build_plan(
+            periods=periods,
+            grid=grid,
+            batteries=[battery],
+            solar=solar,
+            loads=[],
+            adequacy_loads=adequacy,
+        )
+        self.assertEqual(plan.status, "optimal")
+        total_delivered = sum(
+            float(p) * float(h)
+            for p, h in zip(plan.adequacy_loads[0].power_kw, periods.hours)
+        )
+        self.assertAlmostEqual(
+            total_delivered,
+            0.5,
+            delta=1e-3,
+            msg="must deliver exactly its real target, not run on through every "
+            "period the price still gates in",
+        )
+
+    def test_no_value_per_kwh_is_byte_identical_to_before_this_fix(self):
+        # The served_credit mechanism only ever activates when
+        # value_per_kwh is set -- every existing install (none of which
+        # configure it today, per #606's own issue body) must see zero
+        # behaviour change. A load with a real deadline and no
+        # value_per_kwh still just delivers to meet target_kwh by the
+        # deadline, same as always.
+        n = 3
+        periods = _flat_grid(n)
+        grid = GridConfig(
+            import_price=np.array([0.03, 0.07, 0.15]),
+            export_price=np.full(n, 0.0),
+            import_limit_kw=20.0,
+            export_limit_kw=20.0,
+        )
+        solar = SolarConfig(forecast_kw=np.zeros(n))
+        battery = _base_battery(max_charge_kw=0.0, max_discharge_kw=0.0)
+        adequacy = [
+            AdequacyLoadConfig(
+                name="miner",
+                max_power_kw=5.0,
+                target_kwh=2.0,
+                earliest_period=0,
+                deadline_period=2,
+                shortfall_price=DEFAULT_ADEQUACY_SHORTFALL_PRICE,
+                # value_per_kwh deliberately omitted (None default).
+            )
+        ]
+        plan = build_plan(
+            periods=periods,
+            grid=grid,
+            batteries=[battery],
+            solar=solar,
+            loads=[],
+            adequacy_loads=adequacy,
+        )
+        self.assertEqual(plan.status, "optimal")
+        self.assertAlmostEqual(plan.adequacy_loads[0].shortfall_kwh, 0.0, delta=1e-3)
+        total_delivered = sum(
+            float(p) * float(h)
+            for p, h in zip(plan.adequacy_loads[0].power_kw, periods.hours)
+        )
+        self.assertGreaterEqual(total_delivered, 2.0 - 1e-3)

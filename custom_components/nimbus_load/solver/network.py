@@ -1229,11 +1229,56 @@ def build_plan(
     for al in adequacy_loads:
         p.set_cost(adequacy_shortfall_vars[al.name], al.shortfall_price)
         if al.value_per_kwh is not None:
+            # nimbus issue #606 (Mark Purcell, real finding: a 0.65kW
+            # heat pump with value_per_kwh configured would have run at
+            # MAX POWER in every single period the switchboard's shadow
+            # price sat below the credited value -- crediting raw
+            # power[t] directly, with nothing capping the total credited
+            # energy at the load's own target_kwh, "keeps the load on at
+            # max power in every cheap period and the published plan
+            # overstates energy and cost" (issue's own words). The whole
+            # POINT of value_per_kwh is "run early when it's cheap, not
+            # forever" -- #482's own docstring already says as much
+            # ("becomes a pure price-gated load... runs exactly where
+            # the switchboard's own shadow price is <= this value"), but
+            # nothing in the LP actually enforced the "only up to the
+            # real target" half of that promise until now.
+            #
+            # Fix (Mark's own proposal 1, credited to EMHASS's
+            # deferrable_load_max_cost / HAEO's consumption_cost
+            # semantics per #603): a new served_credit[t] variable,
+            # bounded above by power[t] each period (can never credit
+            # more than what's actually delivered that period) AND by
+            # the load's own real target_kwh in aggregate across the
+            # whole window (can never credit more, cumulatively, than
+            # the load genuinely needs) -- the credit is paid on
+            # served_credit, never on raw power directly. A load that
+            # genuinely wants to run past its target for real ongoing
+            # value should set a per-period value on a LoadConfig/
+            # SheddableLoadConfig instead; an AdequacyLoadConfig's whole
+            # identity is a bounded, one-time target, and this credit
+            # must respect that same bound, not quietly exceed it.
             value_arr = np.broadcast_to(
                 np.asarray(al.value_per_kwh, dtype=np.float64), (n,)
             )
+            credit_vars = [
+                p.add_variable(
+                    f"adequacy_credit_{al.name}_{t}", lb=0.0, ub=al.max_power_kw
+                )
+                for t in range(n)
+            ]
             for t in range(n):
-                p.set_cost(adequacy_vars[al.name][t], -float(value_arr[t]) * hours[t])
+                p.add_ub_constraint(
+                    {credit_vars[t]: 1.0, adequacy_vars[al.name][t]: -1.0},
+                    0.0,
+                    name=f"adequacy_credit_le_power_{al.name}_{t}",
+                )
+                p.set_cost(credit_vars[t], -float(value_arr[t]) * hours[t])
+            p.add_ub_constraint(
+                {credit_vars[t]: hours[t] for t in range(n)},
+                al.target_kwh,
+                name=f"adequacy_credit_cap_{al.name}",
+            )
 
     # ---- Shared-circuit caps (SharedCircuitConfig, see its own
     # docstring) -- a real, physical headroom limit on the COMBINED power
