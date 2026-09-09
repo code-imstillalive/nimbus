@@ -2593,6 +2593,14 @@ class TestDispatchCommandedState(unittest.TestCase):
                 config_entries=SimpleNamespace(async_entries=lambda domain: [entry]),
                 services=services,
                 loop=self._loop,
+                # nimbus issue #645: a real HomeAssistant instance always
+                # has .states -- _resolve_controllable_load_tuning()
+                # reads it (no live tuning number entities configured
+                # here, a clean no-op returning None for everything, the
+                # correct behaviour for every existing test in this
+                # class, none of which exercise #645's own live-override
+                # path).
+                states=SimpleNamespace(get=lambda eid: None),
             ),
             services,
         )

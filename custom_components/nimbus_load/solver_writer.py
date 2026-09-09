@@ -7980,6 +7980,78 @@ def _build_daily_adequacy_windows(
     return windows
 
 
+# nimbus issue #645: real household ask, mirroring number.py's own
+# hub-level "wizard for first-time setup, live entity for day-to-day
+# tuning" pattern (2026-08-20) per Controllable Load. The 7 fields a
+# household will genuinely want to retune as they learn a load's real
+# behaviour, WITHOUT re-running the whole wizard step -- see number.py's
+# own _CONTROLLABLE_LOAD_DESCRIPTIONS for the exact bounds/defaults and
+# the full "why these 7, not the 3 sheddable-only fields too" scoping.
+_CONTROLLABLE_LOAD_LIVE_NUMBER_KEYS = (
+    "deferrable_target_kwh",
+    "deferrable_max_power_kw",
+    "deferrable_earliest_hour",
+    "deferrable_deadline_hour",
+    "deferrable_shortfall_price",
+    "controllable_load_min_hold_minutes",
+    "controllable_load_max_activations_per_day",
+)
+
+
+def _slug_for_controllable_load_entity_id(title: str) -> str:
+    """Deliberate verbatim duplicate of sensor.py's own private
+    `_slug_for_entity_id()` -- see number.py's own copy of this same
+    function for the full "why duplicated, not imported" reasoning
+    (this module's own dual native/standalone import boundary makes
+    that doubly true here: solver_writer.py must stay importable with
+    no `sensor`/`number` module in scope at all in standalone/cron
+    mode). Keep in sync with both other copies if the slugging rule
+    itself ever changes -- all three must agree on the SAME entity_id
+    for the SAME title.
+    """
+    slug = re.sub(r"[^a-z0-9]+", "_", title.lower()).strip("_")
+    return slug or "load"
+
+
+def _resolve_controllable_load_tuning(data: dict, subentry) -> dict:
+    """nimbus issue #645: overlays each of the 7 real live-editable
+    tuning fields (number.nimbus_<load>_<key>) on top of `data`'s own
+    wizard-saved value, so every EXISTING read site in build_
+    controllable_loads()/apply_commanded_state_guard() (a plain `data.
+    get(CONF_DEFERRABLE_...)`) picks up the live value automatically,
+    with zero further changes needed at each individual call site.
+
+    A field whose live entity doesn't exist yet (a load created before
+    this change, or a genuinely fresh install before the number platform
+    has finished setup) or reads unknown/unavailable/non-numeric falls
+    straight back to `data`'s own existing value -- the wizard value
+    stays a REAL fallback, never silently dropped. Native mode only
+    (returns `data` unchanged when `_NATIVE_HASS` is None), same
+    reasoning as build_controllable_loads() itself: ConfigSubentries
+    have no standalone/cron equivalent to read a live entity from
+    either. Also returns `data` unchanged if `subentry` has no `title`
+    (a real ConfigSubentry always does; a genuinely malformed/unusual
+    object here fails open to the pre-#645 behaviour rather than
+    crashing this whole load's own solve over a slug it can't compute).
+    """
+    if _NATIVE_HASS is None:
+        return data
+    title = getattr(subentry, "title", None)
+    if not title:
+        return data
+    slug = _slug_for_controllable_load_entity_id(title)
+    resolved = dict(data)
+    for key in _CONTROLLABLE_LOAD_LIVE_NUMBER_KEYS:
+        state = _NATIVE_HASS.states.get(f"number.nimbus_{slug}_{key}")
+        if state is None or state.state in (None, "unknown", "unavailable"):
+            continue
+        try:
+            resolved[key] = float(state.state)
+        except (TypeError, ValueError):
+            continue
+    return resolved
+
+
 def build_controllable_loads(
     now: datetime,
     grid_times: list[datetime],
@@ -8071,7 +8143,10 @@ def build_controllable_loads(
     for subentry in entries[0].subentries.values():
         if subentry.subentry_type != SUBENTRY_TYPE_CONTROLLABLE_LOAD:
             continue
-        data = subentry.data
+        # nimbus issue #645: overlays the 7 live-editable tuning fields
+        # on top of the wizard-saved data -- every read below is
+        # unchanged, it now just sees the live value when one exists.
+        data = _resolve_controllable_load_tuning(subentry.data, subentry)
         name = data.get(CONF_CONTROLLABLE_LOAD_NAME) or subentry.subentry_id
         kind = data.get(CONF_CONTROLLABLE_LOAD_KIND)
         power_sensor = data.get(CONF_CONTROLLABLE_LOAD_POWER_SENSOR)
@@ -9049,7 +9124,15 @@ def apply_commanded_state_guard(
                     float(period0_kw) > load_run_state.DEFAULT_ON_THRESHOLD_KW
                 )
                 subentry = hub_subentries.get(subentry_id)
-                data = subentry.data if subentry is not None else {}
+                # nimbus issue #645: same live-tuning overlay as build_
+                # controllable_loads() -- covers both reads below
+                # (min_hold_minutes here, max_activations_per_day
+                # further down this same loop iteration's own data).
+                data = (
+                    _resolve_controllable_load_tuning(subentry.data, subentry)
+                    if subentry is not None
+                    else {}
+                )
                 min_hold_minutes = data.get(CONF_CONTROLLABLE_LOAD_MIN_HOLD_MINUTES)
                 min_hysteresis_seconds = (
                     float(min_hold_minutes) * 60.0
