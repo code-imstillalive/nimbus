@@ -1933,6 +1933,121 @@ class TestApplyCommandedStateGuardThermalForecast(unittest.TestCase):
         )
         self.assertEqual(result.thermal_rates_learned_day_key, now.strftime("%Y-%m-%d"))
 
+    def test_a_day_key_already_stamped_by_an_older_learner_still_relearns(self):
+        # nimbus issue #618 (Mark Purcell, real finding the day the
+        # #609/#610/#611 learner redesign shipped): thermal_rates_
+        # learned_day_key was already stamped TODAY by the OLD #592-era
+        # learner before this release's code even landed -- the day-key
+        # gate alone would silently skip relearning under the NEW
+        # idle-to-idle logic until tomorrow, leaving thermal_rates_source
+        # stuck at its never-learned "" default and the stale rate
+        # carried forward. A never-yet-labeled thermal_rates_source ("")
+        # must force a relearn regardless of the day key.
+        import numpy as np
+
+        sub = _fake_subentry(
+            "s_therm8",
+            "controllable_load",
+            {
+                "deferrable_done_entity": "water_heater.hws",
+                "controllable_load_power_sensor": "sensor.hws_power",
+                "deferrable_max_power_kw": 3.7,
+            },
+        )
+        now = datetime(2026, 9, 9, 8, 0, tzinfo=_TZ)
+        today = now.strftime("%Y-%m-%d")
+        self._seed_state(
+            "entry_t8",
+            "s_therm8",
+            load_run_state.LoadRunState(
+                # Already stamped TODAY by the pre-#618 learner, but
+                # thermal_rates_source was never set (the field didn't
+                # exist until this same release) -- the real #618 shape.
+                thermal_rates_learned_day_key=today,
+                thermal_heating_rate_c_per_kwh=8.0,
+                thermal_idle_decay_c_per_hour=0.5,
+                thermal_rates_source="",
+                currently_on=False,
+                off_since=None,
+                last_idle_temperature=None,
+            ),
+        )
+        states = {
+            "water_heater.hws": _fake_water_heater_state(current_temperature=55.0)
+        }
+        solver_writer._NATIVE_HASS = self._hub("entry_t8", sub, states)
+        grid_times = _grid(now, 4, minutes=30)
+        period_hours_arr = np.full(len(grid_times), 0.5)
+        plan = _fake_plan(
+            adequacy=[
+                _fake_load_plan(
+                    "s_therm8", np.array([0.0, 0.0, 0.0, 0.0]), adequacy=True
+                )
+            ]
+        )
+        solver_writer.apply_commanded_state_guard(
+            plan, now, grid_times, period_hours_arr
+        )
+        result = self._read_state("entry_t8", "s_therm8")
+        # The relearn ran (this bare harness has no real recorder, so it
+        # falls back honestly) -- proven by thermal_rates_source no
+        # longer being "".
+        self.assertEqual(result.thermal_rates_source, "fallback")
+
+    def test_an_already_labeled_source_on_the_same_day_does_not_relearn_again(self):
+        # The flip side of the #618 fix: once thermal_rates_source has
+        # been genuinely labeled (this cycle or an earlier one today),
+        # the once-per-day gate still holds -- must not re-fetch
+        # recorder history on every single solve.
+        import numpy as np
+
+        sub = _fake_subentry(
+            "s_therm9",
+            "controllable_load",
+            {
+                "deferrable_done_entity": "water_heater.hws",
+                "controllable_load_power_sensor": "sensor.hws_power",
+                "deferrable_max_power_kw": 3.7,
+            },
+        )
+        now = datetime(2026, 9, 9, 8, 0, tzinfo=_TZ)
+        today = now.strftime("%Y-%m-%d")
+        self._seed_state(
+            "entry_t9",
+            "s_therm9",
+            load_run_state.LoadRunState(
+                thermal_rates_learned_day_key=today,
+                thermal_heating_rate_c_per_kwh=1.2,
+                thermal_idle_decay_c_per_hour=0.35,
+                thermal_rates_source="learned",
+                currently_on=False,
+                off_since=None,
+                last_idle_temperature=None,
+            ),
+        )
+        states = {
+            "water_heater.hws": _fake_water_heater_state(current_temperature=55.0)
+        }
+        solver_writer._NATIVE_HASS = self._hub("entry_t9", sub, states)
+        grid_times = _grid(now, 4, minutes=30)
+        period_hours_arr = np.full(len(grid_times), 0.5)
+        plan = _fake_plan(
+            adequacy=[
+                _fake_load_plan(
+                    "s_therm9", np.array([0.0, 0.0, 0.0, 0.0]), adequacy=True
+                )
+            ]
+        )
+        solver_writer.apply_commanded_state_guard(
+            plan, now, grid_times, period_hours_arr
+        )
+        result = self._read_state("entry_t9", "s_therm9")
+        # Untouched -- the seeded real rates survive, not overwritten by
+        # a fallback from this bare harness's own empty recorder fetch.
+        self.assertEqual(result.thermal_rates_source, "learned")
+        self.assertEqual(result.thermal_heating_rate_c_per_kwh, 1.2)
+        self.assertEqual(result.thermal_idle_decay_c_per_hour, 0.35)
+
 
 class _FakeServiceCalls:
     """Records every hass.services.async_call() invocation -- real

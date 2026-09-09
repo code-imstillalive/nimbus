@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.200] — 2026-09-09
+
+### Fixed
+- **The v0.94.198 thermal-rate learner redesign (#609/#610/#611) never actually ran on an install that had already solved once today** (nimbus issue #618, Mark Purcell — real finding within minutes of v0.94.198's own devhub deploy, verifying his own live install: `thermal_rates_source` published an empty string, `heating_rate_c_per_kwh` stayed at the old `8.0` fallback, on a tank whose real recorder history already had every idle-to-idle pair the new learner needs). Root cause: `thermal_rates_learned_day_key` was already stamped with today's date by the OLD (#592-era) learner at an earlier solve, so the once-per-day relearn gate (`thermal_rates_learned_day_key != day_key`) correctly did its job of not re-querying the recorder every cycle — but that also meant a release that changes the LEARNER ITSELF silently waited until tomorrow to take effect, with `thermal_rates_source` stuck at its "never learned" `""` default in the meantime. Fixed exactly as Mark's own issue comment suggested: a never-yet-labeled `thermal_rates_source` (`""`) now also forces a relearn, regardless of the day key — self-healing on the very next solve rather than waiting up to a full day, and `thermal_rates_source` can now never be `""` again after a load's first-ever solve (only `"learned"` or `"fallback"`, matching #610's own intended contract). 2 new wiring tests.
+
 ## [0.94.199] — 2026-09-09
 
 ### Fixed
