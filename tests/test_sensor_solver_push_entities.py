@@ -116,8 +116,9 @@ def test_battery_forecast_has_required_sensor_entity_class_attributes():
     assert cls._attr_state_class is SensorStateClass.MEASUREMENT
     # Recorder 16 KB attribute cap fix (#59): the forecast list is a
     # projection, not a historical fact, so it's excluded from long-term
-    # storage.
-    assert cls._unrecorded_attributes == frozenset({"forecast"})
+    # storage. "batteries" (nimbus issue #563 item 5) is the same kind
+    # of per-cycle-churning series, per-participant.
+    assert cls._unrecorded_attributes == frozenset({"forecast", "batteries"})
 
 
 def test_household_load_total_forecast_has_required_sensor_entity_class_attributes():
@@ -130,7 +131,10 @@ def test_household_load_total_forecast_has_required_sensor_entity_class_attribut
 
     assert cls._attr_device_class is SensorDeviceClass.POWER
     assert cls._attr_state_class is SensorStateClass.MEASUREMENT
-    assert cls._unrecorded_attributes == frozenset({"forecast"})
+    # "batteries" only ever appears on the battery-forecast sibling
+    # above (this sensor never sets it), but both share the same base
+    # class's frozenset -- harmless, unused key here.
+    assert cls._unrecorded_attributes == frozenset({"forecast", "batteries"})
 
 
 # --- __init__ preserves entity identity -----------------------------------

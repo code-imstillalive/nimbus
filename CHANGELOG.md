@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.229] — 2026-09-10
+
+### Added
+- **Per-battery-participant kW/SoC series, published as a new `batteries` attribute on `sensor.nimbus_solver_battery_forecast`** (nimbus issue #563 item 5, partial — the sensor/attribute half only). `network.py`'s own `Plan.batteries[]` (#467 stage 1) already carried each real battery participant's own charge/discharge/SoC series; this is exposure, not new solver work. One entry per participant (`home` plus any `battery_participant` subentries — Mark's own real 3-battery fleet, Sigen home pack + two Teslas), each with the same per-period `{"time", "charge_kw", "discharge_kw", "soc_kwh", "soc_pct"}` shape the aggregate `forecast` array already uses — `soc_pct` derived from that participant's own real capacity, never the fleet total (the same bug #569 already fixed once for the aggregate figure). **Deliberately not done in this pass**: the "one flattened sub-device per battery" half of item 5's own ask — a real, separate new-entity-lifecycle piece — is left open.
+
 ## [0.94.228] — 2026-09-10
 
 ### Fixed

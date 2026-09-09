@@ -6823,6 +6823,55 @@ def _compute_flow_economics(
     return results
 
 
+def build_per_battery_forecast(
+    plan, grid_times, n_periods: int, battery_capacity_by_name: dict[str, float]
+) -> list[dict]:
+    """nimbus issue #563 item 5: Plan.batteries[] (network.py's own
+    BatteryPlan, #467 stage 1) already carries each real battery
+    participant's own charge/discharge/SoC series -- this is exposure,
+    not new solver work, the same posture #613's own item 1
+    (shadow_price) already established for this file. Same per-period
+    {"time": ...} shape as the aggregate "forecast" array
+    publish_plan() itself already builds, one entry per participant, so
+    a dashboard/quality-report reader can show the home pack and each
+    EV/second battery separately instead of only the fleet-summed
+    battery_kw/soc_pct every "forecast" row already has.
+
+    `soc_pct` is derived from THIS participant's own real capacity
+    (`battery_capacity_by_name[bp.name]`), never the fleet total --
+    dividing by the wrong capacity is exactly the real #569 bug already
+    fixed once for the aggregate soc_pct field, not something to
+    reintroduce here. 0.0 (not a crash or a fabricated 100%) for a
+    participant genuinely missing from `battery_capacity_by_name` or
+    configured with a non-positive capacity.
+
+    Deliberately NOT the "one flattened sub-device per battery" half of
+    #563 item 5's own ask -- that's a real, separate new-entity-
+    lifecycle piece, left open.
+    """
+    return [
+        {
+            "name": bp.name,
+            "forecast": [
+                {
+                    "time": grid_times[i].isoformat(),
+                    "charge_kw": round(float(bp.charge_kw[i]), 3),
+                    "discharge_kw": round(float(bp.discharge_kw[i]), 3),
+                    "soc_kwh": round(float(bp.soc_kwh[i]), 3),
+                    "soc_pct": round(
+                        float(bp.soc_kwh[i] / battery_capacity_by_name[bp.name] * 100),
+                        2,
+                    )
+                    if battery_capacity_by_name.get(bp.name, 0.0) > 0
+                    else 0.0,
+                }
+                for i in range(n_periods)
+            ],
+        }
+        for bp in plan.batteries
+    ]
+
+
 def publish_plan(
     *,
     cfg,
@@ -6841,6 +6890,13 @@ def publish_plan(
     # (which stays the home battery's own capacity for existing callers
     # that legitimately still need just that).
     fleet_capacity_kwh,
+    # nimbus issue #563 item 5: real per-participant capacity, keyed by
+    # BatteryConfig.name -- Plan.batteries[] itself carries kW/SoC but
+    # not capacity (network.py stays grid-agnostic about the config
+    # that produced a Plan), needed here to derive each participant's
+    # own soc_pct rather than only the fleet-summed one every existing
+    # "forecast" row already publishes. See main()'s own call site.
+    battery_capacity_by_name,
     charge_discharge_efficiency,
     grid,
     import_limit_kw,
@@ -7386,6 +7442,11 @@ def publish_plan(
             "signal_role": "battery",
             "source_sensor": cfg["solver_battery_soc_sensor"],
             "forecast": forecast,
+            # nimbus issue #563 item 5 -- see build_per_battery_
+            # forecast()'s own docstring for the full reasoning.
+            "batteries": build_per_battery_forecast(
+                plan, grid_times, n_periods, battery_capacity_by_name
+            ),
             "status": plan.status,
             "total_cost": plan.total_cost,
             "total_cost_with_fixed_costs": round(total_cost_with_fixed_costs, 4),
@@ -11094,6 +11155,7 @@ def main() -> None:
         n_periods=n_periods,
         capacity_kwh=capacity_kwh,
         fleet_capacity_kwh=fleet_capacity_kwh,
+        battery_capacity_by_name={b.name: b.capacity_kwh for b in all_batteries},
         charge_discharge_efficiency=charge_discharge_efficiency,
         grid=grid,
         import_limit_kw=import_limit_kw,
