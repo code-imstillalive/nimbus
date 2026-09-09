@@ -687,6 +687,30 @@ class TestLoadRunStatePlanForecastRoundTrip(unittest.TestCase):
         self.assertIsNone(restored.plan_nominal_kw)
 
 
+class TestLoadRunStateThermalAnchorRoundTrip(unittest.TestCase):
+    """nimbus issues #609/#610: last_idle_temperature (the settled-idle
+    anchor solver_writer.py's own wiring falls back to while a heating
+    run is active or still unsettled) and thermal_rates_source ("learned"
+    vs "fallback", #610's own transparency ask) round-trip through
+    to_dict()/from_dict() the same way #581's plan_* fields already do
+    above, including the same old-data backward-compat guarantee."""
+
+    def test_to_dict_and_from_dict_round_trip_both_fields(self):
+        state = lrs.LoadRunState(
+            last_idle_temperature=53.8,
+            thermal_rates_source="learned",
+        )
+        restored = lrs.LoadRunState.from_dict(state.to_dict())
+        self.assertEqual(restored.last_idle_temperature, 53.8)
+        self.assertEqual(restored.thermal_rates_source, "learned")
+
+    def test_from_dict_defaults_for_old_data_predating_these_fields(self):
+        old_data = {"currently_on": True, "delivered_today_kwh": 1.5}
+        restored = lrs.LoadRunState.from_dict(old_data)
+        self.assertIsNone(restored.last_idle_temperature)
+        self.assertEqual(restored.thermal_rates_source, "")
+
+
 def _iso_grid(start: datetime, n: int, minutes: int = 30) -> list[datetime]:
     return [start + timedelta(minutes=minutes * i) for i in range(n)]
 

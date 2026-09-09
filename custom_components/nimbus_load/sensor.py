@@ -1680,6 +1680,9 @@ class NimbusControllableLoadTemperatureForecastSensor(SensorEntity):
         )
         self._native_value: object = None
         self._forecast: list[dict] = []
+        self._rates_source: str = ""
+        self._heating_rate: float | None = None
+        self._decay_rate: float | None = None
 
     @property
     def native_value(self) -> object:
@@ -1693,7 +1696,18 @@ class NimbusControllableLoadTemperatureForecastSensor(SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict:
-        return {ATTR_FORECAST: self._forecast}
+        # nimbus issue #610 (Mark Purcell: "the published attributes do
+        # not say which [a learned rate from a default]") -- honest
+        # transparency on whether this cycle's own rates came from real
+        # recorder history or the #592-cited fallback defaults, plus the
+        # rates themselves so a household can sanity-check them directly
+        # rather than only seeing their downstream effect on the curve.
+        return {
+            ATTR_FORECAST: self._forecast,
+            "thermal_rates_source": self._rates_source,
+            "heating_rate_c_per_kwh": self._heating_rate,
+            "idle_decay_c_per_hour": self._decay_rate,
+        }
 
     async def async_update(self) -> None:
         store = load_run_state.LoadRunStateStore(
@@ -1704,6 +1718,9 @@ class NimbusControllableLoadTemperatureForecastSensor(SensorEntity):
         state = await store.async_read(self._subentry.subentry_id)
         self._forecast = state.temperature_forecast or []
         self._native_value = self._forecast[0]["value"] if self._forecast else None
+        self._rates_source = state.thermal_rates_source
+        self._heating_rate = state.thermal_heating_rate_c_per_kwh
+        self._decay_rate = state.thermal_idle_decay_c_per_hour
 
 
 class NimbusSolverConfigSensor(SensorEntity):

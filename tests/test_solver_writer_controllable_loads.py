@@ -25,6 +25,7 @@ from typing import ClassVar
 import _solver_path  # noqa: F401
 import load_run_state
 import solver_writer
+import thermal_forecast
 
 _TZ = timezone(timedelta(hours=10))  # Australia/Brisbane, no DST
 
@@ -1482,6 +1483,455 @@ class TestApplyCommandedStateGuardPlanForecast(unittest.TestCase):
         result = self._read_state("entry_pf4", "s_old")
         self.assertIsNone(result.plan_forecast)
         self.assertTrue(result.commanded_state)
+
+
+class TestApplyCommandedStateGuardThermalForecast(unittest.TestCase):
+    """nimbus issues #609/#610/#611 (Mark Purcell, real production
+    findings against #592's own first shipment): real wiring tests for
+    apply_commanded_state_guard()'s thermal-forecast block -- none
+    existed before this pass, only thermal_forecast.py's own pure
+    functions were tested (test_thermal_forecast.py). Same
+    _FakeRunStateStore/_make_running_loop harness as
+    TestApplyCommandedStateGuard above; a load only reaches this block
+    at all when it's in the adequacy list (deferrable) AND has both
+    deferrable_done_entity/controllable_load_power_sensor configured AND
+    period_hours_arr is given (see solver_writer.py's own `elif
+    load_kind == "adequacy"` block)."""
+
+    def setUp(self):
+        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._loop, self._loop_thread = _make_running_loop()
+        _FakeRunStateStore._shared_data.clear()
+
+    def tearDown(self):
+        solver_writer._NATIVE_HASS = self._orig_native_hass
+        self._loop.call_soon_threadsafe(self._loop.stop)
+        self._loop_thread.join(timeout=5)
+        self._loop.close()
+
+    def _read_state(self, hub_entry_id, subentry_id):
+        async def _read():
+            store = load_run_state.LoadRunStateStore(
+                store=_FakeRunStateStore(
+                    None, 1, f"nimbus_load_{hub_entry_id}_load_run_state"
+                )
+            )
+            return await store.async_read(subentry_id)
+
+        return asyncio.run(_read())
+
+    def _seed_state(self, hub_entry_id, subentry_id, state):
+        async def _write():
+            store = load_run_state.LoadRunStateStore(
+                store=_FakeRunStateStore(
+                    None, 1, f"nimbus_load_{hub_entry_id}_load_run_state"
+                )
+            )
+            await store.async_write(subentry_id, state)
+
+        asyncio.run(_write())
+
+    def _hub(self, entry_id, subentry, states):
+        return SimpleNamespace(
+            config_entries=SimpleNamespace(
+                async_entries=lambda domain: [
+                    SimpleNamespace(
+                        entry_id=entry_id, subentries={subentry.subentry_id: subentry}
+                    )
+                ]
+            ),
+            states=SimpleNamespace(get=lambda eid: states.get(eid)),
+            loop=self._loop,
+        )
+
+    def test_settled_idle_reading_becomes_the_new_anchor(self):
+        # nimbus issue #609: the load is genuinely idle and has been for
+        # a while (off_since=None -- never been on this session) --  the
+        # live current_temperature reading is trustworthy and must both
+        # seed the projection AND become the new last_idle_temperature.
+        import numpy as np
+
+        sub = _fake_subentry(
+            "s_therm",
+            "controllable_load",
+            {
+                "deferrable_done_entity": "water_heater.hws",
+                "controllable_load_power_sensor": "sensor.hws_power",
+                "deferrable_max_power_kw": 3.7,
+            },
+        )
+        now = datetime(2026, 9, 9, 8, 0, tzinfo=_TZ)
+        day_key = now.strftime("%Y-%m-%d")
+        self._seed_state(
+            "entry_t1",
+            "s_therm",
+            load_run_state.LoadRunState(
+                thermal_rates_learned_day_key=day_key,
+                thermal_heating_rate_c_per_kwh=8.0,
+                thermal_idle_decay_c_per_hour=0.5,
+                currently_on=False,
+                off_since=None,
+                last_idle_temperature=None,
+            ),
+        )
+        states = {
+            "water_heater.hws": _fake_water_heater_state(current_temperature=55.2)
+        }
+        solver_writer._NATIVE_HASS = self._hub("entry_t1", sub, states)
+        grid_times = _grid(now, 4, minutes=30)
+        period_hours_arr = np.full(len(grid_times), 0.5)
+        plan = _fake_plan(
+            adequacy=[
+                _fake_load_plan(
+                    "s_therm", np.array([0.0, 0.0, 0.0, 0.0]), adequacy=True
+                )
+            ]
+        )
+        solver_writer.apply_commanded_state_guard(
+            plan, now, grid_times, period_hours_arr
+        )
+        result = self._read_state("entry_t1", "s_therm")
+        self.assertEqual(result.last_idle_temperature, 55.2)
+        # Period 0 is idle (0.0kW) -- decays from the fresh 55.2 anchor.
+        self.assertAlmostEqual(
+            result.temperature_forecast[0]["value"], 55.2 - 0.5 * 0.5, places=2
+        )
+
+    def test_currently_on_ignores_the_live_reading_and_keeps_the_old_anchor(self):
+        # nimbus issue #609's own real finding: current_temperature reads
+        # ~10-11 degC LOW while the compressor is actively running (a
+        # device-side reporting artifact on the #534 SG Ready bridge) --
+        # must never anchor a projection, and must never overwrite a
+        # good last_idle_temperature with a corrupted in-run reading.
+        import numpy as np
+
+        sub = _fake_subentry(
+            "s_therm2",
+            "controllable_load",
+            {
+                "deferrable_done_entity": "water_heater.hws",
+                "controllable_load_power_sensor": "sensor.hws_power",
+                "deferrable_max_power_kw": 3.7,
+            },
+        )
+        now = datetime(2026, 9, 9, 8, 0, tzinfo=_TZ)
+        day_key = now.strftime("%Y-%m-%d")
+        self._seed_state(
+            "entry_t2",
+            "s_therm2",
+            load_run_state.LoadRunState(
+                thermal_rates_learned_day_key=day_key,
+                thermal_heating_rate_c_per_kwh=8.0,
+                thermal_idle_decay_c_per_hour=0.5,
+                currently_on=True,  # actively heating right now
+                off_since=None,
+                last_idle_temperature=50.0,
+            ),
+        )
+        states = {
+            # Real #609 shape: a depressed in-run reading, ~10 degC low.
+            "water_heater.hws": _fake_water_heater_state(current_temperature=40.0)
+        }
+        solver_writer._NATIVE_HASS = self._hub("entry_t2", sub, states)
+        grid_times = _grid(now, 4, minutes=30)
+        period_hours_arr = np.full(len(grid_times), 0.5)
+        # Plan power already matches the configured max, so #611's own
+        # override (tested separately below) is a no-op here -- keeps
+        # this test isolated to #609's anchor-selection question alone.
+        plan = _fake_plan(
+            adequacy=[
+                _fake_load_plan(
+                    "s_therm2", np.array([3.7, 3.7, 3.7, 3.7]), adequacy=True
+                )
+            ]
+        )
+        solver_writer.apply_commanded_state_guard(
+            plan, now, grid_times, period_hours_arr
+        )
+        result = self._read_state("entry_t2", "s_therm2")
+        # Never overwritten with the corrupted 40.0 in-run reading.
+        self.assertEqual(result.last_idle_temperature, 50.0)
+        self.assertAlmostEqual(
+            result.temperature_forecast[0]["value"], 50.0 + 3.7 * 0.5 * 8.0, places=2
+        )
+
+    def test_just_stopped_within_the_settling_window_still_uses_the_old_anchor(self):
+        # nimbus issue #609: a run that stopped moments ago hasn't
+        # settled yet (SETTLING_MINUTES=5) -- the live reading is still
+        # untrustworthy even though currently_on has already flipped
+        # False.
+        import numpy as np
+
+        sub = _fake_subentry(
+            "s_therm3",
+            "controllable_load",
+            {
+                "deferrable_done_entity": "water_heater.hws",
+                "controllable_load_power_sensor": "sensor.hws_power",
+                "deferrable_max_power_kw": 3.7,
+            },
+        )
+        now = datetime(2026, 9, 9, 8, 0, tzinfo=_TZ)
+        day_key = now.strftime("%Y-%m-%d")
+        self._seed_state(
+            "entry_t3",
+            "s_therm3",
+            load_run_state.LoadRunState(
+                thermal_rates_learned_day_key=day_key,
+                thermal_heating_rate_c_per_kwh=8.0,
+                thermal_idle_decay_c_per_hour=0.5,
+                currently_on=False,
+                off_since=(now - timedelta(minutes=1)).timestamp(),  # 1 min ago
+                last_idle_temperature=50.0,
+            ),
+        )
+        states = {
+            "water_heater.hws": _fake_water_heater_state(current_temperature=39.0)
+        }
+        solver_writer._NATIVE_HASS = self._hub("entry_t3", sub, states)
+        grid_times = _grid(now, 4, minutes=30)
+        period_hours_arr = np.full(len(grid_times), 0.5)
+        plan = _fake_plan(
+            adequacy=[
+                _fake_load_plan(
+                    "s_therm3", np.array([0.0, 0.0, 0.0, 0.0]), adequacy=True
+                )
+            ]
+        )
+        solver_writer.apply_commanded_state_guard(
+            plan, now, grid_times, period_hours_arr
+        )
+        result = self._read_state("entry_t3", "s_therm3")
+        self.assertEqual(result.last_idle_temperature, 50.0)
+        self.assertAlmostEqual(
+            result.temperature_forecast[0]["value"], 50.0 - 0.5 * 0.5, places=2
+        )
+
+    def test_override_first_period_power_applies_during_a_595_hold_window(self):
+        # nimbus issue #611: #595's own hold-window guard can keep
+        # commanded_state ON while THIS cycle's freshly-solved
+        # plan_forecast[0] itself has already dipped to 0.0 -- the
+        # projection must reflect the real commanded power (the load's
+        # own configured max), not the plan's own period-0 value, or the
+        # chart shows the tank cooling while it's actually still being
+        # heated.
+        import numpy as np
+
+        sub = _fake_subentry(
+            "s_therm4",
+            "controllable_load",
+            {
+                "deferrable_done_entity": "water_heater.hws",
+                "controllable_load_power_sensor": "sensor.hws_power",
+                "deferrable_max_power_kw": 3.7,
+            },
+        )
+        now = datetime(2026, 9, 9, 8, 0, tzinfo=_TZ)
+        day_key = now.strftime("%Y-%m-%d")
+        self._seed_state(
+            "entry_t4",
+            "s_therm4",
+            load_run_state.LoadRunState(
+                thermal_rates_learned_day_key=day_key,
+                thermal_heating_rate_c_per_kwh=8.0,
+                thermal_idle_decay_c_per_hour=0.5,
+                currently_on=False,
+                off_since=None,
+                last_idle_temperature=50.0,
+                # Already commanded ON from a prior solve, well outside
+                # decide_commanded_state()'s own hysteresis window.
+                commanded_state=True,
+                commanded_since=(now - timedelta(minutes=30)).timestamp(),
+            ),
+        )
+        states = {
+            "water_heater.hws": _fake_water_heater_state(current_temperature=50.0)
+        }
+        solver_writer._NATIVE_HASS = self._hub("entry_t4", sub, states)
+        # 5-min grid, same shape as the existing #595 hold-window test:
+        # period 0 dips to 0.0 but period 1 (well inside the default
+        # 10-min hold window) is back up -- #595's lookahead keeps this
+        # cycle's raw_new_state (and therefore commanded_state) True.
+        grid_times = _grid(now, 6, minutes=5)
+        period_hours_arr = np.full(5, 5.0 / 60.0)
+        plan = _fake_plan(
+            adequacy=[
+                _fake_load_plan(
+                    "s_therm4", np.array([0.0, 0.65, 0.0, 0.65, 0.0]), adequacy=True
+                )
+            ]
+        )
+        solver_writer.apply_commanded_state_guard(
+            plan, now, grid_times, period_hours_arr
+        )
+        result = self._read_state("entry_t4", "s_therm4")
+        self.assertTrue(result.commanded_state)  # the hold window held
+        # Without the #611 override this would DECAY (plan period 0 is
+        # 0.0kW) -- confirms the real configured max_power_kw (3.7kW)
+        # was used instead, a genuine heating gain.
+        expected = 50.0 + 3.7 * (5.0 / 60.0) * 8.0
+        self.assertAlmostEqual(
+            result.temperature_forecast[0]["value"], expected, places=2
+        )
+
+    def test_ceiling_temperature_from_the_water_heaters_own_setpoint_caps_it(self):
+        # nimbus issue #610: "no ceiling: the projection keeps adding
+        # heating_rate x kWh past the heater's own setpoint" -- read
+        # straight off the water_heater entity's own live `temperature`
+        # attribute, never invented, never a new wizard field.
+        import numpy as np
+
+        sub = _fake_subentry(
+            "s_therm5",
+            "controllable_load",
+            {
+                "deferrable_done_entity": "water_heater.hws",
+                "controllable_load_power_sensor": "sensor.hws_power",
+                "deferrable_max_power_kw": 3.7,
+            },
+        )
+        now = datetime(2026, 9, 9, 8, 0, tzinfo=_TZ)
+        day_key = now.strftime("%Y-%m-%d")
+        self._seed_state(
+            "entry_t5",
+            "s_therm5",
+            load_run_state.LoadRunState(
+                thermal_rates_learned_day_key=day_key,
+                thermal_heating_rate_c_per_kwh=8.0,
+                thermal_idle_decay_c_per_hour=0.5,
+                currently_on=False,
+                off_since=None,
+                last_idle_temperature=None,
+            ),
+        )
+        # A genuine 60 degC setpoint -- period 0 alone (3.7kW * 0.5h *
+        # 8 degC/kWh = 14.8 degC of gain) would otherwise land at 72.8,
+        # well past it.
+        states = {
+            "water_heater.hws": _fake_water_heater_state(
+                current_temperature=58.0, temperature=60.0
+            )
+        }
+        solver_writer._NATIVE_HASS = self._hub("entry_t5", sub, states)
+        grid_times = _grid(now, 4, minutes=30)
+        period_hours_arr = np.full(len(grid_times), 0.5)
+        plan = _fake_plan(
+            adequacy=[
+                _fake_load_plan(
+                    "s_therm5", np.array([3.7, 3.7, 3.7, 3.7]), adequacy=True
+                )
+            ]
+        )
+        solver_writer.apply_commanded_state_guard(
+            plan, now, grid_times, period_hours_arr
+        )
+        result = self._read_state("entry_t5", "s_therm5")
+        self.assertEqual(result.temperature_forecast[0]["value"], 60.0)
+
+    def test_no_ceiling_attribute_at_all_is_a_complete_no_op(self):
+        # A water_heater with neither `temperature` nor `max_temp`
+        # published -- must project uncapped, same as before #610.
+        import numpy as np
+
+        sub = _fake_subentry(
+            "s_therm6",
+            "controllable_load",
+            {
+                "deferrable_done_entity": "water_heater.hws",
+                "controllable_load_power_sensor": "sensor.hws_power",
+                "deferrable_max_power_kw": 3.7,
+            },
+        )
+        now = datetime(2026, 9, 9, 8, 0, tzinfo=_TZ)
+        day_key = now.strftime("%Y-%m-%d")
+        self._seed_state(
+            "entry_t6",
+            "s_therm6",
+            load_run_state.LoadRunState(
+                thermal_rates_learned_day_key=day_key,
+                thermal_heating_rate_c_per_kwh=8.0,
+                thermal_idle_decay_c_per_hour=0.5,
+                currently_on=False,
+                off_since=None,
+                last_idle_temperature=None,
+            ),
+        )
+        states = {
+            "water_heater.hws": _fake_water_heater_state(current_temperature=58.0)
+        }
+        solver_writer._NATIVE_HASS = self._hub("entry_t6", sub, states)
+        grid_times = _grid(now, 4, minutes=30)
+        period_hours_arr = np.full(len(grid_times), 0.5)
+        plan = _fake_plan(
+            adequacy=[
+                _fake_load_plan(
+                    "s_therm6", np.array([3.7, 3.7, 3.7, 3.7]), adequacy=True
+                )
+            ]
+        )
+        solver_writer.apply_commanded_state_guard(
+            plan, now, grid_times, period_hours_arr
+        )
+        result = self._read_state("entry_t6", "s_therm6")
+        self.assertAlmostEqual(
+            result.temperature_forecast[0]["value"], 58.0 + 3.7 * 0.5 * 8.0, places=2
+        )
+
+    def test_relearn_with_no_real_recorder_available_sets_source_to_fallback(self):
+        # nimbus issue #610: "the published attributes do not say which
+        # [a learned rate from a default]" -- a day_key change triggers
+        # a relearn; this bare test harness has no real recorder to
+        # fetch history from (_async_fetch_thermal_history degrades to
+        # an empty history exactly the way it does on a real HA install
+        # whenever the recorder query itself fails), so the learner
+        # falls all the way back to the #592-cited defaults and must
+        # honestly label that as "fallback", not silently look identical
+        # to a real learned rate.
+        import numpy as np
+
+        sub = _fake_subentry(
+            "s_therm7",
+            "controllable_load",
+            {
+                "deferrable_done_entity": "water_heater.hws",
+                "controllable_load_power_sensor": "sensor.hws_power",
+                "deferrable_max_power_kw": 3.7,
+            },
+        )
+        now = datetime(2026, 9, 9, 8, 0, tzinfo=_TZ)
+        self._seed_state(
+            "entry_t7",
+            "s_therm7",
+            load_run_state.LoadRunState(
+                thermal_rates_learned_day_key="",  # never learned yet
+                currently_on=False,
+                off_since=None,
+                last_idle_temperature=None,
+            ),
+        )
+        states = {
+            "water_heater.hws": _fake_water_heater_state(current_temperature=55.0)
+        }
+        solver_writer._NATIVE_HASS = self._hub("entry_t7", sub, states)
+        grid_times = _grid(now, 4, minutes=30)
+        period_hours_arr = np.full(len(grid_times), 0.5)
+        plan = _fake_plan(
+            adequacy=[
+                _fake_load_plan(
+                    "s_therm7", np.array([0.0, 0.0, 0.0, 0.0]), adequacy=True
+                )
+            ]
+        )
+        solver_writer.apply_commanded_state_guard(
+            plan, now, grid_times, period_hours_arr
+        )
+        result = self._read_state("entry_t7", "s_therm7")
+        self.assertEqual(result.thermal_rates_source, "fallback")
+        self.assertEqual(
+            result.thermal_heating_rate_c_per_kwh,
+            thermal_forecast.DEFAULT_HEATING_RATE_C_PER_KWH,
+        )
+        self.assertEqual(result.thermal_rates_learned_day_key, now.strftime("%Y-%m-%d"))
 
 
 class _FakeServiceCalls:
