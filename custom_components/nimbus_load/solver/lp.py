@@ -56,6 +56,8 @@ necessary at all; this is a real simplification, not just a swap.
 
 from __future__ import annotations
 
+import logging
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -63,10 +65,57 @@ import highspy
 import numpy as np
 from numpy.typing import NDArray
 
+_LOGGER = logging.getLogger(__name__)
+
 # nimbus issue #356: bounds a genuinely stuck solve (see _solve_highs's own
 # comment at its call site for the full reasoning) -- not a performance
 # tuning knob, a safety backstop.
 DEFAULT_TIME_LIMIT_SECONDS: float = 60.0
+
+# nimbus issue #490: below this, a ranging interval is treated as
+# genuinely zero-width (a real tie in the optimal basis, HAEO #465's own
+# "saturated" concept) rather than a tiny nonzero float HiGHS's own
+# numerics happened to report -- same tolerance #465 itself uses.
+_RANGING_DEGENERATE_TOL = 1e-9
+
+
+@dataclass(frozen=True)
+class RangingRecord:
+    """One HiGHS ranging entry (nimbus issue #490) -- the absolute
+    bound/RHS/cost value at which the current optimal basis stops being
+    optimal (`value`), the objective value AT that point (`objective`),
+    and which variable would enter/leave the basis there (`in_var`/
+    `out_var`, `None` for HiGHS's own -1 "no variable" sentinel -- see
+    `_var_name_or_none()`)."""
+
+    value: float
+    objective: float
+    in_var: str | None
+    out_var: str | None
+
+
+@dataclass(frozen=True)
+class Headroom:
+    """Real room to move, in each direction, before the optimal basis
+    changes (nimbus issue #490) -- `down`/`up` are always >= 0.0.
+    `degenerate=True` when either side was clamped up from a genuinely
+    zero-width (< 1e-9) interval: the current solution sits at a real
+    tie in the LP, so that side's own headroom is honestly "none right
+    now", not a rounding artifact. HAEO #465 silently treats this same
+    condition as "saturated" and falls back to a different number;
+    Nimbus reports it explicitly instead, exactly as nimbus issue
+    #489's own research doc calls for."""
+
+    down: float
+    up: float
+    degenerate: bool
+
+
+def _headroom_from(down_raw: float, up_raw: float) -> Headroom:
+    degenerate = down_raw < _RANGING_DEGENERATE_TOL or up_raw < _RANGING_DEGENERATE_TOL
+    down = 0.0 if down_raw < _RANGING_DEGENERATE_TOL else down_raw
+    up = 0.0 if up_raw < _RANGING_DEGENERATE_TOL else up_raw
+    return Headroom(down=down, up=up, degenerate=degenerate)
 
 
 @dataclass(frozen=True)
@@ -127,6 +176,85 @@ class LPResult:
     duals: dict[str, float] = field(default_factory=dict)
     reduced_costs: dict[str, float] = field(default_factory=dict)
     raw_status: str | None = None
+
+    # nimbus issue #490 (Signals 1/7 of #489): HiGHS ranging, opt-in via
+    # LPProblem.solve(ranging=True) -- see this module's own docstring on
+    # `solve()` for the full mechanism. `ranging_valid` is None when
+    # ranging wasn't requested at all (the caller never asked, so there's
+    # nothing to say either way -- distinct from HAVING asked and HiGHS
+    # saying no), False when HiGHS itself reports `valid=False` (a
+    # genuinely non-optimal status, or ranging requested on a MIP whose
+    # pinned-relax pass didn't reach kOptimal), True otherwise. Every
+    # ranging dict below is empty (never populated with zeros/garbage)
+    # whenever ranging_valid is not True -- same "represent honestly"
+    # convention `duals`/`reduced_costs` already use for a non-optimal
+    # result.
+    ranging_valid: bool | None = None
+    # Keyed by VARIABLE name, one RangingRecord per variable -- how far
+    # that variable's own bound (col_bound_*) or objective coefficient
+    # (col_cost_*) can move before the current optimal basis changes.
+    col_bound_up: dict[str, RangingRecord] = field(default_factory=dict)
+    col_bound_dn: dict[str, RangingRecord] = field(default_factory=dict)
+    col_cost_up: dict[str, RangingRecord] = field(default_factory=dict)
+    col_cost_dn: dict[str, RangingRecord] = field(default_factory=dict)
+    # Keyed by ROW (constraint) name, same convention as `duals` -- how
+    # far that row's own RHS can move before the basis changes.
+    row_bound_up: dict[str, RangingRecord] = field(default_factory=dict)
+    row_bound_dn: dict[str, RangingRecord] = field(default_factory=dict)
+    # Variable value by name (nimbus issue #490) -- x's own array indexed
+    # by name, same insertion order as duals/reduced_costs/col_bound_*
+    # above. Exists purely so bound_headroom() can look up "this
+    # variable's own current value" without needing LPProblem's own
+    # name->index map plumbed through (LPResult has no back-reference to
+    # the LPProblem that produced it, by design -- see value_of()/
+    # values_of() on LPProblem for the normal, problem-side way to read
+    # x by name). Empty whenever x itself is None (non-optimal result).
+    _x_by_name: dict[str, float] = field(default_factory=dict)
+    # Same idea as `_x_by_name`, for rhs_headroom() -- each row's own
+    # REAL achieved LHS value (HiGHS's `row_value`), keyed by row name,
+    # same order `duals` was built from. For an equality row this always
+    # equals that row's own rhs exactly; for a ub row it can sit strictly
+    # below rhs whenever the constraint isn't binding, which is exactly
+    # why rhs_headroom() needs the real achieved value here rather than
+    # just re-reporting the raw row_bound_dn/up endpoints.
+    _row_value_by_name: dict[str, float] = field(default_factory=dict)
+
+    def bound_headroom(self, var: str) -> Headroom | None:
+        """Real (down, up) headroom on variable `var`'s own bound before
+        the optimal basis changes -- `x[var] - col_bound_dn[var].value`
+        and `col_bound_up[var].value - x[var]`, so a caller never has to
+        re-derive this delta convention itself. None when ranging isn't
+        available (not requested, or HiGHS reported it invalid) or
+        `var` has no ranging entry (e.g. ranging was requested on a
+        different, earlier-solved LPResult).
+
+        See `Headroom`'s own docstring for the zero-width/`degenerate`
+        convention (nimbus issue #490, following HAEO #465's own
+        "saturated" concept, but reported explicitly rather than
+        silently folded into a fallback)."""
+        if var not in self.col_bound_up or var not in self.col_bound_dn:
+            return None
+        x_val = self._x_by_name[var]
+        return _headroom_from(
+            x_val - self.col_bound_dn[var].value,
+            self.col_bound_up[var].value - x_val,
+        )
+
+    def rhs_headroom(self, row: str) -> Headroom | None:
+        """Same shape as `bound_headroom()`, for a constraint row's own
+        RHS instead of a variable's own bound -- `row_value[row] -
+        row_bound_dn[row].value` and `row_bound_up[row].value -
+        row_value[row]`, where `row_value` is that row's own REAL
+        achieved LHS sum (equal to `rhs` exactly for an equality row;
+        can sit strictly below `rhs` for a ub row that isn't currently
+        binding)."""
+        if row not in self.row_bound_up or row not in self.row_bound_dn:
+            return None
+        row_val = self._row_value_by_name[row]
+        return _headroom_from(
+            row_val - self.row_bound_dn[row].value,
+            self.row_bound_up[row].value - row_val,
+        )
 
 
 @dataclass
@@ -277,8 +405,18 @@ class LPProblem:
     def n_variables(self) -> int:
         return len(self._var_names)
 
-    def solve(self) -> LPResult:
-        return _solve_highs(self)
+    def solve(self, *, ranging: bool = False) -> LPResult:
+        """`ranging=True` (nimbus issue #490) additionally computes
+        HiGHS's own post-solve ranging (see `LPResult`'s own docstring
+        for the full field-by-field meaning) -- opt-in, since it's a
+        real extra solver pass most callers never need. On a MIP
+        (`is_mip`), ranging is computed on the pinned-and-relaxed pure
+        LP AFTER branch-and-bound has already chosen the integer
+        assignment (the same pass `_solve_highs()` already runs to
+        recover meaningful duals on a MIP, see that function's own
+        comment) -- valid at the real chosen assignment, something HAEO
+        (LP-only) structurally can't offer."""
+        return _solve_highs(self, ranging=ranging)
 
     def value_of(self, result: LPResult, name: str) -> float:
         """Read one named variable's value out of a solved LPResult.
@@ -302,10 +440,69 @@ class LPProblem:
         return np.array([result.x[self._var_index[name]] for name in names])
 
 
-def _solve_highs(problem: LPProblem) -> LPResult:
+def _ranging_name_or_none(
+    idx: int, var_names: list[str], row_names: list[str]
+) -> str | None:
+    """Maps one HiGHS ranging `in_var_`/`ou_var_` index back to a real
+    name (nimbus issue #490). `-1` is HiGHS's own "no variable" sentinel
+    (a problem's own outermost breakpoint can genuinely have nothing
+    entering/leaving the basis there). Confirmed directly against a live
+    highspy install: an index `>= len(var_names)` is NOT out of range --
+    HiGHS indexes the combined [structural columns][row slacks] basis
+    space here, so index `len(var_names) + k` names the k-th ROW's own
+    slack, not a structural variable at all. Reported as that row's own
+    name (the natural reading: "this constraint's own slack entered/left
+    the basis"), never a raw index or a crash."""
+    if idx < 0:
+        return None
+    if idx < len(var_names):
+        return var_names[idx]
+    row_idx = idx - len(var_names)
+    if row_idx < len(row_names):
+        return row_names[row_idx]
+    # Defensive only -- every index HiGHS has ever returned in testing
+    # fell into one of the two cases above; never silently mis-attribute
+    # an unrecognized index to the wrong name if this assumption is ever
+    # wrong on some future HiGHS version.
+    return None
+
+
+def _build_ranging_dict(
+    keys: list[str],
+    rec: Any,
+    var_names: list[str],
+    row_names: list[str],
+    *,
+    limit: int | None = None,
+) -> dict[str, RangingRecord]:
+    # `limit` (nimbus issue #490): highspy's own col_cost_up/col_cost_dn
+    # ranging records come back ONE ELEMENT LONGER than the real number
+    # of columns (confirmed directly against a live highspy install,
+    # every other ranging record -- col_bound_*, row_bound_* -- is
+    # exactly the expected length) -- a real, undocumented quirk of the
+    # binding, not a modeling choice of this project's own. The trailing
+    # extra entry doesn't correspond to any real variable, so callers
+    # for col_cost_up/dn pass `limit=len(var_names)` to drop it rather
+    # than risk a `keys[i]` IndexError or, worse, a silently wrong
+    # off-by-one variable attribution.
+    n_use = limit if limit is not None else len(keys)
+    return {
+        keys[i]: RangingRecord(
+            value=float(rec.value_[i]),
+            objective=float(rec.objective_[i]),
+            in_var=_ranging_name_or_none(int(rec.in_var_[i]), var_names, row_names),
+            out_var=_ranging_name_or_none(int(rec.ou_var_[i]), var_names, row_names),
+        )
+        for i in range(n_use)
+    }
+
+
+def _solve_highs(problem: LPProblem, *, ranging: bool = False) -> LPResult:
     """Translate an LPProblem into a highspy model, solve it, and translate
     the result back. See this module's own docstring for why highspy
     (not a from-scratch simplex) is the real solver backend here.
+
+    `ranging` (nimbus issue #490): see LPProblem.solve()'s own docstring.
     """
     n = problem.n_variables
     if n == 0:
@@ -392,12 +589,27 @@ def _solve_highs(problem: LPProblem) -> LPResult:
     )
     h.minimize(cost_expr)
 
+    # nimbus issue #490: on any non-optimal status below, ranging_valid
+    # is False (not None) whenever ranging was actually requested -- the
+    # caller asked, and the honest answer is "no, this model isn't in a
+    # state ranging is meaningful for". None (the default) is reserved
+    # for "never asked".
+    _ranging_valid_on_non_optimal = False if ranging else None
+
     status = h.getModelStatus()
     iterations = int(h.getInfo().simplex_iteration_count)
     if status == highspy.HighsModelStatus.kInfeasible:
-        return LPResult(status="infeasible", iterations=iterations)
+        return LPResult(
+            status="infeasible",
+            iterations=iterations,
+            ranging_valid=_ranging_valid_on_non_optimal,
+        )
     if status == highspy.HighsModelStatus.kUnbounded:
-        return LPResult(status="unbounded", iterations=iterations)
+        return LPResult(
+            status="unbounded",
+            iterations=iterations,
+            ranging_valid=_ranging_valid_on_non_optimal,
+        )
     if status != highspy.HighsModelStatus.kOptimal:
         # nimbus issue #356 (Mark Purcell): every other non-optimal status
         # (kTimeLimit, kIterationLimit, kSolutionLimit, kUnknown,
@@ -413,6 +625,7 @@ def _solve_highs(problem: LPProblem) -> LPResult:
             status="error",
             iterations=iterations,
             raw_status=h.modelStatusToString(status),
+            ranging_valid=_ranging_valid_on_non_optimal,
         )
 
     x = np.array([h.val(var_array[i]) for i in range(n)])
@@ -458,11 +671,81 @@ def _solve_highs(problem: LPProblem) -> LPResult:
     duals = dict(zip(row_names, solution.row_dual, strict=True))
     reduced_costs = dict(zip(problem._var_names, solution.col_dual, strict=True))
 
+    # nimbus issue #490 (Signals 1/7 of #489): ranging computed here, on
+    # the SAME `h` the duals/reduced_costs above just came off of -- for
+    # a MIP that means AFTER the pin-and-relax re-solve above, valid at
+    # the real chosen integer assignment, never the original branch-and-
+    # bound tree. `rng.valid` is HiGHS's own honest answer to "is this
+    # actually usable" (False on the rare pin-and-relax-itself-non-
+    # optimal edge case too, with no special-casing needed here) --
+    # trusted directly rather than re-derived from `status` a second
+    # time.
+    ranging_valid: bool | None = None
+    col_bound_up: dict[str, RangingRecord] = {}
+    col_bound_dn: dict[str, RangingRecord] = {}
+    col_cost_up: dict[str, RangingRecord] = {}
+    col_cost_dn: dict[str, RangingRecord] = {}
+    row_bound_up: dict[str, RangingRecord] = {}
+    row_bound_dn: dict[str, RangingRecord] = {}
+    x_by_name: dict[str, float] = {}
+    row_value_by_name: dict[str, float] = {}
+    if ranging:
+        _log_start = time.monotonic()
+        _rng_status, rng = h.getRanging()
+        ranging_valid = bool(rng.valid)
+        if ranging_valid:
+            col_bound_up = _build_ranging_dict(
+                problem._var_names, rng.col_bound_up, problem._var_names, row_names
+            )
+            col_bound_dn = _build_ranging_dict(
+                problem._var_names, rng.col_bound_dn, problem._var_names, row_names
+            )
+            col_cost_up = _build_ranging_dict(
+                problem._var_names,
+                rng.col_cost_up,
+                problem._var_names,
+                row_names,
+                limit=n,
+            )
+            col_cost_dn = _build_ranging_dict(
+                problem._var_names,
+                rng.col_cost_dn,
+                problem._var_names,
+                row_names,
+                limit=n,
+            )
+            row_bound_up = _build_ranging_dict(
+                row_names, rng.row_bound_up, problem._var_names, row_names
+            )
+            row_bound_dn = _build_ranging_dict(
+                row_names, rng.row_bound_dn, problem._var_names, row_names
+            )
+            x_by_name = dict(zip(problem._var_names, x, strict=True))
+            row_value_by_name = dict(zip(row_names, solution.row_value, strict=True))
+        # nimbus issue #490's own "Cost" section: log the ranging pass's
+        # own time at DEBUG, next to the existing iteration count -- the
+        # same visibility HAEO #465 gives itself for this same real,
+        # measurable extra solver cost.
+        _LOGGER.debug(
+            "Nimbus lp.py: ranging pass took %.4fs (valid=%s)",
+            time.monotonic() - _log_start,
+            ranging_valid,
+        )
+
     return LPResult(
         status="optimal",
         x=x,
         objective=objective,
         iterations=iterations,
+        ranging_valid=ranging_valid,
+        col_bound_up=col_bound_up,
+        col_bound_dn=col_bound_dn,
+        col_cost_up=col_cost_up,
+        col_cost_dn=col_cost_dn,
+        row_bound_up=row_bound_up,
+        row_bound_dn=row_bound_dn,
+        _x_by_name=x_by_name,
+        _row_value_by_name=row_value_by_name,
         duals=duals,
         reduced_costs=reduced_costs,
     )

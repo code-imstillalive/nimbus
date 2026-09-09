@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.215] — 2026-09-09
+
+### Added
+- **`solver/lp.py` now exposes HiGHS's own post-solve ranging (bound, RHS, and cost), opt-in via `LPProblem.solve(ranging=True)`** (nimbus issue #490, Signals 1/7 of #489 — "grid-operator and load-ranging signals from HiGHS ranging"). Internal groundwork, not yet wired into `network.py` or any published sensor — the plumbing every later item in the #489 chain (#491-#496: grid-operator signals, load ranging, dynamic envelopes, an offer curve, a `nem-flex-telemetry` feed, and Nimbus's own recording/reporting) needs first.
+
+  `LPResult` gains `ranging_valid` (`None` when not requested, `False` when HiGHS itself reports it invalid, `True` otherwise) plus six `dict[str, RangingRecord]` fields (`col_bound_up/dn`, `col_cost_up/dn`, `row_bound_up/dn`) and two helper methods, `bound_headroom(var)`/`rhs_headroom(row)`, returning a `Headroom(down, up, degenerate)` so callers never re-derive the delta convention or the zero-width/tie handling themselves. Computed AFTER the pinned-LP-after-MIP pass (#238) so it's valid at the real chosen integer assignment once #478's binaries exist — genuinely something HAEO's own LP-only ranging can't offer. Two real quirks found and handled while implementing this against a live highspy install (not guessed from docs): `col_cost_up`/`col_cost_dn` come back one element longer than the real column count (the trailing entry is dropped, never mis-attributed to a variable that doesn't exist), and a ranging record's own `in_var_`/`ou_var_` index can reference a ROW's own slack variable (index `>= num_col`), not only a structural column — resolved to that row's own name rather than crashing or silently truncating. 19 new tests, including the exact hand-worked probe LP from #489's own research doc.
+
 ## [0.94.214] — 2026-09-09
 
 ### Added
