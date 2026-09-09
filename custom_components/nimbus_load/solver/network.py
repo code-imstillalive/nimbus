@@ -1261,12 +1261,31 @@ def build_plan(
         # window charge gate below already uses -- see BatteryConfig's
         # own `available` docstring for why this is whole-horizon, not a
         # per-period mask.
+        # nimbus issue #567: a real-time "sell into a price spike, right
+        # now" household decision -- only ever period 0, only ever
+        # batteries[0] (see BatteryConfig.spike_override_discharge_kw's
+        # own docstring for the full mechanism/scoping). Pins BOTH
+        # variables at t==0 to make the override mathematically
+        # impossible to deviate from, the same hard-pin technique the
+        # P2P fixed-export charge gate immediately below already uses --
+        # not merely costed against.
+        spike_override_kw = b.spike_override_discharge_kw
+        spike_active_now = b_idx == 0 and b.available and spike_override_kw is not None
+        # mypy issue #384-adjacent: spike_active_now already guarantees
+        # spike_override_kw is not None wherever it's actually read below,
+        # but mypy can't follow that through a separately-stored bool --
+        # a real float pinned once here (only meaningful when spike_
+        # active_now is True) sidesteps the false-positive Optional
+        # narrowing error without an unchecked `# type: ignore`.
+        spike_override_value = (
+            spike_override_kw if spike_override_kw is not None else 0.0
+        )
         charge_vars[b.name] = [
             p.add_variable(
                 f"battery_charge_{b.name}_{t}",
                 lb=0.0,
                 ub=0.0
-                if not b.available
+                if not b.available or (spike_active_now and t == 0)
                 else (
                     p2p_export.charging_ub_during_fixed_window(t, grid, b.max_charge_kw)
                     if b_idx == 0
@@ -1278,8 +1297,14 @@ def build_plan(
         discharge_vars[b.name] = [
             p.add_variable(
                 f"battery_discharge_{b.name}_{t}",
-                lb=0.0,
-                ub=0.0 if not b.available else b.max_discharge_kw,
+                lb=(spike_override_value if spike_active_now and t == 0 else 0.0),
+                ub=0.0
+                if not b.available
+                else (
+                    spike_override_value
+                    if spike_active_now and t == 0
+                    else b.max_discharge_kw
+                ),
             )
             for t in range(n)
         ]

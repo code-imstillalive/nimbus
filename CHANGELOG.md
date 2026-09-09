@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.224] — 2026-09-09
+
+### Added
+- **Generic price-spike discharge override** (nimbus issue #567, real household ask, live during an active P2P window — "is there a way to receive a signal spike alert and instigate max discharge?"). Deliberately NOT built around any one retailer's own named alert product (per the project's own standing no-hardcoding rule). Two independent, optional detection mechanisms — `number.nimbus_solver_price_spike_threshold` ($/kWh, the PRIMARY mechanism, compared directly against the household's own already-configured live import price, no external integration required) and an optional `binary_sensor` alert entity (wizard field, for a household with a real named alert product like Amber's own Spike) — either condition counts as "a spike is happening," published as `price_spike_active` on `sensor.nimbus_solver_battery_forecast` regardless of arming, so a household can see a spike before deciding to act.
+- The override itself requires an explicit, deliberate `switch.nimbus_solver_price_spike_override_armed` (default off) — human stays in the loop for the actual discharge decision, not a silent automatic takeover. `number.nimbus_solver_price_spike_discharge_kw` is a real live-editable rate (not a binary max/off toggle), per the household's own point that a long-duration spike is best sold into gradually, not dumped all at once.
+- Never overrides an active P2P fixed-export commitment — the household's own explicit scope decision, since P2P's "consistency of delivery is itself part of what earns the rate" takes priority over a spike response. New `BatteryConfig.spike_override_discharge_kw` (solver/elements.py, solver/network.py) pins period 0's battery discharge to the exact configured rate when active, using the same hard lb=ub pinning technique the P2P fixed-export mechanism already uses.
+
 ## [0.94.223] — 2026-09-09
 
 ### Fixed

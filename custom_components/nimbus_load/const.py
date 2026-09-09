@@ -1067,6 +1067,41 @@ CONF_SOLVER_P2P_BLOCK_3_END_HOUR: Final = "solver_p2p_block_3_end_hour"
 # complete no-op. See fetch_p2p_fixed_export_kw()'s own docstring
 # (solver_writer.py) for the exact minute-granularity mechanism.
 CONF_SOLVER_P2P_BLOCK_LEAD_TIME_MINUTES: Final = "solver_p2p_block_lead_time_minutes"
+# nimbus issue #567: a real household ask, live -- "is there a way to
+# receive a signal spike alert and instigate max discharge?" Deliberately
+# NOT built around any one retailer's own named alert product (this
+# household uses LocalVolts, which has no dedicated spike entity at all;
+# per the project's own standing no-hardcoding rule every entity/
+# retailer/value must be a config-flow wizard field). Two independent,
+# optional trigger mechanisms, per the household's own live design
+# refinement (see the issue's own comment thread):
+#   - CONF_SOLVER_PRICE_SPIKE_THRESHOLD ($/kWh, number.py, default 0.0 =
+#     off): the PRIMARY mechanism -- compared directly against the
+#     household's own already-configured live import price, no external
+#     integration required at all.
+#   - CONF_SOLVER_PRICE_SPIKE_ALERT_ENTITY (optional binary_sensor,
+#     wizard-only entity pointer): an ADDITIONAL/alternative trigger for
+#     a household that DOES have a real named alert product (e.g.
+#     Amber's own Spike). Either condition being true counts as "a spike
+#     is happening" -- see solver_writer.py's own spike-detection logic.
+# Neither alone does anything without the household also explicitly
+# arming CONF_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED (switch.py) -- human
+# stays in the loop for the actual discharge decision, matching the
+# project's own "visibility + one deliberate action, not a silent
+# automatic override" caution elsewhere. CONF_SOLVER_PRICE_SPIKE_
+# DISCHARGE_KW (number.py, a real live-editable slider, not a binary
+# max/off) is the rate the household wants while armed+active -- the
+# household's own real point: "during spikes... the long dragging
+# ones it's always best to control the output cos u could sell too
+# fast," so instant full-power dump isn't the right default control
+# surface for a real, possibly multi-hour spike event.
+CONF_SOLVER_PRICE_SPIKE_THRESHOLD: Final = "solver_price_spike_threshold"
+DEFAULT_SOLVER_PRICE_SPIKE_THRESHOLD: Final = 0.0
+CONF_SOLVER_PRICE_SPIKE_DISCHARGE_KW: Final = "solver_price_spike_discharge_kw"
+DEFAULT_SOLVER_PRICE_SPIKE_DISCHARGE_KW: Final = 0.0
+CONF_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED: Final = "solver_price_spike_override_armed"
+DEFAULT_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED: Final = False
+CONF_SOLVER_PRICE_SPIKE_ALERT_ENTITY: Final = "solver_price_spike_alert_entity"
 
 # Real, per-kWh import FEES on top of the raw spot/commodity price --
 # network TOU tariff + any flat always-on charge (certificates, etc.)

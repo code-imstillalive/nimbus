@@ -142,6 +142,10 @@ from .const import (
     CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR,
     CONF_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS,
     CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR,
+    CONF_SOLVER_PRICE_SPIKE_ALERT_ENTITY,
+    CONF_SOLVER_PRICE_SPIKE_DISCHARGE_KW,
+    CONF_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED,
+    CONF_SOLVER_PRICE_SPIKE_THRESHOLD,
     CONF_SOLVER_PROXIMAL_WEIGHT_KW,
     CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR,
     CONF_SOLVER_REGIONAL_SPOT_FORECAST_SENSOR,
@@ -363,6 +367,15 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     # resolved via _SOLVER_SWITCH_ENTITY_KEYS (see that tuple's own
     # comment) rather than entry.options directly.
     CONF_SOLVER_OFFER_CURVE_ENABLED,
+    # nimbus issue #567: the two live number.py fields resolve via
+    # _SOLVER_NUMBER_ENTITY_KEYS, the switch via _SOLVER_SWITCH_ENTITY_
+    # KEYS (see each tuple's own comment) -- the alert-entity POINTER
+    # stays wizard-only, resolved from entry.options directly like every
+    # other entity-pointer field.
+    CONF_SOLVER_PRICE_SPIKE_THRESHOLD,
+    CONF_SOLVER_PRICE_SPIKE_DISCHARGE_KW,
+    CONF_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED,
+    CONF_SOLVER_PRICE_SPIKE_ALERT_ENTITY,
 )
 # 2026-08-20: these 14 plain-numeric fields moved off entry.options entirely
 # -- they're now LIVE, dashboard-editable number.nimbus_solver_* entities
@@ -441,6 +454,10 @@ _SOLVER_NUMBER_ENTITY_KEYS = (
     # comment on _SOLVER_ALL_KEYS above.
     CONF_SOLVER_INTRAPLAN_SMOOTHNESS_WEIGHT_KW,
     CONF_SOLVER_PROXIMAL_WEIGHT_KW,
+    # nimbus issue #567: same live-number-entity resolve path as every
+    # field above.
+    CONF_SOLVER_PRICE_SPIKE_THRESHOLD,
+    CONF_SOLVER_PRICE_SPIKE_DISCHARGE_KW,
 )
 # 2026-08-22: switch.py's own one live boolean toggle -- same
 # "resolve from a live entity, not entry.options" mechanism as
@@ -463,6 +480,8 @@ _SOLVER_SWITCH_ENTITY_KEYS = (
     # value, never entry.options directly, so it must be resolved here
     # too or the switch's live state would never actually reach main().
     CONF_SOLVER_OFFER_CURVE_ENABLED,
+    # nimbus issue #567: same live-switch resolve path.
+    CONF_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED,
 )
 
 
