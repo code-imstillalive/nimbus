@@ -1,0 +1,124 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 848" width="900" height="848">
+<style>
+text{font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;fill:#1b1f24}
+.ttl{font-size:13px;font-weight:600}
+.tick{font-size:10px;fill:#57606a}
+.gl{stroke:#e8ebef;stroke-width:1}
+.hl{stroke:#d1226b;stroke-width:1;opacity:.7}
+</style>
+<rect x="0" y="0" width="900" height="848" fill="#ffffff"/>
+<text x="50" y="16" style="font-size:15px;font-weight:700">Nimbus day-ahead plan (next 24h)</text>
+<g transform="translate(0,26)"><g transform="translate(0,0)">
+<text x="50" y="14" class="ttl">Price (c/kWh)</text>
+<line x1="50" x2="880" y1="214.0" y2="214.0" class="gl"/>
+<text x="44" y="218.0" text-anchor="end" class="tick">-0</text>
+<line x1="50" x2="880" y1="166.5" y2="166.5" class="gl"/>
+<text x="44" y="170.5" text-anchor="end" class="tick">9</text>
+<line x1="50" x2="880" y1="119.0" y2="119.0" class="gl"/>
+<text x="44" y="123.0" text-anchor="end" class="tick">18</text>
+<line x1="50" x2="880" y1="71.5" y2="71.5" class="gl"/>
+<text x="44" y="75.5" text-anchor="end" class="tick">27</text>
+<line x1="50" x2="880" y1="24.0" y2="24.0" class="gl"/>
+<text x="44" y="28.0" text-anchor="end" class="tick">36</text>
+<path d="M 50.0 174.3 L 84.6 171.7 L 119.2 44.9 L 153.8 37.1 L 188.3 37.6 L 222.9 37.6 L 257.5 40.8 L 292.1 120.6 L 326.7 124.2 L 361.2 127.9 L 395.8 130.0 L 430.4 131.5 L 465.0 133.1 L 499.6 132.6 L 534.2 132.0 L 568.8 129.4 L 603.3 126.8 L 637.9 139.9 L 672.5 145.1 L 707.1 149.3 L 741.7 150.3 L 776.2 181.6 L 810.8 179.0 L 845.4 177.4 L 880.0 174.3" fill="none" stroke="#c0392b" stroke-width="2" stroke-linejoin="round"/>
+<path d="M 50.0 193.6 L 84.6 191.0 L 119.2 175.3 L 153.8 168.6 L 188.3 168.6 L 222.9 169.1 L 257.5 171.7 L 292.1 173.8 L 326.7 177.4 L 361.2 181.1 L 395.8 182.6 L 430.4 184.2 L 465.0 185.2 L 499.6 184.7 L 534.2 184.2 L 568.8 182.1 L 603.3 179.5 L 637.9 191.5 L 672.5 196.2 L 707.1 199.9 L 741.7 200.9 L 776.2 199.9 L 810.8 197.8 L 845.4 196.2 L 880.0 195.7" fill="none" stroke="#1a7f37" stroke-width="2" stroke-linejoin="round"/>
+<text x="50.0" y="228" text-anchor="middle" class="tick">Wed 14:00</text>
+<text x="153.8" y="228" text-anchor="middle" class="tick">Wed 17:00</text>
+<text x="257.5" y="228" text-anchor="middle" class="tick">Wed 20:00</text>
+<text x="361.2" y="228" text-anchor="middle" class="tick">Wed 23:00</text>
+<text x="465.0" y="228" text-anchor="middle" class="tick">Thu 02:00</text>
+<text x="568.8" y="228" text-anchor="middle" class="tick">Thu 05:00</text>
+<text x="672.5" y="228" text-anchor="middle" class="tick">Thu 08:00</text>
+<text x="776.2" y="228" text-anchor="middle" class="tick">Thu 11:00</text>
+<text x="880.0" y="228" text-anchor="middle" class="tick">Thu 14:00</text>
+<rect x="50" y="244" width="10" height="10" fill="#c0392b"/>
+<text x="64" y="253" class="tick">import</text>
+<rect x="115.2" y="244" width="10" height="10" fill="#1a7f37"/>
+<text x="129.2" y="253" class="tick">export</text>
+</g></g>
+<g transform="translate(0,300)"><g transform="translate(0,0)">
+<text x="50" y="14" class="ttl">Power (kW, +discharge/import)</text>
+<line x1="50" x2="880" y1="214.0" y2="214.0" class="gl"/>
+<text x="44" y="218.0" text-anchor="end" class="tick">-29</text>
+<line x1="50" x2="880" y1="166.5" y2="166.5" class="gl"/>
+<text x="44" y="170.5" text-anchor="end" class="tick">-14</text>
+<line x1="50" x2="880" y1="119.0" y2="119.0" class="gl"/>
+<text x="44" y="123.0" text-anchor="end" class="tick">1</text>
+<line x1="50" x2="880" y1="71.5" y2="71.5" class="gl"/>
+<text x="44" y="75.5" text-anchor="end" class="tick">16</text>
+<line x1="50" x2="880" y1="24.0" y2="24.0" class="gl"/>
+<text x="44" y="28.0" text-anchor="end" class="tick">31</text>
+<path d="M 50.0 112.3 L 84.6 98.2 L 119.2 111.0 L 153.8 121.0 L 188.3 122.6 L 222.9 122.6 L 257.5 122.6 L 292.1 122.6 L 326.7 122.6 L 361.2 122.6 L 395.8 122.6 L 430.4 122.6 L 465.0 122.6 L 499.6 122.6 L 534.2 122.6 L 568.8 122.6 L 603.3 121.3 L 637.9 117.3 L 672.5 112.9 L 707.1 106.9 L 741.7 99.1 L 776.2 96.9 L 810.8 101.3 L 845.4 94.7 L 880.0 100.4" fill="none" stroke="#d19a00" stroke-width="2" stroke-linejoin="round"/>
+<path d="M 50.0 111.3 L 84.6 96.6 L 119.2 107.9 L 153.8 113.2 L 188.3 114.5 L 222.9 114.8 L 257.5 114.1 L 292.1 114.5 L 326.7 116.3 L 361.2 117.3 L 395.8 118.2 L 430.4 118.2 L 465.0 117.9 L 499.6 117.6 L 534.2 117.0 L 568.8 116.0 L 603.3 115.4 L 637.9 113.8 L 672.5 113.5 L 707.1 112.6 L 741.7 108.5 L 776.2 101.6 L 810.8 94.7 L 845.4 92.5 L 880.0 92.5" fill="none" stroke="#57606a" stroke-width="2" stroke-linejoin="round"/>
+<path d="M 50.0 120.4 L 84.6 120.7 L 119.2 122.6 L 153.8 122.6 L 188.3 122.6 L 222.9 122.6 L 257.5 122.6 L 292.1 122.6 L 326.7 122.6 L 361.2 122.6 L 395.8 122.6 L 430.4 122.6 L 465.0 122.6 L 499.6 122.6 L 534.2 122.6 L 568.8 122.6 L 603.3 122.6 L 637.9 122.6 L 672.5 122.6 L 707.1 122.6 L 741.7 122.6 L 776.2 45.6 L 810.8 37.1 L 845.4 77.5 L 880.0 111.0" fill="none" stroke="#8250df" stroke-width="2" stroke-linejoin="round"/>
+<rect x="40.0" y="122.6" width="19.9" height="0.5" fill="#1a7f37"/>
+<rect x="74.6" y="119.5" width="19.9" height="3.1" fill="#1a7f37"/>
+<rect x="109.2" y="117.3" width="19.9" height="5.3" fill="#1a7f37"/>
+<rect x="143.8" y="113.5" width="19.9" height="9.1" fill="#1a7f37"/>
+<rect x="178.4" y="113.2" width="19.9" height="9.4" fill="#1a7f37"/>
+<rect x="213.0" y="113.5" width="19.9" height="9.1" fill="#1a7f37"/>
+<rect x="247.5" y="112.9" width="19.9" height="9.7" fill="#1a7f37"/>
+<rect x="282.1" y="113.2" width="19.9" height="9.4" fill="#1a7f37"/>
+<rect x="316.7" y="114.8" width="19.9" height="7.8" fill="#1a7f37"/>
+<rect x="351.3" y="115.7" width="19.9" height="6.9" fill="#1a7f37"/>
+<rect x="385.9" y="116.7" width="19.9" height="6.0" fill="#1a7f37"/>
+<rect x="420.5" y="116.3" width="19.9" height="6.3" fill="#1a7f37"/>
+<rect x="455.0" y="116.0" width="19.9" height="6.6" fill="#1a7f37"/>
+<rect x="489.6" y="115.7" width="19.9" height="6.9" fill="#1a7f37"/>
+<rect x="524.2" y="114.8" width="19.9" height="7.8" fill="#1a7f37"/>
+<rect x="558.8" y="113.8" width="19.9" height="8.8" fill="#1a7f37"/>
+<rect x="593.4" y="114.5" width="19.9" height="8.1" fill="#1a7f37"/>
+<rect x="628.0" y="116.7" width="19.9" height="6.0" fill="#1a7f37"/>
+<rect x="662.5" y="120.4" width="19.9" height="2.2" fill="#1a7f37"/>
+<rect x="697.1" y="122.6" width="19.9" height="2.8" fill="#c0392b"/>
+<rect x="731.7" y="122.6" width="19.9" height="6.3" fill="#c0392b"/>
+<rect x="766.3" y="122.6" width="19.9" height="78.3" fill="#c0392b"/>
+<rect x="800.9" y="122.6" width="19.9" height="75.8" fill="#c0392b"/>
+<rect x="835.5" y="122.6" width="19.9" height="39.1" fill="#c0392b"/>
+<rect x="870.0" y="122.6" width="19.9" height="0.5" fill="#c0392b"/>
+<text x="50.0" y="228" text-anchor="middle" class="tick">Wed 14:00</text>
+<text x="153.8" y="228" text-anchor="middle" class="tick">Wed 17:00</text>
+<text x="257.5" y="228" text-anchor="middle" class="tick">Wed 20:00</text>
+<text x="361.2" y="228" text-anchor="middle" class="tick">Wed 23:00</text>
+<text x="465.0" y="228" text-anchor="middle" class="tick">Thu 02:00</text>
+<text x="568.8" y="228" text-anchor="middle" class="tick">Thu 05:00</text>
+<text x="672.5" y="228" text-anchor="middle" class="tick">Thu 08:00</text>
+<text x="776.2" y="228" text-anchor="middle" class="tick">Thu 11:00</text>
+<text x="880.0" y="228" text-anchor="middle" class="tick">Thu 14:00</text>
+<rect x="50" y="244" width="10" height="10" fill="#d19a00"/>
+<text x="64" y="253" class="tick">solar</text>
+<rect x="109.0" y="244" width="10" height="10" fill="#57606a"/>
+<text x="123.0" y="253" class="tick">load</text>
+<rect x="161.8" y="244" width="10" height="10" fill="#8250df"/>
+<text x="175.8" y="253" class="tick">grid_import</text>
+<rect x="258.0" y="244" width="10" height="10" fill="#1a7f37"/>
+<text x="272.0" y="253" class="tick">battery</text>
+</g></g>
+<g transform="translate(0,574)"><g transform="translate(0,0)">
+<text x="50" y="14" class="ttl">SoC (%)</text>
+<line x1="50" x2="880" y1="214.0" y2="214.0" class="gl"/>
+<text x="44" y="218.0" text-anchor="end" class="tick">0</text>
+<line x1="50" x2="880" y1="166.5" y2="166.5" class="gl"/>
+<text x="44" y="170.5" text-anchor="end" class="tick">25</text>
+<line x1="50" x2="880" y1="119.0" y2="119.0" class="gl"/>
+<text x="44" y="123.0" text-anchor="end" class="tick">50</text>
+<line x1="50" x2="880" y1="71.5" y2="71.5" class="gl"/>
+<text x="44" y="75.5" text-anchor="end" class="tick">75</text>
+<line x1="50" x2="880" y1="24.0" y2="24.0" class="gl"/>
+<text x="44" y="28.0" text-anchor="end" class="tick">100</text>
+<line x1="50" x2="880" y1="204.5" y2="204.5" class="hl" stroke-dasharray="4,3"/>
+<path d="M 50.0 214.0 L 50.0 57.1 L 84.6 58.4 L 119.2 60.5 L 153.8 64.1 L 188.3 67.7 L 222.9 71.1 L 257.5 74.9 L 292.1 78.5 L 326.7 81.6 L 361.2 84.2 L 395.8 86.7 L 430.4 89.0 L 465.0 91.5 L 499.6 94.1 L 534.2 97.2 L 568.8 100.6 L 603.3 103.8 L 637.9 106.1 L 672.5 106.8 L 707.1 105.9 L 741.7 103.6 L 776.2 74.7 L 810.8 46.8 L 845.4 32.4 L 880.0 32.4 L 880.0 214.0 Z" fill="#0969da" opacity="0.28"/>
+<path d="M 50.0 57.1 L 84.6 58.4 L 119.2 60.5 L 153.8 64.1 L 188.3 67.7 L 222.9 71.1 L 257.5 74.9 L 292.1 78.5 L 326.7 81.6 L 361.2 84.2 L 395.8 86.7 L 430.4 89.0 L 465.0 91.5 L 499.6 94.1 L 534.2 97.2 L 568.8 100.6 L 603.3 103.8 L 637.9 106.1 L 672.5 106.8 L 707.1 105.9 L 741.7 103.6 L 776.2 74.7 L 810.8 46.8 L 845.4 32.4 L 880.0 32.4" fill="none" stroke="#0969da" stroke-width="2" stroke-linejoin="round"/>
+<text x="50.0" y="228" text-anchor="middle" class="tick">Wed 14:00</text>
+<text x="153.8" y="228" text-anchor="middle" class="tick">Wed 17:00</text>
+<text x="257.5" y="228" text-anchor="middle" class="tick">Wed 20:00</text>
+<text x="361.2" y="228" text-anchor="middle" class="tick">Wed 23:00</text>
+<text x="465.0" y="228" text-anchor="middle" class="tick">Thu 02:00</text>
+<text x="568.8" y="228" text-anchor="middle" class="tick">Thu 05:00</text>
+<text x="672.5" y="228" text-anchor="middle" class="tick">Thu 08:00</text>
+<text x="776.2" y="228" text-anchor="middle" class="tick">Thu 11:00</text>
+<text x="880.0" y="228" text-anchor="middle" class="tick">Thu 14:00</text>
+<rect x="50" y="244" width="10" height="10" fill="#0969da"/>
+<text x="64" y="253" class="tick">soc</text>
+</g></g>
+</svg>
