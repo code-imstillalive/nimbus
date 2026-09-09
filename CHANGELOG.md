@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.207] — 2026-09-09
+
+### Fixed
+- **`sensor.nimbus_solver_price_response_latency` spiked to 280–600s every 5 minutes and up to 5,430s overnight** (nimbus issue #633, Mark Purcell — real repro, live data captured minute-by-minute: every spike equalled, to the second, "solve time minus the last real price change," not the solver's actual response time). Home Assistant fires `state_changed` for attribute-only updates too — a price integration's own coordinator often refreshes forecast attributes a few seconds before the interval price itself changes, and `_on_price_change` used to record `last_changed` (which still points at the PREVIOUS real value change) as if it were this event's own timestamp. Now compares `old_state.state` against `new_state.state`: a genuine value change still uses `last_changed` and is tagged `price_change` as before; an attribute-only refresh uses `last_updated` and is tagged `price_attributes` instead, which `record_solve_completed()`'s own existing "anything but price_change is a no-op for the latency sensor" contract already skips cleanly — no phantom sample, and the real solve (attribute refreshes are genuine new inputs) still fires exactly as before. A missing `old_state` (the very first event ever seen for an entity) fails open to "real change," matching this project's own established fail-open convention. 3 new tests, all pre-existing price-watcher tests (17) still green.
+
 ## [0.94.206] — 2026-09-09
 
 ### Fixed
