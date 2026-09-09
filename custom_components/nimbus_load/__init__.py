@@ -33,12 +33,7 @@ from .const import (
     CONF_LOAD_SENSOR,
     CONF_SOLVE_ON_PRICE_CHANGE,
     CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
-    CONF_SOLVER_EXPORT_PRICE_SENSOR,
-    CONF_SOLVER_EXPORT_PRICE_SENSOR_2,
-    CONF_SOLVER_EXPORT_PRICE_SENSOR_3,
     CONF_SOLVER_IMPORT_PRICE_SENSOR,
-    CONF_SOLVER_IMPORT_PRICE_SENSOR_2,
-    CONF_SOLVER_IMPORT_PRICE_SENSOR_3,
     DEFAULT_SOLVE_ON_PRICE_CHANGE,
     DEFAULT_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
     DOMAIN,
@@ -683,26 +678,28 @@ async def _async_run_solve_with_startup_retries(hass: HomeAssistant) -> None:
 
 
 def _configured_price_sensors(entry: NimbusConfigEntry) -> tuple[str, ...]:
-    """The set of import/export price sensors the wizard currently has
-    configured for this hub (in canonical order for deterministic set-
-    change comparison). Optional _2/_3 secondary sources are included
-    when set; empty/None values are dropped so they don't turn into a
-    listener on a non-existent entity_id. Returned as a tuple so it can
-    key into _price_watcher_entities directly.
+    """The price sensor(s) that trigger an on-demand solve on state
+    change -- the PRIMARY import price sensor only.
+
+    nimbus issue #651 (Mark Purcell): this used to also watch the _2/_3
+    secondary/tertiary import and export price sensors. Those secondary
+    sources (e.g. a household's own Energex/pd7day blend input) update on
+    their own schedule, typically offset by a minute or so from the
+    primary retailer's real NEM boundary -- watching them created an
+    extra, off-boundary solve every cycle whose tier-0 (sub-5-minute)
+    periods have no proximal tether to either the plan before or after
+    it, landing on an arbitrary LP vertex (issue #635's own residual,
+    still present after that fix). The secondary/tertiary sources still
+    feed the LP as real inputs on every regular solve -- this only
+    changes what triggers an *extra*, off-cycle one. Restricting the
+    trigger to the primary import sensor removes that off-boundary solve
+    entirely, so there's no tier-0 grid left to misalign in the first
+    place.
     """
-    keys = (
-        CONF_SOLVER_IMPORT_PRICE_SENSOR,
-        CONF_SOLVER_IMPORT_PRICE_SENSOR_2,
-        CONF_SOLVER_IMPORT_PRICE_SENSOR_3,
-        CONF_SOLVER_EXPORT_PRICE_SENSOR,
-        CONF_SOLVER_EXPORT_PRICE_SENSOR_2,
-        CONF_SOLVER_EXPORT_PRICE_SENSOR_3,
-    )
-    return tuple(
-        entity_id
-        for entity_id in (entry.options.get(k) for k in keys)
-        if isinstance(entity_id, str) and entity_id
-    )
+    entity_id = entry.options.get(CONF_SOLVER_IMPORT_PRICE_SENSOR)
+    if isinstance(entity_id, str) and entity_id:
+        return (entity_id,)
+    return ()
 
 
 def _cancel_price_watcher(entry_id: str) -> None:
