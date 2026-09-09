@@ -73,6 +73,7 @@ from .const import (
     CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY,
     CONF_CONTROLLABLE_LOAD_MIN_HOLD_MINUTES,
     CONF_DEFERRABLE_DONE_ENTITY,
+    CONF_DEFERRABLE_DONE_WHEN,
     CONF_LOAD_SENSOR,
     CONF_POWER_SOURCE_BATTERY_SENSOR,
     CONF_POWER_SOURCE_DC_SENSOR,
@@ -1497,6 +1498,20 @@ class _NimbusControllableLoadScheduleSensorBase(SensorEntity):
             if done_entity
             else None
         )
+        # nimbus issue #639: same setpoint-fallback convention
+        # _evaluate_done_condition() uses for an unset done_when on a
+        # water_heater/climate entity (#534) -- read directly here
+        # rather than adding a second helper, since sensor.py already
+        # has hass in scope and this is a single attribute read.
+        done_when = data.get(CONF_DEFERRABLE_DONE_WHEN)
+        setpoint_temperature = None
+        if done_entity and tank_temperature is not None and done_when is None:
+            done_state = self._hass.states.get(done_entity)
+            if done_state is not None:
+                setpoint_temperature = done_state.attributes.get("temperature")
+        done_condition_met = done_condition.is_tank_done(
+            tank_temperature, done_when, setpoint_temperature=setpoint_temperature
+        )
         view = load_run_state.derive_schedule_view(
             state,
             load_kind=load_kind,
@@ -1505,6 +1520,7 @@ class _NimbusControllableLoadScheduleSensorBase(SensorEntity):
                 CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY
             ),
             tank_current_temperature=tank_temperature,
+            done_condition_met=done_condition_met,
         )
         self._native_value = self._extract_value(view)
 

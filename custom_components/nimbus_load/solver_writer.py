@@ -153,7 +153,6 @@ import functools
 import io
 import json
 import logging
-import operator
 import os
 import re
 import statistics
@@ -179,10 +178,12 @@ try:
     from .done_condition import (
         ATTRIBUTE_DONE_DOMAINS as _done_condition_attribute_domains,
     )
+    from .done_condition import parse_done_when as _parse_done_when
 except ImportError:
     from done_condition import (
         ATTRIBUTE_DONE_DOMAINS as _done_condition_attribute_domains,
     )
+    from done_condition import parse_done_when as _parse_done_when
 
 # Real, confirmed-live bug (2026-08-17): this script's own docstrings
 # used to assert "this NUC runs Australia/Brisbane" and relied on plain
@@ -7483,17 +7484,11 @@ def _sample_load_run_state(
 # nimbus issue #480: a small, FIXED comparison DSL for a deferrable
 # load's own done_when field (e.g. ">= 60") -- deliberately not eval(),
 # since a household-supplied config string must never run as code.
-# Longer operator strings checked first (">="/"<="/"=="/"!=" before the
-# single-char ">"/"<"), so ">= 60" is never misparsed as "> = 60".
-_DONE_WHEN_OPERATORS: dict[str, object] = {
-    ">=": operator.ge,
-    "<=": operator.le,
-    "==": operator.eq,
-    "!=": operator.ne,
-    ">": operator.gt,
-    "<": operator.lt,
-}
-_DONE_WHEN_OPERATOR_ORDER = (">=", "<=", "==", "!=", ">", "<")
+# nimbus issue #639: the actual operators/parser (_parse_done_when) now
+# live in done_condition.py, imported above -- so sensor.py's schedule-
+# view sensors can evaluate the identical done_when comparison without
+# this module's own heavy numpy/highspy imports. See that module's own
+# docstring.
 
 # nimbus issue #480 (Mark Purcell's own live review): the malformed-
 # done_when/non-numeric-state warning below used to fire on every solve
@@ -7526,22 +7521,6 @@ _DONE_CONDITION_WARNED: set[tuple[str, str | None, str]] = set()
 # numpy/highspy imports make it unsafe to import from a plain event-loop
 # context before the first real solve has already paid that cost once.
 _ATTRIBUTE_DONE_DOMAINS = _done_condition_attribute_domains
-
-
-def _parse_done_when(done_when: str) -> tuple:
-    """Parses done_when into (operator_fn, threshold). Raises ValueError
-    for anything that doesn't match `<op><number>` (whitespace-tolerant)
-    -- the caller treats that as a misconfiguration, not a crash."""
-    stripped = done_when.strip()
-    for op_str in _DONE_WHEN_OPERATOR_ORDER:
-        if stripped.startswith(op_str):
-            threshold_str = stripped[len(op_str) :].strip()
-            return _DONE_WHEN_OPERATORS[op_str], float(threshold_str)
-    msg = (
-        f"done_when {done_when!r} doesn't start with a recognized operator "
-        f"({', '.join(_DONE_WHEN_OPERATOR_ORDER)})"
-    )
-    raise ValueError(msg)
 
 
 def _evaluate_done_condition(done_entity: str, done_when: str | None) -> bool | None:

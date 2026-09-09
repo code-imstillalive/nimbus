@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.211] — 2026-09-09
+
+### Fixed
+- **A deferrable load released on today's kWh target reported `status: "done (tank 52 °C)"` right beside its own device-page "done at 60 °C" line — the tank was never actually done, only the energy target was** (nimbus issue #639, Mark Purcell, live verification of #626/#612's own release: after the window closed, `planned_today` 0.0, `target_today` 2.0, `delivered_today` 3.54, `commanded_state` off, next window tomorrow — genuinely correct, except the wording implied the tank itself had reached its 60 °C done line when it read 52 °C). `derive_schedule_view()`'s "done" status was reached purely from the energy-target-met comparison, with no reference at all to whether the load's own `done_when` condition had genuinely fired.
+
+  Added `done_condition.is_tank_done()` (and moved the existing `_parse_done_when()` comparison-DSL parser into `done_condition.py` alongside it, so both solver_writer.py and sensor.py share one real implementation) — sensor.py's schedule-view sensors now read the load's live tank temperature against its own configured `done_when` (or setpoint fallback) and pass the result through. The status wording now says `"done (tank 60 °C)"` only when that condition genuinely holds; otherwise (Mark's real case) it says `"target met (3.5 of 2.0 kWh, tank 52 °C)"` — honest about which of the two release reasons actually happened. A load with no tank reading at all is unaffected (nothing there to contradict). New tests covering both the genuine-done and target-met-but-not-done cases, plus the done_when-vs-setpoint-fallback precedence.
+
 ## [0.94.210] — 2026-09-09
 
 ### Fixed
