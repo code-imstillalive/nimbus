@@ -732,6 +732,7 @@ def compute_binding_constraint_label(
     import_limit_kw: float,
     max_charge_kw: float,
     max_discharge_kw: float,
+    period_0_hours: float,
 ) -> tuple[str, float | None]:
     """ "What's binding RIGHT NOW (period 0)" -- Mark Purcell's audit item
     #3 (2026-08-18), deliberately a SMALL summary rather than the raw
@@ -781,6 +782,16 @@ def compute_binding_constraint_label(
     when nothing is currently binding (label == "Nothing currently
     binding"), matching this function's one and only caller's own
     existing external contract (the pushed sensor attribute shape).
+
+    nimbus issue #662 (Mark Purcell): `period_0_hours` -- these 4
+    variables' own LP objective coefficients are all scaled by period 0's
+    own duration (`p.set_cost(grid_import[0], effective_import_price[0]
+    * hours[0])`, same construction #662 itself diagnosed for the
+    power_balance_t0 ROW dual), so each one's own raw reduced cost comes
+    out in "$ per kW of bound," carrying the identical implicit
+    `x hours[0]` factor -- dividing by it recovers the true $/kWh
+    marginal value, the EXACT SAME correction `forced_import_cost`
+    already applies (`reduced_costs[...] / hours[t]`, network.py).
     """
     _BINDING_FAMILIES = {
         # key: (exact original ceiling label, short name for the "at
@@ -844,7 +855,7 @@ def compute_binding_constraint_label(
                     f"{short_name} at {solved_value:.2f} kW "
                     f"(unexpected -- neither its 0 nor {limit_kw:.2f} kW bound)"
                 )
-            binding_now_value_per_kwh = round(val, 4)
+            binding_now_value_per_kwh = round(val / period_0_hours, 4)
     if binding_now is None:
         binding_now = "Nothing currently binding"
     return binding_now, binding_now_value_per_kwh
@@ -4601,7 +4612,21 @@ def main() -> None:
             # Same 0.0 default-on-missing convention energy_shadow_
             # price_now (period 0's own copy of this same number, kept
             # for backward compatibility) already uses.
-            "shadow_price": round(plan.duals.get(f"power_balance_t{i}", 0.0), 4),
+            #
+            # nimbus issue #662 (Mark Purcell): power_balance_t{i} is
+            # built with every term at a plain +-1.0 coefficient (kW),
+            # while the objective's own price terms are scaled by
+            # period_hours_arr[i] (a $/kWh price x hours -> a real $
+            # cost) -- so the row's own raw dual comes out in "$ per kW
+            # of RHS," already carrying an implicit x hours[i] relative
+            # to the true $/kWh marginal price. Dividing by period_
+            # hours_arr[i] recovers it -- the EXACT SAME correction
+            # forced_import_cost already applies to reduced_costs
+            # (`reduced_costs[...] / hours[t]`, network.py), just never
+            # extended to this sibling field.
+            "shadow_price": round(
+                plan.duals.get(f"power_balance_t{i}", 0.0) / period_hours_arr[i], 4
+            ),
             "import_price": round(import_price[i], 4),
             # The raw commodity/spot price ALONE, before network TOU +
             # certificates are added on (2026-08-22, direct household
@@ -4685,7 +4710,12 @@ def main() -> None:
     # volume-cap shadow price -- the two answers this feature actually
     # exists to give, not a full dump.
     binding_now, binding_now_value_per_kwh = compute_binding_constraint_label(
-        plan, export_limit_kw, import_limit_kw, max_charge_kw, max_discharge_kw
+        plan,
+        export_limit_kw,
+        import_limit_kw,
+        max_charge_kw,
+        max_discharge_kw,
+        period_hours_arr[0],
     )
     # Earliest export_bonus_cap_<date> entry (ISO date strings sort
     # correctly as plain strings) is always tonight's/the current cap --
@@ -4749,8 +4779,11 @@ def main() -> None:
             "generated_at": now.isoformat(),
             "binding_constraint_now": binding_now,
             "binding_constraint_shadow_price": binding_now_value_per_kwh,
+            # nimbus issue #662: same period_hours_arr[0] correction as
+            # the per-period "shadow_price" field above -- see that
+            # field's own comment for the full mechanism/verification.
             "energy_shadow_price_now": round(
-                plan.duals.get("power_balance_t0", 0.0), 4
+                plan.duals.get("power_balance_t0", 0.0) / period_hours_arr[0], 4
             ),
             "p2p_volume_cap_shadow_price": p2p_volume_cap_shadow_price,
             **_risk_aversion_effect_now(plan, solar_kw, import_price, export_price),
@@ -4778,7 +4811,7 @@ def main() -> None:
         f"p2p_match_fraction={match_fraction:.3f} net_battery_now={net_battery[0]:.2f}kW "
         f"summed_18_loads_now={summed_18_now_kw:.2f}kW whole_house_cross_check={cross_check_str} "
         f"previous_plan_found={previous_plan is not None} "
-        f"binding_now={binding_now!r} energy_shadow_price_now={plan.duals.get('power_balance_t0', 0.0):.4f} "
+        f"binding_now={binding_now!r} energy_shadow_price_now={plan.duals.get('power_balance_t0', 0.0) / period_hours_arr[0]:.4f} "
         f"p2p_volume_cap_shadow_price={p2p_volume_cap_shadow_price}"
     )
     # nimbus issue #494: no-op unless offer_curve_enabled was true above

@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.223] — 2026-09-09
+
+### Fixed
+- **`shadow_price`/`energy_shadow_price_now`/`binding_constraint_shadow_price` were too small by a factor of periods-per-hour** (nimbus issue #662, Mark Purcell, precisely diagnosed and verified against real numbers). `power_balance_t{i}`'s own row is built with every term at a plain ±1.0 kW coefficient while the objective's own price terms are scaled by `hours[t]` ($/kWh × hours → $) — so the row's raw dual (and the 4 variable-bound reduced costs `binding_constraint_shadow_price` reads) come out in "$ per kW of RHS/bound," carrying an implicit `× hours[t]` relative to the true $/kWh marginal price. Dividing by each period's own `hours[t]` recovers it — the exact same correction `forced_import_cost`/`forced_export_cost` already applied (#491), just never extended to these three sibling fields. Confirmed against Mark's own real numbers: `0.0186 / (5/60) = 0.223`, matching a real contemporaneous import price of `0.2134`. Also found and fixed the identical bug in `binding_constraint_shadow_price` via the same audit (not named in #662 itself, but the same root cause, same file, same mechanism). Fixed in both the native integration and the standalone/cron docs copy.
+
 ## [0.94.222] — 2026-09-09
 
 ### Added
