@@ -7378,6 +7378,24 @@ def publish_plan(
             "n_periods": n_periods,
             "horizon_hours": round(horizon_days * 24, 1),
             "solve_seconds": round(solve_seconds, 2),
+            # nimbus issue #652 (Mark Purcell): sensor.nimbus_solver_
+            # solve_seconds published duration alone, with no way to
+            # tell "solve got slower because the problem got bigger" (a
+            # real, legitimate reconfiguration -- Mark's own real case
+            # was a 1-battery to 3-battery fleet change) from "solve got
+            # slower because something regressed" without pulling raw
+            # history and cross-referencing config-reload timestamps by
+            # hand. Surfaced as extra_state_attributes on that flattened
+            # sensor (see sensor_flattened.py's own attrs_source_key
+            # mechanism) so a future jump can be attributed on sight.
+            # Straight from the plan build_plan() itself just solved
+            # against, so this can never drift from what actually ran.
+            "solve_diagnostics": {
+                "n_batteries": len(plan.batteries),
+                "n_periods": n_periods,
+                "n_controllable_loads": len(plan.sheddable_loads)
+                + len(plan.adequacy_loads),
+            },
             "generated_at": now.isoformat(),
             "binding_constraint_now": binding_now,
             "binding_constraint_shadow_price": binding_now_value_per_kwh,

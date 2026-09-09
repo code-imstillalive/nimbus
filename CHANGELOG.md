@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.220] — 2026-09-09
+
+### Added
+- **`sensor.nimbus_solver_solve_seconds` now publishes `n_batteries`/`n_periods`/`n_controllable_loads` as attributes** (nimbus issue #652, Mark Purcell). Not a bug — investigated a real ~doubled solve time (0.4s → 1.4s) and root-caused it to a legitimate three-battery fleet reconfiguration, not a version regression, but found no live way to tell "solve got slower because the problem got bigger" from "solve got slower because something regressed" without pulling raw recorder history and cross-referencing config-reload timestamps by hand. These three problem-size figures (straight from the plan `build_plan()` itself just solved against, so they can never drift from what actually ran) let a future jump be attributed on sight.
+
 ## [0.94.219] — 2026-09-09
 
 ### Fixed
