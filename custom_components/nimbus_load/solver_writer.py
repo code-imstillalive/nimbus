@@ -8565,6 +8565,7 @@ def apply_commanded_state_guard(
                 CONF_CONTROLLABLE_LOAD_POWER_SENSOR,
                 CONF_DEFERRABLE_DEADLINE_HOUR,
                 CONF_DEFERRABLE_DONE_ENTITY,
+                CONF_DEFERRABLE_DONE_WHEN,
                 CONF_DEFERRABLE_EARLIEST_HOUR,
                 CONF_DEFERRABLE_MAX_POWER_KW,
                 CONF_DEFERRABLE_TARGET_KWH,
@@ -8582,6 +8583,7 @@ def apply_commanded_state_guard(
                 CONF_CONTROLLABLE_LOAD_POWER_SENSOR,
                 CONF_DEFERRABLE_DEADLINE_HOUR,
                 CONF_DEFERRABLE_DONE_ENTITY,
+                CONF_DEFERRABLE_DONE_WHEN,
                 CONF_DEFERRABLE_EARLIEST_HOUR,
                 CONF_DEFERRABLE_MAX_POWER_KW,
                 CONF_DEFERRABLE_TARGET_KWH,
@@ -9016,18 +9018,32 @@ def apply_commanded_state_guard(
                                 if new.commanded_state and max_power_kw is not None
                                 else None
                             )
-                            # nimbus issue #610: clamp at the
-                            # water_heater/climate entity's own
-                            # configured setpoint -- never invented,
-                            # read straight off its live attributes
-                            # ("temperature" first, the real HA
-                            # water_heater target-temperature attribute;
-                            # "max_temp" as a fallback for an entity
-                            # that only publishes that).
+                            # nimbus issue #640 (Mark Purcell, live
+                            # verification of #610: with the heat pump
+                            # idle in "eco" mode, `temperature` reads the
+                            # 45 degC eco setpoint -- the floor the unit
+                            # maintains BETWEEN runs, not the ceiling of
+                            # a run -- which clamped a genuine 2 kWh/16
+                            # degC reheat down to a flat line and made
+                            # the tank look like it could never reach its
+                            # own 60 degC done line). Clamp at the
+                            # heater's real operating ceiling instead:
+                            # "max_temp" first (the unit's own physical
+                            # maximum, e.g. 65 here, still a real,
+                            # never-invented attribute read off the
+                            # entity, never hardcoded); "temperature" as
+                            # a fallback for an entity that only
+                            # publishes the current target and has no
+                            # separate max_temp; and, when the entity
+                            # exposes neither, the load's own configured
+                            # done_when threshold (#610's own "at minimum
+                            # the done_when threshold" fallback) so a
+                            # done line the projection needs to actually
+                            # reach is never clamped below itself.
                             ceiling_temperature = None
                             done_state_obj = _NATIVE_HASS.states.get(done_entity)
                             if done_state_obj is not None:
-                                for _attr in ("temperature", "max_temp"):
+                                for _attr in ("max_temp", "temperature"):
                                     _raw = done_state_obj.attributes.get(_attr)
                                     if _raw is not None:
                                         try:
@@ -9035,6 +9051,15 @@ def apply_commanded_state_guard(
                                         except (TypeError, ValueError):
                                             ceiling_temperature = None
                                         break
+                            if ceiling_temperature is None:
+                                done_when = data.get(CONF_DEFERRABLE_DONE_WHEN)
+                                if done_when is not None:
+                                    try:
+                                        _, ceiling_temperature = (
+                                            done_condition.parse_done_when(done_when)
+                                        )
+                                    except (ValueError, TypeError):
+                                        ceiling_temperature = None
                             new = replace(
                                 new,
                                 temperature_forecast=thermal_forecast.project_temperature_forecast(

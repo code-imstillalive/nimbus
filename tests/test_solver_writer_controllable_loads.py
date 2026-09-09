@@ -112,12 +112,16 @@ def _fake_state(value, unit=None):
     return SimpleNamespace(state=value, attributes={"unit_of_measurement": unit})
 
 
-def _fake_water_heater_state(mode="eco", current_temperature=None, temperature=None):
+def _fake_water_heater_state(
+    mode="eco", current_temperature=None, temperature=None, max_temp=None
+):
     attrs = {}
     if current_temperature is not None:
         attrs["current_temperature"] = current_temperature
     if temperature is not None:
         attrs["temperature"] = temperature
+    if max_temp is not None:
+        attrs["max_temp"] = max_temp
     return SimpleNamespace(state=mode, attributes=attrs)
 
 
@@ -2248,6 +2252,118 @@ class TestApplyCommandedStateGuardThermalForecast(unittest.TestCase):
         self.assertAlmostEqual(
             result.temperature_forecast[0]["value"], 58.0 + 3.7 * 0.5 * 8.0, places=2
         )
+
+    def test_max_temp_wins_over_the_idle_eco_setpoint_for_the_ceiling(self):
+        # nimbus issue #640 (Mark Purcell, real repro): idle in "eco",
+        # `temperature` reads the 45 degC eco setpoint (the floor the
+        # unit maintains BETWEEN runs) while `max_temp` (65) is the
+        # unit's own real operating ceiling. Clamping at 45 swallowed a
+        # genuine 2 kWh/16 degC reheat entirely. The ceiling must prefer
+        # max_temp over temperature so a real reheat is still visible.
+        import numpy as np
+
+        sub = _fake_subentry(
+            "s_therm8",
+            "controllable_load",
+            {
+                "deferrable_done_entity": "water_heater.hws",
+                "controllable_load_power_sensor": "sensor.hws_power",
+                "deferrable_max_power_kw": 3.7,
+            },
+        )
+        now = datetime(2026, 9, 9, 8, 0, tzinfo=_TZ)
+        day_key = now.strftime("%Y-%m-%d")
+        self._seed_state(
+            "entry_t8",
+            "s_therm8",
+            load_run_state.LoadRunState(
+                thermal_rates_learned_day_key=day_key,
+                thermal_heating_rate_c_per_kwh=8.0,
+                thermal_idle_decay_c_per_hour=0.5,
+                currently_on=False,
+                off_since=None,
+                last_idle_temperature=None,
+            ),
+        )
+        # Mark's real numbers: idle at 45 (eco setpoint), max_temp 65.
+        # Period 0 alone (3.7kW * 0.5h * 8 degC/kWh = 14.8 degC of gain)
+        # would land at 59.8 -- correctly still below the real 65 degC
+        # ceiling, and nowhere near the old, wrong 45 degC clamp.
+        states = {
+            "water_heater.hws": _fake_water_heater_state(
+                current_temperature=45.0, temperature=45.0, max_temp=65.0
+            )
+        }
+        solver_writer._NATIVE_HASS = self._hub("entry_t8", sub, states)
+        grid_times = _grid(now, 4, minutes=30)
+        period_hours_arr = np.full(len(grid_times), 0.5)
+        plan = _fake_plan(
+            adequacy=[
+                _fake_load_plan(
+                    "s_therm8", np.array([3.7, 3.7, 3.7, 3.7]), adequacy=True
+                )
+            ]
+        )
+        solver_writer.apply_commanded_state_guard(
+            plan, now, grid_times, period_hours_arr
+        )
+        result = self._read_state("entry_t8", "s_therm8")
+        self.assertAlmostEqual(
+            result.temperature_forecast[0]["value"], 45.0 + 3.7 * 0.5 * 8.0, places=2
+        )
+        # A later period, still heating, genuinely clamps at max_temp
+        # (65) rather than the old 45 degC eco setpoint.
+        self.assertEqual(result.temperature_forecast[-1]["value"], 65.0)
+
+    def test_done_when_threshold_is_the_ceiling_when_no_entity_attribute_exists(self):
+        # nimbus issue #640: "at minimum the load's own done_when
+        # threshold" -- an entity that publishes neither temperature nor
+        # max_temp still must not clamp a projection below its own
+        # configured done line.
+        import numpy as np
+
+        sub = _fake_subentry(
+            "s_therm9",
+            "controllable_load",
+            {
+                "deferrable_done_entity": "water_heater.hws",
+                "deferrable_done_when": ">= 60",
+                "controllable_load_power_sensor": "sensor.hws_power",
+                "deferrable_max_power_kw": 3.7,
+            },
+        )
+        now = datetime(2026, 9, 9, 8, 0, tzinfo=_TZ)
+        day_key = now.strftime("%Y-%m-%d")
+        self._seed_state(
+            "entry_t9",
+            "s_therm9",
+            load_run_state.LoadRunState(
+                thermal_rates_learned_day_key=day_key,
+                thermal_heating_rate_c_per_kwh=8.0,
+                thermal_idle_decay_c_per_hour=0.5,
+                currently_on=False,
+                off_since=None,
+                last_idle_temperature=None,
+            ),
+        )
+        states = {
+            "water_heater.hws": _fake_water_heater_state(current_temperature=58.0)
+        }
+        solver_writer._NATIVE_HASS = self._hub("entry_t9", sub, states)
+        grid_times = _grid(now, 4, minutes=30)
+        period_hours_arr = np.full(len(grid_times), 0.5)
+        plan = _fake_plan(
+            adequacy=[
+                _fake_load_plan(
+                    "s_therm9", np.array([3.7, 3.7, 3.7, 3.7]), adequacy=True
+                )
+            ]
+        )
+        solver_writer.apply_commanded_state_guard(
+            plan, now, grid_times, period_hours_arr
+        )
+        result = self._read_state("entry_t9", "s_therm9")
+        self.assertEqual(result.temperature_forecast[0]["value"], 60.0)
 
     def test_relearn_with_no_real_recorder_available_sets_source_to_fallback(self):
         # nimbus issue #610: "the published attributes do not say which
