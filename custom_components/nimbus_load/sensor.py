@@ -1405,6 +1405,7 @@ class NimbusControllableLoadStateSensor(SensorEntity):
             "plan_nominal_kw",
             "plan_cost_forecast",
             "plan_shadow_price_forecast",
+            "plan_status_reason",
             "temperature_forecast",
         }
     )

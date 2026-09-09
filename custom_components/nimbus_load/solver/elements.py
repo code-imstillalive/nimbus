@@ -1202,9 +1202,16 @@ class AdequacyLoadConfig:
     deliver power to it at ANY level in [0, max_power_kw] during
     [earliest_period, deadline_period] (or, when `allowed` is given,
     whichever periods it marks True -- see that field's own docstring),
-    at zero direct cost (running it earlier or later than some
-    "expected" time costs nothing physically -- only failing to reach
-    the real target by the real deadline does), constrained so the
+    at zero direct PRICE cost (running it earlier or later than some
+    "expected" time never changes the real $/kWh it's charged -- only
+    failing to reach the real target by the real deadline does).
+    nimbus issue #613: network.py's own build_plan() DOES add one
+    deliberately tiny earliness preference on top of this (see that
+    function's own `adequacy_earliness_budget_kw` docstring) so a real
+    tie between two periods breaks toward the earlier one instead of an
+    arbitrary vertex -- by construction never large enough to be mistaken
+    for a genuine price difference, so this class's own real, priced
+    semantics stay exactly as described here. Constrained so the
     CUMULATIVE energy delivered by (and including) `deadline_period` is
     at least `target_kwh`. This is exactly the real, physical shape of
     HWS heating (must reach a target amount of stored heat by some time)
