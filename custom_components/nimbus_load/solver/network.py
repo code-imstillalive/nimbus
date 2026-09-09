@@ -268,7 +268,7 @@ are completely unaffected regardless of `risk_aversion`'s value.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import numpy as np
 from numpy.typing import NDArray
@@ -503,8 +503,9 @@ class Plan:
 def _align_previous_periods(
     periods: PeriodGrid, previous_plan: Plan | None
 ) -> dict[int, int]:
-    """Map new-grid period index -> previous_plan period index, for every
-    period whose REAL start time matches within _ALIGNMENT_TOLERANCE.
+    """Map new-grid period index -> previous_plan period index: the OLD
+    period whose own real [start, start+hours) interval CONTAINS the new
+    period's start time (within _ALIGNMENT_TOLERANCE at either edge).
     Always returns a (possibly empty) dict, never None -- an empty dict
     is the single, uniform "nothing to align against" case, covering
     every one of: no previous_plan given, either grid lacking a real
@@ -516,22 +517,45 @@ def _align_previous_periods(
     treats an empty dict identically to "this mechanism is off" -- no
     separate None-handling needed anywhere else in this file.
 
-    nimbus issue #356 (Mark Purcell), item 4: this used to be a plain
-    nested loop -- for every new period, rescan `old_starts` from its
-    own index 0 looking for the first match. O(n*m) real datetime
-    comparisons per solve (~133k at this project's own documented
-    production scale, a ~365-period 96h tiered grid re-solving against
-    a same-shaped previous plan every cycle). Fixed to a two-pointer
-    merge instead: both `new_starts` and `old_starts` are guaranteed
-    monotonically increasing (PeriodGrid rejects any non-positive
-    period duration, and `period_starts` is a running cumulative sum),
-    so the OLD index that could match a LATER new period can never be
-    earlier than the old index that matched an earlier new period --
-    `old_idx` only ever needs to move forward, never reset per new
-    period. This is the standard sorted-merge technique, O(n+m) total
-    instead of O(n*m), and returns the exact same mapping as the old
-    nested loop (same "first old index the tolerance window reaches"
-    semantics, just found without rescanning from zero every time).
+    nimbus issue #635 (Mark Purcell, real repro captured from two
+    consecutive live plans): this used to require the new period's own
+    start to match an old period's start EXACTLY (within tolerance) --
+    correct whenever both grids share the same period width, but a
+    mid-slot solve (triggered by a second price source updating ~1
+    minute after the phase-locked cron -- see #633) builds tier-0
+    1-minute periods (e.g. 17:26, 17:27, 17:28, 17:29) that don't start
+    at any boundary the previous, cron-triggered plan's own 5-minute
+    grid (17:25, 17:30, ...) ever used. Those periods got NO alignment
+    entry at all -- proximal regularization (the mechanism that tethers
+    a new solve to what the previous one committed to) was silently OFF
+    for exactly them, and with the evening's near-zero economic
+    difference between exporting a little or a lot, the LP was free to
+    park an arbitrary vertex at the hard power limit for that one
+    isolated minute, which publish_plan() then published as the live
+    setpoint. Real captured evidence: four such untethered 1-minute
+    periods read 25.0 kW (the fleet's own export limit) while the
+    previous plan's overlapping 5-minute period had called for 17.9 kW.
+
+    Fix: a new period aligns to whichever old period's own real time
+    interval it falls inside, not just an old period starting at the
+    exact same instant -- a 1-minute period at 17:26 now correctly
+    tethers to the old plan's 17:25-17:30 period's own value, the same
+    stabilizing pressure every boundary-aligned period already gets.
+    When both grids share the same period width (the common case, no
+    mid-slot solve involved), interval-containment and exact-start-match
+    are the same test by construction (every period start is itself an
+    interval boundary) -- this is a strict generalization, not a
+    behavior change, for that case.
+
+    nimbus issue #356 (Mark Purcell), item 4: this is still the same
+    O(n+m) two-pointer merge introduced then, not a regression back to
+    the original O(n*m) nested loop -- both `new_starts` and `old_starts`
+    are guaranteed monotonically increasing (PeriodGrid rejects any
+    non-positive period duration, and `period_starts` is a running
+    cumulative sum), so the OLD index whose interval could contain a
+    LATER new period can never be earlier than the old index that
+    contained an earlier new period -- `old_idx` only ever advances past
+    an old period once its own END has passed the new period's start.
     """
     if previous_plan is None or not previous_plan.is_optimal:
         return {}
@@ -539,15 +563,22 @@ def _align_previous_periods(
     old_starts = previous_plan.periods.period_starts
     if new_starts is None or old_starts is None:
         return {}
+    old_hours = previous_plan.periods.hours
     mapping: dict[int, int] = {}
     old_idx = 0
     n_old = len(old_starts)
+
+    def _old_end(idx: int) -> datetime:
+        return old_starts[idx] + timedelta(hours=float(old_hours[idx]))
+
     for new_idx, new_t in enumerate(new_starts):
-        while (
-            old_idx < n_old - 1 and old_starts[old_idx] < new_t - _ALIGNMENT_TOLERANCE
-        ):
+        while old_idx < n_old - 1 and _old_end(old_idx) <= new_t + _ALIGNMENT_TOLERANCE:
             old_idx += 1
-        if abs(new_t - old_starts[old_idx]) <= _ALIGNMENT_TOLERANCE:
+        if (
+            old_starts[old_idx] - _ALIGNMENT_TOLERANCE
+            <= new_t
+            < _old_end(old_idx) + _ALIGNMENT_TOLERANCE
+        ):
             mapping[new_idx] = old_idx
     return mapping
 

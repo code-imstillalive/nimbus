@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.209] — 2026-09-09
+
+### Fixed
+- **`sensor.nimbus_solver_battery_forecast` spiked to the fleet's own hard power limit (25/30 kW) on every mid-slot solve, for real, under live dispatch, not just cosmetically** (nimbus issue #635, Mark Purcell — real repro reconstructed from two consecutive captured plans: a cron-triggered plan's own 5-minute period at 17:25 read 17.9 kW, but a mid-slot solve a minute later — triggered by a second price source, see #633 — published 25.0 kW for its own tier-0 1-minute periods 17:26-17:29, dropping back to 17.4 kW the moment the next boundary-aligned solve ran). Root cause: `_align_previous_periods()` required a new period's own start time to match an old period's start EXACTLY (within a 1-second tolerance) — correct whenever both grids share the same period width, but a mid-slot solve's own tier-0 1-minute periods don't start at any boundary the previous 5-minute-gridded plan ever used, so they got NO alignment entry at all. Proximal regularization (the mechanism that tethers a new solve to what the previous one committed to) was silently off for exactly those periods, and with the evening's near-zero economic difference between exporting a little or a lot, the LP parked an arbitrary vertex — the hard power limit — there instead.
+
+  `_align_previous_periods()` now aligns a new period to whichever old period's own real time interval it falls **inside**, not just one starting at the exact same instant — a 1-minute period at 17:26 now correctly tethers to the previous plan's 17:25-17:30 period. When both grids share the same period width (the common case), interval-containment and exact-start-match are the same test by construction — this is a strict generalization, not a behavior change, for that case. LP-level proof: the exact reconstructed scenario, with a genuine (if tiny) economic pull toward the power limit, now stays tethered near the previous plan's own value when aligned, and is shown reaching the limit only when there is truly nothing to tether against at all (no previous plan) — confirming the fix changes real dispatch behavior, not just the alignment bookkeeping. 6 new tests plus every existing alignment test (including the original O(n·m)-vs-two-pointer performance-refactor guard from #356) re-verified against the new, intentionally-changed semantics.
+
 ## [0.94.208] — 2026-09-09
 
 ### Fixed
