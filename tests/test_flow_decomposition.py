@@ -32,7 +32,12 @@ def _assert_invariants(
     tol = 1e-9
     assert (
         abs(
-            (flow["pv_to_load"] + flow["pv_to_battery"] + flow["pv_to_grid"])
+            (
+                flow["pv_to_load"]
+                + flow["pv_to_battery"]
+                + flow["pv_to_grid"]
+                + flow["pv_to_curtailment"]
+            )
             - solar_kw_i
         )
         < tol
@@ -69,6 +74,7 @@ def test_charging_entirely_from_solar_surplus():
     assert flow["pv_to_load"] == 2.0
     assert flow["pv_to_grid"] == 3.0
     assert flow["battery_to_losses"] == 0.0
+    assert flow["pv_to_curtailment"] == 0.0
 
 
 def test_charging_split_between_solar_surplus_and_grid_topup():
@@ -169,6 +175,56 @@ def test_grid_export_partially_covers_the_residual():
     assert flow["battery_to_load"] == 5.0
     assert flow["battery_to_grid"] == 3.0
     assert flow["battery_to_losses"] == 2.0
+
+
+def test_pv_export_cap_sends_the_uncapped_residual_to_curtailment_not_grid():
+    """nimbus issue #641 (Mark Purcell, live verification of #629's own
+    fix): the identical bug one level up. Mark's own real 08:00 data
+    point: solar 2.761, load 2.428, battery discharging 0.428 (all of
+    which serves nothing -- load is already covered by solar alone), but
+    the LP's own real grid_export for that period is genuinely 0.0. The
+    old, pre-#641 code always attributed the PV surplus straight to
+    pv_to_grid; the fix caps it at the real export (already fully
+    claimed by nothing here, since battery_to_grid is also 0.0 -- see
+    the next test for the priority-order case) and moves the rest to
+    pv_to_curtailment.
+    """
+    flow = _flow_decomposition(2.761, 2.428, 0.0, 0.428, grid_export_kw_i=0.0)
+    _assert_invariants(flow, 2.761, 2.428, 0.0, 0.428)
+    assert flow["pv_to_grid"] == 0.0, (
+        "grid_export_kw is genuinely 0.0 -- must not show a phantom export"
+    )
+    assert abs(flow["pv_to_curtailment"] - 0.333) < 1e-6
+    # The battery's own residual has nowhere to go either in this period
+    # (no real export at all) -- must land as a loss, not export.
+    assert flow["battery_to_grid"] == 0.0
+    assert abs(flow["battery_to_losses"] - 0.428) < 1e-6
+
+
+def test_pv_and_battery_export_shares_still_sum_to_the_real_export_when_both_compete():
+    """When both the battery's own residual AND PV's own surplus
+    together exceed a real but limited grid_export_kw_i, the two capped
+    shares must still sum to EXACTLY the real export -- never more (a
+    phantom double-export) and never less (unclaimed export nobody
+    accounts for). battery_to_grid is computed first against PV's own
+    RAW (uncapped) residual -- unchanged #629 behavior, confirmed
+    correct by Mark's own live verification -- which in this shape means
+    PV's own residual is effectively reserved first: battery only ever
+    gets the real export left over after PV's full raw ask, then PV
+    itself is capped at the real export left over after THAT battery
+    share. Both steps net out to the same total regardless of which
+    side's own formula appears to net out first.
+    """
+    # PV residual 4.0, battery residual 7.0, only 6.0 kW of real export
+    # this period (4.0 + 7.0 = 11.0 combined, well past 6.0 -- the two
+    # genuinely compete).
+    flow = _flow_decomposition(6.0, 2.0, 0.0, 7.0, grid_export_kw_i=6.0)
+    _assert_invariants(flow, 6.0, 2.0, 0.0, 7.0)
+    assert flow["pv_to_grid"] == 4.0
+    assert flow["pv_to_curtailment"] == 0.0
+    assert flow["battery_to_grid"] == 2.0
+    assert flow["battery_to_losses"] == 5.0
+    assert flow["pv_to_grid"] + flow["battery_to_grid"] == 6.0
 
 
 def test_zero_everywhere_is_all_zero_flows():
@@ -372,6 +428,7 @@ def test_forecast_periods_carry_the_new_fields_shape():
         "grid_to_load",
         "grid_to_battery",
         "battery_to_losses",
+        "pv_to_curtailment",
     }
     econ = _compute_flow_economics(
         [flow],

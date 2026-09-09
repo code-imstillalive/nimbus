@@ -64,7 +64,16 @@ def test_flow_01_pv_flows_sum_to_solar_kw(forecast):
             discharge_kw,
             grid_export_kw_i=row["grid_export_kw"],
         )
-        total = flow["pv_to_load"] + flow["pv_to_battery"] + flow["pv_to_grid"]
+        # nimbus issue #641: pv_to_curtailment joins the other three --
+        # solar_kw_i, by construction, always equals all four combined
+        # now (real PV surplus the plan neither stores, exports, nor
+        # consumes).
+        total = (
+            flow["pv_to_load"]
+            + flow["pv_to_battery"]
+            + flow["pv_to_grid"]
+            + flow["pv_to_curtailment"]
+        )
         assert abs(total - row["solar_kw"]) < 1e-6, (
             f"at t={row['time']}: pv flows sum to {total}, solar_kw={row['solar_kw']}"
         )
