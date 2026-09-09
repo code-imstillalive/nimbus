@@ -397,7 +397,19 @@ class GridSignals:
     are already computed on every optimal solve) -- gated on
     `ranging_valid` anyway for one uniform, simple contract across this
     whole dataclass (nimbus issue #491's own acceptance criterion:
-    "All signals None... when ranging_valid is false").
+    "All signals None... when ranging_valid is false"). This IS nimbus
+    issue #493's own "shadow_envelope_import_price"/"export" (Signals
+    4/7 of #489) once `grid.import_limit_kw`/`export_limit_kw` is a
+    real per-period array -- the identical reduced-cost-on-the-bound
+    formula #493 itself specifies, already delivered by this field with
+    no new computation needed; #493 doesn't get its own separate
+    shadow-price field. Sign convention verified directly the same way
+    as the plain-scalar-limit case: NEGATIVE when relaxing that period's
+    own envelope would be a net benefit (e.g. real curtailed solar
+    surplus behind a tight export cap), not positive as an isolated
+    reading of #493's own informal note might suggest -- see this
+    file's own #491 commit history for the full sign-convention
+    reasoning, which applies identically here.
 
     `flex_available_up_kw`/`down`: the household-level number an
     aggregator could actually call on -- today simply the plan-
@@ -1048,6 +1060,21 @@ def build_plan(
     n = periods.n_periods
     hours = periods.hours
 
+    # nimbus issue #493 (Signals 4/7 of #489): grid.import_limit_kw/
+    # export_limit_kw may now be a plain scalar (every existing caller)
+    # or a real per-period array (a DNSP's own dynamic operating
+    # envelope) -- resolved to a real per-period array exactly once
+    # here, same np.broadcast_to() convention BatteryConfig's own
+    # charge_cost/discharge_cost array-or-scalar fields already use.
+    # Every call site below indexes this array by t instead of reading
+    # grid.import_limit_kw/export_limit_kw directly.
+    import_limit_arr = np.broadcast_to(
+        np.asarray(grid.import_limit_kw, dtype=np.float64), (n,)
+    )
+    export_limit_arr = np.broadcast_to(
+        np.asarray(grid.export_limit_kw, dtype=np.float64), (n,)
+    )
+
     # nimbus issue #467: at least one battery is required -- an empty
     # list has no real meaning for this LP (every wash-trade/power-
     # balance construction below assumes a real dispatchable participant
@@ -1248,7 +1275,7 @@ def build_plan(
             p.set_cost(underfill_vars[b.name][t], soft_soc_penalty_per_kwh)
             p.set_cost(overfill_vars[b.name][t], soft_soc_penalty_per_kwh)
     grid_import = [
-        p.add_variable(f"grid_import_{t}", lb=0.0, ub=grid.import_limit_kw)
+        p.add_variable(f"grid_import_{t}", lb=0.0, ub=float(import_limit_arr[t]))
         for t in range(n)
     ]
     # nimbus issue #390 (Mark Purcell): grid_import[t]'s hard ub above has no
@@ -1287,7 +1314,7 @@ def build_plan(
     grid_export = []
     for t in range(n):
         export_lb, export_ub = p2p_export.grid_export_bounds(
-            t, grid, grid.export_limit_kw
+            t, grid, float(export_limit_arr[t])
         )
         grid_export.append(
             p.add_variable(f"grid_export_{t}", lb=export_lb, ub=export_ub)
@@ -1303,7 +1330,7 @@ def build_plan(
     export_bonus = (
         [
             p2p_export.add_export_bonus_variable(
-                p, f"export_bonus_{t}", grid.export_limit_kw
+                p, f"export_bonus_{t}", float(export_limit_arr[t])
             )
             for t in range(n)
         ]
@@ -2083,7 +2110,7 @@ def build_plan(
         # single real net direction.
         p.add_ub_constraint(
             {grid_import[t]: 1.0, grid_export[t]: 1.0},
-            max(grid.import_limit_kw, grid.export_limit_kw),
+            max(float(import_limit_arr[t]), float(export_limit_arr[t])),
         )
 
     # ---- SoC-dependent power curves (see BatteryConfig's own

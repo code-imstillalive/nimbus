@@ -148,8 +148,17 @@ class GridConfig:
 
     import_price: NDArray[np.float64]
     export_price: NDArray[np.float64]
-    import_limit_kw: float
-    export_limit_kw: float
+    # nimbus issue #493 (Signals 4/7 of #489): array-or-scalar, same
+    # convention charge_cost/discharge_cost already use -- a DNSP's own
+    # dynamic operating envelope (CSIP-AUS/DOE, SA Power Networks/Energex
+    # flexible exports) changes through the day and needs a real per-
+    # period bound, not one flat number for the whole horizon. A plain
+    # float (every existing caller, every test predating this) is
+    # completely unchanged -- network.py resolves either shape to a real
+    # per-period array once, at the top of build_plan(), so nothing
+    # downstream needs to know which shape a given caller passed.
+    import_limit_kw: float | NDArray[np.float64]
+    export_limit_kw: float | NDArray[np.float64]
     # min_export_kwh (2026-08-17, direct response to real regret/EPR
     # analysis needing it -- see network.py's own docstring, "MINIMUM
     # TOTAL EXPORT COMMITMENT"): a real household running a P2P-style
@@ -291,8 +300,22 @@ class GridConfig:
     export_price_lower: NDArray[np.float64] | None = None
 
     def __post_init__(self) -> None:
-        if self.import_limit_kw < 0 or self.export_limit_kw < 0:
+        # nimbus issue #493: both may now be a per-period array -- check
+        # every element rather than assuming a scalar comparison works.
+        if np.any(np.asarray(self.import_limit_kw) < 0) or np.any(
+            np.asarray(self.export_limit_kw) < 0
+        ):
             msg = "Grid import/export limits must be >= 0"
+            raise ValueError(msg)
+        if not np.isscalar(self.import_limit_kw) and len(
+            np.asarray(self.import_limit_kw)
+        ) != len(self.import_price):
+            msg = "import_limit_kw, when given as an array, must have the same length as import_price"
+            raise ValueError(msg)
+        if not np.isscalar(self.export_limit_kw) and len(
+            np.asarray(self.export_limit_kw)
+        ) != len(self.export_price):
+            msg = "export_limit_kw, when given as an array, must have the same length as export_price"
             raise ValueError(msg)
         if self.min_export_kwh is not None and self.min_export_kwh < 0:
             msg = "min_export_kwh must be >= 0 when given"
@@ -315,9 +338,17 @@ class GridConfig:
             if len(self.fixed_export_kw) != len(self.export_price):
                 msg = "fixed_export_kw must have the same length as export_price"
                 raise ValueError(msg)
-            finite = self.fixed_export_kw[~np.isnan(self.fixed_export_kw)]
+            finite_mask = ~np.isnan(self.fixed_export_kw)
+            finite = self.fixed_export_kw[finite_mask]
+            # nimbus issue #493: export_limit_kw may now be per-period --
+            # broadcast to compare each fixed_export_kw entry against
+            # THAT SAME period's own real limit, not one shared scalar.
+            export_limit_arr = np.broadcast_to(
+                np.asarray(self.export_limit_kw, dtype=np.float64),
+                (len(self.export_price),),
+            )
             if finite.size and (
-                finite.min() < 0 or finite.max() > self.export_limit_kw
+                finite.min() < 0 or np.any(finite > export_limit_arr[finite_mask])
             ):
                 msg = "fixed_export_kw's non-NaN entries must be within [0, export_limit_kw]"
                 raise ValueError(msg)
