@@ -609,6 +609,7 @@ def derive_schedule_view(
     on_threshold_kw: float = DEFAULT_ON_THRESHOLD_KW,
     max_activations_per_day: int | None = None,
     tank_current_temperature: float | None = None,
+    done_condition_met: bool | None = None,
 ) -> ScheduleView:
     """nimbus issue #590: the seven-entity device-page view, computed
     entirely from what #479/#484/#581 already persist -- no new solver
@@ -624,6 +625,20 @@ def derive_schedule_view(
     own done condition, see that function's own docstring) -- this
     function never touches hass.states itself, keeping it HA-import-free
     like the rest of this module.
+
+    `done_condition_met` (nimbus issue #639, Mark Purcell live
+    verification): likewise the caller's own job (via
+    done_condition.is_tank_done(), the same "never touch hass.states
+    here" reasoning) -- whether the load's own configured done_when
+    condition is genuinely true right now, as opposed to merely having
+    reached its energy target for the day. Mark's real report: a load
+    released on its kWh target showed `"done (tank 52 °C)"` directly
+    beside a device-page "done at 60 °C" line, with 52 below 60 -- the
+    tank was never actually done, only the target was. None (the
+    default, and what every pre-#639 caller still passes) is treated the
+    same as False below: without a genuine done_when reading to check
+    against, the energy-target-met case can never honestly claim the
+    tank itself is done.
     """
     forecast = state.plan_forecast or []
     run = _find_current_or_next_run(forecast, now=now, on_threshold_kw=on_threshold_kw)
@@ -722,11 +737,26 @@ def derive_schedule_view(
         and target_today_kwh > 0.0
         and state.delivered_today_kwh >= target_today_kwh - _TARGET_REACHED_EPSILON_KWH
     ):
-        status = (
-            f"done (tank {tank_current_temperature:.0f} °C)"
-            if tank_current_temperature is not None
-            else "done"
-        )
+        # nimbus issue #639: "done (tank X °C)" is only honest when the
+        # tank's own done_when condition genuinely fired
+        # (done_condition_met is True) -- this whole branch is otherwise
+        # reached purely because today's kWh target was met, which can
+        # happen well before (or well after) the tank itself reaches its
+        # configured done_when threshold. Scoped to exactly the tank-
+        # reading case Mark's report showed a real contradiction in; a
+        # load with no tank reading at all (no done_entity, or a
+        # non-water_heater/climate one) has no "done at X °C" line to
+        # contradict, so its wording is unchanged.
+        if tank_current_temperature is None:
+            status = "done"
+        elif done_condition_met:
+            status = f"done (tank {tank_current_temperature:.0f} °C)"
+        else:
+            status = (
+                f"target met ({state.delivered_today_kwh:.1f} of "
+                f"{target_today_kwh:.1f} kWh, tank "
+                f"{tank_current_temperature:.0f} °C)"
+            )
     elif load_kind == _LOAD_KIND_SHEDDABLE and forecast and state.plan_nominal_kw:
         times_all = [datetime.fromisoformat(e["time"]) for e in forecast]
         values_all = [float(e["value"]) for e in forecast]

@@ -153,9 +153,13 @@ def test_schedule_sensors_read_the_derived_view():
 
 
 def test_status_sensor_reads_a_real_tank_temperature_on_done():
+    # nimbus issue #639: the tank must have genuinely reached its own
+    # setpoint (the "temperature" attribute here, done_when unset) for
+    # "done" wording -- not merely have reached today's kWh target.
     hass = MagicMock()
     hass.states.get.return_value = SimpleNamespace(
-        state="eco", attributes={"current_temperature": 60.3}
+        state="eco",
+        attributes={"current_temperature": 60.3, "temperature": 60.0},
     )
     entry = _fake_entry("entry_done")
     subentry = _fake_subentry(
@@ -181,6 +185,79 @@ def test_status_sensor_reads_a_real_tank_temperature_on_done():
     s = sensor.NimbusControllableLoadStatusSensor(hass, entry, subentry, "1.0.0")
     asyncio.run(s.async_update())
     assert s.native_value == "done (tank 60 °C)"
+
+
+def test_status_sensor_says_target_met_not_done_when_tank_is_below_its_own_line():
+    # nimbus issue #639 (Mark Purcell, live verification): the real bug
+    # -- a load released on its kWh target showed "done (tank 52 °C)"
+    # right beside a device-page "done at 60 °C" line. No "temperature"
+    # setpoint attribute and no done_when configured here means the
+    # sensor genuinely can't tell whether the tank's own done condition
+    # fired, so it must not claim "done".
+    hass = MagicMock()
+    hass.states.get.return_value = SimpleNamespace(
+        state="eco", attributes={"current_temperature": 52.0}
+    )
+    entry = _fake_entry("entry_target_met")
+    subentry = _fake_subentry(
+        "s3b",
+        "Hot Water Heat Pump",
+        {
+            "controllable_load_kind": "deferrable",
+            "deferrable_done_entity": "water_heater.hws_l1",
+        },
+    )
+    _write_state(
+        hass,
+        "entry_target_met",
+        "s3b",
+        load_run_state.LoadRunState(
+            plan_forecast=[],
+            plan_target_kwh=2.0,
+            commanded_state=False,
+            delivered_today_kwh=3.54,
+            day_key="2026-09-09",
+        ),
+    )
+    s = sensor.NimbusControllableLoadStatusSensor(hass, entry, subentry, "1.0.0")
+    asyncio.run(s.async_update())
+    assert s.native_value == "target met (3.5 of 2.0 kWh, tank 52 °C)"
+
+
+def test_status_sensor_uses_an_explicit_done_when_over_the_setpoint_fallback():
+    # A configured done_when (">= 60") is evaluated directly against the
+    # live tank reading, same as solver_writer.py's own
+    # _evaluate_done_condition() -- the setpoint ("temperature")
+    # attribute is only ever a fallback for an unset done_when.
+    hass = MagicMock()
+    hass.states.get.return_value = SimpleNamespace(
+        state="eco", attributes={"current_temperature": 61.0}
+    )
+    entry = _fake_entry("entry_done_when")
+    subentry = _fake_subentry(
+        "s3c",
+        "Hot Water Heat Pump",
+        {
+            "controllable_load_kind": "deferrable",
+            "deferrable_done_entity": "water_heater.hws_l1",
+            "deferrable_done_when": ">= 60",
+        },
+    )
+    _write_state(
+        hass,
+        "entry_done_when",
+        "s3c",
+        load_run_state.LoadRunState(
+            plan_forecast=[],
+            plan_target_kwh=2.0,
+            commanded_state=False,
+            delivered_today_kwh=2.0,
+            day_key="2026-09-09",
+        ),
+    )
+    s = sensor.NimbusControllableLoadStatusSensor(hass, entry, subentry, "1.0.0")
+    asyncio.run(s.async_update())
+    assert s.native_value == "done (tank 61 °C)"
 
 
 def test_never_configured_load_reads_a_safe_default_view():

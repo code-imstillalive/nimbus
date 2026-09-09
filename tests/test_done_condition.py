@@ -82,5 +82,68 @@ class TestReadCurrentTemperature(unittest.TestCase):
         self.assertIsNone(dc.read_current_temperature(hass, "water_heater.hws_l1"))
 
 
+class TestParseDoneWhen(unittest.TestCase):
+    """nimbus issue #639: parse_done_when() moved here (unchanged) from
+    solver_writer.py's own module-private _parse_done_when -- same
+    behaviour, new home."""
+
+    def test_ge_operator(self):
+        op_fn, threshold = dc.parse_done_when(">= 60")
+        self.assertTrue(op_fn(60.0, threshold))
+        self.assertFalse(op_fn(59.9, threshold))
+
+    def test_longer_operators_checked_before_single_char(self):
+        # ">= 60" must never be misparsed as "> = 60".
+        op_fn, threshold = dc.parse_done_when(">=60")
+        self.assertEqual(threshold, 60.0)
+        self.assertTrue(op_fn(60.0, threshold))
+
+    def test_lt_operator(self):
+        op_fn, threshold = dc.parse_done_when("< 10")
+        self.assertTrue(op_fn(9.0, threshold))
+        self.assertFalse(op_fn(10.0, threshold))
+
+    def test_malformed_done_when_raises_value_error(self):
+        with self.assertRaises(ValueError):
+            dc.parse_done_when("sixty")
+
+
+class TestIsTankDone(unittest.TestCase):
+    """nimbus issue #639 (Mark Purcell, live verification): whether the
+    tank's own done_when condition is genuinely true right now, as
+    distinct from a deferrable load's energy target merely being met --
+    the exact ambiguity Mark's report caught (status showing "done (tank
+    52 °C)" while the device's own done line reads 60 °C)."""
+
+    def test_below_threshold_is_not_done(self):
+        self.assertFalse(dc.is_tank_done(52.0, ">= 60"))
+
+    def test_at_or_above_threshold_is_done(self):
+        self.assertTrue(dc.is_tank_done(60.0, ">= 60"))
+        self.assertTrue(dc.is_tank_done(61.0, ">= 60"))
+
+    def test_missing_current_temperature_is_unknown(self):
+        self.assertIsNone(dc.is_tank_done(None, ">= 60"))
+
+    def test_malformed_done_when_is_unknown_not_a_crash(self):
+        self.assertIsNone(dc.is_tank_done(52.0, "sixty"))
+
+    def test_unset_done_when_falls_back_to_setpoint(self):
+        self.assertTrue(
+            dc.is_tank_done(60.0, None, setpoint_temperature=60.0)
+        )
+        self.assertFalse(
+            dc.is_tank_done(52.0, None, setpoint_temperature=60.0)
+        )
+
+    def test_unset_done_when_and_no_setpoint_is_unknown(self):
+        self.assertIsNone(dc.is_tank_done(52.0, None))
+
+    def test_non_numeric_setpoint_is_unknown_not_a_crash(self):
+        self.assertIsNone(
+            dc.is_tank_done(52.0, None, setpoint_temperature="unknown")
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

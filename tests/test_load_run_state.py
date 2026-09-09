@@ -1008,7 +1008,10 @@ class TestDeriveScheduleView(unittest.TestCase):
         )
         self.assertEqual(view.status, "done")
 
-    def test_done_status_includes_a_real_tank_reading_when_available(self):
+    def test_done_status_with_a_tank_reading_says_done_when_the_tank_really_is(self):
+        # nimbus issue #639: "done (tank X °C)" is only honest when the
+        # tank's own done_when condition genuinely fired -- pass
+        # done_condition_met=True for that case.
         state = lrs.LoadRunState(
             plan_forecast=_series(self.times, [0.0] * 6),
             plan_target_kwh=2.0,
@@ -1022,8 +1025,69 @@ class TestDeriveScheduleView(unittest.TestCase):
             load_kind="deferrable",
             now=self.times[0],
             tank_current_temperature=60.3,
+            done_condition_met=True,
         )
         self.assertEqual(view.status, "done (tank 60 °C)")
+
+    def test_target_met_but_tank_not_done_says_target_met_not_done(self):
+        # nimbus issue #639 (Mark Purcell, live verification): the real
+        # bug -- a load released on its kWh target showed "done (tank
+        # 52 °C)" right beside a device-page "done at 60 °C" line. The
+        # tank (52) was never actually done; only the 2.0 kWh target
+        # was. done_condition_met defaults to None (not yet known /
+        # genuinely false), which must NOT produce "done" wording.
+        state = lrs.LoadRunState(
+            plan_forecast=_series(self.times, [0.0] * 6),
+            plan_target_kwh=2.0,
+            plan_shortfall_kwh=None,
+            commanded_state=False,
+            delivered_today_kwh=3.54,
+            day_key="2026-09-09",
+        )
+        view = lrs.derive_schedule_view(
+            state,
+            load_kind="deferrable",
+            now=self.times[0],
+            tank_current_temperature=52.0,
+        )
+        self.assertEqual(view.status, "target met (3.5 of 2.0 kWh, tank 52 °C)")
+
+    def test_no_tank_reading_at_all_keeps_the_plain_done_wording(self):
+        # Scoped fix: #639's ambiguity only exists when there's a tank
+        # reading to contradict. A load with no done_entity (or a
+        # non-water_heater/climate one) has nothing to contradict, so
+        # "done" is still the honest word here -- unchanged from before
+        # #639.
+        state = lrs.LoadRunState(
+            plan_forecast=_series(self.times, [0.0] * 6),
+            plan_target_kwh=2.0,
+            plan_shortfall_kwh=None,
+            commanded_state=False,
+            delivered_today_kwh=2.0,
+            day_key="2026-09-09",
+        )
+        view = lrs.derive_schedule_view(
+            state, load_kind="deferrable", now=self.times[0]
+        )
+        self.assertEqual(view.status, "done")
+
+    def test_done_condition_met_false_also_says_target_met_not_done(self):
+        state = lrs.LoadRunState(
+            plan_forecast=_series(self.times, [0.0] * 6),
+            plan_target_kwh=2.0,
+            plan_shortfall_kwh=None,
+            commanded_state=False,
+            delivered_today_kwh=2.0,
+            day_key="2026-09-09",
+        )
+        view = lrs.derive_schedule_view(
+            state,
+            load_kind="deferrable",
+            now=self.times[0],
+            tank_current_temperature=52.0,
+            done_condition_met=False,
+        )
+        self.assertEqual(view.status, "target met (2.0 of 2.0 kWh, tank 52 °C)")
 
     def test_sheddable_load_has_no_target_today(self):
         state = lrs.LoadRunState(
