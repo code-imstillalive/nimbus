@@ -167,8 +167,8 @@ def evaluate_realized_cost(
     discharge_cost: float | NDArray[np.float64],
     final_soc_kwh: float,
     salvage_value: float,
-    grid_import_limit_kw: float,
-    grid_export_limit_kw: float,
+    grid_import_limit_kw: float | NDArray[np.float64],
+    grid_export_limit_kw: float | NDArray[np.float64],
     terminal_value_breakpoints: list[tuple[float, float]] | None = None,
     battery_min_soc_kwh: float | None = None,
     degradation_cost_per_kwh: float = 0.0,
@@ -194,6 +194,10 @@ def evaluate_realized_cost(
     reported via the returned arrays exceeding the nominal limit, not
     silently clipped -- an honest reflection of what a bad enough
     forecast error would actually do to a real household meter.
+    `float | NDArray` (nimbus issue #493) purely to type-match
+    `GridConfig.import_limit_kw`/`export_limit_kw`'s own now-array-or-
+    scalar shape at every real call site -- unused otherwise, per the
+    "not silently clipped" note just above.
 
     terminal_value_breakpoints/battery_min_soc_kwh (2026-08-29, real fix
     for a genuinely invalid EPR found live -- a night where an incident

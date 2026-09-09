@@ -256,6 +256,16 @@ def build_stochastic_plan(
     discharge_cost_arr = np.broadcast_to(
         np.asarray(battery.discharge_cost, dtype=np.float64), (n,)
     )
+    # nimbus issue #493: grid.import_limit_kw/export_limit_kw may now be
+    # a per-period array (same array-or-scalar convention as charge_cost/
+    # discharge_cost just above) -- resolved once here, same as
+    # network.py's own build_plan() does.
+    import_limit_arr = np.broadcast_to(
+        np.asarray(grid.import_limit_kw, dtype=np.float64), (n,)
+    )
+    export_limit_arr = np.broadcast_to(
+        np.asarray(grid.export_limit_kw, dtype=np.float64), (n,)
+    )
 
     def _add_period_vars_and_constraints(
         suffix: str,
@@ -359,14 +369,16 @@ def build_stochastic_plan(
         }
         grid_import = {
             t: p.add_variable(
-                f"grid_import{suffix}_{t}", lb=0.0, ub=grid.import_limit_kw
+                f"grid_import{suffix}_{t}", lb=0.0, ub=float(import_limit_arr[t])
             )
             for t in t_range
         }
         grid_export = {
             t: p.add_variable(f"grid_export{suffix}_{t}", lb=lb, ub=ub)
             for t in t_range
-            for lb, ub in [p2p_export.grid_export_bounds(t, grid, grid.export_limit_kw)]
+            for lb, ub in [
+                p2p_export.grid_export_bounds(t, grid, float(export_limit_arr[t]))
+            ]
         }
         solar_used = {
             t: p.add_variable(
@@ -384,7 +396,7 @@ def build_stochastic_plan(
         export_bonus = (
             {
                 t: p2p_export.add_export_bonus_variable(
-                    p, f"export_bonus{suffix}_{t}", grid.export_limit_kw
+                    p, f"export_bonus{suffix}_{t}", float(export_limit_arr[t])
                 )
                 for t in t_range
             }
@@ -536,7 +548,7 @@ def build_stochastic_plan(
             )
             p.add_ub_constraint(
                 {grid_import[t]: 1.0, grid_export[t]: 1.0},
-                max(grid.import_limit_kw, grid.export_limit_kw),
+                max(float(import_limit_arr[t]), float(export_limit_arr[t])),
             )
 
         # Two-tier export bonus cumulative cap + tie-breaker (see

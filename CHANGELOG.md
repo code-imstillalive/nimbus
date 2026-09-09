@@ -6,6 +6,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.218] — 2026-09-09
+
+### Added
+- **`GridConfig.import_limit_kw`/`export_limit_kw` accept a real per-period array, not only a scalar** (nimbus issue #493, Signals 4/7 of #489, partial — see below). Same array-or-scalar convention `BatteryConfig.charge_cost`/`discharge_cost` already use. Lets the LP bound import/export against a genuinely time-varying grid connection limit — a DNSP's own dynamic operating envelope (CSIP-AUS/DOE, SA Power Networks/Energex flexible exports) that changes through the day, not one flat number for the whole horizon. Every existing caller (a plain float) is completely unchanged.
+
+  Verified directly against #493's own acceptance scenario: a 5 kW export envelope for two midday periods on an otherwise-sunny day correctly caps `grid_export_kw` at 5 in exactly those periods, forces real solar curtailment there, and leaves every other period governed by its own (here, wider) limit. `#491`'s own `grid_export_headroom_kw`/`forced_export_cost` fields (already shipped) automatically pick up the real per-period envelope too — no new "shadow envelope price" field needed, it's the identical formula #493 itself specifies.
+
+  **Deliberately not included**: the `solver_envelope_import_limit_entity`/`export_limit_entity` config surface (a new optional wizard field fetching a live DNSP envelope sensor and resampling it onto the tiered grid) and the symmetric `grid_export_excess` slack for a fixed-export-commitment/envelope conflict. Both are real, separate follow-up work — left open on #493 with a comment explaining why the export-excess piece specifically needs more careful design than a plain mirror of #390's own import-excess mechanism (the two aren't quite symmetric once `fixed_export_kw`'s own pinning is in the picture).
+
 ## [0.94.217] — 2026-09-09
 
 ### Added
