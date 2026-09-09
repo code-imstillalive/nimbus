@@ -2076,6 +2076,43 @@ def build_plan(
                 p, var_names, family, n, hours, smoothness_weight
             )
 
+    # nimbus issue #478 (carry-over continuity, real risk flagged during
+    # #616's own verification): #616's semi-continuous/single-block
+    # constraint makes an adequacy load's own plan choice a hard,
+    # discrete jump between periods rather than a smooth continuous
+    # reallocation -- without an anchor to the previous solve's own
+    # committed placement, a late price-forecast swing could relocate a
+    # half-delivered block instead of continuing it (verified directly:
+    # network.py had no continuity mechanism for adequacy_vars at all,
+    # only grid_import/export and battery charge/discharge above). Same
+    # proximal-penalty mechanism, matched by NAME against the previous
+    # solve's own Plan.adequacy_loads -- same graceful "no prior plan /
+    # new load -> no continuity this solve" fallback every other family
+    # above already gets. This is a SOFT nudge (same materiality-bounded
+    # weight as everything else _add_proximal_penalty backs), not a hard
+    # forcing of the previous on/off state -- #478's own fuller carry-
+    # over spec (on_periods_elapsed/off_periods_elapsed forcing a
+    # currently-running block to continue even against a real, if small,
+    # economic preference elsewhere) remains open, this only fixes the
+    # "arbitrary relocation between economically-tied placements" half.
+    prev_adequacy_by_name: dict[str, AdequacyLoadPlan] = (
+        {alp.name: alp for alp in previous_plan.adequacy_loads}
+        if previous_plan is not None
+        else {}
+    )
+    for al in adequacy_loads:
+        prev_alp = prev_adequacy_by_name.get(al.name)
+        prev_power = prev_alp.power_kw if prev_alp is not None else None
+        _add_proximal_penalty(
+            p,
+            adequacy_vars[al.name],
+            f"adequacy_{al.name}",
+            alignment,
+            prev_power,
+            hours,
+            proximal_weight,
+        )
+
     # ---- SoC dynamics -- each battery's own independent recursion ----
     for b in batteries:
         for t in range(n):

@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.228] — 2026-09-10
+
+### Fixed
+- **Deferrable loads now stay tethered to their previously-committed block across re-solves** (nimbus issue #478, real risk identified and fixed while verifying #616's own semi-continuous/single-block delivery). #616's hard on/off quantization makes a deferrable load's own placement a discrete jump between periods rather than a smooth continuous reallocation — without an anchor to what the previous solve already committed to, a small, real price-forecast update between 5-minute re-solves could relocate a half-delivered block to a different, marginally cheaper set of periods (confirmed directly: `network.py`'s existing cross-solve stability mechanism had never covered deferrable loads at all, only the grid connection and battery dispatch). `build_plan()` now applies the same proximal-penalty continuity mechanism to every `AdequacyLoadConfig`'s own power variable, matched by name against the previous solve's own plan — a real, materially-cheaper alternative still wins (this is a soft tie-break, not a hard lock), but an economically-tied relocation no longer wins by accident.
+
 ## [0.94.227] — 2026-09-10
 
 ### Added
