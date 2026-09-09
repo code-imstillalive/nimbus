@@ -58,7 +58,11 @@ def test_flow_01_pv_flows_sum_to_solar_kw(forecast):
         charge_kw = max(0.0, -row["battery_kw"])
         discharge_kw = max(0.0, row["battery_kw"])
         flow = _flow_decomposition(
-            row["solar_kw"], row["load_kw"], charge_kw, discharge_kw
+            row["solar_kw"],
+            row["load_kw"],
+            charge_kw,
+            discharge_kw,
+            grid_export_kw_i=row["grid_export_kw"],
         )
         total = flow["pv_to_load"] + flow["pv_to_battery"] + flow["pv_to_grid"]
         assert abs(total - row["solar_kw"]) < 1e-6, (
@@ -71,7 +75,11 @@ def test_flow_02_load_flows_sum_to_load_kw(forecast):
         charge_kw = max(0.0, -row["battery_kw"])
         discharge_kw = max(0.0, row["battery_kw"])
         flow = _flow_decomposition(
-            row["solar_kw"], row["load_kw"], charge_kw, discharge_kw
+            row["solar_kw"],
+            row["load_kw"],
+            charge_kw,
+            discharge_kw,
+            grid_export_kw_i=row["grid_export_kw"],
         )
         total = flow["pv_to_load"] + flow["battery_to_load"] + flow["grid_to_load"]
         assert abs(total - row["load_kw"]) < 1e-6, (
@@ -84,7 +92,11 @@ def test_flow_03_battery_charge_flows_sum_to_charge_kw(forecast):
         charge_kw = max(0.0, -row["battery_kw"])
         discharge_kw = max(0.0, row["battery_kw"])
         flow = _flow_decomposition(
-            row["solar_kw"], row["load_kw"], charge_kw, discharge_kw
+            row["solar_kw"],
+            row["load_kw"],
+            charge_kw,
+            discharge_kw,
+            grid_export_kw_i=row["grid_export_kw"],
         )
         total = flow["pv_to_battery"] + flow["grid_to_battery"]
         assert abs(total - charge_kw) < 1e-6, (
@@ -97,9 +109,23 @@ def test_flow_04_battery_discharge_flows_sum_to_discharge_kw(forecast):
         charge_kw = max(0.0, -row["battery_kw"])
         discharge_kw = max(0.0, row["battery_kw"])
         flow = _flow_decomposition(
-            row["solar_kw"], row["load_kw"], charge_kw, discharge_kw
+            row["solar_kw"],
+            row["load_kw"],
+            charge_kw,
+            discharge_kw,
+            grid_export_kw_i=row["grid_export_kw"],
         )
-        total = flow["battery_to_load"] + flow["battery_to_grid"]
+        # nimbus issue #629: battery_to_losses joins battery_to_load/
+        # battery_to_grid in this invariant -- discharge_kw_i, by
+        # construction, always equals all three combined now, not just
+        # the first two (the whole point of #629's own fix is that the
+        # residual can land in a real, separately-labeled loss bucket
+        # instead of always being forced into battery_to_grid).
+        total = (
+            flow["battery_to_load"]
+            + flow["battery_to_grid"]
+            + flow["battery_to_losses"]
+        )
         assert abs(total - discharge_kw) < 1e-6, (
             f"at t={row['time']}: discharge flows sum to {total}, "
             f"discharge_kw={discharge_kw}"
@@ -116,7 +142,11 @@ def test_flow_05_grid_flows_reconcile_with_real_grid_import(forecast, fixture_sk
         charge_kw = max(0.0, -row["battery_kw"])
         discharge_kw = max(0.0, row["battery_kw"])
         flow = _flow_decomposition(
-            row["solar_kw"], row["load_kw"], charge_kw, discharge_kw
+            row["solar_kw"],
+            row["load_kw"],
+            charge_kw,
+            discharge_kw,
+            grid_export_kw_i=row["grid_export_kw"],
         )
         recon = flow["grid_to_load"] + flow["grid_to_battery"]
         real = row["grid_import_kw"]
@@ -138,7 +168,11 @@ def test_flow_06_grid_flows_reconcile_with_real_grid_export(forecast, fixture_sk
         charge_kw = max(0.0, -row["battery_kw"])
         discharge_kw = max(0.0, row["battery_kw"])
         flow = _flow_decomposition(
-            row["solar_kw"], row["load_kw"], charge_kw, discharge_kw
+            row["solar_kw"],
+            row["load_kw"],
+            charge_kw,
+            discharge_kw,
+            grid_export_kw_i=row["grid_export_kw"],
         )
         recon = flow["pv_to_grid"] + flow["battery_to_grid"]
         real = row["grid_export_kw"]

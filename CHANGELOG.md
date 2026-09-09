@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.208] — 2026-09-09
+
+### Fixed
+- **Seven-flow decomposition mislabeled a genuine AC-bus loss (or, on a multi-battery fleet, energy this model can't see moving between participants) as a phantom grid export** (nimbus issue #629, Mark Purcell — real 3-battery-fleet report: `flow_battery_to_grid_kw` read 0.35–0.75 kW in every evening discharge period while `grid_export_kw` was genuinely 0.0 the whole time; `dispatch_source_a_pct` implied 12–30% of the discharge was exported when none was). `battery_to_grid` used to be a pure residual (discharge minus whatever served load) with nowhere else to go. `_flow_decomposition()` now caps it at the LP's own real `grid_export_kw` for that period, with the honest remainder published as a new `flow_battery_to_losses_kw` field — `pv_to_grid + battery_to_grid == grid_export_kw` now holds by construction, not just empirically. `_dispatch_source_breakdown()`'s own "Grid" percentage gets the same cap (opt-in via a new optional `grid_export_kw_i` parameter, defaulting to the exact pre-#629 behavior for any caller not yet passing it) — its two percentages can now legitimately sum to under 100% rather than always forcing the residual into "Grid". `_compute_flow_economics()`'s SoC/WACOG cost-basis tracking updated to also drain the new loss bucket, since it's still real energy that left the battery. Ported to the standalone/cron writer script too. 5 new tests plus the existing full regression suite (every real captured fixture) re-verified against the new behavior.
+
 ## [0.94.206] — 2026-09-09
 
 ### Fixed
