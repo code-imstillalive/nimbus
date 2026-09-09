@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.196] — 2026-09-09
+
+### Added
+- **Quality report now honestly names its own scope on a multi-battery install** (nimbus issue #585, Mark Purcell — real finding on his own three-battery configuration: 8 Sep's 16-22 kW of evening export came from the Model 3 through the shared Sigen DC charger, invisible to the scorer, which then attributed the full export opportunity to the home pack alone as missed value — EPR 35.7% was a real statement about the pack against an oracle that only knows the pack, not a statement about the household's actual decision). New `scored_participants` attribute on the quality report, always `["home"]` today — this scorer has no `battery_participant` awareness yet.
+
+**Not this release**: the full fix #585 actually asks for — integrating each battery participant's own power sensor into its own SoC, running the oracle with `batteries=[home, *participants]` and the same shared-charger/availability constraints `build_plan()` itself uses, and disambiguating a shared charger sensor between participants via their own availability/charging state — is a substantially larger architectural piece, deliberately not attempted here (matching this project's own established practice for #467/#563/#481). This release ships exactly the honest interim step #585's own issue body explicitly asks for: name the real scope of what was scored, so a reader is never left assuming a pack-only score describes the whole household's real economics.
+
 ## [0.94.195] — 2026-09-09
 
 ### Added

@@ -140,8 +140,15 @@ class TestComputeDailyQualityReportRealScore(unittest.TestCase):
             "tracking_cost",
             "real_p2p_dollars",
             "real_p2p_volume_kwh",
+            "scored_participants",
         ):
             self.assertIn(key, report)
+
+        # nimbus issue #585: this scorer has no battery_participant
+        # awareness yet -- always exactly ["home"] until the real
+        # multi-battery fix lands, never silently implying a broader
+        # scope than what was actually scored.
+        self.assertEqual(report["scored_participants"], ["home"])
 
         # epr_pct is the canonical 0..1 fraction scaled to a real percent
         # (0..100), locked to two decimals. The state channel and the

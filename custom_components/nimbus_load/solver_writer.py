@@ -5100,6 +5100,30 @@ def _compute_report_for_window(
         # the number. Two decimals is enough resolution for a percent
         # (four on the fraction gives the same effective precision).
         "epr_pct": round(report.epr.epr * 100, 2),
+        # nimbus issue #585 (Mark Purcell, real finding on his own three-
+        # battery install: 8 Sep's 16-22 kW of evening export came from
+        # the Model 3 via the shared Sigen DC charger, not the home pack
+        # -- invisible to this scorer, which then attributed the full
+        # export opportunity to the pack alone as missed value. EPR
+        # 35.7% was a real statement about the pack against an oracle
+        # that only knows the pack, not a statement about the
+        # household's actual decision). The full fix -- integrating each
+        # battery_participant's own power sensor into its own SoC, an
+        # oracle run with batteries=[home, *participants] and the same
+        # shared-charger/availability constraints build_plan() itself
+        # uses, and disambiguating a shared charger sensor between
+        # participants via their own availability/charging state -- is a
+        # substantially larger architectural piece, deliberately not
+        # attempted here (this project's own established practice all
+        # session: #467/#563's own staged rollout, #481's still-open
+        # thermal kind). This is the honest interim step #585's own
+        # issue body explicitly asks for: name the real scope of what
+        # was scored, so a reader is never left assuming a pack-only
+        # score describes the whole household's real economics on an
+        # install with more than one battery. Always ["home"] until the
+        # real fix lands -- this scorer has no participant awareness at
+        # all yet, so there is nothing else honest to name here.
+        "scored_participants": ["home"],
         "theoretical_maximum_yield": round(report.epr.theoretical_maximum_yield, 4),
         "value_captured": round(report.epr.value_captured, 4),
         "uplift_available": round(report.epr.uplift_available, 4),
