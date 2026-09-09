@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.202] — 2026-09-09
+
+### Added
+- **Publish the LP's own marginal energy price (λ(t)) for every period** (nimbus issue #613, Mark Purcell — item 1 of a 3-part proposal, deliberately scoped to just this exposure piece: "Nimbus already extracts duals... this is exposure, not new solver work"). New `shadow_price` field on every `sensor.nimbus_solver_battery_forecast` forecast entry, next to `import_price`/`export_price` — the LP's own `power_balance_t{i}` dual for that period, the whole-system marginal cost of a kWh Nimbus already computes but only ever published for period 0 (`energy_shadow_price_now`, unchanged, kept for backward compatibility). Each Controllable Load's own device page now also gets `plan_shadow_price_forecast`, the λ(t) of the periods its plan_forecast covers — real ammunition for the household (and Mark's own IV&V) to see *why* a load landed where it did, e.g. confirming a heat pump was deferred to an 11:00-13:30 "cheapest" block while the whole-system marginal cost near 07:30 was already under 0.2¢/kWh. Ported to the standalone/cron `docs/real-world-integration/` copy too, keeping both in sync. 6 new tests (a real precision bug — `build_time_value_series()`'s own 3dp default would have collapsed two genuinely different sub-cent shadow prices to the same published value — was caught and fixed by these tests before shipping).
+- **Not this release**: items 2 and 3 of #613's own proposal — actually timing a deferrable load's own delivery earlier whenever λ(t) says it's economically free to (a two-pass ε-constraint re-solve, or a single-pass earliness-cost term) and showing the reason on the load's own `status` — are a genuine LP-behavior change, not exposure, and need their own careful design/verification pass (same reasoning #606's own proposals 2/3 were deferred for). `value_per_kwh` (#607) is untouched and still the only lever a household has to influence timing today.
+
 ## [0.94.201] — 2026-09-09
 
 ### Added

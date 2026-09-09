@@ -6830,6 +6830,17 @@ def publish_plan(
             # landed, not just infer it (see nimbus's own network.py
             # Plan.export_bonus_kw docstring).
             "export_bonus_kw": round(float(plan.export_bonus_kw[i]), 3),
+            # nimbus issue #613 (Mark Purcell, item 1 of 3 -- explicitly
+            # scoped to just this exposure piece, NOT the earliness-
+            # timing behavior change items 2/3 describe, which need
+            # their own separate design/verification pass): the whole-
+            # system marginal cost of a kWh in THIS period, per the LP's
+            # own power_balance_t{i} dual -- "already extracts duals...
+            # this is exposure, not new solver work." Same 0.0 default-
+            # on-missing convention energy_shadow_price_now (period 0's
+            # own copy of this same number, kept for backward
+            # compatibility) already uses.
+            "shadow_price": round(plan.duals.get(f"power_balance_t{i}", 0.0), 4),
             "import_price": round(import_price[i], 4),
             # The raw commodity/spot price ALONE, before network TOU +
             # certificates are added on (2026-08-22, direct household
@@ -8289,6 +8300,34 @@ def apply_commanded_state_guard(
             ]
             return load_run_state.build_time_value_series(grid_times[:n], cost_values)
 
+        def _plan_shadow_price_forecast() -> list[dict[str, object]]:
+            # nimbus issue #613 (item 1 of 3 -- exposure only, NOT the
+            # earliness-timing behavior change items 2/3 describe): the
+            # whole-system marginal cost of a kWh for every period this
+            # load's own plan_forecast covers, straight off the LP's own
+            # power_balance_t{i} dual -- "already extracts duals...
+            # this is exposure, not new solver work." `getattr` (not a
+            # direct `plan.duals` read) because `plan` here is
+            # `network.Plan`, whose own dataclass default is `{}`, but
+            # this file's own bare-SimpleNamespace test fakes predate
+            # this field and don't set it -- same defensive posture as
+            # every other optional-attribute read on `plan` in this
+            # function.
+            duals = getattr(plan, "duals", {}) or {}
+            return load_run_state.build_time_value_series(
+                grid_times,
+                [duals.get(f"power_balance_t{i}", 0.0) for i in range(n_periods)],
+                # build_time_value_series()'s own 3dp default would
+                # collapse real, meaningful precision here -- a $/kWh
+                # shadow price this small (Mark's own real numbers:
+                # 0.13c/kWh vs 0.06c/kWh, i.e. 0.0013 vs 0.0006 $/kWh)
+                # needs the same 4dp this file's own energy_shadow_
+                # price_now field already uses, or two genuinely
+                # different marginal costs round to the identical
+                # published value.
+                round_ndigits=4,
+            )
+
         async def _async_fetch_thermal_history(
             done_entity: str, power_sensor: str, start: datetime, end: datetime
         ) -> list[tuple[datetime, float, float]]:
@@ -8455,6 +8494,7 @@ def apply_commanded_state_guard(
                             grid_times, load_plan.served_kw
                         ),
                         plan_cost_forecast=_plan_cost_forecast(load_plan.served_kw),
+                        plan_shadow_price_forecast=_plan_shadow_price_forecast(),
                         plan_nominal_kw=(
                             float(nominal_kw) if nominal_kw is not None else None
                         ),
@@ -8517,6 +8557,7 @@ def apply_commanded_state_guard(
                             grid_times, load_plan.power_kw
                         ),
                         plan_cost_forecast=_plan_cost_forecast(load_plan.power_kw),
+                        plan_shadow_price_forecast=_plan_shadow_price_forecast(),
                         plan_delivered_kwh_forecast=(
                             load_run_state.build_time_value_series(
                                 grid_times, delivered_kwh_cumulative

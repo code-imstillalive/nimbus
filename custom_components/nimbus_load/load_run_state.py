@@ -139,6 +139,14 @@ class LoadRunState:
     # (see apply_power_sample()'s own day-rollover block).
     plan_cost_forecast: list[dict[str, Any]] | None = None
     cost_today: float = 0.0
+    # nimbus issue #613 (Mark Purcell, item 1 of 3 -- exposure only, NOT
+    # the earliness-timing behavior change items 2/3 describe): the
+    # LP's own power_balance_t{i} dual (lambda(t), the whole-system
+    # marginal cost of a kWh) for each period this load's plan_forecast
+    # covers, same {"time", "value"} shape and same per-cycle-refresh
+    # posture as plan_cost_forecast above -- "so a household (and this
+    # IV&V) can see why a load landed where it did."
+    plan_shadow_price_forecast: list[dict[str, Any]] | None = None
     # nimbus issue #592 (Mark Purcell, part of #589 -- "will the tank be
     # at 60 by lunchtime?"): the two rates thermal_forecast.py's own
     # learn_thermal_rates() derives from recorder history, persisted so
@@ -198,6 +206,7 @@ class LoadRunState:
             "plan_deadline_period": self.plan_deadline_period,
             "plan_nominal_kw": self.plan_nominal_kw,
             "plan_cost_forecast": self.plan_cost_forecast,
+            "plan_shadow_price_forecast": self.plan_shadow_price_forecast,
             "cost_today": self.cost_today,
             "thermal_heating_rate_c_per_kwh": self.thermal_heating_rate_c_per_kwh,
             "thermal_idle_decay_c_per_hour": self.thermal_idle_decay_c_per_hour,
@@ -230,6 +239,7 @@ class LoadRunState:
             plan_deadline_period=data.get("plan_deadline_period"),
             plan_nominal_kw=data.get("plan_nominal_kw"),
             plan_cost_forecast=data.get("plan_cost_forecast"),
+            plan_shadow_price_forecast=data.get("plan_shadow_price_forecast"),
             cost_today=float(data.get("cost_today", 0.0)),
             thermal_heating_rate_c_per_kwh=data.get("thermal_heating_rate_c_per_kwh"),
             thermal_idle_decay_c_per_hour=data.get("thermal_idle_decay_c_per_hour"),

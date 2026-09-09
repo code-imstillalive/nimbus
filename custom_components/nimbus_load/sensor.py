@@ -1341,6 +1341,7 @@ class NimbusControllableLoadStateSensor(SensorEntity):
             "plan_earliest_period",
             "plan_deadline_period",
             "plan_nominal_kw",
+            "plan_shadow_price_forecast",
         }
     )
 
