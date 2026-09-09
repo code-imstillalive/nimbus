@@ -69,7 +69,7 @@ class TestBlendDoesNotProtectSettledPeriodZero:
         from unittest.mock import patch
 
         with patch.object(solver_writer, "ha_get", return_value=secondary_forecast):
-            result, _spread = solver_writer.blend_price_with_secondary_sources(
+            result, _spread, _source = solver_writer.blend_price_with_secondary_sources(
                 settled_primary,
                 cfg,
                 ("solver_import_price_sensor_2", "solver_import_price_sensor_3"),
@@ -115,7 +115,7 @@ class TestBlendDoesNotProtectSettledPeriodZero:
         from unittest.mock import patch
 
         with patch.object(solver_writer, "ha_get", return_value=secondary_forecast):
-            result, _spread = solver_writer.blend_price_with_secondary_sources(
+            result, _spread, _source = solver_writer.blend_price_with_secondary_sources(
                 settled_primary,
                 cfg,
                 ("solver_import_price_sensor_2", "solver_import_price_sensor_3"),

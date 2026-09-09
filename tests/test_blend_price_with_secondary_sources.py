@@ -45,7 +45,7 @@ class TestNoSecondarySourceConfigured:
         # The overwhelming-majority-today case: neither _2 nor _3 set.
         # Byte-identical to before this feature existed.
         primary = [0.30, 0.35, 0.40]
-        result, spread = solver_writer.blend_price_with_secondary_sources(
+        result, spread, _source = solver_writer.blend_price_with_secondary_sources(
             primary,
             {},
             ("solver_import_price_sensor_2", "solver_import_price_sensor_3"),
@@ -59,7 +59,7 @@ class TestNoSecondarySourceConfigured:
         primary = [0.30, 0.35, 0.40]
         cfg = {"solver_import_price_sensor_2": "sensor.does_not_exist"}
         with patch.object(solver_writer, "ha_get", side_effect=Exception("404")):
-            result, spread = solver_writer.blend_price_with_secondary_sources(
+            result, spread, _source = solver_writer.blend_price_with_secondary_sources(
                 primary,
                 cfg,
                 ("solver_import_price_sensor_2", "solver_import_price_sensor_3"),
@@ -79,7 +79,7 @@ class TestOneSecondarySourceConfigured:
         secondary_state = _forecast_state([0.10, 0.20, 0.30])
         cfg = {"solver_import_price_sensor_2": "sensor.aemo_forecast"}
         with patch.object(solver_writer, "ha_get", return_value=secondary_state):
-            result, spread = solver_writer.blend_price_with_secondary_sources(
+            result, spread, _source = solver_writer.blend_price_with_secondary_sources(
                 primary,
                 cfg,
                 ("solver_import_price_sensor_2", "solver_import_price_sensor_3"),
@@ -101,7 +101,7 @@ class TestOneSecondarySourceConfigured:
         secondary_state = _forecast_state([0.10, 0.20, 0.30])
         cfg = {"solver_import_price_sensor_2": "sensor.aemo_forecast"}
         with patch.object(solver_writer, "ha_get", return_value=secondary_state):
-            result, spread = solver_writer.blend_price_with_secondary_sources(
+            result, spread, _source = solver_writer.blend_price_with_secondary_sources(
                 primary,
                 cfg,
                 ("solver_import_price_sensor_2", "solver_import_price_sensor_3"),
@@ -123,7 +123,7 @@ class TestOneSecondarySourceConfigured:
 
         cfg_close = {"solver_export_price_sensor_2": "sensor.close_forecast"}
         with patch.object(solver_writer, "ha_get", return_value=close_state):
-            _, spread_close = solver_writer.blend_price_with_secondary_sources(
+            _, spread_close, _source = solver_writer.blend_price_with_secondary_sources(
                 primary,
                 cfg_close,
                 ("solver_export_price_sensor_2", "solver_export_price_sensor_3"),
@@ -132,7 +132,7 @@ class TestOneSecondarySourceConfigured:
 
         cfg_far = {"solver_export_price_sensor_2": "sensor.far_forecast"}
         with patch.object(solver_writer, "ha_get", return_value=far_state):
-            _, spread_far = solver_writer.blend_price_with_secondary_sources(
+            _, spread_far, _source = solver_writer.blend_price_with_secondary_sources(
                 primary,
                 cfg_far,
                 ("solver_export_price_sensor_2", "solver_export_price_sensor_3"),
@@ -170,7 +170,7 @@ class TestNemPd7CalibratedSourceBlendsCorrectly:
             )
         }
         with patch.object(solver_writer, "ha_get", return_value=nem_pd7_state):
-            result, spread = solver_writer.blend_price_with_secondary_sources(
+            result, spread, _source = solver_writer.blend_price_with_secondary_sources(
                 primary,
                 cfg,
                 ("solver_import_price_sensor_2", "solver_import_price_sensor_3"),
@@ -200,7 +200,7 @@ class TestBothSecondarySourcesConfigured:
             return s2 if entity_id == "sensor.source_2" else s3
 
         with patch.object(solver_writer, "ha_get", side_effect=_fake_ha_get):
-            result, spread = solver_writer.blend_price_with_secondary_sources(
+            result, spread, _source = solver_writer.blend_price_with_secondary_sources(
                 primary,
                 cfg,
                 ("solver_import_price_sensor_2", "solver_import_price_sensor_3"),
@@ -226,7 +226,7 @@ class TestBothSecondarySourcesConfigured:
             return s2 if entity_id == "sensor.source_2" else s3
 
         with patch.object(solver_writer, "ha_get", side_effect=_fake_ha_get):
-            result, spread = solver_writer.blend_price_with_secondary_sources(
+            result, spread, _source = solver_writer.blend_price_with_secondary_sources(
                 primary,
                 cfg,
                 ("solver_import_price_sensor_2", "solver_import_price_sensor_3"),
@@ -255,7 +255,7 @@ class TestPrimaryPreferringRegression:
         secondary_state = _forecast_state([0.6701])
         cfg = {"solver_export_price_sensor_2": "sensor.qld1_pd7day_forecast"}
         with patch.object(solver_writer, "ha_get", return_value=secondary_state):
-            result, spread = solver_writer.blend_price_with_secondary_sources(
+            result, spread, _source = solver_writer.blend_price_with_secondary_sources(
                 primary,
                 cfg,
                 ("solver_export_price_sensor_2", "solver_export_price_sensor_3"),
@@ -289,7 +289,7 @@ class TestPrimaryPreferringRegression:
         )
         cfg = {"solver_import_price_sensor_2": "sensor.far_future_forecast"}
         with patch.object(solver_writer, "ha_get", return_value=secondary_state):
-            result, _spread = solver_writer.blend_price_with_secondary_sources(
+            result, _spread, _source = solver_writer.blend_price_with_secondary_sources(
                 primary,
                 cfg,
                 ("solver_import_price_sensor_2", "solver_import_price_sensor_3"),
@@ -300,3 +300,89 @@ class TestPrimaryPreferringRegression:
         # every configured source's own held-flat value still
         # contributes, exactly like before #239.
         assert round(result[0], 6) == 0.30
+
+
+class TestSourceLabels:
+    """nimbus issue #631 (Mark Purcell, live finding: a single 71.3 kWh
+    charge block committed on a secondary source's own 20-hour-ahead
+    price, with nothing published distinguishing "known from the
+    retailer's own near-term forecast" from "extrapolated from a weekly
+    tariff table"). The third return value must name EXACTLY which
+    branch of the blend decision produced each period's own value --
+    same fixture shapes as the equivalent tests above, just asserting
+    the label instead of (or alongside) the value."""
+
+    def test_no_secondary_configured_labels_every_period_primary(self):
+        primary = [0.30, 0.35, 0.40]
+        _result, _spread, source = solver_writer.blend_price_with_secondary_sources(
+            primary,
+            {},
+            ("solver_import_price_sensor_2", "solver_import_price_sensor_3"),
+            _grid_times(3),
+        )
+        assert source == ["primary", "primary", "primary"]
+
+    def test_primary_real_labels_primary_even_with_a_disagreeing_secondary(self):
+        primary = [0.30, 0.40, 0.50]
+        secondary_state = _forecast_state([0.10, 0.20, 0.30])
+        cfg = {"solver_import_price_sensor_2": "sensor.aemo_forecast"}
+        with patch.object(solver_writer, "ha_get", return_value=secondary_state):
+            _result, _spread, source = solver_writer.blend_price_with_secondary_sources(
+                primary,
+                cfg,
+                ("solver_import_price_sensor_2", "solver_import_price_sensor_3"),
+                _grid_times(3),
+            )
+        assert source == ["primary", "primary", "primary"]
+
+    def test_primary_lacking_coverage_labels_secondary(self):
+        primary = [0.30, 0.40, 0.50]
+        secondary_state = _forecast_state([0.10, 0.20, 0.30])
+        cfg = {"solver_import_price_sensor_2": "sensor.aemo_forecast"}
+        with patch.object(solver_writer, "ha_get", return_value=secondary_state):
+            _result, _spread, source = solver_writer.blend_price_with_secondary_sources(
+                primary,
+                cfg,
+                ("solver_import_price_sensor_2", "solver_import_price_sensor_3"),
+                _grid_times(3),
+                primary_real_mask=[False, False, False],
+            )
+        assert source == ["secondary", "secondary", "secondary"]
+
+    def test_nothing_real_anywhere_labels_fallback(self):
+        grid_time = datetime(2026, 8, 25, 12, 0, tzinfo=UTC)
+        secondary_start = grid_time + timedelta(hours=20)
+        primary = [0.50]
+        secondary_state = _forecast_state([0.10])
+        secondary_state["attributes"]["forecast"][0]["time"] = (
+            secondary_start.isoformat()
+        )
+        cfg = {"solver_import_price_sensor_2": "sensor.far_future_forecast"}
+        with patch.object(solver_writer, "ha_get", return_value=secondary_state):
+            _result, _spread, source = solver_writer.blend_price_with_secondary_sources(
+                primary,
+                cfg,
+                ("solver_import_price_sensor_2", "solver_import_price_sensor_3"),
+                [grid_time],
+                primary_real_mask=[False],
+            )
+        assert source == ["fallback"]
+
+    def test_labels_vary_period_by_period_within_one_call(self):
+        # A single grid can genuinely mix all three cases: primary real
+        # for the near periods, secondary real once primary's own
+        # coverage runs out, fallback once neither has real data.
+        primary = [0.30, 0.40, 0.50]
+        secondary_state = _forecast_state([0.10, 0.20, 0.30])
+        cfg = {"solver_import_price_sensor_2": "sensor.aemo_forecast"}
+        with patch.object(solver_writer, "ha_get", return_value=secondary_state):
+            _result, _spread, source = solver_writer.blend_price_with_secondary_sources(
+                primary,
+                cfg,
+                ("solver_import_price_sensor_2", "solver_import_price_sensor_3"),
+                _grid_times(3),
+                primary_real_mask=[True, False, False],
+            )
+        assert source[0] == "primary"
+        assert source[1] == "secondary"
+        assert source[2] == "secondary"
