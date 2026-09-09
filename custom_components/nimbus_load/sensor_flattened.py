@@ -460,6 +460,13 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         state_class=SensorStateClass.MEASUREMENT,
         unit_of_measurement=_SECONDS,
         suggested_display_precision=3,
+        # nimbus issue #652 (Mark Purcell): n_batteries/n_periods/
+        # n_controllable_loads as attributes here, so a future solve-
+        # time jump can be attributed to "the problem got bigger" (a
+        # real reconfiguration) vs. "something regressed" on sight,
+        # instead of requiring a manual recorder-history + config-
+        # reload-timestamp investigation like this issue's own.
+        attrs_source_key="solve_diagnostics",
     ),
     FlattenedAttrSpec(
         source_key="horizon_hours",

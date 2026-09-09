@@ -133,6 +133,15 @@ _EXPECTED_ATTRS = {
     "ac_bus_losses_kwh": 1.285,
     "n_periods": 202,
     "n_clamped_periods": 0,
+    # nimbus issue #652: this fixture is a single-battery, no-
+    # controllable-load scenario -- 1 battery (the home pack), 0
+    # sheddable/adequacy loads (no controllable_load subentries in
+    # this fixture's own config).
+    "solve_diagnostics": {
+        "n_batteries": 1,
+        "n_periods": 202,
+        "n_controllable_loads": 0,
+    },
     "horizon_hours": 96.0,
     "solve_seconds": 0.0,  # excluded from comparison -- see test body
     "binding_constraint_now": "Grid export at zero (not economical right now)",
