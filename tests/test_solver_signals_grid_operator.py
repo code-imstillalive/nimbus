@@ -175,6 +175,56 @@ class TestExportHeadroomAtExactSaturation(unittest.TestCase):
         )
 
 
+class TestSwitchboardLoadHeadroom(unittest.TestCase):
+    """nimbus issue #492 (Signals 3/7 of #489): how much MORE/LESS load
+    this period could absorb before its own real-time price changes --
+    RHS ranging on the SAME `power_balance_t{t}` row #491's
+    `shadow_price` field already reads the dual of."""
+
+    def test_load_headroom_matches_the_hand_worked_scenario(self):
+        # 5 kW load, 50 kW import cap, fully pinned battery -- up=45
+        # (room to grow before the import cap itself binds), down=5
+        # (room to shrink to zero before the balance would need to
+        # start exporting instead). Verified directly against the real
+        # solve.
+        n = 4
+        periods = PeriodGrid(hours=np.full(n, 1.0), start=None)
+        plan = build_plan(
+            periods=periods,
+            grid=_grid(n),
+            batteries=[_pinned_battery()],
+            solar=SolarConfig(forecast_kw=np.zeros(n)),
+            loads=[LoadConfig(name="house", forecast_kw=np.full(n, 5.0))],
+            compute_signals=True,
+        )
+        self.assertEqual(plan.status, "optimal")
+        signals = plan.grid_signals
+        self.assertIsNotNone(signals)
+        np.testing.assert_allclose(signals.load_headroom_up_kwh, 45.0, atol=1e-6)
+        np.testing.assert_allclose(signals.load_headroom_down_kwh, 5.0, atol=1e-6)
+
+    def test_load_headroom_shrinks_with_a_tighter_import_cap(self):
+        # Same load, tighter 8 kW import cap -- up-headroom must shrink
+        # to match (3 kW of room left before the now-tighter cap binds),
+        # proving this genuinely tracks the real binding constraint
+        # rather than returning a fixed/hardcoded number.
+        n = 4
+        periods = PeriodGrid(hours=np.full(n, 1.0), start=None)
+        plan = build_plan(
+            periods=periods,
+            grid=_grid(n, import_limit=8.0),
+            batteries=[_pinned_battery()],
+            solar=SolarConfig(forecast_kw=np.zeros(n)),
+            loads=[LoadConfig(name="house", forecast_kw=np.full(n, 5.0))],
+            compute_signals=True,
+        )
+        self.assertEqual(plan.status, "optimal")
+        signals = plan.grid_signals
+        self.assertIsNotNone(signals)
+        np.testing.assert_allclose(signals.load_headroom_up_kwh, 3.0, atol=1e-6)
+        np.testing.assert_allclose(signals.load_headroom_down_kwh, 5.0, atol=1e-6)
+
+
 class TestImportHeadroomWhenImportIsTheOnlyPath(unittest.TestCase):
     def test_import_headroom_is_zero_when_nothing_else_can_serve_the_load(self):
         # No solar, no battery available at all -- grid_import is pinned

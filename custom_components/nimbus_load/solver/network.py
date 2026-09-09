@@ -408,6 +408,20 @@ class GridSignals:
     their own already, just not the final envelope-aware version #489's
     own design calls for.
 
+    `load_headroom_up_kwh[t]`/`load_headroom_down_kwh[t]` (nimbus issue
+    #492, Signals 3/7 of #489): how much MORE (or less) total load this
+    period could genuinely absorb before this period's own real-time
+    price λ(t) (the `power_balance_t{t}` row's own dual, already
+    published as `shadow_price`) would change -- straight from
+    `LPResult.rhs_headroom("power_balance_t{t}")`, the exact same RHS-
+    ranging mechanism HAEO #465 calls `range_up` to pick its own
+    marginal dual per step. Verified directly: a real 5 kW load against
+    a 50 kW import cap with a fully-pinned battery reports `up=45`
+    (room to grow before the import cap itself would bind) and
+    `down=5` (room to shrink before the balance would need to start
+    exporting instead) -- both real, physically-grounded numbers, not
+    guesses.
+
     The whole object is `None` on `Plan.grid_signals` whenever ranging
     wasn't valid for that solve (a non-optimal Plan, or -- not expected
     in practice, since build_plan() always requests ranging -- a HiGHS
@@ -426,6 +440,8 @@ class GridSignals:
     forced_export_cost: NDArray[np.float64]
     flex_available_up_kw: NDArray[np.float64]
     flex_available_down_kw: NDArray[np.float64]
+    load_headroom_up_kwh: NDArray[np.float64]
+    load_headroom_down_kwh: NDArray[np.float64]
 
 
 @dataclass(frozen=True)
@@ -2302,6 +2318,10 @@ def build_plan(
         h = result.bound_headroom(var)
         return h.up if h is not None else 0.0
 
+    def _rhs_headroom(row: str) -> tuple[float, float]:
+        h = result.rhs_headroom(row)
+        return (h.up, h.down) if h is not None else (0.0, 0.0)
+
     if result.ranging_valid:
         grid_import_headroom_kw = np.array(
             [_headroom_up(f"grid_import_{t}") for t in range(n)]
@@ -2321,6 +2341,15 @@ def build_plan(
                 for t in range(n)
             ]
         )
+        # nimbus issue #492 (Signals 3/7 of #489): switchboard headroom
+        # -- how much MORE/LESS total load this period could genuinely
+        # absorb before its own real-time price λ(t) would change,
+        # straight from the power_balance_t{t} row's own RHS ranging
+        # (see GridSignals' own docstring for a real, hand-verified
+        # example).
+        _load_headroom = [_rhs_headroom(f"power_balance_t{t}") for t in range(n)]
+        load_headroom_up_kwh = np.array([up for up, _dn in _load_headroom])
+        load_headroom_down_kwh = np.array([dn for _up, dn in _load_headroom])
         grid_signals: GridSignals | None = GridSignals(
             grid_import_headroom_kw=grid_import_headroom_kw,
             grid_import_headroom_kwh=(grid_import_headroom_kw * hours).astype(
@@ -2338,6 +2367,8 @@ def build_plan(
             # the plan-consistent headroom on its own for now.
             flex_available_up_kw=grid_import_headroom_kw,
             flex_available_down_kw=grid_export_headroom_kw,
+            load_headroom_up_kwh=load_headroom_up_kwh,
+            load_headroom_down_kwh=load_headroom_down_kwh,
         )
     else:
         grid_signals = None

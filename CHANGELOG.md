@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.217] — 2026-09-09
+
+### Added
+- **`Plan.grid_signals` gains switchboard load headroom, `load_headroom_up_kwh`/`load_headroom_down_kwh`** (nimbus issue #492, Signals 3/7 of #489, partial — see below). How much MORE or LESS total load this period could genuinely absorb before its own real-time price λ(t) (the same `power_balance_t{t}` dual already published as `shadow_price`) would change, straight from that row's own RHS ranging — the same mechanism HAEO #465 calls `range_up` to pick its own marginal dual per step. Verified directly against real solves, including that it correctly tracks a tightened import cap (headroom shrinks to match), not a fixed number.
+
+  **#492's own other two asks — a per-load `UNLIMIT`/`SET` intent band and price-robustness ranging — are deliberately NOT included here.** Built and directly verified against Nimbus's real sheddable-load LP structure that the issue's own literal HAEO-derived classification formula (`UNLIMIT when reduced_cost ≈ 0`) does not transfer cleanly: Nimbus's own `shed_{name}_{t}` variable carries a real per-kWh `shed_cost` HAEO's own load-band model doesn't have, so its reduced cost is essentially never near zero even in the issue's own cited "should be UNLIMIT" cheap-window example (measured 0.15 $/kWh there, not ≈0). Left open with a comment on #492 documenting the finding rather than shipping a classification not verified to mean what it claims to.
+
 ## [0.94.216] — 2026-09-09
 
 ### Added
