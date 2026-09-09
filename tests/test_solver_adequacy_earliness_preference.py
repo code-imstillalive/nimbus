@@ -271,11 +271,17 @@ class TestEarlinessBudgetIsBoundedAcrossTheWholeHorizon(unittest.TestCase):
         # real MIN_CHARGE_DISCHARGE_COST_SPREAD-sized price difference.
         n = 96  # a full 96h horizon, this project's real forecast_horizon_hours
         target_kwh = 1.0
+        # max_power_kw == target_kwh (1h periods) so the #616 semi-
+        # continuous default (exactly 0 or exactly max_power_kw every
+        # period) delivers EXACTLY target_kwh with no over-delivery --
+        # this test is about the earliness term's own budget, orthogonal
+        # to #616, and dividing by target_kwh below only stays correct
+        # when delivered energy genuinely equals target_kwh.
         plan_first = _run_forced_single_period(
-            n=n, period=0, target_kwh=target_kwh, max_power_kw=2.0
+            n=n, period=0, target_kwh=target_kwh, max_power_kw=target_kwh
         )
         plan_last = _run_forced_single_period(
-            n=n, period=n - 1, target_kwh=target_kwh, max_power_kw=2.0
+            n=n, period=n - 1, target_kwh=target_kwh, max_power_kw=target_kwh
         )
         spread_per_kwh = (plan_last.total_cost - plan_first.total_cost) / target_kwh
         self.assertLessEqual(

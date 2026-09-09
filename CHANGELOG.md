@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.227] — 2026-09-10
+
+### Added
+- **Deferrable loads now deliver as a single clean on/off block instead of fractional bursts** (nimbus issue #616, Mark Purcell, real report on v0.94.196: a 0.65 kW SG Ready heat pump planned as `0.072, 0.384, 0.65, 0.65, 0.65, 0.403, 0.328, 0.398, …` kW across consecutive periods — a shape no real relay contact can actually deliver — burning a real daily activation when the guard turned it off mid-fraction and the plan wanted it on again 15 minutes later). Adopts EMHASS's `treat_deferrable_load_as_semi_cont` + `set_deferrable_load_single_constant` (per #616's own prior-art table): every `AdequacyLoadConfig`'s own power is now EXACTLY 0 or EXACTLY `max_power_kw` every period (never in between), and it turns on at most once per window (independently per window for a #612 multi-window load) — matching how every real Controllable Load in this project is actually dispatched today (`switch.turn_on`/`water_heater.set_operation_mode`, never a continuous power level). `set_deferrable_startup_penalty` (the third EMHASS mechanism #616 names) isn't implemented as a separate priced field — with at-most-one-start already a hard constraint, there's nothing left for a penalty to discourage. On by default (`network.build_plan()`'s new `adequacy_semi_continuous` parameter, `True`), no household-facing field.
+
 ## [0.94.226] — 2026-09-10
 
 ### Added

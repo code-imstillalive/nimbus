@@ -271,6 +271,16 @@ class TestAdequacyValuePerKwhPriceGating(unittest.TestCase):
             solar=solar,
             loads=[],
             adequacy_loads=adequacy,
+            # nimbus issue #616: semi-continuous (on by default) forces
+            # this load's own power to exactly 0 or exactly max_power_kw
+            # every period -- exactly the "runs at max everywhere it's
+            # allowed" shape #606 fixed for the CREDITED value, but this
+            # test is specifically about proving the LP fills the
+            # cheapest period fully then only PARTIALLY fills the next-
+            # cheapest one to hit the real target, a precision question
+            # #616 is orthogonal to. Disabled here so this test keeps
+            # exercising exactly what it always tested.
+            adequacy_semi_continuous=False,
         )
         self.assertEqual(plan.status, "optimal")
         power = plan.adequacy_loads[0].power_kw
@@ -323,6 +333,12 @@ class TestAdequacyValuePerKwhPriceGating(unittest.TestCase):
             solar=solar,
             loads=[],
             adequacy_loads=adequacy,
+            # nimbus issue #616: see the sibling test above's own
+            # identical comment -- a 0.5 kWh target against a 5.0 kW max
+            # can only be delivered EXACTLY under a continuous
+            # relaxation; this test is about the credit cap, not #616's
+            # own on/off realism, so disabled here too.
+            adequacy_semi_continuous=False,
         )
         self.assertEqual(plan.status, "optimal")
         total_delivered = sum(
