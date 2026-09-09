@@ -1507,7 +1507,9 @@ class TestApplyCommandedStateGuardPlanForecast(unittest.TestCase):
         period_hours_arr = np.full(len(grid_times), 5 / 60)
         plan = _fake_plan(
             adequacy=[
-                _fake_load_plan("s_shadow", np.array([2.0, 2.0, 2.0, 2.0]), adequacy=True)
+                _fake_load_plan(
+                    "s_shadow", np.array([2.0, 2.0, 2.0, 2.0]), adequacy=True
+                )
             ]
         )
         plan.duals = {
@@ -1522,15 +1524,9 @@ class TestApplyCommandedStateGuardPlanForecast(unittest.TestCase):
         )
         result = self._read_state("entry_pf6", "s_shadow")
         self.assertEqual(len(result.plan_shadow_price_forecast), 4)
-        self.assertAlmostEqual(
-            result.plan_shadow_price_forecast[0]["value"], 0.0013
-        )
-        self.assertAlmostEqual(
-            result.plan_shadow_price_forecast[1]["value"], 0.0006
-        )
-        self.assertAlmostEqual(
-            result.plan_shadow_price_forecast[2]["value"], 0.0021
-        )
+        self.assertAlmostEqual(result.plan_shadow_price_forecast[0]["value"], 0.0013)
+        self.assertAlmostEqual(result.plan_shadow_price_forecast[1]["value"], 0.0006)
+        self.assertAlmostEqual(result.plan_shadow_price_forecast[2]["value"], 0.0021)
         self.assertEqual(result.plan_shadow_price_forecast[3]["value"], 0.0)
 
     def test_plan_shadow_price_forecast_defaults_to_all_zero_when_plan_has_no_duals(
