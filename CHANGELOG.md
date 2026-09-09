@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.210] — 2026-09-09
+
+### Fixed
+- **Seven-flow decomposition still let a curtailed PV surplus masquerade as a phantom grid export, one step past #629's own fix** (nimbus issue #641, Mark Purcell, live verification of #629's own deployed release — real captured evidence: 0.33–1.5 kW of untouched PV surplus with `grid_export_kw` genuinely 0.0 across 6 of the first 60 periods of a 3-battery fleet's own forecast). `pv_to_grid` was still a pure residual (whatever solar wasn't used for load/charge) even after #629 capped `battery_to_grid` — a period where the LP curtails real solar headroom still showed a nonzero PV→Grid. `_flow_decomposition()` now computes `battery_to_grid` first exactly as #629 already does, then caps `pv_to_grid` at whatever of the real `grid_export_kw` battery didn't already claim; the honest remainder is a new `flow_pv_to_curtailment_kw` field — real generation genuinely not stored, exported, or consumed this period. `pv_to_grid + battery_to_grid == grid_export_kw` now holds by construction on both shares, not just the battery's. Ported to the standalone/cron writer script too. New tests plus the existing full regression suite (every real captured fixture) re-verified against the new behavior.
+
 ## [0.94.209] — 2026-09-09
 
 ### Fixed

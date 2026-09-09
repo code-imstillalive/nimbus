@@ -6409,10 +6409,31 @@ def _flow_decomposition(
     the entire ask of the issue regardless of the exact physical
     destination.
 
+    nimbus issue #641 (Mark Purcell, live verification of #629's own
+    fix): the identical bug, one level up -- pv_to_grid was STILL a pure
+    residual (whatever solar wasn't used for load/charge), so a period
+    where the LP curtails real solar surplus (grid_export_kw genuinely
+    0.0 while PV clearly has more to give than load+battery absorb --
+    real captured evidence: 0.33-1.5 kW of untouched PV surplus with
+    export at 0.0 across 6 of the first 60 periods on a 3-battery
+    fleet's own forecast) still showed a nonzero PV->Grid. Fixed the
+    same shape as #629, one step later: battery_to_grid is computed
+    FIRST exactly as #629 already does (still against the RAW,
+    pre-cap pv_to_grid -- unchanged, since Mark's own verification
+    confirmed the battery side already holds correctly), and pv_to_grid
+    is THEN capped at whatever of grid_export_kw_i battery_to_grid
+    didn't already claim -- so the two together can never exceed the
+    real export, regardless of which one merit-order would naively
+    credit first. The honest remainder becomes pv_to_curtailment: real
+    generation genuinely not stored, not exported, and not consumed --
+    a physically real category of its own (curtailment), not a loss in
+    the #629 sense (nothing was generated and then wasted in transit;
+    it was simply never drawn from the panels' own real headroom).
+
     Invariants (asserted in tests/test_flow_decomposition.py against
     both synthetic cases and the real regression fixtures under
     tests/regression/fixtures/):
-      pv_to_load + pv_to_battery + pv_to_grid == solar_kw_i
+      pv_to_load + pv_to_battery + pv_to_grid + pv_to_curtailment == solar_kw_i
       pv_to_load + battery_to_load + grid_to_load == load_kw_i
       pv_to_battery + grid_to_battery == charge_kw_i
       battery_to_load + battery_to_grid + battery_to_losses == discharge_kw_i
@@ -6425,25 +6446,38 @@ def _flow_decomposition(
     function encodes on the charge side (empirical, verified against
     real captured fixtures in the regression suite, not asserted here);
     pv_to_grid + battery_to_grid == grid_export_kw, however, now holds
-    BY CONSTRUCTION on the export side too (battery_to_grid is capped
-    against grid_export_kw_i directly), which is the whole point of
-    #629's own fix.
+    BY CONSTRUCTION on the export side too (both are capped against
+    grid_export_kw_i, #629 for the battery's own share and #641 for
+    PV's), which is the whole point of both issues' own fix.
     """
     pv_to_load = min(solar_kw_i, load_kw_i)
     solar_after_load = solar_kw_i - pv_to_load
     pv_to_battery = min(solar_after_load, charge_kw_i)
     solar_after_battery = solar_after_load - pv_to_battery
-    pv_to_grid = solar_after_battery
+    pv_to_grid_residual = solar_after_battery
 
     load_after_solar = load_kw_i - pv_to_load
     battery_to_load = min(discharge_kw_i, load_after_solar)
     battery_residual = discharge_kw_i - battery_to_load
     # nimbus issue #629: bound the grid-bound share of the battery's own
     # residual output by what the LP itself actually exported this
-    # period, net of PV's own already-computed share of it -- the
-    # remainder is a real, honestly-labeled loss, not a phantom export.
-    battery_to_grid = min(battery_residual, max(0.0, grid_export_kw_i - pv_to_grid))
+    # period, net of PV's own already-computed (still-uncapped) share of
+    # it -- the remainder is a real, honestly-labeled loss, not a
+    # phantom export. Deliberately uses pv_to_grid_residual (not the
+    # #641 capped value below) -- Mark's own live verification confirmed
+    # this half already holds correctly, unchanged by #641.
+    battery_to_grid = min(
+        battery_residual, max(0.0, grid_export_kw_i - pv_to_grid_residual)
+    )
     battery_to_losses = battery_residual - battery_to_grid
+
+    # nimbus issue #641: PV's own share of the real export is whatever
+    # battery_to_grid (just computed) didn't already claim -- together
+    # the two can never exceed grid_export_kw_i. The honest remainder is
+    # curtailment: real generation genuinely not stored, exported, or
+    # consumed this period.
+    pv_to_grid = min(pv_to_grid_residual, max(0.0, grid_export_kw_i - battery_to_grid))
+    pv_to_curtailment = pv_to_grid_residual - pv_to_grid
 
     load_after_battery = load_after_solar - battery_to_load
     grid_to_load = load_after_battery
@@ -6458,6 +6492,7 @@ def _flow_decomposition(
         "grid_to_load": grid_to_load,
         "grid_to_battery": grid_to_battery,
         "battery_to_losses": battery_to_losses,
+        "pv_to_curtailment": pv_to_curtailment,
     }
 
 
@@ -6978,6 +7013,13 @@ def publish_plan(
             # _flow_decomposition()'s own docstring for what this
             # genuinely represents (and doesn't claim to represent).
             "flow_battery_to_losses_kw": round(flow_decomp[i]["battery_to_losses"], 3),
+            # nimbus issue #641 (Mark Purcell, live verification of
+            # #629): the identical bug one level up -- real PV surplus
+            # the plan neither stores, exports, nor consumes this
+            # period (the LP is curtailing, or the solar forecast
+            # exceeds what the plan absorbs). See _flow_decomposition()'s
+            # own docstring for the full reasoning.
+            "flow_pv_to_curtailment_kw": round(flow_decomp[i]["pv_to_curtailment"], 3),
             **flow_econ[i],
             # Real per-period duration (2026-08-17, found while fixing a
             # real bug this same session: the daily-summary dashboard
