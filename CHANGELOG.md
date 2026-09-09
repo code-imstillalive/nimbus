@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.212] — 2026-09-09
+
+### Fixed
+- **A Controllable Load's tank temperature forecast clamped at the heater's idle "eco" setpoint instead of its real operating ceiling, swallowing a genuine reheat entirely** (nimbus issue #640, Mark Purcell, live verification of #610's own release: with the heat pump idle in `eco` mode, `water_heater.wwk302` reported `temperature: 45` — the eco target it maintains BETWEEN runs, not the top of a run — while `max_temp` (65) and the performance-mode target were both the unit's real ceiling. Tomorrow's planned 2 kWh/16 °C reheat showed as a flat 45.0 °C the whole window, so the tank could never be forecast to reach its own 60 °C done line).
+
+  `project_temperature_forecast()`'s caller in `solver_writer.py` read the ceiling attribute preference in the wrong order (`"temperature"` before `"max_temp"`). Flipped to prefer `max_temp` (the entity's own real physical ceiling) first, falling back to `temperature` only for an entity that publishes no separate max, and — per #610's own "at minimum the done_when threshold" fallback — to the load's own configured `done_when` threshold when the entity exposes neither attribute at all, so a done line the projection needs to reach is never clamped below itself. New tests covering the max_temp-over-eco-setpoint priority and the done_when fallback.
+
 ## [0.94.211] — 2026-09-09
 
 ### Fixed
