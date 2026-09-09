@@ -6276,7 +6276,11 @@ def _safe_fromisoformat(value: str) -> datetime | None:
 
 
 def _dispatch_source_breakdown(
-    battery_kw: float, solar_kw_i: float, load_kw_i: float
+    battery_kw: float,
+    solar_kw_i: float,
+    load_kw_i: float,
+    *,
+    grid_export_kw_i: float | None = None,
 ) -> tuple[str, str, float, str, float]:
     """Real per-period source/destination breakdown for the plan table
     (2026-08-28, direct ask: "the plan table should also say where it
@@ -6291,6 +6295,25 @@ def _dispatch_source_breakdown(
     symmetrically on a discharge period, the battery serves load before
     any of it is attributed to export. Matches how a household actually
     reasons about "why is it charging/discharging right now."
+
+    nimbus issue #629 (Mark Purcell): on a discharge period, "Grid" %
+    used to be a pure residual (discharge minus whatever served load),
+    same bug as _flow_decomposition()'s own pre-#629 battery_to_grid --
+    implying a real export/grid-fed-charge that never happened whenever
+    a genuine AC-bus loss (or, on a multi-battery fleet, energy this
+    function has no visibility into moving to another participant)
+    left a residual. `grid_export_kw_i`, when given, caps "Grid" on a
+    discharge period at the LP's own real grid_export_kw for THIS
+    period -- the same honest-cap technique as the seven-flow fix.
+    Optional and defaults to None (the exact pre-#629 uncapped
+    behavior) so every existing caller/test not yet passing a real
+    figure is completely unaffected; the real production caller
+    (this file's own per-period forecast loop) always passes it.
+    b_pct can legitimately read below what full residual attribution
+    would have shown once capped -- a and b no longer have to sum to
+    100% the moment a real, honestly-unattributable residual exists,
+    which is the entire point: summing to 100% by construction was
+    exactly what made the old uncapped version misleading.
 
     Returns (direction, source_a_label, source_a_pct, source_b_label,
     source_b_pct). direction is "charge"/"discharge"/"idle".
@@ -6312,7 +6335,12 @@ def _dispatch_source_breakdown(
         discharge_kw = battery_kw
         remaining_load = max(0.0, load_kw_i - solar_kw_i)
         to_load = min(discharge_kw, remaining_load)
-        to_grid = discharge_kw - to_load
+        to_grid_residual = discharge_kw - to_load
+        to_grid = (
+            to_grid_residual
+            if grid_export_kw_i is None
+            else min(to_grid_residual, max(0.0, grid_export_kw_i))
+        )
         return (
             "discharge",
             "Load",
@@ -6328,6 +6356,8 @@ def _flow_decomposition(
     load_kw_i: float,
     charge_kw_i: float,
     discharge_kw_i: float,
+    *,
+    grid_export_kw_i: float,
 ) -> dict[str, float]:
     """Real per-period seven-flow merit-order decomposition (nimbus issue
     #264, Mark Purcell) -- extends _dispatch_source_breakdown()'s 2-way
@@ -6335,7 +6365,8 @@ def _flow_decomposition(
     (Solar/Battery/Grid/Load), so every kW of the period's balance
     belongs to exactly one of the seven physical flows: PV->Load,
     PV->Battery, PV->Grid, Battery->Load, Battery->Grid, Grid->Load,
-    Grid->Battery.
+    Grid->Battery -- plus an eighth bucket, battery_to_losses (nimbus
+    issue #629, see below).
 
     Same merit-order convention as _dispatch_source_breakdown() (solar
     serves load first, then battery charge, then export; battery
@@ -6359,23 +6390,44 @@ def _flow_decomposition(
     so it actually shows up as a real, visible flow rather than being
     silently netted away first.
 
+    nimbus issue #629 (Mark Purcell, real 3-battery-fleet report):
+    battery_to_grid used to be a pure residual (discharge_kw_i minus
+    whatever served load), with nowhere else for it to go -- every
+    discharge period showed a nonzero Battery->Grid slice even when
+    grid_export_kw was genuinely 0.0 the entire time, and
+    dispatch_source_a_pct implied a real export that never happened.
+    `grid_export_kw_i` -- the LP's own real, already-published
+    grid_export_kw for this period -- now caps how much of that residual
+    can honestly be called Battery->Grid; anything left over is a real,
+    separately-labeled battery_to_losses bucket instead of a phantom
+    export. This is deliberately NOT a claim about WHERE that leftover
+    physically went (this project's own ac_bus_losses_kwh figure is one
+    real candidate; energy genuinely absorbed by another battery
+    participant behind the shared bus, invisible to this 4-terminal
+    Solar/Battery/Grid/Load model, is another -- see #629's own
+    discussion) -- only an honest "not really export" label, which is
+    the entire ask of the issue regardless of the exact physical
+    destination.
+
     Invariants (asserted in tests/test_flow_decomposition.py against
     both synthetic cases and the real regression fixtures under
     tests/regression/fixtures/):
       pv_to_load + pv_to_battery + pv_to_grid == solar_kw_i
       pv_to_load + battery_to_load + grid_to_load == load_kw_i
       pv_to_battery + grid_to_battery == charge_kw_i
-      battery_to_load + battery_to_grid == discharge_kw_i
-    The first four hold by construction, always, regardless of input.
-    Two further invariants (grid_to_load + grid_to_battery ==
-    grid_import_kw, pv_to_grid + battery_to_grid == grid_export_kw) are
-    NOT algebraic identities of this function alone -- they depend on
-    the real LP's own grid_import_kw/grid_export_kw satisfying the same
-    merit-order assumption this function encodes, which is genuinely an
-    empirical property of the LP's solution (true whenever a period
-    doesn't have simultaneous import AND export), not something this
-    function can guarantee for arbitrary inputs -- verified against real
-    captured fixtures in the regression suite instead of asserted here.
+      battery_to_load + battery_to_grid + battery_to_losses == discharge_kw_i
+    These hold by construction, always, regardless of input. Two further
+    invariants (grid_to_load + grid_to_battery == grid_import_kw,
+    pv_to_grid + battery_to_grid == grid_export_kw) are NOT pure
+    algebraic identities of this function alone the way the four above
+    are -- grid_to_load/grid_to_battery still depend on the real LP's
+    own grid_import_kw satisfying the same merit-order assumption this
+    function encodes on the charge side (empirical, verified against
+    real captured fixtures in the regression suite, not asserted here);
+    pv_to_grid + battery_to_grid == grid_export_kw, however, now holds
+    BY CONSTRUCTION on the export side too (battery_to_grid is capped
+    against grid_export_kw_i directly), which is the whole point of
+    #629's own fix.
     """
     pv_to_load = min(solar_kw_i, load_kw_i)
     solar_after_load = solar_kw_i - pv_to_load
@@ -6385,7 +6437,13 @@ def _flow_decomposition(
 
     load_after_solar = load_kw_i - pv_to_load
     battery_to_load = min(discharge_kw_i, load_after_solar)
-    battery_to_grid = discharge_kw_i - battery_to_load
+    battery_residual = discharge_kw_i - battery_to_load
+    # nimbus issue #629: bound the grid-bound share of the battery's own
+    # residual output by what the LP itself actually exported this
+    # period, net of PV's own already-computed share of it -- the
+    # remainder is a real, honestly-labeled loss, not a phantom export.
+    battery_to_grid = min(battery_residual, max(0.0, grid_export_kw_i - pv_to_grid))
+    battery_to_losses = battery_residual - battery_to_grid
 
     load_after_battery = load_after_solar - battery_to_load
     grid_to_load = load_after_battery
@@ -6399,6 +6457,7 @@ def _flow_decomposition(
         "battery_to_grid": battery_to_grid,
         "grid_to_load": grid_to_load,
         "grid_to_battery": grid_to_battery,
+        "battery_to_losses": battery_to_losses,
     }
 
 
@@ -6474,7 +6533,19 @@ def _compute_flow_economics(
         charge_kwh_pv = f["pv_to_battery"] * hrs
         charge_kwh_grid = f["grid_to_battery"] * hrs
         charge_kwh = charge_kwh_pv + charge_kwh_grid
-        discharge_kwh = (f["battery_to_load"] + f["battery_to_grid"]) * hrs
+        # nimbus issue #629: battery_to_losses is real energy that left
+        # the battery's own SoC (discharge_kw_i, by construction, equals
+        # battery_to_load + battery_to_grid + battery_to_losses) even
+        # though it never reached load or grid -- must count toward the
+        # SoC/WACOG drawdown below or running_energy_kwh silently drifts
+        # from the real battery state on every period this bucket is
+        # nonzero. `.get(..., 0.0)` keeps this function tolerant of an
+        # older-shaped flow dict (e.g. a caller/test predating #629).
+        discharge_kwh = (
+            f["battery_to_load"]
+            + f["battery_to_grid"]
+            + f.get("battery_to_losses", 0.0)
+        ) * hrs
 
         if charge_kwh > 1e-9:
             charge_price_this_period = (
@@ -6753,7 +6824,12 @@ def publish_plan(
     # _dispatch_source_breakdown()'s own module-level docstring for the
     # full rationale.
     dispatch_breakdown = [
-        _dispatch_source_breakdown(net_battery[i], solar_kw[i], load_kw[i])
+        _dispatch_source_breakdown(
+            net_battery[i],
+            solar_kw[i],
+            load_kw[i],
+            grid_export_kw_i=float(plan.grid_export_kw[i]),
+        )
         for i in range(n_periods)
     ]
 
@@ -6772,6 +6848,7 @@ def publish_plan(
             load_kw[i],
             float(corrected_battery_charge_kw[i]),
             float(corrected_battery_discharge_kw[i]),
+            grid_export_kw_i=float(plan.grid_export_kw[i]),
         )
         for i in range(n_periods)
     ]
@@ -6894,6 +6971,13 @@ def publish_plan(
             "flow_battery_to_grid_kw": round(flow_decomp[i]["battery_to_grid"], 3),
             "flow_grid_to_load_kw": round(flow_decomp[i]["grid_to_load"], 3),
             "flow_grid_to_battery_kw": round(flow_decomp[i]["grid_to_battery"], 3),
+            # nimbus issue #629 (Mark Purcell): the honest remainder of
+            # the battery's own residual discharge once flow_battery_to_
+            # grid_kw is capped at what the LP actually exported this
+            # period -- never a phantom export again. See
+            # _flow_decomposition()'s own docstring for what this
+            # genuinely represents (and doesn't claim to represent).
+            "flow_battery_to_losses_kw": round(flow_decomp[i]["battery_to_losses"], 3),
             **flow_econ[i],
             # Real per-period duration (2026-08-17, found while fixing a
             # real bug this same session: the daily-summary dashboard

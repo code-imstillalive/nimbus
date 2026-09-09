@@ -46,7 +46,15 @@ def _assert_invariants(
     )
     assert abs((flow["pv_to_battery"] + flow["grid_to_battery"]) - charge_kw_i) < tol
     assert (
-        abs((flow["battery_to_load"] + flow["battery_to_grid"]) - discharge_kw_i) < tol
+        abs(
+            (
+                flow["battery_to_load"]
+                + flow["battery_to_grid"]
+                + flow["battery_to_losses"]
+            )
+            - discharge_kw_i
+        )
+        < tol
     )
     # Every flow is a real physical magnitude -- never negative.
     for k, v in flow.items():
@@ -54,16 +62,17 @@ def _assert_invariants(
 
 
 def test_charging_entirely_from_solar_surplus():
-    flow = _flow_decomposition(10.0, 2.0, 5.0, 0.0)
+    flow = _flow_decomposition(10.0, 2.0, 5.0, 0.0, grid_export_kw_i=3.0)
     _assert_invariants(flow, 10.0, 2.0, 5.0, 0.0)
     assert flow["pv_to_battery"] == 5.0
     assert flow["grid_to_battery"] == 0.0
     assert flow["pv_to_load"] == 2.0
     assert flow["pv_to_grid"] == 3.0
+    assert flow["battery_to_losses"] == 0.0
 
 
 def test_charging_split_between_solar_surplus_and_grid_topup():
-    flow = _flow_decomposition(10.0, 2.0, 12.0, 0.0)
+    flow = _flow_decomposition(10.0, 2.0, 12.0, 0.0, grid_export_kw_i=0.0)
     _assert_invariants(flow, 10.0, 2.0, 12.0, 0.0)
     assert flow["pv_to_battery"] == 8.0
     assert flow["grid_to_battery"] == 4.0
@@ -71,7 +80,7 @@ def test_charging_split_between_solar_surplus_and_grid_topup():
 
 
 def test_charging_entirely_from_grid_when_no_solar():
-    flow = _flow_decomposition(0.0, 1.5, 6.964, 0.0)
+    flow = _flow_decomposition(0.0, 1.5, 6.964, 0.0, grid_export_kw_i=0.0)
     _assert_invariants(flow, 0.0, 1.5, 6.964, 0.0)
     assert flow["pv_to_battery"] == 0.0
     assert flow["grid_to_battery"] == 6.964
@@ -79,23 +88,28 @@ def test_charging_entirely_from_grid_when_no_solar():
 
 
 def test_discharging_entirely_to_load_when_load_exceeds_discharge():
-    flow = _flow_decomposition(0.0, 10.0, 0.0, 4.0)
+    flow = _flow_decomposition(0.0, 10.0, 0.0, 4.0, grid_export_kw_i=0.0)
     _assert_invariants(flow, 0.0, 10.0, 0.0, 4.0)
     assert flow["battery_to_load"] == 4.0
     assert flow["battery_to_grid"] == 0.0
+    assert flow["battery_to_losses"] == 0.0
     assert flow["grid_to_load"] == 6.0
 
 
 def test_discharging_split_between_load_and_export():
-    flow = _flow_decomposition(2.0, 5.0, 0.0, 10.0)
+    # grid_export_kw_i (7.0) matches the residual exactly -- the real LP
+    # genuinely exported everything the battery had left over this
+    # period, so battery_to_losses stays 0.0.
+    flow = _flow_decomposition(2.0, 5.0, 0.0, 10.0, grid_export_kw_i=7.0)
     _assert_invariants(flow, 2.0, 5.0, 0.0, 10.0)
     assert flow["battery_to_load"] == 3.0
     assert flow["battery_to_grid"] == 7.0
+    assert flow["battery_to_losses"] == 0.0
     assert flow["pv_to_load"] == 2.0
 
 
 def test_idle_battery_all_grid_and_solar_only():
-    flow = _flow_decomposition(5.0, 5.0, 0.0, 0.0)
+    flow = _flow_decomposition(5.0, 5.0, 0.0, 0.0, grid_export_kw_i=0.0)
     _assert_invariants(flow, 5.0, 5.0, 0.0, 0.0)
     assert flow["pv_to_load"] == 5.0
     assert flow["pv_to_battery"] == 0.0
@@ -107,22 +121,58 @@ def test_simultaneous_charge_and_discharge_wash_trade_surfaces_both_flows():
     discharge_kw_i instead of the issue's own single net_battery_kw
     sketch -- a same-period wash trade (#245's own known LP degeneracy,
     both charge AND discharge nonzero in the same period) must show up
-    as a real, visible battery_to_grid AND grid_to_battery pair, not be
-    silently netted away before this function ever sees it."""
+    as a real, visible grid_to_battery flow, not be silently netted
+    away before this function ever sees it."""
     # No solar, no load -- purely a wash trade: 3kW charge + 3kW
-    # discharge in the same period, nothing else going on.
-    flow = _flow_decomposition(0.0, 0.0, 3.0, 3.0)
+    # discharge in the same period, nothing else going on. The real LP
+    # genuinely exported nothing this period (grid_export_kw_i=0.0) --
+    # nimbus issue #629: the discharge side of a same-asset wash trade
+    # doesn't actually leave the switchboard, so it must land as a real,
+    # honestly-labeled loss, not a phantom export.
+    flow = _flow_decomposition(0.0, 0.0, 3.0, 3.0, grid_export_kw_i=0.0)
     _assert_invariants(flow, 0.0, 0.0, 3.0, 3.0)
     assert flow["grid_to_battery"] == 3.0, (
         "wash-trade charge must be visible, not netted to zero"
     )
-    assert flow["battery_to_grid"] == 3.0, (
-        "wash-trade discharge must be visible, not netted to zero"
+    assert flow["battery_to_grid"] == 0.0, (
+        "no real export happened this period -- must not be mislabeled as one"
+    )
+    assert flow["battery_to_losses"] == 3.0, (
+        "wash-trade discharge must still be visible, as a real loss"
     )
 
 
+def test_grid_export_cap_sends_the_uncapped_residual_to_losses_not_grid():
+    """nimbus issue #629 (Mark Purcell, real 3-battery-fleet report):
+    the actual reported bug -- a real period where the battery's own
+    residual discharge (past what load needs) is nonzero, but the LP's
+    own real grid_export_kw for that period is 0.0. The old, pre-#629
+    code always attributed the whole residual to battery_to_grid; the
+    fix caps it at the real export and moves the rest to
+    battery_to_losses."""
+    # Same shape as Mark's own 17:00 evidence: battery discharges more
+    # than load needs (a 0.347 residual), but the LP's own grid_export
+    # for that period is genuinely 0.0.
+    flow = _flow_decomposition(0.931, 3.481, 0.0, 2.897, grid_export_kw_i=0.0)
+    _assert_invariants(flow, 0.931, 3.481, 0.0, 2.897)
+    assert flow["battery_to_grid"] == 0.0, (
+        "grid_export_kw is genuinely 0.0 -- must not show a phantom export"
+    )
+    assert abs(flow["battery_to_losses"] - 0.347) < 1e-6
+
+
+def test_grid_export_partially_covers_the_residual():
+    # A residual of 5.0, but the LP only really exported 3.0 of it --
+    # the other 2.0 is a real, honestly-labeled loss, not export.
+    flow = _flow_decomposition(0.0, 5.0, 0.0, 10.0, grid_export_kw_i=3.0)
+    _assert_invariants(flow, 0.0, 5.0, 0.0, 10.0)
+    assert flow["battery_to_load"] == 5.0
+    assert flow["battery_to_grid"] == 3.0
+    assert flow["battery_to_losses"] == 2.0
+
+
 def test_zero_everywhere_is_all_zero_flows():
-    flow = _flow_decomposition(0.0, 0.0, 0.0, 0.0)
+    flow = _flow_decomposition(0.0, 0.0, 0.0, 0.0, grid_export_kw_i=0.0)
     _assert_invariants(flow, 0.0, 0.0, 0.0, 0.0)
     assert all(v == 0.0 for v in flow.values())
 
@@ -141,6 +191,7 @@ def _one_period_flow(**overrides) -> dict[str, float]:
         "battery_to_grid": 0.0,
         "grid_to_load": 0.0,
         "grid_to_battery": 0.0,
+        "battery_to_losses": 0.0,
     }
     base.update(overrides)
     return base
@@ -311,7 +362,7 @@ def test_battery_to_grid_arbitrage_margin_reflects_cheap_charge_expensive_export
 
 
 def test_forecast_periods_carry_the_new_fields_shape():
-    flow = _flow_decomposition(3.0, 1.0, 3.0, 0.0)
+    flow = _flow_decomposition(3.0, 1.0, 3.0, 0.0, grid_export_kw_i=0.0)
     assert set(flow.keys()) == {
         "pv_to_load",
         "pv_to_battery",
@@ -320,6 +371,7 @@ def test_forecast_periods_carry_the_new_fields_shape():
         "battery_to_grid",
         "grid_to_load",
         "grid_to_battery",
+        "battery_to_losses",
     }
     econ = _compute_flow_economics(
         [flow],
