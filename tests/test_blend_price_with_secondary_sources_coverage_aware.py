@@ -63,7 +63,7 @@ class TestSecondarySourceWithNoNearTermCoverage:
         cfg = {"solver_export_price_sensor_2": "sensor.nem_pd7day_day_2_7"}
 
         with patch.object(solver_writer, "ha_get", return_value=secondary_state):
-            result, spread = solver_writer.blend_price_with_secondary_sources(
+            result, spread, _source = solver_writer.blend_price_with_secondary_sources(
                 primary,
                 cfg,
                 ("solver_export_price_sensor_2", "solver_export_price_sensor_3"),
@@ -92,7 +92,7 @@ class TestSecondarySourceWithNoNearTermCoverage:
         cfg = {"solver_export_price_sensor_2": "sensor.nem_pd7day_day_2_7"}
 
         with patch.object(solver_writer, "ha_get", return_value=secondary_state):
-            result, _spread = solver_writer.blend_price_with_secondary_sources(
+            result, _spread, _source = solver_writer.blend_price_with_secondary_sources(
                 primary,
                 cfg,
                 ("solver_export_price_sensor_2", "solver_export_price_sensor_3"),
@@ -116,7 +116,7 @@ class TestSecondarySourceWithNoNearTermCoverage:
         cfg = {"solver_export_price_sensor_2": "sensor.always_real"}
 
         with patch.object(solver_writer, "ha_get", return_value=secondary_state):
-            result, _spread = solver_writer.blend_price_with_secondary_sources(
+            result, _spread, _source = solver_writer.blend_price_with_secondary_sources(
                 primary,
                 cfg,
                 ("solver_export_price_sensor_2", "solver_export_price_sensor_3"),

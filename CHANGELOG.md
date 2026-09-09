@@ -6,6 +6,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.213] — 2026-09-09
+
+### Added
+- **A per-period price-source label, `import_price_source`/`export_price_source` (`"primary"`/`"secondary"`/`"fallback"`), published alongside `import_price`/`import_price_raw` on every forecast row** (nimbus issue #631, Mark Purcell, live finding: a single 71.3 kWh charge block was committed 20 hours ahead purely on a secondary source's own price — the primary's morning equivalent block had priced 3.3 ¢ against a real 9–10 ¢, and nothing in the published plan distinguished "known from the retailer's own near-term forecast" from "extrapolated from a weekly tariff table"; `import_price` and `import_price_raw` were byte-identical in every row regardless of which source actually won that period).
+
+  `blend_price_with_secondary_sources()` already makes this exact decision internally (primary-unblended / secondary-only / equal-weight-fallback) for every period's own value — it now also returns that decision as a label, so the published field can never drift out of sync with what the blend actually did. `"primary"` on every row of a single-source install (the overwhelming majority today, byte-identical to before). New tests covering all three labels plus a period-by-period mix within one call.
+
 ## [0.94.212] — 2026-09-09
 
 ### Fixed

@@ -3460,7 +3460,7 @@ def blend_price_with_secondary_sources(
     secondary_keys: tuple[str, str],
     grid_times: list[datetime],
     primary_real_mask: list[bool] | None = None,
-) -> tuple[list[float], NDArray[np.float64] | None]:
+) -> tuple[list[float], NDArray[np.float64] | None, list[str]]:
     """Optional second/third price source blending (2026-08-25, direct
     household ask: "u also are missing my blended price forecasts...
     in case we can feed it more than one... e.g. aemo... and amber").
@@ -3525,10 +3525,12 @@ def blend_price_with_secondary_sources(
     blend across every source's own held-flat value (the honest
     "everyone's guessing" case) rather than an arbitrary pick.
 
-    Returns `(primary, None)` completely unchanged whenever no
-    secondary source is configured OR configured but currently
-    unavailable -- a single-source install (the overwhelming majority
-    today) is byte-identical to before this function existed.
+    Returns `(primary, None, ["primary"] * len(primary))` completely
+    unchanged whenever no secondary source is configured OR configured
+    but currently unavailable -- a single-source install (the
+    overwhelming majority today) is byte-identical to before this
+    function existed (aside from the trivial, always-"primary" label
+    list, new in #631).
 
     Note on period 0 (2026-08-27, nimbus repo issue #220, Mark Purcell:
     "Settled prices must not be blended"): grid_times[0] is always "now"
@@ -3540,7 +3542,22 @@ def blend_price_with_secondary_sources(
     aware of which index is "now"); the caller (main()) is responsible
     for re-asserting the settled primary value at index 0 AFTER calling
     this, which is simpler and keeps this function's own contract
-    (and its existing direct unit tests) unchanged.
+    (and its existing direct unit tests) unchanged. The caller must
+    likewise force this function's own `source_labels[0]` back to
+    "primary" after that re-assertion, for the same reason.
+
+    nimbus issue #631 (Mark Purcell, live finding: a single 71.3 kWh
+    charge block committed 20 hours ahead on a secondary source's own
+    price, with nothing in the published plan distinguishing "known
+    from the retailer's own near-term forecast" from "extrapolated from
+    a weekly tariff table" -- `import_price`/`import_price_raw` were
+    byte-identical in every row regardless of which source actually won
+    that period). The third return value is a per-period label,
+    `"primary"`/`"secondary"`/`"fallback"`, naming EXACTLY which branch
+    of the same decision this function already makes for `blended[i]`
+    produced that period's own value -- not a second, independently
+    reasoned classification that could ever drift out of sync with the
+    real blend decision above it.
     """
     sources = [np.array(primary, dtype=float)]
     real_masks: list[list[bool]] = [
@@ -3557,9 +3574,10 @@ def blend_price_with_secondary_sources(
                 sources.append(np.array(fc, dtype=float))
                 real_masks.append(mask)
     if len(sources) == 1:
-        return primary, None
+        return primary, None, ["primary"] * len(primary)
     n = len(primary)
     blended = np.empty(n, dtype=float)
+    source_labels: list[str] = []
     for i in range(n):
         # PRIMARY-PREFERRING (2026-08-27, nimbus repo issue #239, Mark
         # Purcell, following his own #236 report): whenever the primary
@@ -3597,11 +3615,13 @@ def blend_price_with_secondary_sources(
         # reached when the primary alone would have been sufficient.
         if real_masks[0][i]:
             blended[i] = sources[0][i]
+            source_labels.append("primary")
             continue
         secondary_real_idx = [j for j in range(1, len(sources)) if real_masks[j][i]]
         idx = secondary_real_idx if secondary_real_idx else list(range(len(sources)))
         blended[i] = float(np.mean([sources[j][i] for j in idx]))
-    return list(blended), cross_source_spread(sources)
+        source_labels.append("secondary" if secondary_real_idx else "fallback")
+    return list(blended), cross_source_spread(sources), source_labels
 
 
 def fetch_aemo_forecast(
@@ -6680,6 +6700,11 @@ def publish_plan(
     export_price,
     spot_import_source,
     spot_export_source,
+    # nimbus issue #631: per-period "primary"/"secondary"/"fallback"
+    # label, straight from blend_price_with_secondary_sources()'s own
+    # real decision -- see that function's own docstring.
+    import_price_source,
+    export_price_source,
     export_bonus_price,
     load_kw,
     solar_kw,
@@ -6982,6 +7007,19 @@ def publish_plan(
             # diagnostic"). On a single-source install (no _sensor_2/_3
             # configured) this is unchanged, byte-identical to before.
             "import_price_raw": round(spot_import_source[i], 4),
+            # nimbus issue #631 (Mark Purcell, live finding: a single
+            # 71.3 kWh charge block committed 20 hours ahead purely on a
+            # secondary source's own price, with nothing published that
+            # distinguished "known from the retailer's own near-term
+            # forecast" from "extrapolated from a weekly tariff table" --
+            # import_price and import_price_raw were byte-identical in
+            # every row regardless of which source actually won that
+            # period). "primary"/"secondary"/"fallback", one label per
+            # period, straight from blend_price_with_secondary_sources()'s
+            # own real per-period decision -- see that function's own
+            # docstring. "primary" on every row of a single-source
+            # install (the overwhelming majority today).
+            "import_price_source": import_price_source[i],
             "export_price": round(export_price[i], 4),
             # Same true pre-blend pass-through as import_price_raw above,
             # for the export side -- new field (2026-08-27, nimbus repo
@@ -6989,6 +7027,9 @@ def publish_plan(
             # export_price_raw (same shape as the existing
             # import_price_raw attribute)").
             "export_price_raw": round(spot_export_source[i], 4),
+            # Same #631 per-period source label as import_price_source
+            # above, for the export side.
+            "export_price_source": export_price_source[i],
             "bonus_price": round(export_bonus_price[i], 4),
             "load_kw": round(load_kw[i], 3),
             "solar_kw": round(solar_kw[i], 3),
@@ -10222,19 +10263,23 @@ def main() -> None:
     # docstring for the full mechanism -- extracted into its own
     # function specifically so it's directly unit-testable without
     # needing to drive the whole of main().
-    spot_import_raw, import_price_cross_spread = blend_price_with_secondary_sources(
-        spot_import_raw,
-        cfg,
-        ("solver_import_price_sensor_2", "solver_import_price_sensor_3"),
-        grid_times,
-        primary_real_mask=import_real_mask,
+    spot_import_raw, import_price_cross_spread, import_price_source = (
+        blend_price_with_secondary_sources(
+            spot_import_raw,
+            cfg,
+            ("solver_import_price_sensor_2", "solver_import_price_sensor_3"),
+            grid_times,
+            primary_real_mask=import_real_mask,
+        )
     )
-    spot_export, export_price_cross_spread = blend_price_with_secondary_sources(
-        spot_export,
-        cfg,
-        ("solver_export_price_sensor_2", "solver_export_price_sensor_3"),
-        grid_times,
-        primary_real_mask=export_real_mask,
+    spot_export, export_price_cross_spread, export_price_source = (
+        blend_price_with_secondary_sources(
+            spot_export,
+            cfg,
+            ("solver_export_price_sensor_2", "solver_export_price_sensor_3"),
+            grid_times,
+            primary_real_mask=export_real_mask,
+        )
     )
     # Re-assert the settled current-block value (nimbus repo issue #220):
     # blend_price_with_secondary_sources() has no notion of "index 0 is
@@ -10244,10 +10289,16 @@ def main() -> None:
     # there too -- the settled value set above is never a valid blend
     # target, so re-apply it here as the final word regardless of what
     # the blend step did, across every row inside the current NEM
-    # settlement block, not just index 0.
+    # settlement block, not just index 0. Its own source label is
+    # likewise forced back to "primary" (nimbus issue #631) -- a settled
+    # value is by definition the primary source's own contractual
+    # figure, never a blend, regardless of what the blend step above
+    # happened to label it.
     for _i in range(n_settled_periods):
         spot_import_raw[_i] = spot_import_source[_i]
         spot_export[_i] = spot_export_source[_i]
+        import_price_source[_i] = "primary"
+        export_price_source[_i] = "primary"
 
     # Generic + real: TOU network fees and the flat fee rate apply to
     # EVERY install, LocalVolts or not (nimbus repo issue #152, fixed
@@ -10688,6 +10739,8 @@ def main() -> None:
         export_price=export_price,
         spot_import_source=spot_import_source,
         spot_export_source=spot_export_source,
+        import_price_source=import_price_source,
+        export_price_source=export_price_source,
         export_bonus_price=export_bonus_price,
         load_kw=load_kw,
         solar_kw=solar_kw,
