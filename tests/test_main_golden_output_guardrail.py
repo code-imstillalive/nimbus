@@ -308,6 +308,23 @@ class TestMainGoldenOutput:
         forecast = attrs.get("forecast")
         assert forecast is not None and len(forecast) == _EXPECTED_ATTRS["n_periods"]
 
+        # nimbus issue #563 item 5: same per-period, real-time-stamped
+        # shape as "forecast" above -- checked structurally here (one
+        # entry per real battery, each carrying the full per-period
+        # series), not pinned into _EXPECTED_ATTRS's own byte-exact
+        # comparison below, same reasoning as "forecast" itself.
+        batteries = attrs.get("batteries")
+        assert batteries is not None and len(batteries) == 1  # just "home" here
+        assert batteries[0]["name"] == "home"
+        assert len(batteries[0]["forecast"]) == _EXPECTED_ATTRS["n_periods"]
+        assert set(batteries[0]["forecast"][0].keys()) == {
+            "time",
+            "charge_kw",
+            "discharge_kw",
+            "soc_kwh",
+            "soc_pct",
+        }
+
         actual_non_time = {
             k: v for k, v in attrs.items() if k not in _TIME_DEPENDENT_ATTR_KEYS
         }
@@ -317,6 +334,7 @@ class TestMainGoldenOutput:
             if k not in _TIME_DEPENDENT_ATTR_KEYS
         }
         actual_non_time.pop("forecast")
+        actual_non_time.pop("batteries")
         assert actual_non_time == expected_non_time, (
             "main()'s pushed attributes (excluding forecast/generated_at/"
             "solve_seconds) no longer match the golden output -- if this "

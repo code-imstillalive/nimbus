@@ -91,6 +91,14 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # this exact split to the standalone script is a separate,
         # not-yet-scoped follow-up.
         "publish_plan",
+        # nimbus issue #563 item 5: called only from publish_plan()
+        # itself (already exempted above, same reasoning) -- and its
+        # own real value (a multi-participant breakdown) has nothing to
+        # show in standalone/cron mode anyway, since battery_participant
+        # subentries are themselves native-HA-only (build_extra_
+        # batteries() returns [] there, so plan.batteries is always a
+        # single-element ["home"] list).
+        "build_per_battery_forecast",
         "register_entity_handler",
         "unregister_entity_handler",
         "ha_call_service_with_response",

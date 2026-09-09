@@ -2752,8 +2752,12 @@ class _NimbusSolverPushSensor(SensorEntity):
     # forecast is a projection, not a historical fact worth keeping in
     # the long-term stats database, so unrecording it silences the real
     # bytes-truncated warning without losing anything a user actually
-    # needs later.
-    _unrecorded_attributes = frozenset({"forecast"})
+    # needs later. "batteries" (nimbus issue #563 item 5) joins it for
+    # the identical reason -- a per-participant COPY of the same
+    # per-period series, only present on sensor.nimbus_solver_battery_
+    # forecast (harmless, unused key for sensor.nimbus_household_load_
+    # total_forecast, the other _NimbusSolverPushSensor instance).
+    _unrecorded_attributes = frozenset({"forecast", "batteries"})
 
     def __init__(self, entry: NimbusConfigEntry, sw_version: str | None) -> None:
         self._entry = entry
