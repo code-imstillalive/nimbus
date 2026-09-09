@@ -125,6 +125,7 @@ from .const import (
     CONF_SOLVER_NETWORK_FEE_3_RATE,
     CONF_SOLVER_NETWORK_FEE_3_START_HOUR,
     CONF_SOLVER_NETWORK_FEE_DEFAULT_RATE,
+    CONF_SOLVER_OFFER_CURVE_ENABLED,
     CONF_SOLVER_P2P_BLOCK_1_END_HOUR,
     CONF_SOLVER_P2P_BLOCK_1_RATE_KW,
     CONF_SOLVER_P2P_BLOCK_1_START_HOUR,
@@ -353,6 +354,11 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     # fields for the full mechanism.
     CONF_SOLVER_INTRAPLAN_SMOOTHNESS_WEIGHT_KW,
     CONF_SOLVER_PROXIMAL_WEIGHT_KW,
+    # nimbus issue #494: same "wizard/switch entity saves it, this bridge
+    # sensor must also expose it" requirement as every field above --
+    # resolved via _SOLVER_SWITCH_ENTITY_KEYS (see that tuple's own
+    # comment) rather than entry.options directly.
+    CONF_SOLVER_OFFER_CURVE_ENABLED,
 )
 # 2026-08-20: these 14 plain-numeric fields moved off entry.options entirely
 # -- they're now LIVE, dashboard-editable number.nimbus_solver_* entities
@@ -445,6 +451,11 @@ _SOLVER_SWITCH_ENTITY_KEYS = (
     # sensor.nimbus_solver_config's attributes keeps working with no
     # change on their side.
     CONF_SOLVE_ON_PRICE_CHANGE,
+    # nimbus issue #494: same live-switch resolve path -- solver_writer.
+    # py's main() reads this key off fetch_solver_config()'s own return
+    # value, never entry.options directly, so it must be resolved here
+    # too or the switch's live state would never actually reach main().
+    CONF_SOLVER_OFFER_CURVE_ENABLED,
 )
 
 
@@ -793,6 +804,10 @@ async def async_setup_entry(
     # own docstring for why this needs to be a real recorded entity, not
     # a log line.
     dispatch_dry_run = NimbusDispatchDryRunSensor(entry, sw_version)
+    # nimbus issue #494 (Signals 5/7 of #489): offer-curve push sensor,
+    # same registration pattern as dispatch_dry_run directly above -- see
+    # NimbusOfferCurveSensor's own docstring for what it publishes.
+    offer_curve = NimbusOfferCurveSensor(entry, sw_version)
     # Flattened per-attribute fan-out (2026-08-29) -- every top-level
     # scalar attribute of sensor.nimbus_solver_battery_forecast becomes
     # its own SensorEntity so it participates in HA history, LTS, and
@@ -838,6 +853,7 @@ async def async_setup_entry(
             battery_forecast,
             household_load_forecast,
             dispatch_dry_run,
+            offer_curve,
             mirror_temperature_forecast,
             mirror_humidity_forecast,
         ]
@@ -922,6 +938,11 @@ async def async_setup_entry(
         "sensor.nimbus_solver_dispatch_dry_run",
         dispatch_dry_run.update_from_solver,
         dispatch_dry_run.entity_id,
+    )
+    solver_writer.register_entity_handler(
+        "sensor.nimbus_offer_curve",
+        offer_curve.update_from_solver,
+        offer_curve.entity_id,
     )
     solver_writer.register_entity_handler(
         "sensor.nimbus_mirror_temperature_forecast",
@@ -3155,6 +3176,33 @@ class NimbusDispatchDryRunSensor(_NimbusSolverPushSensor):
 
     _UNIQUE_ID_SUFFIX = "nimbus_solver_dispatch_dry_run"
     _attr_name = "Solver Dispatch (Dry Run)"
+
+
+class NimbusOfferCurveSensor(_NimbusSolverPushSensor):
+    """nimbus issue #494 (Signals 5/7 of #489): a period-0 demand-response
+    offer ladder -- several real (price, kW) steps swept via `solver/
+    lp.py`'s `LPResult.sweep_cost()`, not just one (band_min, band_max)
+    at the current price the way `sensor.nimbus_solver_battery_forecast`'s
+    own #491/#492 signals already give. Only published while `switch.
+    nimbus_solver_offer_curve_enabled` is on (default off, see const.py's
+    own comment) -- solver_writer.py's own publish_plan() guards the push
+    on `plan.offer_curve_import is not None`, the same "None means it
+    wasn't computed this cycle" convention `Plan.grid_signals` already
+    uses for #491.
+
+    Same _NimbusSolverPushSensor base as NimbusDispatchDryRunSensor
+    above -- native_value is the import curve's own kW value AT the
+    current retail price (period 0's own effective_import_price), which
+    doubles as a real, dashboard-visible instance of #494's own "curve
+    at the current retail price equals the main plan's period-0 import"
+    consistency check (inherits the base class's POWER/kW device_class/
+    unit, a legitimate physical reading here, not a repurposed field).
+    `import_curve`/`export_curve` (each a list of [price, kW] pairs) and
+    `sweep_seconds` are extra_state_attributes.
+    """
+
+    _UNIQUE_ID_SUFFIX = "nimbus_offer_curve"
+    _attr_name = "Offer Curve"
 
 
 class NimbusMirrorTemperatureForecastSensor(_NimbusSolverPushSensor):

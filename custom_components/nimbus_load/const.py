@@ -776,6 +776,15 @@ DEFAULT_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR: Final = False
 # the codebase yet for it to enable even if someone flips it on.
 CONF_SOLVER_DISPATCH_DRY_RUN: Final = "solver_dispatch_dry_run"
 DEFAULT_SOLVER_DISPATCH_DRY_RUN: Final = False
+# nimbus issue #494 (Signals 5/7 of #489): the period-0 demand-response
+# offer-curve price sweep (solver/network.py's own build_plan(compute_
+# offer_curve=True), sensor.nimbus_offer_curve). Default False, same
+# "opt-in, no ambient cost" reasoning as every other Solver toggle here
+# -- #494's own spec explicitly calls for this NOT running on every
+# 5-minute solve by default (7 extra simplex re-solves per direction,
+# every cycle, for a capability most installs never asked for).
+CONF_SOLVER_OFFER_CURVE_ENABLED: Final = "solver_offer_curve_enabled"
+DEFAULT_SOLVER_OFFER_CURVE_ENABLED: Final = False
 CONF_SOLVER_LOAD_FORECAST_SENSOR: Final = "solver_load_forecast_sensor"
 # Optional, more granular alternative to the single sensor above (2026-08-23,
 # real bug found live: solver_writer.py used to hardcode a Python list of

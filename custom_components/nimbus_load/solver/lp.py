@@ -219,6 +219,90 @@ class LPResult:
     # just re-reporting the raw row_bound_dn/up endpoints.
     _row_value_by_name: dict[str, float] = field(default_factory=dict)
 
+    # nimbus issue #494 (Signals 5/7 of #489): the live highspy instance
+    # this result came off of, retained ONLY when the caller opted in via
+    # LPProblem.solve(keep_basis=True) -- see sweep_cost()'s own
+    # docstring. None (the default, same "opt-in, no ambient cost"
+    # convention as ranging_valid=None) for every ordinary solve, so a
+    # ordinary caller never keeps a live C++ object alive for a
+    # capability it never asked for. `compare=False`/`repr=False`: a
+    # highspy.Highs instance has no meaningful equality/repr for this
+    # dataclass's own purposes, and no existing caller ever compares two
+    # LPResult instances for equality (confirmed via a repo-wide search
+    # before adding this).
+    _highs: Any = field(default=None, repr=False, compare=False)
+    # Copy of the LPProblem's own name->column-index map, needed by
+    # sweep_cost() to call h.changeColCost(col, ...) -- LPResult has no
+    # back-reference to the LPProblem that produced it, by design (same
+    # reasoning as _x_by_name's own docstring above), so this is copied
+    # in at solve() time instead. Empty whenever _highs is None.
+    _var_index: dict[str, int] = field(default_factory=dict, repr=False, compare=False)
+    # This variable's own objective coefficient AT SOLVE TIME, one entry
+    # per variable name -- sweep_cost() restores it after sweeping so a
+    # caller sweeping several different variables off the SAME LPResult
+    # (network.py's own import/export offer-curve pair) never sees one
+    # sweep's leftover cost bleed into the next. Empty whenever _highs is
+    # None.
+    _orig_cost_by_name: dict[str, float] = field(
+        default_factory=dict, repr=False, compare=False
+    )
+
+    def sweep_cost(self, var: str, costs: list[float]) -> list[float]:
+        """Re-solve this LP once per entry in `costs`, resetting `var`'s
+        own objective coefficient to that value each time, and return
+        `var`'s own resulting value at each step (same order as
+        `costs`) -- nimbus issue #494 (Signals 5/7 of #489), the
+        mechanism behind the offer-curve price sweep.
+
+        Warm-started from THIS result's own already-loaded optimal
+        basis -- each step is a genuine HiGHS re-optimize from a near-
+        optimal starting point, not a cold solve from scratch, which is
+        the entire reason to do this here (inside the live `h`) instead
+        of building N brand-new LPProblems. Only the ONE named
+        variable's cost coefficient changes between steps; every bound
+        and constraint is untouched, so the feasible region never
+        changes -- a step can change WHICH vertex is optimal, never
+        whether the problem has a feasible/bounded answer at all.
+
+        `var`'s own cost coefficient is restored to its original
+        (solve-time) value before this method returns, regardless of
+        what `costs` swept through -- see `_orig_cost_by_name`'s own
+        docstring for why.
+
+        Raises ValueError if this LPResult didn't retain a live HiGHS
+        instance (`solve(keep_basis=True)` wasn't passed) or if any
+        sweep step doesn't come back optimal (a real anomaly worth
+        surfacing loudly, not silently returning a garbage value from
+        an unsolved re-optimize).
+        """
+        if self._highs is None:
+            msg = (
+                f"sweep_cost({var!r}) requires solve(keep_basis=True) -- "
+                "this LPResult did not retain its own HiGHS instance"
+            )
+            raise ValueError(msg)
+        if var not in self._var_index:
+            msg = f"Unknown variable {var!r}"
+            raise KeyError(msg)
+        h = self._highs
+        col = self._var_index[var]
+        original_cost = self._orig_cost_by_name.get(var, 0.0)
+        values: list[float] = []
+        try:
+            for cost in costs:
+                h.changeColCost(col, cost)
+                h.run()
+                if h.getModelStatus() != highspy.HighsModelStatus.kOptimal:
+                    msg = (
+                        f"sweep_cost({var!r}): re-solve at cost={cost} did not "
+                        f"reach optimal (status={h.modelStatusToString(h.getModelStatus())!r})"
+                    )
+                    raise ValueError(msg)
+                values.append(float(h.getSolution().col_value[col]))
+        finally:
+            h.changeColCost(col, original_cost)
+        return values
+
     def bound_headroom(self, var: str) -> Headroom | None:
         """Real (down, up) headroom on variable `var`'s own bound before
         the optimal basis changes -- `x[var] - col_bound_dn[var].value`
@@ -405,7 +489,7 @@ class LPProblem:
     def n_variables(self) -> int:
         return len(self._var_names)
 
-    def solve(self, *, ranging: bool = False) -> LPResult:
+    def solve(self, *, ranging: bool = False, keep_basis: bool = False) -> LPResult:
         """`ranging=True` (nimbus issue #490) additionally computes
         HiGHS's own post-solve ranging (see `LPResult`'s own docstring
         for the full field-by-field meaning) -- opt-in, since it's a
@@ -415,8 +499,17 @@ class LPProblem:
         assignment (the same pass `_solve_highs()` already runs to
         recover meaningful duals on a MIP, see that function's own
         comment) -- valid at the real chosen assignment, something HAEO
-        (LP-only) structurally can't offer."""
-        return _solve_highs(self, ranging=ranging)
+        (LP-only) structurally can't offer.
+
+        `keep_basis=True` (nimbus issue #494) additionally retains the
+        live highspy instance on the returned LPResult, enabling
+        `LPResult.sweep_cost()` -- see that method's own docstring. Also
+        opt-in, for the same reason: an ordinary caller never needs a
+        live C++ object to outlive this call, and every LPResult that
+        doesn't ask for one stays exactly as cheap to solve/discard as
+        before this parameter existed.
+        """
+        return _solve_highs(self, ranging=ranging, keep_basis=keep_basis)
 
     def value_of(self, result: LPResult, name: str) -> float:
         """Read one named variable's value out of a solved LPResult.
@@ -497,12 +590,15 @@ def _build_ranging_dict(
     }
 
 
-def _solve_highs(problem: LPProblem, *, ranging: bool = False) -> LPResult:
+def _solve_highs(
+    problem: LPProblem, *, ranging: bool = False, keep_basis: bool = False
+) -> LPResult:
     """Translate an LPProblem into a highspy model, solve it, and translate
     the result back. See this module's own docstring for why highspy
     (not a from-scratch simplex) is the real solver backend here.
 
     `ranging` (nimbus issue #490): see LPProblem.solve()'s own docstring.
+    `keep_basis` (nimbus issue #494): see LPProblem.solve()'s own docstring.
     """
     n = problem.n_variables
     if n == 0:
@@ -732,6 +828,16 @@ def _solve_highs(problem: LPProblem, *, ranging: bool = False) -> LPResult:
             ranging_valid,
         )
 
+    # nimbus issue #494: captured unconditionally (cheap -- a dict
+    # comprehension over n names) so it's ready the moment keep_basis
+    # wants it, but only actually STORED on the result (via the
+    # conditional below) when keep_basis=True -- an ordinary solve pays
+    # for building this dict but not for retaining `h` itself, which is
+    # the real, measured cost this parameter exists to gate.
+    orig_cost_by_name = {
+        name: problem._cost.get(name, 0.0) for name in problem._var_names
+    }
+
     return LPResult(
         status="optimal",
         x=x,
@@ -748,4 +854,7 @@ def _solve_highs(problem: LPProblem, *, ranging: bool = False) -> LPResult:
         _row_value_by_name=row_value_by_name,
         duals=duals,
         reduced_costs=reduced_costs,
+        _highs=h if keep_basis else None,
+        _var_index=dict(problem._var_index) if keep_basis else {},
+        _orig_cost_by_name=orig_cost_by_name if keep_basis else {},
     )
