@@ -30,6 +30,7 @@ solver_writer.py's own build_controllable_loads()).
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime
 from typing import Any
@@ -147,6 +148,15 @@ class LoadRunState:
     # posture as plan_cost_forecast above -- "so a household (and this
     # IV&V) can see why a load landed where it did."
     plan_shadow_price_forecast: list[dict[str, Any]] | None = None
+    # nimbus issue #613 (item 3 of 3 -- "Show the reason": a household
+    # can now see WHY a deferrable load landed where it did, in plain
+    # language, on the load's own device page. Computed by compute_
+    # load_status_reason() below from this same cycle's plan_forecast/
+    # plan_shadow_price_forecast, refreshed every solve cycle like its
+    # #581/#591/#613-item-1 siblings above. None for a sheddable load
+    # (no deadline/earliness semantics to explain) or a deferrable load
+    # this cycle's solve didn't cover.
+    plan_status_reason: str | None = None
     # nimbus issue #592 (Mark Purcell, part of #589 -- "will the tank be
     # at 60 by lunchtime?"): the two rates thermal_forecast.py's own
     # learn_thermal_rates() derives from recorder history, persisted so
@@ -207,6 +217,7 @@ class LoadRunState:
             "plan_nominal_kw": self.plan_nominal_kw,
             "plan_cost_forecast": self.plan_cost_forecast,
             "plan_shadow_price_forecast": self.plan_shadow_price_forecast,
+            "plan_status_reason": self.plan_status_reason,
             "cost_today": self.cost_today,
             "thermal_heating_rate_c_per_kwh": self.thermal_heating_rate_c_per_kwh,
             "thermal_idle_decay_c_per_hour": self.thermal_idle_decay_c_per_hour,
@@ -240,6 +251,7 @@ class LoadRunState:
             plan_nominal_kw=data.get("plan_nominal_kw"),
             plan_cost_forecast=data.get("plan_cost_forecast"),
             plan_shadow_price_forecast=data.get("plan_shadow_price_forecast"),
+            plan_status_reason=data.get("plan_status_reason"),
             cost_today=float(data.get("cost_today", 0.0)),
             thermal_heating_rate_c_per_kwh=data.get("thermal_heating_rate_c_per_kwh"),
             thermal_idle_decay_c_per_hour=data.get("thermal_idle_decay_c_per_hour"),
@@ -267,6 +279,62 @@ def build_time_value_series(
         {"time": t.isoformat(), "value": round(float(v), round_ndigits)}
         for t, v in zip(grid_times, values)
     ]
+
+
+def compute_load_status_reason(
+    *,
+    power_kw: Sequence[float],
+    shadow_price: Sequence[float],
+    grid_times: Sequence[datetime],
+    earliest_period: int,
+    deadline_period: int,
+    on_threshold_kw: float = DEFAULT_ON_THRESHOLD_KW,
+) -> str | None:
+    """nimbus issue #613 (item 3 of 3): the plain-language "why" behind a
+    deferrable load's own current placement, built from this same
+    solve's plan_forecast (power_kw) and plan_shadow_price_forecast
+    (shadow_price, the LP's own power_balance_t{t} dual lambda(t)) --
+    the same two series already published per-period, just read back
+    together here.
+
+    Three real cases:
+    - Running right now (power_kw[0] above the on-threshold): "running
+      now, marginal cost X c/kWh" -- X is lambda(0) itself, the real
+      whole-system marginal cost this instant.
+    - Deferred to a later period within [earliest_period, deadline_
+      period]: "deferred to HH:MM, saves Y c/kWh" when that period's own
+      lambda is genuinely lower than lambda(0) (Y = the real difference,
+      never fabricated), or "deferred to HH:MM, marginal cost Z c/kWh"
+      when it isn't (e.g. the earliness term itself placed it there, or
+      a real constraint elsewhere in the plan did) -- never claims a
+      saving that isn't real.
+    - Not scheduled to run in this window at all this cycle (every
+      period in range stayed at/below the on-threshold, e.g. an earlier
+      window already met the target) -- "not scheduled to run this
+      window".
+
+    Returns None only when there's nothing to compute from (an empty
+    series this cycle) -- same "never fabricate, fail open" posture as
+    every other optional field on LoadRunState.
+    """
+    n = min(len(power_kw), len(shadow_price), len(grid_times))
+    if n == 0:
+        return None
+    if float(power_kw[0]) > on_threshold_kw:
+        return f"running now, marginal cost {float(shadow_price[0]) * 100:.2f} c/kWh"
+    lo = max(0, earliest_period, 1)
+    hi = min(deadline_period, n - 1)
+    for t in range(lo, hi + 1):
+        if float(power_kw[t]) > on_threshold_kw:
+            local_time = grid_times[t].strftime("%H:%M")
+            savings = float(shadow_price[0]) - float(shadow_price[t])
+            if savings > 1e-9:
+                return f"deferred to {local_time}, saves {savings * 100:.2f} c/kWh"
+            return (
+                f"deferred to {local_time}, marginal cost "
+                f"{float(shadow_price[t]) * 100:.2f} c/kWh"
+            )
+    return "not scheduled to run this window"
 
 
 def compute_rollover(

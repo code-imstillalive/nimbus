@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.226] — 2026-09-10
+
+### Added
+- **Deferrable loads now prefer the earliest feasible period among genuine ties, instead of an arbitrary vertex** (nimbus issue #613, Mark Purcell, real finding: two solves 4 hours apart both saw the whole-system marginal cost of a kWh under 0.2¢ and still deferred a heat pump run, because nothing in the objective valued earliness at all). `network.build_plan()` gains a small, deliberately tiny earliness preference on every `AdequacyLoadConfig`'s own power variable — its total cost impact, end to end across the WHOLE solve horizon, is fixed at exactly `MIN_CHARGE_DISCHARGE_COST_SPREAD` (1¢/kWh) regardless of any individual load's own window length, so it can never be mistaken for (or override) a genuine price difference — it only ever breaks a real tie toward running sooner. On by default (no household-facing field — this codebase already has the constants that define "not a real economic signal"; per the issue's own explicit ask, there is deliberately no consumer parameter to set).
+- **A deferrable load's device page now shows why it's scheduled where it is.** New `plan_status_reason` attribute on `sensor.nimbus_<load>_commanded_state`: `"running now, marginal cost 0.13 c/kWh"` or `"deferred to 11:00, saves 3.2 c/kWh"` (or the real marginal cost there, never a fabricated saving, when the placement isn't actually cheaper) — built from the same per-period `plan_shadow_price_forecast` (λ(t), shipped earlier as #613's own item 1 in v0.94.202) and `plan_forecast` this sensor already publishes.
+
 ## [0.94.225] — 2026-09-09
 
 ### Added

@@ -277,6 +277,7 @@ from numpy.typing import NDArray
 
 from . import p2p_export
 from .elements import (
+    MIN_CHARGE_DISCHARGE_COST_SPREAD,
     AdequacyLoadConfig,
     BatteryConfig,
     GridConfig,
@@ -310,6 +311,39 @@ DEFAULT_PROXIMAL_WEIGHT_KW: float = 0.005
 # different reference point (the previous solve's plan vs. this solve's own
 # immediately preceding period).
 DEFAULT_SMOOTHNESS_WEIGHT_KW: float = 0.005
+
+# nimbus issue #613 (Mark Purcell, item 2 of 3 -- item 1, exposing
+# shadow_price/plan_shadow_price_forecast, shipped in v0.94.202): the
+# "earliest-feasible timing within a materiality band" behaviour change.
+# An AdequacyLoadConfig (deferrable load) is free today to satisfy its
+# cumulative target_kwh from ANY period in [earliest_period,
+# deadline_period] at zero direct cost -- when several periods are
+# genuinely tied on real system cost (the exact scenario in #613's own
+# report: two solves 4 hours apart both saw the marginal cost of a kWh
+# under 0.2c and still deferred, because nothing in the objective valued
+# earliness at all), the LP picks whichever tied vertex it happens to
+# land on, which can be the LATEST feasible period just as easily as the
+# earliest. This is the single-pass earliness-cost-term Mark's own issue
+# proposes (the alternative being a two-pass epsilon-constraint re-solve,
+# real solver work #494's own offer-curve sweep already shows is
+# possible here, but strictly heavier for a plain scheduling preference).
+#
+# Deliberately NOT `MIN_CHARGE_DISCHARGE_COST_SPREAD` applied directly as
+# a flat $/kWh-per-hour-of-delay rate: over a long window (a 24h HWS
+# window, or #612's own multi-day repeating windows) that would let the
+# cumulative earliness bias grow past 0.01 $/kWh -- the exact threshold
+# this codebase everywhere else treats as "definitely a real economic
+# difference" -- and start overriding genuine price signals instead of
+# only breaking ties among them, the opposite of what "never override a
+# genuine economic signal" (DEFAULT_PROXIMAL_WEIGHT_KW's own docstring)
+# means. Normalizing by the SOLVE'S OWN horizon length below instead
+# fixes the total earliness-driven cost spread, end to end across the
+# whole plan, at exactly this one constant regardless of how long any
+# individual load's own window is -- by construction it can never be
+# mistaken for (or exceed) the smallest real price difference this
+# codebase already treats as meaningful, no matter how far out a load's
+# own deadline reaches.
+DEFAULT_ADEQUACY_EARLINESS_BUDGET_KW: float = MIN_CHARGE_DISCHARGE_COST_SPREAD
 
 # nimbus issue #328 (Mark Purcell) -- multiplier applied to the LARGEST
 # real $/kWh figure in play (peak import price, peak export price, and
@@ -983,6 +1017,7 @@ def build_plan(
     soft_soc_penalty_per_kwh: float | None = None,
     compute_signals: bool = False,
     compute_offer_curve: bool = False,
+    adequacy_earliness_budget_kw: float = DEFAULT_ADEQUACY_EARLINESS_BUDGET_KW,
 ) -> Plan:
     """Build and solve one LP for the given horizon/inputs. Pure function --
     no I/O, no HA dependency, safe to call from anywhere including a plain
@@ -992,6 +1027,12 @@ def build_plan(
     the three cross-solve stability mechanisms -- see this module's own
     docstring for the full design. All default to "off" (a bare, single-
     solve LP, unchanged from before these existed).
+
+    `adequacy_earliness_budget_kw` (nimbus issue #613) is ON by default,
+    unlike the mechanisms above -- see DEFAULT_ADEQUACY_EARLINESS_
+    BUDGET_KW's own docstring. Set to 0.0 to fully disable (every
+    adequacy load reverts to today's "zero direct cost anywhere in its
+    own window" behaviour).
 
     `shared_circuits` (SharedCircuitConfig, see its own docstring): caps
     the COMBINED power of two or more `adequacy_loads` sharing one real
@@ -1536,6 +1577,45 @@ def build_plan(
             )
             for t in range(n)
         ]
+    # nimbus issue #613 item 2: a small earliness preference on every
+    # adequacy load's own power variable -- see DEFAULT_ADEQUACY_
+    # EARLINESS_BUDGET_KW's own docstring for the full derivation. Cost
+    # per period t is `budget_per_hour * elapsed_hours[t]` ($/kWh scaled
+    # to this period's own duration, same unit convention as every other
+    # per-period cost in this function, e.g. adequacy_credit_*'s own
+    # `value_arr[t] * hours[t]`), where `elapsed_hours[t]` is the real
+    # time from right now (period 0's own start) to period t's own
+    # start -- period 0 itself always costs exactly 0 (never penalized
+    # for running immediately), and the LATEST period in the whole
+    # horizon costs exactly `adequacy_earliness_budget_kw` more, by
+    # construction, regardless of any individual load's own earliest/
+    # deadline window. Applied unconditionally to every adequacy load,
+    # windowed or not -- deliberately no opt-out field (the issue's own
+    # explicit ask: "No field for the household to set").
+    #
+    # A windowed load's own later windows (nimbus issue #612) still work
+    # correctly here with this same GLOBAL, period-0-anchored elapsed_
+    # hours array: each window's own deadline constraint and shortfall
+    # slack are already independent per-window (see the deadline-
+    # constraint block below), so within any one window this array is
+    # still monotonically increasing with t, which is the only property
+    # this cost term needs to correctly bias that window's own delivery
+    # toward its own earliest feasible periods -- the fact that a later
+    # window's periods carry a bigger absolute elapsed_hours value than
+    # an earlier window's never matters, since the two windows never
+    # compete for the same shortfall slack or deadline constraint.
+    if adequacy_loads and adequacy_earliness_budget_kw > 0.0:
+        horizon_hours = float(np.sum(hours))
+        if horizon_hours > 0.0:
+            elapsed_hours = np.concatenate(
+                ([0.0], np.cumsum(hours, dtype=np.float64)[:-1])
+            )
+            earliness_rate = adequacy_earliness_budget_kw / horizon_hours
+            for al in adequacy_loads:
+                for t in range(n):
+                    cost = earliness_rate * float(elapsed_hours[t]) * float(hours[t])
+                    if cost != 0.0:
+                        p.set_cost(adequacy_vars[al.name][t], cost)
     # nimbus issue #477: a soft shortfall slack per adequacy load,
     # replacing the old hard deadline constraint -- see
     # AdequacyLoadConfig's own docstring for the full "why" (matches

@@ -9005,7 +9005,7 @@ def apply_commanded_state_guard(
             ]
             return load_run_state.build_time_value_series(grid_times[:n], cost_values)
 
-        def _plan_shadow_price_forecast() -> list[dict[str, object]]:
+        def _raw_shadow_price_series() -> list[float]:
             # nimbus issue #613 (item 1 of 3 -- exposure only, NOT the
             # earliness-timing behavior change items 2/3 describe): the
             # whole-system marginal cost of a kWh for every period this
@@ -9017,11 +9017,17 @@ def apply_commanded_state_guard(
             # this file's own bare-SimpleNamespace test fakes predate
             # this field and don't set it -- same defensive posture as
             # every other optional-attribute read on `plan` in this
-            # function.
+            # function. Shared, unrounded source for both
+            # _plan_shadow_price_forecast() (the published series) and
+            # item 3's own status-reason computation, which needs the
+            # real, unrounded lambda(0) to compare against.
             duals = getattr(plan, "duals", {}) or {}
+            return [duals.get(f"power_balance_t{i}", 0.0) for i in range(n_periods)]
+
+        def _plan_shadow_price_forecast() -> list[dict[str, object]]:
             return load_run_state.build_time_value_series(
                 grid_times,
-                [duals.get(f"power_balance_t{i}", 0.0) for i in range(n_periods)],
+                _raw_shadow_price_series(),
                 # build_time_value_series()'s own 3dp default would
                 # collapse real, meaningful precision here -- a $/kWh
                 # shadow price this small (Mark's own real numbers:
@@ -9280,6 +9286,13 @@ def apply_commanded_state_guard(
                             float(target_kwh) if target_kwh is not None else None
                         ),
                         plan_shortfall_kwh=float(load_plan.shortfall_kwh),
+                        plan_status_reason=load_run_state.compute_load_status_reason(
+                            power_kw=load_plan.power_kw,
+                            shadow_price=_raw_shadow_price_series(),
+                            grid_times=grid_times,
+                            earliest_period=earliest_period,
+                            deadline_period=deadline_period,
+                        ),
                         plan_earliest_period=earliest_period,
                         plan_deadline_period=deadline_period,
                     )

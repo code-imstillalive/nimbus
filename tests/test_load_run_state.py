@@ -736,6 +736,106 @@ def _series(times: list[datetime], values: list[float]) -> list[dict]:
     return lrs.build_time_value_series(times, values)
 
 
+class TestLoadRunStatePlanStatusReasonRoundTrip(unittest.TestCase):
+    """nimbus issue #613 (item 3 of 3): plan_status_reason round-trips
+    through to_dict()/from_dict() the same way its #613-item-1 sibling
+    plan_shadow_price_forecast already does."""
+
+    def test_to_dict_and_from_dict_round_trip(self):
+        state = lrs.LoadRunState(
+            plan_status_reason="running now, marginal cost 0.13 c/kWh"
+        )
+        restored = lrs.LoadRunState.from_dict(state.to_dict())
+        self.assertEqual(
+            restored.plan_status_reason, "running now, marginal cost 0.13 c/kWh"
+        )
+
+    def test_from_dict_defaults_to_none_for_old_data(self):
+        old_data = {"currently_on": True}
+        restored = lrs.LoadRunState.from_dict(old_data)
+        self.assertIsNone(restored.plan_status_reason)
+
+
+class TestComputeLoadStatusReason(unittest.TestCase):
+    """nimbus issue #613 (item 3 of 3, Mark Purcell): "Show the reason.
+    status on the load's device page should say which it did." Real
+    scenarios from the issue's own report table (06:01/10:16 solves,
+    0.13c/0.06c marginal cost, deferred to 11:00)."""
+
+    def setUp(self):
+        self.times = _iso_grid(datetime(2026, 9, 9, 6, 0, tzinfo=_TZ), 6, minutes=60)
+
+    def test_running_now_reports_the_real_period_0_marginal_cost(self):
+        reason = lrs.compute_load_status_reason(
+            power_kw=[0.65, 0.65, 0.0, 0.0, 0.0, 0.0],
+            shadow_price=[0.0013, 0.0013, 0.0, 0.0, 0.0, 0.0],
+            grid_times=self.times,
+            earliest_period=0,
+            deadline_period=5,
+        )
+        self.assertEqual(reason, "running now, marginal cost 0.13 c/kWh")
+
+    def test_deferred_to_a_genuinely_cheaper_period_reports_real_savings(self):
+        # Mark's own real numbers, restated: lambda(0)=0.0013, the period
+        # the load is actually placed in has a genuinely lower lambda --
+        # the savings figure must be the real difference, not fabricated.
+        reason = lrs.compute_load_status_reason(
+            power_kw=[0.0, 0.0, 0.0, 0.0, 0.65, 0.0],
+            shadow_price=[0.0013, 0.0013, 0.001, 0.0008, 0.0006, 0.0006],
+            grid_times=self.times,
+            earliest_period=0,
+            deadline_period=5,
+        )
+        self.assertEqual(reason, "deferred to 10:00, saves 0.07 c/kWh")
+
+    def test_deferred_to_a_period_with_no_real_savings_never_claims_a_saving(self):
+        # The earliness term itself (or some other real constraint) can
+        # place the load in a LATER period whose own lambda is not
+        # actually lower -- must report the real marginal cost there
+        # instead of a fabricated "saves" claim.
+        reason = lrs.compute_load_status_reason(
+            power_kw=[0.0, 0.65, 0.0, 0.0, 0.0, 0.0],
+            shadow_price=[0.0013, 0.0013, 0.0013, 0.0013, 0.0013, 0.0013],
+            grid_times=self.times,
+            earliest_period=0,
+            deadline_period=5,
+        )
+        self.assertEqual(reason, "deferred to 07:00, marginal cost 0.13 c/kWh")
+
+    def test_never_scheduled_in_this_window_this_cycle(self):
+        reason = lrs.compute_load_status_reason(
+            power_kw=[0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            shadow_price=[0.0013, 0.0013, 0.0013, 0.0013, 0.0013, 0.0013],
+            grid_times=self.times,
+            earliest_period=0,
+            deadline_period=5,
+        )
+        self.assertEqual(reason, "not scheduled to run this window")
+
+    def test_only_searches_within_earliest_and_deadline_period(self):
+        # A period outside [earliest_period, deadline_period] showing
+        # power (should never happen given the LP's own bounds, but this
+        # function must not trust that blindly) is ignored.
+        reason = lrs.compute_load_status_reason(
+            power_kw=[0.0, 0.0, 0.65, 0.0, 0.0, 0.0],
+            shadow_price=[0.0013] * 6,
+            grid_times=self.times,
+            earliest_period=3,
+            deadline_period=5,
+        )
+        self.assertEqual(reason, "not scheduled to run this window")
+
+    def test_empty_series_returns_none(self):
+        reason = lrs.compute_load_status_reason(
+            power_kw=[],
+            shadow_price=[],
+            grid_times=[],
+            earliest_period=0,
+            deadline_period=0,
+        )
+        self.assertIsNone(reason)
+
+
 class TestFindCurrentOrNextRun(unittest.TestCase):
     """nimbus issue #590: _find_current_or_next_run() is the private
     scan derive_schedule_view() itself relies on to locate next_start/

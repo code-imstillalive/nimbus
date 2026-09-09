@@ -91,11 +91,15 @@ def test_commanded_state_sensor_has_unrecorded_attributes_for_recorder_cap():
     # it too). plan_cost_forecast (#591, v0.94.193) and temperature_
     # forecast (#592, v0.94.195) were both added to LoadRunState without
     # ever being added here.
+    # nimbus issue #613 (item 3 of 3): plan_status_reason joins the same
+    # set -- it refreshes every solve cycle exactly like its siblings
+    # here, same reasoning.
     cls = sensor.NimbusControllableLoadStateSensor
     assert cls._unrecorded_attributes == frozenset(
         {
             "plan_forecast",
             "plan_delivered_kwh_forecast",
+            "plan_status_reason",
             "plan_target_kwh",
             "plan_shortfall_kwh",
             "plan_earliest_period",
