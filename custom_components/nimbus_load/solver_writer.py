@@ -8425,7 +8425,7 @@ def build_controllable_loads(
     # tests do, to exercise this path without the full HA test harness)
     # hits the bare-module case, so both must actually work.
     try:
-        from . import load_run_state
+        from . import done_condition, load_run_state, thermal_forecast
         from .const import (
             CONF_CONTROLLABLE_LOAD_KIND,
             CONF_CONTROLLABLE_LOAD_NAME,
@@ -8447,7 +8447,9 @@ def build_controllable_loads(
             SUBENTRY_TYPE_CONTROLLABLE_LOAD,
         )
     except ImportError:
+        import done_condition
         import load_run_state
+        import thermal_forecast
         from const import (
             CONF_CONTROLLABLE_LOAD_KIND,
             CONF_CONTROLLABLE_LOAD_NAME,
@@ -8629,6 +8631,105 @@ def build_controllable_loads(
                         name,
                     )
                     continue
+                # nimbus issue #712/#713 (Mark Purcell, real live finding:
+                # two consecutive nights of uncontrolled compressor cut-in
+                # on the WWK302/#534 heat pump -- the deferrable model's
+                # kWh-target/deadline framing has no representation of the
+                # device's own physical thermal floor, so the LP is free
+                # to wait for a cheaper period even when doing so lets the
+                # tank fall past its floor and self-trigger, uncontrolled,
+                # at whatever price happens to be live). #713's own text
+                # proposed "pull the earliest allowed start forward" --
+                # traced the actual LP constraint (network.py's adequacy
+                # window sum) and that lever alone would not have changed
+                # Mark's real repro: his window's earliest_period (06:00)
+                # was already before the projected floor crossing (07:30),
+                # the LP simply preferred the cheaper 08:00 WITHIN that
+                # already-permissive window. The lever that actually forces
+                # delivery before a real deadline is the window's own
+                # DEADLINE, not its earliest bound -- tightening the
+                # NEAREST window's deadline_period down to the projected
+                # crossing period is what genuinely compels the LP to
+                # schedule real heating before the tank breaches its floor,
+                # rather than merely widening a bound the LP wasn't
+                # constrained by in the first place.
+                #
+                # Deliberately only the NEAREST window (windows[0]) --
+                # naive_floor_crossing_period() assumes ZERO further
+                # heating from `now` onward, which is only a trustworthy
+                # assumption up to whichever window real heating might
+                # first occur in; a later window's own eventual deadline is
+                # left untouched, same as PR #719's own floor_crossing_
+                # forecast_* fields never claimed to predict past the first
+                # crossing either.
+                #
+                # Known, honest simplification (not silently hidden): the
+                # decay rate used here is the project's own documented
+                # DEFAULT_IDLE_DECAY_C_PER_HOUR fallback, not this load's
+                # own LEARNED rate (LoadRunState's thermal_idle_decay_c_
+                # per_hour) -- the learned rate lives in the async run-state
+                # store, and this function is synchronous (native
+                # ConfigSubentry access only, see this function's own top
+                # docstring), so threading the learned rate through here
+                # would need a real async refactor of this function's own
+                # call chain. Worth a follow-up once that's justified on
+                # its own; the default fallback is the same constant this
+                # project already trusts for a load with no learned rate
+                # yet, not an invented number.
+                if done_entity and done_entity.split(".", 1)[0] in (
+                    done_condition.ATTRIBUTE_DONE_DOMAINS
+                ):
+                    live_temperature = done_condition.read_current_temperature(
+                        _NATIVE_HASS, done_entity
+                    )
+                    done_state_obj = _NATIVE_HASS.states.get(done_entity)
+                    min_temp = (
+                        done_state_obj.attributes.get("min_temp")
+                        if done_state_obj is not None
+                        else None
+                    )
+                    floor_temperature = thermal_forecast.resolve_floor_temperature(
+                        min_temp,
+                        data.get(CONF_DEFERRABLE_DONE_WHEN),
+                        done_condition.parse_done_when,
+                    )
+                    crossing_period = thermal_forecast.naive_floor_crossing_period(
+                        grid_times,
+                        now,
+                        live_temperature,
+                        thermal_forecast.DEFAULT_IDLE_DECAY_C_PER_HOUR,
+                        floor_temperature,
+                    )
+                    first_window = windows[0]
+                    if (
+                        crossing_period is not None
+                        and crossing_period < first_window.deadline_period
+                    ):
+                        new_deadline_period = max(
+                            first_window.earliest_period, crossing_period
+                        )
+                        _LOGGER.warning(
+                            "Nimbus: controllable load '%s' (deferrable) is "
+                            "projected to cross its own physical floor (%.1f) "
+                            "at period %d assuming no further heating -- "
+                            "tightening this window's own deadline from "
+                            "period %d to %d to force delivery before the "
+                            "device self-triggers outside the solved plan "
+                            "(nimbus issue #712/#713)",
+                            name,
+                            floor_temperature,
+                            crossing_period,
+                            first_window.deadline_period,
+                            new_deadline_period,
+                        )
+                        windows = [
+                            elements.AdequacyWindow(
+                                earliest_period=first_window.earliest_period,
+                                deadline_period=new_deadline_period,
+                                target_kwh=first_window.target_kwh,
+                            ),
+                            *windows[1:],
+                        ]
                 first = windows[0]
                 adequacy_loads.append(
                     elements.AdequacyLoadConfig(

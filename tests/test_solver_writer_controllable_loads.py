@@ -113,7 +113,7 @@ def _fake_state(value, unit=None):
 
 
 def _fake_water_heater_state(
-    mode="eco", current_temperature=None, temperature=None, max_temp=None
+    mode="eco", current_temperature=None, temperature=None, max_temp=None, min_temp=None
 ):
     attrs = {}
     if current_temperature is not None:
@@ -122,6 +122,8 @@ def _fake_water_heater_state(
         attrs["temperature"] = temperature
     if max_temp is not None:
         attrs["max_temp"] = max_temp
+    if min_temp is not None:
+        attrs["min_temp"] = min_temp
     return SimpleNamespace(state=mode, attributes=attrs)
 
 
@@ -973,6 +975,131 @@ class TestBuildControllableLoadsEarlyCompletion(unittest.TestCase):
             now, grid_times, len(grid_times)
         )
         self.assertEqual(len(adequacy), 1)
+
+
+class TestBuildControllableLoadsFloorCrossing(unittest.TestCase):
+    """nimbus issue #712/#713 (Mark Purcell, real live finding: two
+    consecutive nights of uncontrolled compressor cut-in on the WWK302/
+    #534 heat pump). build_controllable_loads()'s own real fix: when a
+    naive, plan-free decay-only projection shows the tank crossing its
+    physical floor before the nearest window's own deadline, that
+    window's deadline is tightened to force real delivery before the
+    breach -- not merely widening the earliest bound, which #713's own
+    real numbers (earliest 06:00, crossing 07:30, chosen start 08:00)
+    show would NOT have changed anything, since the LP was already free
+    to start at 06:00 and simply preferred the cheaper 08:00."""
+
+    def setUp(self):
+        self._orig_native_hass = solver_writer._NATIVE_HASS
+
+    def tearDown(self):
+        solver_writer._NATIVE_HASS = self._orig_native_hass
+
+    def _build(
+        self, *, current_temperature, min_temp, earliest_hour=6.0, deadline_hour=16.0
+    ):
+        now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
+        grid_times = _grid(now, 48, minutes=30)  # 24h @ 30min
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [
+                _fake_subentry(
+                    "s1",
+                    "controllable_load",
+                    {
+                        "controllable_load_name": "HWS L1",
+                        "controllable_load_kind": "deferrable",
+                        "deferrable_max_power_kw": 0.65,
+                        "deferrable_target_kwh": 4.0,
+                        "deferrable_earliest_hour": earliest_hour,
+                        "deferrable_deadline_hour": deadline_hour,
+                        "deferrable_done_entity": "water_heater.wwk302",
+                    },
+                )
+            ],
+            states={
+                "water_heater.wwk302": _fake_water_heater_state(
+                    current_temperature=current_temperature, min_temp=min_temp
+                )
+            },
+        )
+        _, adequacy = solver_writer.build_controllable_loads(
+            now, grid_times, len(grid_times)
+        )
+        return adequacy
+
+    def test_imminent_crossing_tightens_the_nearest_windows_deadline(self):
+        # #712's own real numbers: tank at 50 degC, eco floor 45 degC --
+        # DEFAULT_IDLE_DECAY_C_PER_HOUR (0.5 degC/h) crosses in 10h, i.e.
+        # 10:00 (period 20 on a 30-min grid from midnight). Original
+        # window: earliest 06:00 (period 12), deadline 16:00 (period 32).
+        adequacy = self._build(current_temperature=50.0, min_temp=45.0)
+        self.assertEqual(len(adequacy), 1)
+        windows = adequacy[0].windows
+        self.assertIsNotNone(windows)
+        self.assertEqual(windows[0].earliest_period, 12)
+        self.assertEqual(windows[0].deadline_period, 20)
+        # Target/earliest untouched -- only the deadline tightens.
+        self.assertEqual(windows[0].target_kwh, 4.0)
+
+    def test_no_crossing_before_the_original_deadline_leaves_it_untouched(self):
+        # A high floor-to-current gap (55 degC of margin at 0.5 degC/h =
+        # 110h) never crosses within this 24h grid at all -- deadline
+        # stays exactly what _build_daily_adequacy_windows() computed.
+        adequacy = self._build(current_temperature=50.0, min_temp=-5.0)
+        windows = adequacy[0].windows
+        self.assertEqual(windows[0].deadline_period, 32)
+
+    def test_crossing_already_past_earliest_clamps_to_earliest_not_inverted(self):
+        # An imminent crossing (30 min away) that lands BEFORE the
+        # window's own earliest_period (06:00) must never invert the
+        # window (deadline < earliest) -- clamps to earliest_period
+        # itself, the earliest moment the load could possibly react.
+        adequacy = self._build(current_temperature=45.25, min_temp=45.0)
+        windows = adequacy[0].windows
+        self.assertEqual(windows[0].earliest_period, 12)
+        self.assertEqual(windows[0].deadline_period, 12)
+
+    def test_tank_already_at_or_below_floor_is_a_no_op_here(self):
+        # Already-crossed is a live-dispatch/done-condition concern (the
+        # device is presumably already self-heating right now), not a
+        # scheduling one -- naive_floor_crossing_period() returns None
+        # for this case by design, so the window is left exactly as
+        # _build_daily_adequacy_windows() computed it.
+        adequacy = self._build(current_temperature=44.0, min_temp=45.0)
+        windows = adequacy[0].windows
+        self.assertEqual(windows[0].deadline_period, 32)
+
+    def test_non_water_heater_done_entity_is_unaffected(self):
+        now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
+        grid_times = _grid(now, 48, minutes=30)
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [
+                _fake_subentry(
+                    "s1",
+                    "controllable_load",
+                    {
+                        "controllable_load_name": "HWS L1",
+                        "controllable_load_kind": "deferrable",
+                        "deferrable_max_power_kw": 0.65,
+                        "deferrable_target_kwh": 4.0,
+                        "deferrable_earliest_hour": 6.0,
+                        "deferrable_deadline_hour": 16.0,
+                        "deferrable_done_entity": "sensor.tank_temp",
+                        "deferrable_done_when": ">= 60",
+                    },
+                )
+            ],
+            states={"sensor.tank_temp": _fake_state("50.0")},
+        )
+        _, adequacy = solver_writer.build_controllable_loads(
+            now, grid_times, len(grid_times)
+        )
+        # A plain numeric sensor isn't in ATTRIBUTE_DONE_DOMAINS --
+        # read_current_temperature() only ever reads the
+        # current_temperature ATTRIBUTE off a water_heater/climate
+        # entity, so this path is a deliberate no-op regardless of the
+        # sensor's own state value.
+        self.assertEqual(adequacy[0].windows[0].deadline_period, 32)
 
 
 # nimbus issue #479: tests for _sample_load_run_state() and its wiring
