@@ -1214,18 +1214,6 @@ def ha_call_service(domain: str, service: str, data: dict) -> None:
         resp.read()
 
 
-def _offer_curve_price_key(price: float) -> str:
-    """nimbus issue #677: the one real implementation decision this
-    dict-shape change needs -- HA state attributes are JSON/YAML
-    underneath, and dict keys are always strings there. Fixed 4dp
-    decimal formatting (matching this module's own existing `round(
-    price, 4)` display convention for the old list form), NOT a bare
-    `str(price)` -- a raw Python float repr can produce ugly, non-
-    round-tripping strings like "0.21179999999999999" for values that
-    don't fall on a clean binary fraction."""
-    return f"{price:.4f}"
-
-
 def publish_offer_curve(plan) -> None:
     """nimbus issue #494 (Signals 5/7 of #489): pushes sensor.nimbus_
     offer_curve when build_plan() actually computed one this cycle
@@ -1241,28 +1229,24 @@ def publish_offer_curve(plan) -> None:
     equals the main plan's period-0 import" consistency check, not a
     separately-derived figure that could silently drift from it.
 
-    `import_curve`/`export_curve` (nimbus issue #677): a `{price: kW}`
-    dict, not a list of `[price, kW]` pairs -- Mark Purcell's own
-    requested shape, reading more directly as "the curve" and the more
-    natural lookup-by-price shape for a consumer. See
-    `_offer_curve_price_key()`'s own docstring for the key-formatting
-    decision this needed. A genuine collision (two distinct sweep
-    points rounding to the SAME 4dp price -- the sweep's own dedup
-    happens on the unrounded value, so this is a real, if rare,
-    possibility, not defensive paranoia) keeps the FIRST occurrence
-    (the curve is already price-sorted ascending, so "first" is the
-    lower of the two colliding prices) and prints a warning rather than
-    either silently overwriting or crashing a regular solve cycle over
-    a diagnostic-only sensor.
-
-    `import_curve_ranging`/`export_curve_ranging` (nimbus issue #676,
-    reshaped for #677): the exact real $/kWh price interval each SAME-
-    KEY `import_curve`/`export_curve` entry's own kW value holds for,
-    straight from HiGHS's own per-step ranging -- keyed by the same
-    formatted price string, not by list position, so the
-    correspondence survives the list-to-dict change. `None` (the whole
-    attribute) whenever `Plan.offer_curve_import_ranging`/`export_
-    ranging` itself is `None`.
+    `import_curve`/`export_curve` (nimbus issue #706, superseding #677's
+    own dict shape): a list of self-contained band objects --
+    `{"price_lower", "price_upper", "kw"}`, one per real breakpoint --
+    not a `{price: kW}` dict with a SEPARATE parallel `_ranging` dict
+    correlated only by a rounded 4dp price-string key. That key-based
+    design is what let two distinct real sweep points that happened to
+    round to the identical displayed price silently collide -- one
+    kept, the other genuinely dropped, no warning strong enough to make
+    that anything but real, live data loss (confirmed on this
+    household's own real data, six collisions in one solve cycle, one
+    of them ~0.8 kW apart -- not float noise). A list of bands has
+    nothing to collide on: every real breakpoint keeps its own real
+    (price range, kW) pair, always, with no dedup logic needed
+    anywhere. Still price-sorted ascending (network.py's own walk
+    output order, unchanged). `price_lower`/`price_upper` are `None`
+    only for a band whose own ranging interval came back invalid at
+    that step (see `LPResult.sweep_cost_with_ranging()`'s own
+    docstring); `kw` is always the real solved value regardless.
 
     `price_limits` (nimbus issue #705): the real AEMO NEM domain the walk
     itself is bounded by (`network._OFFER_CURVE_DOMAIN_MIN`/`_MAX`), as
@@ -1274,11 +1258,11 @@ def publish_offer_curve(plan) -> None:
     """
     if plan.offer_curve_import is None or plan.offer_curve_export is None:
         return
-    import_curve, import_curve_ranging = _build_offer_curve_dicts(
-        plan.offer_curve_import, plan.offer_curve_import_ranging, "import"
+    import_curve = _build_offer_curve_bands(
+        plan.offer_curve_import, plan.offer_curve_import_ranging
     )
-    export_curve, export_curve_ranging = _build_offer_curve_dicts(
-        plan.offer_curve_export, plan.offer_curve_export_ranging, "export"
+    export_curve = _build_offer_curve_bands(
+        plan.offer_curve_export, plan.offer_curve_export_ranging
     )
     ha_post_state(
         "sensor.nimbus_offer_curve",
@@ -1288,8 +1272,6 @@ def publish_offer_curve(plan) -> None:
             "friendly_name": "Nimbus Offer Curve",
             "import_curve": import_curve,
             "export_curve": export_curve,
-            "import_curve_ranging": import_curve_ranging,
-            "export_curve_ranging": export_curve_ranging,
             "price_limits": {
                 "market_floor_price": network._OFFER_CURVE_DOMAIN_MIN,
                 "market_price_cap": network._OFFER_CURVE_DOMAIN_MAX,
@@ -1305,48 +1287,44 @@ def publish_offer_curve(plan) -> None:
     )
 
 
-def _build_offer_curve_dicts(
+def _build_offer_curve_bands(
     curve: list[tuple[float, float]],
     ranging: list[tuple[float, float] | None] | None,
-    direction: str,
-) -> tuple[dict[str, float], dict[str, list[float] | None] | None]:
-    """nimbus issue #677: builds the `{price: kW}` curve dict AND
-    (reshaped from a parallel-by-index list to a parallel-by-KEY dict,
-    see `publish_offer_curve()`'s own docstring) the matching ranging
-    dict, from the SAME iteration -- so a collision-driven skip (see
-    `_offer_curve_price_key()`'s own docstring) applies identically to
-    both, and the two can never silently drift out of correspondence
-    with each other the way two separately-built structures could.
+) -> list[dict[str, float | None]]:
+    """nimbus issue #706: one self-contained band object per real
+    breakpoint -- see `publish_offer_curve()`'s own docstring for why
+    this replaced #677's two-dicts-keyed-by-rounded-price shape.
 
-    Returns `(curve_dict, ranging_dict_or_None)` -- `ranging_dict` is
-    `None` whenever `ranging` itself is `None` (network.py populated
-    the curve without its own parallel ranging list, currently never
-    expected but represented honestly rather than assumed impossible).
+    Adjacent EXACT duplicates (same price_lower/price_upper/kw, all
+    already rounded for display) are collapsed to one row -- unlike the
+    #677 collision this replaced, this loses no information: two
+    already-identical-after-rounding rows are indistinguishable to any
+    consumer by construction, so keeping both is pure noise, not a
+    second real breakpoint. This differs from the walk's own internal
+    near-duplicate raw solves (see network.py's own docstring on why a
+    retail solve landing on an already-walked price is harmless) only
+    in WHERE the comparison happens -- here, after rounding, on the
+    values a consumer actually sees.
     """
-    curve_dict: dict[str, float] = {}
-    ranging_dict: dict[str, list[float] | None] | None = (
-        {} if ranging is not None else None
-    )
-    for i, (price, kw) in enumerate(curve):
-        key = _offer_curve_price_key(round(price, 4))
-        if key in curve_dict:
-            print(
-                f"WARN: offer curve ({direction}) had two sweep points round to "
-                f"the same {key} price key -- keeping the first (lower-price) "
-                f"one, dropping the later duplicate. Real values: "
-                f"kept={curve_dict[key]:.6f}, dropped={kw:.6f}",
-                file=sys.stderr,
-            )
+    bands: list[dict[str, float | None]] = []
+    for i, (_price, kw) in enumerate(curve):
+        interval = ranging[i] if ranging is not None else None
+        if interval is None:
+            price_lower: float | None = None
+            price_upper: float | None = None
+        else:
+            price_lower, price_upper = interval
+            price_lower = round(price_lower, 4)
+            price_upper = round(price_upper, 4)
+        band: dict[str, float | None] = {
+            "price_lower": price_lower,
+            "price_upper": price_upper,
+            "kw": round(kw, 3),
+        }
+        if bands and bands[-1] == band:
             continue
-        curve_dict[key] = round(kw, 3)
-        if ranging_dict is not None:
-            interval = ranging[i] if ranging is not None else None
-            if interval is None:
-                ranging_dict[key] = None
-            else:
-                lo, hi = interval
-                ranging_dict[key] = [round(lo, 4), round(hi, 4)]
-    return curve_dict, ranging_dict
+        bands.append(band)
+    return bands
 
 
 def parse_iso(s) -> datetime:
