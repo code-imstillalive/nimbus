@@ -6,7 +6,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
-## [Unreleased]
+## [0.94.242] — 2026-09-10
 
 ### Changed
 - **The offer curve's ranging walk now starts each side from whichever end of the domain its real structure actually clusters near** (nimbus issue #705). Import still walks `ascending=True` from the real AEMO Market Floor Price upward — unchanged from #678's original behaviour. Export now walks `ascending=False` from the Market Price Cap **downward** instead — real live household data confirmed export's own genuinely interesting breakpoints (where a household's willingness to sell actually changes) sit near the CAP, not the floor; walking from the floor (#678's original uniform choice) spent the whole iteration budget on the economically least interesting near-zero region every time and never reached the real high-price structure.
