@@ -96,6 +96,8 @@ from .const import (
     CONF_SOLVER_DEGRADATION_COST_PER_KWH,
     CONF_SOLVER_DISCHARGE_COST,
     CONF_SOLVER_EFFICIENCY_PERCENT,
+    CONF_SOLVER_ENVELOPE_EXPORT_LIMIT_ENTITY,
+    CONF_SOLVER_ENVELOPE_IMPORT_LIMIT_ENTITY,
     CONF_SOLVER_EXPORT_PRICE_RISK_AVERSION,
     CONF_SOLVER_EXPORT_PRICE_SENSOR,
     CONF_SOLVER_EXPORT_PRICE_SENSOR_2,
@@ -376,6 +378,14 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     CONF_SOLVER_PRICE_SPIKE_DISCHARGE_KW,
     CONF_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED,
     CONF_SOLVER_PRICE_SPIKE_ALERT_ENTITY,
+    # nimbus issue #493 (Signals 4/7 of #489, item 1): same exact bug
+    # class every comment in this tuple already warns about -- saved into
+    # entry.options by the wizard's own solver_grid step, but not exposed
+    # here means fetch_solver_config() (this bridge sensor's own only
+    # real consumer) can never see it. Caught by this file's own real
+    # test_sensor_solver_config_keys.py before it ever shipped.
+    CONF_SOLVER_ENVELOPE_IMPORT_LIMIT_ENTITY,
+    CONF_SOLVER_ENVELOPE_EXPORT_LIMIT_ENTITY,
 )
 # 2026-08-20: these 14 plain-numeric fields moved off entry.options entirely
 # -- they're now LIVE, dashboard-editable number.nimbus_solver_* entities

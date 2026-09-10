@@ -187,6 +187,12 @@ _EXPECTED_ATTRS = {
     "solar_risk_effect_now_kw": 0.0,
     "import_price_risk_effect_now": 0.0,
     "export_price_risk_effect_now": 0.0,
+    # nimbus issue #493 (Signals 4/7 of #489, item 1): this fixture
+    # configures no envelope entity, so both read as the plain static
+    # solver_grid_max_import_kw/_export_kw values above (15.0) at every
+    # period -- byte-identical to the pre-#493 behaviour.
+    "envelope_import_limit_kw": 15.0,
+    "envelope_export_limit_kw": 15.0,
 }
 
 # Per-period forecast keys asserted at fixed indices only (0, 1, -1) --
@@ -215,6 +221,10 @@ _EXPECTED_FORECAST_SAMPLE = {
         # energy_shadow_price_now (this period's own copy of the same
         # power_balance_t0 dual, same value by construction).
         "shadow_price": 0.3,
+        # nimbus issue #493: no envelope entity configured in this
+        # fixture -- flat static 15.0 at every period.
+        "envelope_import_limit_kw": 15.0,
+        "envelope_export_limit_kw": 15.0,
     },
     1: {
         "battery_kw": -5.0,
@@ -226,6 +236,8 @@ _EXPECTED_FORECAST_SAMPLE = {
         "import_price": 0.3,
         "export_price": 0.05,
         "shadow_price": 0.3,
+        "envelope_import_limit_kw": 15.0,
+        "envelope_export_limit_kw": 15.0,
     },
     -1: {
         "battery_kw": 1.3,
@@ -241,6 +253,8 @@ _EXPECTED_FORECAST_SAMPLE = {
         # per-period division uses THAT period's own hours[i], not a
         # single shared/period-0 value applied everywhere.
         "shadow_price": 0.2815,
+        "envelope_import_limit_kw": 15.0,
+        "envelope_export_limit_kw": 15.0,
     },
 }
 

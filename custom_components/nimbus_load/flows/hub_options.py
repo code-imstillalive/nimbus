@@ -76,6 +76,8 @@ from ..const import (
     CONF_SOLVER_BATTERY_POWER_POSITIVE_IS_CHARGE,
     CONF_SOLVER_BATTERY_POWER_SENSOR,
     CONF_SOLVER_BATTERY_SOC_SENSOR,
+    CONF_SOLVER_ENVELOPE_EXPORT_LIMIT_ENTITY,
+    CONF_SOLVER_ENVELOPE_IMPORT_LIMIT_ENTITY,
     CONF_SOLVER_EXPORT_PRICE_SENSOR,
     CONF_SOLVER_EXPORT_PRICE_SENSOR_2,
     CONF_SOLVER_EXPORT_PRICE_SENSOR_3,
@@ -386,6 +388,31 @@ def _solver_grid_schema(defaults: dict[str, Any]) -> vol.Schema:
                 CONF_SOLVER_EXPORT_PRICE_SENSOR_3,
                 description={
                     "suggested_value": defaults.get(CONF_SOLVER_EXPORT_PRICE_SENSOR_3)
+                },
+            ): _entity(),
+            # nimbus issue #493 (Signals 4/7 of #489, item 1): an optional
+            # live DNSP dynamic import/export envelope -- e.g. Open Dynamic
+            # Export's own opModImpLimW/opModExpLimW MQTT-published
+            # sensors -- that bounds the plan per period ABOVE AND BEYOND
+            # the static max import/export numbers above. Blank (the
+            # default) is a clean no-op; see solver_writer.
+            # resolve_envelope_limit_kw()'s own docstring for the full
+            # "live value or forecast-shaped, unit-aware, falls back to
+            # the static limit" behaviour.
+            vol.Optional(
+                CONF_SOLVER_ENVELOPE_IMPORT_LIMIT_ENTITY,
+                description={
+                    "suggested_value": defaults.get(
+                        CONF_SOLVER_ENVELOPE_IMPORT_LIMIT_ENTITY
+                    )
+                },
+            ): _entity(),
+            vol.Optional(
+                CONF_SOLVER_ENVELOPE_EXPORT_LIMIT_ENTITY,
+                description={
+                    "suggested_value": defaults.get(
+                        CONF_SOLVER_ENVELOPE_EXPORT_LIMIT_ENTITY
+                    )
                 },
             ): _entity(),
             # 2026-08-29, issue #232 follow-up: native price-triggered
@@ -960,6 +987,8 @@ _SOLVER_WIZARD_SCHEMA_KEYS = (
     CONF_SOLVER_EXPORT_PRICE_SENSOR,
     CONF_SOLVER_EXPORT_PRICE_SENSOR_2,
     CONF_SOLVER_EXPORT_PRICE_SENSOR_3,
+    CONF_SOLVER_ENVELOPE_IMPORT_LIMIT_ENTITY,
+    CONF_SOLVER_ENVELOPE_EXPORT_LIMIT_ENTITY,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_2,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_3,

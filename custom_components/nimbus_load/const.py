@@ -690,6 +690,19 @@ CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY: Final = "solver_max_discharge_live_entity
 CONF_SOLVER_EFFICIENCY_PERCENT: Final = "solver_efficiency_percent"
 CONF_SOLVER_GRID_MAX_IMPORT_KW: Final = "solver_grid_max_import_kw"
 CONF_SOLVER_GRID_MAX_EXPORT_KW: Final = "solver_grid_max_export_kw"
+# nimbus issue #493 (Signals 4/7 of #489, item 1 -- Mark Purcell's own
+# authorized next step, real target: Open Dynamic Export's own
+# `opModExpLimW`/`opModImpLimW` MQTT publish, a SA-Power-Networks-
+# certified CSIP-AUS/SEP2/IEEE-2030.5 client -- see
+# solver_writer.resolve_envelope_limit_kw()'s own docstring for the full
+# "why these two shapes" reasoning). Optional: a DNSP's dynamic import/
+# export limit, live or forecast-shaped, that bounds the plan per period
+# ABOVE AND BEYOND the static CONF_SOLVER_GRID_MAX_IMPORT_KW/_EXPORT_KW
+# values above -- blank (the default) is a clean no-op, the static
+# values alone still fully define the plan's own grid bounds, same
+# convention as every other optional Solver source field.
+CONF_SOLVER_ENVELOPE_IMPORT_LIMIT_ENTITY: Final = "solver_envelope_import_limit_entity"
+CONF_SOLVER_ENVELOPE_EXPORT_LIMIT_ENTITY: Final = "solver_envelope_export_limit_entity"
 CONF_SOLVER_IMPORT_PRICE_SENSOR: Final = "solver_import_price_sensor"
 CONF_SOLVER_EXPORT_PRICE_SENSOR: Final = "solver_export_price_sensor"
 # Optional SECOND/THIRD price sources (2026-08-25, direct household ask:
