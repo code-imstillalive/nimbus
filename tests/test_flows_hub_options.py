@@ -33,6 +33,8 @@ from custom_components.nimbus_load.const import (
     CONF_SOLVER_BATTERY_POWER_POSITIVE_IS_CHARGE,
     CONF_SOLVER_BATTERY_POWER_SENSOR,
     CONF_SOLVER_BATTERY_SOC_SENSOR,
+    CONF_SOLVER_ENVELOPE_EXPORT_LIMIT_ENTITY,
+    CONF_SOLVER_ENVELOPE_IMPORT_LIMIT_ENTITY,
     CONF_SOLVER_EXPORT_PRICE_SENSOR,
     CONF_SOLVER_EXPORT_PRICE_SENSOR_2,
     CONF_SOLVER_EXPORT_PRICE_SENSOR_3,
@@ -213,9 +215,11 @@ def test_solver_grid_schema_has_two_required_price_fields():
     # debounce_s), then 2026-08-29 (issue #232 follow-up) moved BOTH
     # out to their own live entities -- switch.nimbus_solve_on_price_
     # change + number.nimbus_solve_on_price_change_debounce_s -- so
-    # this step is back to the 4 optional second/third-source fields.
+    # this step was back to the 4 optional second/third-source fields.
+    # nimbus issue #493 (Signals 4/7 of #489, item 1): gained 2 more
+    # OPTIONAL fields, the live DNSP envelope entities -- 8 total.
     schema = _solver_grid_schema({})
-    assert len(schema.schema) == 6
+    assert len(schema.schema) == 8
     for key in (CONF_SOLVER_IMPORT_PRICE_SENSOR, CONF_SOLVER_EXPORT_PRICE_SENSOR):
         assert type(_find_marker(schema, key)).__name__ == "Required"
 
@@ -232,6 +236,30 @@ def test_solver_grid_schema_second_third_price_sources_are_optional_with_suggest
         (CONF_SOLVER_IMPORT_PRICE_SENSOR_3, None),
         (CONF_SOLVER_EXPORT_PRICE_SENSOR_2, "sensor.amber_export_forecast"),
         (CONF_SOLVER_EXPORT_PRICE_SENSOR_3, None),
+    ):
+        marker = _find_marker(schema, key)
+        assert type(marker).__name__ == "Optional"
+        assert marker.default is vol.UNDEFINED
+        assert marker.description == {"suggested_value": expected}
+
+
+def test_solver_grid_schema_envelope_limit_entities_are_optional_with_suggested_value():
+    # nimbus issue #493 (Signals 4/7 of #489, item 1): the two live DNSP
+    # envelope-limit entity fields, same clearable-optional convention
+    # as every other entity field in this step.
+    schema = _solver_grid_schema(
+        {
+            CONF_SOLVER_ENVELOPE_IMPORT_LIMIT_ENTITY: (
+                "sensor.open_dynamic_export_import_limit"
+            ),
+        }
+    )
+    for key, expected in (
+        (
+            CONF_SOLVER_ENVELOPE_IMPORT_LIMIT_ENTITY,
+            "sensor.open_dynamic_export_import_limit",
+        ),
+        (CONF_SOLVER_ENVELOPE_EXPORT_LIMIT_ENTITY, None),
     ):
         marker = _find_marker(schema, key)
         assert type(marker).__name__ == "Optional"
@@ -399,6 +427,8 @@ def test_solver_grid_step_submission_chains_straight_to_sources_form():
         CONF_SOLVER_IMPORT_PRICE_SENSOR_3: None,
         CONF_SOLVER_EXPORT_PRICE_SENSOR_2: None,
         CONF_SOLVER_EXPORT_PRICE_SENSOR_3: None,
+        CONF_SOLVER_ENVELOPE_IMPORT_LIMIT_ENTITY: None,
+        CONF_SOLVER_ENVELOPE_EXPORT_LIMIT_ENTITY: None,
     }
 
 

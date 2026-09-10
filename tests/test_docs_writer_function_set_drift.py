@@ -227,6 +227,17 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
     {
         "_hour_in_schedule_block",
         "_kw_scale_factor",
+        # nimbus issue #493 (Signals 4/7 of #489, item 1): the new
+        # envelope-limit-entity resolver and its log-once dedup helpers
+        # all depend on _kw_scale_factor above, itself already an
+        # untracked-for-porting gap -- porting these three without also
+        # porting that dependency would leave the docs copy with a
+        # broken reference, a genuinely separate, larger pre-existing
+        # gap out of this issue's own scope. Real, disclosed follow-up
+        # work, not silently dropped.
+        "_note_envelope_limit_recovered",
+        "_warn_envelope_limit_dropped_once",
+        "resolve_envelope_limit_kw",
         "_load_solar_delivery_state",
         "_save_solar_delivery_state",
         "_log_active_household_specific_overrides_once",

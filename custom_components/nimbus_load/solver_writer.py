@@ -4665,6 +4665,112 @@ def _kw_scale_factor(entity_id: str) -> float:
     return 0.001 if unit == "W" else 1.0
 
 
+# nimbus issue #493 (Signals 4/7 of #489, item 1 -- Mark Purcell's own
+# authorized next step, real target: Open Dynamic Export's `opModExpLimW`/
+# `opModImpLimW` MQTT publish, a SA-Power-Networks-certified CSIP-AUS/
+# SEP2/IEEE-2030.5 client). Same log-once-per-condition discipline as
+# _SOLAR_SOURCE_WARNED above -- an envelope entity that goes unavailable
+# shouldn't spam a WARNING on every solve tick, but a genuinely new
+# failure reason (or entity) still gets its own one-time log, and
+# recovery is worth reporting the same way a solar source coming back
+# online is.
+_ENVELOPE_LIMIT_WARNED: set[tuple[str, str]] = set()
+
+
+def _warn_envelope_limit_dropped_once(entity_id: str, reason: str) -> None:
+    key = (entity_id, reason)
+    if key in _ENVELOPE_LIMIT_WARNED:
+        _LOGGER.debug(
+            "Nimbus: envelope limit entity %s still %s -- falling back to "
+            "the configured static grid limit (logged once per condition, "
+            "not every solve)",
+            entity_id,
+            reason,
+        )
+        return
+    _ENVELOPE_LIMIT_WARNED.add(key)
+    _LOGGER.warning(
+        "Nimbus: envelope limit entity %s %s -- falling back to the "
+        "configured static grid limit (logged once per condition, not "
+        "every solve)",
+        entity_id,
+        reason,
+    )
+
+
+def _note_envelope_limit_recovered(entity_id: str) -> None:
+    had_any = any(eid == entity_id for eid, _reason in _ENVELOPE_LIMIT_WARNED)
+    if not had_any:
+        return
+    _ENVELOPE_LIMIT_WARNED.difference_update(
+        {key for key in _ENVELOPE_LIMIT_WARNED if key[0] == entity_id}
+    )
+    _LOGGER.info(
+        "Nimbus: envelope limit entity %s is reporting again (previously dropped)",
+        entity_id,
+    )
+
+
+def resolve_envelope_limit_kw(
+    entity_id: str | None,
+    static_limit_kw: float,
+    grid_times: list[datetime],
+) -> list[float]:
+    """nimbus issue #493 (Signals 4/7 of #489, item 1): a live DNSP
+    dynamic import/export envelope becomes a genuine per-period
+    feasibility bound -- GridConfig.import_limit_kw/export_limit_kw
+    already accept a real per-period array (v0.94.218, this issue's own
+    item 0), so this is exposure/wiring, not new solver work.
+
+    Two real shapes handled, matching this project's own established
+    forecast-attribute-or-flat convention (CONF_SOLVER_IMPORT_PRICE_
+    SENSOR/EXPORT_PRICE_SENSOR): a `forecast` attribute (list of
+    {time, value}) -- a DNSP schedule published ahead of time, resampled
+    via resample_forecast() same as every other forecast-shaped entity
+    in this file -- or, with no `forecast` attribute, the entity's own
+    plain state IS the current live limit (Open Dynamic Export's own
+    real shape: a single numeric MQTT-sourced value updated live, no
+    forward schedule), held FLAT across the whole solve horizon -- same
+    "no forward-looking source exists for a real measured value"
+    reasoning this project's own recursive-forecast bug chain
+    (CLAUDE.md) already documents for battery_kw/grid_kw/solar_kw
+    context features.
+
+    `entity_id` None (not configured), missing/unavailable, or a
+    non-numeric state -- falls back to `static_limit_kw` flat across the
+    whole horizon, logged once per (entity_id, reason) at WARNING, never
+    a fabricated envelope. Unit-aware (`_kw_scale_factor()`, the same
+    W-vs-kW correction every other power-reading site in this file
+    already applies) -- a household pointing this at a native Watts
+    sensor (very common for raw MQTT telemetry) must not silently apply
+    a 1000x-too-large bound.
+    """
+    n = len(grid_times)
+    if not entity_id:
+        return [static_limit_kw] * n
+    try:
+        state = ha_get(entity_id)
+    except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError):
+        _warn_envelope_limit_dropped_once(entity_id, "unavailable")
+        return [static_limit_kw] * n
+    if state.get("state") in (None, "unknown", "unavailable"):
+        _warn_envelope_limit_dropped_once(entity_id, "unavailable")
+        return [static_limit_kw] * n
+    scale = _kw_scale_factor(entity_id)
+    forecast = state.get("attributes", {}).get("forecast")
+    if forecast:
+        values = resample_forecast(forecast, "value", grid_times)
+        _note_envelope_limit_recovered(entity_id)
+        return [v * scale for v in values]
+    try:
+        live_value = float(state["state"]) * scale
+    except (KeyError, TypeError, ValueError):
+        _warn_envelope_limit_dropped_once(entity_id, "reporting a non-numeric state")
+        return [static_limit_kw] * n
+    _note_envelope_limit_recovered(entity_id)
+    return [live_value] * n
+
+
 def compute_daily_quality_report(cfg: dict, now: datetime) -> dict | None:
     """Generic, retailer-agnostic built-in EPR/regret/tracking quality
     score (2026-08-25, direct ask: "it should be a part of the suite to
@@ -6929,6 +7035,15 @@ def publish_plan(
     grid,
     import_limit_kw,
     export_limit_kw,
+    # nimbus issue #493 (Signals 4/7 of #489, item 1): the plain
+    # configured static limit, kept SEPARATE from import_limit_kw/
+    # export_limit_kw above (which are now the real per-period envelope-
+    # resolved arrays GridConfig itself uses for dispatch) -- compute_
+    # cost_band()'s own read-only #630 diagnostic takes a single flat
+    # limit for its whole window by design, out of this issue's own
+    # scope to change.
+    static_import_limit_kw,
+    static_export_limit_kw,
     max_charge_kw,
     max_discharge_kw,
     charge_cost,
@@ -7210,6 +7325,15 @@ def publish_plan(
             # landed, not just infer it (see nimbus's own network.py
             # Plan.export_bonus_kw docstring).
             "export_bonus_kw": round(float(plan.export_bonus_kw[i]), 3),
+            # nimbus issue #493 (Signals 4/7 of #489, item 1): the real
+            # per-period bound the plan was actually solved against this
+            # period -- the static configured limit at every period on
+            # any install with no envelope entity configured (byte-
+            # identical to before this issue), or the live/forecast-
+            # resolved DNSP envelope value otherwise. See
+            # resolve_envelope_limit_kw()'s own docstring.
+            "envelope_import_limit_kw": round(float(import_limit_kw[i]), 3),
+            "envelope_export_limit_kw": round(float(export_limit_kw[i]), 3),
             # nimbus issue #613 (Mark Purcell, item 1 of 3 -- explicitly
             # scoped to just this exposure piece, NOT the earliness-
             # timing behavior change items 2/3 describe, which need
@@ -7376,8 +7500,14 @@ def publish_plan(
         discharge_cost_arr=discharge_cost_arr,
         final_soc_kwh=float(plan.battery_soc_kwh[-1]),
         salvage_value=salvage_value,
-        import_limit_kw=import_limit_kw,
-        export_limit_kw=export_limit_kw,
+        # nimbus issue #493: this read-only #630 diagnostic takes a
+        # single flat limit for its whole window by design -- see
+        # main()'s own comment where static_import_limit_kw/
+        # static_export_limit_kw are captured, kept deliberately
+        # separate from the real per-period envelope-resolved arrays
+        # GridConfig itself now uses for the actual dispatch decision.
+        import_limit_kw=static_import_limit_kw,
+        export_limit_kw=static_export_limit_kw,
     )
     # nimbus issue #630 (Mark Purcell: "a band 75 times wider than the
     # day's bill tells a household nothing" -- the full 96h band is real
@@ -7405,8 +7535,8 @@ def publish_plan(
         discharge_cost_arr=discharge_cost_arr[:n_24h],
         final_soc_kwh=float(plan.battery_soc_kwh[n_24h - 1]),
         salvage_value=salvage_value,
-        import_limit_kw=import_limit_kw,
-        export_limit_kw=export_limit_kw,
+        import_limit_kw=static_import_limit_kw,
+        export_limit_kw=static_export_limit_kw,
     )
     # nimbus issue #630's second ask ("say on the sensor whether any
     # risk-aversion term is active"): a plain, honest boolean -- true
@@ -7424,10 +7554,15 @@ def publish_plan(
     # item #3; relabelled 2026-08-24, see compute_binding_constraint_
     # label()'s own docstring near resolve_max_discharge_kw for the
     # full "pinned at zero vs pinned at the real ceiling" story).
+    # nimbus issue #493: export_limit_kw/import_limit_kw are now the real
+    # per-period envelope-resolved arrays -- period 0's own value is the
+    # correct "what's binding RIGHT NOW" bound to compare against
+    # (matches this function's own existing period_hours_arr[0] usage
+    # right below).
     binding_now, binding_now_value_per_kwh = compute_binding_constraint_label(
         plan,
-        export_limit_kw,
-        import_limit_kw,
+        export_limit_kw[0],
+        import_limit_kw[0],
         max_charge_kw,
         max_discharge_kw,
         period_hours_arr[0],
@@ -7668,6 +7803,13 @@ def publish_plan(
                 plan.duals.get("power_balance_t0", 0.0) / period_hours_arr[0], 4
             ),
             "p2p_volume_cap_shadow_price": p2p_volume_cap_shadow_price,
+            # nimbus issue #493 (Signals 4/7 of #489, item 1): period 0's
+            # own copy of the per-period envelope_import_limit_kw/
+            # envelope_export_limit_kw fields above -- same "period 0
+            # copy for backward-compatible one-glance reading" convention
+            # energy_shadow_price_now already establishes.
+            "envelope_import_limit_kw": round(float(import_limit_kw[0]), 3),
+            "envelope_export_limit_kw": round(float(export_limit_kw[0]), 3),
             **_risk_aversion_effect_now(plan, solar_kw, import_price, export_price),
         },
     )
@@ -10844,8 +10986,29 @@ def main() -> None:
         )
         salvage_value = _cfg_num(cfg, "solver_salvage_value", 0.15)
 
-    import_limit_kw = float(cfg["solver_grid_max_import_kw"])
-    export_limit_kw = float(cfg["solver_grid_max_export_kw"])
+    # nimbus issue #493 (Signals 4/7 of #489, item 1): a real per-period
+    # array whenever a live DNSP envelope entity is configured (blank ==
+    # the exact same flat static value as before this issue, at every
+    # period -- byte-identical behaviour for any install that hasn't
+    # touched the new field). See resolve_envelope_limit_kw()'s own
+    # docstring for the fallback/unit-scaling/log-once behaviour. The
+    # static scalars are kept alongside the resolved arrays -- compute_
+    # cost_band()'s own read-only #630 diagnostic (below) takes a single
+    # flat limit for its whole window by design (out of this issue's own
+    # scope to change), so it keeps reading the plain configured value,
+    # not the live envelope.
+    static_import_limit_kw = float(cfg["solver_grid_max_import_kw"])
+    static_export_limit_kw = float(cfg["solver_grid_max_export_kw"])
+    import_limit_kw = resolve_envelope_limit_kw(
+        cfg.get("solver_envelope_import_limit_entity"),
+        static_import_limit_kw,
+        grid_times,
+    )
+    export_limit_kw = resolve_envelope_limit_kw(
+        cfg.get("solver_envelope_export_limit_entity"),
+        static_export_limit_kw,
+        grid_times,
+    )
 
     # No clamp needed as of 2026-08-16 -- the solver's grid degeneracy
     # guard that used to require import_price - export_price >= 0.001 at
@@ -11215,6 +11378,8 @@ def main() -> None:
         grid=grid,
         import_limit_kw=import_limit_kw,
         export_limit_kw=export_limit_kw,
+        static_import_limit_kw=static_import_limit_kw,
+        static_export_limit_kw=static_export_limit_kw,
         max_charge_kw=max_charge_kw,
         max_discharge_kw=max_discharge_kw,
         charge_cost=charge_cost,

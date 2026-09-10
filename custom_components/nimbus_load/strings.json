@@ -73,7 +73,9 @@
           "solver_import_price_sensor_3": "Optional: third import price source to blend",
           "solver_export_price_sensor": "🔴 Live export (sell) price sensor ($/kWh) -- from your own retailer/market integration",
           "solver_export_price_sensor_2": "Optional: second export price source to blend",
-          "solver_export_price_sensor_3": "Optional: third export price source to blend"
+          "solver_export_price_sensor_3": "Optional: third export price source to blend",
+          "solver_envelope_import_limit_entity": "Optional: a live DNSP dynamic import limit (e.g. Open Dynamic Export's opModImpLimW) -- bounds the plan per period on top of your static import limit",
+          "solver_envelope_export_limit_entity": "Optional: a live DNSP dynamic export limit (e.g. Open Dynamic Export's opModExpLimW) -- bounds the plan per period on top of your static export limit"
         },
         "data_description": {
           "solver_import_price_sensor": "Whatever your electricity retailer's own HA integration (Amber, LocalVolts, a generic template sensor, etc.) exposes as the current $/kWh you're charged to import. If this sensor also has its own forecast attribute, the Solver uses it directly for planning; otherwise it holds the current value flat across the whole horizon. Also drives the Topology dashboard card's live price display, as a fallback if the Switchboard wizard's own price field isn't set.",
@@ -81,7 +83,9 @@
           "solver_import_price_sensor_3": "Optional -- a third import price source, same blending as the second.",
           "solver_export_price_sensor": "The mirror of the above for what you're paid to export -- same forecast-attribute preference, same Topology dashboard fallback role.",
           "solver_export_price_sensor_2": "The mirror of solver_import_price_sensor_2, for export price.",
-          "solver_export_price_sensor_3": "The mirror of solver_import_price_sensor_3, for export price."
+          "solver_export_price_sensor_3": "The mirror of solver_import_price_sensor_3, for export price.",
+          "solver_envelope_import_limit_entity": "Optional. A dynamic connection agent's own live import-limit entity (e.g. Open Dynamic Export's opModImpLimW, published over MQTT once you point HA at it) -- read as a live value, or as a forecast schedule if the entity has one. Leave blank to use only your static import limit above -- a complete no-op.",
+          "solver_envelope_export_limit_entity": "The mirror of the above for export (e.g. Open Dynamic Export's opModExpLimW)."
         }
       },
       "solver_sources": {
