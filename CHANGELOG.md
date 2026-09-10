@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.239] — 2026-09-10
+
+### Added
+- **`solver/lp.py`: a real primary/secondary objective architecture for `LPProblem.solve()`** (nimbus issue #696, Stage 1 of a household-requested migration off hand-tuned tie-break magnitudes, ported directly from the sibling HAEO integration's own `network.py` — fetched and read in full via the GitHub API before implementing, not reconstructed from a summary). New `LexOptions`/`BlendedOptions`/`CalibratedOptions` solve modes and a new `LPProblem.set_secondary_cost()` channel, alongside the existing `set_cost()` (now implicitly primary). `LexOptions` is a genuine three-phase lexicographic solve — secondary can never make the primary objective worse, not even by an epsilon. `CalibratedOptions` runs a real lex solve once, then searches log10 space for the largest blend weight that keeps a single-solve primary cost within tolerance of the true optimum — a searched-safe magnitude rather than a hand-picked one. Purely additive and opt-in: `LPProblem.solve()` with no `options=` argument (every existing caller, today) is byte-identical to this module's pre-#696 behavior — `network.py` doesn't use this yet (a deliberate, separate later stage, once this architecture is proven correct here in isolation). Verified via 12 new tests on hand-checkable synthetic LPs (a genuine tie the secondary objective correctly breaks; a real primary cost difference it can never override, even while actively pulling the opposite direction; a hand-picked blend weight that *can* invert a real price signal, the exact failure mode this architecture exists to move away from) plus the full existing `lp.py` suite (81 tests) passing unchanged.
+
 ## [0.94.238] — 2026-09-10
 
 ### Fixed
