@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.243] — 2026-09-10
+
+### Changed
+- **The primary/secondary objective architecture (#696) now supports MIP solves** (nimbus issue #702). Any household with a real deferrable/sheddable adequacy load (a hot water system, pool pump, EV charger — `adequacy_semi_continuous=True`, the default) previously got no benefit at all from the new `CalibratedOptions` tie-break architecture, since a MIP solve silently fell back to the old hand-tuned behaviour. The Solver's own binary assignment (which periods an adequacy load actually runs in) is now decided via a genuine two-phase branch-and-bound sequence — solve for the true economic optimum first, then re-solve (still respecting integrality) to find, among every equally-optimal assignment, the one that best matches the household's own earliness/smoothness preferences — rather than picking an assignment blind to those preferences and hoping it happens to be a good one. Found and fixed a real design mistake along the way (documented in the code): a first attempt at this pinned the binary assignment before ever considering the tie-break preference, which technically worked but could arbitrarily land on the *worst* of several equally-cost-optimal timings (confirmed on a real test scenario: it would have chosen to run a hot water load as late as possible in its window instead of the intended "as early as safely possible").
+
 ## [0.94.242] — 2026-09-10
 
 ### Changed
