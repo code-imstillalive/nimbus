@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.249] — 2026-09-11
+
+### Fixed
+- **`sensor.nimbus_offer_curve` no longer publishes nested/overlapping price bands under a degenerate LP basis** (nimbus issue #730, live finding from Mark Purcell). Several independent solves that make up the published offer curve can land in the same tied optimal basis when real dispatch is flat across a wide price band; each solve's own ranging result is independently correct, but sorting the final list by price alone never caught that one already-published band's range had become fully swallowed by a wider neighbour reporting the same value. Confirmed intermittent, not persistent. Now collapses a nested/subset band into its wider, already-correct neighbour — never invents or clips a boundary value neither solve actually reported.
+
 ## [0.94.248] — 2026-09-11
 
 ### Fixed
