@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.245] — 2026-09-10
+
+### Added
+- **A Controllable Load's own hardware thermal floor is now checked against its published temperature forecast** (nimbus issues #712/#713, from Mark Purcell's own 48h performance review, #711). Two consecutive real nights saw the Hot Water Heat Pump self-trigger outside the solved plan — after Nimbus commanded it off, the tank kept losing heat until it crossed the device's own physical floor (its eco-mode setpoint) and the compressor engaged on its own, at whatever price happened to be live rather than one the plan chose. A third occurrence was independently confirmed forecast by Nimbus's own #592 sensor, 30 minutes before the next scheduled run. `sensor.nimbus_<load>_commanded_state` now carries `floor_crossing_forecast_time`/`_temperature` — the first period, if any, the load's own temperature projection is expected to fall at or below its hardware floor — refreshed every solve cycle, plus a one-time-per-day WARNING log when a crossing is newly projected. Deliberately does not change dispatch behaviour: whether to schedule earlier to avoid a crossing is a real economic trade-off (an uncontrolled draw can land on worse pricing than an earlier scheduled one anyway) left to the household, not decided unilaterally by the solver.
+
 ## [0.94.244] — 2026-09-10
 
 ### Added
