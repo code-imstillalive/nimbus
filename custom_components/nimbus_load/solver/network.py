@@ -1397,6 +1397,22 @@ def build_plan(
 
     p = LPProblem()
 
+    # nimbus issue #694: whether the household's price-spike override
+    # (#567) is genuinely active for THIS solve's period 0 -- computed
+    # once, up front, because both the per-battery discharge/charge pin
+    # below AND grid_export[0]'s own bounds (further down) need the same
+    # fact. Mirrors the per-iteration `spike_active_now` the batteries
+    # loop below computes for b_idx==0 exactly (only ever batteries[0],
+    # only ever period 0, see BatteryConfig.spike_override_discharge_kw's
+    # own docstring) -- kept as a single upfront bool rather than reached
+    # for out of the loop's own per-iteration variable, since grid_export
+    # construction happens in a separate loop further down and needs
+    # this fact whether or not any battery iteration happens to run
+    # first.
+    spike_overrides_p2p_at_t0 = bool(batteries) and (
+        batteries[0].available and batteries[0].spike_override_discharge_kw is not None
+    )
+
     # HARD gate against charging during a fixed_export_kw (P2P-committed)
     # period -- 2026-08-22, real live incident: with only grid_export[t]
     # pinned (below), nothing stopped the LP from ALSO importing grid
@@ -1574,10 +1590,24 @@ def build_plan(
     # other period (fixed_export_kw is None, or that period's own entry
     # is NaN) keeps the normal [0, export_limit_kw] bounds, byte-
     # identical to before this field existed.
+    #
+    # nimbus issue #694: period 0 is the one exception -- when the
+    # household's price-spike override is genuinely active this solve
+    # (spike_overrides_p2p_at_t0, computed once above), a real P2P
+    # commitment's own pin turns into a FLOOR (lb=committed rate,
+    # ub=export_limit_kw) rather than an exact value, for period 0 only.
+    # P2P still "remains" -- the committed rate is still a guaranteed
+    # minimum, per the household's own explicit instruction -- but export
+    # can now rise above it to carry whatever battery_discharge_home_0
+    # (hard-pinned to the configured spike rate just above) produces
+    # beyond what the P2P commitment alone was already moving.
     grid_export = []
     for t in range(n):
         export_lb, export_ub = p2p_export.grid_export_bounds(
-            t, grid, float(export_limit_arr[t])
+            t,
+            grid,
+            float(export_limit_arr[t]),
+            override_p2p=(t == 0 and spike_overrides_p2p_at_t0),
         )
         grid_export.append(
             p.add_variable(f"grid_export_{t}", lb=export_lb, ub=export_ub)

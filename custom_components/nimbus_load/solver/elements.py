@@ -770,15 +770,25 @@ class BatteryConfig:
     # uses) and battery_charge_{name}_0 to 0 (can't simultaneously
     # charge while forced to discharge). solver_writer.py's own
     # responsibility, not this dataclass's: computing whether a spike is
-    # genuinely active (price threshold or an optional alert entity),
+    # genuinely active (price threshold or an optional alert entity) and
     # whether the household has armed the override
-    # (switch.nimbus_solver_price_spike_override_armed), and the real
-    # exemption this issue's own design settled on -- the override never
-    # applies during an active P2P fixed-export commitment, since P2P's
-    # own "consistency of delivery is itself part of what earns the
-    # rate" reasoning takes priority. This field is deliberately just the
-    # LP-level mechanism; all of that real-world decision logic lives
-    # where the other cfg-driven decisions already do.
+    # (switch.nimbus_solver_price_spike_override_armed).
+    #
+    # nimbus issue #694 (reversing #567's original design, household's
+    # own explicit later instruction -- "i want it to win over p2p", "p2p
+    # to remain and override to kick in and max the exports to whatever
+    # is available... then back to p2p if spike ends"): this override
+    # now WINS over an active P2P fixed-export commitment rather than
+    # being exempted next to it, but P2P itself still "remains" -- its
+    # own committed rate becomes a FLOOR (not dropped) on grid_export[0]
+    # whenever this field is set, so the forced higher discharge here
+    # can flow out as real export ABOVE the committed rate instead of
+    # leaving the balance equation infeasible. See network.py's own
+    # grid_export[0] bounds construction for the floor mechanism itself.
+    # This field is deliberately just the LP-level discharge/charge
+    # mechanism; the real-world priority decision lives where the other
+    # cfg-driven decisions already do (solver_writer.py / network.py's
+    # own grid_export construction).
     spike_override_discharge_kw: float | None = None
 
     def __post_init__(self) -> None:
