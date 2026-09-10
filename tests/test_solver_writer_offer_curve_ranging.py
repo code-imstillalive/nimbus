@@ -133,6 +133,80 @@ class TestBuildOfferCurveBands(unittest.TestCase):
         self.assertEqual(bands[0]["price_lower"], float("-inf"))
         self.assertEqual(bands[0]["price_upper"], float("inf"))
 
+    def test_730_real_import_curve_shape_collapses_to_two_bands(self):
+        # nimbus issue #730 (Mark Purcell, live finding): a walk step and
+        # the always-separate retail solve landed in the same tied
+        # degenerate basis -- two bands both open at -inf, one's range a
+        # strict subset of the other's, same kw. Real live numbers,
+        # verbatim from the bug report.
+        bands = solver_writer._build_offer_curve_bands(
+            [(0.02, -0.0), (0.05, -0.0), (0.08, 0.0)],
+            [
+                (float("-inf"), 0.0369),
+                (float("-inf"), 0.0748),
+                (0.0748, float("inf")),
+            ],
+        )
+        self.assertEqual(
+            bands,
+            [
+                {"price_lower": float("-inf"), "price_upper": 0.0748, "kw": -0.0},
+                {"price_lower": 0.0748, "price_upper": float("inf"), "kw": 0.0},
+            ],
+        )
+
+    def test_730_real_export_curve_shape_collapses_to_two_bands(self):
+        # Same incident, export side -- the nested pair is bands 2/3
+        # this time (bands 1/2 are adjacent-but-disjoint, correctly kept
+        # separate: no subset relation between them).
+        bands = solver_writer._build_offer_curve_bands(
+            [(0.03, 0.0), (0.09, -0.0), (0.25, 0.0)],
+            [
+                (float("-inf"), 0.0749),
+                (0.075, float("inf")),
+                (0.2162, float("inf")),
+            ],
+        )
+        self.assertEqual(
+            bands,
+            [
+                {"price_lower": float("-inf"), "price_upper": 0.0749, "kw": 0.0},
+                {"price_lower": 0.075, "price_upper": float("inf"), "kw": -0.0},
+            ],
+        )
+
+    def test_subset_with_different_kw_is_not_collapsed(self):
+        # The real, still-open risk #730 itself names: if a future cycle
+        # produces this same nested shape with genuinely DIFFERENT kw
+        # values, collapsing would silently discard real information.
+        # Must never merge unless the values actually agree.
+        bands = solver_writer._build_offer_curve_bands(
+            [(0.02, 5.0), (0.05, 12.0)],
+            [(float("-inf"), 0.0369), (float("-inf"), 0.0748)],
+        )
+        self.assertEqual(len(bands), 2)
+        self.assertEqual(bands[0]["kw"], 5.0)
+        self.assertEqual(bands[1]["kw"], 12.0)
+
+    def test_none_bounds_are_never_treated_as_containing_or_contained(self):
+        # A genuinely missing/invalid ranging interval (None) must never
+        # be guessed as "unbounded" and merged away -- unknown stays
+        # unknown, distinct from a real float('-inf')/float('inf').
+        bands = solver_writer._build_offer_curve_bands(
+            [(0.02, 3.0), (0.05, 3.0)],
+            [None, (float("-inf"), float("inf"))],
+        )
+        self.assertEqual(len(bands), 2)
+
+    def test_adjacent_equal_kw_without_a_subset_relation_both_survive(self):
+        # Equal kw alone is not sufficient to collapse -- only a genuine
+        # nested/subset range does. These two are adjacent-but-disjoint.
+        bands = solver_writer._build_offer_curve_bands(
+            [(0.02, 4.0), (0.09, 4.0)],
+            [(float("-inf"), 0.05), (0.06, float("inf"))],
+        )
+        self.assertEqual(len(bands), 2)
+
 
 class TestPublishOfferCurveAttributes(unittest.TestCase):
     def test_no_op_when_curves_absent(self):
