@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.235] — 2026-09-10
+
+### Added
+- **A live DNSP dynamic import/export envelope now becomes a genuine per-period feasibility bound** (nimbus issue #493, Signals 4/7 of #489, item 1 — Mark Purcell's own authorized next step, real target: Open Dynamic Export's `opModExpLimW`/`opModImpLimW` MQTT publish, a SA-Power-Networks-certified CSIP-AUS/SEP2/IEEE-2030.5 client). Two new optional Solver settings fields, `solver_envelope_import_limit_entity`/`solver_envelope_export_limit_entity`: read as a live value (unit-aware, W or kW) held flat across the whole horizon, or resampled from a `forecast` attribute if the entity publishes a schedule ahead of time. Blank (the default) is a byte-identical no-op — the plan still uses the plain static `solver_grid_max_import_kw`/`_export_kw` limits alone. Missing/unavailable falls back to the static limit, logged once per condition (never every solve), with a one-time recovery log. `envelope_import_limit_kw`/`envelope_export_limit_kw` published per-period and at period-0 on `sensor.nimbus_solver_battery_forecast`. The LP-level array-or-scalar support (`GridConfig.import_limit_kw`/`export_limit_kw`) and the reduced-cost machinery that will eventually expose `shadow_envelope_import_price`/`export` were both already shipped earlier (#493 item 0, #491) — this ships the one remaining piece, the live config surface itself. Deliberately not done in this pass, per Mark's own explicit direction: the symmetric `grid_export_excess` slack (item 2), parked pending a real household with an actual live envelope-vs-P2P conflict to build and verify against; and enabling the existing `GridSignals`/`compute_signals` reduced-cost machinery in the live solve path, itself a separate, real, still-unwired gap from #491's own shipment, not attempted here.
+
 ## [0.94.234] — 2026-09-10
 
 ### Added
