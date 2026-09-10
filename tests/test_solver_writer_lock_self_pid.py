@@ -19,6 +19,8 @@ already established by test_solver_writer_min_soc_floor.py and siblings.
 """
 
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
 
@@ -61,22 +63,40 @@ class TestSelfPidLockReclaim(unittest.TestCase):
         self.assertFalse(os.path.exists(self.lock_path))
 
     def test_lock_held_by_a_real_different_running_process_is_still_respected(self):
-        # Our own parent process -- genuinely real, alive, and guaranteed
-        # different from os.getpid() on every platform this test runs on
-        # (unlike a fixed literal such as PID 1, which is POSIX init and
-        # not meaningfully "alive" in the same way on Windows).
-        other_pid = os.getppid()
-        assert other_pid != os.getpid()
-        with open(self.lock_path, "w", encoding="utf-8") as f:
-            f.write(str(other_pid))
-
-        acquired = solver_writer.acquire_lock()
-
-        self.assertFalse(
-            acquired,
-            "a lock genuinely held by a different, real, alive process "
-            "must still block -- the self-PID fix must not weaken this",
+        # nimbus issue #668 (real, confirmed-live flake): this used to read
+        # os.getppid() as "a real, alive, different pid" -- true in an
+        # interactive shell, but a backgrounded/detached test run can get
+        # reparented mid-test (its original parent exits and the OS adopts
+        # the child elsewhere), so the captured parent pid can stop
+        # corresponding to a live process between the read and
+        # acquire_lock()'s own liveness check a moment later. Confirmed
+        # live: failed twice under `nohup pytest ... &`, never under a
+        # foreground interactive run, always clean in isolation.
+        #
+        # Fixed the same way #473's id()-reuse flake was: stop depending on
+        # incidental process-tree timing. Spawn a real, short-lived
+        # subprocess we hold a handle to for the test's own duration --
+        # its pid is guaranteed alive (and guaranteed different from ours)
+        # regardless of what our own parent process does in the meantime.
+        proc = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
         )
+        try:
+            other_pid = proc.pid
+            assert other_pid != os.getpid()
+            with open(self.lock_path, "w", encoding="utf-8") as f:
+                f.write(str(other_pid))
+
+            acquired = solver_writer.acquire_lock()
+
+            self.assertFalse(
+                acquired,
+                "a lock genuinely held by a different, real, alive process "
+                "must still block -- the self-PID fix must not weaken this",
+            )
+        finally:
+            proc.terminate()
+            proc.wait(timeout=5)
 
     def test_lock_holding_a_dead_pid_is_reclaimed(self):
         # A PID essentially guaranteed not to exist.
