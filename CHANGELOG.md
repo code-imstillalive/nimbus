@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.247] — 2026-09-11
+
+### Fixed
+- **The Control Panel dispatch card's "PLANNED DISCHARGE" status label now distinguishes self-consume-shaped discharge from a real grid export.** Direct household finding: the label fired purely off the sign of `battery_kw`, so a battery discharging just enough to cover the house load with zero grid import/export showed the identical green "PLANNED DISCHARGE" badge as a genuine VPP-style export — even though the reasoning text underneath it already correctly said "no grid import or export needed." Confirmed live against a real household report: the actual inverter had already correctly swapped into Self Consume mode for that exact plan, while the card kept showing plain discharge for the same period. Now shows `"PLANNED DISCHARGE (SELF-CONSUME)"` in the self-consume grey whenever the plan's own discharge has zero grid interaction, kept distinct from the existing "PLANNED SELF-CONSUME" label (which means the battery itself is genuinely idle, a different real state).
+
 ## [0.94.246] — 2026-09-10
 
 ### Added
