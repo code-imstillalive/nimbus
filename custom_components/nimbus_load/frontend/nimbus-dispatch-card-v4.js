@@ -380,12 +380,31 @@ class NimbusDispatchCardV4 extends HTMLElement {
       const gridExportKw = Math.max(0, -netGrid);
 
       if (bkw > 0.05) {
-        dir = 'PLANNED DISCHARGE'; dirColor = '#3ddc84'; isIdle = false;
+        isIdle = false;
         if (gridExportKw > 0.05) {
+          dir = 'PLANNED DISCHARGE'; dirColor = '#3ddc84';
           reasoning = 'Battery discharging ' + dischargeKw.toFixed(1) + ' kW plus ' + solarKw.toFixed(1) + ' kW solar covers the ' + loadKw.toFixed(1) + ' kW load with ' + gridExportKw.toFixed(1) + ' kW left to export at ' + sellLabel + ' - worth more now than buying it back later at ' + imp.toFixed(1) + 'c/kWh.';
         } else if (gridImportKw > 0.05) {
+          dir = 'PLANNED DISCHARGE'; dirColor = '#3ddc84';
           reasoning = 'Battery discharging ' + dischargeKw.toFixed(1) + ' kW plus ' + solarKw.toFixed(1) + ' kW solar still leaves ' + gridImportKw.toFixed(1) + ' kW of the ' + loadKw.toFixed(1) + ' kW load coming from the grid at ' + imp.toFixed(1) + 'c/kWh - the plan still prefers discharging over holding charge here.';
         } else {
+          // Real household finding, 2026-09-11: this branch (battery
+          // discharging, but grid_export_kw ~0 -- the discharge exactly
+          // covers the load and nothing crosses the meter either way)
+          // used to still show the plain "PLANNED DISCHARGE" label,
+          // identical to the export case above -- confusingly implying
+          // a VPP-style export dispatch when the plan is genuinely
+          // self-consume-shaped. Confirmed live: the real inverter's
+          // own EMS correctly went into Self Consume mode for exactly
+          // this plan (see the live-dispatch automation's own matching
+          // grid_export_kw check, added the same day), while this card
+          // kept showing "PLANNED DISCHARGE" for the identical period --
+          // the label and the real hardware mode disagreed. Distinct
+          // label (not a plain reuse of "PLANNED SELF-CONSUME", which
+          // means the battery is genuinely IDLE, a different real
+          // state) so a household can still see the battery is actively
+          // moving, just not exporting.
+          dir = 'PLANNED DISCHARGE (SELF-CONSUME)'; dirColor = '#9aa0ac';
           reasoning = 'Battery discharging ' + dischargeKw.toFixed(1) + ' kW plus ' + solarKw.toFixed(1) + ' kW solar exactly covers the ' + loadKw.toFixed(1) + ' kW load - no grid import or export needed.';
         }
       } else if (bkw < -0.05) {
