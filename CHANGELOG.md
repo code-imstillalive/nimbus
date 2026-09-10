@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.238] — 2026-09-10
+
+### Fixed
+- **Reference `nimbus_counterfactual_writer.py`'s own deploy docs** (nimbus issue #697, real live incident): the household's already-deployed NUC1 copy silently stopped working for 2 days after PR #561 (2026-09-08) made `BatteryConfig` require `name=` — the deployed copy was simply never redeployed, and every nightly cron failure was caught and swallowed by the script's own broad exception guard with nothing alerting anyone. A second, independent failure surfaced immediately after redeploying: `HA_BASE`'s mDNS default (`homeassistant.local`) had stopped resolving on this household's own network, surfacing as a confusing `json.loads()` "Expecting value" error rather than an obvious connection failure. This entry documents the fix (redeployed on NUC1, `HA_BASE` now set explicitly in that household's own crontab) and corrects two real doc bugs found along the way: the deploy instructions referenced a `git show` path (`scripts/nimbus_counterfactual_writer.py`) that has never existed in this repo, and the crontab install one-liner didn't strip a pre-existing entry first. No functional change to the shipped `custom_components/nimbus_load` package itself — this release exists to keep every real fix's commit tagged and released per this project's own standing practice.
+
 ## [0.94.237] — 2026-09-10
 
 ### Changed
