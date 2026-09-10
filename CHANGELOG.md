@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.248] — 2026-09-11
+
+### Fixed
+- **A deferrable Controllable Load's schedule now actually avoids an imminent physical thermal-floor breach, not just warns about one** (nimbus issues #712/#713, from Mark Purcell's own real HWS install — two consecutive nights of the Hot Water Heat Pump self-triggering outside its solved plan after Nimbus commanded it off, the tank losing heat until it crossed its own hardware floor). v0.94.245 shipped a WARNING + a flag when this is projected; this release changes the actual dispatch decision. Traced the real LP constraint before building this: pulling the load's earliest allowed start forward (the fix originally proposed) would not have changed the real repro, since the window was already permissive enough — the LP simply preferred a cheaper, later period. The fix that actually works tightens the load's nearest scheduling window's own deadline down to the projected crossing point, forcing real delivery before the tank breaches its floor. Known, honest limitation: uses this project's own default idle-decay figure rather than each load's individually learned rate for this specific check (the learned rate needs an async lookup this synchronous scheduling pass doesn't have yet) — a real, scoped follow-up, not silently glossed over.
+
 ## [0.94.247] — 2026-09-11
 
 ### Fixed
