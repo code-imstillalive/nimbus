@@ -5394,7 +5394,7 @@ def _soc_discrepancy_stats(
     j_ach_hourly: dict[str, dict[str, float]],
     max_threshold_pct: float = 15.0,
     mean_threshold_pct: float = 8.0,
-) -> dict[str, float | bool | str | None]:
+) -> dict[str, float | bool | str | list[dict[str, float | bool | str]] | None]:
     """nimbus issue #427 (Mark Purcell): the achieved trajectory's own
     SoC is *integrated* from real battery-power history through the
     efficiency model (see compute_quality_report()'s own j_ach_soc_kwh
@@ -5468,9 +5468,22 @@ def _soc_discrepancy_stats(
             "soc_discrepancy_mean_pct": None,
             "soc_discrepancy_reliable": None,
             "soc_discrepancy_reason": None,
+            "soc_discrepancy_hourly": None,
         }
     gaps: list[float] = []
     any_out_of_range = False
+    # nimbus issue #681 (Mark Purcell, real finding: his own independent
+    # `score_day.py` reconstruction of this exact statistic from the same
+    # `recorder.json`/`quality_report.json` inputs disagreed 3x with this
+    # function's own number -- 10.4/3.4pt vs 32.13/6.41pt -- "I don't know
+    # which side is right... flagging the disagreement itself"). Rather
+    # than guess which resampling choice is correct without access to his
+    # own script, this exposes the exact per-hour (real_pct, ach_pct, gap)
+    # triples THIS function itself used, so any external reconstruction
+    # (his own or a future one) can diff directly against Nimbus's own
+    # real numbers hour by hour instead of independently re-deriving them
+    # and hoping the two resampling methods happen to agree.
+    hourly_rows: list[dict[str, float | bool | str]] = []
     for key_str, row in j_ach_hourly.items():
         ach_pct = row.get("soc_pct")
         if ach_pct is None:
@@ -5479,6 +5492,7 @@ def _soc_discrepancy_stats(
         real_pct = resample_history_nearest(soc_hist, [hour_dt])[0]
         ach_out_of_range = not (0.0 <= ach_pct <= 100.0)
         real_out_of_range = not (0.0 <= real_pct <= 100.0)
+        exempted = False
         if ach_out_of_range and not real_out_of_range:
             # nimbus issue #571 (Mark Purcell, confirmed against real
             # recorder data 8 Sep): a pack that genuinely runs down to
@@ -5496,19 +5510,32 @@ def _soc_discrepancy_stats(
             near_hundred = (
                 ach_pct > 100.0 and real_pct >= 100.0 - _SOC_BOUNDARY_EDGE_TOLERANCE_PCT
             )
-            if not (near_zero or near_hundred):
+            exempted = near_zero or near_hundred
+            if not exempted:
                 any_out_of_range = True
         elif ach_out_of_range or real_out_of_range:
             any_out_of_range = True
         clamped_ach = min(100.0, max(0.0, ach_pct))
         clamped_real = min(100.0, max(0.0, real_pct))
-        gaps.append(abs(clamped_real - clamped_ach))
+        gap = abs(clamped_real - clamped_ach)
+        gaps.append(gap)
+        hourly_rows.append(
+            {
+                "hour": key_str,
+                "real_pct": round(real_pct, 2),
+                "ach_pct": round(ach_pct, 2),
+                "gap_pct": round(gap, 2),
+                "out_of_range": ach_out_of_range or real_out_of_range,
+                "boundary_exempted": exempted,
+            }
+        )
     if not gaps:
         return {
             "soc_discrepancy_max_pct": None,
             "soc_discrepancy_mean_pct": None,
             "soc_discrepancy_reliable": None,
             "soc_discrepancy_reason": None,
+            "soc_discrepancy_hourly": None,
         }
     max_gap = max(gaps)
     mean_gap = sum(gaps) / len(gaps)
@@ -5526,6 +5553,7 @@ def _soc_discrepancy_stats(
         "soc_discrepancy_mean_pct": round(mean_gap, 2),
         "soc_discrepancy_reliable": reliable,
         "soc_discrepancy_reason": reason,
+        "soc_discrepancy_hourly": hourly_rows,
     }
 
 

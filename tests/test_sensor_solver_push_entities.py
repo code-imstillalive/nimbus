@@ -517,9 +517,18 @@ def test_quality_report_has_required_sensor_entity_class_attributes():
     # rows x 7 floats each) -- a realistic payload measured at 14,609
     # bytes against the recorder's 16,384-byte cap. These are excluded,
     # matching what the flattened children already exclude; every other
-    # (small, scalar) attribute stays recorded.
+    # (small, scalar) attribute stays recorded. soc_discrepancy_hourly
+    # (nimbus issue #681) joins them for the identical reason -- another
+    # real per-hour array this payload's own size budget has no margin
+    # for.
     assert cls._unrecorded_attributes == frozenset(
-        {"j_ref_hourly", "j_ach_hourly", "j_star_hourly", "hourly_regret"}
+        {
+            "j_ref_hourly",
+            "j_ach_hourly",
+            "j_star_hourly",
+            "hourly_regret",
+            "soc_discrepancy_hourly",
+        }
     )
 
 
