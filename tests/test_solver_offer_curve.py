@@ -479,6 +479,244 @@ class TestOfferCurveRangingWalkControlFlow(unittest.TestCase):
         self.assertLess(second_call_cost, 0.05 + 1e-3)
 
 
+class TestOfferCurveRangingWalkDescending(unittest.TestCase):
+    """Nimbus issue #705: export now walks `ascending=False` from
+    `start=_OFFER_CURVE_DOMAIN_MAX` (the cap) downward instead of #678's
+    original uniform floor-upward start -- isolated coverage, mirroring
+    every ascending control-flow test above, via the same
+    `_FakeRangingResult` stand-in.
+    """
+
+    def test_descending_walk_starts_at_the_given_start_price(self):
+        from solver.lp import SweepRangingStep
+        from solver.network import _offer_curve_ranging_walk
+
+        steps = [
+            # lower == -inf <= domain min -> stops immediately after this
+            # one solve, so only 2 total calls (this + the mandatory
+            # retail) are needed.
+            SweepRangingStep(
+                value=1.0, cost_dn=_record(float("-inf")), cost_up=_record(100.0)
+            ),
+            SweepRangingStep(
+                value=1.0, cost_dn=_record(float("-inf")), cost_up=_record(100.0)
+            ),  # retail
+        ]
+        fake = _FakeRangingResult(steps)
+        _offer_curve_ranging_walk(
+            fake,
+            "exp",
+            start=20.0,
+            ascending=False,
+            retail=0.5,
+            hours0=1.0,
+            negated=False,
+        )
+        self.assertEqual(fake.calls[0][1][0], 20.0)
+
+    def test_descending_walk_nudges_backward_past_each_breakpoint(self):
+        from solver.lp import SweepRangingStep
+        from solver.network import _offer_curve_ranging_walk
+
+        steps = [
+            SweepRangingStep(value=1.0, cost_dn=_record(5.0), cost_up=_record(100.0)),
+            SweepRangingStep(value=1.0, cost_dn=_record(-100.0), cost_up=_record(5.0)),
+            SweepRangingStep(
+                value=1.0, cost_dn=_record(-100.0), cost_up=_record(5.0)
+            ),  # retail
+        ]
+        fake = _FakeRangingResult(steps)
+        _offer_curve_ranging_walk(
+            fake,
+            "exp",
+            start=20.0,
+            ascending=False,
+            retail=1.0,
+            hours0=1.0,
+            negated=False,
+        )
+        second_call_cost = fake.calls[1][1][0]
+        self.assertLess(second_call_cost, 5.0)
+        self.assertGreater(second_call_cost, 5.0 - 1e-3)
+
+    def test_descending_walk_stops_at_the_iteration_safety_cap(self):
+        from solver.lp import SweepRangingStep
+        from solver.network import (
+            _OFFER_CURVE_MAX_BREAKPOINTS,
+            _offer_curve_ranging_walk,
+        )
+
+        # Every step reports a real, valid, ever-decreasing next
+        # breakpoint (never unbounded, never non-monotonic) -- only the
+        # explicit iteration cap can stop this walk.
+        steps = [
+            SweepRangingStep(
+                value=float(i),
+                cost_dn=_record(100.0 - i),
+                cost_up=_record(100.0 - i + 1),
+            )
+            for i in range(
+                _OFFER_CURVE_MAX_BREAKPOINTS + 2
+            )  # +1 for the mandatory retail call
+        ]
+        fake = _FakeRangingResult(steps)
+        curve, ranging = _offer_curve_ranging_walk(
+            fake,
+            "exp",
+            start=100.0,
+            ascending=False,
+            retail=0.0,
+            hours0=1.0,
+            negated=False,
+        )
+        self.assertEqual(len(fake.calls), _OFFER_CURVE_MAX_BREAKPOINTS + 1)
+        self.assertEqual(len(curve), _OFFER_CURVE_MAX_BREAKPOINTS + 1)
+        self.assertEqual(len(ranging), _OFFER_CURVE_MAX_BREAKPOINTS + 1)
+
+    def test_descending_walk_stops_at_the_real_floor(self):
+        from solver.lp import SweepRangingStep
+        from solver.network import _offer_curve_ranging_walk
+
+        steps = [
+            SweepRangingStep(
+                value=1.0, cost_dn=_record(float("-inf")), cost_up=_record(5.0)
+            ),  # lower <= domain min -> stop immediately after this solve
+            SweepRangingStep(
+                value=1.0, cost_dn=_record(float("-inf")), cost_up=_record(5.0)
+            ),  # retail
+        ]
+        fake = _FakeRangingResult(steps)
+        curve, _ranging = _offer_curve_ranging_walk(
+            fake,
+            "exp",
+            start=20.0,
+            ascending=False,
+            retail=0.0,
+            hours0=1.0,
+            negated=False,
+        )
+        self.assertEqual(len(fake.calls), 2)
+        self.assertEqual(len(curve), 2)
+
+
+class TestOfferCurveRangingWalkBackstop(unittest.TestCase):
+    """Nimbus issue #705: the one gap-targeted extra solve run when the
+    walk and the mandatory retail solve leave a real, unresolved gap
+    between them -- confirmed live on this household's real export curve
+    (a genuine 5.48kW->11.37kW jump hidden in an unsampled 6.41c-9.21c
+    band). Isolated from a real LP the same way every other control-flow
+    test in this file is.
+    """
+
+    def test_backstop_fires_when_a_real_gap_exists(self):
+        from solver.lp import SweepRangingStep
+        from solver.network import _offer_curve_ranging_walk
+
+        steps = [
+            SweepRangingStep(value=1.0, cost_dn=_record(-100.0), cost_up=_record(0.05)),
+            SweepRangingStep(value=1.0, cost_dn=_record(0.05), cost_up=_record(0.2)),
+            SweepRangingStep(
+                value=1.0, cost_dn=_record(0.2), cost_up=_record(0.2)
+            ),  # stalled -> walk stops here, last_bound stays 0.2
+            SweepRangingStep(
+                value=1.0, cost_dn=_record(0.5), cost_up=_record(2.0)
+            ),  # retail=1.0 -> price_lower=0.5, a real 0.3-wide gap vs last_bound=0.2
+            SweepRangingStep(
+                value=1.0, cost_dn=_record(0.3), cost_up=_record(0.4)
+            ),  # backstop
+        ]
+        fake = _FakeRangingResult(steps)
+        _offer_curve_ranging_walk(fake, "imp", retail=1.0, hours0=1.0, negated=False)
+        self.assertEqual(len(fake.calls), 5)
+        backstop_price = fake.calls[4][1][0]
+        self.assertAlmostEqual(backstop_price, (0.2 + 0.5) / 2.0)
+
+    def test_backstop_does_not_fire_when_retail_already_reaches_the_walk(self):
+        from solver.lp import SweepRangingStep
+        from solver.network import _offer_curve_ranging_walk
+
+        steps = [
+            SweepRangingStep(value=1.0, cost_dn=_record(-100.0), cost_up=_record(0.05)),
+            SweepRangingStep(
+                value=1.0, cost_dn=_record(0.05), cost_up=_record(0.05)
+            ),  # stalled -> last_bound stays 0.05
+            SweepRangingStep(
+                value=1.0, cost_dn=_record(0.01), cost_up=_record(1.0)
+            ),  # retail: price_lower=0.01 <= last_bound=0.05, no real gap
+        ]
+        fake = _FakeRangingResult(steps)
+        _offer_curve_ranging_walk(fake, "imp", retail=0.5, hours0=1.0, negated=False)
+        self.assertEqual(len(fake.calls), 3)
+
+    def test_backstop_does_not_fire_when_the_walk_found_no_real_territory(self):
+        from solver.lp import SweepRangingStep
+        from solver.network import _offer_curve_ranging_walk
+
+        steps = [
+            SweepRangingStep(
+                value=1.0, cost_dn=_record(-100.0), cost_up=_record(float("inf"))
+            ),  # unbounded through the cap on the very first solve
+            SweepRangingStep(
+                value=1.0, cost_dn=_record(0.01), cost_up=_record(5.0)
+            ),  # retail -- a huge apparent "gap," but there's no walk territory to bridge from
+        ]
+        fake = _FakeRangingResult(steps)
+        _offer_curve_ranging_walk(fake, "imp", retail=1.0, hours0=1.0, negated=False)
+        self.assertEqual(len(fake.calls), 2)
+
+    def test_backstop_skips_a_negligible_gap(self):
+        from solver.lp import SweepRangingStep
+        from solver.network import _offer_curve_ranging_walk
+
+        steps = [
+            SweepRangingStep(value=1.0, cost_dn=_record(-100.0), cost_up=_record(0.05)),
+            SweepRangingStep(
+                value=1.0, cost_dn=_record(0.05), cost_up=_record(0.05)
+            ),  # stalled -> last_bound stays 0.05
+            SweepRangingStep(
+                value=1.0, cost_dn=_record(0.0500_05), cost_up=_record(1.0)
+            ),  # retail: gap of 0.00005, well under the 1e-4 threshold
+        ]
+        fake = _FakeRangingResult(steps)
+        _offer_curve_ranging_walk(fake, "imp", retail=0.5, hours0=1.0, negated=False)
+        self.assertEqual(len(fake.calls), 3)
+
+    def test_backstop_direction_is_mirrored_for_a_descending_walk(self):
+        from solver.lp import SweepRangingStep
+        from solver.network import _offer_curve_ranging_walk
+
+        steps = [
+            SweepRangingStep(
+                value=1.0, cost_dn=_record(5.0), cost_up=_record(100.0)
+            ),  # bound=5.0, continues, last_bound=5.0
+            SweepRangingStep(
+                value=1.0, cost_dn=_record(1.0), cost_up=_record(5.0)
+            ),  # bound=1.0 < 5.0, continues, last_bound=1.0
+            SweepRangingStep(
+                value=1.0, cost_dn=_record(1.0), cost_up=_record(1.0)
+            ),  # bound=1.0, stalled -> walk stops here, last_bound stays 1.0
+            SweepRangingStep(
+                value=1.0, cost_dn=_record(0.1), cost_up=_record(0.5)
+            ),  # retail=0.3 -> price_upper=0.5, a real 0.5-wide gap vs last_bound=1.0
+            SweepRangingStep(
+                value=1.0, cost_dn=_record(0.6), cost_up=_record(0.7)
+            ),  # backstop
+        ]
+        fake = _FakeRangingResult(steps)
+        _offer_curve_ranging_walk(
+            fake,
+            "exp",
+            start=20.0,
+            ascending=False,
+            retail=0.3,
+            hours0=1.0,
+            negated=False,
+        )
+        self.assertEqual(len(fake.calls), 5)
+        backstop_price = fake.calls[4][1][0]
+        self.assertAlmostEqual(backstop_price, (1.0 + 0.5) / 2.0)
+
+
 class TestOfferCurveRangingWalkFindsRealStructure(unittest.TestCase):
     """nimbus issue #678: confirms the walk finds MORE real structure in
     this exact scenario than #494's old fixed 7-point grid ever did.
@@ -494,14 +732,28 @@ class TestOfferCurveRangingWalkFindsRealStructure(unittest.TestCase):
         self.plan = _scenario_plan(compute_offer_curve=True)
 
     @staticmethod
-    def _distinct_plateaus(ranging):
-        # Group consecutive rows sharing the identical ranging interval
-        # -- the retail solve's own harmless near-duplicate row (see
-        # _offer_curve_ranging_walk()'s own docstring) must not be
-        # double-counted as a second, distinct segment.
+    def _distinct_plateaus(ranging, tol=1e-6):
+        # Group consecutive rows sharing the SAME (within float tolerance)
+        # ranging interval -- the retail solve's own harmless near-
+        # duplicate row (see _offer_curve_ranging_walk()'s own docstring)
+        # must not be double-counted as a second, distinct segment. Exact
+        # equality isn't enough (nimbus issue #705): retail and a walk
+        # step landing on the identical true plateau are two INDEPENDENT
+        # sweep_cost_with_ranging() calls at two different starting
+        # prices, so their own reported bounds can differ by float noise
+        # (e.g. 0.29999900000000074 vs 0.3) even though both describe the
+        # exact same real segment.
+        def close(a, b):
+            if a is None or b is None:
+                return a is b
+            return all(
+                x == y or (x not in (float("-inf"), float("inf")) and abs(x - y) < tol)
+                for x, y in zip(a, b, strict=True)
+            )
+
         seen: list[tuple[float, float] | None] = []
         for interval in ranging:
-            if not seen or seen[-1] != interval:
+            if not seen or not close(seen[-1], interval):
                 seen.append(interval)
         return len(seen)
 
@@ -518,6 +770,12 @@ class TestOfferCurveRangingWalkFindsRealStructure(unittest.TestCase):
     def test_export_curve_now_has_four_real_plateaus_not_two(self):
         # Real, confirmed-live values: 0.0 kW (-inf,1c], ~0.1 kW
         # (1c,10c] -- genuinely new -- 3.0 kW (10c,30c], 5.0 kW (30c,inf).
+        # nimbus issue #705: export now walks from the cap DOWN instead of
+        # the floor up, so this same real structure is found in the
+        # opposite order (and the walk's own 2nd-to-last step happens to
+        # land on the identical true plateau as the separate retail
+        # solve, at 0.1 -- two independent ranging calls, tiny float
+        # noise between them, not a fifth real segment).
         self.assertEqual(
             self._distinct_plateaus(self.plan.offer_curve_export_ranging), 4
         )

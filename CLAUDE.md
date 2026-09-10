@@ -35,6 +35,19 @@ file is not re-summarized here; read it directly for the full detail. Most recen
   repeated ranging; found genuine structure (a 2.0 kW import plateau, a 0.1 kW
   export plateau) the old grid never sampled finely enough to see, in this
   project's own long-standing test fixture. 18 new/changed tests, full suite
+  green, zero new mypy findings. Deployed v0.94.240 live (bundled #678 with
+  Stage 2 of #696), re-verified the offer curve exact on both sides against a
+  fresh solve, then ran real sweep-strategy experiments (against a local LP
+  reconstruction from live diagnostics) that confirmed no fixed manual grid
+  beats the walk — checked EMHASS/HAEO first, neither has any equivalent
+  concept. **Implemented #705**: import still walks from the floor, export now
+  walks from the cap DOWNWARD instead (real breakpoints cluster near each
+  curve's own economically interesting end), plus one gap-targeted backstop
+  solve per curve when a real gap remains between the walk and retail —
+  confirmed live (export's own 6.41¢–9.21¢ band hid a real 5.48→11.37 kW jump).
+  Mark also confirmed the real Market Price Cap ($23.20/kWh, resolving #675's
+  own long-open question) and asked for it published as a `price_limits` JSON
+  attribute on `sensor.nimbus_offer_curve`. 20 new/changed tests, full suite
   green, zero new mypy findings.
 - [2026-09-09](docs/worklog/2026-09-09.md) — #582: a deferrable Controllable Load with
   a same-day window (the #534 heat pump's real 6am-4pm window) was silently dropped
