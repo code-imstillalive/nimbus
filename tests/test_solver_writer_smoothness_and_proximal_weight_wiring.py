@@ -183,3 +183,33 @@ class TestBatteryChargeEarlinessBudgetWiring:
             kwargs.get("battery_charge_earliness_budget_kw")
             == solver_writer.network.DEFAULT_BATTERY_CHARGE_EARLINESS_BUDGET_KW
         )
+
+
+class TestCalibratedObjectiveSwitchWiring:
+    """nimbus issue #696, Stage 2: switch.nimbus_solver_calibrated_
+    objective_enabled must actually reach build_plan()'s own
+    solve_options kwarg -- default TRUE (unlike every other Solver
+    switch), so a MISSING config key must still produce a real
+    CalibratedOptions instance, not None."""
+
+    def test_switch_off_reaches_build_plan_as_none(self):
+        attrs = dict(_BASE_CONFIG_ATTRS, solver_calibrated_objective_enabled=False)
+        kwargs = _run_main_and_capture_build_plan_kwargs(attrs)
+        assert kwargs.get("solve_options") is None
+
+    def test_switch_on_reaches_build_plan_as_calibrated_options(self):
+        attrs = dict(_BASE_CONFIG_ATTRS, solver_calibrated_objective_enabled=True)
+        kwargs = _run_main_and_capture_build_plan_kwargs(attrs)
+        assert isinstance(
+            kwargs.get("solve_options"), solver_writer.lp.CalibratedOptions
+        )
+
+    def test_missing_switch_defaults_to_calibrated_options_not_none(self):
+        """No-op guarantee, but the OPPOSITE direction from every other
+        wiring test in this file -- this switch defaults ON, so a
+        config missing this key entirely must still get the NEW
+        architecture, not silently stay on old behavior."""
+        kwargs = _run_main_and_capture_build_plan_kwargs(dict(_BASE_CONFIG_ATTRS))
+        assert isinstance(
+            kwargs.get("solve_options"), solver_writer.lp.CalibratedOptions
+        )

@@ -94,19 +94,25 @@ _EXPECTED_ATTRS = {
     "signal_role": "battery",
     "source_sensor": "sensor.fake_soc",
     "status": "optimal",
-    # nimbus issue #692: regenerated from a fresh real run after adding
-    # battery_charge_earliness_budget_kw (on by default) -- a small,
-    # real, understood cost shift (the fixture's own single battery now
-    # pays a tiny earliness-tiebreak cost on its own charge timing, same
-    # magnitude class as #613's own load-earliness term), not drift.
-    "total_cost": 26.697380668361077,
-    "total_cost_with_fixed_costs": 34.4974,
+    # nimbus issue #696, Stage 2: regenerated from a fresh real run
+    # after solver_writer.py's main() started defaulting to
+    # solve_options=CalibratedOptions() (switch.nimbus_solver_
+    # calibrated_objective_enabled, default on) -- proximal_weight/
+    # smoothness_weight/battery_charge_earliness_budget_kw now resolve
+    # on the LP's own SECONDARY channel with a searched-safe blend
+    # weight, rather than the old hand-picked magnitude summed directly
+    # into the primary objective. A small, real, understood shift (the
+    # searched weight isn't byte-identical to the old 0.005 constant),
+    # not drift -- see network.py's own build_plan() docstring on
+    # `solve_options` for the full mechanism.
+    "total_cost": 26.666273542595135,
+    "total_cost_with_fixed_costs": 34.4663,
     "cost_breakdown": {
         "grid_net": 33.5867,
         "degradation": 0.0,
         "charge_fee": 0.1847,
         "discharge_fee": 0.3148,
-        "terminal_value_credit": -7.3888,
+        "terminal_value_credit": -7.4199,
     },
     "cost_band": {"lower": 3.3107, "upper": 32.9326, "width": 29.622},
     "cost_band_24h": {"lower": -0.275, "upper": 9.1375, "width": 9.4125},
@@ -152,10 +158,10 @@ _EXPECTED_ATTRS = {
     # understood value change (both now ~12x larger, matching this
     # fixture's own 5-minute tier1 period at generation time), not
     # drift.
-    # nimbus issue #692: regenerated alongside total_cost above -- the
-    # battery-charge earliness term shifts this dual's own value by a
-    # tiny, real, understood amount too.
-    "binding_constraint_shadow_price": 0.2829,
+    # nimbus issue #696, Stage 2: regenerated alongside total_cost
+    # above -- the CalibratedOptions searched blend weight shifts this
+    # dual's own value by a tiny, real, understood amount too.
+    "binding_constraint_shadow_price": 0.2864,
     "energy_shadow_price_now": 0.3,
     "p2p_volume_cap_shadow_price": -0.0,
     # nimbus issue #567: this fixture configures no spike threshold/
@@ -252,7 +258,12 @@ _EXPECTED_FORECAST_SAMPLE = {
         # later-horizon tier's own real duals) -- real, direct proof the
         # per-period division uses THAT period's own hours[i], not a
         # single shared/period-0 value applied everywhere.
-        "shadow_price": 0.2815,
+        #
+        # nimbus issue #696, Stage 2: regenerated alongside every other
+        # value in this file after solve_options=CalibratedOptions()
+        # became the real default -- same reasoning as this file's own
+        # top-of-file comment on total_cost.
+        "shadow_price": 0.2865,
         "envelope_import_limit_kw": 15.0,
         "envelope_export_limit_kw": 15.0,
     },
