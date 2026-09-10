@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.244] — 2026-09-10
+
+### Added
+- **Per-load intent bands** (nimbus issue #492, Signals 3/7 of #489 — the second of that issue's two remaining pieces, alongside the already-shipped switchboard headroom). `Plan.load_signals` now classifies every sheddable/adequacy load's own draw, every period, as `UNLIMIT` (the plan is genuinely indifferent to how much this device draws right now) or `SET` (a real economic reason pins it at a specific figure) — straight from the Solver's own HiGHS ranging and reduced-cost output, not a guess. A load whose band is `[0, cap]` with zero reduced cost is indifferent (exactly the case a relay-chatter guard should hold rather than re-decide every cycle); a load classified `SET` reports its own real committed value as the honest limit. Two real, hand-verified findings went into this: a sheddable load's own intent needs to describe its DEVICE draw (`served_kw`), not the raw `shed_kw` variable the LP actually optimizes — the two point in opposite directions; and classification has to be driven by reduced cost, not the ranging band's own numeric width, since HiGHS's own bound ranging answers "how far could this variable's bound move before the optimal basis's structure changes," not "how far could the value move while the objective stays flat" — those only coincide for a genuinely tied variable.
+
 ## [0.94.243] — 2026-09-10
 
 ### Changed
