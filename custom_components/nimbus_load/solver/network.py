@@ -1040,27 +1040,132 @@ def _infeasible_plan(
     )
 
 
-def _offer_curve_price_grid(retail: float) -> list[float]:
-    """The 7-point $/kWh sweep grid nimbus issue #494 specifies, anchored
-    on `retail` (the real cost/revenue coefficient this solve's own LP
-    already used for period 0 -- `effective_import_price[0]` for the
-    import curve, `effective_export_price[0]` for the export curve --
-    NOT the raw unadjusted price, so the "curve at the current retail
-    price equals the main plan's own period-0 dispatch" acceptance check
-    holds by construction: re-solving at exactly the coefficient already
-    loaded reproduces the same optimal vertex).
+# Real AEMO NEM price limits, not synthetic stress bounds -- confirmed by
+# Mark Purcell directly (nimbus issue #675) after an earlier session
+# wrongly assumed these were arbitrary. -1.00 = the Market Floor Price
+# (-$1,000/MWh), independently confirmed current. 20.00 is #675's own
+# still-open, unconfirmed question -- the Market Price Cap is on a known,
+# legislated multi-year escalation (AEMC's Dec-2023 determination) and
+# may already be a step behind the real current figure (~$23.20/kWh per
+# a secondary source #675 could not independently verify against a
+# primary AEMO page from that session's own network access). Left
+# unchanged here deliberately -- correcting the constant's VALUE is
+# #675's own scope, not this walk's; whatever the true cap is, the walk
+# below stops there rather than sampling past it.
+_OFFER_CURVE_DOMAIN_MIN: float = -1.00
+_OFFER_CURVE_DOMAIN_MAX: float = 20.00
 
-    `[-1.00, retail*-3, retail*-1, 0.0, retail, retail*3, 20.00]`, sorted
-    ascending with exact duplicates collapsed (a degenerate `retail<=0`
-    input, e.g. a free/negative-price period, can otherwise repeat the
-    same value at several of the 7 nominal steps) -- sorting also makes
-    the grid's own construction robust to a `retail` value the raw
-    formula wasn't designed around, since `sweep_cost()`'s real
-    monotonicity guarantee comes from the LP's own sensitivity property,
-    not from the grid happening to be pre-sorted.
+# Real live data (2026-09-10, this household) shows 2-3 genuine segments
+# per side; this is a generous multiple of that, not a tuned minimum --
+# see _offer_curve_ranging_walk()'s own docstring for what happens if a
+# real curve ever needs more (the walk stops honestly, it doesn't guess).
+_OFFER_CURVE_MAX_BREAKPOINTS: int = 8
+
+# Relative step past a discovered breakpoint before the next solve --
+# same magnitude/reasoning as `lp.py`'s own HAEO-ported LexOptions
+# phase-3 epsilon (issue #696/#699, `epsilon = max(1e-6, abs(
+# secondary_value) * 1e-6)`): small enough to stay below any real
+# tariff's own granularity, large enough to clear float noise at the
+# boundary itself.
+_OFFER_CURVE_NUDGE_REL: float = 1e-6
+
+
+def _offer_curve_ranging_walk(
+    result: LPResult,
+    var: str,
+    *,
+    retail: float,
+    hours0: float,
+    negated: bool,
+) -> tuple[list[tuple[float, float]], list[tuple[float, float] | None]]:
+    """Nimbus issue #678: walks this variable's own real piecewise-
+    constant breakpoints directly via repeated `LPResult.sweep_cost_
+    with_ranging()` calls, instead of sampling #494's original fixed
+    7-point grid (`_offer_curve_price_grid()`, removed by this issue).
+
+    Each step's own `cost_up` -- the EXACT price at which its plateau
+    stops being optimal, straight from HiGHS's own sensitivity analysis,
+    not a guess -- becomes the next step's own starting price, nudged
+    forward by `_OFFER_CURVE_NUDGE_REL` so the next solve lands
+    unambiguously on the NEXT plateau rather than re-landing on the same
+    point. This nudge answers #678's own explicitly-flagged open
+    question ("whether exactly at the breakpoint price needs a small
+    epsilon nudge") -- yes: the boundary price itself is a genuine LP
+    tie between the two adjacent plateaus (confirmed by inspecting real
+    ranging output where a segment's own reported interval touches its
+    neighbour's at exactly one shared price), so solving precisely AT it
+    can return either optimal vertex depending on solver internals, not
+    reliably the new one.
+
+    The walk starts at `_OFFER_CURVE_DOMAIN_MIN` (the real AEMO Market
+    Floor Price) and stops the moment any of these hold, each an honest
+    "nothing more to find here," never a guess:
+    - the current plateau's own ranging is unbounded above (`cost_up >=
+      _OFFER_CURVE_DOMAIN_MAX`) -- it already provably holds through the
+      cap, so no further step could add real information;
+    - ranging itself came back invalid at this step (a genuine
+      degenerate basis -- #678's own flagged safety concern: stop rather
+      than guess how to continue);
+    - the next candidate breakpoint is not strictly past the previous
+      one (a non-monotonic/degenerate ranging result, which real LP
+      parametric-sensitivity theory says should never happen for a
+      well-posed single-variable sweep -- treated as a hard stop, not
+      something to paper over);
+    - `_OFFER_CURVE_MAX_BREAKPOINTS` real walk steps have already run
+      (the explicit iteration cap #678 asked for).
+
+    `retail` (period 0's own effective price) is ALWAYS separately swept
+    on top of the walk, regardless of where it falls relative to the
+    walked breakpoints -- #494's own "curve at retail equals the main
+    plan's period-0 dispatch" acceptance check needs a real solve at
+    that exact price, not a value inferred from whichever segment
+    contains it. A duplicate solve on the rare cycle where retail
+    happens to exactly coincide with an already-walked price is
+    harmless (identical cost coefficient, identical result) and not
+    worth special-casing away.
+
+    Supersedes #675's own "add the real forecast's own min/max as extra
+    sweep points" ask, per that issue's own text: a walk that finds
+    every real breakpoint exactly needs no extra landmark points to
+    guess where the interesting prices are -- it already covers the
+    whole domain with genuine precision, not just wherever a sample
+    happened to land. #675's separate, unconfirmed "$20 cap may be
+    stale" question is untouched by this change (see the domain
+    constants' own comment above).
     """
-    raw = [-1.00, retail * -3, retail * -1, 0.0, retail, retail * 3, 20.00]
-    return sorted(set(raw))
+    prices: list[float] = []
+    values: list[float] = []
+    intervals: list[tuple[float, float] | None] = []
+
+    def solve_at(price: float) -> tuple[float, float] | None:
+        cost = price * hours0 if not negated else -price * hours0
+        (step,) = result.sweep_cost_with_ranging(var, [cost])
+        interval = _offer_curve_price_interval(step, hours0, negated=negated)
+        prices.append(price)
+        values.append(step.value)
+        intervals.append(interval)
+        return interval
+
+    price = _OFFER_CURVE_DOMAIN_MIN
+    last_cost_up: float | None = None
+    for _ in range(_OFFER_CURVE_MAX_BREAKPOINTS):
+        interval = solve_at(price)
+        if interval is None:
+            break
+        _lower, upper = interval
+        if upper >= _OFFER_CURVE_DOMAIN_MAX:
+            break
+        if last_cost_up is not None and upper <= last_cost_up + 1e-12:
+            break
+        last_cost_up = upper
+        price = upper + max(_OFFER_CURVE_NUDGE_REL, abs(upper) * _OFFER_CURVE_NUDGE_REL)
+
+    solve_at(retail)
+
+    order = sorted(range(len(prices)), key=lambda i: prices[i])
+    curve = [(prices[i], values[i]) for i in order]
+    ranging = [intervals[i] for i in order]
+    return curve, ranging
 
 
 def _offer_curve_price_interval(
@@ -1264,32 +1369,33 @@ def build_plan(
 
     `compute_offer_curve` (nimbus issue #494, Signals 5/7 of #489):
     opt-in (default `False`) -- when `True`, requests `LPProblem.solve(
-    keep_basis=True)` and, on an optimal result, sweeps period 0's
-    `grid_import`/`grid_export` cost coefficients over a fixed 7-point
-    price grid (`_offer_curve_price_grid()`) via `LPResult.sweep_cost_
-    with_ranging()`, populating `Plan.offer_curve_import`/
-    `offer_curve_export` -- a real (price, kW) demand-response bid
-    ladder for period 0, not just one (band_min, band_max) at the
-    CURRENT price the way `compute_signals` above already gives. Each
-    sweep step is a warm-started re-solve from period 0's own already-
-    loaded optimal basis (milliseconds, not a fresh cold solve) -- unlike
-    `compute_signals`'s own ranging pass, the plain re-solve loop has NOT
-    been measured to carry a meaningful cost at this project's production
-    scale (7 extra simplex re-solves from a warm basis vs. one genuinely
-    expensive ranging pass), but stays opt-in anyway, matching #494's own
-    explicit cadence requirement ("not every 5-minute solve by default")
-    and this module's own established "extra solver capability is
-    opt-in" convention. Every existing caller is unaffected either way.
+    keep_basis=True)` and, on an optimal result, walks period 0's
+    `grid_import`/`grid_export` cost coefficients directly along their
+    own real breakpoints (`_offer_curve_ranging_walk()`, nimbus issue
+    #678) via repeated `LPResult.sweep_cost_with_ranging()` calls,
+    populating `Plan.offer_curve_import`/`offer_curve_export` -- a real
+    (price, kW) demand-response bid ladder for period 0, not just one
+    (band_min, band_max) at the CURRENT price the way `compute_signals`
+    above already gives. Each walk step is a warm-started re-solve from
+    period 0's own already-loaded optimal basis (milliseconds, not a
+    fresh cold solve); the walk finds every real segment between the
+    AEMO Market Floor Price and Market Price Cap exactly, in as many
+    re-solves as the curve actually has (typically 2-4 per side on real
+    data, capped at `_OFFER_CURVE_MAX_BREAKPOINTS`), rather than sampling
+    a fixed grid and hoping a sample point lands near the interesting
+    price -- #494's original fixed 7-point grid (`_offer_curve_price_
+    grid()`) is removed, superseded by this exact-breakpoint walk. Stays
+    opt-in, matching #494's own explicit cadence requirement ("not every
+    5-minute solve by default") and this module's own established "extra
+    solver capability is opt-in" convention. Every existing caller is
+    unaffected either way.
 
     Also populates `Plan.offer_curve_import_ranging`/`offer_curve_export_
-    ranging` (nimbus issue #676) -- each sweep step's own EXACT real
+    ranging` (nimbus issue #676) -- each walked step's own EXACT real
     $/kWh price interval, straight from HiGHS's own per-step cost
-    ranging, not a bracket inferred from neighbouring sample points. This
-    DOES add a real, measurable cost on top of the plain re-solve loop (a
-    genuine ranging pass per step, not free) -- unlike `compute_signals`
-    above, it does NOT need a second, separate opt-in flag: ranging here
-    is requested independently, per step, by `sweep_cost_with_ranging()`
-    itself, regardless of whether `compute_signals` was also passed.
+    ranging (the SAME ranging call that finds each next breakpoint in
+    the first place, so this carries no additional cost beyond the walk
+    itself, unlike `compute_signals`'s own separate ranging pass above).
     """
     loads = loads or []
     sheddable_loads = sheddable_loads or []
@@ -2932,46 +3038,43 @@ def build_plan(
     # self-contained opt-in the same way the ranging block above does.
     if compute_offer_curve:
         _offer_curve_start = time.monotonic()
-        import_prices = _offer_curve_price_grid(float(effective_import_price[0]))
-        export_prices = _offer_curve_price_grid(float(effective_export_price[0]))
         hours0 = float(hours[0])
-        # nimbus issue #676: sweep_cost_with_ranging() instead of plain
-        # sweep_cost() -- same warm-started re-solve loop, additionally
-        # capturing each step's own exact cost-ranging (the real price
-        # interval that step's own kW value holds for), not just the kW
-        # value alone. Does not need result.ranging_valid / compute_
-        # signals=True on the ORIGINAL solve -- each step calls
-        # h.getRanging() itself, independent of whether the original
-        # solve requested it (see that method's own docstring).
-        import_steps = result.sweep_cost_with_ranging(
-            grid_import[0], [price * hours0 for price in import_prices]
+        # nimbus issue #678: walks each curve's own real breakpoints
+        # directly instead of sampling #494's original fixed 7-point
+        # grid (_offer_curve_price_grid(), removed by this issue) -- see
+        # _offer_curve_ranging_walk()'s own docstring for the full
+        # mechanism, including its answers to #678's own open questions
+        # (the epsilon nudge past a boundary, the iteration safety cap).
+        offer_curve_import: list[tuple[float, float]] | None
+        offer_curve_import_ranging: list[tuple[float, float] | None] | None
+        offer_curve_import, offer_curve_import_ranging = _offer_curve_ranging_walk(
+            result,
+            grid_import[0],
+            retail=float(effective_import_price[0]),
+            hours0=hours0,
+            negated=False,
         )
         # Export earns revenue -- p.set_cost(grid_export[t], -price*hours[t])
-        # above (the same construction this sweep must mirror exactly for
-        # the at-retail consistency check to hold), so the swept cost
-        # coefficient here is likewise negated. _offer_curve_price_interval()
-        # (negated=True) undoes this same negation on the way back out.
-        export_steps = result.sweep_cost_with_ranging(
-            grid_export[0], [-price * hours0 for price in export_prices]
+        # above (the same construction this walk must mirror exactly for
+        # the at-retail consistency check to hold), so negated=True here
+        # matches that same sign flip; _offer_curve_ranging_walk() folds
+        # the negation into what it swaps and _offer_curve_price_interval()
+        # undoes it again on the way back out.
+        offer_curve_export: list[tuple[float, float]] | None
+        offer_curve_export_ranging: list[tuple[float, float] | None] | None
+        offer_curve_export, offer_curve_export_ranging = _offer_curve_ranging_walk(
+            result,
+            grid_export[0],
+            retail=float(effective_export_price[0]),
+            hours0=hours0,
+            negated=True,
         )
-        offer_curve_import: list[tuple[float, float]] | None = list(
-            zip(import_prices, [s.value for s in import_steps], strict=True)
-        )
-        offer_curve_export: list[tuple[float, float]] | None = list(
-            zip(export_prices, [s.value for s in export_steps], strict=True)
-        )
-        offer_curve_import_ranging: list[tuple[float, float] | None] | None = [
-            _offer_curve_price_interval(s, hours0, negated=False) for s in import_steps
-        ]
-        offer_curve_export_ranging: list[tuple[float, float] | None] | None = [
-            _offer_curve_price_interval(s, hours0, negated=True) for s in export_steps
-        ]
         offer_curve_sweep_seconds: float | None = time.monotonic() - _offer_curve_start
         _LOGGER.debug(
             "Nimbus network.py: offer curve sweep took %.4fs (%d import + %d export steps)",
             offer_curve_sweep_seconds,
-            len(import_prices),
-            len(export_prices),
+            len(offer_curve_import),
+            len(offer_curve_export),
         )
     else:
         offer_curve_import = None

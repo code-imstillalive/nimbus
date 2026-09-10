@@ -99,11 +99,16 @@ class TestOfferCurveRealScenario(unittest.TestCase):
         self.plan = _scenario_plan(compute_offer_curve=True)
 
     def test_solves_optimal_with_populated_curves(self):
+        # nimbus issue #678: the walk's own row count is now variable
+        # (as many real breakpoints as this scenario actually has, plus
+        # the mandatory retail row), not a fixed 7 -- see
+        # TestOfferCurveRangingWalkFindsRealStructure below for the exact
+        # count this scenario really produces.
         self.assertEqual(self.plan.status, "optimal")
         self.assertIsNotNone(self.plan.offer_curve_import)
         self.assertIsNotNone(self.plan.offer_curve_export)
-        self.assertEqual(len(self.plan.offer_curve_import), 7)
-        self.assertEqual(len(self.plan.offer_curve_export), 7)
+        self.assertGreaterEqual(len(self.plan.offer_curve_import), 2)
+        self.assertGreaterEqual(len(self.plan.offer_curve_export), 2)
 
     def test_import_steps_are_sorted_ascending_by_price(self):
         prices = [price for price, _kw in self.plan.offer_curve_import]
@@ -119,11 +124,20 @@ class TestOfferCurveRealScenario(unittest.TestCase):
         for earlier, later in itertools.pairwise(kws):
             self.assertLessEqual(earlier, later + 1e-9)
 
-    def test_import_curve_at_20_dollars_is_zero(self):
+    def test_import_curve_is_zero_at_high_prices(self):
         # #494's own acceptance text: "the import curve is 0 kW at $20".
+        # nimbus issue #678: the walk no longer necessarily samples
+        # exactly at $20 -- it stops the moment a plateau's own ranging
+        # already PROVES unbounded coverage through the domain cap,
+        # which is a strictly stronger guarantee than one literal sample
+        # at the edge. Check that guarantee directly instead.
+        from solver.network import _OFFER_CURVE_DOMAIN_MAX
+
         price, kw = self.plan.offer_curve_import[-1]
-        self.assertAlmostEqual(price, 20.00)
+        _lower, upper = self.plan.offer_curve_import_ranging[-1]
         self.assertAlmostEqual(kw, 0.0)
+        self.assertGreaterEqual(upper, _OFFER_CURVE_DOMAIN_MAX - 1e-9)
+        self.assertLessEqual(price, _OFFER_CURVE_DOMAIN_MAX + 1e-9)
 
     def test_curve_at_retail_price_matches_the_main_plans_period_0_dispatch(self):
         # #494's own explicit consistency-check acceptance criterion.
@@ -318,24 +332,212 @@ class TestOfferCurveAbsentOnNonOptimalPlan(unittest.TestCase):
         self.assertIsNone(infeasible_plan.offer_curve_sweep_seconds)
 
 
-class TestOfferCurvePriceGrid(unittest.TestCase):
-    def test_grid_is_sorted_and_deduplicated(self):
-        from solver.network import _offer_curve_price_grid
+class _FakeRangingResult:
+    """Minimal stand-in for `LPResult`, implementing only the one method
+    `_offer_curve_ranging_walk()` actually calls -- lets the walk's own
+    control flow (iteration cap, invalid-ranging stop, non-monotonic
+    stop) be tested in isolation from a real LP, by scripting exactly
+    what each successive call returns regardless of the price it was
+    asked to solve at.
+    """
 
-        grid = _offer_curve_price_grid(0.30)
-        self.assertEqual(grid, sorted(grid))
-        self.assertEqual(len(grid), len(set(grid)))
-        self.assertAlmostEqual(grid[0], -1.00)
-        self.assertAlmostEqual(grid[-1], 20.00)
-        self.assertIn(0.30, [round(v, 10) for v in grid])
+    def __init__(self, steps):
+        self._steps = list(steps)
+        self.calls: list[tuple[str, list[float]]] = []
 
-    def test_degenerate_zero_retail_still_produces_a_valid_ascending_grid(self):
-        from solver.network import _offer_curve_price_grid
+    def sweep_cost_with_ranging(self, var, costs):
+        self.calls.append((var, list(costs)))
+        return [self._steps[len(self.calls) - 1]]
 
-        grid = _offer_curve_price_grid(0.0)
-        self.assertEqual(grid, sorted(grid))
-        self.assertEqual(grid[0], -1.00)
-        self.assertEqual(grid[-1], 20.00)
+
+def _record(value):
+    from solver.lp import RangingRecord
+
+    return RangingRecord(value=value, objective=0.0, in_var=None, out_var=None)
+
+
+class TestOfferCurveRangingWalkControlFlow(unittest.TestCase):
+    """nimbus issue #678: the walk's own termination rules, isolated from
+    a real solve via `_FakeRangingResult` -- directly answers #678's own
+    explicitly-flagged open questions (the epsilon nudge, the iteration
+    safety cap, what happens on a degenerate/non-monotonic ranging
+    result).
+    """
+
+    def test_walk_stops_at_the_iteration_safety_cap(self):
+        from solver.lp import SweepRangingStep
+        from solver.network import (
+            _OFFER_CURVE_MAX_BREAKPOINTS,
+            _offer_curve_ranging_walk,
+        )
+
+        # Every step reports a real, valid, ever-increasing next
+        # breakpoint (never unbounded, never non-monotonic) -- nothing
+        # here would stop the walk on its own; only the explicit
+        # iteration cap can.
+        steps = [
+            SweepRangingStep(
+                value=float(i),
+                cost_dn=_record(i * 0.001 - 0.001),
+                cost_up=_record(i * 0.001),
+            )
+            for i in range(
+                1, _OFFER_CURVE_MAX_BREAKPOINTS + 2
+            )  # +1 for the mandatory retail call
+        ]
+        fake = _FakeRangingResult(steps)
+        curve, ranging = _offer_curve_ranging_walk(
+            fake, "imp", retail=0.5, hours0=1.0, negated=False
+        )
+        self.assertEqual(len(fake.calls), _OFFER_CURVE_MAX_BREAKPOINTS + 1)
+        self.assertEqual(len(curve), _OFFER_CURVE_MAX_BREAKPOINTS + 1)
+        self.assertEqual(len(ranging), _OFFER_CURVE_MAX_BREAKPOINTS + 1)
+
+    def test_walk_stops_immediately_when_ranging_is_invalid(self):
+        from solver.lp import SweepRangingStep
+        from solver.network import _offer_curve_ranging_walk
+
+        steps = [
+            SweepRangingStep(
+                value=1.0, cost_dn=None, cost_up=None
+            ),  # domain_min: invalid
+            SweepRangingStep(
+                value=1.0, cost_dn=None, cost_up=None
+            ),  # the mandatory retail call
+        ]
+        fake = _FakeRangingResult(steps)
+        curve, _ranging = _offer_curve_ranging_walk(
+            fake, "imp", retail=0.5, hours0=1.0, negated=False
+        )
+        self.assertEqual(len(fake.calls), 2)
+        self.assertEqual(len(curve), 2)
+
+    def test_walk_stops_on_a_non_monotonic_ranging_result(self):
+        from solver.lp import SweepRangingStep
+        from solver.network import _offer_curve_ranging_walk
+
+        steps = [
+            SweepRangingStep(value=1.0, cost_dn=_record(-1.0), cost_up=_record(0.05)),
+            # The nudge lands here next; this step's own cost_up does
+            # NOT advance past the previous one -- a genuine degenerate/
+            # non-monotonic ranging result, which real LP parametric-
+            # sensitivity theory says should never happen for a well-
+            # posed single-variable sweep. The walk must stop, not loop.
+            SweepRangingStep(value=1.0, cost_dn=_record(0.05), cost_up=_record(0.05)),
+            SweepRangingStep(
+                value=1.0, cost_dn=_record(-1.0), cost_up=_record(0.05)
+            ),  # retail
+        ]
+        fake = _FakeRangingResult(steps)
+        curve, _ranging = _offer_curve_ranging_walk(
+            fake, "imp", retail=0.5, hours0=1.0, negated=False
+        )
+        self.assertEqual(len(fake.calls), 3)
+        self.assertEqual(len(curve), 3)
+
+    def test_walk_stops_once_ranging_is_unbounded_through_the_cap(self):
+        from solver.lp import SweepRangingStep
+        from solver.network import _offer_curve_ranging_walk
+
+        steps = [
+            SweepRangingStep(
+                value=10.0, cost_dn=_record(-100.0), cost_up=_record(float("inf"))
+            ),
+            SweepRangingStep(
+                value=10.0, cost_dn=_record(-100.0), cost_up=_record(float("inf"))
+            ),  # retail
+        ]
+        fake = _FakeRangingResult(steps)
+        curve, _ranging = _offer_curve_ranging_walk(
+            fake, "imp", retail=5.0, hours0=1.0, negated=False
+        )
+        self.assertEqual(len(fake.calls), 2)
+        self.assertEqual(len(curve), 2)
+
+    def test_walk_nudges_forward_by_a_small_positive_amount_past_each_breakpoint(self):
+        # nimbus issue #678's own open question, answered: the second
+        # solve must land strictly past the first step's own cost_up,
+        # never exactly on it.
+        from solver.lp import SweepRangingStep
+        from solver.network import _offer_curve_ranging_walk
+
+        steps = [
+            SweepRangingStep(
+                value=10.0, cost_dn=_record(-100.0), cost_up=_record(0.05)
+            ),
+            SweepRangingStep(
+                value=0.0, cost_dn=_record(0.05), cost_up=_record(float("inf"))
+            ),
+            SweepRangingStep(
+                value=0.0, cost_dn=_record(0.05), cost_up=_record(float("inf"))
+            ),  # retail
+        ]
+        fake = _FakeRangingResult(steps)
+        _offer_curve_ranging_walk(fake, "imp", retail=1.0, hours0=1.0, negated=False)
+        second_call_cost = fake.calls[1][1][0]
+        self.assertGreater(second_call_cost, 0.05)
+        self.assertLess(second_call_cost, 0.05 + 1e-3)
+
+
+class TestOfferCurveRangingWalkFindsRealStructure(unittest.TestCase):
+    """nimbus issue #678: confirms the walk finds MORE real structure in
+    this exact scenario than #494's old fixed 7-point grid ever did.
+    Real values confirmed directly against this branch's own solver
+    before writing these assertions (same discipline as every other
+    hand-worked test in this file) -- the old grid never sampled finely
+    enough inside [-10c, 10c] to find either of the two extra plateaus
+    below; the walk finds both as a structural guarantee, not a lucky
+    sample landing.
+    """
+
+    def setUp(self):
+        self.plan = _scenario_plan(compute_offer_curve=True)
+
+    @staticmethod
+    def _distinct_plateaus(ranging):
+        # Group consecutive rows sharing the identical ranging interval
+        # -- the retail solve's own harmless near-duplicate row (see
+        # _offer_curve_ranging_walk()'s own docstring) must not be
+        # double-counted as a second, distinct segment.
+        seen: list[tuple[float, float] | None] = []
+        for interval in ranging:
+            if not seen or seen[-1] != interval:
+                seen.append(interval)
+        return len(seen)
+
+    def test_import_curve_now_has_four_real_plateaus_not_two(self):
+        # Real, confirmed-live values: 7.0 kW (-inf,-10c], ~3.524 kW
+        # (-10c,7.12c], 2.0 kW (7.12c,10c] -- genuinely new, the old
+        # fixed grid never sampled here -- 0.0 kW (10c,inf).
+        self.assertEqual(
+            self._distinct_plateaus(self.plan.offer_curve_import_ranging), 4
+        )
+        values = [round(kw, 6) for _price, kw in self.plan.offer_curve_import]
+        self.assertIn(2.0, values)
+
+    def test_export_curve_now_has_four_real_plateaus_not_two(self):
+        # Real, confirmed-live values: 0.0 kW (-inf,1c], ~0.1 kW
+        # (1c,10c] -- genuinely new -- 3.0 kW (10c,30c], 5.0 kW (30c,inf).
+        self.assertEqual(
+            self._distinct_plateaus(self.plan.offer_curve_export_ranging), 4
+        )
+        values = [kw for _price, kw in self.plan.offer_curve_export]
+        self.assertTrue(any(abs(v - 0.1) < 1e-6 for v in values))
+
+    def test_walk_never_costs_more_solves_than_its_own_documented_ceiling(self):
+        # _OFFER_CURVE_MAX_BREAKPOINTS walk steps + 1 mandatory retail
+        # solve, per curve -- this scenario's own real count (5 + 5) is
+        # well under that, but the ceiling itself is what any caller
+        # relying on a bounded cost needs to hold, not just this one
+        # fixture's incidental real structure.
+        from solver.network import _OFFER_CURVE_MAX_BREAKPOINTS
+
+        self.assertLessEqual(
+            len(self.plan.offer_curve_import), _OFFER_CURVE_MAX_BREAKPOINTS + 1
+        )
+        self.assertLessEqual(
+            len(self.plan.offer_curve_export), _OFFER_CURVE_MAX_BREAKPOINTS + 1
+        )
 
 
 if __name__ == "__main__":
