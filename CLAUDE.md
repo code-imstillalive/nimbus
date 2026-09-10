@@ -40,7 +40,7 @@ file is not re-summarized here; read it directly for the full detail. Most recen
   fresh solve, then ran real sweep-strategy experiments (against a local LP
   reconstruction from live diagnostics) that confirmed no fixed manual grid
   beats the walk — checked EMHASS/HAEO first, neither has any equivalent
-  concept. **Implemented #706**: import still walks from the floor, export now
+  concept. **Implemented #705**: import still walks from the floor, export now
   walks from the cap DOWNWARD instead (real breakpoints cluster near each
   curve's own economically interesting end), plus one gap-targeted backstop
   solve per curve when a real gap remains between the walk and retail —

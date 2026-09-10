@@ -1072,7 +1072,7 @@ def _infeasible_plan(
 # Mark Purcell directly (nimbus issue #675) after an earlier session
 # wrongly assumed these were arbitrary. -1.00 = the Market Floor Price
 # (-$1,000/MWh), independently confirmed current. 23.20 = the Market
-# Price Cap (nimbus issue #706, resolving #675's own long-open "may
+# Price Cap (nimbus issue #705, resolving #675's own long-open "may
 # already be a step behind the real current figure" question) --
 # confirmed directly by Mark Purcell, 2026-09-10: $23.20/kWh
 # ($23,200/MWh), the real current AEMC-determined MPC, correcting this
@@ -1095,7 +1095,7 @@ _OFFER_CURVE_MAX_BREAKPOINTS: int = 8
 # boundary itself.
 _OFFER_CURVE_NUDGE_REL: float = 1e-6
 
-# nimbus issue #706: minimum real price gap (in $/kWh) worth a dedicated
+# nimbus issue #705: minimum real price gap (in $/kWh) worth a dedicated
 # extra "backstop" solve -- see _offer_curve_ranging_walk()'s own
 # backstop paragraph. Below this, a gap between the walk's own last
 # resolved boundary and the retail anchor's own ranging is float noise /
@@ -1135,7 +1135,7 @@ def _offer_curve_ranging_walk(
     optimal vertex depending on solver internals, not reliably the new
     one.
 
-    `start`/`ascending` (nimbus issue #706): which end of the domain the
+    `start`/`ascending` (nimbus issue #705): which end of the domain the
     walk explores first, and which direction it moves. Import still
     walks `ascending=True` from `_OFFER_CURVE_DOMAIN_MIN` (the real AEMO
     Market Floor Price) upward -- the default, unchanged from #678's own
@@ -1147,7 +1147,7 @@ def _offer_curve_ranging_walk(
     breakpoints cluster near the floor (a household stops buying as
     price rises), export's cluster near the cap (a household sells more
     as price rises) -- see this function's own module-level docstring
-    reference and #706's own issue text for the live household evidence.
+    reference and #705's own issue text for the live household evidence.
     Walking export from the floor upward (#678's original, uniform
     choice) spent its entire iteration budget on the near-zero region
     every time, the ECONOMICALLY LEAST interesting part of an export
@@ -1185,7 +1185,7 @@ def _offer_curve_ranging_walk(
     harmless (identical cost coefficient, identical result) and not
     worth special-casing away.
 
-    **Backstop (nimbus issue #706):** starting the walk at one end of the
+    **Backstop (nimbus issue #705):** starting the walk at one end of the
     domain means its own iteration budget can be entirely consumed by
     dense structure near THAT end, leaving a real, genuinely unexplored
     gap between the walk's own last resolved boundary and the retail
@@ -1211,7 +1211,7 @@ def _offer_curve_ranging_walk(
     guess where the interesting prices are -- it already covers the
     whole domain with genuine precision, not just wherever a sample
     happened to land. #675's separate "$20 cap may be stale" question is
-    now resolved -- nimbus issue #706 confirmed and corrected the real
+    now resolved -- nimbus issue #705 confirmed and corrected the real
     Market Price Cap (see the domain constants' own comment above).
     """
     prices: list[float] = []
@@ -1255,7 +1255,7 @@ def _offer_curve_ranging_walk(
 
     solve_at(retail)
 
-    # nimbus issue #706: one gap-targeted backstop solve -- see this
+    # nimbus issue #705: one gap-targeted backstop solve -- see this
     # function's own docstring paragraph above for the full reasoning.
     retail_interval = intervals[-1]
     if last_bound is not None and retail_interval is not None:
@@ -1494,7 +1494,7 @@ def build_plan(
     solver capability is opt-in" convention. Every existing caller is
     unaffected either way.
 
-    Nimbus issue #706: import walks from the floor upward, export from
+    Nimbus issue #705: import walks from the floor upward, export from
     the cap downward (each curve's own real breakpoints cluster near
     ITS OWN economically interesting end, confirmed on live household
     data), plus one gap-targeted backstop solve per curve when the walk
@@ -3247,7 +3247,7 @@ def build_plan(
         # _offer_curve_ranging_walk()'s own docstring for the full
         # mechanism, including its answers to #678's own open questions
         # (the epsilon nudge past a boundary, the iteration safety cap)
-        # and #706's own two additions (walking each side from whichever
+        # and #705's own two additions (walking each side from whichever
         # end its real structure clusters near, plus the gap-targeted
         # backstop solve).
         offer_curve_import: list[tuple[float, float]] | None
@@ -3256,7 +3256,7 @@ def build_plan(
             result,
             grid_import[0],
             # start/ascending default to the floor, walking up -- import's
-            # real breakpoints cluster near the floor (nimbus issue #706).
+            # real breakpoints cluster near the floor (nimbus issue #705).
             retail=float(effective_import_price[0]),
             hours0=hours0,
             negated=False,
@@ -3272,7 +3272,7 @@ def build_plan(
         offer_curve_export, offer_curve_export_ranging = _offer_curve_ranging_walk(
             result,
             grid_export[0],
-            # nimbus issue #706: export's real breakpoints cluster near
+            # nimbus issue #705: export's real breakpoints cluster near
             # the CAP, not the floor -- walk from _OFFER_CURVE_DOMAIN_MAX
             # downward instead of #678's original uniform floor-upward
             # start, confirmed against real live household data (see this

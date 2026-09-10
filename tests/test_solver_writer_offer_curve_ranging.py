@@ -138,7 +138,7 @@ class TestPublishOfferCurveRangingAttributes(unittest.TestCase):
         )
 
     def test_price_limits_published_as_a_real_json_object(self):
-        # nimbus issue #706: the real AEMO domain the walk was bounded by,
+        # nimbus issue #705: the real AEMO domain the walk was bounded by,
         # not just a Python constant no consumer can read.
         from solver.network import _OFFER_CURVE_DOMAIN_MAX, _OFFER_CURVE_DOMAIN_MIN
 
@@ -158,10 +158,10 @@ class TestPublishOfferCurveRangingAttributes(unittest.TestCase):
                 "market_price_cap": _OFFER_CURVE_DOMAIN_MAX,
                 "unit": "$/kWh",
                 "source": "AEMO Market Floor Price / Market Price Cap "
-                "(nimbus issue #706, confirmed by Mark Purcell)",
+                "(nimbus issue #705, confirmed by Mark Purcell)",
             },
         )
-        # The real, confirmed-current cap (nimbus issue #706) -- not the
+        # The real, confirmed-current cap (nimbus issue #705) -- not the
         # old, never-independently-verified $20.00 placeholder.
         self.assertAlmostEqual(_OFFER_CURVE_DOMAIN_MAX, 23.20)
         self.assertAlmostEqual(_OFFER_CURVE_DOMAIN_MIN, -1.00)

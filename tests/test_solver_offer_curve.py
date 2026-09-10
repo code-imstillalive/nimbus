@@ -480,7 +480,7 @@ class TestOfferCurveRangingWalkControlFlow(unittest.TestCase):
 
 
 class TestOfferCurveRangingWalkDescending(unittest.TestCase):
-    """Nimbus issue #706: export now walks `ascending=False` from
+    """Nimbus issue #705: export now walks `ascending=False` from
     `start=_OFFER_CURVE_DOMAIN_MAX` (the cap) downward instead of #678's
     original uniform floor-upward start -- isolated coverage, mirroring
     every ascending control-flow test above, via the same
@@ -600,7 +600,7 @@ class TestOfferCurveRangingWalkDescending(unittest.TestCase):
 
 
 class TestOfferCurveRangingWalkBackstop(unittest.TestCase):
-    """Nimbus issue #706: the one gap-targeted extra solve run when the
+    """Nimbus issue #705: the one gap-targeted extra solve run when the
     walk and the mandatory retail solve leave a real, unresolved gap
     between them -- confirmed live on this household's real export curve
     (a genuine 5.48kW->11.37kW jump hidden in an unsampled 6.41c-9.21c
@@ -737,7 +737,7 @@ class TestOfferCurveRangingWalkFindsRealStructure(unittest.TestCase):
         # ranging interval -- the retail solve's own harmless near-
         # duplicate row (see _offer_curve_ranging_walk()'s own docstring)
         # must not be double-counted as a second, distinct segment. Exact
-        # equality isn't enough (nimbus issue #706): retail and a walk
+        # equality isn't enough (nimbus issue #705): retail and a walk
         # step landing on the identical true plateau are two INDEPENDENT
         # sweep_cost_with_ranging() calls at two different starting
         # prices, so their own reported bounds can differ by float noise
@@ -770,7 +770,7 @@ class TestOfferCurveRangingWalkFindsRealStructure(unittest.TestCase):
     def test_export_curve_now_has_four_real_plateaus_not_two(self):
         # Real, confirmed-live values: 0.0 kW (-inf,1c], ~0.1 kW
         # (1c,10c] -- genuinely new -- 3.0 kW (10c,30c], 5.0 kW (30c,inf).
-        # nimbus issue #706: export now walks from the cap DOWN instead of
+        # nimbus issue #705: export now walks from the cap DOWN instead of
         # the floor up, so this same real structure is found in the
         # opposite order (and the walk's own 2nd-to-last step happens to
         # land on the identical true plateau as the separate retail

@@ -2248,7 +2248,7 @@ def publish_offer_curve(plan) -> None:
     attribute) whenever `Plan.offer_curve_import_ranging`/`export_
     ranging` itself is `None`.
 
-    `price_limits` (nimbus issue #706): the real AEMO NEM domain the walk
+    `price_limits` (nimbus issue #705): the real AEMO NEM domain the walk
     itself is bounded by (`network._OFFER_CURVE_DOMAIN_MIN`/`_MAX`), as
     a genuine JSON object rather than only ever living as a Python
     constant a dashboard/consumer has no way to read -- so a household
@@ -2279,7 +2279,7 @@ def publish_offer_curve(plan) -> None:
                 "market_price_cap": network._OFFER_CURVE_DOMAIN_MAX,
                 "unit": "$/kWh",
                 "source": "AEMO Market Floor Price / Market Price Cap "
-                "(nimbus issue #706, confirmed by Mark Purcell)",
+                "(nimbus issue #705, confirmed by Mark Purcell)",
             },
             "sweep_seconds": round(plan.offer_curve_sweep_seconds, 4)
             if plan.offer_curve_sweep_seconds is not None
