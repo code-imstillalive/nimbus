@@ -191,12 +191,16 @@ class TestCalibratedOptionsPreservesSmoothnessGuarantees(unittest.TestCase):
 
 
 class TestMipFallbackIsTransparent(unittest.TestCase):
-    """nimbus issue #696, Stage 2's own documented scope boundary: a
-    solve that will be a MIP (adequacy_loads present, adequacy_semi_
-    continuous default True) must silently fall back to solve_options=
-    None's own behavior when a non-None solve_options is requested --
-    never raise LPProblem's own MIP guard, and never silently produce a
-    DIFFERENT answer than solve_options=None would."""
+    """nimbus issue #696 Stage 2's own documented scope boundary (a MIP
+    solve silently fell back to solve_options=None's own behavior)
+    is now CLOSED by #702 -- a MIP genuinely engages solve_options
+    instead of falling back, via lp.py's own two-phase-MIP pin-and-
+    relax design (see _solve_with_options()'s own docstring). Class
+    name kept for git-blame continuity; what it actually verifies now
+    is that engaging the new architecture on a MIP never raises and
+    never changes the real DISPATCH versus solve_options=None (only the
+    reported total_cost legitimately differs, see the dispatch test's
+    own comment for why)."""
 
     def _adequacy_scenario(self, *, adequacy_semi_continuous: bool = True):
         n = 8
@@ -247,7 +251,7 @@ class TestMipFallbackIsTransparent(unittest.TestCase):
         plan = self._adequacy_scenario(adequacy_semi_continuous=True)
         self.assertEqual(plan.status, "optimal")
 
-    def test_mip_scenario_matches_solve_options_none_exactly(self):
+    def test_mip_scenario_matches_solve_options_none_dispatch(self):
         n = 8
         periods = PeriodGrid(hours=np.full(n, 1.0), start=None)
         grid = GridConfig(
@@ -301,10 +305,26 @@ class TestMipFallbackIsTransparent(unittest.TestCase):
             adequacy_semi_continuous=True,
             solve_options=CalibratedOptions(),
         )
+        # nimbus issue #702: total_cost is deliberately NOT expected to
+        # match exactly anymore. options=None bakes the earliness
+        # tie-break directly into the reported primary cost for a MIP
+        # (the pre-#702 fallback's own behavior); CalibratedOptions now
+        # correctly routes it through the secondary channel instead, so
+        # its own total_cost is the honest, uninflated true economic
+        # cost -- always <= options=None's own, never more (removing an
+        # always-nonnegative cost term can only lower or match the
+        # total, never raise it).
         self.assertEqual(plan_none.status, plan_calibrated.status)
-        self.assertAlmostEqual(
-            plan_none.total_cost, plan_calibrated.total_cost, places=6
-        )
+        self.assertLessEqual(plan_calibrated.total_cost, plan_none.total_cost + 1e-9)
+        # What #702 actually exists to prove: the real DISPATCH -- which
+        # periods the adequacy load actually runs in -- must still match
+        # options=None's own (both should prefer the earliest tied
+        # periods). A real, wrong first design attempt at #702 (pin
+        # binaries to a primary-only MIP solve BEFORE ever reading
+        # secondary cost) passed the old total_cost-only version of
+        # this test while silently landing on an ARBITRARY tied
+        # placement instead -- this assertion is what actually catches
+        # that class of regression.
         np.testing.assert_allclose(
             plan_none.adequacy_loads[0].power_kw,
             plan_calibrated.adequacy_loads[0].power_kw,
