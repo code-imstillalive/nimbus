@@ -8132,6 +8132,15 @@ def _sample_load_run_state(
 # household fixing the misconfiguration changes the triple anyway.
 _DONE_CONDITION_WARNED: set[tuple[str, str | None, str]] = set()
 
+# nimbus issue #712/#713: log-once-per-(load, day) dedup for the
+# hardware-floor-crossing warning below -- same #313/#314 discipline as
+# every other recurring per-cycle warning in this module. Keyed by
+# (subentry_id, day_key) -- the same identifier this function's own
+# other warnings already log by, not a load's display name -- so a
+# genuinely NEW day's own crossing still gets its own warning even if
+# yesterday's was already reported.
+_FLOOR_CROSSING_WARNED: set[tuple[str, str]] = set()
+
 # nimbus issue #534 (Mark Purcell, real SG-Ready heat-pump HWS install):
 # a water_heater's/climate's own *state* is a mode string ("eco"), not a
 # number -- done_when can never be evaluated against it. Both domains
@@ -9831,6 +9840,84 @@ def apply_commanded_state_guard(
                                     override_first_period_power_kw=override_power,
                                 ),
                             )
+                            # nimbus issue #712/#713 (Mark Purcell, real
+                            # live finding): the deferrable model's own
+                            # kWh-target/deadline framing has no
+                            # representation of the device's own
+                            # PHYSICAL thermal floor at all -- confirmed
+                            # live, two consecutive nights, the tank
+                            # falling past its eco-mode floor and the
+                            # compressor self-triggering hours before
+                            # the next scheduled ON period. Not
+                            # attempting a dispatch-changing fix here
+                            # (#713's own text: worth checking whether
+                            # pulling the earliest start forward is
+                            # worth the price difference, a real,
+                            # separate economic design question) --
+                            # this is #712's own "at minimum" ask: a
+                            # WARNING + a flag a household/future
+                            # automation can act on. floor_temperature
+                            # mirrors ceiling_temperature's own read
+                            # order (min_temp first -- the unit's own
+                            # real physical/eco floor, never invented;
+                            # done_when's own threshold as a last
+                            # resort for a device with no min_temp at
+                            # all) so both bounds come from the exact
+                            # same entity/config, never a second guess.
+                            floor_temperature = None
+                            if done_state_obj is not None:
+                                _raw_floor = done_state_obj.attributes.get("min_temp")
+                                if _raw_floor is not None:
+                                    try:
+                                        floor_temperature = float(_raw_floor)
+                                    except (TypeError, ValueError):
+                                        floor_temperature = None
+                            if floor_temperature is None:
+                                done_when = data.get(CONF_DEFERRABLE_DONE_WHEN)
+                                if done_when is not None:
+                                    try:
+                                        _, floor_temperature = (
+                                            done_condition.parse_done_when(done_when)
+                                        )
+                                    except (ValueError, TypeError):
+                                        floor_temperature = None
+                            floor_crossing = None
+                            if (
+                                floor_temperature is not None
+                                and new.temperature_forecast
+                            ):
+                                floor_crossing = thermal_forecast.find_floor_crossing(
+                                    new.temperature_forecast, floor_temperature
+                                )
+                            new = replace(
+                                new,
+                                floor_crossing_forecast_time=(
+                                    str(floor_crossing["time"])
+                                    if floor_crossing is not None
+                                    else None
+                                ),
+                                floor_crossing_forecast_temperature=(
+                                    float(floor_crossing["value"])  # type: ignore[arg-type]
+                                    if floor_crossing is not None
+                                    else None
+                                ),
+                            )
+                            if floor_crossing is not None:
+                                _floor_warn_key = (subentry_id, day_key)
+                                if _floor_warn_key not in _FLOOR_CROSSING_WARNED:
+                                    _FLOOR_CROSSING_WARNED.add(_floor_warn_key)
+                                    _LOGGER.warning(
+                                        "Nimbus: controllable load '%s' is "
+                                        "forecast to cross its own hardware "
+                                        "floor (%.1f) at %s, before its own "
+                                        "planned schedule reaches it -- the "
+                                        "device may self-trigger outside "
+                                        "the solved plan (nimbus issue "
+                                        "#712/#713)",
+                                        subentry_id,
+                                        floor_temperature,
+                                        floor_crossing["time"],
+                                    )
                 device_entity = data.get(CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY)
                 if device_entity and new.commanded_state != prev.commanded_state:
                     if new.commanded_state:

@@ -711,6 +711,30 @@ class TestLoadRunStateThermalAnchorRoundTrip(unittest.TestCase):
         self.assertEqual(restored.thermal_rates_source, "")
 
 
+class TestLoadRunStateFloorCrossingRoundTrip(unittest.TestCase):
+    """nimbus issue #712/#713 (Mark Purcell, real live finding): the
+    projected hardware-floor-crossing time/temperature round-trip
+    through to_dict()/from_dict() the same way every other per-cycle
+    thermal field already does above."""
+
+    def test_to_dict_and_from_dict_round_trip_both_fields(self):
+        state = lrs.LoadRunState(
+            floor_crossing_forecast_time="2026-09-11T07:30:00+10:00",
+            floor_crossing_forecast_temperature=39.96,
+        )
+        restored = lrs.LoadRunState.from_dict(state.to_dict())
+        self.assertEqual(
+            restored.floor_crossing_forecast_time, "2026-09-11T07:30:00+10:00"
+        )
+        self.assertEqual(restored.floor_crossing_forecast_temperature, 39.96)
+
+    def test_from_dict_defaults_for_old_data_predating_these_fields(self):
+        old_data = {"currently_on": True, "delivered_today_kwh": 1.5}
+        restored = lrs.LoadRunState.from_dict(old_data)
+        self.assertIsNone(restored.floor_crossing_forecast_time)
+        self.assertIsNone(restored.floor_crossing_forecast_temperature)
+
+
 class TestLoadRunStateShadowPriceForecastRoundTrip(unittest.TestCase):
     """nimbus issue #613 (Mark Purcell, item 1 of 3 -- exposure only):
     plan_shadow_price_forecast round-trips through to_dict()/from_dict()

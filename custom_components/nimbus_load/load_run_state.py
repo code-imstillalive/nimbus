@@ -193,6 +193,18 @@ class LoadRunState:
     # thermal-rate learner at all. nimbus issue #610: "the published
     # attributes do not say which [a learned rate from a default]."
     thermal_rates_source: str = ""
+    # nimbus issue #712/#713 (Mark Purcell, real live finding: two
+    # consecutive nights of uncontrolled compressor cut-in, both times
+    # the tank crossing its own hardware floor well before the next
+    # scheduled ON period -- the LP's own kWh-target/deadline framing
+    # has no representation of a physical thermal floor at all). The
+    # first period (if any) temperature_forecast above is projected to
+    # fall at or below the load's own hardware floor (thermal_forecast.
+    # find_floor_crossing()), refreshed every cycle alongside temperature_
+    # forecast itself. None/None whenever no crossing is projected (the
+    # common, healthy case) or the load has no floor to check against.
+    floor_crossing_forecast_time: str | None = None
+    floor_crossing_forecast_temperature: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -225,6 +237,10 @@ class LoadRunState:
             "temperature_forecast": self.temperature_forecast,
             "last_idle_temperature": self.last_idle_temperature,
             "thermal_rates_source": self.thermal_rates_source,
+            "floor_crossing_forecast_time": self.floor_crossing_forecast_time,
+            "floor_crossing_forecast_temperature": (
+                self.floor_crossing_forecast_temperature
+            ),
         }
 
     @staticmethod
@@ -261,6 +277,10 @@ class LoadRunState:
             temperature_forecast=data.get("temperature_forecast"),
             last_idle_temperature=data.get("last_idle_temperature"),
             thermal_rates_source=str(data.get("thermal_rates_source", "")),
+            floor_crossing_forecast_time=data.get("floor_crossing_forecast_time"),
+            floor_crossing_forecast_temperature=data.get(
+                "floor_crossing_forecast_temperature"
+            ),
         )
 
 
