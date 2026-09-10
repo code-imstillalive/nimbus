@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.246] — 2026-09-10
+
+### Added
+- **The Switchboard wizard's import/export price fields are now pre-filled from Home Assistant's own Energy Dashboard config**, when it's set up (nimbus issue #554). Extends the existing Energy Dashboard suggestion helper (already covering the 5 daily-kWh switchboard fields) to also read `entity_energy_price`/`_export` off the Energy Dashboard's own grid source — a household that's already told HA which price sensor tracks its import/export cost doesn't have to type the same entity into Nimbus a second time. Always just a visible, editable starting point — never silently applied, same as every other Energy Dashboard suggestion this project already makes.
+
 ## [0.94.245] — 2026-09-10
 
 ### Added
