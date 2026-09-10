@@ -1789,6 +1789,17 @@ class TestApplyCommandedStateGuardPlanForecast(unittest.TestCase):
         # each load's own plan_shadow_price_forecast is lambda(t) for
         # every period, straight off plan.duals's own power_balance_t{i}
         # keys -- real per-period values, not a flat copy of period 0.
+        #
+        # nimbus issue #685 (Mark Purcell): this test originally asserted
+        # the RAW, un-scaled dual as the expected value -- exactly the
+        # #662 bug (a third call site #662's own fix never touched),
+        # confirmed live as an exact x12 (1/hours[i], these are 5-minute
+        # periods) mismatch against sensor.nimbus_solver_battery_
+        # forecast's own correctly-scaled shadow_price for the identical
+        # periods. Expected values below are now each raw dual /
+        # period_hours_arr[i] (0.0013/(5/60)=0.0156, etc), matching the
+        # correction already applied to the sibling `shadow_price` field
+        # near line ~7240.
         import numpy as np
 
         sub = _fake_subentry(
@@ -1824,10 +1835,51 @@ class TestApplyCommandedStateGuardPlanForecast(unittest.TestCase):
         )
         result = self._read_state("entry_pf6", "s_shadow")
         self.assertEqual(len(result.plan_shadow_price_forecast), 4)
-        self.assertAlmostEqual(result.plan_shadow_price_forecast[0]["value"], 0.0013)
-        self.assertAlmostEqual(result.plan_shadow_price_forecast[1]["value"], 0.0006)
-        self.assertAlmostEqual(result.plan_shadow_price_forecast[2]["value"], 0.0021)
+        self.assertAlmostEqual(result.plan_shadow_price_forecast[0]["value"], 0.0156)
+        self.assertAlmostEqual(result.plan_shadow_price_forecast[1]["value"], 0.0072)
+        self.assertAlmostEqual(result.plan_shadow_price_forecast[2]["value"], 0.0252)
         self.assertEqual(result.plan_shadow_price_forecast[3]["value"], 0.0)
+
+    def test_plan_status_reason_marginal_cost_text_is_also_hours_scaled(self):
+        # nimbus issue #685 (Mark Purcell): plan_status_reason's own
+        # "marginal cost X c/kWh" text is built from the same shared
+        # _raw_shadow_price_series() plan_shadow_price_forecast reads --
+        # this proves the fix covers BOTH published fields from the one
+        # shared source, not just the series. Real numbers from Mark's
+        # own report: raw dual 0.0072 (period 0) must read as 0.0072 /
+        # (5/60) = 0.0864 $/kWh = 8.64 c/kWh in the status text, not the
+        # pre-fix 0.72 c/kWh.
+        import numpy as np
+
+        sub = _fake_subentry(
+            "s_reason", "controllable_load", {"deferrable_target_kwh": 5.0}
+        )
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            config_entries=SimpleNamespace(
+                async_entries=lambda domain: [
+                    SimpleNamespace(entry_id="entry_pf8", subentries={"s_reason": sub})
+                ]
+            ),
+            loop=self._loop,
+        )
+        now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
+        grid_times = _grid(now, 4, minutes=5)
+        period_hours_arr = np.full(len(grid_times), 5 / 60)
+        plan = _fake_plan(
+            adequacy=[
+                _fake_load_plan(
+                    "s_reason", np.array([2.0, 2.0, 2.0, 2.0]), adequacy=True
+                )
+            ]
+        )
+        plan.duals = {"power_balance_t0": 0.0072}
+        solver_writer.apply_commanded_state_guard(
+            plan, now, grid_times, period_hours_arr
+        )
+        result = self._read_state("entry_pf8", "s_reason")
+        self.assertEqual(
+            result.plan_status_reason, "running now, marginal cost 8.64 c/kWh"
+        )
 
     def test_plan_shadow_price_forecast_defaults_to_all_zero_when_plan_has_no_duals(
         self,
