@@ -95,6 +95,36 @@ class RangingRecord:
 
 
 @dataclass(frozen=True)
+class SweepRangingStep:
+    """One step of `LPResult.sweep_cost_with_ranging()` (nimbus issue
+    #676) -- `value` is the swept variable's own resulting value at this
+    step's cost coefficient, same meaning as one entry of plain
+    `sweep_cost()`'s own return list. `cost_dn`/`cost_up` are that SAME
+    variable's own real HiGHS cost-ranging AT this exact re-solved basis
+    -- the genuine, exact interval (not a sampled bracket) the swept cost
+    coefficient could move through in either direction before `value`
+    itself would change. Both `None` when ranging came back invalid at
+    this specific step (HiGHS reports a real tie/degenerate basis, or
+    ranging itself failed) -- represented honestly rather than papered
+    over, same convention `LPResult.bound_headroom()` already uses for
+    the same situation.
+
+    Values here are in the LP's own raw internal cost-coefficient units
+    (whatever `sweep_cost_with_ranging()`'s own `costs` argument was
+    expressed in) -- this module has no notion of $/kWh vs. period-scaled
+    $ vs. any other domain unit, same as every other ranging field on
+    this class. A caller translating this into a real price (e.g.
+    network.py's offer curve, dividing by that period's own `hours[t]`
+    the same way nimbus issue #662 already established for the plain
+    per-period dual) is responsible for that conversion itself.
+    """
+
+    value: float
+    cost_dn: RangingRecord | None
+    cost_up: RangingRecord | None
+
+
+@dataclass(frozen=True)
 class Headroom:
     """Real room to move, in each direction, before the optimal basis
     changes (nimbus issue #490) -- `down`/`up` are always >= 0.0.
@@ -246,6 +276,17 @@ class LPResult:
     _orig_cost_by_name: dict[str, float] = field(
         default_factory=dict, repr=False, compare=False
     )
+    # nimbus issue #676: the full ordered variable/row name lists, same
+    # ones _build_ranging_dict() uses to resolve a raw HiGHS in_var_/
+    # ou_var_ index back to a real name -- needed by
+    # sweep_cost_with_ranging() to decode a per-step h.getRanging() call
+    # the same way the original solve's own ranging block already does.
+    # Copied in at solve() time for the same reason _var_index is (no
+    # back-reference to the LPProblem that produced this result). Empty
+    # whenever _highs is None -- only ever needed alongside a retained
+    # live basis.
+    _var_names: list[str] = field(default_factory=list, repr=False, compare=False)
+    _row_names: list[str] = field(default_factory=list, repr=False, compare=False)
 
     def sweep_cost(self, var: str, costs: list[float]) -> list[float]:
         """Re-solve this LP once per entry in `costs`, resetting `var`'s
@@ -302,6 +343,101 @@ class LPResult:
         finally:
             h.changeColCost(col, original_cost)
         return values
+
+    def sweep_cost_with_ranging(
+        self, var: str, costs: list[float]
+    ) -> list[SweepRangingStep]:
+        """Same warm-started re-solve loop as `sweep_cost()` (nimbus issue
+        #676), additionally computing `var`'s own exact cost-ranging at
+        EVERY step, not only its resulting value -- each returned
+        `SweepRangingStep.cost_dn`/`cost_up` is the real, exact price
+        interval that step's own `value` holds for, straight from HiGHS's
+        own post-solve ranging on that exact re-solved basis, not a
+        bracket inferred from neighbouring sample points.
+
+        This is genuinely more expensive than plain `sweep_cost()` -- a
+        real HiGHS ranging pass on top of every single re-solve, not
+        free. A caller that only needs the sampled values (no exact-
+        interval need) should keep using `sweep_cost()`; this method
+        exists for callers that specifically want per-step sensitivity
+        (the offer curve's own `#676`), not as a strict replacement.
+
+        Does NOT require `solve(ranging=True)` on the ORIGINAL solve --
+        `h.getRanging()` reads whatever solved state `h` currently holds
+        at the moment it's called, the same way the original solve's own
+        ranging block (`_solve_highs()`) calls it after `h.run()`; this
+        method simply calls it again after each of ITS OWN re-solves.
+        Only `solve(keep_basis=True)` is required, same as `sweep_cost()`.
+
+        Raises the same ValueError/KeyError as `sweep_cost()` or wasn't
+        passed `keep_basis=True`, or `var` doesn't exist, or a re-solve
+        step doesn't reach optimal. A step where ranging itself comes
+        back invalid (`rng.valid` is `False` -- a genuine edge case, not
+        the common case) does NOT raise: that step's own `cost_dn`/
+        `cost_up` are simply `None`, the same honest-representation
+        convention `bound_headroom()` already uses, rather than treating
+        a per-step ranging failure as fatal to the whole sweep.
+
+        `var`'s own cost coefficient is restored to its original value
+        before returning, identical guarantee to `sweep_cost()`.
+        """
+        if self._highs is None:
+            msg = (
+                f"sweep_cost_with_ranging({var!r}) requires solve(keep_basis=True) -- "
+                "this LPResult did not retain its own HiGHS instance"
+            )
+            raise ValueError(msg)
+        if var not in self._var_index:
+            msg = f"Unknown variable {var!r}"
+            raise KeyError(msg)
+        h = self._highs
+        col = self._var_index[var]
+        var_names = self._var_names
+        row_names = self._row_names
+        original_cost = self._orig_cost_by_name.get(var, 0.0)
+        steps: list[SweepRangingStep] = []
+        try:
+            for cost in costs:
+                h.changeColCost(col, cost)
+                h.run()
+                if h.getModelStatus() != highspy.HighsModelStatus.kOptimal:
+                    msg = (
+                        f"sweep_cost_with_ranging({var!r}): re-solve at cost={cost} did "
+                        f"not reach optimal (status={h.modelStatusToString(h.getModelStatus())!r})"
+                    )
+                    raise ValueError(msg)
+                value = float(h.getSolution().col_value[col])
+                _rng_status, rng = h.getRanging()
+                if rng.valid:
+                    cost_dn = RangingRecord(
+                        value=float(rng.col_cost_dn.value_[col]),
+                        objective=float(rng.col_cost_dn.objective_[col]),
+                        in_var=_ranging_name_or_none(
+                            int(rng.col_cost_dn.in_var_[col]), var_names, row_names
+                        ),
+                        out_var=_ranging_name_or_none(
+                            int(rng.col_cost_dn.ou_var_[col]), var_names, row_names
+                        ),
+                    )
+                    cost_up = RangingRecord(
+                        value=float(rng.col_cost_up.value_[col]),
+                        objective=float(rng.col_cost_up.objective_[col]),
+                        in_var=_ranging_name_or_none(
+                            int(rng.col_cost_up.in_var_[col]), var_names, row_names
+                        ),
+                        out_var=_ranging_name_or_none(
+                            int(rng.col_cost_up.ou_var_[col]), var_names, row_names
+                        ),
+                    )
+                else:
+                    cost_dn = None
+                    cost_up = None
+                steps.append(
+                    SweepRangingStep(value=value, cost_dn=cost_dn, cost_up=cost_up)
+                )
+        finally:
+            h.changeColCost(col, original_cost)
+        return steps
 
     def bound_headroom(self, var: str) -> Headroom | None:
         """Real (down, up) headroom on variable `var`'s own bound before
@@ -857,4 +993,10 @@ def _solve_highs(
         _highs=h if keep_basis else None,
         _var_index=dict(problem._var_index) if keep_basis else {},
         _orig_cost_by_name=orig_cost_by_name if keep_basis else {},
+        # nimbus issue #676: needed by sweep_cost_with_ranging() to decode
+        # a per-step h.getRanging() call the same way this function's own
+        # ranging block above does -- same keep_basis-gated, only-pay-for-
+        # it-if-retained convention as _var_index/_orig_cost_by_name.
+        _var_names=list(problem._var_names) if keep_basis else [],
+        _row_names=list(row_names) if keep_basis else [],
     )

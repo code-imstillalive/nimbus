@@ -1228,6 +1228,14 @@ def publish_offer_curve(plan) -> None:
     visible instance of #494's own "curve at the current retail price
     equals the main plan's period-0 import" consistency check, not a
     separately-derived figure that could silently drift from it.
+
+    `import_curve_ranging`/`export_curve_ranging` (nimbus issue #676):
+    the exact real $/kWh price interval each SAME-index `import_curve`/
+    `export_curve` step's own kW value holds for, straight from HiGHS's
+    own per-step ranging -- not a bracket inferred from where two
+    neighbouring sample points happen to land. `None` (the whole
+    attribute) whenever `Plan.offer_curve_import_ranging`/`export_
+    ranging` itself is `None`.
     """
     if plan.offer_curve_import is None or plan.offer_curve_export is None:
         return
@@ -1245,12 +1253,43 @@ def publish_offer_curve(plan) -> None:
             "friendly_name": "Nimbus Offer Curve",
             "import_curve": import_curve,
             "export_curve": export_curve,
+            "import_curve_ranging": _round_offer_curve_ranging(
+                plan.offer_curve_import_ranging
+            ),
+            "export_curve_ranging": _round_offer_curve_ranging(
+                plan.offer_curve_export_ranging
+            ),
             "sweep_seconds": round(plan.offer_curve_sweep_seconds, 4)
             if plan.offer_curve_sweep_seconds is not None
             else None,
             "generated_at": datetime.now(UTC).astimezone(BRISBANE_TZ).isoformat(),
         },
     )
+
+
+def _round_offer_curve_ranging(
+    ranging: list[tuple[float, float] | None] | None,
+) -> list[list[float] | None] | None:
+    """Rounds one of `Plan.offer_curve_import_ranging`/`offer_curve_
+    export_ranging`'s (price_lower, price_upper) tuples for JSON
+    publication (nimbus issue #676) -- each entry is `[price_lower,
+    price_upper]` (real $/kWh), same index/order as the sibling
+    `import_curve`/`export_curve` list. `None` per-entry when ranging
+    came back invalid at that one sweep step (represented honestly, not
+    papered over); the whole list is `None` only in the currently-never-
+    expected case where `network.py` populated `offer_curve_import`/
+    `export` without its own parallel ranging list.
+    """
+    if ranging is None:
+        return None
+    rounded: list[list[float] | None] = []
+    for interval in ranging:
+        if interval is None:
+            rounded.append(None)
+        else:
+            lo, hi = interval
+            rounded.append([round(lo, 4), round(hi, 4)])
+    return rounded
 
 
 def parse_iso(s) -> datetime:
