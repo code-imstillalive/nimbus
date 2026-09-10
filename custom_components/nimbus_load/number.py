@@ -907,6 +907,16 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
     # BatteryConfig.spike_override_discharge_kw's own __post_init__
     # validation is the real, authoritative ceiling check against the
     # actual configured battery.
+    #
+    # nimbus issue #694 caveat, worth knowing before tuning this: if a
+    # P2P block is active, its own committed rate becomes a FLOOR on
+    # grid_export during the override (P2P still "remains", per the
+    # household's own instruction), but grid_export can never physically
+    # exceed solar + total battery discharge (the pre-existing same-
+    # period wash-trade guard, network.py). Set this RATE ABOVE every
+    # configured P2P block's own rate, or an armed override firing
+    # during an active P2P window can make that solve infeasible --
+    # there'd be nowhere for the P2P-floor-mandated export to come from.
     _SolverNumberDescription(
         CONF_SOLVER_PRICE_SPIKE_DISCHARGE_KW,
         "Price Spike Discharge Rate",

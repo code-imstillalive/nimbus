@@ -131,15 +131,33 @@ def charging_ub_during_fixed_window(
 
 
 def grid_export_bounds(
-    t: int, grid: GridConfig, export_limit_kw: float
+    t: int, grid: GridConfig, export_limit_kw: float, override_p2p: bool = False
 ) -> tuple[float, float]:
     """The real (lb, ub) pair for grid_export[t]'s own LP variable -- both
     pinned to the exact committed rate whenever period t falls under a
     real fixed export commitment, else the normal [0, export_limit_kw]
     bounds. Verbatim logic from network.py's own grid_export[] variable
-    construction."""
+    construction.
+
+    nimbus issue #694: `override_p2p=True` (network.py passes this only
+    for period 0, only when the household's price-spike override --
+    issue #567 -- is genuinely active that period) changes a real P2P
+    commitment's pin from an EXACT value (lb=ub) to a FLOOR (lb=pinned,
+    ub=export_limit_kw) -- P2P's own committed rate is still honestly
+    delivered as a guaranteed minimum ("p2p to remain", the household's
+    own words), but export can now rise above it toward the physical/
+    export-limit ceiling to carry whatever extra the spike override's
+    separately hard-pinned higher battery_discharge[0] produces. Without
+    this, a genuine spike (typically pricier than any pre-committed P2P
+    rate) could never actually get more energy out than the P2P
+    commitment already had it doing. No P2P commitment this period
+    (fixed_export_kw is None/NaN) is unaffected either way -- normal
+    [0, export_limit_kw] bounds regardless of override_p2p, so a
+    household with no P2P at all sees zero change here."""
     if grid.fixed_export_kw is not None and not np.isnan(grid.fixed_export_kw[t]):
         pinned = float(grid.fixed_export_kw[t])
+        if override_p2p:
+            return pinned, export_limit_kw
         return pinned, pinned
     return 0.0, export_limit_kw
 

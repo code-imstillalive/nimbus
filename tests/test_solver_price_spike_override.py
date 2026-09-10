@@ -13,6 +13,7 @@ happening to agree with it.
 from __future__ import annotations
 
 import unittest
+from dataclasses import replace
 
 import _solver_path  # noqa: F401
 import numpy as np
@@ -40,7 +41,9 @@ def _grid(n: int) -> GridConfig:
     )
 
 
-def _battery(*, spike_override_discharge_kw=None) -> BatteryConfig:
+def _battery(
+    *, spike_override_discharge_kw=None, max_discharge_kw: float = 10.0
+) -> BatteryConfig:
     return BatteryConfig(
         name="home",
         capacity_kwh=40.0,
@@ -48,7 +51,7 @@ def _battery(*, spike_override_discharge_kw=None) -> BatteryConfig:
         min_soc_kwh=2.0,
         max_soc_kwh=40.0,
         max_charge_kw=10.0,
-        max_discharge_kw=10.0,
+        max_discharge_kw=max_discharge_kw,
         charge_efficiency=0.95,
         discharge_efficiency=0.95,
         charge_cost=0.01,
@@ -162,6 +165,153 @@ class TestOverrideValidation(unittest.TestCase):
         # Boundary case -- must not off-by-one reject the real ceiling.
         battery = _battery(spike_override_discharge_kw=10.0)
         self.assertEqual(battery.spike_override_discharge_kw, 10.0)
+
+
+class TestSpikeOverrideWinsOverAnActiveP2PCommitment(unittest.TestCase):
+    """nimbus issue #694: household's own explicit reversal of #567's
+    original design -- the spike override now wins over an active P2P
+    fixed-export commitment rather than being exempted next to it.
+    Proves the real, end-to-end mechanism: with a P2P block hard-
+    committing period 0's export to a LOWER rate than the configured
+    spike discharge, the override must still force the higher rate, and
+    grid_export[0] must rise above the P2P-committed rate to carry it
+    (not stay pinned to the lower committed value, and not leave the
+    solve infeasible)."""
+
+    def _grid_with_p2p(self, n: int, *, p2p_rate_kw: float) -> GridConfig:
+        fixed_export_kw = np.full(n, np.nan)
+        fixed_export_kw[0] = p2p_rate_kw
+        return GridConfig(
+            import_price=np.full(n, 0.001),
+            export_price=np.full(n, 0.0001),
+            import_limit_kw=50.0,
+            export_limit_kw=50.0,
+            fixed_export_kw=fixed_export_kw,
+        )
+
+    def test_without_the_override_p2p_still_pins_export_exactly(self):
+        """Regression guard: plain P2P behaviour (no spike override at
+        all) must be completely unchanged -- grid_export[0] hard-pinned
+        to exactly the committed rate."""
+        n = 4
+        periods = PeriodGrid(hours=np.full(n, 1.0), start=None)
+        plan = build_plan(
+            periods=periods,
+            grid=self._grid_with_p2p(n, p2p_rate_kw=11.5),
+            # max_discharge_kw raised above the P2P rate (11.5) -- the
+            # default 10.0 would make even this override-free case
+            # infeasible (the hard export pin needs discharge headroom
+            # to reach it, same wash-trade guard the override-active
+            # tests below also have to respect), which is a test-setup
+            # constraint, not something either P2P or the override
+            # mechanism themselves impose here.
+            batteries=[
+                _battery(spike_override_discharge_kw=None, max_discharge_kw=30.0)
+            ],
+            solar=SolarConfig(forecast_kw=np.zeros(n)),
+            loads=[LoadConfig(name="house", forecast_kw=np.full(n, 2.0))],
+        )
+        self.assertEqual(plan.status, "optimal")
+        self.assertAlmostEqual(plan.grid_export_kw[0], 11.5, places=3)
+
+    def test_spike_override_forces_the_higher_rate_despite_active_p2p(self):
+        n = 4
+        periods = PeriodGrid(hours=np.full(n, 1.0), start=None)
+        plan = build_plan(
+            periods=periods,
+            grid=self._grid_with_p2p(n, p2p_rate_kw=11.5),
+            batteries=[
+                _battery(spike_override_discharge_kw=25.0, max_discharge_kw=30.0)
+            ],
+            solar=SolarConfig(forecast_kw=np.zeros(n)),
+            loads=[LoadConfig(name="house", forecast_kw=np.full(n, 2.0))],
+        )
+        self.assertEqual(plan.status, "optimal")
+        self.assertAlmostEqual(plan.batteries[0].discharge_kw[0], 25.0, places=3)
+
+    def test_grid_export_rises_above_the_p2p_rate_to_carry_the_extra_discharge(self):
+        """The real proof this doesn't just silently go infeasible or
+        clamp back to the P2P rate: with load only 2kW and discharge
+        forced to 25kW, the balance can only close if grid_export[0]
+        actually rises well above the 11.5kW P2P commitment."""
+        n = 4
+        periods = PeriodGrid(hours=np.full(n, 1.0), start=None)
+        plan = build_plan(
+            periods=periods,
+            grid=self._grid_with_p2p(n, p2p_rate_kw=11.5),
+            batteries=[
+                _battery(spike_override_discharge_kw=25.0, max_discharge_kw=30.0)
+            ],
+            solar=SolarConfig(forecast_kw=np.zeros(n)),
+            loads=[LoadConfig(name="house", forecast_kw=np.full(n, 2.0))],
+        )
+        self.assertEqual(plan.status, "optimal")
+        self.assertGreater(plan.grid_export_kw[0], 20.0)
+
+    def test_period_1_onward_the_p2p_commitment_is_unaffected(self):
+        """Only period 0 is ever touched by the spike override -- a P2P
+        commitment on a LATER period (untouched by this test's period-0
+        override) must still pin normally, proving the override doesn't
+        leak its P2P exemption forward."""
+        n = 4
+        fixed_export_kw = np.full(n, np.nan)
+        fixed_export_kw[0] = 11.5
+        fixed_export_kw[1] = 9.0
+        grid = GridConfig(
+            import_price=np.full(n, 0.001),
+            export_price=np.full(n, 0.0001),
+            import_limit_kw=50.0,
+            export_limit_kw=50.0,
+            fixed_export_kw=fixed_export_kw,
+        )
+        periods = PeriodGrid(hours=np.full(n, 1.0), start=None)
+        # Needs real energy headroom for BOTH forced deliveries across
+        # two consecutive periods (25kW then 9kW, both /0.95 discharge
+        # efficiency) -- the shared _battery() helper's 40kWh pack would
+        # hard-bottom the SoC (min_soc_kwh is only a SOFT floor, but
+        # soc>=0 is a real HARD one) and report a genuine, unrelated
+        # energy-shortfall infeasibility that has nothing to do with the
+        # P2P/override mechanism this test is actually checking.
+        battery = _battery(
+            spike_override_discharge_kw=25.0,
+            max_discharge_kw=30.0,
+        )
+        battery = replace(
+            battery, capacity_kwh=100.0, initial_soc_kwh=90.0, max_soc_kwh=100.0
+        )
+        plan = build_plan(
+            periods=periods,
+            grid=grid,
+            batteries=[battery],
+            solar=SolarConfig(forecast_kw=np.zeros(n)),
+            loads=[LoadConfig(name="house", forecast_kw=np.full(n, 2.0))],
+        )
+        self.assertEqual(plan.status, "optimal")
+        self.assertAlmostEqual(plan.grid_export_kw[1], 9.0, places=3)
+
+    def test_a_discharge_rate_below_the_p2p_floor_is_honestly_infeasible(self):
+        """nimbus issue #694 caveat, documented directly rather than
+        silently guarded against: grid_export can never exceed solar +
+        total discharge (the pre-existing same-period wash-trade guard),
+        so a household who configures a spike discharge_kw BELOW an
+        active P2P block's own committed rate gets a genuinely
+        infeasible solve, not a silently-clamped one -- there's nowhere
+        for the P2P-floor-mandated export to come from. This is the
+        real, honest reason number.py's own field description warns to
+        set the rate above every configured P2P block's rate."""
+        n = 4
+        periods = PeriodGrid(hours=np.full(n, 1.0), start=None)
+        plan = build_plan(
+            periods=periods,
+            grid=self._grid_with_p2p(n, p2p_rate_kw=11.5),
+            # Forced to exactly the load -- no surplus, so the P2P
+            # floor (11.5) can never be reached: grid_export[0] <=
+            # solar_used[0] + discharge[0] = 0 + 2.0 < 11.5 required.
+            batteries=[_battery(spike_override_discharge_kw=2.0)],
+            solar=SolarConfig(forecast_kw=np.zeros(n)),
+            loads=[LoadConfig(name="house", forecast_kw=np.full(n, 2.0))],
+        )
+        self.assertEqual(plan.status, "infeasible")
 
 
 class TestOverrideRespectsUnavailableBattery(unittest.TestCase):

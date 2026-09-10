@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.237] — 2026-09-10
+
+### Changed
+- **The battery's price-spike discharge override now wins over an active P2P fixed-export commitment instead of being exempted from it** (nimbus issue #694, reversing #567's own original design per the household's explicit later instruction: *"i want it to win over p2p cos p2p will be lower... by default"*). P2P still "remains" — its committed export rate becomes a guaranteed FLOOR rather than being dropped, so it's still honestly delivered — but export can now rise above that floor (up to the normal export limit) to carry whatever the spike override's configured discharge rate produces beyond what the P2P commitment alone was already moving. A household with no P2P configured at all sees zero change. Caveat documented directly on `number.nimbus_solver_price_spike_discharge_kw`'s own field description: set the discharge rate above every configured P2P block's own rate, since export can never exceed solar + total battery discharge (the pre-existing same-period wash-trade guard) — a rate configured below an active P2P block's committed rate makes that solve honestly infeasible rather than silently clamped.
+
 ## [0.94.236] — 2026-09-10
 
 ### Fixed

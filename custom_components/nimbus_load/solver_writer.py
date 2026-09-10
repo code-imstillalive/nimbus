@@ -3441,7 +3441,7 @@ def fetch_p2p_fixed_export_kw(
 
 
 def resolve_price_spike_override(
-    cfg: dict, import_price_now: float, grid_times: list[datetime]
+    cfg: dict, import_price_now: float
 ) -> tuple[float | None, bool]:
     """nimbus issue #567: a real-time "sell into a price spike,
     deliberately, right now" household decision. Returns
@@ -3457,15 +3457,29 @@ def resolve_price_spike_override(
       into BatteryConfig.spike_override_discharge_kw -- None unless
       EVERY one of these holds: the household has explicitly armed the
       override (switch.nimbus_solver_price_spike_override_armed), a
-      spike is genuinely detected, a real rate > 0 is configured
-      (number.nimbus_solver_price_spike_discharge_kw), AND period 0
-      does NOT fall under an active P2P fixed-export commitment (the
-      household's own explicit scope decision, captured live in this
-      issue's own comment thread: P2P's "consistency of delivery is
-      itself part of what earns the rate" reasoning takes priority over
-      a spike response). Human stays in the loop for the actual
-      discharge decision -- arming is a deliberate, explicit action, not
-      inferred from the threshold/alert alone.
+      spike is genuinely detected, and a real rate > 0 is configured
+      (number.nimbus_solver_price_spike_discharge_kw). Human stays in
+      the loop for the actual discharge decision -- arming is a
+      deliberate, explicit action, not inferred from the threshold/
+      alert alone.
+
+    nimbus issue #694 (household, 10 Sep, reversing #567's own original
+    design): this override now WINS over an active P2P fixed-export
+    commitment rather than being exempted from it -- #567 originally
+    skipped the override during P2P on the household's own "consistency
+    of delivery is itself part of what earns the rate" reasoning, but
+    the household's own later, explicit instruction reverses that: "i
+    want it to win over p2p cos p2p will be lower... by default....
+    otherwise it makes no sense" (a genuine spike is very likely to
+    exceed whatever a P2P block pre-committed at, so exempting the
+    override during exactly a P2P window meant it could never fire in
+    the scenario it's most valuable for). P2P itself still "remains" --
+    its committed rate becomes a FLOOR rather than being dropped, so it
+    keeps being honestly delivered while export rises above it -- see
+    network.py's own build_plan() docstring for that floor mechanism on
+    grid_export[0]'s own bounds. This function no longer checks P2P
+    state at all; the floor/ceiling interaction lives entirely in
+    network.py now.
 
     threshold<=0 (the default) means "no threshold configured" -- never
     fires on its own, matching every other "0/blank means off" field in
@@ -3492,17 +3506,6 @@ def resolve_price_spike_override(
     armed = bool(cfg.get("solver_price_spike_override_armed"))
     discharge_kw = _cfg_num(cfg, "solver_price_spike_discharge_kw", 0.0)
     if not (armed and spike_detected and discharge_kw > 0):
-        return None, spike_detected
-
-    # P2P exemption -- period 0 only, same single-element-list technique
-    # keeps this a thin, real reuse of fetch_p2p_fixed_export_kw()'s own
-    # block-matching logic rather than a second, separately-maintained
-    # copy of it.
-    period_0_fixed_export = fetch_p2p_fixed_export_kw(cfg, grid_times[:1])
-    p2p_active_now = period_0_fixed_export is not None and not np.isnan(
-        period_0_fixed_export[0]
-    )
-    if p2p_active_now:
         return None, spike_detected
 
     return discharge_kw, spike_detected
@@ -11200,13 +11203,14 @@ def main() -> None:
     charge_discharge_efficiency = (
         min(_cfg_num(cfg, "solver_efficiency_percent", 95.0) / 100.0, 0.999) ** 0.5
     )
-    # nimbus issue #567: real-time "sell into a price spike, right now"
-    # override -- see resolve_price_spike_override()'s own docstring for
-    # the full mechanism. spike_detected is published below regardless
-    # of whether spike_override_kw ends up armed/active, so the
-    # dashboard's own "$$$" visibility signal fires purely on detection.
+    # nimbus issue #567 (issue #694: now wins over P2P, see
+    # resolve_price_spike_override()'s own docstring): real-time "sell
+    # into a price spike, right now" override. spike_detected is
+    # published below regardless of whether spike_override_kw ends up
+    # armed/active, so the dashboard's own "$$$" visibility signal fires
+    # purely on detection.
     spike_override_kw, price_spike_active = resolve_price_spike_override(
-        cfg, import_price[0], grid_times
+        cfg, import_price[0]
     )
     battery = elements.BatteryConfig(
         name="home",  # nimbus issue #467: single real household battery, see battery_cfg's own comment above
