@@ -137,6 +137,35 @@ class TestPublishOfferCurveRangingAttributes(unittest.TestCase):
             attrs["export_curve_ranging"], {"-1.0000": None, "0.0868": [0.05, 0.15]}
         )
 
+    def test_price_limits_published_as_a_real_json_object(self):
+        # nimbus issue #706: the real AEMO domain the walk was bounded by,
+        # not just a Python constant no consumer can read.
+        from solver.network import _OFFER_CURVE_DOMAIN_MAX, _OFFER_CURVE_DOMAIN_MIN
+
+        plan = _plan(
+            offer_curve_import=[(-1.0, 30.0), (0.1905, 6.171)],
+            offer_curve_export=[(-1.0, 0.0), (0.0868, 0.0)],
+            offer_curve_import_ranging=[(-1.0, 0.0), (0.1, float("inf"))],
+            offer_curve_export_ranging=[None, (0.05, 0.15)],
+        )
+        with patch.object(solver_writer, "ha_post_state") as post:
+            solver_writer.publish_offer_curve(plan)
+        _entity_id, _state, attrs = post.call_args[0]
+        self.assertEqual(
+            attrs["price_limits"],
+            {
+                "market_floor_price": _OFFER_CURVE_DOMAIN_MIN,
+                "market_price_cap": _OFFER_CURVE_DOMAIN_MAX,
+                "unit": "$/kWh",
+                "source": "AEMO Market Floor Price / Market Price Cap "
+                "(nimbus issue #706, confirmed by Mark Purcell)",
+            },
+        )
+        # The real, confirmed-current cap (nimbus issue #706) -- not the
+        # old, never-independently-verified $20.00 placeholder.
+        self.assertAlmostEqual(_OFFER_CURVE_DOMAIN_MAX, 23.20)
+        self.assertAlmostEqual(_OFFER_CURVE_DOMAIN_MIN, -1.00)
+
     def test_ranging_attributes_are_none_when_ranging_lists_are_none(self):
         # A real, honest case: offer_curve_import/export populated but
         # their own parallel ranging lists weren't (defensive -- not

@@ -1071,17 +1071,15 @@ def _infeasible_plan(
 # Real AEMO NEM price limits, not synthetic stress bounds -- confirmed by
 # Mark Purcell directly (nimbus issue #675) after an earlier session
 # wrongly assumed these were arbitrary. -1.00 = the Market Floor Price
-# (-$1,000/MWh), independently confirmed current. 20.00 is #675's own
-# still-open, unconfirmed question -- the Market Price Cap is on a known,
-# legislated multi-year escalation (AEMC's Dec-2023 determination) and
-# may already be a step behind the real current figure (~$23.20/kWh per
-# a secondary source #675 could not independently verify against a
-# primary AEMO page from that session's own network access). Left
-# unchanged here deliberately -- correcting the constant's VALUE is
-# #675's own scope, not this walk's; whatever the true cap is, the walk
-# below stops there rather than sampling past it.
+# (-$1,000/MWh), independently confirmed current. 23.20 = the Market
+# Price Cap (nimbus issue #706, resolving #675's own long-open "may
+# already be a step behind the real current figure" question) --
+# confirmed directly by Mark Purcell, 2026-09-10: $23.20/kWh
+# ($23,200/MWh), the real current AEMC-determined MPC, correcting this
+# constant's previous $20.00 placeholder value (never independently
+# verified against a primary AEMO source, per #675's own text).
 _OFFER_CURVE_DOMAIN_MIN: float = -1.00
-_OFFER_CURVE_DOMAIN_MAX: float = 20.00
+_OFFER_CURVE_DOMAIN_MAX: float = 23.20
 
 # Real live data (2026-09-10, this household) shows 2-3 genuine segments
 # per side; this is a generous multiple of that, not a tuned minimum --
@@ -1097,11 +1095,22 @@ _OFFER_CURVE_MAX_BREAKPOINTS: int = 8
 # boundary itself.
 _OFFER_CURVE_NUDGE_REL: float = 1e-6
 
+# nimbus issue #706: minimum real price gap (in $/kWh) worth a dedicated
+# extra "backstop" solve -- see _offer_curve_ranging_walk()'s own
+# backstop paragraph. Below this, a gap between the walk's own last
+# resolved boundary and the retail anchor's own ranging is float noise /
+# a genuinely negligible sliver, not a real unresolved region -- no
+# tariff this project has ever seen prices this close together
+# (0.01c/kWh) as two economically distinct decision points.
+_OFFER_CURVE_BACKSTOP_MIN_GAP: float = 1e-4
+
 
 def _offer_curve_ranging_walk(
     result: LPResult,
     var: str,
     *,
+    start: float = _OFFER_CURVE_DOMAIN_MIN,
+    ascending: bool = True,
     retail: float,
     hours0: float,
     negated: bool,
@@ -1111,34 +1120,58 @@ def _offer_curve_ranging_walk(
     with_ranging()` calls, instead of sampling #494's original fixed
     7-point grid (`_offer_curve_price_grid()`, removed by this issue).
 
-    Each step's own `cost_up` -- the EXACT price at which its plateau
-    stops being optimal, straight from HiGHS's own sensitivity analysis,
-    not a guess -- becomes the next step's own starting price, nudged
-    forward by `_OFFER_CURVE_NUDGE_REL` so the next solve lands
-    unambiguously on the NEXT plateau rather than re-landing on the same
-    point. This nudge answers #678's own explicitly-flagged open
-    question ("whether exactly at the breakpoint price needs a small
-    epsilon nudge") -- yes: the boundary price itself is a genuine LP
-    tie between the two adjacent plateaus (confirmed by inspecting real
-    ranging output where a segment's own reported interval touches its
-    neighbour's at exactly one shared price), so solving precisely AT it
-    can return either optimal vertex depending on solver internals, not
-    reliably the new one.
+    Each step's own `cost_up` (ascending) or `cost_dn` (descending) --
+    the EXACT price at which its plateau stops being optimal, straight
+    from HiGHS's own sensitivity analysis, not a guess -- becomes the
+    next step's own starting price, nudged forward/backward by
+    `_OFFER_CURVE_NUDGE_REL` so the next solve lands unambiguously on
+    the NEXT plateau rather than re-landing on the same point. This
+    nudge answers #678's own explicitly-flagged open question ("whether
+    exactly at the breakpoint price needs a small epsilon nudge") --
+    yes: the boundary price itself is a genuine LP tie between the two
+    adjacent plateaus (confirmed by inspecting real ranging output where
+    a segment's own reported interval touches its neighbour's at exactly
+    one shared price), so solving precisely AT it can return either
+    optimal vertex depending on solver internals, not reliably the new
+    one.
 
-    The walk starts at `_OFFER_CURVE_DOMAIN_MIN` (the real AEMO Market
-    Floor Price) and stops the moment any of these hold, each an honest
-    "nothing more to find here," never a guess:
-    - the current plateau's own ranging is unbounded above (`cost_up >=
-      _OFFER_CURVE_DOMAIN_MAX`) -- it already provably holds through the
-      cap, so no further step could add real information;
+    `start`/`ascending` (nimbus issue #706): which end of the domain the
+    walk explores first, and which direction it moves. Import still
+    walks `ascending=True` from `_OFFER_CURVE_DOMAIN_MIN` (the real AEMO
+    Market Floor Price) upward -- the default, unchanged from #678's own
+    original behaviour, every existing caller of this function
+    unaffected. Export instead walks `ascending=False` from
+    `_OFFER_CURVE_DOMAIN_MAX` (the Market Price Cap) downward -- real
+    live data confirms the two curves' own genuinely interesting
+    structure sits at OPPOSITE ends of the domain: import's real
+    breakpoints cluster near the floor (a household stops buying as
+    price rises), export's cluster near the cap (a household sells more
+    as price rises) -- see this function's own module-level docstring
+    reference and #706's own issue text for the live household evidence.
+    Walking export from the floor upward (#678's original, uniform
+    choice) spent its entire iteration budget on the near-zero region
+    every time, the ECONOMICALLY LEAST interesting part of an export
+    curve, and never reached the high-price region where a household's
+    real willingness to sell actually changes. Reversing direction for
+    export costs nothing extra (still capped at
+    `_OFFER_CURVE_MAX_BREAKPOINTS` steps) and explores the side that
+    actually matters.
+
+    The walk stops the moment any of these hold, each an honest "nothing
+    more to find here," never a guess:
+    - the current plateau's own ranging is unbounded in the walk's own
+      direction of travel (`cost_up >= _OFFER_CURVE_DOMAIN_MAX` ascending,
+      `cost_dn <= _OFFER_CURVE_DOMAIN_MIN` descending) -- it already
+      provably holds through the far end of the domain, so no further
+      step could add real information;
     - ranging itself came back invalid at this step (a genuine
       degenerate basis -- #678's own flagged safety concern: stop rather
       than guess how to continue);
     - the next candidate breakpoint is not strictly past the previous
-      one (a non-monotonic/degenerate ranging result, which real LP
-      parametric-sensitivity theory says should never happen for a
-      well-posed single-variable sweep -- treated as a hard stop, not
-      something to paper over);
+      one in the walk's own direction of travel (a non-monotonic/
+      degenerate ranging result, which real LP parametric-sensitivity
+      theory says should never happen for a well-posed single-variable
+      sweep -- treated as a hard stop, not something to paper over);
     - `_OFFER_CURVE_MAX_BREAKPOINTS` real walk steps have already run
       (the explicit iteration cap #678 asked for).
 
@@ -1152,14 +1185,34 @@ def _offer_curve_ranging_walk(
     harmless (identical cost coefficient, identical result) and not
     worth special-casing away.
 
+    **Backstop (nimbus issue #706):** starting the walk at one end of the
+    domain means its own iteration budget can be entirely consumed by
+    dense structure near THAT end, leaving a real, genuinely unexplored
+    gap between the walk's own last resolved boundary and the retail
+    anchor -- confirmed live, 2026-09-10, on this exact household's real
+    data: export's own 6.41c-9.21c band hid a real 5.48kW->11.37kW jump
+    that neither that cycle's walk (spent entirely below 6.41c) nor the
+    retail solve itself (at 9.22c) ever touched. After the walk and the
+    retail solve both complete, if the walk resolved at least one real
+    boundary (`start` itself wasn't already the whole story) AND retail's
+    own ranging doesn't already reach back to meet it, exactly ONE extra
+    solve is run at the midpoint of that gap -- closing the specific
+    known blind spot for a bounded, worthwhile extra cost (never more
+    than one solve per curve), not a general redesign of the walk's own
+    adaptive discovery elsewhere, which this experiment (comparing
+    against several fixed manual sweep grids on real live data) confirmed
+    nothing beats. A gap narrower than `_OFFER_CURVE_BACKSTOP_MIN_GAP` is
+    treated as already effectively covered -- no backstop solve wasted on
+    float noise.
+
     Supersedes #675's own "add the real forecast's own min/max as extra
     sweep points" ask, per that issue's own text: a walk that finds
     every real breakpoint exactly needs no extra landmark points to
     guess where the interesting prices are -- it already covers the
     whole domain with genuine precision, not just wherever a sample
-    happened to land. #675's separate, unconfirmed "$20 cap may be
-    stale" question is untouched by this change (see the domain
-    constants' own comment above).
+    happened to land. #675's separate "$20 cap may be stale" question is
+    now resolved -- nimbus issue #706 confirmed and corrected the real
+    Market Price Cap (see the domain constants' own comment above).
     """
     prices: list[float] = []
     values: list[float] = []
@@ -1174,21 +1227,43 @@ def _offer_curve_ranging_walk(
         intervals.append(interval)
         return interval
 
-    price = _OFFER_CURVE_DOMAIN_MIN
-    last_cost_up: float | None = None
+    domain_limit = _OFFER_CURVE_DOMAIN_MAX if ascending else _OFFER_CURVE_DOMAIN_MIN
+    price = start
+    last_bound: float | None = None
     for _ in range(_OFFER_CURVE_MAX_BREAKPOINTS):
         interval = solve_at(price)
         if interval is None:
             break
-        _lower, upper = interval
-        if upper >= _OFFER_CURVE_DOMAIN_MAX:
+        lower, upper = interval
+        bound = upper if ascending else lower
+        reached_domain_limit = (
+            bound >= domain_limit if ascending else bound <= domain_limit
+        )
+        if reached_domain_limit:
             break
-        if last_cost_up is not None and upper <= last_cost_up + 1e-12:
-            break
-        last_cost_up = upper
-        price = upper + max(_OFFER_CURVE_NUDGE_REL, abs(upper) * _OFFER_CURVE_NUDGE_REL)
+        if last_bound is not None:
+            stalled = (
+                bound <= last_bound + 1e-12
+                if ascending
+                else bound >= last_bound - 1e-12
+            )
+            if stalled:
+                break
+        last_bound = bound
+        nudge = max(_OFFER_CURVE_NUDGE_REL, abs(bound) * _OFFER_CURVE_NUDGE_REL)
+        price = bound + nudge if ascending else bound - nudge
 
     solve_at(retail)
+
+    # nimbus issue #706: one gap-targeted backstop solve -- see this
+    # function's own docstring paragraph above for the full reasoning.
+    retail_interval = intervals[-1]
+    if last_bound is not None and retail_interval is not None:
+        retail_lower, retail_upper = retail_interval
+        gap_edge = retail_lower if ascending else retail_upper
+        gap = (gap_edge - last_bound) if ascending else (last_bound - gap_edge)
+        if gap > _OFFER_CURVE_BACKSTOP_MIN_GAP:
+            solve_at((last_bound + gap_edge) / 2.0)
 
     order = sorted(range(len(prices)), key=lambda i: prices[i])
     curve = [(prices[i], values[i]) for i in order]
@@ -1418,6 +1493,14 @@ def build_plan(
     5-minute solve by default") and this module's own established "extra
     solver capability is opt-in" convention. Every existing caller is
     unaffected either way.
+
+    Nimbus issue #706: import walks from the floor upward, export from
+    the cap downward (each curve's own real breakpoints cluster near
+    ITS OWN economically interesting end, confirmed on live household
+    data), plus one gap-targeted backstop solve per curve when the walk
+    and the mandatory retail solve leave a real gap between them -- see
+    `_offer_curve_ranging_walk()`'s own docstring for the full mechanism
+    and the live evidence motivating both changes.
 
     Also populates `Plan.offer_curve_import_ranging`/`offer_curve_export_
     ranging` (nimbus issue #676) -- each walked step's own EXACT real
@@ -3163,12 +3246,17 @@ def build_plan(
         # grid (_offer_curve_price_grid(), removed by this issue) -- see
         # _offer_curve_ranging_walk()'s own docstring for the full
         # mechanism, including its answers to #678's own open questions
-        # (the epsilon nudge past a boundary, the iteration safety cap).
+        # (the epsilon nudge past a boundary, the iteration safety cap)
+        # and #706's own two additions (walking each side from whichever
+        # end its real structure clusters near, plus the gap-targeted
+        # backstop solve).
         offer_curve_import: list[tuple[float, float]] | None
         offer_curve_import_ranging: list[tuple[float, float] | None] | None
         offer_curve_import, offer_curve_import_ranging = _offer_curve_ranging_walk(
             result,
             grid_import[0],
+            # start/ascending default to the floor, walking up -- import's
+            # real breakpoints cluster near the floor (nimbus issue #706).
             retail=float(effective_import_price[0]),
             hours0=hours0,
             negated=False,
@@ -3184,6 +3272,13 @@ def build_plan(
         offer_curve_export, offer_curve_export_ranging = _offer_curve_ranging_walk(
             result,
             grid_export[0],
+            # nimbus issue #706: export's real breakpoints cluster near
+            # the CAP, not the floor -- walk from _OFFER_CURVE_DOMAIN_MAX
+            # downward instead of #678's original uniform floor-upward
+            # start, confirmed against real live household data (see this
+            # walk's own docstring for the full before/after evidence).
+            start=_OFFER_CURVE_DOMAIN_MAX,
+            ascending=False,
             retail=float(effective_export_price[0]),
             hours0=hours0,
             negated=True,

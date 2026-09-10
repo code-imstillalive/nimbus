@@ -2247,6 +2247,14 @@ def publish_offer_curve(plan) -> None:
     correspondence survives the list-to-dict change. `None` (the whole
     attribute) whenever `Plan.offer_curve_import_ranging`/`export_
     ranging` itself is `None`.
+
+    `price_limits` (nimbus issue #706): the real AEMO NEM domain the walk
+    itself is bounded by (`network._OFFER_CURVE_DOMAIN_MIN`/`_MAX`), as
+    a genuine JSON object rather than only ever living as a Python
+    constant a dashboard/consumer has no way to read -- so a household
+    (or a future correction, if AEMC's own multi-year MPC escalation
+    moves the real cap again) can see exactly what domain this cycle's
+    curve was walked against without reading this module's own source.
     """
     if plan.offer_curve_import is None or plan.offer_curve_export is None:
         return
@@ -2266,6 +2274,13 @@ def publish_offer_curve(plan) -> None:
             "export_curve": export_curve,
             "import_curve_ranging": import_curve_ranging,
             "export_curve_ranging": export_curve_ranging,
+            "price_limits": {
+                "market_floor_price": network._OFFER_CURVE_DOMAIN_MIN,
+                "market_price_cap": network._OFFER_CURVE_DOMAIN_MAX,
+                "unit": "$/kWh",
+                "source": "AEMO Market Floor Price / Market Price Cap "
+                "(nimbus issue #706, confirmed by Mark Purcell)",
+            },
             "sweep_seconds": round(plan.offer_curve_sweep_seconds, 4)
             if plan.offer_curve_sweep_seconds is not None
             else None,
