@@ -35,7 +35,16 @@ file is not re-summarized here; read it directly for the full detail. Most recen
   repeated ranging; found genuine structure (a 2.0 kW import plateau, a 0.1 kW
   export plateau) the old grid never sampled finely enough to see, in this
   project's own long-standing test fixture. 18 new/changed tests, full suite
-  green, zero new mypy findings.
+  green, zero new mypy findings. **Deployed v0.94.240 live** (a release cut
+  bundled #678 with Stage 2 of #696 — the production Solver's tie-break
+  mechanisms now default onto the calibrated primary/secondary objective
+  architecture, new `switch.nimbus_solver_calibrated_objective_enabled`,
+  default on) — two clean restarts, retail invariant confirmed exact on both
+  curves for the first time checked against a fresh v0.94.240 solve. New
+  finding, not yet filed: the walk's 8-iteration cap can be spent entirely on
+  dense near-floor structure, leaving a real gap toward retail unsampled —
+  confirmed live on the export side (a genuine 5.48→11.37 kW jump hidden in an
+  unresolved 6.41¢–9.21¢ band).
 - [2026-09-09](docs/worklog/2026-09-09.md) — #582: a deferrable Controllable Load with
   a same-day window (the #534 heat pump's real 6am-4pm window) was silently dropped
   for its ENTIRE active window once `now` fell inside it, the opposite of intended
