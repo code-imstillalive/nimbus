@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.231] — 2026-09-10
+
+### Fixed
+- **A Controllable Load's whole `commanded_state`/`status`/`next_start`/etc sensor family could vanish from the entity registry after a restart** (nimbus issue #680, Mark Purcell, real live regression found within 24 hours of #645 shipping). #645's new `number.py` tuning entities registered every `NimbusControllableLoadNumber` for every load in one `async_add_entities()` call with no `config_subentry_id` at all — but `sensor.py`'s own `commanded_state` family has always registered onto the SAME per-load device (`identifiers={(DOMAIN, subentry.subentry_id)}`) *with* `config_subentry_id=subentry.subentry_id`. Home Assistant's own core warning named the consequence exactly: assigning an existing device to a different config subentry silently moves it, and on Mark's real install this took the entire Nimbus-native sensor family for a mid-run Hot Water Heat Pump off the registry — backend data stayed completely intact throughout, this was a publish/registration failure only. Fixed by registering each load's own tuning numbers in a per-subentry loop with `config_subentry_id` passed on every call, exactly matching `sensor.py`'s own established, correct pattern for the same device. A new test file (mirroring this project's own existing `test_stale_devices_cleanup.py` AST-based technique) guards against this specific regression recurring.
+
 ## [0.94.230] — 2026-09-10
 
 ### Added

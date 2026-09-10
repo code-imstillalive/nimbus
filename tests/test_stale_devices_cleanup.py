@@ -13,12 +13,23 @@ ConfigEntries.async_remove_subentry() already does this automatically:
 (verified directly against homeassistant/config_entries.py on the `dev`
 branch, 2026-08-23) -- but that automatic cleanup only has something to
 act on if the device/entities were actually registered WITH a
-config_subentry_id in the first place. Every other entity class in this
-integration (NimbusSolverConfigSensor, NimbusTopologyConfigSensor, the
-two Solver push sensors, every number.py/switch.py entity) is
-deliberately hub-scoped (DeviceInfo identifiers={(DOMAIN, entry.entry_id)},
-no config_subentry_id) -- correct, since those live for the life of the
-hub, not any one subentry, and must NOT be swept by a subentry removal.
+config_subentry_id in the first place. Every other entity class in
+sensor.py (NimbusSolverConfigSensor, NimbusTopologyConfigSensor, the
+two Solver push sensors) is deliberately hub-scoped (DeviceInfo
+identifiers={(DOMAIN, entry.entry_id)}, no config_subentry_id) --
+correct, since those live for the life of the hub, not any one
+subentry, and must NOT be swept by a subentry removal.
+
+Correction (nimbus issue #680, real live regression): this docstring
+used to also claim "every number.py/switch.py entity" is hub-scoped.
+That was true when this file was written but stopped being true the
+moment #645 added NimbusControllableLoadNumber -- a genuine per-
+subentry-device entity type in number.py, the same class of thing
+NimbusForecastSensor is here. #645's own async_setup_entry never
+gained the config_subentry_id= this file's whole point is to guard
+for, and this file's own stale, over-broad claim is exactly why no
+test caught it: see test_number_stale_devices_cleanup.py for the
+number.py-side equivalent of the two tests below.
 
 The real, single point of failure this guards against: a future refactor
 of sensor.py's async_setup_entry silently dropping the

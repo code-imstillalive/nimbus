@@ -929,15 +929,40 @@ async def async_setup_entry(
     # above, which are never subentry-ULID-prefixed) rather than a
     # second Store file -- one JSON file, one lock, for every number
     # this config entry owns.
-    controllable_load_entities = [
-        NimbusControllableLoadNumber(entry, subentry, desc, sw_version, shared_store)
-        for subentry in entry.subentries.values()
-        if subentry.subentry_type == SUBENTRY_TYPE_CONTROLLABLE_LOAD
-        for desc in _CONTROLLABLE_LOAD_DESCRIPTIONS
-        if subentry.data.get(CONF_CONTROLLABLE_LOAD_KIND) in desc.kinds
-    ]
-    if controllable_load_entities:
-        async_add_entities(controllable_load_entities)
+    #
+    # nimbus issue #680 (Mark Purcell, real live regression, found within
+    # 24h of #645 shipping): this used to build ONE combined list mixing
+    # entities from every controllable_load subentry, then call
+    # async_add_entities() ONCE with no config_subentry_id at all --
+    # sensor.py's own commanded_state family (the SAME per-load device,
+    # `(DOMAIN, subentry.subentry_id)`) has always registered WITH
+    # config_subentry_id=subentry.subentry_id (see that module's own
+    # docstring: "Each entity is added with config_subentry_id set,
+    # which is what makes each..."). HA's own core warning names this
+    # exactly: "assigns an existing device to a different config
+    # subentry, by calling async_get_or_create or by adding entities
+    # from several subentries that share a device; this silently moves
+    # the device" -- the real, live consequence was sensor.py's own
+    # commanded_state/status/next_start/etc family for that device
+    # vanishing from the entity registry after a restart, backend data
+    # completely intact, only the publish/registration step broken.
+    # Fixed by looping per-subentry and passing config_subentry_id on
+    # each call, exactly matching sensor.py's own established, correct
+    # pattern for the same shared device.
+    for subentry in entry.subentries.values():
+        if subentry.subentry_type != SUBENTRY_TYPE_CONTROLLABLE_LOAD:
+            continue
+        this_loads_entities = [
+            NimbusControllableLoadNumber(
+                entry, subentry, desc, sw_version, shared_store
+            )
+            for desc in _CONTROLLABLE_LOAD_DESCRIPTIONS
+            if subentry.data.get(CONF_CONTROLLABLE_LOAD_KIND) in desc.kinds
+        ]
+        if this_loads_entities:
+            async_add_entities(
+                this_loads_entities, config_subentry_id=subentry.subentry_id
+            )
 
 
 class NimbusSolverNumber(RestoreNumber, NumberEntity):
