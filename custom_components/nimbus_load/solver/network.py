@@ -583,6 +583,81 @@ class BatterySignals:
 
 
 @dataclass(frozen=True)
+class LoadSignals:
+    """One sheddable or adequacy load's own per-period intent-band
+    signal (nimbus issue #492, Signals 3/7 of #489 -- the second of
+    that issue's two remaining pieces, alongside its own already-
+    shipped switchboard headroom on `GridSignals.load_headroom_up_kwh`/
+    `_down_kwh`). For every real period, whether the plan is genuinely
+    INDIFFERENT to how much this specific load draws right now
+    (`"UNLIMIT"`) or has a real economic reason to cap it at a specific
+    figure (`"SET"`).
+
+    Issue #492's own spec cites HAEO's `core/model/intent.py::
+    compute_intent()` (HAEO issue #433) as prior art; that file does
+    not exist in HAEO's current repo (checked directly via `gh api`
+    before writing this, same "verify against the real source" standard
+    #696 held itself to) -- this is a direct implementation of #492's
+    own written spec, not a literal port of code that could be
+    independently checked. Verified directly against #492's own two
+    worked examples once building this surfaced a real subtlety the
+    spec itself didn't anticipate -- see `_load_signal()`'s own
+    docstring in `network.py` for the full finding: `LPResult.bound_
+    headroom()`'s own ranging answers "how far could this variable's
+    BOUND move before the optimal basis's qualitative STRUCTURE
+    changes", not "how far could the value move while the objective
+    stays flat" -- those coincide only when the variable is genuinely
+    tied (reduced cost == 0). So classification here is driven by
+    reduced cost first (the textbook basic/bound-pinned distinction),
+    with the ranging band only used to size `UNLIMIT`'s own band; a
+    `SET` load reports its own actual committed value as both band
+    edges (an honest "limit", not a wider structural range that would
+    mislead a reader).
+
+    `intent[t]`: `"UNLIMIT"` when this period's own reduced cost is ~0
+    (a genuinely free/basic variable -- indifferent to where in its
+    range it sits) or the period's own ceiling is itself ~0 and the
+    plan would genuinely take MORE of this load if it could (a
+    negative reduced cost against a ~0 upper bound) -- either way,
+    nothing meaningful to cap. `"SET"` otherwise.
+
+    `band_min_kw[t]`/`band_max_kw[t]`: on `UNLIMIT`, the real
+    structural ranging range (`x[t] -/+ headroom.down/.up` via
+    `LPResult.bound_headroom()`, clamped to `[0, ub[t]]`) -- a genuine,
+    meaningful "how far this could move" figure for a load the plan
+    doesn't care about. On `SET`, both edges collapse to the load's
+    own actual committed value -- its honest limit.
+
+    `reduced_cost_per_kwh[t]`: `reduced_costs[var] / hours[t]` -- what
+    one more kWh of this load, right now, would cost the plan. ~0 for
+    a genuinely free variable (the `UNLIMIT` case); nonzero when
+    pinned at a bound by a real cost preference (`SET`) -- same #662
+    hours-scaling convention every other per-period $/kWh figure on
+    this module already uses.
+
+    `degenerate[t]`: True when `bound_headroom()` itself reported a
+    zero-width tie on either side for this period (see `Headroom`'s
+    own docstring) -- a real "no headroom right now" answer, not an
+    artifact of one solve's own arbitrary tie-break. Independent of
+    `intent` -- a `SET` load is typically also degenerate (pinned at a
+    bound), but this field reports the ranging's own honest signal
+    regardless of which branch produced the band above.
+
+    The whole object is `None` on `Plan.load_signals` (the list itself,
+    not a per-entry field) whenever ranging wasn't valid for that
+    solve, same convention every other ranging-derived signal on this
+    class already uses.
+    """
+
+    name: str
+    band_min_kw: NDArray[np.float64]
+    band_max_kw: NDArray[np.float64]
+    reduced_cost_per_kwh: NDArray[np.float64]
+    intent: list[str]
+    degenerate: NDArray[np.bool_]
+
+
+@dataclass(frozen=True)
 class BatteryPlan:
     """One battery participant's own real result (nimbus issue #467) --
     mirrors AdequacyLoadPlan's own shape/precedent above. Plan's own
@@ -701,6 +776,11 @@ class Plan:
     # field on this class.
     grid_signals: GridSignals | None = None
     battery_signals: list[BatterySignals] = field(default_factory=list)
+    # nimbus issue #492 (Signals 3/7 of #489): see LoadSignals' own
+    # docstring. Same empty-default/honest-absence convention as
+    # battery_signals above -- one entry per sheddable/adequacy load,
+    # empty whenever ranging wasn't valid or no such loads exist.
+    load_signals: list[LoadSignals] = field(default_factory=list)
     # nimbus issue #494 (Signals 5/7 of #489): a period-0 demand-response
     # offer ladder -- several (price, kW) steps swept via LPResult.
     # sweep_cost(), not just one (band_min, band_max) at the current
@@ -1933,6 +2013,11 @@ def build_plan(
     # the RAW forecast, matching solar_curtailed_kw's own treatment.
     shed_vars: dict[str, list[str]] = {}
     effective_shed_forecast: dict[str, NDArray[np.float64]] = {}
+    # nimbus issue #492 (Signals 3/7 of #489): each load's own real
+    # per-period upper bound, kept alongside shed_vars/adequacy_vars
+    # (below) so LoadSignals' own intent-band classification can read
+    # the SAME ub the LP itself was built against, not re-derive it.
+    load_ub: dict[str, list[float]] = {}
     for sl in sheddable_loads:
         eff = _risk_adjusted(
             sl.forecast_kw,
@@ -1947,6 +2032,7 @@ def build_plan(
             p.add_variable(f"shed_{sl.name}_{t}", lb=0.0, ub=max_shed[t])
             for t in range(n)
         ]
+        load_ub[sl.name] = max_shed
 
     # Adequacy loads (2026-08-16, direct response to real feedback -- see
     # AdequacyLoadConfig's own docstring). No forecast at all: a power
@@ -1970,33 +2056,33 @@ def build_plan(
     adequacy_vars: dict[str, list[str]] = {}
     for al in adequacy_loads:
         if al.windows is not None:
-            adequacy_vars[al.name] = [
-                p.add_variable(
-                    f"adequacy_{al.name}_{t}",
-                    lb=0.0,
-                    ub=al.max_power_kw
-                    if any(
-                        w.earliest_period <= t <= w.deadline_period for w in al.windows
-                    )
-                    else 0.0,
-                )
+            ub_list = [
+                al.max_power_kw
+                if any(w.earliest_period <= t <= w.deadline_period for w in al.windows)
+                else 0.0
                 for t in range(n)
             ]
+            adequacy_vars[al.name] = [
+                p.add_variable(f"adequacy_{al.name}_{t}", lb=0.0, ub=ub_list[t])
+                for t in range(n)
+            ]
+            load_ub[al.name] = ub_list
             continue
-        adequacy_vars[al.name] = [
-            p.add_variable(
-                f"adequacy_{al.name}_{t}",
-                lb=0.0,
-                ub=al.max_power_kw
-                if (
-                    bool(al.allowed[t])
-                    if al.allowed is not None
-                    else al.earliest_period <= t <= al.deadline_period
-                )
-                else 0.0,
+        ub_list = [
+            al.max_power_kw
+            if (
+                bool(al.allowed[t])
+                if al.allowed is not None
+                else al.earliest_period <= t <= al.deadline_period
             )
+            else 0.0
             for t in range(n)
         ]
+        adequacy_vars[al.name] = [
+            p.add_variable(f"adequacy_{al.name}_{t}", lb=0.0, ub=ub_list[t])
+            for t in range(n)
+        ]
+        load_ub[al.name] = ub_list
     # nimbus issue #613 item 2: a small earliness preference on every
     # adequacy load's own power variable -- see DEFAULT_ADEQUACY_
     # EARLINESS_BUDGET_KW's own docstring for the full derivation. Cost
@@ -3227,6 +3313,134 @@ def build_plan(
         for i, b in enumerate(batteries)
     ]
 
+    # nimbus issue #492 (Signals 3/7 of #489): per-load intent bands --
+    # see LoadSignals' own docstring for the full classification rule.
+    # Guarded on ranging_valid the same way grid_signals is (the whole
+    # LIST is empty rather than per-field None, since every field here
+    # fundamentally needs ranging, unlike BatterySignals' own physical/
+    # ranging split).
+    _INTENT_TOL = 1e-6
+
+    def _load_signal(
+        name: str,
+        var_names: list[str],
+        var_ub: list[float],
+        *,
+        mirror_against: NDArray[np.float64] | None = None,
+    ) -> LoadSignals:
+        """`mirror_against`, when given (a sheddable load's own risk-
+        adjusted forecast), reframes the registered `shed_{name}_{t}`
+        variable's own ranging into the household-facing SERVED/draw
+        quantity instead (`served = mirror_against - shed`) -- verified
+        directly against both of #492's own worked examples, which
+        neither match classifying the raw shed variable itself: a
+        cheap-window case where shedding costs nothing extra reports
+        `UNLIMIT, band_max ~= forecast` (the DEVICE may draw anywhere up
+        to its own forecast, not "shedding may range up to max_shed"),
+        and a peak-price case where shedding is cheaper than serving
+        reports `SET 0` for the device's own draw (shed pinned at its
+        max, so served is pinned at 0) with a POSITIVE reduced cost on
+        the served side (serving one more kWh there would cost the
+        plan money) -- the raw shed variable's own reduced cost is
+        negative in that same scenario, the opposite sign. `None`
+        (adequacy loads): the registered variable already IS the
+        device's own draw, no transform needed.
+
+        Classifies from the REDUCED COST first, not the ranging band's
+        own numeric width -- a real, hand-verified finding while
+        building this (see a minimal two-variable LP: x in [0,3] cost
+        -1, y >= 0 cost 2, x+y==5 -- x pins at its own ub=3, genuinely
+        NOT a tie, yet `bound_headroom("x")` still reports a full
+        `down=3.0, up=2.0` range). `col_bound_up`/`col_bound_dn`
+        ranging answers "how far could this variable's own BOUND move
+        before the optimal BASIS's qualitative structure changes" --
+        NOT "how far could the CURRENT VALUE move while the objective
+        stays flat". Those two questions coincide only when the
+        variable is genuinely tied (reduced cost == 0, truly basic);
+        for a variable pinned at a bound by a real cost preference, the
+        structural range can be wide even though there is zero real
+        economic flex. So: reduced cost decides UNLIMIT vs SET (the
+        textbook meaning of a zero vs nonzero reduced cost -- basic vs
+        bound-pinned); the structural ranging range is only used to
+        size the band when UNLIMIT (a real, meaningful "how far this
+        could move" figure for a genuinely free variable). SET reports
+        the variable's own actual committed value as both band edges --
+        its honest "limit", not a wider structural range that would
+        mislead a household reading `SET 0` into `band_max: 3`."""
+        x = _get(var_names)
+        band_min = np.zeros(n, dtype=np.float64)
+        band_max = np.zeros(n, dtype=np.float64)
+        rc_kwh = np.zeros(n, dtype=np.float64)
+        degenerate = np.zeros(n, dtype=np.bool_)
+        intent: list[str] = []
+        for t in range(n):
+            h = result.bound_headroom(var_names[t])
+            raw_val = float(x[t])
+            raw_ub = float(var_ub[t])
+            if h is not None:
+                raw_lo = max(0.0, raw_val - h.down)
+                raw_hi = min(raw_ub, raw_val + h.up)
+                is_degenerate = h.degenerate
+            else:
+                raw_lo = raw_val
+                raw_hi = raw_val
+                is_degenerate = True
+            raw_rc = result.reduced_costs.get(var_names[t], 0.0) / hours[t]
+            if mirror_against is not None:
+                ceiling = float(mirror_against[t])
+                val = ceiling - raw_val
+                lo, hi = ceiling - raw_hi, ceiling - raw_lo
+                ub = ceiling
+                rc = -raw_rc
+            else:
+                val = raw_val
+                lo, hi = raw_lo, raw_hi
+                ub = raw_ub
+                rc = raw_rc
+            rc_kwh[t] = rc
+            degenerate[t] = is_degenerate
+            if ub < _INTENT_TOL:
+                # This period's own ceiling is itself ~0 -- nothing real
+                # to cap. UNLIMIT when the plan would genuinely take
+                # MORE if it could (a negative reduced cost means
+                # relaxing that bound would improve the objective);
+                # otherwise the honest limit really is 0 (both band
+                # edges collapse to val, which is itself ~0 here).
+                is_unlimit = rc < -_INTENT_TOL
+            else:
+                is_unlimit = abs(rc) <= _INTENT_TOL
+            if is_unlimit:
+                band_min[t] = lo
+                band_max[t] = hi
+                intent.append("UNLIMIT")
+            else:
+                band_min[t] = val
+                band_max[t] = val
+                intent.append("SET")
+        return LoadSignals(
+            name=name,
+            band_min_kw=band_min,
+            band_max_kw=band_max,
+            reduced_cost_per_kwh=rc_kwh,
+            intent=intent,
+            degenerate=degenerate,
+        )
+
+    plan_load_signals: list[LoadSignals] = []
+    if result.ranging_valid:
+        plan_load_signals = [
+            _load_signal(
+                sl.name,
+                shed_vars[sl.name],
+                load_ub[sl.name],
+                mirror_against=effective_shed_forecast[sl.name],
+            )
+            for sl in sheddable_loads
+        ] + [
+            _load_signal(al.name, adequacy_vars[al.name], load_ub[al.name])
+            for al in adequacy_loads
+        ]
+
     # nimbus issue #494 (Signals 5/7 of #489): the period-0 offer-curve
     # price sweep, opt-in via compute_offer_curve -- see build_plan()'s
     # own docstring for the full mechanism/reasoning. `keep_basis=
@@ -3332,6 +3546,7 @@ def build_plan(
         batteries=plan_batteries,
         grid_signals=grid_signals,
         battery_signals=plan_battery_signals,
+        load_signals=plan_load_signals,
         offer_curve_import=offer_curve_import,
         offer_curve_export=offer_curve_export,
         offer_curve_import_ranging=offer_curve_import_ranging,
