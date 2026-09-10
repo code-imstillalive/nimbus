@@ -93,6 +93,7 @@ from .const import (
     CONF_SOLVER_BATTERY_POWER_SENSOR,
     CONF_SOLVER_BATTERY_SOC_SENSOR,
     CONF_SOLVER_BATTERY_SOH_PERCENT,
+    CONF_SOLVER_CALIBRATED_OBJECTIVE_ENABLED,
     CONF_SOLVER_CHARGE_COST,
     CONF_SOLVER_DEGRADATION_COST_PER_KWH,
     CONF_SOLVER_DISCHARGE_COST,
@@ -392,6 +393,10 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     # "must be exposed here too or fetch_solver_config() never sees it"
     # requirement as every field above.
     CONF_SOLVER_BATTERY_CHARGE_EARLINESS_BUDGET_KW,
+    # nimbus issue #696: same real gap, same fix, for the new
+    # CalibratedOptions default-on switch -- resolved via
+    # _SOLVER_SWITCH_ENTITY_KEYS (see that tuple's own comment).
+    CONF_SOLVER_CALIBRATED_OBJECTIVE_ENABLED,
 )
 # 2026-08-20: these 14 plain-numeric fields moved off entry.options entirely
 # -- they're now LIVE, dashboard-editable number.nimbus_solver_* entities
@@ -502,6 +507,10 @@ _SOLVER_SWITCH_ENTITY_KEYS = (
     CONF_SOLVER_OFFER_CURVE_ENABLED,
     # nimbus issue #567: same live-switch resolve path.
     CONF_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED,
+    # nimbus issue #696: same live-switch resolve path -- solver_writer.
+    # py's main() reads this key off fetch_solver_config()'s own return
+    # value to decide whether to pass solve_options=CalibratedOptions().
+    CONF_SOLVER_CALIBRATED_OBJECTIVE_ENABLED,
 )
 
 

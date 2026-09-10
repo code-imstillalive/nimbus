@@ -798,6 +798,24 @@ DEFAULT_SOLVER_DISPATCH_DRY_RUN: Final = False
 # every cycle, for a capability most installs never asked for).
 CONF_SOLVER_OFFER_CURVE_ENABLED: Final = "solver_offer_curve_enabled"
 DEFAULT_SOLVER_OFFER_CURVE_ENABLED: Final = False
+# nimbus issue #696, Stage 2: opts the real production solve into the
+# new primary/secondary objective architecture (solver/lp.py's
+# CalibratedOptions) for the four existing tie-break mechanisms
+# (proximal_weight, smoothness_weight, adequacy_earliness_budget_kw,
+# battery_charge_earliness_budget_kw) -- see network.py's own
+# build_plan() docstring on `solve_options` for the full mechanism and
+# its one documented scope boundary (a MIP solve silently falls back to
+# today's hand-tuned-magnitude behavior regardless of this switch).
+# Default TRUE, unlike every other Solver switch above -- the
+# household's own explicit, repeated instruction was to make this the
+# real, live default now, not an opt-in a household has to discover and
+# enable themselves. Still a real, live, dashboard-editable escape
+# hatch (matching this project's own established "every new solver
+# mechanism gets a switch, not a silent hardcoded flip" convention) --
+# a household can flip this off without a code deploy if the new
+# architecture ever needs rolling back on their own live install.
+CONF_SOLVER_CALIBRATED_OBJECTIVE_ENABLED: Final = "solver_calibrated_objective_enabled"
+DEFAULT_SOLVER_CALIBRATED_OBJECTIVE_ENABLED: Final = True
 CONF_SOLVER_LOAD_FORECAST_SENSOR: Final = "solver_load_forecast_sensor"
 # Optional, more granular alternative to the single sensor above (2026-08-23,
 # real bug found live: solver_writer.py used to hardcode a Python list of

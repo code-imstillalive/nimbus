@@ -273,7 +273,7 @@ from numpy.typing import NDArray
 # not unconditionally on every import.
 try:
     from .ml.blend import blend_forecast_array, cross_source_spread
-    from .solver import elements, network
+    from .solver import elements, lp, network
     from .solver.backtest import run_efficiency_sensitivity_sweep
     from .solver.quality_report import compute_quality_report
     from .solver.regret import evaluate_realized_cost
@@ -297,7 +297,7 @@ except ImportError:
     # this script never touches HA's filesystem, only imports the
     # pure-Python solver/ package from wherever it's checked out.
     from ml.blend import blend_forecast_array, cross_source_spread
-    from solver import elements, network
+    from solver import elements, lp, network
     from solver.backtest import run_efficiency_sensitivity_sweep
     from solver.quality_report import compute_quality_report
     from solver.regret import evaluate_realized_cost
@@ -6364,6 +6364,15 @@ def compute_nimbus_only_soc_counterfactual(cfg: dict, day: datetime) -> dict | N
                     "solver_battery_charge_earliness_budget_kw",
                     network.DEFAULT_BATTERY_CHARGE_EARLINESS_BUDGET_KW,
                 ),
+                # nimbus issue #696: same reasoning again -- reads the
+                # SAME live switch.nimbus_solver_calibrated_objective_
+                # enabled state the real dispatch solve uses below, not
+                # a second, silently-divergent hardcoded choice.
+                solve_options=(
+                    lp.CalibratedOptions()
+                    if bool(cfg.get("solver_calibrated_objective_enabled", True))
+                    else None
+                ),
             )
         except Exception:
             # nimbus issue #363 (Mark Purcell, codebase review): the
@@ -11406,6 +11415,19 @@ def main() -> None:
     # see const.py's own comment on CONF_SOLVER_OFFER_CURVE_ENABLED for
     # why. Same live-switch-first read as auto_include_known_solar above.
     offer_curve_enabled = bool(cfg.get("solver_offer_curve_enabled"))
+    # nimbus issue #696, Stage 2: default TRUE (unlike offer_curve_
+    # enabled above) -- see const.py's own comment on CONF_SOLVER_
+    # CALIBRATED_OBJECTIVE_ENABLED for the full "household's own
+    # explicit, repeated ask to make this the real default now" story.
+    # network.build_plan()'s own solve_options= docstring covers the
+    # one real scope boundary this switch doesn't override: a solve
+    # that ends up a MIP (adequacy loads present, semi-continuous
+    # default on) silently keeps today's hand-tuned-magnitude behavior
+    # regardless of this switch's state.
+    calibrated_objective_enabled = bool(
+        cfg.get("solver_calibrated_objective_enabled", True)
+    )
+    solve_options = lp.CalibratedOptions() if calibrated_objective_enabled else None
     plan = network.build_plan(
         periods=periods,
         grid=grid,
@@ -11422,6 +11444,7 @@ def main() -> None:
         smoothness_weight=smoothness_weight,
         battery_charge_earliness_budget_kw=battery_charge_earliness_budget_kw,
         compute_offer_curve=offer_curve_enabled,
+        solve_options=solve_options,
     )
     # nimbus issue #484: the relay-chatter guard, run once per solve
     # right after the plan exists -- needs the plan's own just-solved

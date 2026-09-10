@@ -287,7 +287,7 @@ from .elements import (
     SheddableLoadConfig,
     SolarConfig,
 )
-from .lp import LPProblem, LPResult, SweepRangingStep
+from .lp import LPProblem, LPResult, SolveOptions, SweepRangingStep
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -894,6 +894,8 @@ def _add_proximal_penalty(
     previous_values: NDArray[np.float64] | None,
     hours: NDArray[np.float64],
     proximal_weight: float,
+    *,
+    use_secondary: bool = False,
 ) -> None:
     """Add the L1-linearized deviation penalty (mechanism 1, this
     module's own docstring) for one dispatch-variable family across every
@@ -904,21 +906,33 @@ def _add_proximal_penalty(
     `_align_previous_periods` whenever `previous_values` would be None,
     so the `is None` check here is a defensive backstop, not something
     normally reached.)
+
+    `use_secondary` (nimbus issue #696, Stage 2): when True, this
+    penalty's own cost is added to the LPProblem's SECONDARY channel
+    (`set_secondary_cost`) instead of directly at variable-construction
+    time (`add_variable(cost=...)`, the primary channel) -- see
+    `build_plan()`'s own docstring for exactly when this is set (never
+    on a solve that will end up a MIP, since the primary/secondary
+    solve architecture doesn't support that combination yet).
     """
     if proximal_weight <= 0.0 or not alignment or previous_values is None:
         return
     for new_idx, old_idx in alignment.items():
         prev_value = float(previous_values[old_idx])
+        penalty_cost = proximal_weight * hours[new_idx]
         dev_pos = p.add_variable(
             f"prox_pos_{family}_{new_idx}",
             lb=0.0,
-            cost=proximal_weight * hours[new_idx],
+            cost=0.0 if use_secondary else penalty_cost,
         )
         dev_neg = p.add_variable(
             f"prox_neg_{family}_{new_idx}",
             lb=0.0,
-            cost=proximal_weight * hours[new_idx],
+            cost=0.0 if use_secondary else penalty_cost,
         )
+        if use_secondary:
+            p.set_secondary_cost(dev_pos, penalty_cost)
+            p.set_secondary_cost(dev_neg, penalty_cost)
         p.add_eq_constraint(
             {var_names[new_idx]: 1.0, dev_pos: -1.0, dev_neg: 1.0}, prev_value
         )
@@ -931,6 +945,8 @@ def _add_intraplan_smoothness_penalty(
     n: int,
     hours: NDArray[np.float64],
     smoothness_weight: float,
+    *,
+    use_secondary: bool = False,
 ) -> None:
     """Mechanism 4 (2026-08-20, see this module's own docstring): an
     L1-linearized penalty (identical technique to _add_proximal_penalty
@@ -959,16 +975,28 @@ def _add_intraplan_smoothness_penalty(
 
     No-op (adds nothing) when smoothness_weight is exactly 0.0 -- the
     default, matching every other stability mechanism in this module.
+
+    `use_secondary` (nimbus issue #696, Stage 2): same meaning as
+    `_add_proximal_penalty()`'s own parameter -- routes this penalty's
+    cost to the LPProblem's secondary channel instead of primary.
     """
     if smoothness_weight <= 0.0:
         return
     for t in range(1, n):
+        penalty_cost = smoothness_weight * hours[t]
         dev_pos = p.add_variable(
-            f"smooth_pos_{family}_{t}", lb=0.0, cost=smoothness_weight * hours[t]
+            f"smooth_pos_{family}_{t}",
+            lb=0.0,
+            cost=0.0 if use_secondary else penalty_cost,
         )
         dev_neg = p.add_variable(
-            f"smooth_neg_{family}_{t}", lb=0.0, cost=smoothness_weight * hours[t]
+            f"smooth_neg_{family}_{t}",
+            lb=0.0,
+            cost=0.0 if use_secondary else penalty_cost,
         )
+        if use_secondary:
+            p.set_secondary_cost(dev_pos, penalty_cost)
+            p.set_secondary_cost(dev_neg, penalty_cost)
         p.add_eq_constraint(
             {var_names[t]: 1.0, var_names[t - 1]: -1.0, dev_pos: -1.0, dev_neg: 1.0},
             0.0,
@@ -1227,6 +1255,7 @@ def build_plan(
     adequacy_earliness_budget_kw: float = DEFAULT_ADEQUACY_EARLINESS_BUDGET_KW,
     adequacy_semi_continuous: bool = True,
     battery_charge_earliness_budget_kw: float = DEFAULT_BATTERY_CHARGE_EARLINESS_BUDGET_KW,
+    solve_options: SolveOptions | None = None,
 ) -> Plan:
     """Build and solve one LP for the given horizon/inputs. Pure function --
     no I/O, no HA dependency, safe to call from anywhere including a plain
@@ -1396,6 +1425,33 @@ def build_plan(
     ranging (the SAME ranging call that finds each next breakpoint in
     the first place, so this carries no additional cost beyond the walk
     itself, unlike `compute_signals`'s own separate ranging pass above).
+
+    `solve_options` (nimbus issue #696, Stage 2): `None` (the default)
+    preserves this function's own pre-#696 behavior EXACTLY -- every
+    tie-break mechanism above (`proximal_weight`, `smoothness_weight`,
+    `adequacy_earliness_budget_kw`, `battery_charge_earliness_budget_kw`)
+    stays a hand-tuned magnitude summed directly into the one real cost
+    objective, a single ordinary blended solve, byte-identical to every
+    existing caller/test. Pass `lp.CalibratedOptions()` (or `LexOptions`/
+    `BlendedOptions`) to opt a specific solve into the real primary/
+    secondary architecture instead: all four mechanisms above move to
+    the LPProblem's SECONDARY channel, at their own SAME existing
+    magnitudes (their relative proportions to each other are preserved
+    exactly; only the overall scale is what `CalibratedOptions` searches
+    for safely, replacing manual verification with a real, per-solve
+    safety search).
+
+    One real, deliberate scope boundary, not a silent gap: this
+    architecture doesn't support a MIP yet (`LPProblem.solve(options=
+    ...)` raises `NotImplementedError` on one -- see that method's own
+    docstring, "genuinely new ground" not yet designed). Whenever this
+    solve will end up a MIP (`adequacy_loads` non-empty AND
+    `adequacy_semi_continuous=True`, the default -- see that parameter's
+    own docstring), a non-`None` `solve_options` is silently NOT applied
+    for THIS call -- the four mechanisms stay on the primary channel and
+    the solve proceeds exactly as it would under `solve_options=None`,
+    rather than raising and crashing a live production dispatch cycle
+    over an architecture gap that has its own tracked follow-up (#696).
     """
     loads = loads or []
     sheddable_loads = sheddable_loads or []
@@ -1403,6 +1459,23 @@ def build_plan(
     shared_circuits = shared_circuits or []
     n = periods.n_periods
     hours = periods.hours
+
+    # nimbus issue #696, Stage 2: determined from CONFIG alone, before
+    # any variable is registered -- adequacy_semi_continuous's own
+    # docstring already establishes "adequacy_loads non-empty AND
+    # semi_continuous=True is exactly when this solve becomes a MIP"
+    # (binary adequacy_on_*/adequacy_start_* variables, added further
+    # down). Computed once, up front, because it must be internally
+    # consistent for the WHOLE function -- the four tie-break mechanisms
+    # below apply their own cost at several different points, and the
+    # final p.solve() call happens only at the very end; deciding this
+    # from live LPProblem.is_mip state at each of those points would risk
+    # a mechanism applied to one channel while a LATER binary
+    # registration (adequacy_on_*, still to come) silently changes which
+    # channel the final solve actually reads from.
+    _use_secondary_costs = solve_options is not None and not (
+        bool(adequacy_loads) and adequacy_semi_continuous
+    )
 
     # nimbus issue #493 (Signals 4/7 of #489): grid.import_limit_kw/
     # export_limit_kw may now be a plain scalar (every existing caller)
@@ -1881,7 +1954,10 @@ def build_plan(
                 for t in range(n):
                     cost = earliness_rate * float(elapsed_hours[t]) * float(hours[t])
                     if cost != 0.0:
-                        p.set_cost(adequacy_vars[al.name][t], cost)
+                        if _use_secondary_costs:
+                            p.set_secondary_cost(adequacy_vars[al.name][t], cost)
+                        else:
+                            p.set_cost(adequacy_vars[al.name][t], cost)
     # nimbus issue #616 (semi-continuous + single-block, prior art:
     # EMHASS's treat_deferrable_load_as_semi_cont + set_deferrable_load_
     # single_constant): every real Controllable Load in this project is
@@ -2159,7 +2235,10 @@ def build_plan(
                         * float(hours[t])
                     )
                     if cost != 0.0:
-                        p.set_cost(charge_vars[b.name][t], cost)
+                        if _use_secondary_costs:
+                            p.set_secondary_cost(charge_vars[b.name][t], cost)
+                        else:
+                            p.set_cost(charge_vars[b.name][t], cost)
     # Two-tier export bonus (see elements.py's own GridConfig docstring):
     # export_bonus[t] earns an EXTRA revenue credit on top of whatever
     # grid_export[t] already earns at the base rate above -- set_cost()
@@ -2311,14 +2390,27 @@ def build_plan(
         (grid_export, "grid_export", prev_grid_export),
     ):
         _add_proximal_penalty(
-            p, var_names, family, alignment, prev_values, hours, proximal_weight
+            p,
+            var_names,
+            family,
+            alignment,
+            prev_values,
+            hours,
+            proximal_weight,
+            use_secondary=_use_secondary_costs,
         )
         if max_rate_kw is not None:
             _add_rate_limit(
                 p, var_names, family, n, alignment, prev_values, max_rate_kw
             )
         _add_intraplan_smoothness_penalty(
-            p, var_names, family, n, hours, smoothness_weight
+            p,
+            var_names,
+            family,
+            n,
+            hours,
+            smoothness_weight,
+            use_secondary=_use_secondary_costs,
         )
 
     # nimbus issue #467: per-participant cross-solve stability, matched
@@ -2347,14 +2439,27 @@ def build_plan(
             (discharge_vars[b.name], f"discharge_{b.name}", prev_discharge_b),
         ):
             _add_proximal_penalty(
-                p, var_names, family, alignment, prev_values, hours, proximal_weight
+                p,
+                var_names,
+                family,
+                alignment,
+                prev_values,
+                hours,
+                proximal_weight,
+                use_secondary=_use_secondary_costs,
             )
             if max_rate_kw is not None:
                 _add_rate_limit(
                     p, var_names, family, n, alignment, prev_values, max_rate_kw
                 )
             _add_intraplan_smoothness_penalty(
-                p, var_names, family, n, hours, smoothness_weight
+                p,
+                var_names,
+                family,
+                n,
+                hours,
+                smoothness_weight,
+                use_secondary=_use_secondary_costs,
             )
 
     # nimbus issue #478 (carry-over continuity, real risk flagged during
@@ -2392,6 +2497,7 @@ def build_plan(
             prev_power,
             hours,
             proximal_weight,
+            use_secondary=_use_secondary_costs,
         )
 
     # ---- SoC dynamics -- each battery's own independent recursion ----
@@ -2827,7 +2933,20 @@ def build_plan(
     # build_plan()'s own docstring for why this isn't unconditional --
     # a real measured timing regression on this project's own most
     # LP-structurally-complex real scenario).
-    result: LPResult = p.solve(ranging=compute_signals, keep_basis=compute_offer_curve)
+    #
+    # nimbus issue #696, Stage 2: `_use_secondary_costs` (computed once,
+    # up front, from config alone -- see its own comment above) is the
+    # single source of truth for whether this solve actually engages the
+    # caller's requested `solve_options` -- False whenever this solve
+    # will be a MIP, in which case every tie-break mechanism above
+    # already stayed on the primary channel, so falling back to
+    # `options=None` here reproduces this function's own pre-#696
+    # behavior exactly rather than raising `LPProblem`'s own MIP guard.
+    result: LPResult = p.solve(
+        ranging=compute_signals,
+        keep_basis=compute_offer_curve,
+        options=solve_options if _use_secondary_costs else None,
+    )
     if result.status != "optimal":
         return _infeasible_plan(
             periods, result.status, result.iterations, raw_status=result.raw_status

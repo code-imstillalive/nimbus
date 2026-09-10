@@ -44,11 +44,13 @@ from homeassistant.loader import async_get_integration
 from .const import (
     CONF_SOLVE_ON_PRICE_CHANGE,
     CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
+    CONF_SOLVER_CALIBRATED_OBJECTIVE_ENABLED,
     CONF_SOLVER_DISPATCH_DRY_RUN,
     CONF_SOLVER_OFFER_CURVE_ENABLED,
     CONF_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED,
     DEFAULT_SOLVE_ON_PRICE_CHANGE,
     DEFAULT_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
+    DEFAULT_SOLVER_CALIBRATED_OBJECTIVE_ENABLED,
     DEFAULT_SOLVER_DISPATCH_DRY_RUN,
     DEFAULT_SOLVER_OFFER_CURVE_ENABLED,
     DEFAULT_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED,
@@ -200,6 +202,23 @@ async def async_setup_entry(
                 CONF_SOLVE_ON_PRICE_CHANGE,
                 "Solve on Price Change",
                 DEFAULT_SOLVE_ON_PRICE_CHANGE,
+                sw_version,
+                shared_store,
+            ),
+            # nimbus issue #696, Stage 2: the household's own explicit,
+            # repeated ask to make the new primary/secondary objective
+            # architecture (solver/lp.py's CalibratedOptions) the real,
+            # live default -- see const.py's own comment on CONF_SOLVER_
+            # CALIBRATED_OBJECTIVE_ENABLED for the full "default True,
+            # unlike every switch above" reasoning. Same plain-toggle
+            # pattern as CONF_SOLVER_OFFER_CURVE_ENABLED -- solver_
+            # writer.py reads this switch's live state fresh every solve
+            # cycle, no _reconfigure_dependents() needed.
+            NimbusSolverSwitch(
+                entry,
+                CONF_SOLVER_CALIBRATED_OBJECTIVE_ENABLED,
+                "Calibrated Objective Enabled",
+                DEFAULT_SOLVER_CALIBRATED_OBJECTIVE_ENABLED,
                 sw_version,
                 shared_store,
             ),
