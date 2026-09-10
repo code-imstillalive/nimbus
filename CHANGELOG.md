@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.241] — 2026-09-10
+
+### Changed
+- **`sensor.nimbus_offer_curve`'s `import_curve`/`export_curve`/`import_curve_ranging`/`export_curve_ranging` are now `{price: kW}` dicts, not lists of `[price, kW]` pairs** (nimbus issue #677, Mark Purcell's own requested shape — reads more directly as "the curve" and is the natural lookup-by-price shape for a consumer). Price keys use fixed 4-decimal formatting (`f"{price:.4f}"`, e.g. `"0.1905"`), matching this sensor's own existing display-rounding convention rather than a raw Python float repr. The two ranging attributes are now keyed by the SAME formatted price string as their sibling curve (previously a parallel list matched by position) so the correspondence survives the shape change. A genuine collision — two distinct unrounded sweep prices rounding to the same 4dp key, a real if rare possibility since the sweep's own dedup happens before rounding — keeps the first (lower-price) entry and logs a warning, rather than silently overwriting or crashing a regular solve cycle over a diagnostic-only sensor.
+
 ## [0.94.240] — 2026-09-10
 
 ### Changed
