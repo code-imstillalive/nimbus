@@ -118,13 +118,22 @@ Cron (as homehub, whichever NUC currently holds the VIP -- runs fine on
 either, only ever reads real settled history, never writes anything back).
 Set HA_TOKEN_PATH/NIMBUS_COUNTERFACTUAL_HISTORY_FILE (and HA_BASE if your
 HA instance isn't reachable at its default mDNS hostname) before running
--- see this file's own HA_BASE/TOKEN_FILE/HISTORY_FILE comment above:
-  cd /opt/homeassistant && git pull origin main
-  git show origin/main:scripts/nimbus_counterfactual_writer.py > /opt/nimbus_counterfactual_writer.py
-  export HA_TOKEN_PATH=/home/homehub/.ha_token NIMBUS_COUNTERFACTUAL_HISTORY_FILE=/home/homehub/nimbus_counterfactual_history.json
+-- see this file's own HA_BASE/TOKEN_FILE/HISTORY_FILE comment above.
+
+nimbus issue #697 (real incident, live): the mDNS default silently
+stopped resolving on the reference household's own network at some
+point -- every HTTP call returned empty, surfacing as a confusing
+`json.loads()` "Expecting value: line 1 column 1 (char 0)" error, not
+an obvious DNS/connection failure. If you hit that exact error, export
+HA_BASE explicitly (a real reachable host:port, e.g. your own HA's LAN
+IP or VIP) rather than assuming the mDNS default still works on your
+network -- shown as an explicit example below, not left implicit.
+  cd /opt/homeassistant/config/nimbus_repo && git pull origin main
+  cp docs/real-world-integration/files/nimbus_counterfactual_writer.py /opt/nimbus_counterfactual_writer.py
+  export HA_TOKEN_PATH=/home/homehub/.ha_token NIMBUS_COUNTERFACTUAL_HISTORY_FILE=/home/homehub/nimbus_counterfactual_history.json HA_BASE=http://YOUR_HA_HOST_OR_VIP:8123
   sudo touch /opt/nimbus_counterfactual_writer.log && sudo chown homehub:homehub /opt/nimbus_counterfactual_writer.log
-  python3 /opt/nimbus_counterfactual_writer.py   # one-off test run first
-  (crontab -l 2>/dev/null; echo "30 20 * * * HA_TOKEN_PATH=$HA_TOKEN_PATH NIMBUS_COUNTERFACTUAL_HISTORY_FILE=$NIMBUS_COUNTERFACTUAL_HISTORY_FILE python3 /opt/nimbus_counterfactual_writer.py >> /opt/nimbus_counterfactual_writer.log 2>&1") | crontab -
+  python3 /opt/nimbus_counterfactual_writer.py   # one-off test run first -- confirm it completes with NO output before trusting cron with it
+  (crontab -l 2>/dev/null | grep -v nimbus_counterfactual_writer; echo "30 20 * * * HA_TOKEN_PATH=$HA_TOKEN_PATH NIMBUS_COUNTERFACTUAL_HISTORY_FILE=$NIMBUS_COUNTERFACTUAL_HISTORY_FILE HA_BASE=$HA_BASE python3 /opt/nimbus_counterfactual_writer.py >> /opt/nimbus_counterfactual_writer.log 2>&1") | crontab -
 
 (20:30 UTC = 06:30 AEST the following day -- 30 minutes after
 lv_p2p_daily_recalibrate.py's own 06:00 AEST run, so yesterday's real P2P
