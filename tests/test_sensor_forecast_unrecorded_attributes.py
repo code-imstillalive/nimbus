@@ -74,10 +74,18 @@ def test_quality_report_sensor_excludes_its_oversized_hourly_arrays():
     # at which point the recorder drops the ENTIRE attribute dict. The
     # flattened children already exclude exactly these four keys
     # (sensor_flattened.py's own FLATTENED_ATTRS_QUALITY) -- the parent
-    # now matches.
+    # now matches. nimbus issue #681 added a fifth oversized field,
+    # soc_discrepancy_hourly (one row per real recorder hour compared),
+    # for the same reason.
     cls = sensor.NimbusSolverQualityReportSensor
     assert cls._unrecorded_attributes == frozenset(
-        {"j_ref_hourly", "j_ach_hourly", "j_star_hourly", "hourly_regret"}
+        {
+            "j_ref_hourly",
+            "j_ach_hourly",
+            "j_star_hourly",
+            "hourly_regret",
+            "soc_discrepancy_hourly",
+        }
     )
 
 

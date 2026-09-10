@@ -560,6 +560,84 @@ class TestSocDiscrepancyRealBoundaryEdgeTolerance(unittest.TestCase):
         self.assertEqual(result["soc_discrepancy_reason"], "out_of_range")
 
 
+class TestSocDiscrepancyHourlyExposure(unittest.TestCase):
+    """nimbus issue #681 (Mark Purcell, real finding): his own independent
+    score_day.py reconstruction of this exact statistic disagreed 3x with
+    this function's own number (10.4/3.4pt vs 32.13/6.41pt) from the same
+    recorder.json/quality_report.json inputs -- "I don't know which side
+    is right... flagging the disagreement itself." soc_discrepancy_hourly
+    exposes the exact per-hour (real_pct, ach_pct, gap_pct) triples this
+    function itself used, so any external reconstruction can diff
+    directly against Nimbus's own real numbers hour by hour instead of
+    guessing at where two independent resampling methods might disagree.
+    """
+
+    def test_hourly_rows_carry_the_real_per_hour_values_used(self):
+        soc_hist = [(YESTERDAY_START, 55.0)]
+        j_ach_hourly = {YESTERDAY_START.isoformat(): {"soc_pct": 50.0}}
+        result = solver_writer._soc_discrepancy_stats(soc_hist, j_ach_hourly)
+        hourly = result["soc_discrepancy_hourly"]
+        self.assertEqual(len(hourly), 1)
+        row = hourly[0]
+        self.assertEqual(row["hour"], YESTERDAY_START.isoformat())
+        self.assertEqual(row["real_pct"], 55.0)
+        self.assertEqual(row["ach_pct"], 50.0)
+        self.assertEqual(row["gap_pct"], 5.0)
+        self.assertFalse(row["out_of_range"])
+        self.assertFalse(row["boundary_exempted"])
+
+    def test_one_row_per_real_hour_not_just_the_worst_one(self):
+        # Two real, distinct hours -- confirms this isn't collapsed down
+        # to a single summary row, the whole point being a full per-hour
+        # audit trail, not just the max/mean this function already had.
+        hour0 = YESTERDAY_START
+        hour1 = YESTERDAY_START + timedelta(hours=1)
+        soc_hist = [(hour0, 55.0), (hour1, 40.0)]
+        j_ach_hourly = {
+            hour0.isoformat(): {"soc_pct": 50.0},
+            hour1.isoformat(): {"soc_pct": 20.0},
+        }
+        result = solver_writer._soc_discrepancy_stats(soc_hist, j_ach_hourly)
+        hourly = result["soc_discrepancy_hourly"]
+        self.assertEqual(len(hourly), 2)
+        by_hour = {row["hour"]: row for row in hourly}
+        self.assertEqual(by_hour[hour0.isoformat()]["gap_pct"], 5.0)
+        self.assertEqual(by_hour[hour1.isoformat()]["gap_pct"], 20.0)
+
+    def test_marks_the_out_of_range_hour_explicitly(self):
+        soc_hist = [(YESTERDAY_START, 60.0)]
+        j_ach_hourly = {YESTERDAY_START.isoformat(): {"soc_pct": 327.67}}
+        result = solver_writer._soc_discrepancy_stats(soc_hist, j_ach_hourly)
+        row = result["soc_discrepancy_hourly"][0]
+        self.assertTrue(row["out_of_range"])
+        # The gap itself is still reported CLAMPED, same as the aggregate
+        # max/mean stats -- this per-hour row is a breakdown of the same
+        # numbers, not a second, differently-computed figure.
+        self.assertEqual(row["gap_pct"], 40.0)
+
+    def test_marks_a_genuinely_boundary_exempted_hour(self):
+        # nimbus issue #571's own real scenario: real at the physical
+        # floor, achieved trajectory mildly negative from integration
+        # loss -- exempted from the out_of_range verdict, and this row
+        # says so explicitly rather than leaving a reader to re-derive it.
+        soc_hist = [(YESTERDAY_START, 0.0)]
+        j_ach_hourly = {YESTERDAY_START.isoformat(): {"soc_pct": -9.0}}
+        result = solver_writer._soc_discrepancy_stats(soc_hist, j_ach_hourly)
+        row = result["soc_discrepancy_hourly"][0]
+        self.assertTrue(row["out_of_range"])
+        self.assertTrue(row["boundary_exempted"])
+
+    def test_none_when_no_history_at_all(self):
+        result = solver_writer._soc_discrepancy_stats([], {})
+        self.assertIsNone(result["soc_discrepancy_hourly"])
+
+    def test_none_when_every_hourly_row_is_missing_soc_pct(self):
+        soc_hist = [(YESTERDAY_START, 55.0)]
+        j_ach_hourly = {YESTERDAY_START.isoformat(): {}}
+        result = solver_writer._soc_discrepancy_stats(soc_hist, j_ach_hourly)
+        self.assertIsNone(result["soc_discrepancy_hourly"])
+
+
 class TestSettlementHook(unittest.TestCase):
     def _fetch_side_effect(self, entity_id, start, end):
         if entity_id == "sensor.real_solar":

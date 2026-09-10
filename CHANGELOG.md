@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.232] — 2026-09-10
+
+### Added
+- **The SoC discrepancy check now exposes its real per-hour comparison data, not just the summary max/mean** (nimbus issue #681, Mark Purcell — his own independently-computed SoC discrepancy disagreed with Nimbus's own `soc_discrepancy_max_pct`/`mean_pct` by roughly 3x, and neither side could tell which computation was actually right without seeing the other's real intermediate numbers). `sensor.nimbus_solver_quality_report`'s own quality report gains `soc_discrepancy_hourly`: one row per real recorder hour compared, each carrying `hour`, `real_pct` (recorder-sourced), `ach_pct` (achieved-plan-sourced), `gap_pct`, `out_of_range`, and `boundary_exempted` (the existing #571 physical-floor/ceiling exemption, now visible per-hour instead of only folded into the aggregate). Deliberately does not attempt to resolve which side's own resampling method is correct — that requires seeing Mark's own external script's code, which isn't available here — this ships the honest diagnostic surface so the real disagreement can be root-caused directly from the same data both sides are working from.
+
 ## [0.94.231] — 2026-09-10
 
 ### Fixed

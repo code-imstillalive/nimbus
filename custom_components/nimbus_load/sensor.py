@@ -3344,8 +3344,19 @@ class NimbusSolverQualityReportSensor(_NimbusSolverPushSensor):
     # exclude exactly these four keys (sensor_flattened.py's own
     # FLATTENED_ATTRS_QUALITY exclusion comment) since each one is its
     # own real entity there -- the parent just never matched that.
+    # nimbus issue #681 (Mark Purcell): soc_discrepancy_hourly (24
+    # per-hour {hour, real_pct, ach_pct, gap_pct, out_of_range,
+    # boundary_exempted} rows) joins the same exclusion for the identical
+    # reason -- another real per-hour array this payload's own size
+    # budget has no margin for.
     _unrecorded_attributes = frozenset(
-        {"j_ref_hourly", "j_ach_hourly", "j_star_hourly", "hourly_regret"}
+        {
+            "j_ref_hourly",
+            "j_ach_hourly",
+            "j_star_hourly",
+            "hourly_regret",
+            "soc_discrepancy_hourly",
+        }
     )
 
     def __init__(
