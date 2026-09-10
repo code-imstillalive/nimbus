@@ -257,6 +257,39 @@ Earlier history: `docs/worklog/2026-09-01.md`, `docs/worklog/2026-08-31.md`,
 
 ---
 
+## ⚠️ PRIME DIRECTIVE — CHECK PRIOR ART BEFORE DESIGNING A NEW MECHANISM
+
+> **Nimbus issue #603 (Mark Purcell, 2026-09-09), raised after a real pattern: "nimbus seems**
+> **to rediscover issues that have already been solved by EMHASS and HAEO."** A same-week table
+> of real examples (a deferrable-load startup penalty, a same-day-window rolling bug, LP
+> degeneracy, an oracle/live SoC-bound mismatch, per-load published series, scorer resolution)
+> each cost a production-first bug report and a fix release — all already solved, with working
+> code, in one or both of these adjacent open-source projects.
+>
+> **Before designing or implementing any mechanism in the solver, the load model, the scoring,
+> or the published outputs:**
+> 1. **Check EMHASS first** (`davidusb-geek/emhass`, MIT license): `src/emhass/optimization.py`
+>    for the LP/MILP formulation, `docs/config.md` for the parameter surface. If an equivalent
+>    parameter or constraint already exists there, adopt its semantics and name Nimbus's own
+>    wizard field after it.
+> 2. **Check HAEO second** for the graph/element model (elements, segments, tags, policies,
+>    cumulative-energy battery formulation) — the closer match for Nimbus's own participant and
+>    topology work.
+> 3. **Reuse the code where the licence permits, with attribution**, rather than re-deriving it.
+>    EMHASS is MIT; check HAEO's own licence before copying rather than reimplementing.
+> 4. **Record the check in the issue or PR**: one line — "EMHASS: `<param>` / HAEO: `<element>`
+>    / neither" — so a reviewer can see it was actually done, not assumed. An issue proposing a
+>    new mechanism without that line is not ready.
+> 5. **Where Nimbus deliberately departs from prior art, say why in the same place.** Departures
+>    are fine; unknowing rediscovery is not.
+>
+> **This does not conflict with the "ZERO HAEO" directive above** — that rule is about never
+> wiring HAEO's own live entities or plan sensors into Nimbus at runtime, not about reading its
+> source for design reference. #467 already established "architecture reuse, not adoption" for
+> exactly this reason.
+
+---
+
 ## What Nimbus is
 
 A Home Assistant custom_component (`custom_components/nimbus_load`) with two subentry
