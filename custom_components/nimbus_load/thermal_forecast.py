@@ -307,5 +307,93 @@ def find_floor_crossing(
     return None
 
 
+def resolve_floor_temperature(
+    min_temp: float | None, done_when: str | None, parse_done_when
+) -> float | None:
+    """nimbus issue #712/#713 (Mark Purcell): the load's own physical/
+    eco floor -- `min_temp` first (the unit's own real physical minimum,
+    never invented), the load's own configured `done_when` threshold as
+    a last resort for a device with no `min_temp` at all. Mirrors
+    `project_temperature_forecast()`'s own `ceiling_temperature` read
+    order exactly (same reasoning: both bounds should come from the
+    exact same entity/config, never a second guess) -- factored out here
+    so the two real call sites (the post-solve warning/flag, and #712's
+    own pre-solve scheduling check below) share one implementation
+    instead of two copies of the same min_temp-then-done_when fallback
+    silently drifting apart over time.
+
+    `parse_done_when` is injected (rather than imported here) so this
+    module keeps its own zero-project-import posture (see this module's
+    top docstring) -- callers already have `done_condition.parse_done_when`
+    in scope. Returns `None` on any missing/malformed input, same
+    fail-open contract as every other optional reading in this module.
+    """
+    if min_temp is not None:
+        try:
+            return float(min_temp)
+        except (TypeError, ValueError):
+            pass
+    if done_when is not None:
+        try:
+            _, threshold = parse_done_when(done_when)
+            return threshold
+        except (ValueError, TypeError):
+            pass
+    return None
+
+
+def naive_floor_crossing_period(
+    grid_times: list[datetime],
+    now: datetime,
+    current_temperature: float | None,
+    idle_decay_c_per_hour: float | None,
+    floor_temperature: float | None,
+) -> int | None:
+    """nimbus issue #712/#713 (Mark Purcell, real live finding: two
+    consecutive nights of uncontrolled compressor cut-in, both times the
+    tank falling past its own eco-mode floor hours before the next
+    scheduled ON period -- and #713's own live confirmation that the
+    #592 temperature-forecast sensor already projects a third). This is
+    the PRE-solve counterpart to `find_floor_crossing()` above: that
+    function walks an already-SOLVED plan (real heating included) to
+    find a crossing for DISPLAY; this one is deliberately plan-free --
+    a pure "if nothing heats this load between `now` and whenever it
+    happens" decay-only projection, answerable *before* a plan exists,
+    for the scheduling decision itself (see `build_controllable_loads()`
+    in solver_writer.py, the actual caller).
+
+    This is not an approximation of the real failure mode -- it IS the
+    real failure mode: both real cut-ins happened during exactly this
+    "load commanded off, zero further heating" stretch. A plan-aware
+    projection couldn't answer this question before the plan exists
+    anyway (genuinely circular -- the plan is exactly what this result
+    feeds into).
+
+    Returns the first index into `grid_times` at or after the projected
+    crossing instant, or `None` when: any required input is missing, the
+    decay rate is non-positive (never a real crossing), the tank is
+    already at/below the floor right now (a live-dispatch/done-condition
+    concern, not a scheduling one -- this function's job is warning
+    about a crossing still ahead of `now`), or the projected crossing
+    falls after the entire horizon (not actionable by this cycle's own
+    schedule either way).
+    """
+    if (
+        current_temperature is None
+        or idle_decay_c_per_hour is None
+        or floor_temperature is None
+        or idle_decay_c_per_hour <= 0.0
+        or current_temperature <= floor_temperature
+        or not grid_times
+    ):
+        return None
+    hours_to_floor = (current_temperature - floor_temperature) / idle_decay_c_per_hour
+    crossing_time = now + timedelta(hours=hours_to_floor)
+    for i, t in enumerate(grid_times):
+        if t >= crossing_time:
+            return i
+    return None
+
+
 def _parse_iso(s: object) -> datetime:
     return datetime.fromisoformat(str(s))

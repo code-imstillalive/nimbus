@@ -338,5 +338,114 @@ class TestFindFloorCrossing(unittest.TestCase):
         self.assertIsNone(tf.find_floor_crossing([], floor_temperature=45.0))
 
 
+class TestResolveFloorTemperature(unittest.TestCase):
+    """nimbus issue #712/#713 -- the shared min_temp-then-done_when
+    fallback, factored out so the pre-solve scheduling check and the
+    post-solve warning never drift into two different answers."""
+
+    def _parse_done_when(self, done_when):
+        # A minimal stand-in for done_condition.parse_done_when -- this
+        # module is deliberately import-free of done_condition (same
+        # zero-project-import posture the rest of this file already
+        # tests), so the real parser is injected by the real caller;
+        # here we only need SOME callable matching its (op_fn, threshold)
+        # return shape.
+        threshold = float(done_when.lstrip(">=<! "))
+        return (lambda a, b: a >= b), threshold
+
+    def test_min_temp_wins_when_present(self):
+        result = tf.resolve_floor_temperature(45.0, ">= 60", self._parse_done_when)
+        self.assertEqual(result, 45.0)
+
+    def test_falls_back_to_done_when_threshold_without_min_temp(self):
+        result = tf.resolve_floor_temperature(None, ">= 60", self._parse_done_when)
+        self.assertEqual(result, 60.0)
+
+    def test_none_when_neither_available(self):
+        self.assertIsNone(
+            tf.resolve_floor_temperature(None, None, self._parse_done_when)
+        )
+
+    def test_malformed_min_temp_falls_back_to_done_when(self):
+        result = tf.resolve_floor_temperature(
+            "not-a-number", ">= 60", self._parse_done_when
+        )
+        self.assertEqual(result, 60.0)
+
+    def test_malformed_done_when_with_no_min_temp_returns_none(self):
+        def _raising_parser(_done_when):
+            raise ValueError("bad done_when")
+
+        self.assertIsNone(
+            tf.resolve_floor_temperature(None, "garbage", _raising_parser)
+        )
+
+
+class TestNaiveFloorCrossingPeriod(unittest.TestCase):
+    """nimbus issue #712/#713 -- the pre-solve, plan-free "if nothing
+    heats this between now and whenever" projection that actually feeds
+    build_controllable_loads()'s own scheduling decision."""
+
+    def _grid(self, n=20, step_minutes=5):
+        t0 = datetime(2026, 9, 10, 16, 0, tzinfo=_TZ)
+        return [t0 + timedelta(minutes=step_minutes * i) for i in range(n)]
+
+    def test_real_713_shape_crosses_within_the_grid(self):
+        # #713's own real numbers: tank at 50 degC at 16:00, eco floor at
+        # 45 degC, DEFAULT_IDLE_DECAY_C_PER_HOUR (0.5 degC/h) -- crosses
+        # 10 hours later, well inside a 96h/5-min grid.
+        grid = self._grid(n=200)
+        now = grid[0]
+        period = tf.naive_floor_crossing_period(
+            grid, now, 50.0, tf.DEFAULT_IDLE_DECAY_C_PER_HOUR, 45.0
+        )
+        self.assertIsNotNone(period)
+        crossing_time = now + timedelta(
+            hours=(50.0 - 45.0) / tf.DEFAULT_IDLE_DECAY_C_PER_HOUR
+        )
+        self.assertGreaterEqual(grid[period], crossing_time)
+        self.assertLess(grid[period - 1], crossing_time)
+
+    def test_already_at_or_below_floor_returns_none(self):
+        grid = self._grid()
+        period = tf.naive_floor_crossing_period(grid, grid[0], 44.0, 0.5, 45.0)
+        self.assertIsNone(period)
+
+    def test_non_positive_decay_rate_returns_none(self):
+        grid = self._grid()
+        self.assertIsNone(
+            tf.naive_floor_crossing_period(grid, grid[0], 50.0, 0.0, 45.0)
+        )
+        self.assertIsNone(
+            tf.naive_floor_crossing_period(grid, grid[0], 50.0, -0.1, 45.0)
+        )
+
+    def test_missing_inputs_return_none(self):
+        grid = self._grid()
+        self.assertIsNone(
+            tf.naive_floor_crossing_period(grid, grid[0], None, 0.5, 45.0)
+        )
+        self.assertIsNone(
+            tf.naive_floor_crossing_period(grid, grid[0], 50.0, None, 45.0)
+        )
+        self.assertIsNone(
+            tf.naive_floor_crossing_period(grid, grid[0], 50.0, 0.5, None)
+        )
+
+    def test_empty_grid_returns_none(self):
+        self.assertIsNone(
+            tf.naive_floor_crossing_period(
+                [], datetime(2026, 9, 10, tzinfo=_TZ), 50.0, 0.5, 45.0
+            )
+        )
+
+    def test_crossing_past_the_whole_horizon_returns_none(self):
+        # A short grid and a very slow decay -- the crossing genuinely
+        # falls after the last grid point, not actionable this cycle.
+        grid = self._grid(n=4, step_minutes=5)
+        period = tf.naive_floor_crossing_period(grid, grid[0], 50.0, 0.01, 45.0)
+        self.assertIsNone(period)
+
+
 if __name__ == "__main__":
     unittest.main()
