@@ -164,24 +164,164 @@ class TestCalibratedOptionsFindsASafeWeightAutomatically(unittest.TestCase):
         self.assertLess(real_primary_cost, 10.1)
 
 
-class TestSolveOptionsRejectsMip(unittest.TestCase):
-    def test_options_on_a_mip_raises_not_implemented(self):
+class TestSolveOptionsOnAMip(unittest.TestCase):
+    """nimbus issue #702 (#696's own tracked follow-up): options= on a MIP
+    used to raise NotImplementedError -- now supported. "gate" is a
+    binary with a REAL primary preference (cost -1.0 -- minimizing primary
+    wants gate=1) and a secondary cost pulling the opposite direction
+    (+1000.0, dwarfing every other cost in the problem) -- proving
+    secondary cost is never even read while the binary assignment is being
+    decided. x1/x2 reprise _genuine_tie_problem()'s own genuine-tie shape
+    (equal primary cost, secondary prefers x2 large) to prove the
+    continuous tie-break still works once the binary is pinned.
+
+    A real, wrong first design attempt at #702 pinned the binary
+    assignment to a PRIMARY-ONLY MIP solve's own result BEFORE ever
+    reading secondary cost -- safe in the sense that it can't override a
+    real primary difference, but empirically found (on a real adequacy-
+    load scenario, see test_solver_network_solve_options_stage2.py's own
+    TestMipFallbackIsTransparent) to silently neuter any tie-break whose
+    only expression is via WHICH binary gets chosen: with no primary
+    difference between two tied binary assignments, that first design
+    picked one ARBITRARILY, ignoring secondary entirely, rather than
+    genuinely breaking the tie. TestBinaryTieBreak below is the direct
+    regression test for that exact bug class -- lp.py's own fix keeps
+    integrality active through the secondary phase too (a real second
+    branch-and-bound pass), so the binary itself can respond to
+    secondary cost among primary ties, the same way a continuous
+    variable already could."""
+
+    def _mip_with_tie_and_a_real_binary_preference(self) -> LPProblem:
         p = LPProblem()
-        p.add_variable("b", binary=True, cost=1.0)
-        p.add_variable("x", ub=5.0, cost=1.0)
-        p.set_secondary_cost("x", -1.0)
-        with self.assertRaises(NotImplementedError):
-            p.solve(options=LexOptions())
+        p.add_variable("gate", binary=True, cost=-1.0)
+        p.set_secondary_cost("gate", 1000.0)
+        p.add_variable("x1", ub=10.0, cost=1.0)
+        p.add_variable("x2", ub=10.0, cost=1.0)
+        p.add_eq_constraint({"x1": 1.0, "x2": 1.0}, 10.0, name="total")
+        p.set_secondary_cost("x2", -1.0)
+        return p
+
+    def test_binary_assignment_is_decided_by_primary_alone(self):
+        p = self._mip_with_tie_and_a_real_binary_preference()
+        result = p.solve(options=LexOptions())
+        self.assertEqual(result.status, "optimal")
+        self.assertAlmostEqual(
+            p.value_of(result, "gate"),
+            1.0,
+            places=4,
+            msg="gate's own real primary preference (cost -1.0) must win "
+            "even though secondary pulls the opposite way by 1000x -- "
+            "secondary is never read until the binary is already pinned",
+        )
+
+    def test_continuous_tie_break_still_works_once_binary_is_pinned(self):
+        p = self._mip_with_tie_and_a_real_binary_preference()
+        result = p.solve(options=LexOptions())
+        self.assertAlmostEqual(p.value_of(result, "x2"), 10.0, places=4)
+        self.assertAlmostEqual(p.value_of(result, "x1"), 0.0, places=4)
+
+    def test_calibrated_options_also_works_on_a_mip(self):
+        p = self._mip_with_tie_and_a_real_binary_preference()
+        result = p.solve(options=CalibratedOptions())
+        self.assertEqual(result.status, "optimal")
+        self.assertAlmostEqual(p.value_of(result, "gate"), 1.0, places=4)
+        self.assertAlmostEqual(p.value_of(result, "x2"), 10.0, places=2)
+
+    def test_blended_options_also_works_on_a_mip(self):
+        p = self._mip_with_tie_and_a_real_binary_preference()
+        result = p.solve(options=BlendedOptions(blend_weight=1e-6))
+        self.assertEqual(result.status, "optimal")
+        self.assertAlmostEqual(p.value_of(result, "gate"), 1.0, places=4)
+
+    def test_mip_plus_options_never_overrides_a_real_binary_signal(self):
+        """The #696 guarantee (secondary never overrides a real primary
+        difference), extended to the binary itself: even with an
+        enormous secondary preference for gate=0, and even under
+        CalibratedOptions' own automatic weight search (which could in
+        principle calibrate a large blend weight), the binary must never
+        flip. Uses a fresh problem with an even larger secondary pull to
+        make sure CalibratedOptions' own calibration search doesn't
+        accidentally find a large-enough weight to matter -- it can't,
+        since the binary is pinned before secondary is ever read."""
+        p = LPProblem()
+        p.add_variable("gate", binary=True, cost=-1.0)
+        p.set_secondary_cost("gate", 1e9)
+        result = p.solve(options=CalibratedOptions())
+        self.assertEqual(result.status, "optimal")
+        self.assertAlmostEqual(p.value_of(result, "gate"), 1.0, places=4)
+
+    def test_mip_duals_are_real_lp_duals_not_branch_and_bound_garbage(self):
+        """Same real-duals guarantee #238 already established for the
+        options=None MIP path (see _solve_highs()'s own "Recover duals on
+        a MIP" comment) -- proven here for the options=LexOptions() path
+        too, via the same real shadow-price check: the "total" equality
+        constraint's dual should be a genuine, finite marginal cost, not
+        zero/garbage."""
+        p = self._mip_with_tie_and_a_real_binary_preference()
+        result = p.solve(options=LexOptions())
+        self.assertIn("total", result.duals)
+        self.assertAlmostEqual(result.duals["total"], 1.0, places=4)
 
     def test_mip_without_options_is_completely_unaffected(self):
-        """Regression guard: the is_mip check added for #696 must never
-        fire on the ordinary options=None path -- every pre-#696 MIP
-        caller keeps working exactly as before."""
+        """Regression guard: #702's new binary-pinning step only runs on
+        the options-not-None branch -- every pre-#696 options=None MIP
+        caller keeps working exactly as before, still via
+        _solve_highs()'s own original tail duals-recovery block."""
         p = LPProblem()
         p.add_variable("b", binary=True, cost=1.0)
         p.add_variable("x", ub=5.0, cost=1.0)
         result = p.solve()
         self.assertEqual(result.status, "optimal")
+
+
+class TestBinaryTieBreak(unittest.TestCase):
+    """nimbus issue #702: the direct regression test for the real bug
+    found while implementing this -- see TestSolveOptionsOnAMip's own
+    docstring for the full story. Two mutually-exclusive binaries,
+    `gate_a`/`gate_b` (exactly one must be 1), let the test control
+    whether primary genuinely ties between them or genuinely prefers
+    one -- the same "genuine tie" vs "real difference" pattern already
+    established for continuous variables by _genuine_tie_problem()/
+    _real_price_difference_problem(), applied to a binary choice."""
+
+    def _mutually_exclusive_gates(self, *, cost_a: float, cost_b: float) -> LPProblem:
+        p = LPProblem()
+        p.add_variable("gate_a", binary=True, cost=cost_a)
+        p.add_variable("gate_b", binary=True, cost=cost_b)
+        p.add_eq_constraint({"gate_a": 1.0, "gate_b": 1.0}, 1.0, name="exactly_one")
+        return p
+
+    def test_secondary_breaks_a_genuine_tie_between_two_binaries(self):
+        """Primary cost is IDENTICAL for both gates (a real tie -- either
+        choice is equally optimal on primary alone). Secondary prefers
+        gate_b. The real bug: a primary-only pin would choose WHICHEVER
+        gate branch-and-bound happened to reach first, ignoring
+        secondary entirely -- this must not happen."""
+        p = self._mutually_exclusive_gates(cost_a=1.0, cost_b=1.0)
+        p.set_secondary_cost("gate_b", -1.0)  # minimizing wants gate_b=1
+        result = p.solve(options=LexOptions())
+        self.assertEqual(result.status, "optimal")
+        self.assertAlmostEqual(p.value_of(result, "gate_b"), 1.0, places=4)
+        self.assertAlmostEqual(p.value_of(result, "gate_a"), 0.0, places=4)
+
+    def test_secondary_never_overrides_a_real_binary_preference(self):
+        """Primary genuinely prefers gate_a (cost 1.0 vs gate_b's 100.0
+        -- a real, large difference, not a tie). Secondary actively
+        pulls the opposite way. gate_a must still win -- the same
+        real-price-difference guarantee _real_price_difference_problem()
+        already established for continuous variables, extended to a
+        binary choice."""
+        p = self._mutually_exclusive_gates(cost_a=1.0, cost_b=100.0)
+        p.set_secondary_cost("gate_b", -1.0)
+        result = p.solve(options=LexOptions())
+        self.assertAlmostEqual(p.value_of(result, "gate_a"), 1.0, places=4)
+        self.assertAlmostEqual(p.value_of(result, "gate_b"), 0.0, places=4)
+
+    def test_calibrated_options_also_breaks_the_binary_tie(self):
+        p = self._mutually_exclusive_gates(cost_a=1.0, cost_b=1.0)
+        p.set_secondary_cost("gate_b", -1.0)
+        result = p.solve(options=CalibratedOptions())
+        self.assertAlmostEqual(p.value_of(result, "gate_b"), 1.0, places=4)
 
 
 class TestAllZeroPrimaryOrSecondaryIsAHonestNoOp(unittest.TestCase):

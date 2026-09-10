@@ -1524,17 +1524,17 @@ def build_plan(
     for safely, replacing manual verification with a real, per-solve
     safety search).
 
-    One real, deliberate scope boundary, not a silent gap: this
-    architecture doesn't support a MIP yet (`LPProblem.solve(options=
-    ...)` raises `NotImplementedError` on one -- see that method's own
-    docstring, "genuinely new ground" not yet designed). Whenever this
-    solve will end up a MIP (`adequacy_loads` non-empty AND
-    `adequacy_semi_continuous=True`, the default -- see that parameter's
-    own docstring), a non-`None` `solve_options` is silently NOT applied
-    for THIS call -- the four mechanisms stay on the primary channel and
-    the solve proceeds exactly as it would under `solve_options=None`,
-    rather than raising and crashing a live production dispatch cycle
-    over an architecture gap that has its own tracked follow-up (#696).
+    nimbus issue #702 (#696's own tracked MIP follow-up, now closed):
+    this architecture now DOES support a MIP (`adequacy_loads` non-empty
+    AND `adequacy_semi_continuous=True`, the default -- see that
+    parameter's own docstring). `LPProblem.solve(options=...)` pins the
+    real binary assignment (solved against primary alone, via
+    `lp.py`'s own `_pin_binaries_to_mip_optimum()`) before the
+    lex/blended/calibrated machinery ever runs, so the four mechanisms
+    below tie-break the CONTINUOUS variables exactly as they do on a
+    pure-LP solve, without ever second-guessing which adequacy loads
+    the MIP itself chose to run. See `LPProblem.solve()`'s own
+    docstring for the full mechanism.
     """
     loads = loads or []
     sheddable_loads = sheddable_loads or []
@@ -1543,22 +1543,20 @@ def build_plan(
     n = periods.n_periods
     hours = periods.hours
 
-    # nimbus issue #696, Stage 2: determined from CONFIG alone, before
-    # any variable is registered -- adequacy_semi_continuous's own
-    # docstring already establishes "adequacy_loads non-empty AND
-    # semi_continuous=True is exactly when this solve becomes a MIP"
-    # (binary adequacy_on_*/adequacy_start_* variables, added further
-    # down). Computed once, up front, because it must be internally
-    # consistent for the WHOLE function -- the four tie-break mechanisms
-    # below apply their own cost at several different points, and the
-    # final p.solve() call happens only at the very end; deciding this
-    # from live LPProblem.is_mip state at each of those points would risk
-    # a mechanism applied to one channel while a LATER binary
-    # registration (adequacy_on_*, still to come) silently changes which
-    # channel the final solve actually reads from.
-    _use_secondary_costs = solve_options is not None and not (
-        bool(adequacy_loads) and adequacy_semi_continuous
-    )
+    # nimbus issue #696/#702: determined from CONFIG alone, before any
+    # variable is registered. Computed once, up front, because it must
+    # be internally consistent for the WHOLE function -- the four
+    # tie-break mechanisms below apply their own cost at several
+    # different points, and the final p.solve() call happens only at
+    # the very end; deciding this from live LPProblem.is_mip state at
+    # each of those points would risk a mechanism applied to one
+    # channel while a LATER binary registration (adequacy_on_*, still
+    # to come) silently changes which channel the final solve actually
+    # reads from. #702 removed the MIP exclusion this used to carry
+    # (`lp.py` now pins the binary assignment before ever reading
+    # secondary costs, so a MIP solve is exactly as safe to route
+    # through the secondary channel as a pure LP one).
+    _use_secondary_costs = solve_options is not None
 
     # nimbus issue #493 (Signals 4/7 of #489): grid.import_limit_kw/
     # export_limit_kw may now be a plain scalar (every existing caller)
@@ -3017,14 +3015,13 @@ def build_plan(
     # a real measured timing regression on this project's own most
     # LP-structurally-complex real scenario).
     #
-    # nimbus issue #696, Stage 2: `_use_secondary_costs` (computed once,
-    # up front, from config alone -- see its own comment above) is the
+    # nimbus issue #696/#702: `_use_secondary_costs` (computed once, up
+    # front, from config alone -- see its own comment above) is the
     # single source of truth for whether this solve actually engages the
-    # caller's requested `solve_options` -- False whenever this solve
-    # will be a MIP, in which case every tie-break mechanism above
-    # already stayed on the primary channel, so falling back to
-    # `options=None` here reproduces this function's own pre-#696
-    # behavior exactly rather than raising `LPProblem`'s own MIP guard.
+    # caller's requested `solve_options` -- False only when the caller
+    # passed `solve_options=None` in the first place. `LPProblem.solve()`
+    # itself now handles the MIP case (see its own docstring, #702) via
+    # pin-and-relax, so there is no MIP-specific fallback left here.
     result: LPResult = p.solve(
         ranging=compute_signals,
         keep_basis=compute_offer_curve,

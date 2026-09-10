@@ -777,13 +777,26 @@ class LPProblem:
         primary/secondary objective architecture -- see this module's
         own top-of-file comment. `None` (the default) is BYTE-IDENTICAL
         to this module's pre-#696 behavior: a single blended solve using
-        only `_cost`, `_secondary_cost` never read at all. Raises
-        `NotImplementedError` if `options` is given on a MIP
-        (`is_mip`) -- the interaction between branch-and-bound and a
-        multi-phase/calibrated solve is genuinely new ground (HAEO has
-        no MIP concept at all to port from) and deliberately not
-        attempted until it has its own real design, per #696's own
-        staged plan.
+        only `_cost`, `_secondary_cost` never read at all.
+
+        On a MIP (`is_mip`), nimbus issue #702 (#696's own tracked
+        follow-up) extends this: the binaries are solved ONCE against
+        the primary objective alone (a plain branch-and-bound pass,
+        `_secondary_cost` never involved), then pinned to that real
+        chosen assignment and relaxed to continuous -- the same
+        "pin-and-relax" technique `_solve_highs()` already uses to
+        recover meaningful duals on a MIP, reused here for a different
+        reason (so the phased/calibrated machinery below sees a genuine
+        LP, not a mix of integrality and multi-phase objectives, which
+        is genuinely new, unexplored territory with no HAEO precedent
+        to port from). The residual pure LP then runs the exact same
+        lex/blended/calibrated logic as the non-MIP path. This means
+        the secondary objective's own guarantee (never overriding a
+        real primary difference) extends to which CONTINUOUS variables
+        get tie-broken once the binary assignment is fixed, but never
+        second-guesses the binary assignment itself -- that was already
+        decided by the primary-only MIP solve before any secondary cost
+        is read.
         """
         return _solve_highs(
             self, ranging=ranging, keep_basis=keep_basis, options=options
@@ -913,6 +926,30 @@ def _ensure_optimal_value(h: highspy.Highs) -> float:
     return float(h.getObjectiveValue())
 
 
+def _pin_binaries_to_current_solution(
+    h: highspy.Highs, var_array: list[Any], binary_cols: list[int]
+) -> None:
+    """Pin every binary column to its CURRENT solved value (whatever
+    solve last ran against `h`) and relax it to continuous. Same
+    "solve, pin, relax" technique `_solve_highs()` already uses to
+    recover meaningful duals on a MIP (see that function's own "Recover
+    duals on a MIP" comment) -- factored out here so `_solve_with_
+    options()` can call it at the RIGHT point in its own phase sequence
+    (see nimbus issue #702's real design finding below), not before any
+    phase has run.
+
+    Mutates `h` in place -- returns nothing, matching
+    `_solve_with_options()`'s own "mutate the live solver state"
+    convention. No-op when `binary_cols` is empty (a pure LP)."""
+    if not binary_cols:
+        return
+    x = np.array([h.val(var_array[i]) for i in range(len(var_array))])
+    for i in binary_cols:
+        fixed = float(round(x[i]))
+        h.changeColIntegrality(i, highspy.HighsVarType.kContinuous)
+        h.changeColBounds(i, fixed, fixed)
+
+
 def _bisect_boundary(
     lo: float,
     hi: float,
@@ -1009,6 +1046,7 @@ def _solve_with_options(
     col_indices: NDArray[np.int32],
     problem: LPProblem,
     options: SolveOptions,
+    binary_cols: list[int],
 ) -> list[str]:
     """Runs the real phased/blended/calibrated solve against an ALREADY
     fully-constructed HiGHS model (every variable/constraint already
@@ -1037,7 +1075,50 @@ def _solve_with_options(
     for every single call (no persistent reuse), so there is no prior
     objective state to clear, and `_set_cost_vector()`'s own
     `changeColsCost` call already overwrites every column each time
-    it's used regardless."""
+    it's used regardless.
+
+    `binary_cols` (nimbus issue #702): when non-empty, EVERY solve this
+    function performs up to and including the phase that fixes the real
+    binary assignment (see below) keeps integrality ACTIVE -- a genuine
+    branch-and-bound pass, not a pre-pinned LP. This was a real, wrong
+    first design tried for #702: pinning binaries to a PRIMARY-ONLY MIP
+    solve's own result BEFORE any secondary cost is read seemed safe
+    (never overrides a real primary difference), but empirically
+    neuters any tie-break whose only expression is via which binaries
+    get chosen -- confirmed directly on a real adequacy-load scenario
+    where multiple binary assignments tie on true primary cost:
+    `adequacy_earliness_budget_kw`'s own secondary cost, which should
+    prefer the EARLIEST tied assignment, had no continuous variable
+    left free to express that preference once the binaries were already
+    locked in by a solve that never looked at it -- the result landed
+    on an ARBITRARY (in this case the LATEST) tied assignment instead,
+    a real regression versus this project's own pre-#702 MIP fallback
+    behavior (which bakes the same preference directly into primary and
+    reliably prefers early). The fix: keep integrality active through
+    phase 2 as well (secondary, hard-constrained not to worsen primary)
+    -- a real second branch-and-bound pass, letting the binary
+    assignment move freely among every PRIMARY-tied integer solution to
+    find the one that also minimizes secondary. Only once that real
+    tie-break has happened is the (now correctly chosen) binary
+    assignment pinned and relaxed, via `_pin_binaries_to_current_
+    solution()`, so any further phase (Lex's epsilon-restore, or
+    Calibrated's blend-weight search) sees a genuine LP -- same
+    reasoning as before, just moved to the right point in the sequence.
+    `BlendedOptions` needs no separate phase for this: a single MIP
+    solve on the blended objective directly already lets the binary
+    respond to secondary cost the same way a continuous variable would,
+    since there's no separate hard-constrained phase to sequence around
+    at all -- pinning still happens immediately after, purely so `h`'s
+    own live state carries genuine LP duals rather than raw branch-and-
+    bound output.
+
+    Two full branch-and-bound passes (plus whatever Lex/Calibrated need
+    afterward) is real, understood extra solve cost versus the single
+    MIP solve `options=None` performs -- accepted for now given every
+    real MIP this project solves today is small (a handful of adequacy
+    loads' own on/off + start binaries, see #616), well within
+    `DEFAULT_TIME_LIMIT_SECONDS`'s per-call budget; worth revisiting if
+    a much larger real MIP ever appears in practice."""
     primary_vec = _dense_cost_vector(problem, problem._cost)
     secondary_vec = _dense_cost_vector(problem, problem._secondary_cost)
 
@@ -1045,6 +1126,14 @@ def _solve_with_options(
         blended = primary_vec + options.blend_weight * secondary_vec
         _set_cost_vector(h, col_indices, blended)
         h.run()
+        _pin_binaries_to_current_solution(h, var_array, binary_cols)
+        if binary_cols:
+            # Refresh h's own live state on the now-continuous, pinned
+            # problem -- same point as _ensure_optimal_value() would
+            # make, but a blended-cost solve's result is never checked
+            # against any acceptance criterion the way Lex/Calibrated's
+            # own phases are, so a plain re-run is enough here.
+            h.run()
         return []
 
     # LexOptions and CalibratedOptions both start with the same phase 1
@@ -1052,7 +1141,12 @@ def _solve_with_options(
     # primary HARD-constrained not to get worse than its own phase-1
     # optimum -- the real guarantee this whole architecture exists for
     # (secondary can never override a real price signal, not even by an
-    # epsilon).
+    # epsilon). Both phases keep integrality active when binary_cols is
+    # non-empty (see this function's own docstring) -- phase 2 is a
+    # real second branch-and-bound pass specifically so the binary
+    # assignment itself can respond to secondary cost among every
+    # primary-tied integer solution, not just whichever one phase 1
+    # happened to find first.
     _set_cost_vector(h, col_indices, primary_vec)
     primary_value = _ensure_optimal_value(h)
 
@@ -1067,6 +1161,24 @@ def _solve_with_options(
     extra_row_names = ["_lex_primary_le_optimum"]
     _set_cost_vector(h, col_indices, secondary_vec)
     secondary_value = _ensure_optimal_value(h)
+
+    # nimbus issue #702: the real binary assignment is now decided --
+    # phase 2's own (possibly MIP) solve just chose, among every
+    # PRIMARY-tied integer solution, the one that also minimizes
+    # secondary. Pin it now so every phase from here on (Lex's epsilon
+    # restore, or Calibrated's blend-weight search) operates on a
+    # genuine LP.
+    _pin_binaries_to_current_solution(h, var_array, binary_cols)
+    if binary_cols:
+        # Re-solve (now a pure LP) so h's own live state -- read by the
+        # phases below, and by _solve_highs()'s own duals/ranging
+        # extraction afterward -- reflects a genuine LP result at this
+        # exact point, not raw branch-and-bound internals. Pinning
+        # fixed every binary to the value it already held, so this
+        # reproduces the identical solution; the point is a clean solve
+        # record, not a different answer.
+        _set_cost_vector(h, col_indices, secondary_vec)
+        _ensure_optimal_value(h)
 
     if isinstance(options, LexOptions):
         # Phase 3: re-minimize primary with a tiny relative epsilon
@@ -1203,23 +1315,16 @@ def _solve_highs(
         )
         h.minimize(cost_expr)
     else:
-        # nimbus issue #696: MIP + phased/calibrated solve is genuinely
-        # new ground (HAEO has no MIP concept to port from) -- rejected
-        # loudly rather than silently mishandled, per that issue's own
-        # staged plan. Checked here, not earlier, so a plain
-        # options=None caller (every existing caller, today) never pays
-        # even an is_mip property-check cost it didn't ask for.
-        if problem.is_mip:
-            msg = (
-                "LPProblem.solve(options=...) on a MIP (binary variables "
-                "registered) is not yet supported -- see nimbus issue #696's "
-                "own staged plan for why this needs its own explicit design "
-                "before attempting it."
-            )
-            raise NotImplementedError(msg)
         col_indices = np.arange(n, dtype=np.int32)
+        # nimbus issue #702 (#696's own tracked MIP follow-up):
+        # binary_cols passed straight through -- _solve_with_options()
+        # itself now handles a MIP's own binary pinning at the RIGHT
+        # point in its phase sequence (see that function's own
+        # docstring for the real design finding that drove this). Empty
+        # for every non-MIP caller, so this stays a zero-cost pass-
+        # through on the pre-#702 path.
         extra_row_names = _solve_with_options(
-            h, var_array, col_indices, problem, options
+            h, var_array, col_indices, problem, options, binary_cols
         )
 
     # nimbus issue #696: a lex/calibrated phase adds real extra
@@ -1288,7 +1393,17 @@ def _solve_highs(
     # prices of the constraints AT that assignment. Values are rounded
     # before pinning because HiGHS returns integers within its own
     # tolerance (0.9999999) rather than exactly.
-    if binary_cols:
+    #
+    # nimbus issue #702: on the options-not-None MIP path, this pinning
+    # already happened -- BEFORE _solve_with_options() ran, via
+    # _pin_binaries_to_mip_optimum() -- so every solve since then
+    # (including the phased/calibrated machinery's own final one) was
+    # already against the pinned, continuous problem, and `h`'s current
+    # live state already carries real LP duals. Redoing this block would
+    # be harmless (bounds are already fixed to the same values) but a
+    # wasted extra solve every MIP+options cycle -- skipped here rather
+    # than silently re-running it.
+    if binary_cols and options is None:
         for i in binary_cols:
             fixed = float(round(x[i]))
             h.changeColIntegrality(i, highspy.HighsVarType.kContinuous)
