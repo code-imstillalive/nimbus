@@ -45,12 +45,45 @@ def main() -> int:
     resp = rec.get("response", rec)
     ents = (resp.get("data") or resp).get("entities") or []
     by_hour = {}
+    by_hour_last = {}
     for e in ents:
         for r in e.get("statistics") or []:
             t = r["start"]
             t = t / 1000 if isinstance(t, (int, float)) and t > 1e12 else t
             h = (dt.datetime.fromtimestamp(t, tz) if isinstance(t, (int, float)) else dt.datetime.fromisoformat(str(t).replace("Z", "+00:00")).astimezone(tz)).strftime("%H")
             by_hour.setdefault(h, {})[e["entity_id"]] = r.get("mean")
+            by_hour_last.setdefault(h, {})[e["entity_id"]] = r.get("last")
+
+    # nimbus issue #681 (Mark Purcell): this script's own soc_discrepancy
+    # reconstruction disagreed 3x with sensor.nimbus_solver_quality_report's
+    # own soc_discrepancy_max/mean_pct (10.4/3.4pt here vs the sensor's
+    # 32.13/6.41pt) on the same day's data. Root cause found by reading
+    # solver_writer.py's own _soc_discrepancy_stats() side by side with this
+    # script: that function compares the achieved trajectory's INSTANT value
+    # at each hour boundary (j_ach_hourly's own keys are "day_start + h
+    # hours") against the real SoC sensor's nearest single sample to that
+    # SAME instant (resample_history_nearest). This script instead compared
+    # against an HOURLY MEAN of the real SoC sensor's statistics bucket that
+    # STARTS at that same hour -- averaging over the hour AFTER the boundary,
+    # not sampling AT it. On a day where the real pack fell to and sat at
+    # 0% overnight (this issue's own real case), a mean-over-the-hour smooths
+    # over exactly the kind of sharp transition the sensor's instant-sample
+    # approach is designed to catch -- explaining both the direction (this
+    # script under-reports) and rough size of the disagreement.
+    # Fix, SoC only (grid/battery power comparisons a few lines down are a
+    # genuinely different question -- interval-average power vs interval-
+    # average power -- and correctly keep using `by_hour`'s own mean): for
+    # hour h's own boundary instant, use the PRECEDING hour's bucket "last"
+    # value (the real SoC sensor's last known reading before that boundary)
+    # as the instant proxy, falling back to h's own mean when there's no
+    # preceding bucket (h==0, or a data gap).
+    def real_soc_at_boundary(h):
+        soc_entity = sensors.get("soc")
+        prev_h = f"{(int(h) - 1) % 24:02d}"
+        prev = by_hour_last.get(prev_h, {}).get(soc_entity)
+        if prev is not None:
+            return prev
+        return by_hour.get(h, {}).get(soc_entity)
 
     deg = args.degradation
     if deg is None and args.diag:
@@ -64,7 +97,7 @@ def main() -> int:
     for k in keys:
         h = k[11:13]
         r = by_hour.get(h, {})
-        real = r.get(sensors.get("soc"))
+        real = real_soc_at_boundary(h)
         rows.append([f"{h}:00", round(ref[k]["import_price_aud_per_kwh"] * 100, 1), round(ref[k]["export_price_aud_per_kwh"] * 100, 1),
                      round(real, 1) if isinstance(real, (int, float)) else None, round(ach[k]["soc_pct"], 1), round(star[k]["soc_pct"], 1),
                      round(reg[str(int(h))], 3), round(ach[k]["battery_kw"], 2), round(star[k]["battery_kw"], 2),
