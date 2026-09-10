@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.233] — 2026-09-10
+
+### Fixed
+- **A deferrable load's `plan_shadow_price_forecast`/`plan_status_reason` reported a marginal cost roughly 12x too small** (nimbus issue #685, Mark Purcell, real finding: every one of 7 checked periods off from `sensor.nimbus_solver_battery_forecast`'s own correctly-scaled `shadow_price` by exactly ×12 = 1/hours[t] for 5-minute periods). A third recurrence of the #662 bug (the `power_balance_t{i}` row's raw dual comes out in "$ per kW of RHS," needing division by that period's own duration to become a true $/kWh marginal price) in a call site #662's own fix never touched, since #613 (which added this field) shipped before #662 was even found. Confirmed the actual LP deferral/earliness decision math (`network.py`) is unaffected — it already divides correctly internally — so this was a reporting-only bug: a household reading `plan_status_reason` saw a misleadingly tiny marginal-cost difference between "now" and a later period, not a wrong decision.
+
 ## [0.94.232] — 2026-09-10
 
 ### Added

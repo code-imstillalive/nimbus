@@ -9110,8 +9110,35 @@ def apply_commanded_state_guard(
             # _plan_shadow_price_forecast() (the published series) and
             # item 3's own status-reason computation, which needs the
             # real, unrounded lambda(0) to compare against.
+            #
+            # nimbus issue #685 (Mark Purcell): this read power_balance_
+            # t{i}'s own raw dual directly, with no hours[i] division --
+            # the exact same #662 bug (the dual comes out in "$ per kW
+            # of RHS," an implicit x hours[i] relative to the true
+            # $/kWh marginal price) in a THIRD call site #662's own fix
+            # never touched, since #613 (which added this function)
+            # shipped before #662 was even found. Confirmed live against
+            # Mark's own real numbers: every one of 7 checked periods
+            # was off from sensor.nimbus_solver_battery_forecast's own
+            # correctly-scaled shadow_price by exactly x12 (1/hours[i]
+            # for these 5-minute periods). Same correction as the
+            # power_balance_t{i} shadow_price field a few hundred lines
+            # above (period_hours_arr[i] division) -- falls back to the
+            # grid's own uniform period_seconds when period_hours_arr
+            # isn't supplied (bare-SimpleNamespace tests predating this
+            # parameter), since production always passes a real one
+            # (see build_plan()'s own publish_plan() call).
             duals = getattr(plan, "duals", {}) or {}
-            return [duals.get(f"power_balance_t{i}", 0.0) for i in range(n_periods)]
+            fallback_hours = period_seconds / 3600.0
+            return [
+                duals.get(f"power_balance_t{i}", 0.0)
+                / (
+                    float(period_hours_arr[i])
+                    if period_hours_arr is not None and i < len(period_hours_arr)
+                    else fallback_hours
+                )
+                for i in range(n_periods)
+            ]
 
         def _plan_shadow_price_forecast() -> list[dict[str, object]]:
             return load_run_state.build_time_value_series(
