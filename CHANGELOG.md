@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [Unreleased]
+
+### Changed
+- **The offer curve now walks its own real breakpoints instead of sampling a fixed 7-point grid** (nimbus issue #678, sub-issue of #674). `_offer_curve_price_grid()` is removed; `_offer_curve_ranging_walk()` (`solver/network.py`) starts at the real AEMO Market Floor Price (−$1.00/kWh) and repeatedly calls `LPResult.sweep_cost_with_ranging()`, using each step's own exact `cost_up` boundary (nudged forward by a small relative epsilon) as the next price to solve at — finding every real segment between the floor and the Market Price Cap exactly, in as many re-solves as the curve actually has (typically 2-4 per side on real data, capped at 8), rather than hoping a fixed sample lands near a real breakpoint. Retail is always separately swept regardless, preserving the existing "curve at retail equals the main plan's own dispatch" guarantee. Confirmed live and in this project's own existing test fixture: the walk finds real structure the old fixed grid never sampled finely enough to see — a genuine 2.0 kW import plateau and a genuine 0.1 kW export plateau, both between −10¢ and 10¢, invisible to the old grid's coarser points. Supersedes #675's own "add the real forecast's own min/max as extra sweep points" ask (a walk that finds every breakpoint exactly needs no landmark points to guess where to look) — #675's separate, unconfirmed "is the $20 cap stale" question is untouched by this change.
+
 ## [0.94.239] — 2026-09-10
 
 ### Added

@@ -28,6 +28,14 @@ file is not re-summarized here; read it directly for the full detail. Most recen
   (offer curve: exact per-step ranging via `sweep_cost_with_ranging()`, not one
   breakeven price per step) — verified live against a toy LP and the real
   household scenario, 35 new/extended tests, charted the real spike numbers.
+  Deployed v0.94.236 (#676+#692), charted the real live offer curve twice as
+  prices moved live. Implemented #678 (already filed/scoped by a prior
+  session, found before designing anything new) — `_offer_curve_ranging_walk()`
+  replaces the fixed 7-point grid entirely, walking every real breakpoint via
+  repeated ranging; found genuine structure (a 2.0 kW import plateau, a 0.1 kW
+  export plateau) the old grid never sampled finely enough to see, in this
+  project's own long-standing test fixture. 18 new/changed tests, full suite
+  green, zero new mypy findings.
 - [2026-09-09](docs/worklog/2026-09-09.md) — #582: a deferrable Controllable Load with
   a same-day window (the #534 heat pump's real 6am-4pm window) was silently dropped
   for its ENTIRE active window once `now` fell inside it, the opposite of intended
