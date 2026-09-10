@@ -6352,6 +6352,15 @@ def compute_nimbus_only_soc_counterfactual(cfg: dict, day: datetime) -> dict | N
                     "solver_intraplan_smoothness_weight_kw",
                     network.DEFAULT_SMOOTHNESS_WEIGHT_KW,
                 ),
+                # nimbus issue #692: same reasoning as smoothness_weight
+                # just above -- reads the SAME live-tunable value the real
+                # dispatch solve uses, not a second, silently-divergent
+                # hardcoded copy.
+                battery_charge_earliness_budget_kw=_cfg_num(
+                    cfg,
+                    "solver_battery_charge_earliness_budget_kw",
+                    network.DEFAULT_BATTERY_CHARGE_EARLINESS_BUDGET_KW,
+                ),
             )
         except Exception:
             # nimbus issue #363 (Mark Purcell, codebase review): the
@@ -11339,6 +11348,18 @@ def main() -> None:
         "solver_intraplan_smoothness_weight_kw",
         network.DEFAULT_SMOOTHNESS_WEIGHT_KW,
     )
+    # nimbus issue #692 (household, real live plan mishaps: a critically-
+    # low battery sitting idle through a perfectly good charging price,
+    # only charging later at an equal or worse one): the battery's own
+    # earliness tie-break, same live-dashboard-first pattern as
+    # proximal_weight/smoothness_weight just above -- falls back to
+    # network.py's own default, so an already-configured household sees
+    # zero behaviour change until they actually tune it.
+    battery_charge_earliness_budget_kw = _cfg_num(
+        cfg,
+        "solver_battery_charge_earliness_budget_kw",
+        network.DEFAULT_BATTERY_CHARGE_EARLINESS_BUDGET_KW,
+    )
     # nimbus issue #486: real controllable_load subentries (sheddable/
     # deferrable kinds only -- see build_controllable_loads()'s own
     # docstring), replacing the two hardcoded empty lists this call used
@@ -11395,6 +11416,7 @@ def main() -> None:
         export_price_risk_aversion=export_price_risk_aversion,
         proximal_weight=proximal_weight,
         smoothness_weight=smoothness_weight,
+        battery_charge_earliness_budget_kw=battery_charge_earliness_budget_kw,
         compute_offer_curve=offer_curve_enabled,
     )
     # nimbus issue #484: the relay-chatter guard, run once per solve

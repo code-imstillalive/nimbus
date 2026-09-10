@@ -161,3 +161,25 @@ class TestProximalWeightWiring:
             kwargs.get("proximal_weight")
             == solver_writer.network.DEFAULT_PROXIMAL_WEIGHT_KW
         )
+
+
+class TestBatteryChargeEarlinessBudgetWiring:
+    """nimbus issue #692: same real gap, same fix, for the battery's own
+    new charge-earliness tie-break -- a household directly asked to be
+    able to tune this themselves after watching its own magnitude get
+    hand-corrected in code, same "must actually reach build_plan(), not
+    a silently-hardcoded constant" requirement as its two siblings above.
+    """
+
+    def test_a_configured_earliness_budget_reaches_build_plan(self):
+        attrs = dict(_BASE_CONFIG_ATTRS, solver_battery_charge_earliness_budget_kw=0.02)
+        kwargs = _run_main_and_capture_build_plan_kwargs(attrs)
+        assert kwargs.get("battery_charge_earliness_budget_kw") == 0.02
+
+    def test_missing_earliness_budget_falls_back_to_the_original_constant(self):
+        """No-op guarantee, mirroring the smoothness/proximal tests above."""
+        kwargs = _run_main_and_capture_build_plan_kwargs(dict(_BASE_CONFIG_ATTRS))
+        assert (
+            kwargs.get("battery_charge_earliness_budget_kw")
+            == solver_writer.network.DEFAULT_BATTERY_CHARGE_EARLINESS_BUDGET_KW
+        )

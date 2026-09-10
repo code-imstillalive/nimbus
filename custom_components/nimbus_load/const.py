@@ -1229,6 +1229,19 @@ CONF_SOLVER_INTRAPLAN_SMOOTHNESS_WEIGHT_KW: Final = (
 # be a confusing half-fix.
 CONF_SOLVER_PROXIMAL_WEIGHT_KW: Final = "solver_proximal_weight_kw"
 
+# nimbus issue #692 (household, live-observed 2026-09-10): a household
+# who just watched this exact tiny tie-break magnitude get hand-tuned in
+# code (0.01 too strong, conflicted with intraplan smoothness; 0.005
+# fixed it) directly asked for the ability to adjust it themselves if it
+# ever turns out insufficient in practice, rather than needing another
+# code change -- same "never hardcoded, every value is a real dashboard
+# field" discipline as smoothness_weight/proximal_weight above. Default
+# matches network.DEFAULT_BATTERY_CHARGE_EARLINESS_BUDGET_KW exactly, so
+# rolling this out is a no-op until a household actually raises it.
+CONF_SOLVER_BATTERY_CHARGE_EARLINESS_BUDGET_KW: Final = (
+    "solver_battery_charge_earliness_budget_kw"
+)
+
 DEFAULT_SOLVER_SOH_PERCENT: Final = 100.0
 DEFAULT_SOLVER_MIN_SOC_PERCENT: Final = 5.0
 DEFAULT_SOLVER_MAX_SOC_PERCENT: Final = 100.0
@@ -1281,6 +1294,10 @@ DEFAULT_SOLVER_INTRAPLAN_SMOOTHNESS_WEIGHT_KW: Final = 0.005
 # Matches network.py's own DEFAULT_PROXIMAL_WEIGHT_KW exactly -- see
 # CONF_SOLVER_PROXIMAL_WEIGHT_KW's own comment above for why.
 DEFAULT_SOLVER_PROXIMAL_WEIGHT_KW: Final = 0.005
+# Matches network.py's own DEFAULT_BATTERY_CHARGE_EARLINESS_BUDGET_KW
+# exactly -- see CONF_SOLVER_BATTERY_CHARGE_EARLINESS_BUDGET_KW's own
+# comment above for why.
+DEFAULT_SOLVER_BATTERY_CHARGE_EARLINESS_BUDGET_KW: Final = 0.005
 
 # Switchboard-level hub Configure step (2026-08-23) -- the topology
 # dashboard card's own top-of-diagram sensors (grid meter, current buy/

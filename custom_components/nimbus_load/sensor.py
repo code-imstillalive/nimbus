@@ -86,6 +86,7 @@ from .const import (
     CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
     CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
     CONF_SOLVER_BATTERY_CAPACITY_KWH,
+    CONF_SOLVER_BATTERY_CHARGE_EARLINESS_BUDGET_KW,
     CONF_SOLVER_BATTERY_MAX_SOC_PERCENT,
     CONF_SOLVER_BATTERY_MIN_SOC_PERCENT,
     CONF_SOLVER_BATTERY_POWER_POSITIVE_IS_CHARGE,
@@ -386,6 +387,11 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     # test_sensor_solver_config_keys.py before it ever shipped.
     CONF_SOLVER_ENVELOPE_IMPORT_LIMIT_ENTITY,
     CONF_SOLVER_ENVELOPE_EXPORT_LIMIT_ENTITY,
+    # nimbus issue #692: a genuine number.py entity from the start (see
+    # this file's own _SOLVER_NUMBER_ENTITY_KEYS comment below), same
+    # "must be exposed here too or fetch_solver_config() never sees it"
+    # requirement as every field above.
+    CONF_SOLVER_BATTERY_CHARGE_EARLINESS_BUDGET_KW,
 )
 # 2026-08-20: these 14 plain-numeric fields moved off entry.options entirely
 # -- they're now LIVE, dashboard-editable number.nimbus_solver_* entities
@@ -464,6 +470,10 @@ _SOLVER_NUMBER_ENTITY_KEYS = (
     # comment on _SOLVER_ALL_KEYS above.
     CONF_SOLVER_INTRAPLAN_SMOOTHNESS_WEIGHT_KW,
     CONF_SOLVER_PROXIMAL_WEIGHT_KW,
+    # nimbus issue #692: same real gap, same fix, for the battery's own
+    # new charge-earliness tie-break -- see this file's own comment on
+    # _SOLVER_ALL_KEYS above.
+    CONF_SOLVER_BATTERY_CHARGE_EARLINESS_BUDGET_KW,
     # nimbus issue #567: same live-number-entity resolve path as every
     # field above.
     CONF_SOLVER_PRICE_SPIKE_THRESHOLD,

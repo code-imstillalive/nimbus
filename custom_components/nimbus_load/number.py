@@ -71,6 +71,7 @@ from .const import (
     CONF_DEFERRABLE_TARGET_KWH,
     CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
     CONF_SOLVER_BATTERY_CAPACITY_KWH,
+    CONF_SOLVER_BATTERY_CHARGE_EARLINESS_BUDGET_KW,
     CONF_SOLVER_BATTERY_MAX_SOC_PERCENT,
     CONF_SOLVER_BATTERY_MIN_SOC_PERCENT,
     CONF_SOLVER_BATTERY_SOH_PERCENT,
@@ -121,6 +122,7 @@ from .const import (
     CONTROLLABLE_LOAD_KIND_DEFERRABLE,
     CONTROLLABLE_LOAD_KIND_SHEDDABLE,
     DEFAULT_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
+    DEFAULT_SOLVER_BATTERY_CHARGE_EARLINESS_BUDGET_KW,
     DEFAULT_SOLVER_CHARGE_COST,
     DEFAULT_SOLVER_DEGRADATION_COST_PER_KWH,
     DEFAULT_SOLVER_DISCHARGE_COST,
@@ -840,6 +842,33 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         CONF_SOLVER_PROXIMAL_WEIGHT_KW,
         "Cross-Solve Proximal Weight",
         DEFAULT_SOLVER_PROXIMAL_WEIGHT_KW,
+        0,
+        0.1,
+        0.001,
+        "$/kWh",
+    ),
+    # nimbus issue #692 (household, real live plan mishaps: a critically-
+    # low battery sitting idle through a perfectly good charging price,
+    # only charging later at an equal or worse one): the battery's own
+    # charge decision never had an earliness tie-break the way #613 gave
+    # deferrable loads -- this is that same tiny nudge, applied to
+    # battery_charge_{name}_{t} instead. Same "never hardcoded, always a
+    # real dashboard field" discipline as its two siblings above, per a
+    # direct household ask to be able to adjust this themselves if it
+    # ever turns out insufficient. Default matches smoothness_weight/
+    # proximal_weight's own magnitude exactly, not #613's own load-side
+    # budget -- verified live this matters: at the load's own larger
+    # spread, this term's own per-period gradient outweighed smoothness_
+    # weight in a real scenario, reintroducing the exact jagged charge
+    # burst that mechanism exists to eliminate (front-loading charge
+    # until the battery's own max_soc_kwh ceiling forced a sudden drop to
+    # a much slower rate) -- a real hard-ceiling interaction a load's own
+    # target_kwh delivery never has to contend with, since it has no
+    # equivalent capacity ceiling to slam into.
+    _SolverNumberDescription(
+        CONF_SOLVER_BATTERY_CHARGE_EARLINESS_BUDGET_KW,
+        "Battery Charge Earliness Weight",
+        DEFAULT_SOLVER_BATTERY_CHARGE_EARLINESS_BUDGET_KW,
         0,
         0.1,
         0.001,
