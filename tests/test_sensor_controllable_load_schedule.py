@@ -14,6 +14,8 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ha_stubs import install_ha_stubs
 
@@ -31,6 +33,14 @@ _SCHEDULE_SENSOR_CLASSES = [
     sensor.NimbusControllableLoadTargetTodaySensor,
     sensor.NimbusControllableLoadStatusSensor,
 ]
+
+# nimbus issue #591 (third ask): NimbusControllableLoadCostAvoidedTodaySensor
+# joins the same per-subentry device but is checked separately below (it
+# needs a configured hass.states.get("sensor.nimbus_solver_battery_forecast")
+# return, unlike the plain MagicMock() every test above already uses) --
+# not folded into _SCHEDULE_SENSOR_CLASSES so the entity_id/device-sharing
+# tests above stay unaffected.
+_COST_AVOIDED_SENSOR_CLASS = sensor.NimbusControllableLoadCostAvoidedTodaySensor
 
 
 def _fake_subentry(subentry_id: str, title: str, data: dict) -> MagicMock:
@@ -269,3 +279,87 @@ def test_never_configured_load_reads_a_safe_default_view():
     s = sensor.NimbusControllableLoadStatusSensor(hass, entry, subentry, "1.0.0")
     asyncio.run(s.async_update())
     assert s.native_value == "outside window"
+
+
+def test_cost_avoided_today_sensor_shares_entity_id_pattern_and_device():
+    # nimbus issue #591 (third ask): same per-subentry wiring conventions
+    # as the original seven -- own test, not folded into
+    # _SCHEDULE_SENSOR_CLASSES above, since this class additionally needs
+    # a configured battery-forecast state to produce a real value (see
+    # the async_update test below).
+    entry = _fake_entry()
+    subentry = _fake_subentry("s1", "Hot Water Heat Pump", {})
+    s = _COST_AVOIDED_SENSOR_CLASS(MagicMock(), entry, subentry, "1.0.0")
+    assert s.entity_id == "sensor.nimbus_hot_water_heat_pump_cost_avoided_today"
+    assert s._attr_unique_id == "s1_cost_avoided_today"
+    assert s._attr_device_info["identifiers"] == {("nimbus_load", "s1")}
+
+
+def test_cost_avoided_today_sensor_reads_none_without_a_battery_forecast_state():
+    # hass.states.get(...) on a bare MagicMock() returns another MagicMock,
+    # not None or a real dict -- _today_mean_import_price()'s own isinstance
+    # guard must treat that as "not available" rather than crash trying to
+    # iterate it.
+    hass = MagicMock()
+    entry = _fake_entry("entry_noforecast")
+    subentry = _fake_subentry(
+        "s5", "Hot Water Heat Pump", {"controllable_load_kind": "deferrable"}
+    )
+    _write_state(
+        hass,
+        "entry_noforecast",
+        "s5",
+        load_run_state.LoadRunState(
+            commanded_state=False,
+            delivered_today_kwh=0.325,
+            cost_today=0.046,
+            day_key="2026-09-09",
+        ),
+    )
+    s = _COST_AVOIDED_SENSOR_CLASS(hass, entry, subentry, "1.0.0")
+    asyncio.run(s.async_update())
+    assert s.native_value is None
+
+
+def test_cost_avoided_today_sensor_reads_the_real_forecast_mean_import_price():
+    # nimbus issue #591: end-to-end through async_update() -- a real
+    # sensor.nimbus_solver_battery_forecast state with today's own
+    # import_price series, mean = (0.10 + 0.30) / 2 = 0.20 $/kWh.
+    # delivered_today_kwh=0.325 at cost_today=0.046 -> 0.325*0.20-0.046
+    # = $0.019 avoided.
+    now = datetime.now(UTC)
+    today_iso_1 = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    today_iso_2 = now.replace(hour=1, minute=0, second=0, microsecond=0).isoformat()
+
+    def _states_get(entity_id):
+        if entity_id == "sensor.nimbus_solver_battery_forecast":
+            return SimpleNamespace(
+                attributes={
+                    "forecast": [
+                        {"time": today_iso_1, "import_price": 0.10},
+                        {"time": today_iso_2, "import_price": 0.30},
+                    ]
+                }
+            )
+        return None
+
+    hass = MagicMock()
+    hass.states.get.side_effect = _states_get
+    entry = _fake_entry("entry_avoided")
+    subentry = _fake_subentry(
+        "s6", "Hot Water Heat Pump", {"controllable_load_kind": "deferrable"}
+    )
+    _write_state(
+        hass,
+        "entry_avoided",
+        "s6",
+        load_run_state.LoadRunState(
+            commanded_state=False,
+            delivered_today_kwh=0.325,
+            cost_today=0.046,
+            day_key="2026-09-09",
+        ),
+    )
+    s = _COST_AVOIDED_SENSOR_CLASS(hass, entry, subentry, "1.0.0")
+    asyncio.run(s.async_update())
+    assert s.native_value == pytest.approx(0.019)

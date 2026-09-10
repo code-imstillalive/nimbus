@@ -1030,6 +1030,89 @@ class TestDeriveScheduleView(unittest.TestCase):
         )
         self.assertAlmostEqual(view.cost_today, 0.046)
 
+    def test_cost_avoided_today_is_none_without_a_forecast_mean_import_price(self):
+        # nimbus issue #591 (third ask): an honest "unknown," never a
+        # fabricated $0.00, when the caller couldn't supply today's own
+        # forecast mean import price this cycle.
+        state = lrs.LoadRunState(
+            plan_forecast=self.forecast,
+            commanded_state=False,
+            delivered_today_kwh=0.325,
+            cost_today=0.046,
+            day_key="2026-09-09",
+        )
+        view = lrs.derive_schedule_view(
+            state, load_kind="deferrable", now=self.times[0]
+        )
+        self.assertIsNone(view.cost_avoided_today)
+
+    def test_cost_avoided_today_is_positive_when_actual_cost_beats_the_forecast_mean(
+        self,
+    ):
+        # nimbus issue #591: Mark Purcell's own formula -- (today_mean_
+        # import_price - actual_avg_price_paid) * delivered_today_kwh,
+        # algebraically today_mean_import_price * delivered_today_kwh -
+        # cost_today. 0.325 kWh delivered at a real cost of $0.046 (a
+        # ~0.1415 $/kWh average) against a $0.20/kWh forecast mean: would
+        # have cost 0.325 * 0.20 = $0.065, so $0.065 - $0.046 = $0.019
+        # saved.
+        state = lrs.LoadRunState(
+            plan_forecast=self.forecast,
+            commanded_state=False,
+            delivered_today_kwh=0.325,
+            cost_today=0.046,
+            day_key="2026-09-09",
+        )
+        view = lrs.derive_schedule_view(
+            state,
+            load_kind="deferrable",
+            now=self.times[0],
+            today_mean_import_price=0.20,
+        )
+        self.assertAlmostEqual(view.cost_avoided_today, 0.019)
+
+    def test_cost_avoided_today_is_negative_when_actual_cost_beats_the_forecast_mean(
+        self,
+    ):
+        # Inverse case: delivered at a real cost ABOVE the forecast mean
+        # (e.g. ran during an unexpectedly expensive period) reads as a
+        # real negative "avoided" -- never clamped to zero, since that
+        # would hide the fact the load ran during a costlier-than-typical
+        # window.
+        state = lrs.LoadRunState(
+            plan_forecast=self.forecast,
+            commanded_state=False,
+            delivered_today_kwh=0.325,
+            cost_today=0.10,
+            day_key="2026-09-09",
+        )
+        view = lrs.derive_schedule_view(
+            state,
+            load_kind="deferrable",
+            now=self.times[0],
+            today_mean_import_price=0.20,
+        )
+        self.assertAlmostEqual(view.cost_avoided_today, -0.035)
+
+    def test_cost_avoided_today_is_zero_when_nothing_delivered_yet(self):
+        # delivered_today_kwh=0.0 and cost_today=0.0 both honestly zero --
+        # 0.20 * 0.0 - 0.0 = 0.0, no division-by-zero risk from the
+        # algebraic form this function uses.
+        state = lrs.LoadRunState(
+            plan_forecast=self.forecast,
+            commanded_state=False,
+            delivered_today_kwh=0.0,
+            cost_today=0.0,
+            day_key="2026-09-09",
+        )
+        view = lrs.derive_schedule_view(
+            state,
+            load_kind="deferrable",
+            now=self.times[0],
+            today_mean_import_price=0.20,
+        )
+        self.assertAlmostEqual(view.cost_avoided_today, 0.0)
+
     def test_running_takes_priority_over_every_other_status(self):
         state = lrs.LoadRunState(
             plan_forecast=self.forecast,

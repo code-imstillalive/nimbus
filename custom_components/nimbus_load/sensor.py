@@ -746,6 +746,9 @@ async def async_setup_entry(
                 NimbusControllableLoadCostTodaySensor(
                     hass, entry, subentry, sw_version
                 ),
+                NimbusControllableLoadCostAvoidedTodaySensor(
+                    hass, entry, subentry, sw_version
+                ),
                 NimbusControllableLoadTargetTodaySensor(
                     hass, entry, subentry, sw_version
                 ),
@@ -1470,6 +1473,36 @@ class NimbusControllableLoadStateSensor(SensorEntity):
         }
 
 
+def _today_mean_import_price(hass: HomeAssistant, now: datetime) -> float | None:
+    """nimbus issue #591 (third ask): the mean of sensor.nimbus_solver_
+    battery_forecast's own published `import_price` series across
+    today's own periods -- the exact source Mark Purcell's own comment
+    on #591 specified for cost_avoided_today's "day's price" reference
+    point (the plan's own FORECAST mean, not a retrospective realized
+    mean -- see that comment for the full reasoning). None whenever the
+    forecast entity/attribute isn't available yet, or has no periods
+    landing on today's own date -- an honest "unknown", never a
+    fabricated number."""
+    forecast_state = hass.states.get("sensor.nimbus_solver_battery_forecast")
+    if forecast_state is None:
+        return None
+    forecast = forecast_state.attributes.get("forecast")
+    if not isinstance(forecast, list) or not forecast:
+        return None
+    today = now.date()
+    prices = []
+    for entry in forecast:
+        try:
+            entry_time = datetime.fromisoformat(entry["time"])
+            if entry_time.date() == today:
+                prices.append(float(entry["import_price"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+    if not prices:
+        return None
+    return sum(prices) / len(prices)
+
+
 class _NimbusControllableLoadScheduleSensorBase(SensorEntity):
     """nimbus issue #590 (Mark Purcell, real household ask reading the
     #534 heat pump's own device page after #582 removed its error:
@@ -1560,15 +1593,17 @@ class _NimbusControllableLoadScheduleSensorBase(SensorEntity):
         done_condition_met = done_condition.is_tank_done(
             tank_temperature, done_when, setpoint_temperature=setpoint_temperature
         )
+        now = datetime.now(UTC)
         view = load_run_state.derive_schedule_view(
             state,
             load_kind=load_kind,
-            now=datetime.now(UTC),
+            now=now,
             max_activations_per_day=data.get(
                 CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY
             ),
             tank_current_temperature=tank_temperature,
             done_condition_met=done_condition_met,
+            today_mean_import_price=_today_mean_import_price(self._hass, now),
         )
         self._native_value = self._extract_value(view)
 
@@ -1764,6 +1799,33 @@ class NimbusControllableLoadCostTodaySensor(_NimbusControllableLoadScheduleSenso
 
     def _extract_value(self, view: load_run_state.ScheduleView) -> object:
         return view.cost_today
+
+
+class NimbusControllableLoadCostAvoidedTodaySensor(
+    _NimbusControllableLoadScheduleSensorBase
+):
+    """nimbus issue #591 (third ask, Mark Purcell's own design direction):
+    what delivered_today_kwh would have cost at the plan's own forecast
+    mean import price for today, minus what it actually cost (cost_today)
+    -- positive means the deferral saved money against that reference
+    point. See load_run_state.derive_schedule_view()'s own docstring for
+    the exact formula and why the FORECAST mean (not a retrospective
+    realized mean) is the right reference. None (not $0.00) whenever
+    sensor.nimbus_solver_battery_forecast's own forecast series isn't
+    available yet this cycle -- an honest "unknown," never a fabricated
+    saving."""
+
+    _attr_name = "Cost Avoided Today"
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _ENTITY_ID_SUFFIX = "cost_avoided_today"
+    _UNIQUE_ID_SUFFIX = "cost_avoided_today"
+
+    @property
+    def native_unit_of_measurement(self) -> str | None:
+        return self._hass.config.currency
+
+    def _extract_value(self, view: load_run_state.ScheduleView) -> object:
+        return view.cost_avoided_today
 
 
 class NimbusControllableLoadStatusSensor(_NimbusControllableLoadScheduleSensorBase):

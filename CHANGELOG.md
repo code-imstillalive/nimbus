@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.234] — 2026-09-10
+
+### Added
+- **A Controllable Load's device page now shows `cost_avoided_today`** (nimbus issue #591, third ask, following planned_cost/cost_today in v0.94.193). What today's `delivered_today_kwh` would have cost at the plan's own forecast mean import price for today, minus what it actually cost (`cost_today`) — positive means the deferral saved money against that reference point. Per Mark Purcell's own specified design direction: uses the plan's own FORECAST mean import price (mean of `import_price` across today's own periods in `sensor.nimbus_solver_battery_forecast`'s `forecast` array), not a retrospective realized mean — knowable at any point in the day and consistent with every other plan-relative number this project already publishes, rather than a second, retrospective notion of "the day's price" that would make the number jump around for reasons unrelated to the load's own behaviour. `None` (never a fabricated $0.00) whenever that forecast series isn't available yet this cycle.
+
 ## [0.94.233] — 2026-09-10
 
 ### Fixed

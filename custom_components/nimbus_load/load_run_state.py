@@ -617,6 +617,21 @@ class ScheduleView:
     # vs target_today_kwh reads directly as "will it get there."
     planned_today_kwh: float | None
     status: str
+    # nimbus issue #591 (third ask, Mark Purcell's own design direction
+    # after the first two -- planned_cost/cost_today, v0.94.193 -- shipped):
+    # what today's delivered_today_kwh would have cost at the plan's own
+    # forecast mean import price, minus what it actually cost (cost_today)
+    # -- positive means the deferral saved money, negative means it cost
+    # more than "average". Mark's own reasoning for using the FORECAST mean
+    # (not a retrospective realized mean): it's knowable at any point in the
+    # day and stays consistent with every other plan-relative number this
+    # project already publishes (plan_shadow_price_forecast, etc.), rather
+    # than introducing a second, retrospective notion of "the day's price"
+    # that would make this number jump around for reasons unrelated to the
+    # load's own behaviour. None (not 0.0) whenever the caller couldn't
+    # supply today_mean_import_price this cycle -- an honest "unknown",
+    # same convention as planned_cost.
+    cost_avoided_today: float | None
 
 
 def _find_current_or_next_run(
@@ -678,6 +693,7 @@ def derive_schedule_view(
     max_activations_per_day: int | None = None,
     tank_current_temperature: float | None = None,
     done_condition_met: bool | None = None,
+    today_mean_import_price: float | None = None,
 ) -> ScheduleView:
     """nimbus issue #590: the seven-entity device-page view, computed
     entirely from what #479/#484/#581 already persist -- no new solver
@@ -686,6 +702,16 @@ def derive_schedule_view(
     fields are meaningful; the other kind's fields are simply None on the
     state already (#581's own convention), so this function never has to
     special-case "field wasn't populated this cycle" beyond that.
+
+    `today_mean_import_price` (nimbus issue #591, third ask): also the
+    caller's own job to compute -- the mean of `sensor.nimbus_solver_
+    battery_forecast`'s own published `import_price` series across
+    today's own periods (Mark Purcell's own specified source), following
+    the same "this function never touches hass.states itself" boundary
+    `tank_current_temperature`/`done_condition_met` below already
+    establish. None (the default) whenever that series isn't available
+    yet this cycle -- cost_avoided_today then comes back None too, never
+    a fabricated number.
 
     `tank_current_temperature` is deliberately the CALLER's job to have
     already read (via the exact same _evaluate_done_condition()-style
@@ -853,6 +879,18 @@ def derive_schedule_view(
     else:
         status = "outside window"
 
+    # nimbus issue #591 (third ask): cost_avoided_today = (today_mean_
+    # import_price - actual_avg_price_paid) * delivered_today_kwh, algebraically
+    # simplified to today_mean_import_price * delivered_today_kwh - cost_today
+    # -- identical result, but sidesteps a delivered_today_kwh==0 division
+    # entirely (both terms are honestly 0.0 in that case, same as cost_today
+    # itself already is).
+    cost_avoided_today: float | None = None
+    if today_mean_import_price is not None:
+        cost_avoided_today = round(
+            today_mean_import_price * state.delivered_today_kwh - state.cost_today, 3
+        )
+
     return ScheduleView(
         next_start=next_start,
         next_end=next_end,
@@ -866,6 +904,7 @@ def derive_schedule_view(
         target_today_kwh=target_today_kwh,
         planned_today_kwh=planned_today_kwh,
         status=status,
+        cost_avoided_today=cost_avoided_today,
     )
 
 
