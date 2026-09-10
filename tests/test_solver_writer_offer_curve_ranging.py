@@ -1,7 +1,8 @@
 """Direct test coverage for solver_writer.py's publish_offer_curve()
-publishing the new ranging attributes (nimbus issue #676) -- the exact
-real $/kWh price interval each offer-curve step's own kW value holds
-for, alongside the pre-existing import_curve/export_curve pairs.
+publishing the ranging attributes (nimbus issue #676) and the dict-
+shaped curve attributes (nimbus issue #677) -- the exact real $/kWh
+price interval each offer-curve step's own kW value holds for, and the
+`{price: kW}` shape Mark Purcell requested instead of a list of pairs.
 
 Uses a lightweight stand-in for Plan (SimpleNamespace with just the
 attributes publish_offer_curve() reads) rather than a real solved Plan --
@@ -40,21 +41,67 @@ def _plan(
     )
 
 
-class TestRoundOfferCurveRanging(unittest.TestCase):
-    def test_none_input_stays_none(self):
-        self.assertIsNone(solver_writer._round_offer_curve_ranging(None))
-
-    def test_rounds_each_interval_to_four_decimal_places(self):
-        result = solver_writer._round_offer_curve_ranging(
-            [(0.123456, 0.654321), (-1.0, float("inf"))]
+class TestOfferCurvePriceKey(unittest.TestCase):
+    def test_fixed_four_decimal_formatting(self):
+        self.assertEqual(solver_writer._offer_curve_price_key(0.1), "0.1000")
+        self.assertEqual(solver_writer._offer_curve_price_key(-1.0), "-1.0000")
+        self.assertEqual(
+            solver_writer._offer_curve_price_key(0.21179999999999999), "0.2118"
         )
-        self.assertEqual(result, [[0.1235, 0.6543], [-1.0, float("inf")]])
 
-    def test_preserves_none_entries_for_invalid_ranging_steps(self):
-        result = solver_writer._round_offer_curve_ranging(
-            [(0.1, 0.2), None, (0.3, 0.4)]
+
+class TestBuildOfferCurveDicts(unittest.TestCase):
+    def test_none_ranging_stays_none(self):
+        curve_dict, ranging_dict = solver_writer._build_offer_curve_dicts(
+            [(0.1905, 6.171)], None, "import"
         )
-        self.assertEqual(result, [[0.1, 0.2], None, [0.3, 0.4]])
+        self.assertEqual(curve_dict, {"0.1905": 6.171})
+        self.assertIsNone(ranging_dict)
+
+    def test_ranging_keyed_by_the_same_price_string_as_the_curve(self):
+        curve_dict, ranging_dict = solver_writer._build_offer_curve_dicts(
+            [(-1.0, 30.0), (0.1905, 6.171)],
+            [(-1.0, 0.0), (0.1, float("inf"))],
+            "import",
+        )
+        self.assertEqual(curve_dict, {"-1.0000": 30.0, "0.1905": 6.171})
+        self.assertEqual(
+            ranging_dict, {"-1.0000": [-1.0, 0.0], "0.1905": [0.1, float("inf")]}
+        )
+
+    def test_none_ranging_entry_preserved_for_an_invalid_step(self):
+        curve_dict, ranging_dict = solver_writer._build_offer_curve_dicts(
+            [(0.0868, 0.0)], [None], "export"
+        )
+        self.assertEqual(curve_dict, {"0.0868": 0.0})
+        self.assertEqual(ranging_dict, {"0.0868": None})
+
+    def test_a_genuine_collision_keeps_the_first_lower_price_entry(self):
+        """nimbus issue #677's own real, named risk: two distinct
+        unrounded sweep prices that round to the SAME 4dp key must not
+        silently overwrite each other -- the curve is already
+        price-sorted ascending, so keeping the FIRST occurrence means
+        keeping the lower of the two colliding prices, deterministically,
+        with a loud warning rather than a silent data loss. 0.12341 and
+        0.12344 both genuinely round() to 0.1234 -- confirmed directly,
+        not assumed, before writing this assertion."""
+        curve_dict, ranging_dict = solver_writer._build_offer_curve_dicts(
+            [(0.12341, 1.0), (0.12344, 2.0)],
+            [(0.1, 0.13), (0.13, 0.15)],
+            "import",
+        )
+        self.assertEqual(curve_dict, {"0.1234": 1.0})
+        self.assertEqual(ranging_dict, {"0.1234": [0.1, 0.13]})
+
+    def test_collision_logs_a_warning_naming_both_real_values(self):
+        with self.assertLogs(solver_writer._LOGGER, level="WARNING") as log:
+            solver_writer._build_offer_curve_dicts(
+                [(0.12341, 1.0), (0.12344, 2.0)], None, "import"
+            )
+        self.assertTrue(
+            any("offer curve" in message for message in log.output),
+            log.output,
+        )
 
 
 class TestPublishOfferCurveRangingAttributes(unittest.TestCase):
@@ -64,7 +111,7 @@ class TestPublishOfferCurveRangingAttributes(unittest.TestCase):
             solver_writer.publish_offer_curve(plan)
         post.assert_not_called()
 
-    def test_publishes_ranging_alongside_the_existing_curves(self):
+    def test_publishes_ranging_alongside_the_dict_shaped_curves(self):
         plan = _plan(
             offer_curve_import=[(-1.0, 30.0), (0.1905, 6.171)],
             offer_curve_export=[(-1.0, 0.0), (0.0868, 0.0)],
@@ -78,15 +125,17 @@ class TestPublishOfferCurveRangingAttributes(unittest.TestCase):
         entity_id, state, attrs = post.call_args[0]
         self.assertEqual(entity_id, "sensor.nimbus_offer_curve")
         self.assertEqual(state, 6.171)
-        # Pre-existing attributes are completely unchanged in shape --
-        # zero risk to any existing consumer of import_curve/export_curve.
-        self.assertEqual(attrs["import_curve"], [[-1.0, 30.0], [0.1905, 6.171]])
-        self.assertEqual(attrs["export_curve"], [[-1.0, 0.0], [0.0868, 0.0]])
-        # New attributes, same index/order as their sibling curve.
+        # nimbus issue #677: dict shape, keyed by formatted price string.
+        self.assertEqual(attrs["import_curve"], {"-1.0000": 30.0, "0.1905": 6.171})
+        self.assertEqual(attrs["export_curve"], {"-1.0000": 0.0, "0.0868": 0.0})
+        # Ranging dicts, keyed by the SAME price strings as their sibling curve.
         self.assertEqual(
-            attrs["import_curve_ranging"], [[-1.0, 0.0], [0.1, float("inf")]]
+            attrs["import_curve_ranging"],
+            {"-1.0000": [-1.0, 0.0], "0.1905": [0.1, float("inf")]},
         )
-        self.assertEqual(attrs["export_curve_ranging"], [None, [0.05, 0.15]])
+        self.assertEqual(
+            attrs["export_curve_ranging"], {"-1.0000": None, "0.0868": [0.05, 0.15]}
+        )
 
     def test_ranging_attributes_are_none_when_ranging_lists_are_none(self):
         # A real, honest case: offer_curve_import/export populated but
