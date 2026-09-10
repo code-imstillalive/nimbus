@@ -94,22 +94,19 @@ _EXPECTED_ATTRS = {
     "signal_role": "battery",
     "source_sensor": "sensor.fake_soc",
     "status": "optimal",
-    # nimbus issue #467: regenerated from a fresh real run after
-    # build_plan()'s battery/batteries restructuring -- the LP itself is
-    # mathematically unchanged for this single-"home"-battery fixture
-    # (same variable bounds/costs/constraints, just per-battery-keyed
-    # variable names and dict construction order), and HiGHS's own
-    # floating-point accumulation order is genuinely sensitive to that;
-    # the drift is in the 14th significant digit (...029034 vs the prior
-    # ...029063), noise, not a real behavior change.
-    "total_cost": 26.695680199029034,
-    "total_cost_with_fixed_costs": 34.4957,
+    # nimbus issue #692: regenerated from a fresh real run after adding
+    # battery_charge_earliness_budget_kw (on by default) -- a small,
+    # real, understood cost shift (the fixture's own single battery now
+    # pays a tiny earliness-tiebreak cost on its own charge timing, same
+    # magnitude class as #613's own load-earliness term), not drift.
+    "total_cost": 26.697380668361077,
+    "total_cost_with_fixed_costs": 34.4974,
     "cost_breakdown": {
         "grid_net": 33.5867,
         "degradation": 0.0,
         "charge_fee": 0.1847,
         "discharge_fee": 0.3148,
-        "terminal_value_credit": -7.3905,
+        "terminal_value_credit": -7.3888,
     },
     "cost_band": {"lower": 3.3107, "upper": 32.9326, "width": 29.622},
     "cost_band_24h": {"lower": -0.275, "upper": 9.1375, "width": 9.4125},
@@ -155,7 +152,10 @@ _EXPECTED_ATTRS = {
     # understood value change (both now ~12x larger, matching this
     # fixture's own 5-minute tier1 period at generation time), not
     # drift.
-    "binding_constraint_shadow_price": 0.2827,
+    # nimbus issue #692: regenerated alongside total_cost above -- the
+    # battery-charge earliness term shifts this dual's own value by a
+    # tiny, real, understood amount too.
+    "binding_constraint_shadow_price": 0.2829,
     "energy_shadow_price_now": 0.3,
     "p2p_volume_cap_shadow_price": -0.0,
     # nimbus issue #567: this fixture configures no spike threshold/

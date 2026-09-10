@@ -345,6 +345,45 @@ DEFAULT_SMOOTHNESS_WEIGHT_KW: float = 0.005
 # own deadline reaches.
 DEFAULT_ADEQUACY_EARLINESS_BUDGET_KW: float = MIN_CHARGE_DISCHARGE_COST_SPREAD
 
+# nimbus issue #692 (household, live-observed 2026-09-10): #613's own
+# earliness preference was scoped to adequacy_loads (deferrable loads)
+# ONLY -- the battery's own charge decision has NEVER had an equivalent
+# nudge. Real, direct evidence this is a genuine gap, not a theoretical
+# one: a live devhub solve held battery_charge at EXACTLY 0 kW for 27
+# minutes (13:23-13:50) at a roughly flat 6.1-8.4c/kWh price band, then
+# jumped to near-max charge at 13:55 at 7.62c/kWh -- the IDENTICAL price
+# 13:50 held 0kW at. Nothing in the objective distinguished those two
+# moments; the LP was free to land on either. Separately, the real
+# household's own battery SoC sensor sat at 2-4% (critically low) for
+# the entire 11:00-12:00 hour while import price was a moderate,
+# perfectly reasonable 6-9c/kWh the whole time, with NOTHING charging
+# it -- the exact same "no reason to prefer now over an arbitrary later
+# tied moment" degeneracy #613 fixed for loads, now confirmed on the
+# battery's own charge variable too.
+#
+# HALF of MIN_CHARGE_DISCHARGE_COST_SPREAD -- deliberately matching
+# DEFAULT_PROXIMAL_WEIGHT_KW/DEFAULT_SMOOTHNESS_WEIGHT_KW's own
+# magnitude (0.005), NOT DEFAULT_ADEQUACY_EARLINESS_BUDGET_KW's full
+# spread (0.01), and this is a real, verified-not-arbitrary choice, not
+# a copy-paste: a battery's own charge variable already carries TWO
+# other soft, tiny tie-break costs (proximal_weight, smoothness_weight)
+# competing on the exact same variable family -- an adequacy load has
+# no such sibling mechanism to share magnitude with, since #613's own
+# earliness term is the ONLY soft cost ever applied to adequacy_vars.
+# Confirmed live by a real regression: at the full 0.01 spread, this
+# term's own per-period gradient OUTWEIGHED smoothness_weight=0.005 in
+# test_solver_intraplan_smoothness.py's own flat-price scenario,
+# reintroducing the exact jagged charge/discharge burst that mechanism
+# exists to eliminate (front-loading charge until the battery's own
+# max_soc_kwh ceiling forced a sudden drop to a much slower rate for
+# the remainder of the horizon -- a real, hard-ceiling interaction a
+# load's own target_kwh delivery, which has no equivalent capacity
+# ceiling to slam into, never has to contend with). Halving to match
+# smoothness_weight's own magnitude verified this jaggedness drops to
+# exactly 0.0 in that same real scenario -- the two soft costs now
+# genuinely coexist rather than one silently overpowering the other.
+DEFAULT_BATTERY_CHARGE_EARLINESS_BUDGET_KW: float = MIN_CHARGE_DISCHARGE_COST_SPREAD / 2
+
 # nimbus issue #328 (Mark Purcell) -- multiplier applied to the LARGEST
 # real $/kWh figure in play (peak import price, peak export price, and
 # the highest terminal_value_breakpoints rate if configured) to derive
@@ -1082,6 +1121,7 @@ def build_plan(
     compute_offer_curve: bool = False,
     adequacy_earliness_budget_kw: float = DEFAULT_ADEQUACY_EARLINESS_BUDGET_KW,
     adequacy_semi_continuous: bool = True,
+    battery_charge_earliness_budget_kw: float = DEFAULT_BATTERY_CHARGE_EARLINESS_BUDGET_KW,
 ) -> Plan:
     """Build and solve one LP for the given horizon/inputs. Pure function --
     no I/O, no HA dependency, safe to call from anywhere including a plain
@@ -1097,6 +1137,12 @@ def build_plan(
     BUDGET_KW's own docstring. Set to 0.0 to fully disable (every
     adequacy load reverts to today's "zero direct cost anywhere in its
     own window" behaviour).
+
+    `battery_charge_earliness_budget_kw` (nimbus issue #692) is ON by
+    default, mirroring `adequacy_earliness_budget_kw` above but applied
+    to every battery's own charge variable instead of a load's -- see
+    DEFAULT_BATTERY_CHARGE_EARLINESS_BUDGET_KW's own docstring for the
+    real, live evidence this fixes. Set to 0.0 to fully disable.
 
     `adequacy_semi_continuous` (nimbus issue #616) is also ON by
     default -- see the semi-continuous/single-block constraint block's
@@ -1952,6 +1998,32 @@ def build_plan(
             )
         for sl in sheddable_loads:
             p.set_cost(shed_vars[sl.name][t], sl.shed_cost * hours[t])
+    # nimbus issue #692: a small earliness preference on every battery's
+    # own charge variable -- same technique, same tiny fixed total-
+    # budget-across-the-horizon derivation as adequacy_earliness_
+    # budget_kw's own block below (see DEFAULT_BATTERY_CHARGE_EARLINESS_
+    # BUDGET_KW's own docstring for the real, live evidence this fixes).
+    # set_cost() is additive, so this simply layers a tiny extra cost on
+    # top of whatever charge_cost/degradation_cost_per_kwh already
+    # priced above -- period 0 is never penalized, the LATEST period in
+    # the whole horizon costs exactly battery_charge_earliness_budget_kw
+    # more, by construction, regardless of horizon length.
+    if batteries and battery_charge_earliness_budget_kw > 0.0:
+        horizon_hours = float(np.sum(hours))
+        if horizon_hours > 0.0:
+            elapsed_hours = np.concatenate(
+                ([0.0], np.cumsum(hours, dtype=np.float64)[:-1])
+            )
+            battery_earliness_rate = battery_charge_earliness_budget_kw / horizon_hours
+            for b in batteries:
+                for t in range(n):
+                    cost = (
+                        battery_earliness_rate
+                        * float(elapsed_hours[t])
+                        * float(hours[t])
+                    )
+                    if cost != 0.0:
+                        p.set_cost(charge_vars[b.name][t], cost)
     # Two-tier export bonus (see elements.py's own GridConfig docstring):
     # export_bonus[t] earns an EXTRA revenue credit on top of whatever
     # grid_export[t] already earns at the base rate above -- set_cost()

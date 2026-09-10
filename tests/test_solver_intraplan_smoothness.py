@@ -158,6 +158,13 @@ class TestIntraplanSmoothness(unittest.TestCase):
             solar=solar,
             loads=loads,
             smoothness_weight=0.0,
+            # nimbus issue #692: this file tests mechanism 4 (smoothness_
+            # weight) in isolation -- the battery's own new default-on
+            # earliness term (a separate, later-added soft cost on the
+            # SAME charge_vars family) must be disabled here too, or it
+            # silently contaminates this test's own "genuine tie costs
+            # the same either way" comparison.
+            battery_charge_earliness_budget_kw=0.0,
         )
         self.assertEqual(plan.status, "optimal")
         jag = _jaggedness(plan.battery_discharge_kw, plan.battery_charge_kw)
@@ -180,6 +187,13 @@ class TestIntraplanSmoothness(unittest.TestCase):
             solar=solar,
             loads=loads,
             smoothness_weight=0.0,
+            # nimbus issue #692: this file tests mechanism 4 (smoothness_
+            # weight) in isolation -- the battery's own new default-on
+            # earliness term (a separate, later-added soft cost on the
+            # SAME charge_vars family) must be disabled here too, or it
+            # silently contaminates this test's own "genuine tie costs
+            # the same either way" comparison.
+            battery_charge_earliness_budget_kw=0.0,
         )
         plan_on = build_plan(
             periods=periods,
@@ -188,6 +202,7 @@ class TestIntraplanSmoothness(unittest.TestCase):
             solar=solar,
             loads=loads,
             smoothness_weight=0.005,
+            battery_charge_earliness_budget_kw=0.0,
         )
         self.assertEqual(plan_on.status, "optimal")
         jag_on = _jaggedness(plan_on.battery_discharge_kw, plan_on.battery_charge_kw)
@@ -214,6 +229,13 @@ class TestIntraplanSmoothness(unittest.TestCase):
             solar=solar,
             loads=loads,
             smoothness_weight=0.0,
+            # nimbus issue #692: this file tests mechanism 4 (smoothness_
+            # weight) in isolation -- the battery's own new default-on
+            # earliness term (a separate, later-added soft cost on the
+            # SAME charge_vars family) must be disabled here too, or it
+            # silently contaminates this test's own "genuine tie costs
+            # the same either way" comparison.
+            battery_charge_earliness_budget_kw=0.0,
         )
         plan_on = build_plan(
             periods=periods,
@@ -222,6 +244,7 @@ class TestIntraplanSmoothness(unittest.TestCase):
             solar=solar,
             loads=loads,
             smoothness_weight=0.005,
+            battery_charge_earliness_budget_kw=0.0,
         )
         self.assertEqual(plan_on.status, "optimal")
         net_off = plan_off.battery_discharge_kw - plan_off.battery_charge_kw
