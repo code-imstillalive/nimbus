@@ -876,6 +876,41 @@ async def _energy_dashboard_switchboard_suggestions(hass: Any) -> dict[str, str]
                 return None
             return entity_id
 
+        def _ok_price(entity_id: object) -> str | None:
+            # nimbus issue #554: entity_energy_price (when the household
+            # priced this flow via a live entity, not a fixed number --
+            # HA's own schema allows either; a fixed number has nothing
+            # to suggest here, silently skipped, same "no suggestion is
+            # a safe default" posture as every other gap in this
+            # function) is a STRING entity_id, not one of this file's
+            # own already-registered CONF_* fields -- deliberately
+            # separate from _ok() above (which enforces device_class==
+            # "energy") since a price sensor's own real device_class
+            # convention is "monetary", a completely different unit
+            # family. Unlike _forecaster_settings_suggestions()'s own
+            # deliberate exclusion of price sensors (no way to tell
+            # import vs export from device_class alone among ALL
+            # monetary sensors), THIS suggestion is safe for the same
+            # reason the energy-sensor suggestions above already are:
+            # the Energy Dashboard's own flow_from/flow_to structure is
+            # what disambiguates import vs export, not a guess by
+            # elimination. Accepts a missing/non-"monetary" device_class
+            # rather than rejecting it outright -- several real
+            # spot-price integrations (this project's own reference
+            # household's Amber sensors included) don't reliably tag it,
+            # and rejecting them here would silently suggest nothing on
+            # exactly the installs this feature is for; still only ever
+            # a suggested_value a human confirms before it's saved.
+            if not isinstance(entity_id, str) or not entity_id:
+                return None
+            state = hass.states.get(entity_id)
+            if state is None:
+                return None
+            device_class = state.attributes.get("device_class")
+            if device_class is not None and device_class != "monetary":
+                return None
+            return entity_id
+
         for source in sources:
             source_type = source.get("type")
             if source_type == "grid":
@@ -885,11 +920,21 @@ async def _energy_dashboard_switchboard_suggestions(hass: Any) -> dict[str, str]
                         suggestions.setdefault(
                             CONF_SWITCHBOARD_IMPORT_ENERGY_DAILY_SENSOR, candidate
                         )
+                    price_candidate = _ok_price(flow.get("entity_energy_price"))
+                    if price_candidate:
+                        suggestions.setdefault(
+                            CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR, price_candidate
+                        )
                 for flow in source.get("flow_to", []):
                     candidate = _ok(flow.get("stat_energy_to"))
                     if candidate:
                         suggestions.setdefault(
                             CONF_SWITCHBOARD_EXPORT_ENERGY_DAILY_SENSOR, candidate
+                        )
+                    price_candidate = _ok_price(flow.get("entity_energy_price"))
+                    if price_candidate:
+                        suggestions.setdefault(
+                            CONF_SWITCHBOARD_EXPORT_PRICE_SENSOR, price_candidate
                         )
             elif source_type == "solar":
                 candidate = _ok(source.get("stat_energy_from"))

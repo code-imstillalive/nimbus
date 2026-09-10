@@ -49,6 +49,7 @@ from custom_components.nimbus_load.const import (
     CONF_SWITCHBOARD_BATTERY_CHARGE_DAILY_SENSOR,
     CONF_SWITCHBOARD_BATTERY_DISCHARGE_DAILY_SENSOR,
     CONF_SWITCHBOARD_EXPORT_ENERGY_DAILY_SENSOR,
+    CONF_SWITCHBOARD_EXPORT_PRICE_SENSOR,
     CONF_SWITCHBOARD_HOUSE_LOAD_ENERGY_DAILY_SENSOR,
     CONF_SWITCHBOARD_IMPORT_ENERGY_DAILY_SENSOR,
     CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR,
@@ -776,6 +777,167 @@ def test_suggests_grid_import_and_export_when_type_and_class_match():
     assert result[CONF_SWITCHBOARD_EXPORT_ENERGY_DAILY_SENSOR] == "sensor.real_export"
     # No Energy Dashboard concept of whole-house load -- must never guess.
     assert CONF_SWITCHBOARD_HOUSE_LOAD_ENERGY_DAILY_SENSOR not in result
+
+
+# nimbus issue #554: entity_energy_price on a grid source's own flow_from/
+# flow_to entries -- a live price ENTITY the household configured against
+# that flow (HA's schema also allows a fixed number instead, which has
+# nothing to suggest, see test below). Safe to disambiguate import vs
+# export the same way the energy-sensor suggestions above already are:
+# the Energy Dashboard's own flow_from/flow_to structure does it, not a
+# guess by elimination among every monetary sensor -- a genuinely
+# different, safer case than _forecaster_settings_suggestions()'s own
+# deliberate price-sensor exclusion elsewhere in this file.
+def test_suggests_import_and_export_price_sensors_from_grid_flows():
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+
+    states = dict(
+        [
+            _energy_state("sensor.real_import", "energy", "total_increasing"),
+            _energy_state("sensor.real_export", "energy", "total_increasing"),
+            _energy_state("sensor.import_price", "monetary", "measurement"),
+            _energy_state("sensor.export_price", "monetary", "measurement"),
+        ]
+    )
+    hass = _hass_with_states(states)
+    manager = MagicMock(
+        data={
+            "energy_sources": [
+                {
+                    "type": "grid",
+                    "flow_from": [
+                        {
+                            "stat_energy_from": "sensor.real_import",
+                            "entity_energy_price": "sensor.import_price",
+                        }
+                    ],
+                    "flow_to": [
+                        {
+                            "stat_energy_to": "sensor.real_export",
+                            "entity_energy_price": "sensor.export_price",
+                        }
+                    ],
+                }
+            ]
+        }
+    )
+    with patch(
+        "homeassistant.components.energy.data.async_get_manager",
+        new=AsyncMock(return_value=manager),
+    ):
+        result = asyncio.run(_energy_dashboard_switchboard_suggestions(hass))
+    assert result[CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR] == "sensor.import_price"
+    assert result[CONF_SWITCHBOARD_EXPORT_PRICE_SENSOR] == "sensor.export_price"
+
+
+def test_a_fixed_number_price_has_nothing_to_suggest_not_a_crash():
+    # HA's own schema allows entity_energy_price OR a fixed number
+    # (number_energy_price) -- a fixed number is a real, valid household
+    # config with no entity to suggest, not a malformed one.
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+
+    states = dict([_energy_state("sensor.real_import", "energy", "total_increasing")])
+    hass = _hass_with_states(states)
+    manager = MagicMock(
+        data={
+            "energy_sources": [
+                {
+                    "type": "grid",
+                    "flow_from": [
+                        {
+                            "stat_energy_from": "sensor.real_import",
+                            "number_energy_price": 0.28,
+                        }
+                    ],
+                    "flow_to": [],
+                }
+            ]
+        }
+    )
+    with patch(
+        "homeassistant.components.energy.data.async_get_manager",
+        new=AsyncMock(return_value=manager),
+    ):
+        result = asyncio.run(_energy_dashboard_switchboard_suggestions(hass))
+    assert result[CONF_SWITCHBOARD_IMPORT_ENERGY_DAILY_SENSOR] == "sensor.real_import"
+    assert CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR not in result
+
+
+def test_price_sensor_missing_device_class_is_still_suggested():
+    # Real, honest limitation documented in the function itself: several
+    # real spot-price integrations (this project's own reference
+    # household's Amber sensors included) don't reliably tag device_
+    # class="monetary" -- rejecting them here would silently suggest
+    # nothing on exactly the installs this feature is for.
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+
+    states = {
+        "sensor.real_import": MagicMock(
+            attributes={"device_class": "energy", "state_class": "total_increasing"}
+        ),
+        "sensor.amber_price": MagicMock(attributes={}),
+    }
+    hass = _hass_with_states(states)
+    manager = MagicMock(
+        data={
+            "energy_sources": [
+                {
+                    "type": "grid",
+                    "flow_from": [
+                        {
+                            "stat_energy_from": "sensor.real_import",
+                            "entity_energy_price": "sensor.amber_price",
+                        }
+                    ],
+                    "flow_to": [],
+                }
+            ]
+        }
+    )
+    with patch(
+        "homeassistant.components.energy.data.async_get_manager",
+        new=AsyncMock(return_value=manager),
+    ):
+        result = asyncio.run(_energy_dashboard_switchboard_suggestions(hass))
+    assert result[CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR] == "sensor.amber_price"
+
+
+def test_price_sensor_with_a_genuinely_wrong_device_class_is_not_suggested():
+    import asyncio
+    from unittest.mock import AsyncMock, patch
+
+    states = dict(
+        [
+            _energy_state("sensor.real_import", "energy", "total_increasing"),
+            _energy_state("sensor.actually_power", "power", "measurement"),
+        ]
+    )
+    hass = _hass_with_states(states)
+    manager = MagicMock(
+        data={
+            "energy_sources": [
+                {
+                    "type": "grid",
+                    "flow_from": [
+                        {
+                            "stat_energy_from": "sensor.real_import",
+                            "entity_energy_price": "sensor.actually_power",
+                        }
+                    ],
+                    "flow_to": [],
+                }
+            ]
+        }
+    )
+    with patch(
+        "homeassistant.components.energy.data.async_get_manager",
+        new=AsyncMock(return_value=manager),
+    ):
+        result = asyncio.run(_energy_dashboard_switchboard_suggestions(hass))
+    assert CONF_SWITCHBOARD_IMPORT_PRICE_SENSOR not in result
 
 
 def test_suggests_solar_and_battery_when_type_and_class_match():
