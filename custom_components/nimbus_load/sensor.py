@@ -3284,14 +3284,14 @@ class NimbusDispatchDryRunSensor(_NimbusSolverPushSensor):
 class NimbusOfferCurveSensor(_NimbusSolverPushSensor):
     """nimbus issue #494 (Signals 5/7 of #489): a period-0 demand-response
     offer ladder -- several real (price, kW) steps swept via `solver/
-    lp.py`'s `LPResult.sweep_cost()`, not just one (band_min, band_max)
-    at the current price the way `sensor.nimbus_solver_battery_forecast`'s
-    own #491/#492 signals already give. Only published while `switch.
-    nimbus_solver_offer_curve_enabled` is on (default off, see const.py's
-    own comment) -- solver_writer.py's own publish_plan() guards the push
-    on `plan.offer_curve_import is not None`, the same "None means it
-    wasn't computed this cycle" convention `Plan.grid_signals` already
-    uses for #491.
+    lp.py`'s `LPResult.sweep_cost_with_ranging()`, not just one (band_min,
+    band_max) at the current price the way `sensor.nimbus_solver_battery_
+    forecast`'s own #491/#492 signals already give. Only published while
+    `switch.nimbus_solver_offer_curve_enabled` is on (default off, see
+    const.py's own comment) -- solver_writer.py's own publish_plan()
+    guards the push on `plan.offer_curve_import is not None`, the same
+    "None means it wasn't computed this cycle" convention `Plan.grid_
+    signals` already uses for #491.
 
     Same _NimbusSolverPushSensor base as NimbusDispatchDryRunSensor
     above -- native_value is the import curve's own kW value AT the
@@ -3300,8 +3300,13 @@ class NimbusOfferCurveSensor(_NimbusSolverPushSensor):
     at the current retail price equals the main plan's period-0 import"
     consistency check (inherits the base class's POWER/kW device_class/
     unit, a legitimate physical reading here, not a repurposed field).
-    `import_curve`/`export_curve` (each a list of [price, kW] pairs) and
-    `sweep_seconds` are extra_state_attributes.
+    `import_curve`/`export_curve` (each a list of [price, kW] pairs),
+    `import_curve_ranging`/`export_curve_ranging` (nimbus issue #676 --
+    same index/order, each entry the SAME-index kW value's own exact
+    real $/kWh validity interval `[price_lower, price_upper]` straight
+    from HiGHS's own per-step ranging, or `null` for a step where ranging
+    itself came back invalid), and `sweep_seconds` are extra_state_
+    attributes.
     """
 
     _UNIQUE_ID_SUFFIX = "nimbus_offer_curve"

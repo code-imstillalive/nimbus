@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [Unreleased]
+
+### Added
+- **A demand-response offer curve step now reports the exact price interval it's valid for, not just a single breakeven** (nimbus issue #676). `LPResult.sweep_cost_with_ranging()` (`solver/lp.py`) re-solves at each swept price and calls HiGHS's own `getRanging()` after every solve, so `build_plan(compute_offer_curve=True)`'s existing `offer_curve_import`/`offer_curve_export` curves now come with parallel `offer_curve_import_ranging`/`offer_curve_export_ranging` lists — one `(price_lower, price_upper)` interval per step, published as `import_curve_ranging`/`export_curve_ranging` on `sensor.nimbus_offer_curve`. Confirmed live against both a hand-worked toy LP and the project's real household scenario: each ranging call returns fresh, independently-computed values (not a stale replay of the first solve), correctly handles export's negated cost-coefficient sign flip, and a real 7-point household sweep resolves to genuine plateaus with honestly-reported gaps where the sweep's own sample points didn't land on a breakpoint.
+
 ## [0.94.235] — 2026-09-10
 
 ### Added

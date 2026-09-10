@@ -287,7 +287,7 @@ from .elements import (
     SheddableLoadConfig,
     SolarConfig,
 )
-from .lp import LPProblem, LPResult
+from .lp import LPProblem, LPResult, SweepRangingStep
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -677,6 +677,20 @@ class Plan:
     # price makes exporting more attractive).
     offer_curve_import: list[tuple[float, float]] | None = None
     offer_curve_export: list[tuple[float, float]] | None = None
+    # nimbus issue #676: the exact price interval each offer-curve step's
+    # own kW value holds for, straight from LPResult.sweep_cost_with_
+    # ranging()'s own per-step HiGHS ranging -- not a bracket inferred
+    # from neighbouring sample points. Same length and index order as
+    # offer_curve_import/export when populated; each entry is
+    # (price_lower, price_upper) in real $/kWh (already converted from
+    # the LP's own raw per-period cost-coefficient units the same way
+    # nimbus issue #662 established for the plain per-period dual), or
+    # `None` for a step where ranging itself came back invalid. `None`
+    # (the whole list, not per-entry) whenever offer_curve_import/export
+    # itself is `None` -- same "represent honestly, no fabricated data"
+    # posture as every other diagnostic field on this class.
+    offer_curve_import_ranging: list[tuple[float, float] | None] | None = None
+    offer_curve_export_ranging: list[tuple[float, float] | None] | None = None
     # How long the sweep itself took (nimbus issue #494's own "total sweep
     # time logged and under 0.5s on the reference grid" acceptance
     # criterion) -- same None-when-not-computed convention as the two
@@ -1010,6 +1024,42 @@ def _offer_curve_price_grid(retail: float) -> list[float]:
     return sorted(set(raw))
 
 
+def _offer_curve_price_interval(
+    step: SweepRangingStep, hours0: float, *, negated: bool
+) -> tuple[float, float] | None:
+    """Converts one `sweep_cost_with_ranging()` step's own `cost_dn`/
+    `cost_up` (raw LP cost-coefficient units) into a real (price_lower,
+    price_upper) $/kWh interval (nimbus issue #676) -- `None` when either
+    bound came back invalid at this step.
+
+    Two conversions, not one, mirroring exactly how the sweep's own
+    `costs` were built:
+
+    1. `÷ hours0` -- the swept cost coefficient is `price * hours[0]`
+       (see the sweep call sites below), the identical period-scaling
+       nimbus issue #662 already established needs undoing to recover a
+       true $/kWh figure from a raw LP cost/dual value.
+    2. Sign, for export only -- the export sweep negates its own cost
+       coefficient (`-price * hours[0]`, since export EARNS revenue; see
+       the export sweep call's own comment), so `cost = -price * hours0`
+       is a DECREASING function of price. That flips which ranging bound
+       is the lower vs. upper real price: `cost_dn` (the cost
+       coefficient's own lower bound) corresponds to the HIGHER real
+       price, and `cost_up` to the LOWER one. Getting this backwards
+       would silently swap a real "cheaper below this" reading into
+       "cheaper above this" -- worth being this explicit about it.
+    """
+    if step.cost_dn is None or step.cost_up is None:
+        return None
+    if negated:
+        price_lower = -step.cost_up.value / hours0
+        price_upper = -step.cost_dn.value / hours0
+    else:
+        price_lower = step.cost_dn.value / hours0
+        price_upper = step.cost_up.value / hours0
+    return (price_lower, price_upper)
+
+
 def build_plan(
     *,
     periods: PeriodGrid,
@@ -1170,20 +1220,30 @@ def build_plan(
     opt-in (default `False`) -- when `True`, requests `LPProblem.solve(
     keep_basis=True)` and, on an optimal result, sweeps period 0's
     `grid_import`/`grid_export` cost coefficients over a fixed 7-point
-    price grid (`_OFFER_CURVE_PRICE_STEPS`) via `LPResult.sweep_cost()`,
-    populating `Plan.offer_curve_import`/`offer_curve_export` -- a real
-    (price, kW) demand-response bid ladder for period 0, not just one
-    (band_min, band_max) at the CURRENT price the way `compute_signals`
-    above already gives. Each sweep step is a warm-started re-solve from
-    period 0's own already-loaded optimal basis (milliseconds, not a
-    fresh cold solve) -- unlike `compute_signals`'s own ranging pass,
-    this has NOT been measured to carry a meaningful cost at this
-    project's production scale (7 extra simplex re-solves from a warm
-    basis vs. one genuinely expensive ranging pass), but stays opt-in
-    anyway, matching #494's own explicit cadence requirement ("not every
-    5-minute solve by default") and this module's own established
-    "extra solver capability is opt-in" convention. Every existing
-    caller is unaffected either way.
+    price grid (`_offer_curve_price_grid()`) via `LPResult.sweep_cost_
+    with_ranging()`, populating `Plan.offer_curve_import`/
+    `offer_curve_export` -- a real (price, kW) demand-response bid
+    ladder for period 0, not just one (band_min, band_max) at the
+    CURRENT price the way `compute_signals` above already gives. Each
+    sweep step is a warm-started re-solve from period 0's own already-
+    loaded optimal basis (milliseconds, not a fresh cold solve) -- unlike
+    `compute_signals`'s own ranging pass, the plain re-solve loop has NOT
+    been measured to carry a meaningful cost at this project's production
+    scale (7 extra simplex re-solves from a warm basis vs. one genuinely
+    expensive ranging pass), but stays opt-in anyway, matching #494's own
+    explicit cadence requirement ("not every 5-minute solve by default")
+    and this module's own established "extra solver capability is
+    opt-in" convention. Every existing caller is unaffected either way.
+
+    Also populates `Plan.offer_curve_import_ranging`/`offer_curve_export_
+    ranging` (nimbus issue #676) -- each sweep step's own EXACT real
+    $/kWh price interval, straight from HiGHS's own per-step cost
+    ranging, not a bracket inferred from neighbouring sample points. This
+    DOES add a real, measurable cost on top of the plain re-solve loop (a
+    genuine ranging pass per step, not free) -- unlike `compute_signals`
+    above, it does NOT need a second, separate opt-in flag: ranging here
+    is requested independently, per step, by `sweep_cost_with_ranging()`
+    itself, regardless of whether `compute_signals` was also passed.
     """
     loads = loads or []
     sheddable_loads = sheddable_loads or []
@@ -2772,22 +2832,38 @@ def build_plan(
         _offer_curve_start = time.monotonic()
         import_prices = _offer_curve_price_grid(float(effective_import_price[0]))
         export_prices = _offer_curve_price_grid(float(effective_export_price[0]))
-        import_kw = result.sweep_cost(
-            grid_import[0], [price * hours[0] for price in import_prices]
+        hours0 = float(hours[0])
+        # nimbus issue #676: sweep_cost_with_ranging() instead of plain
+        # sweep_cost() -- same warm-started re-solve loop, additionally
+        # capturing each step's own exact cost-ranging (the real price
+        # interval that step's own kW value holds for), not just the kW
+        # value alone. Does not need result.ranging_valid / compute_
+        # signals=True on the ORIGINAL solve -- each step calls
+        # h.getRanging() itself, independent of whether the original
+        # solve requested it (see that method's own docstring).
+        import_steps = result.sweep_cost_with_ranging(
+            grid_import[0], [price * hours0 for price in import_prices]
         )
         # Export earns revenue -- p.set_cost(grid_export[t], -price*hours[t])
         # above (the same construction this sweep must mirror exactly for
         # the at-retail consistency check to hold), so the swept cost
-        # coefficient here is likewise negated.
-        export_kw = result.sweep_cost(
-            grid_export[0], [-price * hours[0] for price in export_prices]
+        # coefficient here is likewise negated. _offer_curve_price_interval()
+        # (negated=True) undoes this same negation on the way back out.
+        export_steps = result.sweep_cost_with_ranging(
+            grid_export[0], [-price * hours0 for price in export_prices]
         )
         offer_curve_import: list[tuple[float, float]] | None = list(
-            zip(import_prices, import_kw, strict=True)
+            zip(import_prices, [s.value for s in import_steps], strict=True)
         )
         offer_curve_export: list[tuple[float, float]] | None = list(
-            zip(export_prices, export_kw, strict=True)
+            zip(export_prices, [s.value for s in export_steps], strict=True)
         )
+        offer_curve_import_ranging: list[tuple[float, float] | None] | None = [
+            _offer_curve_price_interval(s, hours0, negated=False) for s in import_steps
+        ]
+        offer_curve_export_ranging: list[tuple[float, float] | None] | None = [
+            _offer_curve_price_interval(s, hours0, negated=True) for s in export_steps
+        ]
         offer_curve_sweep_seconds: float | None = time.monotonic() - _offer_curve_start
         _LOGGER.debug(
             "Nimbus network.py: offer curve sweep took %.4fs (%d import + %d export steps)",
@@ -2798,6 +2874,8 @@ def build_plan(
     else:
         offer_curve_import = None
         offer_curve_export = None
+        offer_curve_import_ranging = None
+        offer_curve_export_ranging = None
         offer_curve_sweep_seconds = None
 
     solar_used_arr = _get(solar_used)
@@ -2840,5 +2918,7 @@ def build_plan(
         battery_signals=plan_battery_signals,
         offer_curve_import=offer_curve_import,
         offer_curve_export=offer_curve_export,
+        offer_curve_import_ranging=offer_curve_import_ranging,
+        offer_curve_export_ranging=offer_curve_export_ranging,
         offer_curve_sweep_seconds=offer_curve_sweep_seconds,
     )
