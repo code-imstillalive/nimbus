@@ -20,6 +20,14 @@ Dated work-in-progress notes live in `docs/worklog/`, one file per date — this
 the "CURRENT STATE" journal that used to live directly in this file now lives. Each
 file is not re-summarized here; read it directly for the full detail. Most recent 5:
 
+- [2026-09-10](docs/worklog/2026-09-10.md) — Deployed v0.94.231, verified #680's
+  fix live and closed it. Followed up #684 with live verification data, root-
+  caused a real 12x shadow-price bug in `plan_shadow_price_forecast`/`plan_
+  status_reason` (a third #662-pattern recurrence, #613's own call site) — fixed
+  same day upstream as #685/v0.94.233. Implemented and opened PR #689 for #676
+  (offer curve: exact per-step ranging via `sweep_cost_with_ranging()`, not one
+  breakeven price per step) — verified live against a toy LP and the real
+  household scenario, 35 new/extended tests, charted the real spike numbers.
 - [2026-09-09](docs/worklog/2026-09-09.md) — #582: a deferrable Controllable Load with
   a same-day window (the #534 heat pump's real 6am-4pm window) was silently dropped
   for its ENTIRE active window once `now` fell inside it, the opposite of intended
