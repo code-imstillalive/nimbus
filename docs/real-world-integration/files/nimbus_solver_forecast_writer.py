@@ -1323,8 +1323,67 @@ def _build_offer_curve_bands(
         }
         if bands and bands[-1] == band:
             continue
+        # nimbus issue #730 (Mark Purcell, live finding): several
+        # independent solves (a walk step, the always-separate retail
+        # solve, sometimes the #705 backstop) can land in the SAME tied
+        # optimal basis under a degenerate LP -- each one's own ranging
+        # is real and independently correct ("how far THIS solve's own
+        # basis extends"), but sorted-by-price adjacency alone doesn't
+        # catch that a narrower neighbour's range is now fully swallowed
+        # by a wider one, both reporting the same value. Confirmed live:
+        # this exact shape self-healed on a re-fetch 22s later, so it's
+        # a real, intermittent artifact of the walk, not a persistent
+        # state. Generalizes the exact-duplicate collapse above to a
+        # nested/subset one: same kw, one band's range entirely inside
+        # the other's -- keep the wider band, drop the redundant one.
+        # Never invents a boundary value neither solve actually reported
+        # (unlike clipping against a neighbour would); a None bound (a
+        # genuinely missing/invalid ranging interval, never a real
+        # infinite one -- see this function's own docstring) is never
+        # treated as unbounded here, so containment stays unknowable
+        # rather than guessed whenever either side is None.
+        if bands and bands[-1]["kw"] == band["kw"]:
+            prev = bands[-1]
+            if _offer_curve_band_range_contains(
+                prev["price_lower"],
+                prev["price_upper"],
+                band["price_lower"],
+                band["price_upper"],
+            ):
+                continue
+            if _offer_curve_band_range_contains(
+                band["price_lower"],
+                band["price_upper"],
+                prev["price_lower"],
+                prev["price_upper"],
+            ):
+                bands[-1] = band
+                continue
         bands.append(band)
     return bands
+
+
+def _offer_curve_band_range_contains(
+    outer_lower: float | None,
+    outer_upper: float | None,
+    inner_lower: float | None,
+    inner_upper: float | None,
+) -> bool:
+    """True when [inner_lower, inner_upper] sits entirely inside
+    [outer_lower, outer_upper] -- nimbus issue #730's own nested-range
+    check. A `None` bound is a genuinely missing/invalid ranging
+    interval (never a real unbounded one; those already arrive as
+    `float('-inf')`/`float('inf')`, which compare correctly on their
+    own), so containment is never claimed when either range has one --
+    unknown must never be treated as "fits inside."""
+    if (
+        outer_lower is None
+        or outer_upper is None
+        or inner_lower is None
+        or inner_upper is None
+    ):
+        return False
+    return inner_lower >= outer_lower and inner_upper <= outer_upper
 
 
 def parse_iso(s) -> datetime:
