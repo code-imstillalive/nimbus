@@ -58,14 +58,115 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 import highspy
 import numpy as np
 from numpy.typing import NDArray
 
 _LOGGER = logging.getLogger(__name__)
+
+# nimbus issue #696, Stage 1: a real primary/secondary objective
+# architecture, ported from the sibling HAEO integration's own
+# `custom_components/haeo/core/model/network.py` (`LexOptions` /
+# `BlendedOptions` / `CalibratedOptions`, fetched and read in full via
+# `gh api repos/purcell-lab/haeo/contents/...` before writing this --
+# not reconstructed from a summary). Motivation: this project has grown
+# FOUR independent hand-tuned epsilon tie-break mechanisms (network.py's
+# proximal_weight, smoothness_weight, battery_charge_earliness_budget_kw,
+# adequacy_earliness_budget_kw), each summed directly into the one real
+# cost objective and each individually verified "far enough below real
+# tariff granularity" -- but nothing structurally guarantees that stays
+# true as more get added, or that they never compose badly in some
+# untested combination. HAEO's answer: every cost contribution declares
+# itself PRIMARY (a real economic cost) or SECONDARY (a tie-break
+# preference among primary-optimal solutions), and the solve mode
+# decides how secondary influences the answer:
+#
+# - `LexOptions`: genuine three-phase lexicographic optimization.
+#   Phase 1 minimizes primary alone. Phase 2 minimizes secondary with
+#   primary HARD-constrained (`<=` its own phase-1 optimal value) --
+#   secondary can never make primary worse, not even by an epsilon.
+#   Phase 3 re-minimizes primary with a tiny relative epsilon slack on
+#   secondary, purely to recover clean duals/reduced costs at (or
+#   negligibly close to) the phase-2 point without perturbing it.
+# - `BlendedOptions`: a plain single-solve weighted sum, `primary +
+#   blend_weight * secondary` -- the exact architecture this project's
+#   own existing tie-break mechanisms already use today, just now named
+#   and made an explicit, opt-in solve mode rather than baked silently
+#   into every `set_cost()` call.
+# - `CalibratedOptions`: HAEO's own default. Runs phases 1+2 once (the
+#   real lex optimum), then binary-searches log10 space for the LARGEST
+#   blend weight whose single-solve primary cost still stays within
+#   `calibration_tolerance` of that true optimum, steps back one log10
+#   decade for safety margin, then does one final blended solve at that
+#   weight. A searched-safe magnitude, not a hand-picked one -- the
+#   real answer to "how do N independent epsilons compose safely" this
+#   project's own tie-break mechanisms have so far solved by manual
+#   verification alone.
+#
+# `LPProblem.solve(options=None)` (the default) is BYTE-IDENTICAL to
+# this module's own pre-#696 behavior -- a single blended solve using
+# only `_cost` (secondary is never even read). No existing caller or
+# test needed to change for this stage; migrating network.py's own
+# four mechanisms onto `set_secondary_cost()` is deliberately a
+# SEPARATE, later PR (#696's own Stage 2), with its own dedicated
+# devhub verification, once this architecture is proven correct here
+# in isolation first.
+#
+# Deliberate scope cut vs. HAEO: no `SimplexTuning`/HiGHS solver-option
+# dataclasses ported -- `_solve_highs()` already sets its own solver
+# options (time_limit, output_flag) directly, unrelated to the
+# primary/secondary architecture itself. Also deliberately NOT ported:
+# HAEO's cross-call `_calibrated_weight` caching on a persistent
+# `Network` object -- Nimbus's own `LPProblem` is built fresh every
+# solve (no persistent object across solve cycles), so `CalibratedOptions`
+# here re-runs the full lex+calibration search on EVERY call rather than
+# reusing a cached weight. A future optimization (network.py threading a
+# previous solve's calibrated weight through, mirroring how it already
+# threads a previous PLAN through for proximal regularization) is
+# possible but out of scope for this stage -- tracked in #696 if real
+# solve-latency measurements ever call for it.
+_CAL_LOG_LO: float = -12.0
+_CAL_LOG_HI: float = -1.0
+_CAL_MAX_STEPS: int = 40
+_CAL_CONVERGENCE: float = 0.01
+_CAL_MARGIN: float = 1.0
+
+
+@dataclass(frozen=True)
+class LexOptions:
+    """Three-phase lexicographic optimization. See this module's own
+    top-of-file comment for the full phase-by-phase description."""
+
+    mode: Literal["lex"] = "lex"
+
+
+@dataclass(frozen=True)
+class BlendedOptions:
+    """Single-solve weighted sum: primary + blend_weight * secondary.
+    The exact architecture this project's own pre-#696 tie-break
+    mechanisms already used, now an explicit opt-in mode."""
+
+    mode: Literal["blended"] = "blended"
+    blend_weight: float = 1e-3
+
+
+@dataclass(frozen=True)
+class CalibratedOptions:
+    """Two-phase lex once, then a calibrated blended fast path -- see
+    this module's own top-of-file comment for the full mechanism.
+    `calibration_tolerance` is the max RELATIVE degradation of the
+    primary objective the calibrated weight is allowed to risk,
+    relative to the true lex-optimal primary value."""
+
+    mode: Literal["calibrated"] = "calibrated"
+    calibration_tolerance: float = 1e-4
+
+
+SolveOptions = LexOptions | BlendedOptions | CalibratedOptions
 
 # nimbus issue #356: bounds a genuinely stuck solve (see _solve_highs's own
 # comment at its call site for the full reasoning) -- not a performance
@@ -497,6 +598,14 @@ class LPProblem:
     _lb: list[float] = field(default_factory=list)
     _ub: list[float] = field(default_factory=list)
     _cost: dict[str, float] = field(default_factory=dict)
+    # nimbus issue #696, Stage 1: the SECONDARY objective channel --
+    # see this module's own top-of-file comment for the full
+    # primary/secondary architecture. Only ever read when `solve()` is
+    # given a real `options=` value; a plain `solve()` (options=None,
+    # the default) never looks at this dict at all, so populating it on
+    # a problem that never opts into `options=` is a harmless no-op,
+    # not a behavior change.
+    _secondary_cost: dict[str, float] = field(default_factory=dict)
     _ub_rows: list[tuple[dict[str, float], float]] = field(default_factory=list)
     _eq_rows: list[tuple[dict[str, float], float]] = field(default_factory=list)
     # Parallel name lists (2026-08-18, dual-value extraction) -- kept
@@ -584,6 +693,19 @@ class LPProblem:
             raise KeyError(msg)
         self._cost[name] = self._cost.get(name, 0.0) + cost
 
+    def set_secondary_cost(self, name: str, cost: float) -> None:
+        """Same additive-not-replace semantics as `set_cost()`, on the
+        SECONDARY objective channel instead (nimbus issue #696, Stage
+        1) -- a tie-break PREFERENCE among primary-optimal solutions,
+        never a real economic cost. Only meaningful when `solve()` is
+        given a real `options=` value; a plain `solve()` never reads
+        this channel at all. See this module's own top-of-file comment
+        for the full primary/secondary architecture."""
+        if name not in self._var_index:
+            msg = f"Unknown variable {name!r}"
+            raise KeyError(msg)
+        self._secondary_cost[name] = self._secondary_cost.get(name, 0.0) + cost
+
     def add_ub_constraint(
         self, terms: dict[str, float], rhs: float, *, name: str | None = None
     ) -> None:
@@ -625,7 +747,13 @@ class LPProblem:
     def n_variables(self) -> int:
         return len(self._var_names)
 
-    def solve(self, *, ranging: bool = False, keep_basis: bool = False) -> LPResult:
+    def solve(
+        self,
+        *,
+        ranging: bool = False,
+        keep_basis: bool = False,
+        options: SolveOptions | None = None,
+    ) -> LPResult:
         """`ranging=True` (nimbus issue #490) additionally computes
         HiGHS's own post-solve ranging (see `LPResult`'s own docstring
         for the full field-by-field meaning) -- opt-in, since it's a
@@ -644,8 +772,22 @@ class LPProblem:
         live C++ object to outlive this call, and every LPResult that
         doesn't ask for one stays exactly as cheap to solve/discard as
         before this parameter existed.
+
+        `options=` (nimbus issue #696, Stage 1) opts into the real
+        primary/secondary objective architecture -- see this module's
+        own top-of-file comment. `None` (the default) is BYTE-IDENTICAL
+        to this module's pre-#696 behavior: a single blended solve using
+        only `_cost`, `_secondary_cost` never read at all. Raises
+        `NotImplementedError` if `options` is given on a MIP
+        (`is_mip`) -- the interaction between branch-and-bound and a
+        multi-phase/calibrated solve is genuinely new ground (HAEO has
+        no MIP concept at all to port from) and deliberately not
+        attempted until it has its own real design, per #696's own
+        staged plan.
         """
-        return _solve_highs(self, ranging=ranging, keep_basis=keep_basis)
+        return _solve_highs(
+            self, ranging=ranging, keep_basis=keep_basis, options=options
+        )
 
     def value_of(self, result: LPResult, name: str) -> float:
         """Read one named variable's value out of a solved LPResult.
@@ -726,8 +868,243 @@ def _build_ranging_dict(
     }
 
 
+def _dense_cost_vector(
+    problem: LPProblem, cost: dict[str, float]
+) -> NDArray[np.float64]:
+    """nimbus issue #696: build a dense per-column cost vector from a
+    name-keyed cost dict, in the same var_array/column order
+    `_solve_highs()` itself uses -- the array form single-call
+    objective switching (`h.changeColsCost`) needs. Adapted from HAEO's
+    own `network.py::_build_cost_vectors()`, which does the equivalent
+    starting from a `highs_linear_expression` rather than a plain dict."""
+    vec = np.zeros(problem.n_variables, dtype=np.float64)
+    for i, name in enumerate(problem._var_names):
+        vec[i] = cost.get(name, 0.0)
+    return vec
+
+
+def _set_cost_vector(
+    h: highspy.Highs, col_indices: NDArray[np.int32], costs: NDArray[np.float64]
+) -> None:
+    """Set the full objective cost vector in a single C call --
+    `col_indices` covers ALL variables, so every column's cost is
+    replaced; no stale cost from a previous phase can persist. Verbatim
+    technique from HAEO's own `network.py::_set_cost_vector()`."""
+    h.changeColsCost(len(col_indices), col_indices, costs)
+    h.changeObjectiveOffset(0.0)
+
+
+def _ensure_optimal_value(h: highspy.Highs) -> float:
+    """Run the solver and return its objective value, raising if the
+    result isn't optimal. An intermediate lex/calibration PHASE failing
+    to reach optimal is a genuine anomaly here (every phase operates on
+    the exact same feasible region the caller's own variables/
+    constraints already established) -- unlike the CALLER's own final
+    result, where "infeasible"/"error" are normal, expected `LPResult`
+    outcomes (see that class's own docstring)."""
+    h.run()
+    status = h.getModelStatus()
+    if status != highspy.HighsModelStatus.kOptimal:
+        msg = (
+            "LPProblem.solve(options=...): an internal lex/calibration "
+            f"phase failed to reach optimal (status={h.modelStatusToString(status)!r})"
+        )
+        raise ValueError(msg)
+    return float(h.getObjectiveValue())
+
+
+def _bisect_boundary(
+    lo: float,
+    hi: float,
+    predicate: Callable[[float], bool],
+    *,
+    max_steps: int,
+    convergence: float,
+) -> float:
+    """Binary search for the boundary where `predicate` flips True ->
+    False. Assumes `predicate(lo)` is True and `predicate(hi)` is
+    False. Returns the highest value where predicate still holds.
+    Verbatim technique from HAEO's own `network.py::_bisect_boundary()`."""
+    for _ in range(max_steps):
+        if hi - lo < convergence:
+            break
+        mid = (lo + hi) / 2
+        if predicate(mid):
+            lo = mid
+        else:
+            hi = mid
+    return lo
+
+
+def _calibrate_blend_weight(
+    h: highspy.Highs,
+    col_indices: NDArray[np.int32],
+    primary_vec: NDArray[np.float64],
+    secondary_vec: NDArray[np.float64],
+    lex_primary_cost: float,
+    tolerance: float,
+) -> float:
+    """Find the largest blend weight whose single-solve primary cost
+    stays within `tolerance` (relative) of the true lex-optimal primary
+    cost, then run one final blended solve at that weight -- so `h`'s
+    own live state (duals/reduced costs/ranging read off it afterward)
+    reflects a genuine single blended solve, the same guarantee HAEO's
+    own implementation gives itself. Adapted directly from that
+    project's own `network.py::_calibrate_blend_weight()` -- same log10
+    bisection, same one-sided "primary cost must not exceed the lex
+    optimum by more than tolerance" acceptance criterion, same
+    `_CAL_MARGIN` step-back for robustness against coefficient drift."""
+    if lex_primary_cost == 0.0 and not np.any(primary_vec):
+        weight = 1e-3  # safe default -- no primary cost to distort
+        blended = primary_vec + weight * secondary_vec
+        _set_cost_vector(h, col_indices, blended)
+        h.run()
+        return weight
+
+    abs_tol = max(1e-8, abs(lex_primary_cost) * tolerance)
+
+    def _primary_acceptable(log_w: float) -> bool:
+        w = 10.0**log_w
+        blended = primary_vec + w * secondary_vec
+        _set_cost_vector(h, col_indices, blended)
+        h.run()
+        if h.getModelStatus() != highspy.HighsModelStatus.kOptimal:
+            return False
+        bl_vals = np.asarray(h.getSolution().col_value)
+        bl_primary_cost = float(primary_vec @ bl_vals)
+        return bl_primary_cost <= lex_primary_cost + abs_tol
+
+    lo, hi = _CAL_LOG_LO, _CAL_LOG_HI
+    if _primary_acceptable(hi):
+        upper = hi
+    elif _primary_acceptable(lo):
+        upper = _bisect_boundary(
+            lo,
+            hi,
+            _primary_acceptable,
+            max_steps=_CAL_MAX_STEPS,
+            convergence=_CAL_CONVERGENCE,
+        )
+    else:
+        _LOGGER.warning(
+            "LPProblem.solve(options=CalibratedOptions(...)): no blend weight "
+            "preserves primary cost within tolerance (%.2e); using minimum weight %.2e",
+            abs_tol,
+            10.0**lo,
+        )
+        upper = lo
+
+    weight_log = max(lo, upper - _CAL_MARGIN)
+    weight = 10.0**weight_log
+
+    blended = primary_vec + weight * secondary_vec
+    _set_cost_vector(h, col_indices, blended)
+    h.run()
+    return weight
+
+
+def _solve_with_options(
+    h: highspy.Highs,
+    var_array: list[Any],
+    col_indices: NDArray[np.int32],
+    problem: LPProblem,
+    options: SolveOptions,
+) -> list[str]:
+    """Runs the real phased/blended/calibrated solve against an ALREADY
+    fully-constructed HiGHS model (every variable/constraint already
+    added by `_solve_highs()`) -- mutates `h`'s own live state so the
+    existing post-solve reading code (duals, reduced costs, ranging,
+    keep_basis) in `_solve_highs()` works completely unchanged
+    regardless of which mode ran. Direct, adapted port of HAEO's own
+    `network.py::optimize()`/`_solve_lex()`/`_solve_blended()` dispatch
+    -- see this module's own top-of-file comment for the full
+    architecture and the deliberate scope cuts versus that source.
+
+    Returns the names of any EXTRA constraint rows this function added
+    to `h` beyond the caller's own -- unlike HAEO (which has no
+    equivalent concern), `_solve_highs()` builds a `row_names` list
+    that must stay in exact 1:1 order with `h`'s own rows for its
+    `duals` dict extraction (`zip(row_names, solution.row_dual,
+    strict=True)`) -- a lex-phase constraint row that isn't accounted
+    for there would silently break that zip. Empty for `BlendedOptions`
+    (adds no rows at all).
+
+    Deliberately does NOT call `h.clearLinearObjectives()` the way
+    HAEO's own `_solve_lex()`/`_solve_blended()` do at their start --
+    that exists there to clear a PERSISTENT solver instance's prior
+    objective between repeated calls over a `Network`'s lifetime.
+    Nimbus's own `_solve_highs()` builds a brand-new `highspy.Highs()`
+    for every single call (no persistent reuse), so there is no prior
+    objective state to clear, and `_set_cost_vector()`'s own
+    `changeColsCost` call already overwrites every column each time
+    it's used regardless."""
+    primary_vec = _dense_cost_vector(problem, problem._cost)
+    secondary_vec = _dense_cost_vector(problem, problem._secondary_cost)
+
+    if isinstance(options, BlendedOptions):
+        blended = primary_vec + options.blend_weight * secondary_vec
+        _set_cost_vector(h, col_indices, blended)
+        h.run()
+        return []
+
+    # LexOptions and CalibratedOptions both start with the same phase 1
+    # + phase 2: minimize primary alone, then minimize secondary with
+    # primary HARD-constrained not to get worse than its own phase-1
+    # optimum -- the real guarantee this whole architecture exists for
+    # (secondary can never override a real price signal, not even by an
+    # epsilon).
+    _set_cost_vector(h, col_indices, primary_vec)
+    primary_value = _ensure_optimal_value(h)
+
+    # Same "always >= 1 term" dense-iteration style as this module's own
+    # pre-#696 cost_expr construction (every variable, missing/zero
+    # entries included) -- guarantees a non-empty qsum regardless of how
+    # many primary/secondary costs are actually nonzero.
+    primary_expr = highspy.Highs.qsum(
+        float(coef) * var_array[i] for i, coef in enumerate(primary_vec)
+    )
+    h.addConstr(primary_expr <= primary_value)
+    extra_row_names = ["_lex_primary_le_optimum"]
+    _set_cost_vector(h, col_indices, secondary_vec)
+    secondary_value = _ensure_optimal_value(h)
+
+    if isinstance(options, LexOptions):
+        # Phase 3: re-minimize primary with a tiny relative epsilon
+        # slack on secondary -- restores clean primary duals/reduced
+        # costs without perturbing the phase-2 point. HAEO's own
+        # reasoning, ported verbatim.
+        epsilon = max(1e-6, abs(secondary_value) * 1e-6)
+        secondary_expr = highspy.Highs.qsum(
+            float(coef) * var_array[i] for i, coef in enumerate(secondary_vec)
+        )
+        h.addConstr(secondary_expr <= secondary_value + epsilon)
+        extra_row_names.append("_lex_secondary_le_optimum")
+        _set_cost_vector(h, col_indices, primary_vec)
+        _ensure_optimal_value(h)
+        return extra_row_names
+
+    # CalibratedOptions: h's own live basis already sits at the phase-2
+    # (true lex) optimum -- read it off directly rather than re-solving,
+    # then search for a safe blend weight and do one final blended solve.
+    lex_values = np.asarray(h.getSolution().col_value)
+    lex_primary_cost = float(primary_vec @ lex_values)
+    _calibrate_blend_weight(
+        h,
+        col_indices,
+        primary_vec,
+        secondary_vec,
+        lex_primary_cost,
+        options.calibration_tolerance,
+    )
+    return extra_row_names
+
+
 def _solve_highs(
-    problem: LPProblem, *, ranging: bool = False, keep_basis: bool = False
+    problem: LPProblem,
+    *,
+    ranging: bool = False,
+    keep_basis: bool = False,
+    options: SolveOptions | None = None,
 ) -> LPResult:
     """Translate an LPProblem into a highspy model, solve it, and translate
     the result back. See this module's own docstring for why highspy
@@ -735,6 +1112,7 @@ def _solve_highs(
 
     `ranging` (nimbus issue #490): see LPProblem.solve()'s own docstring.
     `keep_basis` (nimbus issue #494): see LPProblem.solve()'s own docstring.
+    `options` (nimbus issue #696): see LPProblem.solve()'s own docstring.
     """
     n = problem.n_variables
     if n == 0:
@@ -809,17 +1187,49 @@ def _solve_highs(
         )
         h.addConstr(expr == rhs)
 
-    # Dense-style cost expression (every variable, defaulting missing
-    # entries to 0.0) -- matches the old from-scratch solver's own
-    # `phase2_cost = np.zeros(...)` convention, and guarantees the qsum
-    # generator always has n >= 1 terms (n == 0 already returned above),
-    # never an empty one, regardless of whether ANY set_cost() call was
-    # ever actually made for this particular problem.
-    cost_expr = highspy.Highs.qsum(
-        problem._cost.get(name, 0.0) * var_array[i]
-        for i, name in enumerate(problem._var_names)
-    )
-    h.minimize(cost_expr)
+    extra_row_names: list[str] = []
+    if options is None:
+        # Dense-style cost expression (every variable, defaulting missing
+        # entries to 0.0) -- matches the old from-scratch solver's own
+        # `phase2_cost = np.zeros(...)` convention, and guarantees the qsum
+        # generator always has n >= 1 terms (n == 0 already returned above),
+        # never an empty one, regardless of whether ANY set_cost() call was
+        # ever actually made for this particular problem. Byte-identical to
+        # this module's pre-#696 behavior -- `_secondary_cost` is never
+        # even read on this path.
+        cost_expr = highspy.Highs.qsum(
+            problem._cost.get(name, 0.0) * var_array[i]
+            for i, name in enumerate(problem._var_names)
+        )
+        h.minimize(cost_expr)
+    else:
+        # nimbus issue #696: MIP + phased/calibrated solve is genuinely
+        # new ground (HAEO has no MIP concept to port from) -- rejected
+        # loudly rather than silently mishandled, per that issue's own
+        # staged plan. Checked here, not earlier, so a plain
+        # options=None caller (every existing caller, today) never pays
+        # even an is_mip property-check cost it didn't ask for.
+        if problem.is_mip:
+            msg = (
+                "LPProblem.solve(options=...) on a MIP (binary variables "
+                "registered) is not yet supported -- see nimbus issue #696's "
+                "own staged plan for why this needs its own explicit design "
+                "before attempting it."
+            )
+            raise NotImplementedError(msg)
+        col_indices = np.arange(n, dtype=np.int32)
+        extra_row_names = _solve_with_options(
+            h, var_array, col_indices, problem, options
+        )
+
+    # nimbus issue #696: a lex/calibrated phase adds real extra
+    # constraint ROWS to `h` beyond the caller's own (see
+    # `_solve_with_options()`'s own docstring) -- appended here, in the
+    # same order they were added to `h`, so `row_names` stays in exact
+    # 1:1 order with `h`'s own rows for the duals extraction below.
+    # Empty for options=None and for BlendedOptions, so this is a
+    # no-op on every pre-#696 path.
+    row_names = row_names + extra_row_names
 
     # nimbus issue #490: on any non-optimal status below, ranging_valid
     # is False (not None) whenever ranging was actually requested -- the
