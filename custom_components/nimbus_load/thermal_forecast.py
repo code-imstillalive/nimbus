@@ -280,5 +280,32 @@ def project_temperature_forecast(
     return out
 
 
+def find_floor_crossing(
+    temperature_forecast: list[dict[str, object]], floor_temperature: float
+) -> dict[str, object] | None:
+    """nimbus issue #712/#713 (Mark Purcell, real live finding: two
+    consecutive nights of uncontrolled compressor cut-in, both times the
+    tank falling past its own eco-mode floor hours before the next
+    scheduled ON period). `project_temperature_forecast()`'s own
+    projection deliberately never stops at any threshold (its own
+    docstring: "the caller's job"); this is that caller's job for the
+    hardware floor specifically -- the FIRST period, if any, whose
+    projected temperature falls at or below `floor_temperature`.
+
+    Deliberately the first crossing only, not every period past it --
+    the load's own next scheduled ON period will (should) pull the real
+    temperature back up well before the projection could cross the
+    floor a second time in practice, and a household/warning log wants
+    "when does this first become a problem," not a full list of every
+    period a already-known problem stays a problem.
+
+    Returns `None` when the series never crosses (the common, healthy
+    case) or is empty."""
+    for entry in temperature_forecast:
+        if float(entry["value"]) <= floor_temperature:  # type: ignore[arg-type]
+            return entry
+    return None
+
+
 def _parse_iso(s: object) -> datetime:
     return datetime.fromisoformat(str(s))

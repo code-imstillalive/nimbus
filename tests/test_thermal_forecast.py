@@ -300,5 +300,43 @@ class TestProjectTemperatureForecast(unittest.TestCase):
         self.assertLess(forecast[1]["value"], forecast[0]["value"])
 
 
+class TestFindFloorCrossing(unittest.TestCase):
+    """nimbus issue #712/#713 (Mark Purcell, real live finding: two
+    consecutive nights of uncontrolled compressor cut-in, both times the
+    tank falling past its own hardware floor hours before the next
+    scheduled ON period)."""
+
+    def _series(self, values):
+        t0 = datetime(2026, 9, 10, 16, 0, tzinfo=_TZ)
+        return [
+            {"time": (t0 + timedelta(hours=i)).isoformat(), "value": v}
+            for i, v in enumerate(values)
+        ]
+
+    def test_no_crossing_returns_none(self):
+        series = self._series([50.0, 49.0, 48.0, 47.0])
+        self.assertIsNone(tf.find_floor_crossing(series, floor_temperature=45.0))
+
+    def test_returns_the_first_period_that_crosses_not_a_later_one(self):
+        # #713's own real shape: idle decay carries the tank below the
+        # floor at 07:30, tomorrow's plan doesn't start heating again
+        # until 08:00 -- the warning needs the FIRST crossing (07:30),
+        # not to keep reporting every period it stays below the floor.
+        series = self._series([50.0, 47.0, 44.0, 41.0, 39.96, 45.0, 52.0])
+        crossing = tf.find_floor_crossing(series, floor_temperature=45.0)
+        self.assertIsNotNone(crossing)
+        self.assertEqual(crossing["value"], 44.0)
+        self.assertEqual(crossing["time"], series[2]["time"])
+
+    def test_exact_floor_value_counts_as_a_crossing(self):
+        series = self._series([50.0, 45.0, 40.0])
+        crossing = tf.find_floor_crossing(series, floor_temperature=45.0)
+        self.assertIsNotNone(crossing)
+        self.assertEqual(crossing["value"], 45.0)
+
+    def test_empty_series_returns_none(self):
+        self.assertIsNone(tf.find_floor_crossing([], floor_temperature=45.0))
+
+
 if __name__ == "__main__":
     unittest.main()
