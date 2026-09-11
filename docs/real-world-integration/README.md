@@ -369,6 +369,38 @@ rescheduling — the exact question #741 asked. State (current
 temperature/mode) resets on restart — this is a test fixture, not a
 real tank, and persistence was deliberately left out.
 
+## `files/mqtt_pseudo_device_fleet.py` — a full pseudo-device fleet for extended controllable-load and multi-battery-participant testing (NOT household-specific)
+
+nimbus issue #752 (Mark Purcell): extends the pseudo-HWS pattern above
+to a full fleet — pool heat pump, HVAC, pool pump, bidirectional EV,
+dishwasher, washing machine, dryer — closing two older standing asks
+that had sat open waiting on exactly this: #482 (a real price-gated
+load to verify `profit_horizon` against) and #563 (a real second live
+multi-battery-participant, this repo's own first-ever live test of
+that config surface).
+
+One shared daemon (not one script per device) publishing: five
+switch-domain Controllable Loads with a real MQTT `switch` + companion
+power sensor each (pool heat pump, pool pump, dishwasher, washing
+machine, dryer — all `deferrable`, matching Mark's own reasoning that
+real appliances like these can't be paused mid-cycle); one background,
+uncontrolled HVAC load (`sensor.nimbus_test_hvac_power`, a plain `Load`
+subentry target — #481, thermal-state loads, isn't built yet so this
+can't be scheduled by Nimbus itself); and one bidirectional EV
+`battery_participant` (SoC/power/available sensors, a simulated daily
+08:00-17:00 commute). See the script's own module docstring for the
+full device list, exact wiring instructions per device, and an honest
+note on what the EV fixture can and can't validate today (this
+project's `battery_participant` config surface is currently read-only
+monitoring — there's no live command-write path back to a real EV yet,
+so this tests the Solver's own plan-building against a real second
+participant's signal shape, not closed-loop EV control).
+
+**Usage:** identical pattern to the pseudo-HWS script above —
+`pip install paho-mqtt`, then `python3 mqtt_pseudo_device_fleet.py`
+with the same `MQTT_HOST`/`MQTT_USERNAME`/`MQTT_PASSWORD` env vars.
+Also genuinely portable, not household-specific.
+
 ## `files/research/*.py` — the Solver audit scripts
 
 These are the scripts used to work through (and mostly close) a real,
