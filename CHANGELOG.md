@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.251] — 2026-09-11
+
+### Fixed
+- **A load/signal forecast entity no longer loses its whole published forecast for a full ~2-minute tick on a single momentary source-sensor blip** (nimbus issue #740, live finding from Mark Purcell). The 2026-08-22 Silver entity-unavailable fix checked the source sensor's live state at the exact instant of each coordinator tick's write; one ordinary Zigbee/Modbus flicker was enough to flip the forecast entity itself unavailable, which strips all of its published attributes (including `forecast`) via Home Assistant's own entity base class — confirmed live, recurred 10 times across ~9 hours of otherwise-normal overnight operation, each time knocking `sensor.nimbus_offer_curve`/`quality_report` to "unknown" for a full tick while `sensor.nimbus_status` kept reporting "Working well" the whole time. Now debounced: only a source reading that stays unavailable/unknown for 2 consecutive ticks (~4 minutes) trips this entity unavailable, long enough to ride out an ordinary blip while still catching a genuinely disconnected source well within the "stale forever" failure mode the original fix closed. Recovery stays immediate.
+
 ## [0.94.250] — 2026-09-11
 
 ### Fixed
