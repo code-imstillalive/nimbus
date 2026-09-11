@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Adds the "Nimbus vs HAEO vs Real - Battery (Shadow Mode)" chart to
-the live dashboard -- history AND forecast for each of Nimbus's own
-plan, this household's real controller's plan (HAEO), and the real
-measured battery power, all on one chart. This is what actually lets
-you watch Nimbus's shadow-mode plan against reality over time, not
+"""Adds the "Nimbus vs HAEO vs Real - Battery" chart to the live
+dashboard -- history AND forecast for each of Nimbus's own plan, this
+household's real controller's plan (HAEO), and the real measured
+battery power, all on one chart. This is what actually lets you watch
+Nimbus's own real, live dispatch plan against reality over time, not
 just read a single "current forecast" number.
 
 *** NOT directly portable as-is -- read this before deploying. ***
@@ -18,7 +18,7 @@ specific:
     battery power sensor. Swap for your own equivalent.
 The one genuinely portable entity is sensor.nimbus_solver_battery_
 forecast -- the same name on every install, this is what you're
-actually validating Nimbus's own shadow-mode accuracy against.
+actually validating Nimbus's own live dispatch plan accuracy against.
 
 Included anyway, same "show the real wiring, not a sanitized example"
 philosophy as nimbus_solver_quality_writer.py (same folder, see its
@@ -51,7 +51,7 @@ ANCHOR_ENTITY = "sensor.nimbus_solver_battery_forecast"
 SHADOW_MODE_CHART_CARD = {
     "type": "custom:apexcharts-card",
     "header": {
-        "title": "Nimbus vs HAEO vs Real — Battery (Shadow Mode)",
+        "title": "Nimbus vs HAEO vs Real — Battery",
         "show": True,
         "show_states": True,
         "colorize_states": True,

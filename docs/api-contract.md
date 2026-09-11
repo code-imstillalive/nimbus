@@ -30,8 +30,9 @@ perspective.
 
 ## Why v1.0.0 isn't declared yet
 
-Nimbus stays in shadow mode (see the top-level `README.md`'s "Status and
-roadmap") until the reference-household readiness checklist is green,
+Nimbus's Solver now drives real, live dispatch on the reference household
+(see the top-level `README.md`'s "Status and roadmap"), but v1.0.0 itself
+isn't declared until the reference-household readiness checklist is green,
 independent of this document. Issue #211 (sustained over-frequent writes on
 the two aggregate push-sensors, root cause still open as of this writing) is
 exactly the kind of live, unresolved correctness issue that should block a

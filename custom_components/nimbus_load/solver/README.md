@@ -16,18 +16,17 @@ bugs found, and experiments run while this package was BUILT (2026-08-15/16)
 — genuinely useful history, kept as-is, but describing that period, not the
 package's current wiring.**
 
-**Current status: live, shadow-mode.** This is the real LP/MIP engine behind
-every Nimbus Solver dispatch decision — `solver_writer.py`'s `build_plan()`
-call (native in-process runtime AND the standalone cron deployment path
-both use the identical package, see nimbus issue #357) runs every solve
-cycle and publishes a real, live 96-hour dispatch plan
+**Current status: live, driving real dispatch.** This is the real LP/MIP engine
+behind every Nimbus Solver dispatch decision — `solver_writer.py`'s
+`build_plan()` call (native in-process runtime AND the standalone cron
+deployment path both use the identical package, see nimbus issue #357) runs
+every solve cycle and publishes a real, live 96-hour dispatch plan
 (`sensor.nimbus_solver_battery_forecast`) plus a durable dry-run record of
-what it would dispatch (`sensor.nimbus_solver_dispatch_dry_run`) — but has
-no write path to any real hardware yet; nothing in this package or its
-callers has ever sent a real command to an inverter. See this repo's own
-root `CLAUDE.md` for the full, current architecture and roadmap; this
-README is a package-level reference, not the authoritative current-state
-document.
+what it would dispatch (`sensor.nimbus_solver_dispatch_dry_run`). The Solver
+has graduated out of observe-only shadow mode and now drives real battery and
+grid dispatch on the reference household. See this repo's own root
+`CLAUDE.md` for the full, current architecture and roadmap; this README is a
+package-level reference, not the authoritative current-state document.
 
 ## What's here
 

@@ -2,13 +2,13 @@
 
 *Just a different type of cloud.*
 
-> ⚠️ **Work in progress. Active shadow-mode project, not a finished product.**
-> Both the Forecaster and Solver are under ongoing development. Neither drives any
-> live battery or grid dispatch today. The Solver runs in observe-only shadow mode
-> against household data, and stays that way until the reference-household evidence
-> bar is cleared. Expect rough edges, breaking changes, and bugs. Several have
-> been found and fixed in the days around this repo going public. If you install
-> this, please open a GitHub issue rather than expect a polished, plug-and-play experience.
+> ⚠️ **Work in progress, not a finished product.** Both the Forecaster and Solver
+> are under ongoing development. The Solver now drives real, live battery and grid
+> dispatch on the reference household — it graduated out of observe-only shadow
+> mode. Expect rough edges, breaking changes, and bugs. Several have been found
+> and fixed in the days around this repo going public. If you install this,
+> please open a GitHub issue rather than expect a polished, plug-and-play
+> experience.
 
 See [`CHANGELOG.md`](CHANGELOG.md) for the release history and current version — versioned from `custom_components/nimbus_load/manifest.json`, not restated here to avoid drifting stale again (this line previously read a hardcoded `0.92.2` for many releases after `manifest.json` had moved well past v0.94).
 
@@ -527,16 +527,18 @@ default, range, and unit table for every `number.nimbus_solver_*` entity above.
 
 ## Status and roadmap
 
-Nimbus is in shadow mode against the reference household and stays there until
-every item on the reference-household readiness checklist (tracked in
-`docs/real-world-integration/` and `CLAUDE.md`) is green on live 30-day data.
-Current target: v1.0.0 shadow-mode graduation. No production-use recommendation
-for other households before then.
+Nimbus's Solver now drives real, live battery and grid dispatch on the
+reference household — it has graduated out of observe-only shadow mode.
+Still no production-use recommendation for other households yet: this remains
+actively developed against one reference household, with rough edges and bugs
+still being found and fixed regularly (tracked in `docs/real-world-integration/`
+and `CLAUDE.md`).
 
 The next milestones (as tracked in GitHub Issues):
 
-- Clear the reference-household readiness checklist and graduate the Solver out
-  of shadow mode.
+- Continue hardening real live dispatch against the reference household's own
+  findings (multi-battery/EV participants, cross-battery wash-trade guards,
+  deferrable-load scheduling).
 - Sheddable loads: LP scaffolding exists; the config surface and reference
   automations are next.
 
@@ -559,12 +561,11 @@ charge and discharge power, and a blended round-trip efficiency.
   [#38](https://github.com/code-imstillalive/nimbus/issues/38),
   [#39](https://github.com/code-imstillalive/nimbus/issues/39),
   [#40](https://github.com/code-imstillalive/nimbus/issues/40)). The
-  `quality_scale` key in `manifest.json` will be set on the run into v1.0.0
-  once shadow-mode graduation criteria clear.
+  `quality_scale` key in `manifest.json` will be set on the run into v1.0.0.
 - **Maintainer capacity.** Nimbus is currently maintained by a single author
-  against one reference household. Expect issue response within a few days,
-  not hours. A shadow-mode-only test report from a second household is worth
-  as much as a code fix.
+  against one reference household running it live. Expect issue response
+  within a few days, not hours. A real test report from a second household is
+  worth as much as a code fix.
 - See [`docs/TESTERS.md`](docs/TESTERS.md) for who's running Nimbus on
   hardware today, and what to capture in a bug report so it carries its own
   version anchor.
