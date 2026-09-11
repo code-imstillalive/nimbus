@@ -282,6 +282,75 @@ class TestAdequacyWindowsIndependentDailyTargets(unittest.TestCase):
         # this assertion fail.
         self.assertGreaterEqual(total_delivered, 4.0 - 1e-6)
 
+    def test_reported_shortfall_reflects_only_the_nearest_window_not_the_whole_horizon(
+        self,
+    ):
+        # nimbus issue #739 (Mark Purcell, live finding, real household):
+        # the MIRROR of test_genuinely_unreachable_window_reports_its_own_
+        # shortfall_not_a_crash above -- here the NEAREST (today's) window
+        # is easily, fully reachable, but a FUTURE day's own window has a
+        # target too large for its own window to ever deliver. Confirmed
+        # live: a load whose today's schedule already covers its target
+        # (implied real shortfall 0.000) still reported a real, nonzero
+        # "will miss target" figure to the household -- summing every
+        # window's own slack across the whole multi-day horizon was
+        # silently folding a genuinely-unreachable FUTURE window's own
+        # shortfall into what's supposed to be a single, real-time
+        # "today" status. Only `windows[0]` (the nearest, real-time-
+        # relevant one) is the household-facing answer.
+        n = 48
+        periods = _flat_grid(n)
+        grid = GridConfig(
+            import_price=np.full(n, 0.30),
+            export_price=np.full(n, 0.05),
+            import_limit_kw=20.0,
+            export_limit_kw=20.0,
+        )
+        solar = SolarConfig(forecast_kw=np.zeros(n))
+        battery = _base_battery(initial_soc_kwh=10.0)
+        adequacy = [
+            AdequacyLoadConfig(
+                name="hws",
+                max_power_kw=2.0,
+                target_kwh=2.0,  # easily reachable: 2.0 kW x 10 periods available
+                deadline_period=16,
+                earliest_period=6,
+                shortfall_price=DEFAULT_ADEQUACY_SHORTFALL_PRICE,
+                windows=(
+                    AdequacyWindow(
+                        earliest_period=6, deadline_period=16, target_kwh=2.0
+                    ),
+                    # A future day's target too large for its own single-
+                    # period window to ever deliver (0.5 kW max in this
+                    # config x 1 period << 100 kWh) -- genuinely, honestly
+                    # unreachable, same shape as the mirror test above.
+                    AdequacyWindow(
+                        earliest_period=30, deadline_period=30, target_kwh=100.0
+                    ),
+                ),
+            )
+        ]
+        plan = build_plan(
+            periods=periods,
+            grid=grid,
+            batteries=[battery],
+            solar=solar,
+            loads=[],
+            adequacy_loads=adequacy,
+        )
+        self.assertEqual(plan.status, "optimal")
+        # Today's own window is fully served -- confirm the schedule
+        # itself is fine, same "don't assume, check the real power
+        # array" discipline as the mirror test.
+        power = plan.adequacy_loads[0].power_kw
+        today_delivered = float(np.sum(power[6:17]))
+        self.assertGreaterEqual(today_delivered, 2.0 - 1e-6)
+        # The reported shortfall must reflect ONLY today's (fully-met)
+        # window, not the future day's own genuinely-unreachable one --
+        # before the #739 fix this asserted > 90.0 (the future window's
+        # own shortfall leaking into the aggregate).
+        self.assertLess(plan.adequacy_loads[0].shortfall_kwh, 1e-6)
+
 
 if __name__ == "__main__":
     unittest.main()
