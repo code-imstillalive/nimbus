@@ -7733,6 +7733,15 @@ def publish_plan(
         round(plan.duals[_p2p_cap_keys[0]], 4) if _p2p_cap_keys else None
     )
 
+    _diag_757_battery_forecast = build_per_battery_forecast(
+        plan, grid_times, n_periods, battery_capacity_by_name
+    )
+    _LOGGER.warning(
+        "Nimbus #757 diag: about to ha_post_state(%s) with batteries=%s (plan id=%x)",
+        ENTITY_ID,
+        [b["name"] for b in _diag_757_battery_forecast],
+        id(plan),
+    )
     ha_post_state(
         ENTITY_ID,
         round(float(net_battery[0]), 3),
@@ -7761,9 +7770,12 @@ def publish_plan(
             "forecast": forecast,
             # nimbus issue #563 item 5 -- see build_per_battery_
             # forecast()'s own docstring for the full reasoning.
-            "batteries": build_per_battery_forecast(
-                plan, grid_times, n_periods, battery_capacity_by_name
-            ),
+            # nimbus issue #757 diag: reusing the exact same list computed
+            # and logged just above, instead of a second, separate call --
+            # guarantees the diagnostic log and the real published value
+            # are provably the same object, not two independent
+            # computations that could theoretically diverge.
+            "batteries": _diag_757_battery_forecast,
             "status": plan.status,
             "total_cost": plan.total_cost,
             "total_cost_with_fixed_costs": round(total_cost_with_fixed_costs, 4),
