@@ -312,6 +312,63 @@ underlying, fully generic piece -- it takes whatever `GridConfig` you
 give it, so applying the same real constraint on your own install is a
 config change here, not a new mechanism to build.
 
+## `files/mqtt_pseudo_water_heater.py` — a pseudo HWS device for daily controllable-load testing (NOT household-specific)
+
+nimbus issue #741 (Mark Purcell, real household finding): the real HWS was
+commanded OFF continuously for 16.5+ hours with 7 distinct broken "next
+start" promises in one morning — never actually activated despite being
+scheduled repeatedly. `tests/test_solver_writer_controllable_loads.py`'s
+own `TestFlipFloppingRawDecisionNeverActivatesHws` (same repo) proved
+`apply_commanded_state_guard()`'s debounce logic is sound in isolation —
+a synthetic flip-flopping decision never falsely activates, a genuinely
+stable one does. That narrows #741's real cause to *why the LP's own
+period-0 decision oscillates in the first place*, but a unit test can't
+watch that happen against the real 2-minute solve cadence, real prices,
+and a real (changing) forecast.
+
+This script is the live complement: it publishes a real `water_heater`
+entity into Home Assistant over MQTT Discovery, shaped like the real
+household's own WWK302 (`min_temp=45`, `max_temp=65`,
+`operation_list=["eco","performance"]`, and the same eco-mode floor-
+defense behaviour #731 found live — the compressor engages below
+`min_temp` regardless of Nimbus's last commanded mode), backed by a
+simple linear thermal simulation rather than a real tank. Point a
+`controllable_load` subentry's Device entity field at the resulting
+`water_heater.nimbus_test_hws` and Nimbus schedules and dispatches it
+every solve, on a real running install, with nothing worse than a fake
+number at stake if something is still wrong upstream.
+
+Unlike the rest of this folder, **this one is genuinely portable, not a
+household-specific export** — it has no real entity IDs baked in, only
+the household's own real, live-confirmed WWK302 min/max/mode values
+(deliberately matched so a `controllable_load` subentry configured
+identically to the real one behaves the same way against the pseudo
+device).
+
+**Usage:**
+
+```
+pip install paho-mqtt
+MQTT_HOST=core-mosquitto MQTT_USERNAME=... MQTT_PASSWORD=... \
+    python3 mqtt_pseudo_water_heater.py
+```
+
+Runs forever — a long-lived daemon, not a one-shot, meant to run
+alongside the Home Assistant container (a systemd unit or
+`docker run -d`) rather than the `docker cp`/`docker exec`-once pattern
+the `lovelace_*.py` scripts above use. Requires an MQTT broker with HA's
+MQTT integration already configured (the Mosquitto HA add-on is
+`core-mosquitto` on port 1883 by default — the script's own defaults
+assume that). Once running, HA MQTT Discovery creates
+`water_heater.nimbus_test_hws` automatically; wire a `controllable_load`
+subentry's Device entity field to it the same way you would the real
+device, and watch `sensor.nimbus_nimbus_test_hws_status` /
+`sensor.nimbus_nimbus_test_hws_next_start` over a real day or two to see
+whether the real solve cadence actually activates it or just keeps
+rescheduling — the exact question #741 asked. State (current
+temperature/mode) resets on restart — this is a test fixture, not a
+real tank, and persistence was deliberately left out.
+
 ## `files/research/*.py` — the Solver audit scripts
 
 These are the scripts used to work through (and mostly close) a real,
