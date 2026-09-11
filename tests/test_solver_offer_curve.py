@@ -21,6 +21,7 @@ import unittest
 
 import _solver_path  # noqa: F401
 import numpy as np
+from solver import lp
 from solver.elements import (
     BatteryConfig,
     GridConfig,
@@ -28,12 +29,17 @@ from solver.elements import (
     PeriodGrid,
     SolarConfig,
 )
-from solver.network import build_plan
+from solver.network import _OFFER_CURVE_DOMAIN_MIN, build_plan
 
 
-def _grid(n: int, *, import_price=0.30, export_price=0.10) -> GridConfig:
+def _grid(
+    n: int, *, import_price=0.30, export_price=0.10, price0_override=None
+) -> GridConfig:
+    imp = np.full(n, import_price)
+    if price0_override is not None:
+        imp[0] = price0_override
     return GridConfig(
-        import_price=np.full(n, import_price),
+        import_price=imp,
         export_price=np.full(n, export_price),
         import_limit_kw=50.0,
         export_limit_kw=50.0,
@@ -796,6 +802,132 @@ class TestOfferCurveRangingWalkFindsRealStructure(unittest.TestCase):
         self.assertLessEqual(
             len(self.plan.offer_curve_export), _OFFER_CURVE_MAX_BREAKPOINTS + 1
         )
+
+
+class TestOfferCurveAgreesWithDirectResolve(unittest.TestCase):
+    """nimbus issue #733 (Mark Purcell, live finding, real household):
+    the offer curve's own ranging sweep must always agree with what an
+    honest, independent re-solve at that same price actually produces
+    -- the sweep is a SHORTCUT for "what would the LP choose at this
+    price", not a separate opinion. Confirmed live 2026-09-11 (real
+    household, both EV participants, real forecast) and reproduced here
+    with this file's own minimal synthetic fixtures -- proposed by Mark
+    directly in the issue thread, dropped in verbatim (only the import
+    line above changed to match this file's own existing style)."""
+
+    def _plan(self, *, price0_override, compute_offer_curve, solve_options=None):
+        n = 4
+        periods = PeriodGrid(hours=np.full(n, 1.0), start=None)
+        return build_plan(
+            periods=periods,
+            grid=_grid(n, price0_override=price0_override),
+            batteries=[_battery()],
+            solar=SolarConfig(forecast_kw=np.array([0.0, 3.0, 0.0, 0.0])),
+            loads=[LoadConfig(name="house", forecast_kw=np.full(n, 2.0))],
+            compute_offer_curve=compute_offer_curve,
+            solve_options=solve_options,
+        )
+
+    def test_without_calibrated_options_curve_matches_direct_resolve(self):
+        # Control case: confirms the comparison technique itself is
+        # sound before trusting it to catch a real bug below.
+        curve_plan = self._plan(price0_override=None, compute_offer_curve=True)
+        floor_price, floor_kw = curve_plan.offer_curve_import[0]
+        self.assertEqual(floor_price, _OFFER_CURVE_DOMAIN_MIN)
+
+        direct_plan = self._plan(
+            price0_override=_OFFER_CURVE_DOMAIN_MIN, compute_offer_curve=False
+        )
+        self.assertAlmostEqual(
+            floor_kw,
+            direct_plan.grid_import_kw[0],
+            places=4,
+            msg="sanity check: without CalibratedOptions the curve and a "
+            "direct re-solve at the same price must already agree",
+        )
+
+    def test_with_calibrated_options_curve_still_matches_direct_resolve(self):
+        # nimbus issue #733: this is the one that currently FAILS.
+        # Confirmed live: with solve_options=CalibratedOptions() (#696,
+        # the fleet default per that issue's own worklog), the offer
+        # curve reports ~0 kW import at the Market Floor Price while an
+        # independent re-solve at that identical price correctly wants
+        # the full 5 kW max_charge_kw (mirrors the real household's own
+        # 30 kW envelope wanting the full amount at -$1/kWh). The curve
+        # is not a rounding-off artifact of a genuinely-flat plateau --
+        # it is actively WRONG about what the LP itself would do.
+        options = lp.CalibratedOptions()
+        curve_plan = self._plan(
+            price0_override=None, compute_offer_curve=True, solve_options=options
+        )
+        floor_price, floor_kw = curve_plan.offer_curve_import[0]
+        self.assertEqual(floor_price, _OFFER_CURVE_DOMAIN_MIN)
+
+        direct_plan = self._plan(
+            price0_override=_OFFER_CURVE_DOMAIN_MIN,
+            compute_offer_curve=False,
+            solve_options=lp.CalibratedOptions(),
+        )
+        self.assertAlmostEqual(
+            floor_kw,
+            direct_plan.grid_import_kw[0],
+            places=4,
+            msg="#733: the offer curve's own ranging sweep disagrees with "
+            "a direct re-solve at the identical price under "
+            "CalibratedOptions -- the published curve is wrong, not just "
+            "imprecise (confirmed live on a real household install)",
+        )
+
+    def test_curve_at_retail_still_matches_dispatch_under_calibrated_options(self):
+        # The #733 fix walks the curve against a separate plain-mode
+        # base result instead of the calibrated one -- the one thing
+        # that could plausibly break is #494's own "curve at retail ==
+        # main plan's period-0 dispatch" guarantee, since a plain re-
+        # solve at the exact real price COULD in principle land on a
+        # different (but equally primary-optimal) tied vertex than the
+        # calibrated solve did. At a genuinely non-degenerate real price
+        # (this fixture's own 0.30/0.10 import/export, not an artificial
+        # sweep extreme) there is no real tie for calibration to have
+        # broken in the first place, so the two must still agree.
+        plan = self._plan(
+            price0_override=None,
+            compute_offer_curve=True,
+            solve_options=lp.CalibratedOptions(),
+        )
+        retail_import = float(plan.effective_import_price[0])
+        match = [
+            kw
+            for price, kw in plan.offer_curve_import
+            if abs(price - retail_import) < 1e-9
+        ]
+        self.assertEqual(len(match), 1)
+        self.assertAlmostEqual(match[0], plan.grid_import_kw[0], places=4)
+
+    def test_sweep_time_under_calibrated_options_stays_well_under_half_a_second(self):
+        # nimbus issue #733's own fix adds one extra plain-mode solve of
+        # the same problem whenever the real solve used secondary costs
+        # -- real, measured confirmation this stays cheap at a somewhat
+        # realistic scale, not just an assumption in a code comment. A
+        # genuinely production-scale (~4000 variable) measurement is out
+        # of scope for this fixture, but this is the first real test of
+        # the CalibratedOptions offer-curve path's own timing at all --
+        # every existing timing test in this file uses solve_options=
+        # None (zero extra cost, unaffected by this fix).
+        n = 24
+        periods = PeriodGrid(hours=np.full(n, 1.0), start=None)
+        start_time = time.monotonic()
+        plan = build_plan(
+            periods=periods,
+            grid=_grid(n),
+            batteries=[_battery()],
+            solar=SolarConfig(forecast_kw=np.full(n, 1.5)),
+            loads=[LoadConfig(name="house", forecast_kw=np.full(n, 2.0))],
+            compute_offer_curve=True,
+            solve_options=lp.CalibratedOptions(),
+        )
+        elapsed = time.monotonic() - start_time
+        self.assertEqual(plan.status, "optimal")
+        self.assertLess(elapsed, 0.5)
 
 
 if __name__ == "__main__":
