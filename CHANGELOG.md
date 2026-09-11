@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.255] — 2026-09-11
+
+### Changed
+- **#757 diagnostic follow-up**: v0.94.254's own logging proved `main()`'s `all_batteries` consistently carries both the home battery and a real second `battery_participant` (a live devhub EV fixture) into `build_plan()`, on every recent solve cycle — but the published `sensor.nimbus_solver_battery_forecast` still showed only the home battery moments later, ruling out `build_extra_batteries()` and `main()`'s own merge as the cause. `network.py`'s own `plan_batteries` list comprehension is unconditional over its input, so this shouldn't be possible by a direct code read. Added one more diagnostic WARNING log immediately after `build_plan()` returns (before `publish_plan()` runs) to bisect whether the drop happens inside `build_plan()` itself or somewhere between the return and the published sensor state. Still temporary; no other behavior change.
+
 ## [0.94.254] — 2026-09-11
 
 ### Changed
