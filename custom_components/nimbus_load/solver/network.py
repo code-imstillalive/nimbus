@@ -3146,15 +3146,29 @@ def build_plan(
             # field genuinely has zero downstream consumers today
             # (checked directly, solver_writer.py never reads it), so
             # the aggregate-total shape is still safe for it.
-            # shortfall_kwh sums every window's own independent slack.
-            # Neither field is consumed downstream of network.py today
-            # (checked directly) beyond this aggregate-total shape, so
-            # this is a safe, honest generalization of the single-window
-            # meaning rather than a behavior-preserving requirement.
             delivered_by_deadline_kwh = float(np.sum(power_arr * hours))
-            shortfall_kwh = sum(
-                p.value_of(result, var)
-                for var in adequacy_window_shortfall_vars[al.name]
+            # nimbus issue #739 (Mark Purcell, live finding, real
+            # household): shortfall_kwh is NOT the same situation --
+            # solver_writer.py DOES read it directly, as the household-
+            # facing "will miss target by X kWh" status text
+            # (plan_shortfall_kwh). Summing every window's own slack
+            # across the WHOLE multi-day horizon silently folds in every
+            # FUTURE day's own not-yet-open window too -- a future day's
+            # target genuinely hasn't been delivered yet (its own window
+            # hasn't started), which is expected and not a real
+            # shortfall, but it looks identical to one once summed into
+            # a single number. Confirmed live: a load whose TODAY
+            # schedule fully covers its target (0.000 real implied
+            # shortfall) still reported "will miss target by 2.38 kWh" --
+            # a magnitude consistent with one or more future days' own
+            # untouched targets leaking into the aggregate. Only the
+            # NEAREST window (`windows[0]`, the same real-time-relevant
+            # window #712/#713's own floor-crossing fix and the legacy
+            # earliest/deadline-period fields already treat as "the one
+            # that matters for single-value reporting") reflects what a
+            # household actually needs to know right now.
+            shortfall_kwh = p.value_of(
+                result, adequacy_window_shortfall_vars[al.name][0]
             )
         else:
             delivered_by_deadline_kwh = float(
