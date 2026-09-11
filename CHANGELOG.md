@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.253] — 2026-09-11
+
+### Fixed
+- **Every battery's own charge/discharge now pays its real round-trip efficiency loss at the real grid price** (nimbus issue #732, greenlit fix for #731's own real cross-battery wash-trade incident — an EV discharging 16.1 kW to charge the home battery for one period, then reverting, with a real ~5% round-trip loss and no offsetting benefit). A literal per-pair cross-battery cost isn't representable in this project's single-bus LP without a much bigger flow-network redesign; implemented the closest LP-compatible equivalent instead — a real, price-aware loss cost (capped at the same $0.01/kWh tie-break magnitude already used elsewhere in this project) on every battery's own charge/discharge. A same-period transfer between two batteries now pays this loss on both legs, directly countering the mechanism #731's incident exploited, while genuine arbitrage stays untouched (it remains worthwhile exactly when the real price spread exceeds this same loss cost). Still needs verification against the real household fleet before being considered fully closed.
+- **The pseudo-HWS test fixtures for nimbus issue #741 (a genuine unit test plus a live MQTT test daemon) are now merged and deployed on devhub** (nimbus issue #750) — proves the relay-chatter debounce guard is sound (a flip-flopping raw dispatch decision never falsely activates a device), and gives ongoing visibility into whether a controllable load's raw dispatch decision stays stable over time, without risking a real household appliance.
+
 ## [0.94.252] — 2026-09-11
 
 ### Fixed
