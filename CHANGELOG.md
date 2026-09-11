@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.256] — 2026-09-11
+
+### Changed
+- **#757 diagnostic, final probe in this chain**: computes the `batteries` list once as a local variable immediately before `ha_post_state()` for `sensor.nimbus_solver_battery_forecast`, logs it, and reuses that exact same object as the published dict's `batteries` value — provably the same object as what gets published, not a second independent computation. Prior diagnostics proved `plan.batteries` has 2 entries right after `build_plan()` returns on every recent solve cycle, yet the live entity consistently showed only 1; exhaustive static reading of every function between the two found no filtering code in this repo. Still temporary; no other behavior change.
+
 ## [0.94.255] — 2026-09-11
 
 ### Changed
