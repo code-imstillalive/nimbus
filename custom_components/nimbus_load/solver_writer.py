@@ -9067,17 +9067,24 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
     # this unconditional trace hasn't been asked to explain yet. Logs
     # every subentry_type this loop actually sees, every cycle, until the
     # real mechanism is found.
-    _LOGGER.info(
+    _LOGGER.warning(
         "Nimbus #757 diag: build_extra_batteries scanning %d subentries: %s",
         len(entries[0].subentries),
-        [(s.subentry_id, s.subentry_type, s.data.get(CONF_BATTERY_PARTICIPANT_NAME)) for s in entries[0].subentries.values()],
+        [
+            (s.subentry_id, s.subentry_type, s.data.get(CONF_BATTERY_PARTICIPANT_NAME))
+            for s in entries[0].subentries.values()
+        ],
     )
     for subentry in entries[0].subentries.values():
         if subentry.subentry_type != SUBENTRY_TYPE_BATTERY_PARTICIPANT:
             continue
         data = subentry.data
         name = data.get(CONF_BATTERY_PARTICIPANT_NAME) or subentry.subentry_id
-        _LOGGER.info("Nimbus #757 diag: found battery_participant subentry name=%r data_keys=%s", name, sorted(data.keys()))
+        _LOGGER.warning(
+            "Nimbus #757 diag: found battery_participant subentry name=%r data_keys=%s",
+            name,
+            sorted(data.keys()),
+        )
         if name in seen_names or name == "home":
             # "home" is reserved for the hub's own single battery (see
             # this function's own docstring) -- a household typing it
@@ -9271,6 +9278,18 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
         degradation_cost_per_kwh = float(
             data.get(CONF_BATTERY_PARTICIPANT_DEGRADATION_COST_PER_KWH) or 0.0
         )
+        _LOGGER.warning(
+            "Nimbus #757 diag: about to append BatteryConfig for %r "
+            "(capacity_kwh=%s, max_charge_kw=%s, max_discharge_kw=%s, "
+            "min_soc_kwh=%s, max_soc_kwh=%s, initial_soc_kwh=%s)",
+            name,
+            capacity_kwh,
+            max_charge_kw,
+            max_discharge_kw,
+            min_soc_kwh,
+            max_soc_kwh,
+            initial_soc_kwh,
+        )
         batteries.append(
             elements.BatteryConfig(
                 name=name,
@@ -9304,6 +9323,11 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
                 shared_charger_max_kw=shared_charger_max_kw,
             )
         )
+    _LOGGER.warning(
+        "Nimbus #757 diag: build_extra_batteries returning %d battery config(s): %s",
+        len(batteries),
+        [b.name for b in batteries],
+    )
     return batteries
 
 
@@ -11691,6 +11715,11 @@ def main() -> None:
     # "batteries" docstring paragraph for that explicit #467 stage-1
     # decision.
     all_batteries = [battery, *build_extra_batteries(periods)]
+    _LOGGER.warning(
+        "Nimbus #757 diag: main() all_batteries after merge = %s (periods=%r)",
+        [b.name for b in all_batteries],
+        "set" if periods is not None else None,
+    )
     # nimbus issue #569 (Mark Purcell, found live within hours of #563
     # landing): plan.battery_soc_kwh is the SUMMED aggregate across every
     # battery (per #467 stage 1's own contract), but every percentage
