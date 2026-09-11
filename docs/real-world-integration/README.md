@@ -68,9 +68,9 @@ This is the actual glue: a plain host cron script (runs every minute,
 no HA restart ever needed for a change here) that reads live sensors,
 builds `GridConfig`/`BatteryConfig`/`SolarConfig`/`LoadConfig` from
 them, calls this repo's own `network.build_plan()`, and pushes the
-result to `sensor.nimbus_solver_battery_forecast`. Nimbus itself never
-writes to Modbus or touches the battery — this stays purely
-observational/shadow-mode.
+result to `sensor.nimbus_solver_battery_forecast`. This plan now drives real,
+live battery and grid dispatch on the reference household — it has
+graduated out of observe-only shadow mode.
 
 Two things worth knowing before reading it:
 
@@ -207,9 +207,13 @@ One chart, history AND forecast, for three things at once: Nimbus's own
 plan, your real controller's own plan (this household compares against
 HAEO — see the file's own header for exactly which two entities are
 household-specific and what to swap them for), and the real measured
-battery power. This is the actual "is Nimbus's shadow-mode plan any
+battery power. This is the actual "is Nimbus's own live dispatch plan any
 good" answer over time — not a single current-forecast number, a real
-trend you can watch.
+trend you can watch. (File and card title kept as historical filenames/
+IDs from when this chart was first built — the card title text itself was
+corrected to drop the stale "(Shadow Mode)" suffix; an already-deployed
+card on a live dashboard needs its title edited directly in the Lovelace
+UI, re-running the script won't retroactively rename an existing card.)
 
 **Read the file's own docstring before deploying** — two of the three
 series are genuinely household-specific (this household's own HAEO
