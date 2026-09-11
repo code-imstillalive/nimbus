@@ -3142,7 +3142,10 @@ def build_plan(
         if al.windows is not None:
             # nimbus issue #612: no single "the deadline" any more --
             # delivered_by_deadline_kwh becomes the real total delivered
-            # across the WHOLE horizon (every window combined), and
+            # across the WHOLE horizon (every window combined). That
+            # field genuinely has zero downstream consumers today
+            # (checked directly, solver_writer.py never reads it), so
+            # the aggregate-total shape is still safe for it.
             # shortfall_kwh sums every window's own independent slack.
             # Neither field is consumed downstream of network.py today
             # (checked directly) beyond this aggregate-total shape, so
@@ -3452,6 +3455,69 @@ def build_plan(
     if compute_offer_curve:
         _offer_curve_start = time.monotonic()
         hours0 = float(hours[0])
+        # nimbus issue #733 (Mark Purcell, live finding, real household
+        # install, both EV participants): sweep_cost_with_ranging()
+        # warm-starts from `result`'s own already-solved HiGHS basis and
+        # only ever changes ONE variable's cost coefficient
+        # (`h.changeColCost`) before re-solving. When `result` came from
+        # a CalibratedOptions (or Blended/Lex) solve, every OTHER
+        # variable in that basis still carries its own `primary +
+        # calibrated_weight * secondary` blended cost -- calibrated
+        # specifically against the REAL, near-baseline price this cycle
+        # actually solved at. Sweeping one variable's cost out to an
+        # extreme domain edge (the Market Floor/Cap, nowhere near the
+        # real price the calibration was computed for) makes that one
+        # variable's incentive dominate the objective in a way the
+        # calibration weight was never chosen to handle, while every
+        # other variable's stale secondary weighting still resists
+        # moving away from its own calibrated position -- confirmed live
+        # and reproduced in a minimal synthetic scenario (offer curve
+        # reports ~0 kW import at -$1/kWh; a genuine fresh re-solve at
+        # that identical price correctly wants the full charge/import
+        # envelope). A real, fresh CalibratedOptions re-solve at each
+        # swept price (Mark's own tested-correct fix) would need a full
+        # lex+calibration search per breakpoint -- `_calibrate_blend_
+        # weight()`'s own up-to-40-step binary search, times up to
+        # `_OFFER_CURVE_MAX_BREAKPOINTS` steps per curve -- a real,
+        # unmeasured cost risk against this project's own "total sweep
+        # time under 0.5s" bar (#494) at production scale.
+        #
+        # This solves it structurally instead: the offer curve's own
+        # question -- "what would the LP economically choose at this
+        # hypothetical price" -- doesn't need the secondary/calibration
+        # machinery at all. That machinery exists purely to break ties
+        # among otherwise-equally-PRIMARY-optimal solutions for the REAL
+        # dispatch decision; it was never meant to reflect genuine
+        # economic value, which is exactly what a demand-response offer
+        # curve is supposed to communicate. So the walk (and the
+        # always-swept retail point) run against a SEPARATE, plain
+        # (`options=None`, secondary never read -- byte-identical to
+        # this module's own pre-#696 default) solve of the exact same
+        # problem `p`, instead of `result`. Only built when the real
+        # dispatch solve actually engaged secondary costs in the first
+        # place (`_use_secondary_costs`) -- a plain-mode `result` is
+        # already the correct, zero-extra-cost base for every other
+        # install, exactly as before this fix.
+        _offer_curve_base_result = (
+            p.solve(keep_basis=True) if _use_secondary_costs else result
+        )
+        if _offer_curve_base_result.status != "optimal":
+            # Honest fail-open: an already-optimal `result` proves the
+            # real problem IS feasible, so a plain re-solve of the exact
+            # same `p` failing here would be a genuine anomaly, not an
+            # expected outcome -- fall back to `result` itself (the
+            # pre-#733 behaviour) rather than let a real edge case here
+            # take down the whole plan.
+            _LOGGER.warning(
+                "Nimbus offer curve: plain-mode base re-solve for the "
+                "#733 fix did not reach optimal (status=%s) despite the "
+                "real calibrated solve succeeding -- falling back to the "
+                "calibrated basis for this cycle's curve (pre-#733 "
+                "behaviour, may reproduce that issue's own symptom this "
+                "cycle only)",
+                _offer_curve_base_result.status,
+            )
+            _offer_curve_base_result = result
         # nimbus issue #678: walks each curve's own real breakpoints
         # directly instead of sampling #494's original fixed 7-point
         # grid (_offer_curve_price_grid(), removed by this issue) -- see
@@ -3464,7 +3530,7 @@ def build_plan(
         offer_curve_import: list[tuple[float, float]] | None
         offer_curve_import_ranging: list[tuple[float, float] | None] | None
         offer_curve_import, offer_curve_import_ranging = _offer_curve_ranging_walk(
-            result,
+            _offer_curve_base_result,
             grid_import[0],
             # start/ascending default to the floor, walking up -- import's
             # real breakpoints cluster near the floor (nimbus issue #705).
@@ -3481,7 +3547,7 @@ def build_plan(
         offer_curve_export: list[tuple[float, float]] | None
         offer_curve_export_ranging: list[tuple[float, float] | None] | None
         offer_curve_export, offer_curve_export_ranging = _offer_curve_ranging_walk(
-            result,
+            _offer_curve_base_result,
             grid_export[0],
             # nimbus issue #705: export's real breakpoints cluster near
             # the CAP, not the floor -- walk from _OFFER_CURVE_DOMAIN_MAX
