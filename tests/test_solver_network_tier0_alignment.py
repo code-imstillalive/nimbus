@@ -94,15 +94,28 @@ def _previous_plan_5min() -> Plan:
 def _run(*, previous_plan, proximal_weight):
     n = 5
     grid = GridConfig(
-        # A tiny (0.001 $/kWh) but real, strictly positive export margin
-        # over the battery's own discharge_cost (0.099) -- matching the
-        # issue's own "a fraction of a cent per kWh either way" framing.
+        # A tiny but real, strictly positive export margin over the
+        # battery's own discharge_cost (0.099) -- matching the issue's
+        # own "a fraction of a cent per kWh either way" framing.
         # Genuinely positive, not zero, so the untethered case has a real
         # (deterministic, non-degenerate) LP incentive to push to the max
         # bound -- not just solver tie-breaking on an exactly-indifferent
         # objective.
+        #
+        # nimbus issue #732: export_price bumped from 0.10 to 0.11 --
+        # discharging now also pays a real, capped efficiency-loss cost
+        # (min(import_price * (1/discharge_efficiency - 1),
+        # MIN_CHARGE_DISCHARGE_COST_SPREAD) = min(0.30 * 0.020408, 0.01)
+        # = 0.006122 $/kWh here), which the original 0.001 margin no
+        # longer clears (0.10 - 0.099 - 0.006122 < 0). This is the
+        # correct, intended real-economics effect of that fix -- the
+        # old margin was never actually profitable once the real
+        # round-trip loss is honestly priced. Bumped just enough
+        # (0.11 - 0.099 - 0.006122 = 0.004878) to restore a genuinely
+        # positive, still-tiny margin so this file keeps testing tier-0
+        # tethering specifically, not accidentally re-litigating #732.
         import_price=np.full(n, 0.30),
-        export_price=np.full(n, 0.10),
+        export_price=np.full(n, 0.11),
         import_limit_kw=30.0,
         export_limit_kw=25.0,
     )

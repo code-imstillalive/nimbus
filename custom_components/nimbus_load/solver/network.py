@@ -2366,13 +2366,77 @@ def build_plan(
         )
         p.set_cost(grid_export[t], -effective_export_price[t] * hours[t])
         for b in batteries:
+            # nimbus issue #732 (Mark Purcell, greenlit fix for #731's own
+            # real cross-battery wash-trade incident: an EV discharging
+            # 16.1 kW to charge the home battery for one period, then
+            # reverting, with a real ~5% round-trip loss and no
+            # offsetting benefit). The originally-proposed mechanism (a
+            # cost attributable to a SPECIFIC pair of batteries trading
+            # with each other) isn't representable in this LP without a
+            # full flow-network redesign (one aggregate switchboard
+            # balance, not per-pair energy edges -- attributing which
+            # battery's discharge fed which battery's charge is
+            # genuinely unattributable at that level). The LP-compatible
+            # equivalent: price each battery's OWN real round-trip
+            # efficiency loss, at that period's own real grid import
+            # price, on every charge/discharge kWh.
+            #
+            # A first version priced this UNCAPPED (the full real-price
+            # value) and caused a genuine regression, caught by this
+            # project's own full test suite before shipping: it also
+            # penalizes charging from FREE/curtailed solar as if that
+            # energy displaced a real import-price-valued alternative,
+            # which it doesn't -- import_price is only the right
+            # valuation when grid import is genuinely the marginal
+            # source, and that's a property of the SOLVE'S OWN OUTPUT
+            # (the power-balance shadow price), not something knowable
+            # before the solve runs. Confirmed live: broke
+            # test_solver_multi_battery.py's own
+            # TestSimultaneousChargeAndDischargeAcrossBatteries (a
+            # battery absorbing free midday solar surplus while another,
+            # unrelated battery legitimately discharged the same period
+            # -- a real, physically legitimate reallocation, not a wash
+            # trade) by making the surplus-absorption itself look
+            # artificially expensive.
+            #
+            # Same lesson #692 already learned for
+            # battery_charge_earliness_budget_kw (see that constant's
+            # own comment): a tie-break-shaped cost that scales with a
+            # potentially-large real quantity can regress real capacity/
+            # decision behavior once large enough. Fixed the same way:
+            # capped at a small constant matching this project's own
+            # established tie-break magnitude
+            # (MIN_CHARGE_DISCHARGE_COST_SPREAD, $0.01/kWh) rather than
+            # the uncapped real price -- still genuinely price-AWARE
+            # (scales with real price and real efficiency loss whenever
+            # that product is small, exactly matching #731's own real
+            # incident numbers, ~0.3-0.6 c/kWh of throughput), never
+            # large enough to override a real, sizable profit margin
+            # like the legitimate cross-battery reallocation case above.
+            charge_loss_cost = min(
+                effective_import_price[t] * (1.0 - b.charge_efficiency),
+                MIN_CHARGE_DISCHARGE_COST_SPREAD,
+            )
+            discharge_loss_cost = min(
+                effective_import_price[t] * (1.0 / b.discharge_efficiency - 1.0),
+                MIN_CHARGE_DISCHARGE_COST_SPREAD,
+            )
             p.set_cost(
                 charge_vars[b.name][t],
-                (charge_cost_arrs[b.name][t] + b.degradation_cost_per_kwh) * hours[t],
+                (
+                    charge_cost_arrs[b.name][t]
+                    + b.degradation_cost_per_kwh
+                    + charge_loss_cost
+                )
+                * hours[t],
             )
             p.set_cost(
                 discharge_vars[b.name][t],
-                (discharge_cost_arrs[b.name][t] + b.degradation_cost_per_kwh)
+                (
+                    discharge_cost_arrs[b.name][t]
+                    + b.degradation_cost_per_kwh
+                    + discharge_loss_cost
+                )
                 * hours[t],
             )
         for sl in sheddable_loads:

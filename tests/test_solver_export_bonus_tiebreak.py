@@ -154,7 +154,16 @@ class TestExportBonusTieBreak(unittest.TestCase):
         # on whichever 60kWh worth of it claims it, minus discharge cost)
         # -- computed independently of the tie-breaker's own tiny nudge,
         # confirming it doesn't materially move the answer.
-        expected_cost_without_tiebreaker = -28.564211
+        #
+        # nimbus issue #732: regenerated after adding a real, capped,
+        # price-aware efficiency-loss cost to every battery's own
+        # discharge -- a real economics change, not tie-breaker noise.
+        # This scenario discharges 91 kWh total (7h * 13kW); the extra
+        # cost is min(import_price * (1/discharge_efficiency - 1),
+        # MIN_CHARGE_DISCHARGE_COST_SPREAD) * 91 = min(0.15 * 0.05263,
+        # 0.01) * 91 = 0.007895 * 91 = 0.71839... -- added directly to
+        # the pre-#732 baseline below.
+        expected_cost_without_tiebreaker = -28.564211 + 0.7183905263157904
         self.assertAlmostEqual(
             plan.total_cost, expected_cost_without_tiebreaker, places=2
         )
