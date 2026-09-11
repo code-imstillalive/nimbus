@@ -2666,6 +2666,39 @@ def build_plan(
             proximal_weight,
             use_secondary=_use_secondary_costs,
         )
+        # nimbus issue #725 (Mark Purcell, live finding): adequacy loads
+        # got mechanism 1 (proximal_weight, cross-solve continuity)
+        # above but never mechanism 4 (smoothness_weight, WITHIN-solve
+        # smoothness) -- confirmed directly, this loop had no
+        # _add_intraplan_smoothness_penalty() call at all, unlike the
+        # grid_import/grid_export and battery charge/discharge loops
+        # above. Same real degeneracy signature Mark found for a
+        # deferrable HWS load's own published plan: 0.65/0/0.40/0.40/
+        # 0/0.29 kW across consecutive 5-minute periods with nothing in
+        # the real economic signal justifying the jaggedness -- the
+        # anti-chatter hold window (apply_commanded_state_guard(), a
+        # SEPARATE mechanism downstream in solver_writer.py) was doing
+        # double duty as a de-facto smoother of the LP's own raw output,
+        # which is not what it exists for. A no-op for a load configured
+        # with the default `adequacy_semi_continuous=True` (every period
+        # is already hard 0-or-max, nothing continuous left to smooth --
+        # though this can still help break a tie between two otherwise-
+        # equally-optimal BLOCK placements toward the less jagged one);
+        # this is Mark's own load, which uses the continuous relaxation
+        # (`adequacy_semi_continuous=False`), where the jaggedness is
+        # real and this directly fixes it, same proven mechanism as the
+        # battery/grid families above -- see
+        # _add_intraplan_smoothness_penalty()'s own docstring for the
+        # full "why this is safe against real transitions" reasoning.
+        _add_intraplan_smoothness_penalty(
+            p,
+            adequacy_vars[al.name],
+            f"adequacy_{al.name}",
+            n,
+            hours,
+            smoothness_weight,
+            use_secondary=_use_secondary_costs,
+        )
 
     # ---- SoC dynamics -- each battery's own independent recursion ----
     for b in batteries:
