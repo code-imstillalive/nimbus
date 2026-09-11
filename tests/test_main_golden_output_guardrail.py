@@ -105,17 +105,24 @@ _EXPECTED_ATTRS = {
     # searched weight isn't byte-identical to the old 0.005 constant),
     # not drift -- see network.py's own build_plan() docstring on
     # `solve_options` for the full mechanism.
-    "total_cost": 26.666273542595135,
-    "total_cost_with_fixed_costs": 34.4663,
+    # nimbus issue #732: regenerated from a fresh real run after adding
+    # a real, price-aware efficiency-loss cost to every battery's own
+    # charge/discharge (capped at MIN_CHARGE_DISCHARGE_COST_SPREAD) --
+    # this fixture's own single battery now cycles genuinely less
+    # (real, deliberate throughput reduction, not drift): the LP now
+    # correctly prices the round-trip loss it was previously only
+    # feeling indirectly through terminal/salvage value.
+    "total_cost": 26.987646803296727,
+    "total_cost_with_fixed_costs": 34.7876,
     "cost_breakdown": {
-        "grid_net": 33.5867,
+        "grid_net": 33.5015,
         "degradation": 0.0,
-        "charge_fee": 0.1847,
-        "discharge_fee": 0.3148,
-        "terminal_value_credit": -7.4199,
+        "charge_fee": 0.127,
+        "discharge_fee": 0.26,
+        "terminal_value_credit": -6.9008,
     },
-    "cost_band": {"lower": 3.3107, "upper": 32.9326, "width": 29.622},
-    "cost_band_24h": {"lower": -0.275, "upper": 9.1375, "width": 9.4125},
+    "cost_band": {"lower": 1.741, "upper": 32.7335, "width": 30.9925},
+    "cost_band_24h": {"lower": -1.2203, "upper": 8.1922, "width": 9.4125},
     "p2p_match_fraction": 0.0,
     "risk_aversion": 0.25,
     "import_price_risk_aversion": 0.0,
@@ -123,17 +130,17 @@ _EXPECTED_ATTRS = {
     "risk_aversion_active": True,
     "salvage_value": 0.15,
     "degradation_cost_per_kwh": 0.0,
-    "total_charge_kwh": 18.47,
-    "total_discharge_kwh": 31.48,
-    "total_throughput_kwh": 49.95,
-    "equivalent_full_cycles": 0.624,
+    "total_charge_kwh": 12.7,
+    "total_discharge_kwh": 26.0,
+    "total_throughput_kwh": 38.7,
+    "equivalent_full_cycles": 0.484,
     "battery_kw_side": "AC",
     "battery_kw_sign_convention": "positive_discharge_negative_charge",
     "efficiency_convention": "round_trip_symmetric_sqrt",
     "price_blend_algorithm": "primary_preferring_fallback_to_secondary_mean",
     "charge_efficiency": 0.9747,
     "discharge_efficiency": 0.9747,
-    "ac_bus_losses_kwh": 1.285,
+    "ac_bus_losses_kwh": 0.997,
     "n_periods": 202,
     "n_clamped_periods": 0,
     # nimbus issue #652: this fixture is a single-battery, no-
@@ -161,7 +168,8 @@ _EXPECTED_ATTRS = {
     # nimbus issue #696, Stage 2: regenerated alongside total_cost
     # above -- the CalibratedOptions searched blend weight shifts this
     # dual's own value by a tiny, real, understood amount too.
-    "binding_constraint_shadow_price": 0.2864,
+    # nimbus issue #732: regenerated alongside total_cost above.
+    "binding_constraint_shadow_price": 0.2501,
     "energy_shadow_price_now": 0.3,
     "p2p_volume_cap_shadow_price": -0.0,
     # nimbus issue #567: this fixture configures no spike threshold/
@@ -263,7 +271,10 @@ _EXPECTED_FORECAST_SAMPLE = {
         # value in this file after solve_options=CalibratedOptions()
         # became the real default -- same reasoning as this file's own
         # top-of-file comment on total_cost.
-        "shadow_price": 0.2865,
+        # nimbus issue #732: regenerated again after the new
+        # efficiency-loss cost changed this fixture's own real
+        # dispatch.
+        "shadow_price": 0.2982,
         "envelope_import_limit_kw": 15.0,
         "envelope_export_limit_kw": 15.0,
     },
