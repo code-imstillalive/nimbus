@@ -617,6 +617,54 @@ removed entirely rather than kept in sync. `manifest.json`'s `version` is now
 the only version number in this repo; there is nothing left to keep in
 lockstep with it.
 
+## ⚠️ STANDING DIRECTIVE — RELEASE VALIDATION & DEFINITION OF DONE
+
+> **Nimbus issue #594 (Mark Purcell, 2026-09-09): "we should be finding a lot of these issues**
+> **in a devhub deployment before I find them in my production deployment."** Real evidence
+> behind the ask: 15 releases in 30 hours (v0.94.175→189), six of them found broken on the
+> real production install within minutes to hours of deploying — an invalid entity_id built
+> from a ULID, a reload warning storm, a same-day-window regression the overnight-only test
+> never covered, empty attributes for one cycle after restart, a migration claim ("existing
+> installs migrate cleanly") that was false on the first real upgrade. None of these were
+> caught by the unit suite; all of them would have been caught by actually looking at devhub.
+>
+> **Before considering ANY release done, not just merged:**
+> 1. **Deploy it to devhub and restart** (`ha_manage_hacs` download + `ha_restart`, not just a
+>    config reload — a Python change needs the full restart, same as NUC1).
+>    Confirm `ha_get_hacs_info` shows `installed_version == available_version` at the new tag.
+> 2. **Trigger a real solve** (`nimbus_load.solve_now`) and confirm `status: optimal` (or a
+>    genuinely expected non-optimal, e.g. a deliberately infeasible test scenario) — not just
+>    that the service call didn't error.
+> 3. **Check the HA log for new WARNING/ERROR lines** that weren't there before this release
+>    (`ha_get_logs(source='system')` or `source='error_log'`) — a clean solve with a noisy log
+>    is not a clean release.
+> 4. **Check every new/changed entity has a valid entity_id and a sensible value** on the
+>    FIRST solve after restart, not just eventually — #579's own ULID-built entity_id and
+>    #589's own "empty attributes for one cycle" are exactly the bugs this step catches.
+> 5. **If the change touches a config subentry (wizard field, new subentry type), exercise the
+>    reload path** — add or reconfigure a real subentry on devhub and confirm it's picked up
+>    without a restart, since three of #594's own six production bugs lived exactly there.
+> 6. **Ask the consumer-persona question**: open the device page / dashboard card for whatever
+>    this feature touches, as a household member would, and ask "what would an engaged
+>    consumer want to see here?" If the honest answer is "not much yet," say so explicitly in
+>    the CHANGELOG entry (with a follow-up issue number) rather than letting the code comment
+>    be the only place that admits it.
+> 7. **State what was actually verified in the CHANGELOG entry** — "confirmed live on devhub:
+>    restart clean, solve optimal, no new log lines, entity X shows Y" — not "should work" or
+>    an inferred claim about migration behaviour that was never actually tested against an
+>    upgraded install.
+>
+> **Test the default case, not only the edge** (#582's own lesson: a regression test existed
+> for the overnight window, none for a same-day window once the clock is already inside it —
+> found on the very first live morning). When adding a regression test for a time-window bug,
+> ask what the MOST COMMON real case is, not just the one that was reported.
+>
+> This directive is itself the durable fix for #594 — every release from v0.94.254 onward in
+> this file's own worklog already follows steps 1-3 as a matter of course (devhub deploy,
+> restart, solve_now, log check before calling anything shipped); this section makes that a
+> written requirement for every future session, not something that has to be remembered fresh
+> each time.
+
 ## Git workflow
 
 Branch + PR for every real change, same as `116KAT-HA-AI`. No direct pushes to `main`.
