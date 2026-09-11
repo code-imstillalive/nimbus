@@ -510,9 +510,7 @@ class TestSocExcursionWarnOnce(unittest.TestCase):
         # diagnostic lines are removed.
         with self.assertLogs(solver_writer._LOGGER, level="DEBUG") as cm:
             solver_writer.build_extra_batteries()
-        unexpected = [
-            line for line in cm.output if "Nimbus #757 diag" not in line
-        ]
+        unexpected = [line for line in cm.output if "Nimbus #757 diag" not in line]
         self.assertEqual(unexpected, [])
         self.assertNotIn(
             "ev_m3p:soc_excursion", solver_writer._BATTERY_PARTICIPANT_WARNED
