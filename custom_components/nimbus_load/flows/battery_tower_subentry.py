@@ -36,6 +36,59 @@ from ..const import (
 _TITLE_FALLBACK = "Battery Tower"
 
 
+async def _energy_dashboard_soc_suggestion(hass: Any) -> str | None:
+    """nimbus issue #554: a real household that has already told HA's
+    own Energy Dashboard (Settings -> Energy) which entity carries its
+    battery's State of Charge (the `stat_soc` field on a `battery`
+    energy source) shouldn't have to type the same entity_id again here
+    -- same `suggested_value` discipline as every other field in this
+    wizard: visible, editable, never saved without a submit. Kept
+    self-contained in this file rather than imported from hub_options.py's
+    own sibling `_energy_dashboard_switchboard_suggestions()`, matching
+    this file's own stated "each subentry flow file is deliberately
+    self-contained" convention (see _power_source_options()'s own
+    docstring above).
+
+    Returns the FIRST real, type-safe candidate found -- a real
+    Energy Dashboard can have more than one `battery` source (a home
+    pack and a separately-tracked EV charger, say) and there is no way
+    to know mid-wizard which physical tower THIS subentry represents;
+    same posture as every other suggestion in this codebase, a human
+    still confirms or corrects it before it's ever saved. None (not a
+    fabricated guess) when the Energy Dashboard isn't configured, has
+    no battery source, or its `stat_soc` entity doesn't genuinely look
+    like a real SoC reading.
+
+    Uses homeassistant.components.energy.data.async_get_manager() --
+    genuinely internal HA core API, not a stable public contract, same
+    "must never break the wizard" reasoning as the switchboard
+    suggestions -- any failure degrades to no suggestion, silently.
+    """
+    try:
+        from homeassistant.components.energy.data import async_get_manager
+
+        manager = await async_get_manager(hass)
+        sources = (manager.data or {}).get("energy_sources", [])
+        for source in sources:
+            if source.get("type") != "battery":
+                continue
+            entity_id = source.get("stat_soc")
+            if not entity_id:
+                continue
+            state = hass.states.get(entity_id)
+            if state is None:
+                continue
+            attrs = state.attributes
+            if attrs.get("device_class") != "battery":
+                continue
+            if attrs.get("unit_of_measurement") != "%":
+                continue
+            return entity_id
+    except Exception:  # noqa: BLE001 -- see docstring: must never break the wizard
+        return None
+    return None
+
+
 def _power_source_options(entry: Any) -> list[dict[str, str]]:
     """Same real, live dropdown-building helper as pv_string_subentry.py's
     own identical function -- kept as a separate copy (not a shared
@@ -49,7 +102,9 @@ def _power_source_options(entry: Any) -> list[dict[str, str]]:
     ]
 
 
-def _schema(defaults: dict[str, Any], entry: Any) -> vol.Schema:
+def _schema(
+    defaults: dict[str, Any], entry: Any, soc_suggestion: str | None = None
+) -> vol.Schema:
     entity_selector = selector.EntitySelector(
         selector.EntitySelectorConfig(domain="sensor")
     )
@@ -66,7 +121,20 @@ def _schema(defaults: dict[str, Any], entry: Any) -> vol.Schema:
         # visible fill-bar), but still genuinely Optional -- a household
         # mid-way through the wizard shouldn't hit a hard validation
         # error on a partially-filled-in tower.
-        _optional(CONF_BATTERY_TOWER_SOC_SENSOR, defaults): entity_selector,
+        #
+        # nimbus issue #554: a real saved value always wins (same
+        # safeguard-2 discipline as _energy_dashboard_switchboard_
+        # suggestions() in hub_options.py) -- the Energy Dashboard
+        # suggestion only ever fills in when this field is genuinely
+        # unset, and it's still only a suggested_value the household
+        # can edit or clear before ever submitting.
+        vol.Optional(
+            CONF_BATTERY_TOWER_SOC_SENSOR,
+            description={
+                "suggested_value": defaults.get(CONF_BATTERY_TOWER_SOC_SENSOR)
+                or soc_suggestion
+            },
+        ): entity_selector,
         _optional(CONF_BATTERY_TOWER_SOH_SENSOR, defaults): entity_selector,
         _optional(CONF_BATTERY_TOWER_VOLTAGE_SENSOR, defaults): entity_selector,
         _optional(CONF_BATTERY_TOWER_TEMPERATURE_SENSOR, defaults): entity_selector,
@@ -127,8 +195,17 @@ class NimbusBatteryTowerSubentryFlowHandler(ConfigSubentryFlow):
                 )
             return self.async_create_entry(title=title, data=user_input)
 
+        # nimbus issue #554: only worth the Energy Dashboard lookup when
+        # this tower doesn't already have a saved SoC sensor -- a real
+        # saved value always wins anyway (see _schema()'s own comment),
+        # so skip the async call entirely on a reconfigure of an
+        # already-filled-in tower.
+        soc_suggestion = None
+        if not current_data.get(CONF_BATTERY_TOWER_SOC_SENSOR):
+            soc_suggestion = await _energy_dashboard_soc_suggestion(self.hass)
         return self.async_show_form(
-            step_id="user", data_schema=_schema(current_data, entry)
+            step_id="user",
+            data_schema=_schema(current_data, entry, soc_suggestion),
         )
 
     def _derive_title(self, soc_entity_id: str | None) -> str:
