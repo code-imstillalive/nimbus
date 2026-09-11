@@ -411,8 +411,15 @@ class TestOutOfRangeSocWarningParity(unittest.TestCase):
             [_fake_subentry("s1", "battery_participant", data)],
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
         )
-        with self.assertNoLogs(solver_writer._LOGGER, level="WARNING"):
+        # nimbus issue #757 (temporary): same assertLogs-with-filter
+        # adjustment as TestSocExcursionWarnOnce's own
+        # test_unavailable_participant_never_warns_even_while_outside_
+        # floor -- see that test's own comment. Revert once #757 is
+        # root-caused and the diagnostic lines are removed.
+        with self.assertLogs(solver_writer._LOGGER, level="WARNING") as cm:
             solver_writer.build_extra_batteries()
+        unexpected = [line for line in cm.output if "Nimbus #757 diag" not in line]
+        self.assertEqual(unexpected, [])
 
 
 class TestSocExcursionWarnOnce(unittest.TestCase):
@@ -492,8 +499,19 @@ class TestSocExcursionWarnOnce(unittest.TestCase):
                 "binary_sensor.away": _fake_state("off"),
             },
         )
-        with self.assertNoLogs(solver_writer._LOGGER, level="DEBUG"):
+        # nimbus issue #757 (temporary): build_extra_batteries() carries
+        # unconditional diagnostic WARNING logging right now (to find why
+        # a live devhub battery_participant subentry wasn't reaching the
+        # solve) -- this test's real assertion is "no logging ABOUT this
+        # scenario specifically" (no soc-excursion warning for a gated-
+        # unavailable participant), not "zero logging at all" now that a
+        # deliberate, temporary trace exists on every call. Revert this
+        # filter back to assertNoLogs once #757 is root-caused and the
+        # diagnostic lines are removed.
+        with self.assertLogs(solver_writer._LOGGER, level="DEBUG") as cm:
             solver_writer.build_extra_batteries()
+        unexpected = [line for line in cm.output if "Nimbus #757 diag" not in line]
+        self.assertEqual(unexpected, [])
         self.assertNotIn(
             "ev_m3p:soc_excursion", solver_writer._BATTERY_PARTICIPANT_WARNED
         )
