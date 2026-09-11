@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.254] — 2026-09-11
+
+### Changed
+- **Temporary diagnostic logging for nimbus issue #757**: a `battery_participant` subentry confirmed correctly stored (verified live via `ha_get_integration`'s own subentry introspection) never appeared in the solved battery list on devhub, with zero output from `build_extra_batteries()`'s own existing warning branches — ruling out both its explicit skip conditions by direct evidence, and a full integration reload ruling out a live-add caching gap. `build_extra_batteries()` now logs every subentry it scans, every participant it finds, every BatteryConfig it's about to append, and `main()` logs the merged battery list right after the extra-participant merge — all at WARNING (matching devhub's own configured log level) so the real mechanism can be found live rather than re-derived from static reading. Intended to be reverted once #757 is root-caused; no other behavior change.
+
 ## [0.94.253] — 2026-09-11
 
 ### Fixed
