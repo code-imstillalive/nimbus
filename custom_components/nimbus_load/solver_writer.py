@@ -11772,6 +11772,11 @@ def main() -> None:
         compute_offer_curve=offer_curve_enabled,
         solve_options=solve_options,
     )
+    _LOGGER.warning(
+        "Nimbus #757 diag: plan.batteries immediately after build_plan() returns = %s (status=%r)",
+        [b.name for b in plan.batteries],
+        plan.status,
+    )
     # nimbus issue #484: the relay-chatter guard, run once per solve
     # right after the plan exists -- needs the plan's own just-solved
     # period-0 power per load, so it can't run any earlier than this.
