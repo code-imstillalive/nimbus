@@ -9058,11 +9058,26 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
     if not entries:
         return []
     seen_names: set[str] = set()
+    # nimbus issue #757 (temporary diagnostic, remove once root-caused):
+    # a battery_participant subentry confirmed correctly stored (verified
+    # directly via ha_get_integration's subentry introspection) was never
+    # appearing in the solved battery list, with zero log output from any
+    # of this loop's own existing warning branches -- meaning either this
+    # loop never reaches the subentry, or it's being skipped by something
+    # this unconditional trace hasn't been asked to explain yet. Logs
+    # every subentry_type this loop actually sees, every cycle, until the
+    # real mechanism is found.
+    _LOGGER.info(
+        "Nimbus #757 diag: build_extra_batteries scanning %d subentries: %s",
+        len(entries[0].subentries),
+        [(s.subentry_id, s.subentry_type, s.data.get(CONF_BATTERY_PARTICIPANT_NAME)) for s in entries[0].subentries.values()],
+    )
     for subentry in entries[0].subentries.values():
         if subentry.subentry_type != SUBENTRY_TYPE_BATTERY_PARTICIPANT:
             continue
         data = subentry.data
         name = data.get(CONF_BATTERY_PARTICIPANT_NAME) or subentry.subentry_id
+        _LOGGER.info("Nimbus #757 diag: found battery_participant subentry name=%r data_keys=%s", name, sorted(data.keys()))
         if name in seen_names or name == "home":
             # "home" is reserved for the hub's own single battery (see
             # this function's own docstring) -- a household typing it
