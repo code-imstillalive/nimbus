@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.252] — 2026-09-11
+
+### Fixed
+- **A deferrable Controllable Load's published plan no longer swings between fractional power levels with no economic reason** (nimbus issue #725, live finding from Mark Purcell: a 0.65 kW HWS's own plan read 0.65/0/0.40/0.40/0/0.29 kW across consecutive 5-minute periods). Adequacy (deferrable) loads had a cross-solve continuity term but never the same within-solve smoothness term the battery and grid families have had since 2026-08-20 — the anti-chatter hold window downstream was doing double duty as a de-facto smoother of the LP's own raw jagged output. Now applies the same proven mechanism to adequacy loads: a tiny soft cost that only ever breaks a genuine tie, never overrides a real price difference. A no-op for the default semi-continuous (hard 0-or-max) load shape; fixes the jaggedness directly for a load configured with the continuous relaxation.
+
 ## [0.94.251] — 2026-09-11
 
 ### Fixed
