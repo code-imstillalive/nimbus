@@ -3155,9 +3155,7 @@ class TestFlipFloppingRawDecisionNeverActivatesHws(unittest.TestCase):
         # flip-flopping, well past the 15-minute hysteresis window --
         # if the guard were even briefly stable this would activate.
         for i in range(24):
-            self._solve(
-                on=(i % 2 == 0), now=start + timedelta(minutes=5 * (i + 1))
-            )
+            self._solve(on=(i % 2 == 0), now=start + timedelta(minutes=5 * (i + 1)))
 
         self.assertEqual(
             services.calls,
@@ -3191,9 +3189,7 @@ class TestFlipFloppingRawDecisionNeverActivatesHws(unittest.TestCase):
         # Four false starts (matches the real household's own morning:
         # repeated promised-then-abandoned activations)...
         for i in range(4):
-            self._solve(
-                on=(i % 2 == 0), now=start + timedelta(minutes=5 * (i + 1))
-            )
+            self._solve(on=(i % 2 == 0), now=start + timedelta(minutes=5 * (i + 1)))
         self.assertEqual(services.calls, [])
 
         # ...then the plan genuinely commits: ON, consistently, for long

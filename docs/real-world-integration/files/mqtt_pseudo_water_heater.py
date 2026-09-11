@@ -55,6 +55,7 @@ way a household would experience it" -- run it, configure a
 `sensor.nimbus_nimbus_test_hws_status` /
 `sensor.nimbus_nimbus_test_hws_next_start` over a real day or two.
 """
+
 from __future__ import annotations
 
 import json
@@ -65,9 +66,7 @@ import time
 
 import paho.mqtt.client as mqtt
 
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
-)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 _LOG = logging.getLogger("nimbus_pseudo_hws")
 
 # ---- configuration (env vars, all optional) --------------------------------
@@ -133,9 +132,7 @@ class _PseudoWaterHeaterState:
                 # really "off" -- the real device defends its own floor
                 # regardless of what Nimbus last commanded. Reproduced
                 # here deliberately, not a bug in this script.
-                self.current_temperature += (
-                    ECO_FLOOR_DEFENSE_C_PER_HOUR * elapsed_hours
-                )
+                self.current_temperature += ECO_FLOOR_DEFENSE_C_PER_HOUR * elapsed_hours
             else:
                 self.current_temperature -= ECO_IDLE_DECAY_C_PER_HOUR * elapsed_hours
             self.current_temperature = max(
@@ -209,11 +206,16 @@ def main() -> None:
     if MQTT_USERNAME:
         client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
     client.will_set(_AVAILABILITY_TOPIC, "offline", qos=1, retain=True)
-    client.on_connect = lambda c, _u, flags, rc, *a: _on_connect(c, state, flags, rc, *a)
+    client.on_connect = lambda c, _u, flags, rc, *a: _on_connect(
+        c, state, flags, rc, *a
+    )
     client.on_message = lambda c, _u, msg: _on_message(c, state, msg)
 
     _LOG.info(
-        "connecting to MQTT broker %s:%s as device_id=%s", MQTT_HOST, MQTT_PORT, DEVICE_ID
+        "connecting to MQTT broker %s:%s as device_id=%s",
+        MQTT_HOST,
+        MQTT_PORT,
+        DEVICE_ID,
     )
     client.connect(MQTT_HOST, MQTT_PORT, keepalive=60)
     client.loop_start()
