@@ -277,6 +277,13 @@ class _StubCoordinatorEntity:
     async def async_added_to_hass(self) -> None:
         pass
 
+    def _handle_coordinator_update(self) -> None:
+        """Real CoordinatorEntity's own default: writes state on every
+        coordinator refresh. nimbus issue #740's test needs subclasses
+        that override this and call super()._handle_coordinator_update()
+        (e.g. NimbusForecastSensor) to not crash under this stub."""
+        self.async_write_ha_state()
+
 
 def install_ha_stubs() -> None:
     def module(name: str, **attrs) -> types.ModuleType:

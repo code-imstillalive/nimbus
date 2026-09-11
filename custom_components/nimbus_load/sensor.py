@@ -1191,6 +1191,10 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
     # sibling class: the forecast is a projection, not a historical
     # fact worth keeping in the long-term stats database.
     _unrecorded_attributes = frozenset({"forecast"})
+    # nimbus issue #740: see the matching comment on
+    # _consecutive_unavailable_source_ticks in __init__ below for why
+    # this exists and how the value was chosen.
+    _SOURCE_UNAVAILABLE_DEBOUNCE_TICKS = 2
 
     def __init__(
         self,
@@ -1277,6 +1281,30 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
         # spamming a log line on every coordinator refresh regardless of
         # whether anything actually changed.
         self._was_available: bool | None = None
+        # nimbus issue #740 (Mark Purcell, live finding, real household):
+        # the Silver fix above checks the source sensor's LIVE state at
+        # the exact instant of each coordinator tick's write -- a single
+        # momentary unavailable/unknown reading (a real, ordinary Zigbee/
+        # Modbus blip, not a genuine disconnection) was enough to flip
+        # `available` False for that entire ~UPDATE_INTERVAL_MINUTES-long
+        # tick, which HA's own entity base class then uses to publish
+        # NO extra_state_attributes at all -- including `forecast`, even
+        # though the coordinator's own already-computed forecast for this
+        # cycle is perfectly good and doesn't depend on the source sensor
+        # being live at read time. Confirmed live: recurred 10 times
+        # across ~9 hours of otherwise-normal overnight operation, each
+        # time knocking sensor.nimbus_offer_curve/quality_report to
+        # "unknown" for a full tick because solver_writer.py's own read
+        # landed in exactly that window. Debounced below: only a source
+        # reading that stays unavailable/unknown for
+        # _SOURCE_UNAVAILABLE_DEBOUNCE_TICKS CONSECUTIVE ticks (~4
+        # minutes at the current 2-minute interval) now flips this
+        # entity unavailable -- long enough that an ordinary transient
+        # blip (which self-heals within the same tick or the next one)
+        # never trips it, short enough to still catch a genuinely
+        # disconnected source well within the "confidently stale
+        # forever" failure mode the original Silver fix closed.
+        self._consecutive_unavailable_source_ticks = 0
         # Setting entity_id directly, not _attr_suggested_object_id.
         # Confirmed live 2026-08-14, twice, that _attr_suggested_object_id
         # is NOT respected here: with _attr_has_entity_name = True, Home
@@ -1320,19 +1348,26 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
             return False
         if self.coordinator.data is None:
             return False
-        source_state = self.hass.states.get(self._source_sensor)
-        return not (
-            source_state is None or source_state.state in ("unavailable", "unknown")
+        return (
+            self._consecutive_unavailable_source_ticks
+            < self._SOURCE_UNAVAILABLE_DEBOUNCE_TICKS
         )
 
     def _handle_coordinator_update(self) -> None:
         """Same Silver fix's log-when-unavailable pairing -- logs exactly
         once on a genuine transition in either direction, never per-tick.
-        `available` above is a pure property (no side effects, safe to
-        call as often as HA likes) -- this hook is the one place that
-        only fires once per real coordinator refresh, so it's the
-        correct place to detect and log a CHANGE rather than a snapshot.
+        `available` above is a pure property reading only the debounce
+        counter (no live HA calls of its own) -- this hook is the one
+        place that only fires once per real coordinator refresh, so it's
+        the correct place to both update that counter against the
+        source's actual live state (nimbus issue #740) and detect/log a
+        genuine availability CHANGE rather than a snapshot.
         """
+        source_state = self.hass.states.get(self._source_sensor)
+        if source_state is None or source_state.state in ("unavailable", "unknown"):
+            self._consecutive_unavailable_source_ticks += 1
+        else:
+            self._consecutive_unavailable_source_ticks = 0
         now_available = self.available
         if self._was_available is not None and now_available != self._was_available:
             if now_available:
