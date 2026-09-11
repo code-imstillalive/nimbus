@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.257] — 2026-09-11
+
+### Added
+- **Battery Tower wizard form now suggests its SoC sensor from HA's own Energy Dashboard** (nimbus issue #554, scoped first slice) — a household that already told HA which entity carries a battery's State of Charge (`stat_soc` on a `battery` Energy Dashboard source) doesn't have to type the same entity_id again here. Same `suggested_value` discipline as every other field in this wizard (visible, editable, never saved without a submit) and the same type-safety/graceful-degradation contract as the existing switchboard-suggestion helper (`device_class=="battery"`, `unit=="%"`, any lookup failure degrades to no suggestion silently). A real saved value always wins — the lookup is skipped entirely on reconfigure of an already-filled-in tower. Deliberately not the full #554 ask (Power Source/PV String/Load pre-fill, multi-source merge-by-physical-device, a one-shot "Import" button) — that remains open, larger scope.
+
 ## [0.94.256] — 2026-09-11
 
 ### Changed
