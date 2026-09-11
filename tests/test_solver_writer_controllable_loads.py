@@ -3069,5 +3069,176 @@ class TestDispatchCommandedState(unittest.TestCase):
         self.assertTrue(result.commanded_state)
 
 
+class TestFlipFloppingRawDecisionNeverActivatesHws(unittest.TestCase):
+    """nimbus issue #741 (Mark Purcell, real household finding): a pseudo
+    water_heater device standing in for the real WWK302, driven through
+    apply_commanded_state_guard() the same way TestDispatchCommandedState
+    above does -- built to answer Mark's own real question, "are HWS
+    controllable loads actually activated, or just repeatedly scheduled
+    and deferred?"
+
+    Root cause confirmed live 2026-09-11: sensor.nimbus_hot_water_heat_
+    pump_next_start promised 7 distinct start times between midnight and
+    08:50 local, none of which produced a real activation --
+    commanded_since stayed pinned at 16:20 the PREVIOUS day the entire
+    time. decide_commanded_state()'s own debounce (load_run_state.py)
+    only adopts a disagreeing raw_new_state once it has held
+    CONSECUTIVELY for min_hold_minutes; a value that flips back even
+    once resets the challenge to zero. If the LP's own period-0 raw
+    on/off decision flips every solve (which is exactly what the real
+    household's own "scheduled 08:00-14:30" / "scheduled 08:30-15:00"
+    back-and-forth status history showed happening overnight), the
+    challenge clock can never accumulate min_hold_minutes of unbroken
+    agreement -- the load is stuck "always about to start," forever.
+
+    Uses the real HWS-shaped config (water_heater domain,
+    min_hold_minutes=15 -- the household's own live value) and the same
+    5-minute solve cadence the real coordinator uses, so this reproduces
+    the true real-world timescale rather than an artificially fast one.
+    """
+
+    _DEVICE_ENTITY = "water_heater.test_hws"
+    _MIN_HOLD_MINUTES = 15
+
+    def setUp(self):
+        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._loop, self._loop_thread = _make_running_loop()
+        _FakeRunStateStore._shared_data.clear()
+
+    def tearDown(self):
+        solver_writer._NATIVE_HASS = self._orig_native_hass
+        self._loop.call_soon_threadsafe(self._loop.stop)
+        self._loop_thread.join(timeout=5)
+        self._loop.close()
+
+    def _hws_hass(self, min_hold_minutes=_MIN_HOLD_MINUTES):
+        sub = _fake_subentry(
+            "s_hws",
+            "controllable_load",
+            {
+                "controllable_load_device_entity": self._DEVICE_ENTITY,
+                "controllable_load_min_hold_minutes": min_hold_minutes,
+            },
+        )
+        hass, services = self._hass([sub])
+        solver_writer._NATIVE_HASS = hass
+        return services
+
+    def _solve(self, on: bool, now):
+        import numpy as np
+
+        kw = np.array([0.65, 0.65]) if on else np.array([0.0, 0.0])
+        plan = _fake_plan(adequacy=[_fake_load_plan("s_hws", kw, adequacy=True)])
+        grid_times = _grid(now, 4, minutes=5)
+        solver_writer.apply_commanded_state_guard(plan, now, grid_times)
+
+    def test_period0_flip_flopping_every_solve_never_activates_the_device(self):
+        """The exact #741 shape: the raw decision alternates on/off every
+        single 5-minute solve, for far longer than min_hold_minutes (15).
+        A household watching this would see repeated "next start in 5
+        minutes" promises -- and the pseudo device must never actually
+        receive water_heater.set_operation_mode("performance"), because
+        no single value ever holds consecutively long enough to adopt.
+        """
+        services = self._hws_hass()
+        start = datetime(2026, 9, 11, 0, 0, tzinfo=_TZ)
+        # decide_commanded_state()'s own very-first-ever-decision rule
+        # adopts immediately (no prior commitment to protect yet) -- so
+        # establish the real baseline first: the load starts OFF, exactly
+        # like the real household's own commanded_since pinned at
+        # yesterday 16:20. Everything from here on is a genuine
+        # DEBOUNCED challenge, the same position #741 was found in.
+        self._solve(on=False, now=start)
+        services.calls.clear()
+
+        # 24 further solves at 5min spacing = 2 real hours of continuous
+        # flip-flopping, well past the 15-minute hysteresis window --
+        # if the guard were even briefly stable this would activate.
+        for i in range(24):
+            self._solve(
+                on=(i % 2 == 0), now=start + timedelta(minutes=5 * (i + 1))
+            )
+
+        self.assertEqual(
+            services.calls,
+            [],
+            "device received a real command despite the raw decision never "
+            "holding steady for min_hold_minutes -- the #741 guard "
+            "invariant is broken",
+        )
+        # The household-visible commanded_state itself must also still
+        # read "off" -- not just "no service call happened to fire", but
+        # the actual published decision the Status/next_start sensors are
+        # built from never adopted ON either.
+        result = self._read_state("entry_d", "s_hws")
+        self.assertFalse(result.commanded_state)
+
+    def test_period0_stabilising_after_false_starts_eventually_activates(self):
+        """Companion/control case: the same pseudo device, the same
+        false-start pattern for the first few cycles (proving this test
+        exercises the identical mechanism as the failure case above), but
+        the raw decision then genuinely settles on ON and HOLDS -- the
+        guard must recover and dispatch exactly once, confirming the
+        debounce is a real delay, not a permanent lock-out once it has
+        already been challenged unsuccessfully."""
+        services = self._hws_hass()
+        start = datetime(2026, 9, 11, 0, 0, tzinfo=_TZ)
+        # Same real baseline as the failure test above: establish OFF as
+        # the very-first-ever decision before any debounced challenge.
+        self._solve(on=False, now=start)
+        services.calls.clear()
+
+        # Four false starts (matches the real household's own morning:
+        # repeated promised-then-abandoned activations)...
+        for i in range(4):
+            self._solve(
+                on=(i % 2 == 0), now=start + timedelta(minutes=5 * (i + 1))
+            )
+        self.assertEqual(services.calls, [])
+
+        # ...then the plan genuinely commits: ON, consistently, for long
+        # enough to cross the 15-minute hysteresis (4 more solves x 5min
+        # = 20 real minutes of unbroken agreement).
+        settle_start = start + timedelta(minutes=5 * 5)
+        for i in range(4):
+            self._solve(on=True, now=settle_start + timedelta(minutes=5 * i))
+
+        self.assertEqual(len(services.calls), 1)
+        domain, service, data = services.calls[0]
+        self.assertEqual(domain, "water_heater")
+        self.assertEqual(service, "set_operation_mode")
+        self.assertEqual(data["entity_id"], self._DEVICE_ENTITY)
+        self.assertEqual(data["operation_mode"], "performance")
+
+        result = self._read_state("entry_d", "s_hws")
+        self.assertTrue(result.commanded_state)
+
+    def _read_state(self, hub_entry_id, subentry_id):
+        async def _read():
+            store = load_run_state.LoadRunStateStore(
+                store=_FakeRunStateStore(
+                    None, 1, f"nimbus_load_{hub_entry_id}_load_run_state"
+                )
+            )
+            return await store.async_read(subentry_id)
+
+        return asyncio.run(_read())
+
+    def _hass(self, subentries, entry_id="entry_d", raise_for=None):
+        services = _FakeServiceCalls(raise_for=raise_for)
+        entry = SimpleNamespace(
+            entry_id=entry_id, subentries={s.subentry_id: s for s in subentries}
+        )
+        return (
+            SimpleNamespace(
+                config_entries=SimpleNamespace(async_entries=lambda domain: [entry]),
+                services=services,
+                loop=self._loop,
+                states=SimpleNamespace(get=lambda eid: None),
+            ),
+            services,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
