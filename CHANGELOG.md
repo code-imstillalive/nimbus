@@ -6,6 +6,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.250] — 2026-09-11
+
+### Fixed
+- **`sensor.nimbus_offer_curve` no longer gives wrong answers whenever `CalibratedOptions` (#696) is active** (nimbus issue #733, High severity, confirmed live by Mark Purcell on a real household install, both EV participants — the fleet default per #696's own worklog). The offer curve's ranging sweep warm-started from the real dispatch solve's already-optimal basis and only changed one variable's cost coefficient per breakpoint; under a calibrated/blended basis, every other variable still carried a blended primary+secondary cost tuned for the real near-baseline price, so sweeping one variable to an extreme domain edge made its incentive dominate in a way the calibration was never chosen to handle (confirmed live: the curve reported ~0 kW import at the Market Floor Price while a genuine fresh re-solve at that price correctly wanted the full import envelope). The curve now walks a separate plain-mode re-solve of the same problem instead, built only when the real solve actually engaged secondary costs, with an honest fail-open fallback to the calibrated basis if that re-solve doesn't reach optimal.
+- **A load's "will miss target" shortfall report no longer folds in future days' own not-yet-open windows** (nimbus issue #739, live finding from Mark Purcell). The windowed-adequacy `shortfall_kwh` summed every window's own independent slack across the whole multi-day horizon into the single number `solver_writer.py` publishes as the household-facing status text — a future day's target genuinely hasn't been delivered yet (expected, not a real shortfall), but summed in it looked identical to a genuine one (confirmed live: a load whose today schedule fully covers its target still reported "will miss target by 2.38 kWh"). Now reports only the nearest/current window's own shortfall, matching the same "nearest window is what a household needs to know right now" precedent #712/#713 already established.
+
 ## [0.94.249] — 2026-09-11
 
 ### Fixed
