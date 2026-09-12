@@ -980,7 +980,7 @@ def _calibrate_blend_weight(
     secondary_vec: NDArray[np.float64],
     lex_primary_cost: float,
     tolerance: float,
-) -> float:
+) -> tuple[float, float]:
     """Find the largest blend weight whose single-solve primary cost
     stays within `tolerance` (relative) of the true lex-optimal primary
     cost, then run one final blended solve at that weight -- so `h`'s
@@ -990,13 +990,29 @@ def _calibrate_blend_weight(
     project's own `network.py::_calibrate_blend_weight()` -- same log10
     bisection, same one-sided "primary cost must not exceed the lex
     optimum by more than tolerance" acceptance criterion, same
-    `_CAL_MARGIN` step-back for robustness against coefficient drift."""
+    `_CAL_MARGIN` step-back for robustness against coefficient drift.
+
+    nimbus issue #776: returns `(weight, true_primary_cost)`, not just
+    `weight` -- `h.getObjectiveValue()` after the final blended solve
+    below is `primary + weight * secondary`, a MIXED-UNIT number (real
+    dollar primary cost plus whatever arbitrary scale the secondary/
+    tie-break cost happens to use) that is never itself a meaningful
+    "total cost" figure, regardless of how carefully `weight` was
+    calibrated to protect primary optimality -- calibration only
+    bounds how far the blended optimum's PRIMARY cost can drift, it
+    says nothing about the secondary term's own absolute magnitude.
+    `true_primary_cost` (`primary_vec @` the final blended solution) is
+    the real dollar cost of the solution actually being returned, and
+    is what `_solve_with_options()`/`_solve_highs()` now report as
+    `LPResult.objective` for a CalibratedOptions solve -- see
+    `_solve_with_options()`'s own CalibratedOptions branch."""
     if lex_primary_cost == 0.0 and not np.any(primary_vec):
         weight = 1e-3  # safe default -- no primary cost to distort
         blended = primary_vec + weight * secondary_vec
         _set_cost_vector(h, col_indices, blended)
         h.run()
-        return weight
+        bl_vals = np.asarray(h.getSolution().col_value)
+        return weight, float(primary_vec @ bl_vals)
 
     abs_tol = max(1e-8, abs(lex_primary_cost) * tolerance)
 
@@ -1037,7 +1053,8 @@ def _calibrate_blend_weight(
     blended = primary_vec + weight * secondary_vec
     _set_cost_vector(h, col_indices, blended)
     h.run()
-    return weight
+    bl_vals = np.asarray(h.getSolution().col_value)
+    return weight, float(primary_vec @ bl_vals)
 
 
 def _solve_with_options(
@@ -1047,7 +1064,7 @@ def _solve_with_options(
     problem: LPProblem,
     options: SolveOptions,
     binary_cols: list[int],
-) -> list[str]:
+) -> tuple[list[str], float | None]:
     """Runs the real phased/blended/calibrated solve against an ALREADY
     fully-constructed HiGHS model (every variable/constraint already
     added by `_solve_highs()`) -- mutates `h`'s own live state so the
@@ -1058,14 +1075,41 @@ def _solve_with_options(
     -- see this module's own top-of-file comment for the full
     architecture and the deliberate scope cuts versus that source.
 
-    Returns the names of any EXTRA constraint rows this function added
-    to `h` beyond the caller's own -- unlike HAEO (which has no
-    equivalent concern), `_solve_highs()` builds a `row_names` list
-    that must stay in exact 1:1 order with `h`'s own rows for its
-    `duals` dict extraction (`zip(row_names, solution.row_dual,
-    strict=True)`) -- a lex-phase constraint row that isn't accounted
-    for there would silently break that zip. Empty for `BlendedOptions`
-    (adds no rows at all).
+    Returns `(extra_row_names, objective_override)`. `extra_row_names`
+    is the names of any EXTRA constraint rows this function added to
+    `h` beyond the caller's own -- unlike HAEO (which has no equivalent
+    concern), `_solve_highs()` builds a `row_names` list that must stay
+    in exact 1:1 order with `h`'s own rows for its `duals` dict
+    extraction (`zip(row_names, solution.row_dual, strict=True)`) -- a
+    lex-phase constraint row that isn't accounted for there would
+    silently break that zip. Empty for `BlendedOptions` (adds no rows
+    at all).
+
+    `objective_override` (nimbus issue #776) is `None` for
+    `BlendedOptions`/`LexOptions` -- both leave `h`'s own live cost
+    vector set to something whose objective value IS the real dollar
+    total (Blended's own single blended cost by design; Lex's own
+    phase-3 restore to primary-only before its final solve) --
+    `_solve_highs()` keeps reading `h.getObjectiveValue()` directly for
+    those, unchanged. `CalibratedOptions` is the one path where this
+    isn't true: the function's own final action is a blended solve
+    (needed so `h`'s live basis/duals reflect a genuine single solve at
+    the calibrated weight), and that solve's own objective value is
+    `primary + weight * secondary` -- a mixed-unit number, since
+    calibration only bounds how far the blended optimum's PRIMARY cost
+    can drift from lex-optimal, it says nothing about the secondary
+    term's own absolute scale. Reporting that mixed value as `.objective`
+    (and therefore as `Plan.total_cost`) silently inflated the real
+    dollar cost by whatever the secondary term happened to contribute --
+    confirmed live on #776 (~$1295 of a reported $1335 was this
+    contribution, misattributed downstream to `terminal_value_credit`
+    since that figure is computed as a residual against `total_cost`,
+    see `solver_writer.py::cost_breakdown()`'s own docstring). Fixed by
+    returning the REAL primary-only cost of the actual final solution
+    (`_calibrate_blend_weight()`'s own `true_primary_cost`) here instead,
+    so `_solve_highs()` can substitute it for `h.getObjectiveValue()`
+    without needing a second, solution-changing re-solve the way Lex's
+    own phase-3 restore does.
 
     Deliberately does NOT call `h.clearLinearObjectives()` the way
     HAEO's own `_solve_lex()`/`_solve_blended()` do at their start --
@@ -1134,7 +1178,7 @@ def _solve_with_options(
             # against any acceptance criterion the way Lex/Calibrated's
             # own phases are, so a plain re-run is enough here.
             h.run()
-        return []
+        return [], None
 
     # LexOptions and CalibratedOptions both start with the same phase 1
     # + phase 2: minimize primary alone, then minimize secondary with
@@ -1193,14 +1237,14 @@ def _solve_with_options(
         extra_row_names.append("_lex_secondary_le_optimum")
         _set_cost_vector(h, col_indices, primary_vec)
         _ensure_optimal_value(h)
-        return extra_row_names
+        return extra_row_names, None
 
     # CalibratedOptions: h's own live basis already sits at the phase-2
     # (true lex) optimum -- read it off directly rather than re-solving,
     # then search for a safe blend weight and do one final blended solve.
     lex_values = np.asarray(h.getSolution().col_value)
     lex_primary_cost = float(primary_vec @ lex_values)
-    _calibrate_blend_weight(
+    _, true_primary_cost = _calibrate_blend_weight(
         h,
         col_indices,
         primary_vec,
@@ -1208,7 +1252,13 @@ def _solve_with_options(
         lex_primary_cost,
         options.calibration_tolerance,
     )
-    return extra_row_names
+    # nimbus issue #776: `h`'s own live objective right now is the final
+    # blended solve's `primary + weight * secondary` -- a mixed-unit
+    # number, not a real dollar total (see this function's own
+    # docstring). `true_primary_cost` is the actual solution's real
+    # primary-only cost; `_solve_highs()` substitutes it for
+    # `h.getObjectiveValue()` rather than reporting the blended figure.
+    return extra_row_names, true_primary_cost
 
 
 def _solve_highs(
@@ -1300,6 +1350,7 @@ def _solve_highs(
         h.addConstr(expr == rhs)
 
     extra_row_names: list[str] = []
+    objective_override: float | None = None
     if options is None:
         # Dense-style cost expression (every variable, defaulting missing
         # entries to 0.0) -- matches the old from-scratch solver's own
@@ -1323,7 +1374,7 @@ def _solve_highs(
         # docstring for the real design finding that drove this). Empty
         # for every non-MIP caller, so this stays a zero-cost pass-
         # through on the pre-#702 path.
-        extra_row_names = _solve_with_options(
+        extra_row_names, objective_override = _solve_with_options(
             h, var_array, col_indices, problem, options, binary_cols
         )
 
@@ -1377,6 +1428,17 @@ def _solve_highs(
 
     x = np.array([h.val(var_array[i]) for i in range(n)])
     objective = float(h.getObjectiveValue())
+    # nimbus issue #776: for a CalibratedOptions solve, `h`'s own live
+    # objective right now is `primary + weight * secondary` (see
+    # `_solve_with_options()`'s own CalibratedOptions branch docstring)
+    # -- a mixed-unit number, not the real dollar cost of the solution.
+    # `objective_override` carries the actual primary-only cost of the
+    # returned solution in that case; None (this line's own read stands
+    # unchanged) for every other path (options=None, BlendedOptions,
+    # LexOptions), each of which already leaves `h`'s live objective as
+    # a genuine real-cost figure.
+    if objective_override is not None:
+        objective = objective_override
 
     # Recover duals on a MIP (2026-08-27, nimbus issue #238). A MIP has no
     # meaningful dual solution -- branch-and-bound doesn't produce one, and
