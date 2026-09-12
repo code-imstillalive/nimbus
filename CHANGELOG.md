@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.263] — 2026-09-12
+
+### Fixed
+- **The v0.94.258 fix for `activations_today` was correct going forward but couldn't repair a state already corrupted before it deployed** (nimbus issue #782, real follow-up filed the same day #770's own fix shipped — the household's HWS stayed capped for the rest of that day; real hot water came entirely from the pre-existing bridge automation, independent of Nimbus, for 19+ hours after the "fix" was live). Root cause: both the read side (`activation_allowed()`) and write side (`apply_power_sample()`/`record_activation()`) gated the `activations_today` reset on the general `day_key` field — but that field had already been advanced to "today" by the OLD, pre-fix code without ever resetting the counter, so v0.94.258's own `day_key != state.day_key` check read false (no NEW rollover from its own point of view) and the reset never fired for the rest of that day, only self-healing at the next real midnight. Fixed with a genuinely self-healing mechanism, not just a forward-safe one: a new `LoadRunState.activations_today_day_key` field, tracked completely separately from `day_key`, that every currently-persisted state (from before this field existed) defaults to `""` on load — a value that can never match a real day_key, so the reset now fires on the very next solve cycle after upgrade, not just at the next midnight. Every read/write site (`activation_allowed`, `record_activation`, `apply_power_sample`, the status-string builder) now compares against this new field instead of the general `day_key`. 6 new regression tests, including a direct reproduction of the exact stuck shape Mark reported live. Full local suite green (2059 passed, 13 skipped). Honest caveat: this is fundamentally a real-household NUC1 fix — devhub has no equivalent stuck-state scenario to reproduce, so live verification is limited to confirming the code still solves correctly, not that the specific self-heal fired; real confirmation depends on the household's own NUC1 install picking this up.
+
 ## [0.94.262] — 2026-09-12
 
 ### Fixed
