@@ -248,16 +248,16 @@ class TestComputeQualityReportOracleNoLongerRushesRecovery(unittest.TestCase):
             periods=periods,
             grid_residual=grid,
             grid_oracle=grid,
-            battery=battery,
+            batteries=[battery],
             solar=solar,
             load=load,
             timestamps=timestamps,
             real_p2p_dollars_earned=0.0,
-            commanded_charge_kw=zero,
-            commanded_discharge_kw=zero,
-            actual_charge_kw=zero,
-            actual_discharge_kw=zero,
-            final_soc_kwh_actual=initial_soc_kwh,
+            commanded_charge_kw=[zero],
+            commanded_discharge_kw=[zero],
+            actual_charge_kw=[zero],
+            actual_discharge_kw=[zero],
+            final_soc_kwh_actual=[initial_soc_kwh],
         )
 
     def test_j_star_hourly_shows_no_large_charge_at_the_expensive_hour(self):

@@ -193,6 +193,13 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # Returns [] unconditionally in standalone mode already (_NATIVE_
         # HASS is None there), so there's nothing behavioural to port.
         "build_extra_batteries",
+        # nimbus issue #768/#585: same reasoning as build_extra_
+        # batteries() immediately above -- reads real battery_participant
+        # ConfigSubentries (_NATIVE_HASS.config_entries.async_entries(...)
+        # .subentries), no standalone/cron equivalent exists, and returns
+        # [] unconditionally in standalone mode already (_NATIVE_HASS is
+        # None there), so there is nothing behavioural to port.
+        "_resolve_battery_participant_history",
         # nimbus issue #645: overlays a Controllable Load's live
         # number.nimbus_<load>_<key> entity values on top of its own
         # subentry.data, same no-standalone-equivalent reasoning as

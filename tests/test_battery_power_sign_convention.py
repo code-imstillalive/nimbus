@@ -110,8 +110,13 @@ class TestBatteryPowerSignConvention(unittest.TestCase):
         captured = {}
 
         def spy(**kwargs):
-            captured["charge"] = kwargs["actual_charge_kw"]
-            captured["discharge"] = kwargs["actual_discharge_kw"]
+            # nimbus #768/#585: compute_quality_report() now takes a
+            # LIST of per-battery arrays (one entry per fleet
+            # participant) -- this test's own household has no
+            # battery_participant subentries configured, so index [0]
+            # is always the single "home" battery this test cares about.
+            captured["charge"] = kwargs["actual_charge_kw"][0]
+            captured["discharge"] = kwargs["actual_discharge_kw"][0]
             return real_compute(**kwargs)
 
         with (

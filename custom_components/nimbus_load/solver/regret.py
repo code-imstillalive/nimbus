@@ -306,6 +306,138 @@ def evaluate_realized_cost(
     )
 
 
+def evaluate_realized_cost_multi(
+    *,
+    hours: NDArray[np.float64],
+    load_real_kw: NDArray[np.float64],
+    solar_real_kw: NDArray[np.float64],
+    import_price_real: NDArray[np.float64],
+    export_price_real: NDArray[np.float64],
+    batteries: list[BatteryConfig],
+    charge_committed_kw: list[NDArray[np.float64]],
+    discharge_committed_kw: list[NDArray[np.float64]],
+    final_soc_kwh: list[float],
+) -> RealizedCost:
+    """Same J as evaluate_realized_cost() (see this module's own
+    docstring for the exact terms/units), summed across every real
+    battery participant sharing ONE grid connection -- nimbus issue #768
+    (Mark Purcell) / #585 (the same gap, named earlier: "the full fix --
+    integrating each battery_participant's own power sensor into its
+    own SoC... is a substantially larger architectural piece,
+    deliberately not attempted here" -- solver_writer.py's own
+    `compute_daily_quality_report()` comment, referring to exactly this
+    function's absence). #768's own body diagnosed the same thing #585
+    already had: EPR/regret could only ever see the home battery's own
+    dispatch, so a real household running EV participants through a
+    shared charger (this household's own Sigen DC channel) had genuine
+    export/charge opportunity captured by an EV silently invisible to
+    the scorer, misattributing it as "value left on the table" for the
+    pack alone.
+
+    Each battery's own committed dispatch is priced against its OWN
+    charge_cost/discharge_cost/degradation_cost_per_kwh/terminal-value
+    config (batteries can genuinely differ -- a home pack costed
+    differently to an EV's own charger channel), but every battery's
+    flow nets into the SAME real grid balance (`net_needed = load +
+    sum(charge) - sum(discharge) - solar`) and the SAME import/export
+    price -- there is only one real physical grid connection regardless
+    of how many storage participants share it.
+
+    `batteries`/`charge_committed_kw`/`discharge_committed_kw`/
+    `final_soc_kwh` must all be the same length and in the same order
+    (one entry per participant) -- callers building this from a
+    `Plan.batteries` result should match by `.name`, not position (see
+    `oracle_dispatch()`'s own docstring on why `name` is the real key).
+
+    Deliberately NOT supported here (mirrors evaluate_realized_cost()'s
+    own scope exactly -- see its docstring): grid_import_limit_kw/
+    grid_export_limit_kw reporting (a real balance can violate a nominal
+    limit; this function has nothing new to add about that per battery,
+    so it isn't threaded through) and terminal_value_period_indices
+    (only the final period's own terminal value is scored -- this is a
+    single-day retrospective evaluator, never a multi-day horizon).
+
+    Returns the SAME RealizedCost shape as the single-battery function
+    -- calling with exactly one battery/one committed-kW pair/one
+    final_soc_kwh produces a byte-identical result to
+    evaluate_realized_cost() called with the same battery, since the
+    arithmetic below is the same formula, just summed over a
+    one-element list.
+    """
+    if not (
+        len(batteries)
+        == len(charge_committed_kw)
+        == len(discharge_committed_kw)
+        == len(final_soc_kwh)
+    ):
+        msg = (
+            "batteries, charge_committed_kw, discharge_committed_kw, and "
+            "final_soc_kwh must all be the same length (one entry per "
+            f"battery participant) -- got {len(batteries)}, "
+            f"{len(charge_committed_kw)}, {len(discharge_committed_kw)}, "
+            f"{len(final_soc_kwh)}"
+        )
+        raise ValueError(msg)
+
+    n = len(hours)
+    total_charge_kw = np.zeros(n)
+    total_discharge_kw = np.zeros(n)
+    battery_cost_per_period = np.zeros(n)
+    terminal_credit_total = 0.0
+    for battery, charge_kw, discharge_kw, soc_final in zip(
+        batteries,
+        charge_committed_kw,
+        discharge_committed_kw,
+        final_soc_kwh,
+        strict=True,
+    ):
+        # Same degradation_cost_per_kwh treatment as evaluate_realized_
+        # cost() -- added to BOTH charge and discharge cost terms,
+        # mirroring network.py's own live LP objective (nimbus #336).
+        charge_cost_arr = (
+            np.broadcast_to(np.asarray(battery.charge_cost, dtype=np.float64), (n,))
+            + battery.degradation_cost_per_kwh
+        )
+        discharge_cost_arr = (
+            np.broadcast_to(np.asarray(battery.discharge_cost, dtype=np.float64), (n,))
+            + battery.degradation_cost_per_kwh
+        )
+        total_charge_kw = total_charge_kw + charge_kw
+        total_discharge_kw = total_discharge_kw + discharge_kw
+        battery_cost_per_period = (
+            battery_cost_per_period
+            + charge_cost_arr * charge_kw * hours
+            + discharge_cost_arr * discharge_kw * hours
+        )
+        if battery.terminal_value_breakpoints is not None:
+            terminal_credit_total += _terminal_value_credit(
+                soc_final, battery.min_soc_kwh, battery.terminal_value_breakpoints
+            )
+        else:
+            terminal_credit_total += battery.salvage_value * soc_final
+
+    solar_used = solar_real_kw
+    net_needed = load_real_kw + total_charge_kw - total_discharge_kw - solar_used
+    grid_import = np.maximum(0.0, net_needed)
+    grid_export = np.maximum(0.0, -net_needed)
+    solar_curtailed = np.zeros_like(solar_real_kw)
+
+    cost_per_period = (
+        import_price_real * grid_import * hours
+        - export_price_real * grid_export * hours
+        + battery_cost_per_period
+    )
+    cost = float(np.sum(cost_per_period) - terminal_credit_total)
+    return RealizedCost(
+        total_cost=cost,
+        cost_per_period=cost_per_period,
+        grid_import_kw=grid_import,
+        grid_export_kw=grid_export,
+        solar_used_kw=solar_used,
+        solar_curtailed_kw=solar_curtailed,
+    )
+
+
 def oracle_dispatch(
     *,
     periods: PeriodGrid,
@@ -355,15 +487,30 @@ def oracle_dispatch(
     loads (see backtest.py's own `score_candidate_day()`, the one
     pre-existing caller, updated alongside this change).
 
-    Deliberately NOT extended in this same change (see #768's own body
-    for why each is its own, separate piece of work): `evaluate_
-    realized_cost()` still scores one battery's own committed
-    trajectory at a time (a genuine multi-battery ACHIEVED-cost
-    evaluator, and wiring this into the live `compute_quality_report()`/
-    `compute_daily_quality_report()` production path -- which needs a
-    real "what did the EV/controllable load actually deliver, hour by
-    hour, on that already-elapsed day" reconstruction that does not
-    exist yet -- are follow-up work, not part of this mechanism).
+    Multi-battery ACHIEVED-cost scoring (the natural follow-up this
+    docstring used to flag as not-yet-done) is now `evaluate_realized_
+    cost_multi()`, immediately above -- and IS wired into the live
+    `compute_quality_report()`/`compute_daily_quality_report()`
+    production path (see quality_report.py's own module docstring and
+    solver_writer.py's `_compute_report_for_window()`, nimbus #768/#585)
+    for the home battery plus any configured `battery_participant`
+    (EV) subentries, reusing each participant's own already-configured
+    power sensor as its real historical dispatch baseline.
+
+    Still deliberately NOT extended (a genuinely separate, larger piece
+    of work, per #768's own body): controllable (adequacy/sheddable)
+    load timing is not part of production scoring yet -- that needs a
+    real "what did this load actually deliver, hour by hour, on that
+    already-elapsed day" reconstruction, which does not exist for a
+    deferrable/sheddable load the way a battery's own power+SoC sensor
+    already gives one for free. Also still open, named honestly in
+    solver_writer.py's own comment rather than silently assumed solved:
+    disambiguating a SHARED charger sensor between two participants that
+    physically charge through the same channel (this household's own
+    Sigen DC charger, serving both the Model 3 and Model Y) -- a
+    participant whose only power signal is that shared sensor is scored
+    using it as-is, which double-counts or misattributes energy on any
+    day both EVs actually used it. Real, but out of this pass's scope.
     """
     plan = build_plan(
         periods=periods,

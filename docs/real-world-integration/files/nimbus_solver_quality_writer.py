@@ -965,16 +965,21 @@ def main() -> None:
         periods=periods,
         grid_residual=grid_residual,
         grid_oracle=grid_oracle_unfixed,
-        battery=battery_cfg,
+        # nimbus #768/#585: compute_quality_report() now takes the real
+        # multi-battery fleet shape -- this household-specific reference
+        # script only ever models the one hardcoded battery, so a
+        # single-element list is byte-identical to this script's own
+        # pre-#768/#585 behaviour.
+        batteries=[battery_cfg],
         solar=solar_cfg,
         load=load_cfg,
         timestamps=grid_times,
         real_p2p_dollars_earned=real_p2p_dollars,
-        commanded_charge_kw=commanded_charge_kw,
-        commanded_discharge_kw=commanded_discharge_kw,
-        actual_charge_kw=actual_charge_kw,
-        actual_discharge_kw=actual_discharge_kw,
-        final_soc_kwh_actual=final_soc_kwh_actual,
+        commanded_charge_kw=[commanded_charge_kw],
+        commanded_discharge_kw=[commanded_discharge_kw],
+        actual_charge_kw=[actual_charge_kw],
+        actual_discharge_kw=[actual_discharge_kw],
+        final_soc_kwh_actual=[final_soc_kwh_actual],
     )
     regret_dollars_unfixed = report_unfixed.j_ach - report_unfixed.j_star
 
@@ -982,16 +987,21 @@ def main() -> None:
         periods=periods,
         grid_residual=grid_residual,
         grid_oracle=grid_oracle,
-        battery=battery_cfg,
+        # nimbus #768/#585: compute_quality_report() now takes the real
+        # multi-battery fleet shape -- this household-specific reference
+        # script only ever models the one hardcoded battery, so a
+        # single-element list is byte-identical to this script's own
+        # pre-#768/#585 behaviour.
+        batteries=[battery_cfg],
         solar=solar_cfg,
         load=load_cfg,
         timestamps=grid_times,
         real_p2p_dollars_earned=real_p2p_dollars,
-        commanded_charge_kw=commanded_charge_kw,
-        commanded_discharge_kw=commanded_discharge_kw,
-        actual_charge_kw=actual_charge_kw,
-        actual_discharge_kw=actual_discharge_kw,
-        final_soc_kwh_actual=final_soc_kwh_actual,
+        commanded_charge_kw=[commanded_charge_kw],
+        commanded_discharge_kw=[commanded_discharge_kw],
+        actual_charge_kw=[actual_charge_kw],
+        actual_discharge_kw=[actual_discharge_kw],
+        final_soc_kwh_actual=[final_soc_kwh_actual],
     )
 
     regret_dollars = (

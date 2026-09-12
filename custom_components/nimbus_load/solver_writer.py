@@ -5186,12 +5186,11 @@ def _compute_report_for_window(
     actual_charge_kw = np.array([max(0.0, -v) for v in actual_net_kw])
     actual_discharge_kw = np.array([max(0.0, v) for v in actual_net_kw])
     # No generic commanded-dispatch signal exists -- see this function's
-    # own docstring. Setting commanded = actual makes tracking_fidelity/
-    # tracking_cost trivially perfect by construction, an honest
-    # reflection of "nothing here ever actually dispatched," not a
-    # claim about real-world execution quality.
-    commanded_charge_kw = actual_charge_kw
-    commanded_discharge_kw = actual_discharge_kw
+    # own docstring. commanded = actual (for "home" and for every
+    # participant below) makes tracking_fidelity/tracking_cost trivially
+    # perfect by construction, an honest reflection of "nothing here
+    # ever actually dispatched," not a claim about real-world execution
+    # quality.
 
     import_price = np.array(
         [
@@ -5366,6 +5365,39 @@ def _compute_report_for_window(
         # whatever gets carried forward -- not this one.
         salvage_value=0.0,
     )
+
+    # nimbus #768/#585 (Mark Purcell): extend the scored fleet with any
+    # configured battery_participant subentries (EVs sharing this hub),
+    # reusing each one's own already-configured power sensor as its
+    # real historical dispatch baseline -- see _resolve_battery_
+    # participant_history()'s own docstring for the full reasoning and
+    # what's deliberately still out of scope (a shared-charger sensor
+    # disambiguation). Zero participants (every install before this
+    # change, and any standalone/cron deployment) returns [] -- `home`
+    # stays the only scored battery, byte-identical to before.
+    participant_batteries = _resolve_battery_participant_history(
+        day_start=day_start,
+        day_end=day_end,
+        grid_times=grid_times,
+        period_hours=period_hours,
+        n_periods=n_periods,
+    )
+    batteries = [battery_cfg, *(p[0] for p in participant_batteries)]
+    actual_charge_kw_list = [actual_charge_kw, *(p[1] for p in participant_batteries)]
+    actual_discharge_kw_list = [
+        actual_discharge_kw,
+        *(p[2] for p in participant_batteries),
+    ]
+    final_soc_kwh_actual_list = [
+        final_soc_kwh_actual,
+        *(p[3] for p in participant_batteries),
+    ]
+    # No generic commanded-dispatch signal exists for a participant
+    # either -- same honest "commanded = actual" convention as "home"
+    # above (this function's own docstring already covers why).
+    commanded_charge_kw_list = actual_charge_kw_list
+    commanded_discharge_kw_list = actual_discharge_kw_list
+
     grid_residual = elements.GridConfig(
         import_price=import_price,
         export_price=export_price,
@@ -5481,16 +5513,16 @@ def _compute_report_for_window(
             periods=periods,
             grid_residual=grid_residual,
             grid_oracle=grid_oracle,
-            battery=battery_cfg,
+            batteries=batteries,
             solar=solar_cfg,
             load=load_cfg,
             timestamps=grid_times,
             real_p2p_dollars_earned=real_p2p_dollars,
-            commanded_charge_kw=commanded_charge_kw,
-            commanded_discharge_kw=commanded_discharge_kw,
-            actual_charge_kw=actual_charge_kw,
-            actual_discharge_kw=actual_discharge_kw,
-            final_soc_kwh_actual=final_soc_kwh_actual,
+            commanded_charge_kw=commanded_charge_kw_list,
+            commanded_discharge_kw=commanded_discharge_kw_list,
+            actual_charge_kw=actual_charge_kw_list,
+            actual_discharge_kw=actual_discharge_kw_list,
+            final_soc_kwh_actual=final_soc_kwh_actual_list,
         )
     except RuntimeError as e:
         # Oracle solve genuinely infeasible for this day's real data --
@@ -5557,23 +5589,26 @@ def _compute_report_for_window(
         # export opportunity to the pack alone as missed value. EPR
         # 35.7% was a real statement about the pack against an oracle
         # that only knows the pack, not a statement about the
-        # household's actual decision). The full fix -- integrating each
-        # battery_participant's own power sensor into its own SoC, an
-        # oracle run with batteries=[home, *participants] and the same
-        # shared-charger/availability constraints build_plan() itself
-        # uses, and disambiguating a shared charger sensor between
-        # participants via their own availability/charging state -- is a
-        # substantially larger architectural piece, deliberately not
-        # attempted here (this project's own established practice all
-        # session: #467/#563's own staged rollout, #481's still-open
-        # thermal kind). This is the honest interim step #585's own
-        # issue body explicitly asks for: name the real scope of what
-        # was scored, so a reader is never left assuming a pack-only
-        # score describes the whole household's real economics on an
-        # install with more than one battery. Always ["home"] until the
-        # real fix lands -- this scorer has no participant awareness at
-        # all yet, so there is nothing else honest to name here.
-        "scored_participants": ["home"],
+        # household's actual decision).
+        #
+        # nimbus issue #768 (Mark Purcell, 2026-09-12): the fix landed --
+        # `batteries` now includes "home" plus every battery_participant
+        # with complete real history for this day (see
+        # _resolve_battery_participant_history()'s own docstring), and
+        # the oracle above genuinely re-solves batteries=[home,
+        # *participants] jointly. `scored_participants` now names
+        # whoever was ACTUALLY included in this specific day's score --
+        # never assume it's the full configured fleet, since a
+        # participant with missing/incomplete history for this
+        # particular day is honestly excluded (see that function's own
+        # per-participant skip logging) rather than silently pretended
+        # complete. Still real, still-open, named rather than assumed
+        # solved (see regret.py's own oracle_dispatch() docstring):
+        # disambiguating a sensor SHARED between two participants (this
+        # household's own Sigen DC charger) is not attempted -- a
+        # participant scored via a shared sensor is scored using that
+        # reading as-is.
+        "scored_participants": [b.name for b in batteries],
         "theoretical_maximum_yield": round(report.epr.theoretical_maximum_yield, 4),
         "value_captured": round(report.epr.value_captured, 4),
         "uplift_available": round(report.epr.uplift_available, 4),
@@ -9403,6 +9438,254 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
         [b.name for b in batteries],
     )
     return batteries
+
+
+def _resolve_battery_participant_history(
+    *,
+    day_start: datetime,
+    day_end: datetime,
+    grid_times: list[datetime],
+    period_hours: float,
+    n_periods: int,
+) -> list[tuple[elements.BatteryConfig, np.ndarray, np.ndarray, float]]:
+    """nimbus issue #768/#585 (Mark Purcell): the retrospective, HISTORY-
+    based sibling of `build_extra_batteries()` just above -- same
+    `battery_participant` subentries, but reconstructing each one's own
+    REAL, already-elapsed [day_start, day_end) dispatch from recorder
+    history, exactly the way `_compute_report_for_window()`'s own "home"
+    battery reconstruction already does for the hub's single configured
+    battery. This is what lets `compute_quality_report()` score the
+    whole real storage fleet (home + EVs), not just the pack -- the gap
+    solver_writer.py's own #585 comment already named explicitly:
+    "integrating each battery_participant's own power sensor into its
+    own SoC... is a substantially larger architectural piece,
+    deliberately not attempted here." This function is that piece.
+
+    Per Mark Purcell's own direct instruction (2026-09-12): reuses each
+    participant's own ALREADY-CONFIGURED `battery_participant_power_
+    sensor` (the same real sensor `build_extra_batteries()`'s own
+    comment notes is "read live for future dashboard/monitoring wiring,
+    not needed by BatteryConfig itself" for the forward solve) as the
+    historic baseline -- no new sensor configuration needed, this is
+    simply the first real consumer of a field that already existed.
+
+    Returns one `(BatteryConfig, actual_charge_kw, actual_discharge_kw,
+    final_soc_kwh_actual)` tuple per participant that has EVERYTHING
+    this function needs to score it for real (capacity, SoC sensor,
+    power sensor, and real non-empty history for both across the
+    window) -- a participant missing any of these, or with a genuinely
+    empty history for this specific day (e.g. an EV added to the wizard
+    after this day already elapsed), is honestly SKIPPED for this one
+    day's report, not treated as a hard failure of the whole report
+    (mirrors this module's own "skip this cycle, retry later" discipline
+    for the report as a whole, scoped down to one participant). Logged
+    once (INFO) per (name, day) skip reason, not every solve cycle --
+    this function only ever runs once per real calendar day being
+    scored, so there is no log-spam risk to guard against the way the
+    live per-solve gating above does.
+
+    Deliberately NOT handled here (see regret.py's own `oracle_dispatch()`
+    docstring, "Still deliberately NOT extended"): a participant whose
+    ONLY power signal is a sensor SHARED with another participant (this
+    household's own Sigen DC charger, serving both the Model 3 and Model
+    Y) is scored using that shared reading as-is, honestly wrong on any
+    day both EVs actually used it -- disambiguating that is a real,
+    separate, larger piece of work, not attempted in this pass.
+
+    Native/in-process mode ONLY, same reasoning and same graceful `[]`
+    fallback as `build_extra_batteries()` -- a standalone/cron
+    deployment has no subentries at all, so `compute_quality_report()`
+    always scores exactly the "home" battery there, unchanged from
+    before this function existed.
+    """
+    if _NATIVE_HASS is None:
+        return []
+    try:
+        from .const import (
+            CONF_BATTERY_PARTICIPANT_CAPACITY_KWH,
+            CONF_BATTERY_PARTICIPANT_DEGRADATION_COST_PER_KWH,
+            CONF_BATTERY_PARTICIPANT_EFFICIENCY_PERCENT,
+            CONF_BATTERY_PARTICIPANT_MAX_CHARGE_KW,
+            CONF_BATTERY_PARTICIPANT_MAX_DISCHARGE_KW,
+            CONF_BATTERY_PARTICIPANT_MAX_SOC_PERCENT,
+            CONF_BATTERY_PARTICIPANT_MIN_SOC_PERCENT,
+            CONF_BATTERY_PARTICIPANT_NAME,
+            CONF_BATTERY_PARTICIPANT_POWER_POSITIVE_IS_CHARGE,
+            CONF_BATTERY_PARTICIPANT_POWER_SENSOR,
+            CONF_BATTERY_PARTICIPANT_SOC_SENSOR,
+            DOMAIN,
+            SUBENTRY_TYPE_BATTERY_PARTICIPANT,
+        )
+    except ImportError:
+        from const import (
+            CONF_BATTERY_PARTICIPANT_CAPACITY_KWH,
+            CONF_BATTERY_PARTICIPANT_DEGRADATION_COST_PER_KWH,
+            CONF_BATTERY_PARTICIPANT_EFFICIENCY_PERCENT,
+            CONF_BATTERY_PARTICIPANT_MAX_CHARGE_KW,
+            CONF_BATTERY_PARTICIPANT_MAX_DISCHARGE_KW,
+            CONF_BATTERY_PARTICIPANT_MAX_SOC_PERCENT,
+            CONF_BATTERY_PARTICIPANT_MIN_SOC_PERCENT,
+            CONF_BATTERY_PARTICIPANT_NAME,
+            CONF_BATTERY_PARTICIPANT_POWER_POSITIVE_IS_CHARGE,
+            CONF_BATTERY_PARTICIPANT_POWER_SENSOR,
+            CONF_BATTERY_PARTICIPANT_SOC_SENSOR,
+            DOMAIN,
+            SUBENTRY_TYPE_BATTERY_PARTICIPANT,
+        )
+
+    entries = _NATIVE_HASS.config_entries.async_entries(DOMAIN)
+    if not entries:
+        return []
+
+    results: list[tuple[elements.BatteryConfig, np.ndarray, np.ndarray, float]] = []
+    for subentry in entries[0].subentries.values():
+        if subentry.subentry_type != SUBENTRY_TYPE_BATTERY_PARTICIPANT:
+            continue
+        data = subentry.data
+        name = data.get(CONF_BATTERY_PARTICIPANT_NAME) or subentry.subentry_id
+        capacity_kwh = float(data.get(CONF_BATTERY_PARTICIPANT_CAPACITY_KWH) or 0.0)
+        power_sensor = data.get(CONF_BATTERY_PARTICIPANT_POWER_SENSOR)
+        soc_sensor = data.get(CONF_BATTERY_PARTICIPANT_SOC_SENSOR)
+        if capacity_kwh <= 0.0 or not soc_sensor or not power_sensor:
+            _LOGGER.info(
+                "Nimbus quality: battery participant '%s' has no power "
+                "sensor/SoC sensor/capacity configured -- excluded from "
+                "this day's multi-battery score (this participant simply "
+                "isn't scored, the rest of the fleet is unaffected)",
+                name,
+            )
+            continue
+
+        power_hist = fetch_entity_history_range(power_sensor, day_start, day_end)
+        soc_hist = fetch_entity_history_range(
+            soc_sensor, day_start - timedelta(hours=6), day_end
+        )
+        if not power_hist or not soc_hist:
+            _LOGGER.info(
+                "Nimbus quality: battery participant '%s' has no real "
+                "history for window [%s, %s] (power=%d, soc=%d rows) -- "
+                "excluded from this day's multi-battery score",
+                name,
+                day_start.isoformat(),
+                day_end.isoformat(),
+                len(power_hist),
+                len(soc_hist),
+            )
+            continue
+
+        try:
+            power_scale = _kw_scale_factor(power_sensor)
+            # Same sign convention as the home battery's own
+            # solver_battery_power_positive_is_charge (nimbus #299):
+            # internally, positive net_kw always means DISCHARGE. A
+            # participant whose sensor reports positive=charge needs the
+            # same -1.0 flip before this function's own charge/discharge
+            # split below can treat every reading the same way.
+            sign = (
+                -1.0
+                if data.get(CONF_BATTERY_PARTICIPANT_POWER_POSITIVE_IS_CHARGE)
+                else 1.0
+            )
+            net_kw = np.array(
+                [
+                    v * power_scale * sign
+                    for v in resample_history_mean(power_hist, grid_times, period_hours)
+                ]
+            )
+            actual_charge_kw = np.array([max(0.0, -v) for v in net_kw])
+            actual_discharge_kw = np.array([max(0.0, v) for v in net_kw])
+
+            min_soc_pct = float(
+                data.get(CONF_BATTERY_PARTICIPANT_MIN_SOC_PERCENT) or 0.0
+            )
+            max_soc_pct = float(
+                data.get(CONF_BATTERY_PARTICIPANT_MAX_SOC_PERCENT) or 100.0
+            )
+            initial_pct = resample_history_nearest(
+                soc_hist, [day_start], default=min_soc_pct
+            )[0]
+            final_pct = resample_history_nearest(
+                soc_hist, [day_end - timedelta(seconds=1)], default=initial_pct
+            )[0]
+            # Physical-range clamp only (same reasoning as the home
+            # battery's own #325/#327/#328 history -- a real installed
+            # BatteryConfig must never crash this report on sensor
+            # nonsense), not the home battery's own full scheduling-
+            # envelope WARNING treatment -- a single participant's own
+            # noisy sensor is honestly logged and skipped above already
+            # if history is entirely missing; a physically-valid but
+            # out-of-schedule reading (e.g. an EV parked below its own
+            # configured floor) is scored as-is, same as the live solve
+            # treats it as a soft preference, not a hard error.
+            initial_soc_kwh = min(
+                max(capacity_kwh * initial_pct / 100.0, 0.0), capacity_kwh
+            )
+            final_soc_kwh_actual = min(
+                max(capacity_kwh * final_pct / 100.0, 0.0), capacity_kwh
+            )
+            min_soc_kwh = capacity_kwh * min_soc_pct / 100.0
+            max_soc_kwh = capacity_kwh * max_soc_pct / 100.0
+            efficiency = (
+                min(
+                    float(data.get(CONF_BATTERY_PARTICIPANT_EFFICIENCY_PERCENT) or 95.0)
+                    / 100.0,
+                    0.999,
+                )
+                ** 0.5
+            )
+            battery_cfg = elements.BatteryConfig(
+                name=str(name),
+                capacity_kwh=capacity_kwh,
+                initial_soc_kwh=initial_soc_kwh,
+                min_soc_kwh=min_soc_kwh,
+                max_soc_kwh=max_soc_kwh,
+                max_charge_kw=float(
+                    data.get(CONF_BATTERY_PARTICIPANT_MAX_CHARGE_KW) or 0.0
+                ),
+                max_discharge_kw=float(
+                    data.get(CONF_BATTERY_PARTICIPANT_MAX_DISCHARGE_KW) or 0.0
+                ),
+                charge_efficiency=efficiency,
+                discharge_efficiency=efficiency,
+                # Same reference constants build_extra_batteries() uses
+                # for the live forward solve -- no wizard field for a
+                # real per-participant $/kWh cost exists yet (see that
+                # function's own comment for why 0.0/0.0 isn't a valid
+                # no-op here).
+                charge_cost=_DEFAULT_EXTRA_BATTERY_CHARGE_COST,
+                discharge_cost=_DEFAULT_EXTRA_BATTERY_DISCHARGE_COST,
+                # Stripped to 0.0/None regardless by compute_quality_
+                # report()'s own battery_scoring pass (this is an
+                # already-elapsed day, crediting leftover SoC is a guess
+                # about tomorrow this scorer has no basis for) -- set
+                # honestly here rather than left at a nonzero default
+                # that would only ever be silently discarded downstream.
+                salvage_value=0.0,
+                degradation_cost_per_kwh=float(
+                    data.get(CONF_BATTERY_PARTICIPANT_DEGRADATION_COST_PER_KWH) or 0.0
+                ),
+            )
+        except (ValueError, TypeError) as e:
+            # A bad/inconsistent config for ONE participant (e.g. a
+            # physically-impossible min/max SoC pair) must never take
+            # down the whole day's report -- skip just this participant,
+            # same "the rest of the fleet is unaffected" posture as the
+            # missing-sensor branch above.
+            _LOGGER.warning(
+                "Nimbus quality: battery participant '%s' could not be "
+                "scored for window [%s, %s] (%s) -- excluded from this "
+                "day's multi-battery score",
+                name,
+                day_start.isoformat(),
+                day_end.isoformat(),
+                e,
+            )
+            continue
+
+        results.append(
+            (battery_cfg, actual_charge_kw, actual_discharge_kw, final_soc_kwh_actual)
+        )
+    return results
 
 
 async def dispatch_commanded_state(hass, entity_id: str, commanded_state: bool) -> None:
