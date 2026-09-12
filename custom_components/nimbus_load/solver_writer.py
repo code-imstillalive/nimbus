@@ -7828,7 +7828,21 @@ def publish_plan(
             # computations that could theoretically diverge.
             "batteries": _diag_757_battery_forecast,
             "status": plan.status,
-            "total_cost": plan.total_cost,
+            # nimbus issue #756-golden-CI-flake: rounded to match every
+            # sibling KPI's own precision (total_cost_with_fixed_costs,
+            # cost_breakdown, cost_band all round to 4dp) -- HiGHS's LP
+            # solve is not bit-for-bit deterministic run to run (observed
+            # directly: two CI runs of the identical frozen-time fixture
+            # differed at ~1e-13, e.g. 26.987417226270225 vs
+            # 26.98741722627023), which previously leaked straight through
+            # this one unrounded field into the golden-output guardrail
+            # test and any real dashboard/history consumer. Internal
+            # residual math (compute_cost_breakdown()'s own
+            # terminal_value_credit) still uses the raw, unrounded
+            # plan.total_cost above -- only the published value changes.
+            "total_cost": round(plan.total_cost, 4)
+            if plan.total_cost is not None
+            else None,
             "total_cost_with_fixed_costs": round(total_cost_with_fixed_costs, 4),
             "cost_breakdown": cost_breakdown,
             "cost_band": cost_band,
