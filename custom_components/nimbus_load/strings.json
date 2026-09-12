@@ -301,6 +301,7 @@
             "controllable_load_kind": "Kind",
             "controllable_load_power_sensor": "Real power sensor (optional, for monitoring)",
             "controllable_load_device_entity": "Device to command (optional, e.g. a switch or water_heater)",
+            "controllable_load_climate_on_hvac_mode": "HVAC mode to command when ON (only used if the device above is a climate entity)",
             "controllable_load_min_hold_minutes": "Minimum hold between commands (optional, minutes)",
             "controllable_load_max_activations_per_day": "Max activations per day (optional)",
             "sheddable_nominal_kw": "Sheddable: nominal power (kW)",
@@ -320,6 +321,7 @@
             "controllable_load_kind": "Sheddable: the Solver can reduce it under price pressure, down to an optional minimum fraction. Deferrable: it has a real energy target and deadline (hot water, EV charging) -- the Solver decides WHEN within that window.",
             "controllable_load_power_sensor": "The real, measured power draw of this device, if you have one -- used for monitoring/tracking fidelity, never read by the LP solve itself.",
             "controllable_load_device_entity": "The real entity this load is physically commanded through -- a switch (turned on/off directly) or a water_heater (commanded via set_operation_mode: \"performance\" for on, \"eco\" for off). Leave blank for a load that's only scored/planned, never physically commanded.",
+            "controllable_load_climate_on_hvac_mode": "For a climate device entity only: which hvac_mode to request when this load turns ON (e.g. \"cool\" for an air conditioner). \"off\" is always used to turn it OFF -- no ambiguity there. Never guessed from the device's own supported modes; a climate device with this left blank logs a warning and stays uncommanded on ON transitions.",
             "controllable_load_min_hold_minutes": "Minimum time between commands to this specific device, overriding the shared default hysteresis. Leave blank to use the shared default.",
             "controllable_load_max_activations_per_day": "Caps how many times this device may be commanded ON per day, regardless of what the Solver would otherwise schedule. Leave blank for no cap.",
             "sheddable_nominal_kw": "This load's real rated power when running at full draw.",
@@ -401,6 +403,16 @@
         "grid": "Grid",
         "temperature": "Temperature",
         "humidity": "Humidity"
+      }
+    },
+    "controllable_load_climate_on_hvac_mode": {
+      "options": {
+        "heat": "Heat",
+        "cool": "Cool",
+        "heat_cool": "Heat/Cool (auto)",
+        "auto": "Auto",
+        "dry": "Dry",
+        "fan_only": "Fan only"
       }
     },
     "controllable_load_kind": {

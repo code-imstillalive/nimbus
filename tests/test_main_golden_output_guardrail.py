@@ -124,7 +124,13 @@ _EXPECTED_ATTRS = {
     # solution, and terminal_value_credit (a RESIDUAL against
     # total_cost, see solver_writer.py's cost_breakdown() docstring)
     # shifts by the same tiny amount as a direct consequence.
-    "total_cost": 26.98741722627023,
+    # nimbus issue #756-golden-CI-flake: total_cost is now rounded to 4dp
+    # at the publish site (solver_writer.py), matching every sibling KPI's
+    # own precision -- HiGHS's LP solve is not bit-for-bit deterministic
+    # run to run (this exact fixture flaked on CI: 26.987417226270225 vs
+    # 26.98741722627023, a ~1e-13 difference), which the raw unrounded
+    # value was passing straight through into this guardrail.
+    "total_cost": 26.9874,
     "total_cost_with_fixed_costs": 34.7874,
     # nimbus issue #781: regenerated after adding the explicit
     # `soc_penalty` line item to cost_breakdown() -- 0.0 here since this

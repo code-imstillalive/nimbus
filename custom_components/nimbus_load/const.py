@@ -169,11 +169,29 @@ CONF_CONTROLLABLE_LOAD_POWER_SENSOR: Final = "controllable_load_power_sensor"
 # exactly as today, just never physically commanded -- matches every
 # other optional field's own no-op convention in this subentry. Domain
 # is read directly off the entity_id at dispatch time (switch.*/
-# water_heater.* today; see dispatch_commanded_state()'s own docstring
-# in solver_writer.py for the domain-pluggable design climate.* is
-# expected to join later, per #534's own "written for both domains"
-# note -- not built yet, out of scope for this pass).
+# water_heater.*/climate.* -- see dispatch_commanded_state()'s own
+# docstring in solver_writer.py for the domain-pluggable design).
 CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY: Final = "controllable_load_device_entity"
+# nimbus issue #756 (follow-up to #534): climate.* has no universal safe
+# "on" mode the way switch (turn_on) and water_heater ("performance") do
+# -- a real climate entity's own hvac_modes can include any subset of
+# heat/cool/dry/fan_only/heat_cool/auto, and guessing one (confirmed live
+# against a real reference-household climate entity: hvac_modes included
+# BOTH heat and cool, with supported_features NOT advertising the
+# TURN_ON/TURN_OFF capability bits, so climate.turn_on/turn_off is not a
+# safe universal substitute either) would risk silently commanding a real
+# HVAC unit into the wrong mode. This field names which hvac_mode to
+# request when commanded_state is True; "off" is always used when False,
+# since "off" is universally present in HA's own HVACMode enum. Optional,
+# same no-op convention as CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY above --
+# a climate device_entity configured with this left blank logs a WARNING
+# and dispatches nothing on ON transitions (never guesses), while OFF
+# transitions still work (no ambiguity there). Per this project's own
+# no-hardcoding standard: never inferred from the entity's own supported
+# hvac_modes, always an explicit household/installer choice.
+CONF_CONTROLLABLE_LOAD_CLIMATE_ON_HVAC_MODE: Final = (
+    "controllable_load_climate_on_hvac_mode"
+)
 # #534 item 3's own two device-side constraints, "configurable per load
 # rather than hard-coded" (its own explicit wording) rather than a single
 # hardcoded default shared by every load regardless of what real hardware
