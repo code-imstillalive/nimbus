@@ -175,6 +175,170 @@ class TestResolveBatteryParticipantHistory(unittest.TestCase):
             self.assertEqual(self._call(), [])
 
 
+def _state_history(value, day_start, day_end, step_minutes=15):
+    """Same shape as _flat_history() but for a binary_sensor's own raw
+    STATE STRING history ("on"/"off"), matching what
+    fetch_entity_state_history_range() itself returns."""
+    out = []
+    t = day_start
+    while t < day_end:
+        out.append((t, value))
+        t += timedelta(minutes=step_minutes)
+    return out
+
+
+class TestAvailabilityGating(unittest.TestCase):
+    """nimbus issue #768 (Mark Purcell, 2026-09-13, real catch): the
+    pack-power sensor also measures real propulsion discharge WHILE
+    DRIVING, which never touches the home's grid connection -- must be
+    gated out via battery_participant_available_entity's own HISTORY,
+    not left in as if it were a real grid flow."""
+
+    def setUp(self):
+        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._grid_times = [YESTERDAY_START + timedelta(hours=i) for i in range(24)]
+
+    def tearDown(self):
+        solver_writer._NATIVE_HASS = self._orig_native_hass
+
+    def _call(self):
+        return solver_writer._resolve_battery_participant_history(
+            day_start=YESTERDAY_START,
+            day_end=YESTERDAY_END,
+            grid_times=self._grid_times,
+            period_hours=1.0,
+            n_periods=24,
+        )
+
+    def test_no_available_entity_is_a_real_no_op(self):
+        """Zero available_entity configured (every install before this
+        fix) -- gating never activates, byte-identical to before."""
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [_fake_subentry("s1", "battery_participant", _EV_DATA)],
+            states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
+        )
+
+        def fetch(entity_id, start, end):
+            if entity_id == "sensor.m3p_t_battery_level":
+                return _flat_history(55.0, start, end)
+            if entity_id == "sensor.sigen_inverter_dc_charger_output_power":
+                return _flat_history(5.0, YESTERDAY_START, YESTERDAY_END)
+            return []
+
+        with patch.object(
+            solver_writer, "fetch_entity_history_range", side_effect=fetch
+        ):
+            results = self._call()
+        self.assertEqual(len(results), 1)
+        _, charge_kw, discharge_kw, _ = results[0]
+        self.assertTrue((charge_kw == 5.0).all())
+        self.assertTrue((discharge_kw == 0.0).all())
+
+    def test_driving_discharge_while_away_is_zeroed(self):
+        """Real scenario: car is home charging all day EXCEPT hours
+        8-11, when it's away and driving (the pack genuinely discharges
+        for propulsion) -- that discharge must never reach the grid
+        balance, since it never touched the home's grid connection."""
+        data = dict(
+            _EV_DATA, battery_participant_available_entity="binary_sensor.m3p_home"
+        )
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [_fake_subentry("s1", "battery_participant", data)],
+            states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
+        )
+
+        def net_kw_at(t):
+            # Away (driving, discharging at 8kW) for hours 8-11; home and
+            # charging at 5kW (raw reading, power_positive_is_charge=True)
+            # every other hour.
+            if 8 <= t.hour < 11:
+                return -8.0
+            return 5.0
+
+        def fetch(entity_id, start, end):
+            if entity_id == "sensor.m3p_t_battery_level":
+                return _flat_history(55.0, start, end)
+            if entity_id == "sensor.sigen_inverter_dc_charger_output_power":
+                return [
+                    (
+                        YESTERDAY_START + timedelta(hours=h),
+                        net_kw_at(YESTERDAY_START + timedelta(hours=h)),
+                    )
+                    for h in range(24)
+                ]
+            return []
+
+        def fetch_state(entity_id, start, end):
+            if entity_id == "binary_sensor.m3p_home":
+                return [
+                    (
+                        YESTERDAY_START + timedelta(hours=h),
+                        "off" if 8 <= h < 11 else "on",
+                    )
+                    for h in range(24)
+                ]
+            return []
+
+        with (
+            patch.object(
+                solver_writer, "fetch_entity_history_range", side_effect=fetch
+            ),
+            patch.object(
+                solver_writer,
+                "fetch_entity_state_history_range",
+                side_effect=fetch_state,
+            ),
+        ):
+            results = self._call()
+        self.assertEqual(len(results), 1)
+        _, charge_kw, discharge_kw, _ = results[0]
+        # Away hours (8, 9, 10): real driving discharge zeroed on BOTH
+        # arrays -- never counted as a home-grid discharge.
+        for h in (8, 9, 10):
+            self.assertEqual(charge_kw[h], 0.0)
+            self.assertEqual(discharge_kw[h], 0.0)
+        # Every home hour keeps its real charging flow untouched.
+        for h in range(24):
+            if h not in (8, 9, 10):
+                self.assertEqual(charge_kw[h], 5.0)
+                self.assertEqual(discharge_kw[h], 0.0)
+
+    def test_missing_availability_history_defaults_to_away(self):
+        """No real history at all for the configured available_entity --
+        conservative default is AWAY (0.0), same "if we can't confirm
+        the car/resource is really there, don't count it" posture the
+        live solve's own gate already uses -- every period is zeroed,
+        not silently treated as home."""
+        data = dict(
+            _EV_DATA, battery_participant_available_entity="binary_sensor.m3p_home"
+        )
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [_fake_subentry("s1", "battery_participant", data)],
+            states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
+        )
+
+        def fetch(entity_id, start, end):
+            if entity_id == "sensor.m3p_t_battery_level":
+                return _flat_history(55.0, start, end)
+            if entity_id == "sensor.sigen_inverter_dc_charger_output_power":
+                return _flat_history(5.0, YESTERDAY_START, YESTERDAY_END)
+            return []
+
+        with (
+            patch.object(
+                solver_writer, "fetch_entity_history_range", side_effect=fetch
+            ),
+            patch.object(
+                solver_writer, "fetch_entity_state_history_range", return_value=[]
+            ),
+        ):
+            results = self._call()
+        self.assertEqual(len(results), 1)
+        _, charge_kw, discharge_kw, _ = results[0]
+        self.assertTrue((charge_kw == 0.0).all())
+        self.assertTrue((discharge_kw == 0.0).all())
+
+
 class TestComputeDailyQualityReportIncludesParticipants(unittest.TestCase):
     """End-to-end: compute_daily_quality_report() with a real EV
     battery_participant configured alongside the home battery genuinely

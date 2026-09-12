@@ -4666,6 +4666,90 @@ def fetch_entity_history_range(
     return sorted(out, key=lambda x: x[0])
 
 
+def fetch_entity_state_history_range(
+    entity_id: str, start: datetime, end: datetime
+) -> list[tuple[datetime, str]]:
+    """Real recorded STATE-STRING history for one entity over an
+    explicit [start, end) window -- same shape and same dual native/
+    REST mode as fetch_entity_history_range() just above, but keeps
+    each state as its raw string instead of casting to float.
+
+    nimbus issue #768 (Mark Purcell, 2026-09-13): needed for a
+    genuinely non-numeric state -- a battery_participant's own
+    `battery_participant_available_entity` (a `binary_sensor`,
+    "on"/"off", not a number). fetch_entity_history_range() itself
+    would silently drop EVERY point for an entity like this (its own
+    `float(s.state)` cast fails and skips it), returning an empty
+    history regardless of how much real data actually exists -- exactly
+    the kind of silent, misleading "history missing" this project's own
+    established discipline never wants (see that function's own several
+    real-bug-history comments).
+
+    Skips only a genuinely missing/unusable state (None, "unknown",
+    "unavailable") -- every other real string state is kept as-is,
+    unlike fetch_entity_history_range()'s own numeric-cast filter.
+    """
+    if _NATIVE_HASS is not None:
+        try:
+            import asyncio
+
+            from homeassistant.components.recorder import (
+                get_instance as _recorder_get_instance,
+            )
+            from homeassistant.components.recorder import history as _recorder_history
+
+            async def _fetch() -> dict:
+                return await _recorder_get_instance(
+                    _NATIVE_HASS
+                ).async_add_executor_job(
+                    _recorder_history.state_changes_during_period,
+                    _NATIVE_HASS,
+                    start,
+                    end,
+                    entity_id,
+                    True,  # no_attributes
+                )
+
+            future = asyncio.run_coroutine_threadsafe(_fetch(), _NATIVE_HASS.loop)
+            changes = future.result(timeout=30)
+            states = changes.get(entity_id, [])
+        except Exception:
+            _LOGGER.debug(
+                "Nimbus Solver: fetch_entity_state_history_range(%s) recorder read failed",
+                entity_id,
+                exc_info=True,
+            )
+            return []
+        out: list[tuple[datetime, str]] = []
+        for s in states:
+            if s.state in (None, "unknown", "unavailable"):
+                continue
+            out.append((s.last_changed.astimezone(LOCAL_TZ), s.state))
+        return sorted(out, key=lambda x: x[0])
+    url = (
+        f"{HA_BASE}/api/history/period/{start.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z"
+        f"?filter_entity_id={entity_id}"
+        f"&end_time={end.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z&minimal_response"
+    )
+    req = urllib.request.Request(
+        url, headers={"Authorization": f"Bearer {_load_token()}"}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read())
+    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError):
+        return []
+    if not data or not data[0]:
+        return []
+    out = []
+    for p in data[0]:
+        state = p.get("state")
+        if state in (None, "unknown", "unavailable"):
+            continue
+        out.append((parse_iso(p["last_changed"]).astimezone(LOCAL_TZ), state))
+    return sorted(out, key=lambda x: x[0])
+
+
 def fetch_entity_attribute_history_range(
     entity_id: str, attribute: str, start: datetime, end: datetime
 ) -> list[tuple[datetime, float]]:
@@ -9504,13 +9588,45 @@ def _resolve_battery_participant_history(
     scored, so there is no log-spam risk to guard against the way the
     live per-solve gating above does.
 
-    Deliberately NOT handled here (see regret.py's own `oracle_dispatch()`
-    docstring, "Still deliberately NOT extended"): a participant whose
-    ONLY power signal is a sensor SHARED with another participant (this
-    household's own Sigen DC charger, serving both the Model 3 and Model
-    Y) is scored using that shared reading as-is, honestly wrong on any
-    day both EVs actually used it -- disambiguating that is a real,
-    separate, larger piece of work, not attempted in this pass.
+    Bidirectional-flow gating (2026-09-13, Mark Purcell's own real,
+    substantive catch): the pack-power sensor measures the PACK's own
+    internal flow, which includes real propulsion discharge WHILE
+    DRIVING -- energy that never touches the home's grid connection,
+    solar, or the shared charger at all. Left ungated, that would get
+    priced by evaluate_realized_cost_multi() as if it flowed into the
+    household's own grid balance (a real trip's worth of discharge
+    looking like a real grid export that never happened), corrupting
+    j_ach/EPR the same way the #299 sign-convention bug and the #532
+    shared-sensor double-count once did. Gated here using the SAME
+    `battery_participant_available_entity` the live forward solve
+    already uses for scheduling (#563/#779) -- its own HISTORY for this
+    exact day (not live state) zeroes both `actual_charge_kw` and
+    `actual_discharge_kw` for any period the car was away, so only
+    genuine at-home flow is ever priced against the grid.
+
+    Known, deliberately accepted limitation (Mark's own explicit choice,
+    2026-09-13): this masks the RECONSTRUCTION side only. The oracle
+    re-solve for this participant (`build_plan()`, called from
+    `compute_quality_report()`) has no equivalent per-period gate --
+    `BatteryConfig` only supports a single contiguous `unavailable_
+    until_period_index` PREFIX, not a genuine multi-window mask, so a
+    day with more than one separate trip (e.g. a morning school run AND
+    a separate evening trip) can still let the oracle unrealistically
+    assume the EV was home to charge/discharge during a real away
+    window. A single round-trip day (the common case) is unaffected --
+    the oracle already can't see any of the EV's OWN driving discharge
+    either way, since only home-grid-relevant charge/discharge ever
+    enters this scorer's own evaluation at all. A genuine multi-window
+    oracle gate is real, separate, larger LP work, not attempted here.
+
+    Deliberately NOT handled here either (see regret.py's own
+    `oracle_dispatch()` docstring, "Still deliberately NOT extended"): a
+    participant whose ONLY power signal is a sensor SHARED with another
+    participant (this household's own Sigen DC charger, serving both
+    the Model 3 and Model Y) is scored using that shared reading as-is,
+    honestly wrong on any day both EVs actually used it --
+    disambiguating that is a real, separate, larger piece of work, not
+    attempted in this pass.
 
     Native/in-process mode ONLY, same reasoning and same graceful `[]`
     fallback as `build_extra_batteries()` -- a standalone/cron
@@ -9522,6 +9638,7 @@ def _resolve_battery_participant_history(
         return []
     try:
         from .const import (
+            CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY,
             CONF_BATTERY_PARTICIPANT_CAPACITY_KWH,
             CONF_BATTERY_PARTICIPANT_DEGRADATION_COST_PER_KWH,
             CONF_BATTERY_PARTICIPANT_EFFICIENCY_PERCENT,
@@ -9538,6 +9655,7 @@ def _resolve_battery_participant_history(
         )
     except ImportError:
         from const import (
+            CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY,
             CONF_BATTERY_PARTICIPANT_CAPACITY_KWH,
             CONF_BATTERY_PARTICIPANT_DEGRADATION_COST_PER_KWH,
             CONF_BATTERY_PARTICIPANT_EFFICIENCY_PERCENT,
@@ -9614,6 +9732,38 @@ def _resolve_battery_participant_history(
             )
             actual_charge_kw = np.array([max(0.0, -v) for v in net_kw])
             actual_discharge_kw = np.array([max(0.0, v) for v in net_kw])
+
+            # nimbus issue #768 (Mark Purcell, 2026-09-13, real catch):
+            # the pack-power sensor also measures real propulsion
+            # discharge WHILE DRIVING -- energy that never touches the
+            # home's grid connection at all. Left in, a real trip would
+            # get priced by evaluate_realized_cost_multi() as if it
+            # exported into the household's own grid balance. Gated
+            # using the SAME battery_participant_available_entity the
+            # live forward solve already uses for scheduling (#563/
+            # #779), read as HISTORY for this exact day rather than live
+            # state -- zeroes both charge/discharge for any period the
+            # car was away. See this function's own docstring for the
+            # accepted multi-trip-day limitation this simple mask
+            # carries (a real, separate, larger oracle-side fix, not
+            # attempted here).
+            available_entity = data.get(CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY)
+            if available_entity:
+                home_hist = fetch_entity_state_history_range(
+                    available_entity, day_start, day_end
+                )
+                # Conservative default -- no real history at all for
+                # this entity means "assume away" (0.0), same "if we
+                # can't confirm the car/resource is really there, don't
+                # count it" posture #563 item 2 already established for
+                # the live solve's own availability gate.
+                home_numeric = [(t, 1.0 if v == "on" else 0.0) for t, v in home_hist]
+                is_home = np.array(
+                    resample_history_nearest(home_numeric, grid_times, default=0.0)
+                )
+                is_home_mask = is_home >= 0.5
+                actual_charge_kw = np.where(is_home_mask, actual_charge_kw, 0.0)
+                actual_discharge_kw = np.where(is_home_mask, actual_discharge_kw, 0.0)
 
             min_soc_pct = float(
                 data.get(CONF_BATTERY_PARTICIPANT_MIN_SOC_PERCENT) or 0.0

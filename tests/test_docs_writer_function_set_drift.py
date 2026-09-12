@@ -200,6 +200,15 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # [] unconditionally in standalone mode already (_NATIVE_HASS is
         # None there), so there is nothing behavioural to port.
         "_resolve_battery_participant_history",
+        # nimbus issue #768 (2026-09-13): a genuinely dual-mode function
+        # (it has its own REST branch, same shape as fetch_entity_
+        # history_range()) but its ONLY caller is _resolve_battery_
+        # participant_history() immediately above, itself already
+        # INTENTIONAL_NATIVE_ONLY -- same "only ever invoked from native
+        # mode, and does nothing at all when it isn't" reasoning
+        # fetch_entity_attribute_history_range() already established
+        # for exactly this shape, not a fresh gap.
+        "fetch_entity_state_history_range",
         # nimbus issue #645: overlays a Controllable Load's live
         # number.nimbus_<load>_<key> entity values on top of its own
         # subentry.data, same no-standalone-equivalent reasoning as
