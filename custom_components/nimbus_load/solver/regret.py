@@ -94,8 +94,16 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import NDArray
 
-from .elements import BatteryConfig, GridConfig, LoadConfig, PeriodGrid, SolarConfig
-from .network import build_plan
+from .elements import (
+    AdequacyLoadConfig,
+    BatteryConfig,
+    GridConfig,
+    LoadConfig,
+    PeriodGrid,
+    SheddableLoadConfig,
+    SolarConfig,
+)
+from .network import Plan, build_plan
 
 
 @dataclass(frozen=True)
@@ -302,34 +310,74 @@ def oracle_dispatch(
     *,
     periods: PeriodGrid,
     grid: GridConfig,
-    battery: BatteryConfig,
+    batteries: list[BatteryConfig],
     solar: SolarConfig,
-    load: LoadConfig,
-) -> tuple[NDArray[np.float64], NDArray[np.float64], float]:
+    loads: list[LoadConfig] | None = None,
+    adequacy_loads: list[AdequacyLoadConfig] | None = None,
+    sheddable_loads: list[SheddableLoadConfig] | None = None,
+) -> Plan:
     """J* -- the perfect-foresight optimum: build_plan() given the REAL,
     realized load/solar/price directly, as if perfectly known in
     advance. By construction this achieves the minimum possible J over
     the same feasible region as any other controller evaluated in this
-    module -- nothing can beat it, only match it. Returns
-    (charge_kw, discharge_kw, final_soc_kwh) -- the oracle's own
-    committed battery trajectory (grid/solar_used are NOT returned here;
-    re-derive via evaluate_realized_cost() for a consistent comparison
-    against every other controller, even though for the oracle
-    specifically they're already exactly equal to the plan's own numbers
-    by construction -- using the same evaluator for every controller,
-    oracle included, is what makes the comparison honest).
+    module -- nothing can beat it, only match it.
+
+    nimbus issue #768 (Mark Purcell, Option 1): previously took a
+    SINGLE `battery`/`load` and had no concept of a controllable
+    (adequacy/sheddable) load at all -- the real fleet (multiple
+    battery_participants sharing a charger, a deferrable HWS/EV load
+    with its own real deadline) was invisible to the oracle, so EPR/
+    regret could only ever answer "was the home battery's OWN dispatch
+    right", never "could battery dispatch AND a controllable load's own
+    timing together have been better" -- #768's own body diagnosed this
+    precisely by reading this exact function's old signature. Now takes
+    the same real `batteries`/`loads`/`adequacy_loads`/`sheddable_loads`
+    shape `build_plan()` itself already has for the live solve, so the
+    oracle can freely re-time EVERYTHING at once (each participant still
+    subject to its own real physical constraints -- battery capacity/
+    efficiency/shared-charger cap via `max_charge_kw`, a controllable
+    load's own `earliest_period`/`deadline_period`/`max_power_kw`),
+    answering the joint question as one combined optimization rather
+    than several separate single-asset ones (#768's "Option 1", the only
+    option that can see the interaction between a battery decision and a
+    load-timing decision -- see #768's own body for why Options 2/3 each
+    give that up for a smaller/staged/narrower answer instead).
+
+    Returns the full `Plan` -- reusing the SAME per-participant
+    breakdown (`Plan.batteries`, nimbus #467) and per-load results
+    (`Plan.adequacy_loads`/`Plan.sheddable_loads`) the live solver
+    already produces, rather than inventing a second, parallel result
+    shape. A caller that only wants the single-battery aggregate
+    trajectory this function used to return directly reads
+    `plan.battery_charge_kw`/`plan.battery_discharge_kw`/
+    `plan.battery_soc_kwh[-1]` -- byte-identical to the old tuple return
+    whenever called with exactly one battery and no adequacy/sheddable
+    loads (see backtest.py's own `score_candidate_day()`, the one
+    pre-existing caller, updated alongside this change).
+
+    Deliberately NOT extended in this same change (see #768's own body
+    for why each is its own, separate piece of work): `evaluate_
+    realized_cost()` still scores one battery's own committed
+    trajectory at a time (a genuine multi-battery ACHIEVED-cost
+    evaluator, and wiring this into the live `compute_quality_report()`/
+    `compute_daily_quality_report()` production path -- which needs a
+    real "what did the EV/controllable load actually deliver, hour by
+    hour, on that already-elapsed day" reconstruction that does not
+    exist yet -- are follow-up work, not part of this mechanism).
     """
     plan = build_plan(
-        periods=periods, grid=grid, batteries=[battery], solar=solar, loads=[load]
+        periods=periods,
+        grid=grid,
+        batteries=batteries,
+        solar=solar,
+        loads=loads,
+        adequacy_loads=adequacy_loads,
+        sheddable_loads=sheddable_loads,
     )
     if not plan.is_optimal:
         msg = f"Oracle solve failed (status={plan.status}) -- this should not happen with real, already-realized data unless the scenario is genuinely infeasible"
         raise RuntimeError(msg)
-    return (
-        plan.battery_charge_kw,
-        plan.battery_discharge_kw,
-        float(plan.battery_soc_kwh[-1]),
-    )
+    return plan
 
 
 def hourly_regret_breakdown(

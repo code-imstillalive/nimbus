@@ -76,9 +76,19 @@ def score_candidate_day(
     must catch this per-candidate, not let one bad combination abort
     the whole sweep (see run_efficiency_sensitivity_sweep()'s own
     docstring).
+
+    nimbus issue #768: oracle_dispatch() now takes/returns the same
+    real multi-asset shape build_plan() does (a list of batteries, the
+    full Plan back) -- this function still only ever exercises ONE
+    battery/load (that's this module's own single-asset parameter-
+    sensitivity scope, see the module docstring), so it wraps/unwraps
+    the single-element list here. `plan.battery_charge_kw`/
+    `battery_discharge_kw`/`battery_soc_kwh[-1]` are the SAME aggregate
+    the old tuple return carried for exactly this one-battery case --
+    zero behaviour change.
     """
-    charge_kw, discharge_kw, final_soc_kwh = oracle_dispatch(
-        periods=periods, grid=grid, battery=battery, solar=solar, load=load
+    plan = oracle_dispatch(
+        periods=periods, grid=grid, batteries=[battery], solar=solar, loads=[load]
     )
     result = evaluate_realized_cost(
         hours=periods.hours,
@@ -86,11 +96,11 @@ def score_candidate_day(
         solar_real_kw=solar.forecast_kw,
         import_price_real=grid.import_price,
         export_price_real=grid.export_price,
-        charge_committed_kw=charge_kw,
-        discharge_committed_kw=discharge_kw,
+        charge_committed_kw=plan.battery_charge_kw,
+        discharge_committed_kw=plan.battery_discharge_kw,
         charge_cost=battery.charge_cost,
         discharge_cost=battery.discharge_cost,
-        final_soc_kwh=final_soc_kwh,
+        final_soc_kwh=float(plan.battery_soc_kwh[-1]),
         salvage_value=battery.salvage_value,
         grid_import_limit_kw=grid.import_limit_kw,
         grid_export_limit_kw=grid.export_limit_kw,
