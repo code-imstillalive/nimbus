@@ -399,5 +399,40 @@ class TestAllZeroPrimaryOrSecondaryIsAHonestNoOp(unittest.TestCase):
         self.assertAlmostEqual(p2.value_of(result, "x2"), 0.0, places=4)
 
 
+class TestNonOptimalPhaseLogsRichDiagnostics(unittest.TestCase):
+    """nimbus issue #773: a real, install-independent, intermittent
+    report of exactly this ValueError firing in production, with no
+    root cause found yet (extensive randomized-MIP reproduction
+    attempts, both in this test file's own style and at realistic
+    ~96-period scale, never reproduced it locally). `_ensure_optimal_
+    value()` now logs full HiGHS diagnostic detail (phase label, MIP
+    node count/gap/dual bound, infeasibility magnitudes, problem
+    shape) at ERROR before raising, so a real future occurrence
+    carries enough detail to actually root-cause it. This test proves
+    that logging fires correctly and that the raised ValueError is
+    byte-identical to before -- it does not (and cannot, since the
+    real bug isn't reproducible locally) prove #773 itself is fixed."""
+
+    def test_infeasible_problem_logs_diagnostics_and_still_raises(self):
+        p = LPProblem()
+        p.add_variable("x1", ub=10.0, cost=1.0)
+        # Two contradictory equality constraints -- genuinely infeasible
+        # from the very first phase-1 solve, the same call site (line
+        # "primary_value = _ensure_optimal_value(...)") every real #773
+        # traceback reported.
+        p.add_eq_constraint({"x1": 1.0}, 3.0, name="pin_low")
+        p.add_eq_constraint({"x1": 1.0}, 7.0, name="pin_high")
+        with (
+            self.assertLogs("solver.lp", level="ERROR") as cm,
+            self.assertRaisesRegex(ValueError, r"failed to reach optimal"),
+        ):
+            p.solve(options=LexOptions())
+        self.assertTrue(
+            any("Nimbus #773 diag" in line for line in cm.output),
+            f"expected a #773 diagnostic log line, got: {cm.output}",
+        )
+        self.assertTrue(any("phase1_primary" in line for line in cm.output))
+
+
 if __name__ == "__main__":
     unittest.main()
