@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.266] — 2026-09-13
+
+### Changed
+- **`oracle_dispatch()` (`solver/regret.py`) extended to jointly re-solve a whole multi-battery/multi-load fleet under perfect foresight, instead of a single battery/load** (nimbus issue #768 "Option 1", Mark Purcell — PR #791). Internal solver plumbing only: `backtest.py`'s `score_candidate_day()` (the one existing call site) is preserved byte-identical for its current single-battery/single-load use, and `compute_quality_report()` (the real scorer behind `sensor.nimbus_solver_quality_report`) does not call this function at all, so nothing on any live dashboard changes. This is the reusable mechanism a future full-fleet EPR/regret scorer needs — wiring it into production still needs a real historical EV/controllable-load delivery reconstruction (#768 itself flags this as not yet built) and is deliberately a separate, later piece of work. Verified: backward-compatible single-asset call produces a byte-identical `Plan`; a genuine two-battery joint solve allocates discharge to the cheaper battery rather than splitting evenly; a genuine joint battery+deadline-load solve schedules the load timing correctly (~$1.40 cheaper than a naive price-blind placement on the same real day) — the exact question #768 asks. 5 new tests plus 14 pre-existing, all passing; full suite, ruff, and mypy all clean against the same baseline as `main`.
+
 ## [0.94.265] — 2026-09-13
 
 ### Fixed
