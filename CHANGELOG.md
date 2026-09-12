@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.260] — 2026-09-12
+
+### Changed
+- **Diagnostic instrumentation for #773 (intermittent `lex/calibration phase failed to reach optimal (Infeasible)`) — NOT a confirmed fix.** This bug has now been reported byte-identically on devhub and on a real household (different fleet shapes, same exact traceback/line), and was re-observed live again during this same session's own #776 devhub verification. Real investigation was done before shipping this: 500+ randomized MIP scenarios mirroring the real adequacy-load semicontinuous shape (on/off + start binaries, the exact pattern `network.py`'s own controllable-load encoding uses) at realistic ~96-period scale, across both `LexOptions` and `CalibratedOptions`, never reproduced it locally; a direct comparison of `.minimize(qsum(...))` vs. `_set_cost_vector()`'s own raw `changeColsCost`/`changeObjectiveOffset` objective-setting on a small real MIP also ruled out an objective-sense-setting difference as the cause. Root cause remains genuinely unknown — whatever triggers this depends on real production data this project has no local copy of. Rather than ship a guessed fix with no evidence behind it, `_ensure_optimal_value()` in `solver/lp.py` now logs full HiGHS diagnostic detail (which phase failed, MIP node count/gap/dual bound, infeasibility magnitudes, problem shape) at ERROR immediately before raising the same `ValueError` as before — purely additive, zero behavior change, same disciplined "diagnose before guessing" approach already used for #757. One new regression test proves the log fires and the raised exception is unchanged. Full local suite green (2048 passed, 13 skipped). **#773 stays open** — closing it requires either a genuine local reproduction or a live recurrence captured with this new diagnostic detail attached.
+
 ## [0.94.259] — 2026-09-12
 
 ### Fixed

@@ -907,17 +907,58 @@ def _set_cost_vector(
     h.changeObjectiveOffset(0.0)
 
 
-def _ensure_optimal_value(h: highspy.Highs) -> float:
+def _ensure_optimal_value(
+    h: highspy.Highs,
+    *,
+    phase: str = "",
+    problem: LPProblem | None = None,
+    binary_cols: list[int] | None = None,
+) -> float:
     """Run the solver and return its objective value, raising if the
     result isn't optimal. An intermediate lex/calibration PHASE failing
     to reach optimal is a genuine anomaly here (every phase operates on
     the exact same feasible region the caller's own variables/
     constraints already established) -- unlike the CALLER's own final
     result, where "infeasible"/"error" are normal, expected `LPResult`
-    outcomes (see that class's own docstring)."""
+    outcomes (see that class's own docstring).
+
+    nimbus issue #773: real, install-independent, intermittent reports
+    of exactly this ValueError firing (both on devhub and on a real
+    household, byte-identical traceback, different fleet shapes) with
+    no root cause found yet -- extensive randomized-MIP reproduction
+    attempts (semicontinuous adequacy-load shapes at realistic period
+    counts) failed to reproduce it locally, so whatever triggers this
+    depends on real production data this project doesn't have a local
+    copy of. `phase`/`problem`/`binary_cols` (all optional, no behavior
+    change for a caller that omits them) exist purely so that WHEN this
+    next fires for real, the log line carries enough HiGHS-internal
+    detail (MIP node count/gap/dual bound, infeasibility magnitudes,
+    problem shape) to actually root-cause it, rather than just the bare
+    "status='Infeasible'" this project has only ever had to go on so
+    far -- same diagnostic-logging-before-guessing discipline already
+    used for #757."""
     h.run()
     status = h.getModelStatus()
     if status != highspy.HighsModelStatus.kOptimal:
+        info = h.getInfo()
+        _LOGGER.error(
+            "Nimbus #773 diag: lex/calibration phase %r failed to reach "
+            "optimal (status=%r, n_vars=%s, n_binary=%s, mip_node_count=%s, "
+            "mip_gap=%s, mip_dual_bound=%s, primal_solution_status=%s, "
+            "max_primal_infeasibility=%s, num_primal_infeasibilities=%s, "
+            "simplex_iterations=%s)",
+            phase,
+            h.modelStatusToString(status),
+            problem.n_variables if problem is not None else None,
+            len(binary_cols) if binary_cols is not None else None,
+            info.mip_node_count,
+            info.mip_gap,
+            info.mip_dual_bound,
+            info.primal_solution_status,
+            info.max_primal_infeasibility,
+            info.num_primal_infeasibilities,
+            info.simplex_iteration_count,
+        )
         msg = (
             "LPProblem.solve(options=...): an internal lex/calibration "
             f"phase failed to reach optimal (status={h.modelStatusToString(status)!r})"
@@ -1192,7 +1233,9 @@ def _solve_with_options(
     # primary-tied integer solution, not just whichever one phase 1
     # happened to find first.
     _set_cost_vector(h, col_indices, primary_vec)
-    primary_value = _ensure_optimal_value(h)
+    primary_value = _ensure_optimal_value(
+        h, phase="phase1_primary", problem=problem, binary_cols=binary_cols
+    )
 
     # Same "always >= 1 term" dense-iteration style as this module's own
     # pre-#696 cost_expr construction (every variable, missing/zero
@@ -1204,7 +1247,9 @@ def _solve_with_options(
     h.addConstr(primary_expr <= primary_value)
     extra_row_names = ["_lex_primary_le_optimum"]
     _set_cost_vector(h, col_indices, secondary_vec)
-    secondary_value = _ensure_optimal_value(h)
+    secondary_value = _ensure_optimal_value(
+        h, phase="phase2_secondary", problem=problem, binary_cols=binary_cols
+    )
 
     # nimbus issue #702: the real binary assignment is now decided --
     # phase 2's own (possibly MIP) solve just chose, among every
@@ -1222,7 +1267,9 @@ def _solve_with_options(
         # reproduces the identical solution; the point is a clean solve
         # record, not a different answer.
         _set_cost_vector(h, col_indices, secondary_vec)
-        _ensure_optimal_value(h)
+        _ensure_optimal_value(
+            h, phase="phase2_pin_resolve", problem=problem, binary_cols=binary_cols
+        )
 
     if isinstance(options, LexOptions):
         # Phase 3: re-minimize primary with a tiny relative epsilon
@@ -1236,7 +1283,9 @@ def _solve_with_options(
         h.addConstr(secondary_expr <= secondary_value + epsilon)
         extra_row_names.append("_lex_secondary_le_optimum")
         _set_cost_vector(h, col_indices, primary_vec)
-        _ensure_optimal_value(h)
+        _ensure_optimal_value(
+            h, phase="phase3_lex_restore", problem=problem, binary_cols=binary_cols
+        )
         return extra_row_names, None
 
     # CalibratedOptions: h's own live basis already sits at the phase-2
