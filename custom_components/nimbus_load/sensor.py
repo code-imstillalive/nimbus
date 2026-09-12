@@ -68,6 +68,7 @@ from .const import (
     CONF_BATTERY_TOWER_SOH_SENSOR,
     CONF_BATTERY_TOWER_TEMPERATURE_SENSOR,
     CONF_BATTERY_TOWER_VOLTAGE_SENSOR,
+    CONF_CONTROLLABLE_LOAD_CLIMATE_ON_HVAC_MODE,
     CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY,
     CONF_CONTROLLABLE_LOAD_KIND,
     CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY,
@@ -1530,6 +1531,9 @@ class NimbusControllableLoadStateSensor(SensorEntity):
         self._attrs = {
             **state.to_dict(),
             "device_entity": data.get(CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY),
+            "climate_on_hvac_mode": data.get(
+                CONF_CONTROLLABLE_LOAD_CLIMATE_ON_HVAC_MODE
+            ),
             "min_hold_minutes": data.get(CONF_CONTROLLABLE_LOAD_MIN_HOLD_MINUTES),
             "max_activations_per_day": data.get(
                 CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY

@@ -9425,7 +9425,12 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
     return batteries
 
 
-async def dispatch_commanded_state(hass, entity_id: str, commanded_state: bool) -> None:
+async def dispatch_commanded_state(
+    hass,
+    entity_id: str,
+    commanded_state: bool,
+    climate_on_hvac_mode: str | None = None,
+) -> None:
     """nimbus issue #476/#534: the real output/actuation layer -- the
     piece #484's own docstring flagged as missing ("this bookkeeping has
     no consumer yet... no sensor exposes commanded_state today"). Calls
@@ -9443,15 +9448,25 @@ async def dispatch_commanded_state(hass, entity_id: str, commanded_state: bool) 
     adding a speculative override for hardware nobody has yet would be
     guessing ahead of a real need.
 
-    climate.*: not implemented -- #534's own "written for both domains"
-    note flags it as the obvious next domain (current_temperature/
-    temperature/hvac_modes have the same shape as water_heater), but
-    building it without a real climate-zone install to verify against
-    would be exactly the kind of guess this project's own process lessons
-    warn against. An unrecognized domain (climate.* included) logs a
-    WARNING and is a safe no-op, never a crash -- a household who
-    configures a device_entity in an unsupported domain finds out from
-    the log, not from a silently-ignored command.
+    climate.* (nimbus issue #756, follow-up to #534): set_hvac_mode --
+    "off" unconditionally when commanded_state is False (universally
+    present in HA's own HVACMode enum, zero ambiguity), and
+    `climate_on_hvac_mode` when True. Deliberately NOT climate.turn_on/
+    turn_off: checked live against a real reference-household climate
+    entity, its own `supported_features` did not advertise the
+    TURN_ON/TURN_OFF capability bits, so those services are not a safe
+    universal substitute. Deliberately NOT a guessed single "on" mode
+    either -- the same real entity's own `hvac_modes` included both
+    `heat` and `cool`, so there is no safe universal default; see
+    CONF_CONTROLLABLE_LOAD_CLIMATE_ON_HVAC_MODE's own const.py comment.
+    A climate device_entity with `climate_on_hvac_mode` left unset logs a
+    WARNING and does not dispatch on an ON transition (never guesses) --
+    OFF transitions are unaffected, since "off" needs no configured mode.
+
+    An unrecognized domain (anything other than switch/water_heater/
+    climate) logs a WARNING and is a safe no-op, never a crash -- a
+    household who configures a device_entity in an unsupported domain
+    finds out from the log, not from a silently-ignored command.
 
     Raises on a genuine service-call failure (a bad entity_id, the
     service unavailable) -- the caller (apply_commanded_state_guard())
@@ -9473,11 +9488,32 @@ async def dispatch_commanded_state(hass, entity_id: str, commanded_state: bool) 
             {"entity_id": entity_id, "operation_mode": mode},
             blocking=False,
         )
+    elif domain == "climate":
+        if commanded_state:
+            if not climate_on_hvac_mode:
+                _LOGGER.warning(
+                    "Nimbus: controllable load device entity '%s' is a "
+                    "climate entity with no configured ON hvac_mode "
+                    "(CONF_CONTROLLABLE_LOAD_CLIMATE_ON_HVAC_MODE) -- not "
+                    "dispatched (#756). Configure one in the Controllable "
+                    "Load wizard to enable ON commands for this device.",
+                    entity_id,
+                )
+                return
+            hvac_mode = climate_on_hvac_mode
+        else:
+            hvac_mode = "off"
+        await hass.services.async_call(
+            "climate",
+            "set_hvac_mode",
+            {"entity_id": entity_id, "hvac_mode": hvac_mode},
+            blocking=False,
+        )
     else:
         _LOGGER.warning(
             "Nimbus: controllable load device entity '%s' has an unsupported "
-            "domain '%s' for dispatch -- switch and water_heater are "
-            "supported today, climate is not yet built (#534)",
+            "domain '%s' for dispatch -- switch, water_heater, and climate "
+            "are supported today",
             entity_id,
             domain,
         )
@@ -9564,6 +9600,7 @@ def apply_commanded_state_guard(
         try:
             from . import done_condition, load_run_state, thermal_forecast
             from .const import (
+                CONF_CONTROLLABLE_LOAD_CLIMATE_ON_HVAC_MODE,
                 CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY,
                 CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY,
                 CONF_CONTROLLABLE_LOAD_MIN_HOLD_MINUTES,
@@ -9582,6 +9619,7 @@ def apply_commanded_state_guard(
             import load_run_state
             import thermal_forecast
             from const import (
+                CONF_CONTROLLABLE_LOAD_CLIMATE_ON_HVAC_MODE,
                 CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY,
                 CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY,
                 CONF_CONTROLLABLE_LOAD_MIN_HOLD_MINUTES,
@@ -10212,6 +10250,9 @@ def apply_commanded_state_guard(
                                         floor_crossing["time"],
                                     )
                 device_entity = data.get(CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY)
+                climate_on_hvac_mode = data.get(
+                    CONF_CONTROLLABLE_LOAD_CLIMATE_ON_HVAC_MODE
+                )
                 if device_entity and new.commanded_state != prev.commanded_state:
                     if new.commanded_state:
                         max_activations_raw = data.get(
@@ -10229,7 +10270,10 @@ def apply_commanded_state_guard(
                         ):
                             try:
                                 await dispatch_commanded_state(
-                                    _NATIVE_HASS, device_entity, True
+                                    _NATIVE_HASS,
+                                    device_entity,
+                                    True,
+                                    climate_on_hvac_mode=climate_on_hvac_mode,
                                 )
                                 new = load_run_state.record_activation(
                                     new, day_key=day_key

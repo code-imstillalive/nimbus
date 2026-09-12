@@ -33,6 +33,7 @@ from homeassistant.config_entries import (
 from homeassistant.helpers import selector
 
 from ..const import (
+    CONF_CONTROLLABLE_LOAD_CLIMATE_ON_HVAC_MODE,
     CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY,
     CONF_CONTROLLABLE_LOAD_KIND,
     CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY,
@@ -134,14 +135,35 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
         selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
     )
     # nimbus issue #534: the real device this load is commanded through --
-    # no domain restriction on the selector itself (switch/water_heater
-    # today, climate expected later, per dispatch_commanded_state()'s own
-    # domain-pluggable design in solver_writer.py).
+    # no domain restriction on the selector itself (switch/water_heater/
+    # climate, per dispatch_commanded_state()'s own domain-pluggable
+    # design in solver_writer.py).
     _optional_field(
         schema_dict,
         CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY,
         defaults.get(CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY),
         selector.EntitySelector(),
+    )
+    # nimbus issue #756: only meaningful when the device entity above is
+    # climate.* -- a fixed, real dropdown over HA's own HVACMode enum
+    # (never inferred from the entity's own supported hvac_modes, which
+    # this static schema has no live access to at wizard-build time, and
+    # would risk silently offering a mode the real device doesn't
+    # actually support). Left blank for a switch/water_heater device
+    # entity, or for a climate device that should only ever be turned
+    # OFF by this load (no ambiguity there -- "off" needs no configured
+    # mode). See CONF_CONTROLLABLE_LOAD_CLIMATE_ON_HVAC_MODE's own
+    # const.py comment for why no safe default exists.
+    _optional_field(
+        schema_dict,
+        CONF_CONTROLLABLE_LOAD_CLIMATE_ON_HVAC_MODE,
+        defaults.get(CONF_CONTROLLABLE_LOAD_CLIMATE_ON_HVAC_MODE),
+        selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=["heat", "cool", "heat_cool", "auto", "dry", "fan_only"],
+                translation_key=CONF_CONTROLLABLE_LOAD_CLIMATE_ON_HVAC_MODE,
+            )
+        ),
     )
     _optional_field(
         schema_dict,
