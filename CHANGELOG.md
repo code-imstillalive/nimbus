@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.264] — 2026-09-12
+
+### Fixed
+- **CRITICAL regression from v0.94.262: every solve cycle crashed outright, solver completely down** (nimbus issue #785, real production outage found live within minutes of deploying — `sensor.nimbus_status` reading "Needs attention", `sensor.nimbus_solver_battery_forecast`/`sensor.nimbus_solver_lp_status` both `unknown`, `TypeError: Plan.__init__() missing 1 required positional argument: 'soc_penalty_cost'` on every single cycle). Root cause: #781's own fix added a new required `Plan.soc_penalty_cost` field and updated every construction site an earlier grep for the literal patterns `"= Plan("` and `"return Plan("` found — but `solver_writer.py`'s own `load_previous_plan()` (called by `main()` on every solve cycle to feed `build_plan()`'s cross-solve stability mechanisms) constructs its `Plan` as `network.Plan(...)`, module-qualified, which neither literal pattern ever matched, so this exact site was missed entirely. Fixed with the trivial, obvious addition (`soc_penalty_cost=0.0` — this reconstructed-from-cache `Plan` is only ever read by stability mechanisms that never look at this field). Re-audited every `Plan(` construction site project-wide this time (a real regex search for `\bPlan(`, not just the two literal substrings that missed this one) — confirmed no other site was affected. Added real regression coverage that didn't exist before: a genuine `save_plan_state()` → `load_previous_plan()` round trip using the actual functions (not a hand-written JSON fixture), closing the real coverage gap that let this slip through CI (the one existing test touching this path deliberately points `PLAN_STATE_PATH` at a nonexistent file, so it only ever hit the fast "file missing" branch, never the real construction this bug lived in). Full local suite + a fast targeted sweep both green; shipping immediately given the severity (a live, ongoing production outage) rather than waiting for the full suite to finish.
+
 ## [0.94.263] — 2026-09-12
 
 ### Fixed
