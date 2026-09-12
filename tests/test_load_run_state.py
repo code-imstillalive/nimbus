@@ -293,8 +293,17 @@ class TestApplyPowerSample(unittest.TestCase):
     def test_activations_today_untouched_when_day_key_has_not_changed(self):
         # The rollover branch must never fire (and never zero a real,
         # same-day count) just because apply_power_sample() itself was
-        # called -- only a genuine day_key change should reset it.
-        state = lrs.LoadRunState(activations_today=3, day_key="2026-09-12")
+        # called -- only a genuine day_key change should reset it. nimbus
+        # issue #782: activations_today_day_key must already be synced to
+        # today here (a state that's already been through a real reset
+        # this same day), not the default "" -- otherwise this would
+        # (correctly, per #782's own fix) look stale and reset, which
+        # isn't what this specific test is checking.
+        state = lrs.LoadRunState(
+            activations_today=3,
+            day_key="2026-09-12",
+            activations_today_day_key="2026-09-12",
+        )
         new = lrs.apply_power_sample(
             state,
             now=datetime(2026, 9, 12, 10, 5, tzinfo=_TZ),
@@ -302,6 +311,32 @@ class TestApplyPowerSample(unittest.TestCase):
             power_kw=0.5,
         )
         self.assertEqual(new.activations_today, 3)
+
+    def test_782_self_heals_a_state_already_stuck_by_the_770_incident(self):
+        # nimbus issue #782 (real follow-up, same day #770's own fix
+        # deployed): the exact stuck shape Mark reported live -- day_key
+        # was ALREADY advanced to "today" by the OLD, pre-#770-fix code
+        # (so v0.94.258's own `day_key != state.day_key` check reads
+        # false, no NEW rollover from ITS point of view), but
+        # activations_today itself was never actually reset. Every
+        # currently-persisted state predates activations_today_day_key
+        # entirely, so it defaults to "" here -- must NOT match today,
+        # and the reset must fire on this very first apply_power_sample()
+        # call post-upgrade, without needing to wait for a real new
+        # day_key rollover at all.
+        state = lrs.LoadRunState(
+            activations_today=5,
+            day_key="2026-09-12",  # already "today" -- the stuck shape
+            activations_today_day_key="",  # never set -- pre-#782 state
+        )
+        new = lrs.apply_power_sample(
+            state,
+            now=datetime(2026, 9, 12, 10, 5, tzinfo=_TZ),
+            day_key="2026-09-12",  # same day -- no general rollover either
+            power_kw=0.5,
+        )
+        self.assertEqual(new.activations_today, 0)
+        self.assertEqual(new.activations_today_day_key, "2026-09-12")
 
     def test_import_price_now_accumulates_cost_today_alongside_delivered_energy(self):
         # nimbus issue #591: 0.75 kWh delivered (same shape as the
@@ -603,7 +638,11 @@ class TestActivationAllowedAndRecordActivation(unittest.TestCase):
         )
 
     def test_at_the_cap_is_blocked(self):
-        state = lrs.LoadRunState(activations_today=3, day_key="2026-09-08")
+        state = lrs.LoadRunState(
+            activations_today=3,
+            day_key="2026-09-08",
+            activations_today_day_key="2026-09-08",
+        )
         self.assertFalse(
             lrs.activation_allowed(
                 state, max_activations_per_day=3, day_key="2026-09-08"
@@ -622,7 +661,11 @@ class TestActivationAllowedAndRecordActivation(unittest.TestCase):
         )
 
     def test_record_activation_increments_within_the_same_day(self):
-        state = lrs.LoadRunState(activations_today=1, day_key="2026-09-08")
+        state = lrs.LoadRunState(
+            activations_today=1,
+            day_key="2026-09-08",
+            activations_today_day_key="2026-09-08",
+        )
         result = lrs.record_activation(state, day_key="2026-09-08")
         self.assertEqual(result.activations_today, 2)
         self.assertEqual(result.day_key, "2026-09-08")
@@ -638,12 +681,37 @@ class TestActivationAllowedAndRecordActivation(unittest.TestCase):
         result = lrs.record_activation(state, day_key="2026-09-08")
         self.assertEqual(result.activations_today, 1)
 
+    def test_782_activation_allowed_self_heals_a_state_stuck_by_770(self):
+        # nimbus issue #782's exact stuck shape, on the no-power-sensor
+        # fallback path this time: day_key already reads "today" (from
+        # the OLD pre-#770-fix code), activations_today is at its own
+        # cap, but activations_today_day_key was never set (defaults to
+        # "" for any state persisted before #782 shipped) -- must read
+        # today's real count as 0, not the stale 5.
+        state = lrs.LoadRunState(activations_today=5, day_key="2026-09-12")
+        self.assertTrue(
+            lrs.activation_allowed(
+                state, max_activations_per_day=3, day_key="2026-09-12"
+            )
+        )
+
+    def test_782_record_activation_self_heals_a_state_stuck_by_770(self):
+        state = lrs.LoadRunState(activations_today=5, day_key="2026-09-12")
+        result = lrs.record_activation(state, day_key="2026-09-12")
+        self.assertEqual(result.activations_today, 1)
+        self.assertEqual(result.activations_today_day_key, "2026-09-12")
+
 
 class TestLoadRunStateActivationsTodayRoundTrip(unittest.TestCase):
     def test_to_dict_and_from_dict_round_trip_activations_today(self):
-        state = lrs.LoadRunState(activations_today=2, day_key="2026-09-08")
+        state = lrs.LoadRunState(
+            activations_today=2,
+            day_key="2026-09-08",
+            activations_today_day_key="2026-09-08",
+        )
         restored = lrs.LoadRunState.from_dict(state.to_dict())
         self.assertEqual(restored.activations_today, 2)
+        self.assertEqual(restored.activations_today_day_key, "2026-09-08")
 
     def test_from_dict_defaults_activations_today_to_zero_for_old_data(self):
         # Real backward-compat case: a LoadRunState written before #534
@@ -652,6 +720,20 @@ class TestLoadRunStateActivationsTodayRoundTrip(unittest.TestCase):
         old_data = {"currently_on": True, "delivered_today_kwh": 1.5}
         restored = lrs.LoadRunState.from_dict(old_data)
         self.assertEqual(restored.activations_today, 0)
+
+    def test_from_dict_defaults_activations_today_day_key_to_empty_for_782(self):
+        # nimbus issue #782: any state persisted before this field
+        # existed (every real household's own current state at the
+        # moment v0.94.262+ deploys) must default to "" -- the value
+        # that can never match a real day_key, which is exactly what
+        # makes the self-heal fire on the very next real solve cycle.
+        old_data = {
+            "currently_on": True,
+            "activations_today": 5,
+            "day_key": "2026-09-12",
+        }
+        restored = lrs.LoadRunState.from_dict(old_data)
+        self.assertEqual(restored.activations_today_day_key, "")
 
 
 class TestBuildTimeValueSeries(unittest.TestCase):
@@ -1211,6 +1293,7 @@ class TestDeriveScheduleView(unittest.TestCase):
             commanded_state=False,
             activations_today=3,
             day_key="2026-09-09",
+            activations_today_day_key="2026-09-09",
         )
         view = lrs.derive_schedule_view(
             state,

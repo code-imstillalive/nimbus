@@ -106,7 +106,34 @@ class LoadRunState:
     # delivered_today_kwh/carry_kwh/cost_today -- whichever function
     # notices the day change FIRST now resets every per-day counter
     # together, not just the ones it directly owns.
+    #
+    # nimbus issue #782 (Mark Purcell, real follow-up the SAME day #770's
+    # fix deployed): that fix is correct going FORWARD, but does nothing
+    # for a state that was already corrupted by the OLD code before the
+    # fix landed -- day_key had already been advanced to "today" (by the
+    # pre-fix apply_power_sample()) without ever resetting
+    # activations_today, so v0.94.258's own new `day_key != state.day_key`
+    # check reads false (no NEW rollover has happened from its own point
+    # of view) and never fires. The real household's HWS stayed capped
+    # for the rest of that day, only self-healing at the NEXT real
+    # midnight. See activations_today_day_key below for the real,
+    # self-healing fix.
     activations_today: int = 0
+    # nimbus issue #782: tracks the day_key value as of the last time
+    # activations_today was ACTUALLY reset -- deliberately a SEPARATE
+    # field from day_key itself, so a state where day_key was advanced
+    # without a corresponding activations_today reset (exactly #782's own
+    # real incident) is still detectable and self-heals on the very next
+    # apply_power_sample()/record_activation() call, not just at the next
+    # real midnight. Every currently-persisted state (from before this
+    # field existed) defaults to "" on load (see from_dict below), which
+    # can never equal a real day_key -- so every household already stuck
+    # in #782's own bug self-heals the moment it upgrades and runs one
+    # more solve cycle, with no separate migration step needed.
+    # activation_allowed()/record_activation()/apply_power_sample() all
+    # compare against THIS field for the activations_today reset
+    # decision now, never the general day_key.
+    activations_today_day_key: str = ""
     # nimbus issue #581 (Mark Purcell, real use the day after #578/#579
     # shipped): the LP already computes each load's own full per-period
     # plan every solve (AdequacyLoadPlan.power_kw / SheddableLoadPlan.
@@ -230,6 +257,7 @@ class LoadRunState:
             "pending_state": self.pending_state,
             "pending_since": self.pending_since,
             "activations_today": self.activations_today,
+            "activations_today_day_key": self.activations_today_day_key,
             "plan_forecast": self.plan_forecast,
             "plan_delivered_kwh_forecast": self.plan_delivered_kwh_forecast,
             "plan_target_kwh": self.plan_target_kwh,
@@ -268,6 +296,7 @@ class LoadRunState:
             pending_state=data.get("pending_state"),
             pending_since=data.get("pending_since"),
             activations_today=int(data.get("activations_today", 0)),
+            activations_today_day_key=str(data.get("activations_today_day_key", "")),
             plan_forecast=data.get("plan_forecast"),
             plan_delivered_kwh_forecast=data.get("plan_delivered_kwh_forecast"),
             plan_target_kwh=data.get("plan_target_kwh"),
@@ -449,7 +478,18 @@ def apply_power_sample(
     max_activations_per_day cap) straight into a new day_key, silently
     blocking every real dispatch attempt from the moment the clock rolled
     over. Whichever function notices the day change FIRST must now reset
-    every per-day counter together, not just the ones it directly owns."""
+    every per-day counter together, not just the ones it directly owns.
+
+    nimbus issue #782 (real follow-up, same day #770's own fix deployed):
+    that fix alone only prevents this going FORWARD -- a state where
+    day_key had already been advanced to today by the OLD, pre-fix code
+    (without ever resetting activations_today) reads `day_key ==
+    state.day_key` here too, so this block's own reset never fires for
+    the rest of that day either. Fixed by gating activations_today's own
+    reset on the SEPARATE activations_today_day_key field instead of the
+    general day_key check above -- see that field's own docstring for
+    why this is genuinely self-healing (not just forward-safe) for any
+    state already stuck from before this fix existed."""
     now_ts = now.timestamp()
     if day_key != state.day_key:
         carry = (
@@ -468,8 +508,9 @@ def apply_power_sample(
             carry_kwh=carry,
             day_key=day_key,
             cost_today=0.0,
-            activations_today=0,
         )
+    if state.activations_today_day_key != day_key:
+        state = replace(state, activations_today=0, activations_today_day_key=day_key)
 
     is_on = power_kw > on_threshold_kw
     on_since = state.on_since
@@ -589,12 +630,21 @@ def activation_allowed(
     calling record_activation() itself, so a caller can check BEFORE
     deciding whether to actually dispatch (dispatch_commanded_state()'s
     own real use) without side effects from the check alone. If
-    state.day_key doesn't match day_key yet (the state hasn't rolled over
-    for today), today's real count is 0 -- record_activation() below is
-    what actually performs that roll, this function only reads."""
+    state.activations_today_day_key doesn't match day_key yet (the state
+    hasn't rolled over for today), today's real count is 0 --
+    record_activation() below is what actually performs that roll, this
+    function only reads.
+
+    nimbus issue #782: compares against activations_today_day_key, NOT
+    the general day_key -- see that field's own docstring for why this
+    distinction is exactly what makes this self-healing for a state
+    already stuck under #770's own real incident, not just safe going
+    forward."""
     if max_activations_per_day is None:
         return True
-    today_count = state.activations_today if state.day_key == day_key else 0
+    today_count = (
+        state.activations_today if state.activations_today_day_key == day_key else 0
+    )
     return today_count < max_activations_per_day
 
 
@@ -621,11 +671,26 @@ def record_activation(state: LoadRunState, *, day_key: str) -> LoadRunState:
     apply_power_sample(), this intentionally does NOT touch
     delivered_today_kwh/carry_kwh/currently_on -- those roll over on
     their own schedule from real power samples, this is a separate,
-    dispatch-time count."""
+    dispatch-time count.
+
+    nimbus issue #782: the reset check/write below now compares/updates
+    activations_today_day_key, NOT the general day_key field -- for a
+    no-power-sensor load this function is still the ONLY place day_key
+    itself changes, so both fields move together here, but gating the
+    ACTIVATIONS reset on its own tracked field (rather than the general
+    day_key) is what makes this self-healing for a state already stuck
+    under #770's own real incident shape, exactly like apply_power_
+    sample()'s own equivalent fix -- see activations_today_day_key's own
+    docstring."""
     base = (
         state
-        if state.day_key == day_key
-        else replace(state, activations_today=0, day_key=day_key)
+        if state.activations_today_day_key == day_key
+        else replace(
+            state,
+            activations_today=0,
+            day_key=day_key,
+            activations_today_day_key=day_key,
+        )
     )
     return replace(base, activations_today=base.activations_today + 1)
 
@@ -868,7 +933,11 @@ def derive_schedule_view(
     )
 
     day_key = now.strftime("%Y-%m-%d")
-    activations_today = state.activations_today if state.day_key == day_key else 0
+    # nimbus issue #782: compares against activations_today_day_key, not
+    # the general day_key -- see that field's own docstring.
+    activations_today = (
+        state.activations_today if state.activations_today_day_key == day_key else 0
+    )
 
     status: str
     if state.commanded_state:
