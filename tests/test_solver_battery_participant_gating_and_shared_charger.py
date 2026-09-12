@@ -154,6 +154,168 @@ class TestAvailabilityGate(unittest.TestCase):
         )
 
 
+class TestAwayExclusionWindow(unittest.TestCase):
+    """nimbus issue #779 (Mark Purcell, confirmed decision): available=
+    False bounded to a PREFIX of periods via unavailable_until_period_
+    index, instead of the whole horizon -- a currently-away EV should be
+    schedulable again once the exclusion window passes, not frozen out
+    for the rest of the plan."""
+
+    def _battery(
+        self, *, available: bool, unavailable_until_period_index: int | None
+    ) -> BatteryConfig:
+        return BatteryConfig(
+            name="ev",
+            capacity_kwh=40.0,
+            initial_soc_kwh=20.0,
+            min_soc_kwh=4.0,
+            max_soc_kwh=40.0,
+            max_charge_kw=10.0,
+            max_discharge_kw=10.0,
+            charge_efficiency=0.95,
+            discharge_efficiency=0.95,
+            charge_cost=0.005,
+            discharge_cost=0.01,
+            salvage_value=0.10,
+            available=available,
+            unavailable_until_period_index=unavailable_until_period_index,
+        )
+
+    def test_gated_only_for_periods_before_the_cutoff_index(self):
+        """Cheap now, expensive later -- with a real bounded exclusion
+        (periods 0-1 gated, periods 2-5 free), the first two periods
+        must show exactly zero charge/discharge, but the battery can
+        still use the later cheap-then-expensive swing once the window
+        lifts."""
+        n = 6
+        periods = _periods(n)
+        import_price = np.array([0.05, 0.05, 0.05, 0.05, 0.60, 0.60])
+        grid = GridConfig(
+            import_price=import_price,
+            export_price=import_price - 0.02,
+            import_limit_kw=200.0,
+            export_limit_kw=200.0,
+        )
+        solar = SolarConfig(forecast_kw=np.zeros(n))
+        loads = [LoadConfig(name="house", forecast_kw=np.full(n, 1.0))]
+
+        plan = build_plan(
+            periods=periods,
+            grid=grid,
+            batteries=[
+                self._battery(available=False, unavailable_until_period_index=2)
+            ],
+            solar=solar,
+            loads=loads,
+        )
+        self.assertEqual(plan.status, "optimal")
+        np.testing.assert_array_equal(
+            plan.battery_charge_kw[:2],
+            np.zeros(2),
+            err_msg="periods before the cutoff index must stay exactly 0.0 charge",
+        )
+        np.testing.assert_array_equal(
+            plan.battery_discharge_kw[:2],
+            np.zeros(2),
+            err_msg="periods before the cutoff index must stay exactly 0.0 discharge",
+        )
+        total_throughput_after_cutoff = float(
+            np.sum(plan.battery_charge_kw[2:]) + np.sum(plan.battery_discharge_kw[2:])
+        )
+        self.assertGreater(
+            total_throughput_after_cutoff,
+            1.0,
+            "periods from the cutoff index onward must be schedulable normally -- "
+            "if this is 0 the exclusion is still wrongly applying whole-horizon",
+        )
+
+    def test_none_index_with_available_false_still_gates_the_whole_horizon(self):
+        """Backward-compat regression guard: unavailable_until_period_
+        index=None (the default) alongside available=False must be
+        byte-identical to the pre-#779 whole-horizon gate -- every
+        existing available=False caller/test that never sets this new
+        field must keep working unchanged."""
+        n = 6
+        periods = _periods(n)
+        import_price = np.array([0.05, 0.05, 0.05, 0.60, 0.60, 0.60])
+        grid = GridConfig(
+            import_price=import_price,
+            export_price=import_price - 0.02,
+            import_limit_kw=200.0,
+            export_limit_kw=200.0,
+        )
+        solar = SolarConfig(forecast_kw=np.zeros(n))
+        loads = [LoadConfig(name="house", forecast_kw=np.full(n, 1.0))]
+
+        plan = build_plan(
+            periods=periods,
+            grid=grid,
+            batteries=[
+                self._battery(available=False, unavailable_until_period_index=None)
+            ],
+            solar=solar,
+            loads=loads,
+        )
+        self.assertEqual(plan.status, "optimal")
+        np.testing.assert_array_equal(plan.battery_charge_kw, np.zeros(n))
+        np.testing.assert_array_equal(plan.battery_discharge_kw, np.zeros(n))
+
+    def test_index_ignored_when_available_is_true(self):
+        """unavailable_until_period_index is meaningless when available=
+        True (nothing to bound) -- a stale/leftover index value must not
+        gate anything."""
+        n = 6
+        periods = _periods(n)
+        import_price = np.array([0.05, 0.05, 0.05, 0.60, 0.60, 0.60])
+        grid = GridConfig(
+            import_price=import_price,
+            export_price=import_price - 0.02,
+            import_limit_kw=200.0,
+            export_limit_kw=200.0,
+        )
+        solar = SolarConfig(forecast_kw=np.zeros(n))
+        loads = [LoadConfig(name="house", forecast_kw=np.full(n, 1.0))]
+
+        plan = build_plan(
+            periods=periods,
+            grid=grid,
+            batteries=[self._battery(available=True, unavailable_until_period_index=4)],
+            solar=solar,
+            loads=loads,
+        )
+        self.assertEqual(plan.status, "optimal")
+        total_throughput = float(
+            np.sum(plan.battery_charge_kw) + np.sum(plan.battery_discharge_kw)
+        )
+        self.assertGreater(
+            total_throughput,
+            1.0,
+            "available=True must ignore unavailable_until_period_index entirely",
+        )
+
+    def test_index_beyond_horizon_gates_every_period_without_crashing(self):
+        """An index >= n (e.g. a departure sensor read the wrong period
+        grid) must clamp to the whole horizon, not crash or under-gate."""
+        n = 4
+        periods = _periods(n)
+        grid = _grid(n)
+        solar = SolarConfig(forecast_kw=np.zeros(n))
+        loads = [LoadConfig(name="house", forecast_kw=np.full(n, 1.0))]
+
+        plan = build_plan(
+            periods=periods,
+            grid=grid,
+            batteries=[
+                self._battery(available=False, unavailable_until_period_index=999)
+            ],
+            solar=solar,
+            loads=loads,
+        )
+        self.assertEqual(plan.status, "optimal")
+        np.testing.assert_array_equal(plan.battery_charge_kw, np.zeros(n))
+        np.testing.assert_array_equal(plan.battery_discharge_kw, np.zeros(n))
+
+
 class TestDepartureDeadline(unittest.TestCase):
     def test_hard_floor_forces_soc_above_what_pure_economics_would_choose(self):
         """A flat, cheap import price gives the LP no real economic

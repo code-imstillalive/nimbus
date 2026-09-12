@@ -8947,6 +8947,17 @@ def build_controllable_loads(
 _DEFAULT_EXTRA_BATTERY_CHARGE_COST: float = 0.005
 _DEFAULT_EXTRA_BATTERY_DISCHARGE_COST: float = 0.01
 
+# nimbus issue #779 (Mark Purcell, confirmed decision): a battery
+# participant reading "away" right now is only bounded evidence for the
+# NEAR term -- see BatteryConfig.unavailable_until_period_index's own
+# docstring for the full mechanism this backs. Explicitly a fixed
+# constant, not a wizard field: Mark's own ask was "the next hour," and
+# he confirmed it's the right value as-is, not a placeholder to tune
+# against real commute patterns first (detailed availability -- knowing
+# WHEN a car actually returns -- stays out of scope, waiting on real
+# calendar/trip-window integration, #467 item 3).
+_BATTERY_PARTICIPANT_AWAY_EXCLUSION_HOURS: float = 1.0
+
 # nimbus issue #563 item 2: log-once-per-participant dedup for the
 # "departure_hour/must_have_soc_by_departure_percent set alone" partial-
 # config warning below -- same log-once-per-condition discipline this
@@ -9161,6 +9172,25 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
         if available_entity:
             state_obj = _NATIVE_HASS.states.get(available_entity)
             available = state_obj is not None and state_obj.state == "on"
+        # nimbus issue #779: a currently-away participant is only gated
+        # for the next _BATTERY_PARTICIPANT_AWAY_EXCLUSION_HOURS, not
+        # this whole solve's horizon -- resolved to a real period index
+        # the same way departure_hour is resolved further down (first
+        # period whose own start is >= now + the exclusion window).
+        # `periods` being unavailable (an older/manual caller with no
+        # period context) falls back to the pre-#779 whole-horizon gate
+        # -- same graceful-degradation posture #563 items 2/3 already
+        # established for this same function.
+        unavailable_until_period_index: int | None = None
+        if not available and periods is not None:
+            period_starts = periods.period_starts
+            if period_starts:
+                cutoff = period_starts[0] + timedelta(
+                    hours=_BATTERY_PARTICIPANT_AWAY_EXCLUSION_HOURS
+                )
+                unavailable_until_period_index = sum(
+                    1 for start in period_starts if start < cutoff
+                )
         # Parity fix (2026-09-08, Mark Purcell's own live-tested #563
         # review): the home battery's own live SoC read in main() logs a
         # WARNING when it sits outside its configured [min, max] --
@@ -9329,6 +9359,7 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
                 salvage_value=salvage_value,
                 degradation_cost_per_kwh=degradation_cost_per_kwh,
                 available=available,
+                unavailable_until_period_index=unavailable_until_period_index,
                 must_have_soc_by_period_index=must_have_soc_by_period_index,
                 must_have_soc_kwh=must_have_soc_kwh,
                 shared_charger_group=shared_charger_group,
