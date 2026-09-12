@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.261] — 2026-09-12
+
+### Fixed
+- **An away EV `battery_participant` was frozen out of scheduling for the entire multi-day plan on one live reading, instead of just the near term** (nimbus issue #779, Mark Purcell, confirmed decision from #775's own health check — both real EV participants sat completely flat, zero planned charge/discharge, across the full 202-period/96h horizon while genuinely away for only part of it). `BatteryConfig.available=False` previously gated charge/discharge to `ub=0.0` for the WHOLE solve, on the reasoning that there's no real forecast for when an away car returns — true, but unnecessarily conservative given Nimbus re-solves every few minutes anyway and re-reads the real availability sensor fresh each cycle. New `BatteryConfig.unavailable_until_period_index` field bounds the gate to a prefix of periods instead: `None` (the default) keeps the exact old whole-horizon behavior for every existing caller; when set, only periods before that index are hard-gated, and periods from it onward schedule completely normally. `solver_writer.py`'s `build_extra_batteries()` resolves a currently-away participant's exclusion to a real period index covering **the next 1 hour** — a fixed constant per Mark's own explicit confirmation ("the right value, not a placeholder to tune"), deliberately not a wizard field. Detailed availability (knowing exactly when a car returns) stays out of scope, waiting on real calendar/trip-window integration (#467 item 3). 8 new regression tests (bounded gating, backward-compat whole-horizon fallback when the new field is unset, ignored when available, out-of-range index clamps safely, period-index resolution at different granularities, no-periods-argument fallback). Full local suite green (2056 passed, 13 skipped); live devhub verification (checking whether a currently-away EV participant now shows real scheduled throughput beyond the 1-hour mark) tracked on #779.
+
 ## [0.94.260] — 2026-09-12
 
 ### Changed

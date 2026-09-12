@@ -720,6 +720,36 @@ class BatteryConfig:
     # honest way to handle a state with no real forecast.
     available: bool = True
 
+    # nimbus issue #779 (Mark Purcell, decided): the WHOLE-HORIZON
+    # reasoning above was too conservative for the common case -- a
+    # `battery_participant` EV that reads "away" right now got frozen
+    # out of scheduling for the entire multi-day plan on one live
+    # reading, even though every solve re-reads the sensor fresh a few
+    # minutes later anyway. Confirmed live on #775: both real EV
+    # participants sat completely flat (zero planned charge/discharge)
+    # across the full 202-period horizon while genuinely away for only
+    # part of it.
+    #
+    # `unavailable_until_period_index` narrows `available=False`'s own
+    # gate to a BOUNDED prefix of periods instead of the whole horizon:
+    # `None` (the default) is the original, fully backward-compatible
+    # behavior above (every existing caller/test that sets
+    # `available=False` without this field keeps getting whole-horizon
+    # gating, byte-identical to before #779). When set to period index
+    # `k`, only periods `[0, k)` are hard-gated (ub=0.0 both
+    # directions, in network.py's own build_plan()); periods `[k, n)`
+    # are scheduled completely normally, exactly as if `available` were
+    # True for those periods. Mark's own explicit, confirmed decision:
+    # a fixed 1-hour exclusion window (resolved to a period index by
+    # the caller -- see solver_writer.py's build_extra_batteries()) is
+    # the right value, not a placeholder to tune against real commute
+    # patterns, and there is deliberately no wizard field for it (unlike
+    # e.g. departure_hour) -- this is a mechanical bound on how far a
+    # single live reading gets extrapolated, not a per-household
+    # preference. Meaningless (ignored) when `available` is True --
+    # there is nothing to bound in that case.
+    unavailable_until_period_index: int | None = None
+
     # nimbus issue #563 item 2, the departure-deadline half: pushes the
     # LP to reach must_have_soc_kwh BY must_have_soc_by_period_index, the
     # same "cumulative energy... plus target" mechanism adequacy loads

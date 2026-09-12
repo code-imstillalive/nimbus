@@ -268,6 +268,97 @@ class TestAvailabilityGateWiring(unittest.TestCase):
         self.assertFalse(b.available)
 
 
+class TestAwayExclusionWindowWiring(unittest.TestCase):
+    """nimbus issue #779 (Mark Purcell, confirmed decision): a currently-
+    away participant only gets unavailable_until_period_index set (bounding
+    the gate to the next hour) when periods context is available -- the LP
+    mechanics themselves (the bounded ub=0.0 prefix) are covered by
+    test_solver_battery_participant_gating_and_shared_charger.py; this
+    file only proves the config-surface -> BatteryConfig wiring."""
+
+    def setUp(self):
+        self._orig_native_hass = solver_writer._NATIVE_HASS
+
+    def tearDown(self):
+        solver_writer._NATIVE_HASS = self._orig_native_hass
+
+    def _periods(self, start_hour: int, n: int, period_hours: float = 1.0):
+        from datetime import UTC, datetime
+
+        import numpy as np
+        from solver.elements import PeriodGrid
+
+        return PeriodGrid(
+            hours=np.array([period_hours] * n),
+            start=datetime(2026, 9, 8, start_hour, 0, tzinfo=UTC),
+        )
+
+    def _away_data(self):
+        data = dict(_TESLA_DATA)
+        data["battery_participant_available_entity"] = (
+            "binary_sensor.m3p_t_located_at_home"
+        )
+        return data
+
+    def test_available_now_leaves_index_none_regardless_of_periods(self):
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [_fake_subentry("s1", "battery_participant", self._away_data())],
+            states={
+                "sensor.m3p_t_battery_level": _fake_state("55.0"),
+                "binary_sensor.m3p_t_located_at_home": _fake_state("on"),
+            },
+        )
+        periods = self._periods(start_hour=6, n=6)
+        b = solver_writer.build_extra_batteries(periods)[0]
+        self.assertTrue(b.available)
+        self.assertIsNone(b.unavailable_until_period_index)
+
+    def test_away_with_one_hour_periods_resolves_to_index_one(self):
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [_fake_subentry("s1", "battery_participant", self._away_data())],
+            states={
+                "sensor.m3p_t_battery_level": _fake_state("55.0"),
+                "binary_sensor.m3p_t_located_at_home": _fake_state("off"),
+            },
+        )
+        periods = self._periods(start_hour=6, n=6, period_hours=1.0)
+        b = solver_writer.build_extra_batteries(periods)[0]
+        self.assertFalse(b.available)
+        # Period 0 starts at 06:00 (< 07:00 cutoff), period 1 starts at
+        # 07:00 (not < cutoff) -- exactly one period gated.
+        self.assertEqual(b.unavailable_until_period_index, 1)
+
+    def test_away_with_15_minute_periods_resolves_to_index_four(self):
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [_fake_subentry("s1", "battery_participant", self._away_data())],
+            states={
+                "sensor.m3p_t_battery_level": _fake_state("55.0"),
+                "binary_sensor.m3p_t_located_at_home": _fake_state("off"),
+            },
+        )
+        periods = self._periods(start_hour=6, n=10, period_hours=0.25)
+        b = solver_writer.build_extra_batteries(periods)[0]
+        self.assertFalse(b.available)
+        # 06:00, 06:15, 06:30, 06:45 all < 07:00 cutoff -- 4 periods gated.
+        self.assertEqual(b.unavailable_until_period_index, 4)
+
+    def test_away_with_no_periods_argument_falls_back_to_whole_horizon(self):
+        # Every pre-#779 caller (and every other availability test in
+        # this file) calls build_extra_batteries() with zero arguments --
+        # must degrade gracefully to the old whole-horizon behavior
+        # (index stays None) rather than crash or guess.
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [_fake_subentry("s1", "battery_participant", self._away_data())],
+            states={
+                "sensor.m3p_t_battery_level": _fake_state("55.0"),
+                "binary_sensor.m3p_t_located_at_home": _fake_state("off"),
+            },
+        )
+        b = solver_writer.build_extra_batteries()[0]
+        self.assertFalse(b.available)
+        self.assertIsNone(b.unavailable_until_period_index)
+
+
 class TestDepartureDeadlineWiring(unittest.TestCase):
     def setUp(self):
         self._orig_native_hass = solver_writer._NATIVE_HASS

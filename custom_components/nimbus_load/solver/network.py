@@ -1782,12 +1782,21 @@ def build_plan(
     underfill_vars: dict[str, list[str]] = {}
     overfill_vars: dict[str, list[str]] = {}
     for b_idx, b in enumerate(batteries):
-        # nimbus issue #563 item 2: b.available=False makes both
-        # directions mathematically impossible for this WHOLE solve
-        # (ub=0.0), the same "hard-impossible" technique the P2P fixed-
-        # window charge gate below already uses -- see BatteryConfig's
-        # own `available` docstring for why this is whole-horizon, not a
-        # per-period mask.
+        # nimbus issue #563 item 2 / #779: b.available=False makes both
+        # directions mathematically impossible (ub=0.0), the same
+        # "hard-impossible" technique the P2P fixed-window charge gate
+        # below already uses -- see BatteryConfig's own `available`
+        # docstring. #779 narrows this from always-whole-horizon to a
+        # bounded PREFIX of periods when `unavailable_until_period_index`
+        # is set (an away EV excluded only for the next ~hour, not the
+        # rest of the plan) -- `None` (the default) keeps the original
+        # whole-horizon gate for every period, byte-identical to before.
+        if b.available:
+            gated_periods: frozenset[int] = frozenset()
+        elif b.unavailable_until_period_index is None:
+            gated_periods = frozenset(range(n))
+        else:
+            gated_periods = frozenset(range(min(b.unavailable_until_period_index, n)))
         # nimbus issue #567: a real-time "sell into a price spike, right
         # now" household decision -- only ever period 0, only ever
         # batteries[0] (see BatteryConfig.spike_override_discharge_kw's
@@ -1812,7 +1821,7 @@ def build_plan(
                 f"battery_charge_{b.name}_{t}",
                 lb=0.0,
                 ub=0.0
-                if not b.available or (spike_active_now and t == 0)
+                if t in gated_periods or (spike_active_now and t == 0)
                 else (
                     p2p_export.charging_ub_during_fixed_window(t, grid, b.max_charge_kw)
                     if b_idx == 0
@@ -1826,7 +1835,7 @@ def build_plan(
                 f"battery_discharge_{b.name}_{t}",
                 lb=(spike_override_value if spike_active_now and t == 0 else 0.0),
                 ub=0.0
-                if not b.available
+                if t in gated_periods
                 else (
                     spike_override_value
                     if spike_active_now and t == 0
