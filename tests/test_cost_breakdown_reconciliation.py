@@ -37,15 +37,50 @@ class TestCostBreakdownReconciliation(unittest.TestCase):
             discharge_cost_arr=np.full(4, 0.01),
             battery_discharge_kw=np.array([2.0, 2.0, 2.0, 2.0]),
             period_hours=np.full(4, 0.25),
+            soc_penalty_cost=1.25,
         )
         reconciled = (
             breakdown["grid_net"]
             + breakdown["degradation"]
             + breakdown["charge_fee"]
             + breakdown["discharge_fee"]
+            + breakdown["soc_penalty"]
             + breakdown["terminal_value_credit"]
         )
         self.assertAlmostEqual(reconciled, total_cost, places=6)
+
+    def test_soc_penalty_is_its_own_line_not_folded_into_the_residual(self):
+        """nimbus issue #781 (real household finding): a battery sitting
+        below its own configured floor racks up a real, LARGE soft-SoC
+        penalty (soft_soc_penalty_per_kwh, "dominant by construction,"
+        applied every period unscaled by hours[t]) that used to have no
+        explicit line item -- it silently inflated terminal_value_credit,
+        making a real penalty look like a nonsensical multi-hundred-
+        dollar salvage/terminal-value credit. soc_penalty_cost must come
+        straight through as its own key, and the residual must shrink by
+        exactly that amount versus not passing it at all."""
+        common_kwargs = {
+            "net_costs": [-2.7979],
+            "total_cost": 1685.40,
+            "degradation_cost_per_kwh": 0.0,
+            "total_throughput_kwh": 0.0,
+            "charge_cost": 0.0,
+            "total_charge_kwh": 0.0,
+            "discharge_cost_arr": np.zeros(1),
+            "battery_discharge_kw": np.zeros(1),
+            "period_hours": np.full(1, 1.0),
+        }
+        without_penalty = solver_writer.compute_cost_breakdown(**common_kwargs)
+        with_penalty = solver_writer.compute_cost_breakdown(
+            **common_kwargs, soc_penalty_cost=1678.6344
+        )
+        self.assertEqual(with_penalty["soc_penalty"], 1678.6344)
+        self.assertAlmostEqual(
+            without_penalty["terminal_value_credit"]
+            - with_penalty["terminal_value_credit"],
+            1678.6344,
+            places=3,
+        )
 
     def test_grid_net_is_sum_of_supplied_net_costs(self):
         net_costs = [1.5, -2.25, 0.75]
