@@ -1087,6 +1087,7 @@ def compute_cost_breakdown(
     battery_discharge_kw: NDArray[np.float64],
     period_hours: NDArray[np.float64],
     soc_penalty_cost: float = 0.0,
+    grid_import_excess_penalty_cost: float = 0.0,
 ) -> dict[str, float]:
     """Named cost-component breakdown for the solver diagnostics dump
     (2026-08-25, nimbus issue #149 -- Mark Purcell's own executable
@@ -1130,17 +1131,33 @@ def compute_cost_breakdown(
     salvage/terminal value earned rather than a "your battery is below
     its safety floor" warning sign.
 
+    `grid_import_excess_penalty` (nimbus issue #788) is Plan.
+    grid_import_excess_penalty_cost passed straight through -- the real
+    dollar markup of network.py's own `import_excess_penalty_rate` on
+    whatever grid_import_excess volume this cycle's release valve
+    (nimbus issue #390) actually used. Broken out as its OWN explicit
+    term for the identical reason soc_penalty was (#781): `grid_net`
+    above only ever prices the COMBINED grid_import_kw (which already
+    folds grid_import_excess_kw in) at the plain effective_import_price
+    rate -- the penalty markup itself had no explicit line item anywhere
+    before this field existed, so it fell entirely into the residual
+    below, misrepresenting a real "the LP had to blow the configured
+    import cap to stay feasible" warning sign as if it were terminal
+    value/salvage credit. 0.0 (a genuine no-op) whenever the release
+    valve was never needed this cycle, the common case.
+
     `terminal_value_credit` is deliberately the RESIDUAL (total_cost minus
-    the five terms above, `soc_penalty` now included), not a
-    re-implementation of terminal_value_breakpoints_for()'s own piecewise
-    segment math in a second place -- residual-by-construction means this
-    always reconciles exactly (Mark's own test #2: grid_net + degradation
-    + charge_fee + discharge_fee + soc_penalty + terminal_value_credit ==
-    total_cost), and its value already IS what an operator wants to see
-    (the real terminal-value/salvage credit's total economic effect,
-    whatever combination of checkpoints produced it), without a second
-    implementation that could silently drift from the LP's own real one
-    over time.
+    the six terms above, `soc_penalty` and `grid_import_excess_penalty`
+    now included), not a re-implementation of
+    terminal_value_breakpoints_for()'s own piecewise segment math in a
+    second place -- residual-by-construction means this always reconciles
+    exactly (Mark's own test #2: grid_net + degradation + charge_fee +
+    discharge_fee + soc_penalty + grid_import_excess_penalty +
+    terminal_value_credit == total_cost), and its value already IS what
+    an operator wants to see (the real terminal-value/salvage credit's
+    total economic effect, whatever combination of checkpoints produced
+    it), without a second implementation that could silently drift from
+    the LP's own real one over time.
     """
     grid_net_cost = sum(net_costs)
     degradation_cost = degradation_cost_per_kwh * total_throughput_kwh
@@ -1157,6 +1174,7 @@ def compute_cost_breakdown(
         + charge_fee_cost
         + discharge_fee_cost
         + soc_penalty_cost
+        + grid_import_excess_penalty_cost
     )
     return {
         "grid_net": round(grid_net_cost, 4),
@@ -1164,6 +1182,7 @@ def compute_cost_breakdown(
         "charge_fee": round(charge_fee_cost, 4),
         "discharge_fee": round(discharge_fee_cost, 4),
         "soc_penalty": round(soc_penalty_cost, 4),
+        "grid_import_excess_penalty": round(grid_import_excess_penalty_cost, 4),
         "terminal_value_credit": round(terminal_value_credit, 4),
     }
 
@@ -7668,6 +7687,7 @@ def publish_plan(
         battery_discharge_kw=plan.battery_discharge_kw,
         period_hours=period_hours_arr,
         soc_penalty_cost=plan.soc_penalty_cost,
+        grid_import_excess_penalty_cost=plan.grid_import_excess_penalty_cost,
     )
 
     # Cost-band diagnostic (2026-08-25, nimbus issue #147) -- see

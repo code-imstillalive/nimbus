@@ -130,12 +130,17 @@ _EXPECTED_ATTRS = {
     # `soc_penalty` line item to cost_breakdown() -- 0.0 here since this
     # fixture's own single battery never dips below its configured floor;
     # total_cost/terminal_value_credit are unchanged.
+    # nimbus issue #788: regenerated again after adding the explicit
+    # `grid_import_excess_penalty` line item -- 0.0 here since this
+    # fixture's own fixed inputs never need the excess-import release
+    # valve (#390); total_cost/terminal_value_credit are unchanged.
     "cost_breakdown": {
         "grid_net": 33.5015,
         "degradation": 0.0,
         "charge_fee": 0.127,
         "discharge_fee": 0.26,
         "soc_penalty": 0.0,
+        "grid_import_excess_penalty": 0.0,
         "terminal_value_credit": -6.9011,
     },
     "cost_band": {"lower": 1.741, "upper": 32.7335, "width": 30.9925},
