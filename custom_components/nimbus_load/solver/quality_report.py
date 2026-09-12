@@ -19,7 +19,7 @@ as one coherent object -- not a new metric, just the assembly.
 ## The two-tier export bonus mechanic and what it means for scoring
 (2026-08-17, real, found putting this module together)
 
-`evaluate_realized_cost()` (regret.py) has no concept of
+`evaluate_realized_cost_multi()` (regret.py) has no concept of
 GridConfig.export_bonus_price/export_bonus_volume_kwh at all -- it
 prices a trajectory's export at one flat `export_price_real` per
 period, full stop. That's fine for J_ref (fully idle -- zero export can
@@ -61,7 +61,7 @@ from numpy.typing import NDArray
 from .elements import BatteryConfig, GridConfig, LoadConfig, PeriodGrid, SolarConfig
 from .epr import EPRResult, compute_epr
 from .network import build_plan
-from .regret import evaluate_realized_cost, hourly_regret_breakdown
+from .regret import evaluate_realized_cost_multi, hourly_regret_breakdown
 from .tracking import TrackingResult, compute_tracking_fidelity, tracking_error_cost
 
 
@@ -99,7 +99,22 @@ class QualityReport:
     export. Prices are identical across the three trajectories (same
     day's real settled prices) but included in every row so each row is
     self-describing. Empty periods (e.g. solar overnight) get 0.0, not
-    None, so consumers can safely sum/mean without None-guards."""
+    None, so consumers can safely sum/mean without None-guards.
+
+    nimbus #768/#585 (Mark Purcell): `battery_kw`/`soc_pct` are FLEET
+    AGGREGATES whenever `compute_quality_report()` is given more than
+    one battery (home + EV `battery_participant`s) -- `battery_kw` is
+    the SUM of every participant's own net charge-minus-discharge kW,
+    `soc_pct` is `sum(soc_kwh across every participant) /
+    sum(capacity_kwh across every participant) * 100`. This is the same
+    aggregation `Plan.battery_charge_kw`/`battery_soc_kwh` already use
+    for the LIVE forward solve (nimbus #467) -- consistent with the
+    scorer now answering "how did the whole storage fleet do", not just
+    the home pack. A genuinely PER-PARTICIPANT breakdown of these
+    hourly rows is deliberately not built in this pass (see
+    `compute_quality_report()`'s own docstring for the full scope
+    note) -- single-battery installs (still the common case) see a
+    byte-identical result to before this change."""
 
 
 def _hourly_means_by_key(
@@ -209,22 +224,36 @@ def compute_quality_report(
     # Same base price as grid_residual, PLUS export_bonus_price/
     # export_bonus_volume_kwh set -- used to compute the real oracle.
     grid_oracle: GridConfig,
-    battery: BatteryConfig,
+    # nimbus #768/#585 (Mark Purcell): was a single `battery:
+    # BatteryConfig` -- now the real fleet (home + any configured EV
+    # `battery_participant`s), matching build_plan()'s own multi-battery
+    # shape (nimbus #467) and oracle_dispatch()'s own extension (#768
+    # Option 1). A single-element list is byte-identical to the old
+    # single-battery behaviour -- see this module's own test suite for
+    # the backward-compat proof. `commanded_charge_kw`/`commanded_
+    # discharge_kw`/`actual_charge_kw`/`actual_discharge_kw`/`final_
+    # soc_kwh_actual` below are now one entry per battery, in the SAME
+    # order as `batteries` -- callers building these from real recorder
+    # history (solver_writer.py's `_compute_report_for_window()`) match
+    # each participant's own configured power/SoC sensor to its own
+    # list index.
+    batteries: list[BatteryConfig],
     solar: SolarConfig,
     load: LoadConfig,
     timestamps: list,
     # The REAL, settled P2P revenue for this exact day (ground truth,
     # not modeled) -- see module docstring.
     real_p2p_dollars_earned: float,
-    commanded_charge_kw: NDArray[np.float64],
-    commanded_discharge_kw: NDArray[np.float64],
-    actual_charge_kw: NDArray[np.float64],
-    actual_discharge_kw: NDArray[np.float64],
-    final_soc_kwh_actual: float,
+    commanded_charge_kw: list[NDArray[np.float64]],
+    commanded_discharge_kw: list[NDArray[np.float64]],
+    actual_charge_kw: list[NDArray[np.float64]],
+    actual_discharge_kw: list[NDArray[np.float64]],
+    final_soc_kwh_actual: list[float],
 ) -> QualityReport:
     hours = periods.hours
     n = len(hours)
     zero = np.zeros(n)
+    zero_per_battery = [zero] * len(batteries)
 
     # Score J_ref/J_ach/J_star with NO terminal-value credit for leftover
     # battery energy (2026-09-06, Mark Purcell: "EPR is inconsistent
@@ -248,53 +277,50 @@ def compute_quality_report(
     # inconsistent WITH EACH OTHER for the identical real day -- exactly
     # matching "EPR is inconsistent between charts."
     #
-    # Using dataclasses.replace() rather than mutating `battery` itself:
+    # Using dataclasses.replace() rather than mutating `batteries` itself:
     # only the three terminal-value fields are stripped for the scoring
-    # calls below; every other field (efficiencies, capacity, min_soc_kwh,
-    # charge/discharge cost, degradation cost) stays the real, live
-    # config, since those describe real physical/economic properties of
-    # the battery, not a forward-looking valuation choice.
-    battery_scoring = replace(
-        battery, salvage_value=0.0, headroom_value=0.0, terminal_value_breakpoints=None
-    )
+    # calls below, PER BATTERY; every other field (efficiencies,
+    # capacity, min_soc_kwh, charge/discharge cost, degradation cost)
+    # stays each participant's own real, live config, since those
+    # describe real physical/economic properties of that battery, not a
+    # forward-looking valuation choice.
+    battery_scoring = [
+        replace(
+            b, salvage_value=0.0, headroom_value=0.0, terminal_value_breakpoints=None
+        )
+        for b in batteries
+    ]
 
-    j_ref_result = evaluate_realized_cost(
+    # J_ref (idle -- no battery does anything): mathematically
+    # independent of how many batteries are in the fleet, since every
+    # committed charge/discharge array is zero regardless of count (the
+    # charge_cost/discharge_cost terms are all multiplied by zero, and
+    # terminal value is stripped above) -- still routed through the same
+    # real multi-battery evaluator for a single, consistent code path
+    # with j_ach/oracle_residual below, not a special-cased shortcut.
+    j_ref_result = evaluate_realized_cost_multi(
         hours=hours,
         load_real_kw=load.forecast_kw,
         solar_real_kw=solar.forecast_kw,
         import_price_real=grid_residual.import_price,
         export_price_real=grid_residual.export_price,
-        charge_committed_kw=zero,
-        discharge_committed_kw=zero,
-        charge_cost=battery_scoring.charge_cost,
-        discharge_cost=battery_scoring.discharge_cost,
-        final_soc_kwh=battery_scoring.initial_soc_kwh,
-        salvage_value=battery_scoring.salvage_value,
-        grid_import_limit_kw=grid_residual.import_limit_kw,
-        grid_export_limit_kw=grid_residual.export_limit_kw,
-        terminal_value_breakpoints=battery_scoring.terminal_value_breakpoints,
-        battery_min_soc_kwh=battery_scoring.min_soc_kwh,
-        degradation_cost_per_kwh=battery_scoring.degradation_cost_per_kwh,
+        batteries=battery_scoring,
+        charge_committed_kw=zero_per_battery,
+        discharge_committed_kw=zero_per_battery,
+        final_soc_kwh=[b.initial_soc_kwh for b in battery_scoring],
     )
     j_ref = j_ref_result.total_cost
 
-    j_ach_residual = evaluate_realized_cost(
+    j_ach_residual = evaluate_realized_cost_multi(
         hours=hours,
         load_real_kw=load.forecast_kw,
         solar_real_kw=solar.forecast_kw,
         import_price_real=grid_residual.import_price,
         export_price_real=grid_residual.export_price,
+        batteries=battery_scoring,
         charge_committed_kw=actual_charge_kw,
         discharge_committed_kw=actual_discharge_kw,
-        charge_cost=battery_scoring.charge_cost,
-        discharge_cost=battery_scoring.discharge_cost,
         final_soc_kwh=final_soc_kwh_actual,
-        salvage_value=battery_scoring.salvage_value,
-        grid_import_limit_kw=grid_residual.import_limit_kw,
-        grid_export_limit_kw=grid_residual.export_limit_kw,
-        terminal_value_breakpoints=battery_scoring.terminal_value_breakpoints,
-        battery_min_soc_kwh=battery_scoring.min_soc_kwh,
-        degradation_cost_per_kwh=battery_scoring.degradation_cost_per_kwh,
     )
     j_ach = j_ach_residual.total_cost - real_p2p_dollars_earned
 
@@ -334,13 +360,20 @@ def compute_quality_report(
     # immediately" pressure precisely in the one case #586 describes,
     # without weakening the floor's real economic weight on every other,
     # well-behaved day.
+    # nimbus #768/#585: extended to the whole fleet -- relax to zero if
+    # ANY participant's own real starting SoC is already below its own
+    # floor (not just the home battery), same #586 reasoning applied per
+    # battery: a retrospective, perfect-foresight oracle has no honest
+    # reason to rush ANY participant's recovery, and one battery's own
+    # pre-existing below-floor start is never a choice this scored
+    # window could have prevented.
     oracle_soft_soc_penalty_per_kwh = (
-        0.0 if battery_scoring.initial_soc_kwh < battery_scoring.min_soc_kwh else None
+        0.0 if any(b.initial_soc_kwh < b.min_soc_kwh for b in battery_scoring) else None
     )
     oracle_plan = build_plan(
         periods=periods,
         grid=grid_oracle,
-        batteries=[battery_scoring],
+        batteries=battery_scoring,
         solar=solar,
         loads=[load],
         soft_soc_penalty_per_kwh=oracle_soft_soc_penalty_per_kwh,
@@ -355,6 +388,17 @@ def compute_quality_report(
     assert oracle_plan.total_cost is not None
     j_star = float(oracle_plan.total_cost)
 
+    # oracle_plan.batteries is matched back to `battery_scoring` BY
+    # NAME, not position -- build_plan() keys each participant by its
+    # own `name` (nimbus #467), and this function makes no assumption
+    # that the Plan preserves input list order.
+    oracle_by_name = {bp.name: bp for bp in oracle_plan.batteries}
+    oracle_charge_kw = [oracle_by_name[b.name].charge_kw for b in battery_scoring]
+    oracle_discharge_kw = [oracle_by_name[b.name].discharge_kw for b in battery_scoring]
+    oracle_final_soc_kwh = [
+        float(oracle_by_name[b.name].soc_kwh[-1]) for b in battery_scoring
+    ]
+
     # Oracle's own per-period cost, for the hourly breakdown -- evaluated
     # the SAME residual-only way as j_ach_residual above (base rate,
     # zero bonus knowledge), for a fair, apples-to-apples HOURLY shape
@@ -364,22 +408,16 @@ def compute_quality_report(
     # hourly_regret_breakdown() itself already discloses for
     # salvage_value; stated here too rather than silently surprising a
     # caller who sums the dict and compares it to the headline EPR.
-    oracle_residual = evaluate_realized_cost(
+    oracle_residual = evaluate_realized_cost_multi(
         hours=hours,
         load_real_kw=load.forecast_kw,
         solar_real_kw=solar.forecast_kw,
         import_price_real=grid_residual.import_price,
         export_price_real=grid_residual.export_price,
-        charge_committed_kw=oracle_plan.battery_charge_kw,
-        discharge_committed_kw=oracle_plan.battery_discharge_kw,
-        charge_cost=battery_scoring.charge_cost,
-        discharge_cost=battery_scoring.discharge_cost,
-        final_soc_kwh=float(oracle_plan.battery_soc_kwh[-1]),
-        salvage_value=battery_scoring.salvage_value,
-        grid_import_limit_kw=grid_residual.import_limit_kw,
-        grid_export_limit_kw=grid_residual.export_limit_kw,
-        terminal_value_breakpoints=battery_scoring.terminal_value_breakpoints,
-        battery_min_soc_kwh=battery_scoring.min_soc_kwh,
+        batteries=battery_scoring,
+        charge_committed_kw=oracle_charge_kw,
+        discharge_committed_kw=oracle_discharge_kw,
+        final_soc_kwh=oracle_final_soc_kwh,
     )
     hourly_regret = hourly_regret_breakdown(
         timestamps=timestamps,
@@ -398,43 +436,62 @@ def compute_quality_report(
     # battery_charge - battery_discharge = grid) exact by construction.
     # SoC is only meaningfully defined for j_ach (measured) and j_star
     # (oracle plan). For j_ref (idle) it stays flat at the initial value.
-    j_ref_battery_net_kw = zero  # idle trajectory: battery does nothing
+    # nimbus #768/#585: every per-trajectory reconstruction below is now
+    # a FLEET AGGREGATE (summed net kW, summed/blended SoC) across every
+    # battery in `batteries` -- see QualityReport's own docstring for the
+    # exact aggregation rule. A single-battery install (still the common
+    # case) gets a byte-identical result, since summing one element is a
+    # no-op.
+    j_ref_battery_net_kw = zero  # idle trajectory: no battery does anything
     # mypy issue #384: same numpy-stub dtype-widening note as above.
-    j_ach_battery_net_kw = (actual_charge_kw - actual_discharge_kw).astype(np.float64)
-    j_star_battery_net_kw = np.asarray(
-        oracle_plan.battery_charge_kw - oracle_plan.battery_discharge_kw,
-        dtype=np.float64,
+    j_ach_battery_net_kw = sum(
+        (c - d).astype(np.float64)
+        for c, d in zip(actual_charge_kw, actual_discharge_kw, strict=True)
+    )
+    j_star_battery_net_kw = sum(
+        (c - d).astype(np.float64)
+        for c, d in zip(oracle_charge_kw, oracle_discharge_kw, strict=True)
     )
     # SoC per trajectory: j_ref flat; j_ach as measured (approximated by
-    # integrating the actual battery net kW from the initial SoC using
-    # the sqrt-split efficiencies); j_star from the oracle plan directly.
-    initial_soc_kwh = battery.initial_soc_kwh
-    capacity_kwh = battery.capacity_kwh
-    # Actual per-period delta_kwh = charge * eta_c * dt - discharge * dt / eta_d.
+    # integrating each battery's own actual net kW from its own initial
+    # SoC using its own sqrt-split efficiencies, then summed); j_star
+    # from the oracle plan directly (also summed across participants).
+    total_initial_soc_kwh = sum(b.initial_soc_kwh for b in batteries)
+    total_capacity_kwh = sum(b.capacity_kwh for b in batteries)
+    # Actual per-period delta_kwh = charge * eta_c * dt - discharge * dt / eta_d,
+    # per battery, then summed to a fleet-total SoC trajectory.
     dt = hours
-    ach_delta = (
-        actual_charge_kw * battery.charge_efficiency * dt
-        - actual_discharge_kw * dt / battery.discharge_efficiency
-    )
-    # mypy issue #384: numpy widens a python-float + ndarray[float64] sum
-    # to floating[Any] in its own stubs -- a real stub-precision gap, not
-    # a real bug (this project's own CLAUDE.md GBRT-vs-k-NN finding
-    # documents the general pattern). Explicit dtype keeps this array
-    # (and everything downstream that reads it) at the real, narrower
-    # float64 contract the rest of this module declares.
-    j_ach_soc_kwh = (initial_soc_kwh + np.cumsum(ach_delta)).astype(np.float64)
-    j_star_soc_kwh = np.asarray(oracle_plan.battery_soc_kwh, dtype=np.float64)
+    j_ach_soc_kwh = zero.copy()
+    for b, c, d in zip(batteries, actual_charge_kw, actual_discharge_kw, strict=True):
+        ach_delta = c * b.charge_efficiency * dt - d * dt / b.discharge_efficiency
+        # mypy issue #384: numpy widens a python-float + ndarray[float64]
+        # sum to floating[Any] in its own stubs -- a real stub-precision
+        # gap, not a real bug (this project's own CLAUDE.md GBRT-vs-k-NN
+        # finding documents the general pattern). Explicit dtype keeps
+        # this array (and everything downstream that reads it) at the
+        # real, narrower float64 contract the rest of this module
+        # declares.
+        j_ach_soc_kwh = j_ach_soc_kwh + (
+            b.initial_soc_kwh + np.cumsum(ach_delta)
+        ).astype(np.float64)
+    j_star_soc_kwh = np.zeros(n, dtype=np.float64)
+    for b in batteries:
+        j_star_soc_kwh = j_star_soc_kwh + np.asarray(
+            oracle_by_name[b.name].soc_kwh, dtype=np.float64
+        )
 
-    # SoC arrays as % (0..100) for consumer readability. Capacity 0 =>
-    # no battery configured, keep the array at 0.0 rather than dividing.
+    # SoC arrays as % (0..100) for consumer readability -- fleet-blended
+    # (total stored kWh / total capacity kWh) whenever there's more than
+    # one battery. Capacity 0 => no battery configured, keep the array
+    # at 0.0 rather than dividing.
     def _soc_pct(soc_kwh: NDArray[np.float64]) -> NDArray[np.float64]:
-        if capacity_kwh <= 0.0:
+        if total_capacity_kwh <= 0.0:
             return np.zeros(n)
         # mypy issue #384: same numpy-stub dtype-widening note as
         # j_ach_soc_kwh above.
-        return (soc_kwh / capacity_kwh * 100.0).astype(np.float64)
+        return (soc_kwh / total_capacity_kwh * 100.0).astype(np.float64)
 
-    j_ref_soc_pct = np.full(n, _soc_pct(np.array([initial_soc_kwh]))[0])
+    j_ref_soc_pct = np.full(n, _soc_pct(np.array([total_initial_soc_kwh]))[0])
     j_ach_soc_pct = _soc_pct(j_ach_soc_kwh)
     j_star_soc_pct = _soc_pct(j_star_soc_kwh)
     # Grid_kw derived from the reconstruction identity, per trajectory.
@@ -506,8 +563,16 @@ def compute_quality_report(
     epr_result = compute_epr(j_ref=j_ref, j_ach=j_ach, j_star=j_star)
 
     # mypy issue #384: same numpy-stub dtype-widening note as above.
-    commanded_net_kw = (commanded_discharge_kw - commanded_charge_kw).astype(np.float64)
-    actual_net_kw = (actual_discharge_kw - actual_charge_kw).astype(np.float64)
+    # Fleet-aggregate tracking too -- summed across every battery, same
+    # reasoning as the reconstruction dicts above.
+    commanded_net_kw = sum(
+        (d - c).astype(np.float64)
+        for c, d in zip(commanded_charge_kw, commanded_discharge_kw, strict=True)
+    )
+    actual_net_kw = sum(
+        (d - c).astype(np.float64)
+        for c, d in zip(actual_charge_kw, actual_discharge_kw, strict=True)
+    )
     tracking_result = compute_tracking_fidelity(
         hours=hours,
         commanded_kw=commanded_net_kw,

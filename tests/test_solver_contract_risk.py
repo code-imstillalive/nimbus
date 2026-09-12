@@ -144,17 +144,18 @@ class TestScoringDetectsRealMatchShortfall(unittest.TestCase):
             periods=periods,
             grid_residual=grid_residual,
             grid_oracle=grid_oracle,
-            battery=battery,
+            batteries=[battery],
             solar=solar,
             load=load,
             timestamps=timestamps,
             real_p2p_dollars_earned=real_p2p_dollars_earned,
-            commanded_charge_kw=actual_charge,
-            commanded_discharge_kw=actual_discharge,
-            actual_charge_kw=actual_charge,
-            actual_discharge_kw=actual_discharge,
-            final_soc_kwh_actual=20.0
-            - float(np.sum(actual_discharge)) / battery.discharge_efficiency,
+            commanded_charge_kw=[actual_charge],
+            commanded_discharge_kw=[actual_discharge],
+            actual_charge_kw=[actual_charge],
+            actual_discharge_kw=[actual_discharge],
+            final_soc_kwh_actual=[
+                20.0 - float(np.sum(actual_discharge)) / battery.discharge_efficiency
+            ],
         )
         return report
 

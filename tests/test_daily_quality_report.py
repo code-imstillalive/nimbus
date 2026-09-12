@@ -144,10 +144,14 @@ class TestComputeDailyQualityReportRealScore(unittest.TestCase):
         ):
             self.assertIn(key, report)
 
-        # nimbus issue #585: this scorer has no battery_participant
-        # awareness yet -- always exactly ["home"] until the real
-        # multi-battery fix lands, never silently implying a broader
-        # scope than what was actually scored.
+        # nimbus issue #768/#585: this scorer now genuinely includes any
+        # configured battery_participant with complete real history for
+        # the day (see test_solver_writer_battery_participant_history.py
+        # for that real, end-to-end case). This test's own household has
+        # no participant subentries at all (no _NATIVE_HASS mocked, so
+        # _resolve_battery_participant_history() returns [] via its own
+        # native-mode gate) -- scored_participants is exactly ["home"]
+        # here, but never assume that's a hardcoded ceiling.
         self.assertEqual(report["scored_participants"], ["home"])
 
         # epr_pct is the canonical 0..1 fraction scaled to a real percent
