@@ -202,7 +202,9 @@ class TestAwayExclusionWindow(unittest.TestCase):
         plan = build_plan(
             periods=periods,
             grid=grid,
-            batteries=[self._battery(available=False, unavailable_until_period_index=2)],
+            batteries=[
+                self._battery(available=False, unavailable_until_period_index=2)
+            ],
             solar=solar,
             loads=loads,
         )
@@ -248,7 +250,9 @@ class TestAwayExclusionWindow(unittest.TestCase):
         plan = build_plan(
             periods=periods,
             grid=grid,
-            batteries=[self._battery(available=False, unavailable_until_period_index=None)],
+            batteries=[
+                self._battery(available=False, unavailable_until_period_index=None)
+            ],
             solar=solar,
             loads=loads,
         )
