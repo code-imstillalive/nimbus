@@ -90,12 +90,22 @@ class LoadRunState:
     # issued a real ON command for this load -- a genuinely new concept,
     # distinct from commanded_since (which tracks WHEN the current
     # published value took effect, not how many times it's flipped on).
-    # Rolled to 0 on a day_key change via record_activation() itself (the
-    # only writer of this field), same "reset at local midnight" posture
-    # apply_power_sample() already uses for delivered_today_kwh -- kept as
-    # its own small function rather than folded into apply_power_sample()
-    # since activations are counted at DISPATCH time (a real service call
-    # actually issued), not at every solve tick's power sample.
+    #
+    # nimbus issue #770 (Mark Purcell, real incident: commanded_state
+    # stuck False for 18 straight hours, activations_today carrying
+    # yesterday's "5" straight into a new day_key): this field's own
+    # increment happens at DISPATCH time (record_activation(), only when
+    # a real service call is actually issued), but apply_power_sample()
+    # -- called on every solve tick, far more often than an activation
+    # ever happens -- is what actually rolls day_key over first in
+    # practice. Once apply_power_sample() has already updated state.
+    # day_key to today, record_activation()'s own "day_key changed"
+    # branch never fires again for the rest of that day, so its reset
+    # never runs. Fixed by resetting activations_today in
+    # apply_power_sample()'s own rollover branch too, alongside
+    # delivered_today_kwh/carry_kwh/cost_today -- whichever function
+    # notices the day change FIRST now resets every per-day counter
+    # together, not just the ones it directly owns.
     activations_today: int = 0
     # nimbus issue #581 (Mark Purcell, real use the day after #578/#579
     # shipped): the LP already computes each load's own full per-period
@@ -425,7 +435,21 @@ def apply_power_sample(
     `None` (a caller with no live price on hand, or every existing test/
     caller predating #591) is a genuine no-op: cost_today simply never
     accrues for that sample, exactly like an unconfigured optional field
-    elsewhere in this project -- never a fabricated $0.00 claim."""
+    elsewhere in this project -- never a fabricated $0.00 claim.
+
+    nimbus issue #770 (Mark Purcell, real incident: commanded_state stuck
+    False for 18 straight hours): also resets activations_today here, not
+    just in record_activation()'s own rollover branch. This function runs
+    on every solve tick (far more often than a real activation happens),
+    so in practice IT is what first notices a day_key change and updates
+    state.day_key -- once that's happened, record_activation()'s own
+    `state.day_key == day_key` check always reads true for the rest of
+    the day, and its reset never runs. The real household saw
+    activations_today carry the previous day's "5" (already at its own
+    max_activations_per_day cap) straight into a new day_key, silently
+    blocking every real dispatch attempt from the moment the clock rolled
+    over. Whichever function notices the day change FIRST must now reset
+    every per-day counter together, not just the ones it directly owns."""
     now_ts = now.timestamp()
     if day_key != state.day_key:
         carry = (
@@ -444,6 +468,7 @@ def apply_power_sample(
             carry_kwh=carry,
             day_key=day_key,
             cost_today=0.0,
+            activations_today=0,
         )
 
     is_on = power_kw > on_threshold_kw
@@ -579,11 +604,24 @@ def record_activation(state: LoadRunState, *, day_key: str) -> LoadRunState:
     blocked, and never for an OFF command -- the cap is specifically on
     "performance activations", per #534's own wording). Rolls
     activations_today to 0 first if `day_key` is a new day relative to
-    state.day_key -- this is the field's only writer, so this is also the
-    only place that roll happens; unlike apply_power_sample() above, this
-    intentionally does NOT touch delivered_today_kwh/carry_kwh/currently_on
-    -- those roll over on their own schedule from real power samples, this
-    is a separate, dispatch-time count."""
+    state.day_key.
+
+    nimbus issue #770: this used to be described as "the field's only
+    writer" -- no longer true, and that assumption was the real bug.
+    apply_power_sample() (called every solve tick for any load with a
+    configured power_sensor, far more often than an activation happens)
+    now resets activations_today too, in its own rollover branch --
+    otherwise it updates state.day_key to today first, and this
+    function's own `state.day_key == day_key` check then reads true for
+    the rest of the day, silently skipping the reset here. The check/
+    reset below stays, as the real fallback for a controllable load with
+    NO power_sensor configured (apply_power_sample() is never called for
+    one, per _sample_load_run_state()'s own "if power_sensor:" gate) --
+    for that case, this remains the only place the roll happens. Unlike
+    apply_power_sample(), this intentionally does NOT touch
+    delivered_today_kwh/carry_kwh/currently_on -- those roll over on
+    their own schedule from real power samples, this is a separate,
+    dispatch-time count."""
     base = (
         state
         if state.day_key == day_key
