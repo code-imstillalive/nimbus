@@ -132,5 +132,92 @@ class TestGridImportExcessSlack(unittest.TestCase):
         self.assertTrue(np.all(plan.grid_import_excess_kw == 0.0))
 
 
+class TestGridImportExcessPenaltyCostExposedOnPlan(unittest.TestCase):
+    """nimbus issue #788 (real household finding): the excess-import
+    penalty markup (network.py's own `import_excess_penalty_rate`) was
+    computed and charged to the LP but never exposed on Plan at all --
+    it fell entirely into solver_writer.py's own residual
+    terminal_value_credit, inflating it by the full penalty amount.
+    Plan.grid_import_excess_penalty_cost must expose the exact real
+    dollar total the LP actually charged for it."""
+
+    def test_penalty_cost_matches_the_real_lp_rate_times_excess_volume(self):
+        n = 24
+        periods = _flat_grid(n)
+        import_price = 0.30
+        grid = GridConfig(
+            import_price=np.full(n, import_price),
+            export_price=np.full(n, 0.05),
+            import_limit_kw=30.0,
+            export_limit_kw=30.0,
+        )
+        solar = SolarConfig(forecast_kw=np.zeros(n))
+        battery = BatteryConfig(
+            name="battery",
+            capacity_kwh=100.0,
+            initial_soc_kwh=45.0,
+            min_soc_kwh=5.0,
+            max_soc_kwh=100.0,
+            max_charge_kw=24.0,
+            max_discharge_kw=24.0,
+            charge_efficiency=0.99,
+            discharge_efficiency=0.99,
+            charge_cost=0.01,
+            discharge_cost=0.01,
+            salvage_value=0.0,
+        )
+        loads = [LoadConfig(name="whole_house", forecast_kw=np.full(n, 40.0))]
+
+        plan = build_plan(
+            periods=periods, grid=grid, batteries=[battery], solar=solar, loads=loads
+        )
+
+        self.assertEqual(plan.status, "optimal")
+        self.assertGreater(plan.import_cap_breach_kwh, 0.0)
+        # Same formula as network.py's own build_plan():
+        # max(10 * max(effective_import_price), 5.0) -- a flat
+        # import_price array means effective_import_price is just
+        # import_price itself here (no risk-adjustment spread applied).
+        expected_rate = max(10.0 * import_price, 5.0)
+        expected_cost = expected_rate * plan.import_cap_breach_kwh
+        self.assertAlmostEqual(
+            plan.grid_import_excess_penalty_cost, expected_cost, places=2
+        )
+        self.assertGreater(plan.grid_import_excess_penalty_cost, 0.0)
+
+    def test_zero_when_the_slack_was_never_needed(self):
+        n = 8
+        periods = _flat_grid(n)
+        grid = GridConfig(
+            import_price=np.full(n, 0.30),
+            export_price=np.full(n, 0.05),
+            import_limit_kw=30.0,
+            export_limit_kw=30.0,
+        )
+        solar = SolarConfig(forecast_kw=np.zeros(n))
+        battery = BatteryConfig(
+            name="battery",
+            capacity_kwh=20.0,
+            initial_soc_kwh=10.0,
+            min_soc_kwh=2.0,
+            max_soc_kwh=20.0,
+            max_charge_kw=10.0,
+            max_discharge_kw=10.0,
+            charge_efficiency=0.99,
+            discharge_efficiency=0.99,
+            charge_cost=0.01,
+            discharge_cost=0.01,
+            salvage_value=0.0,
+        )
+        loads = [LoadConfig(name="whole_house", forecast_kw=np.full(n, 5.0))]
+
+        plan = build_plan(
+            periods=periods, grid=grid, batteries=[battery], solar=solar, loads=loads
+        )
+
+        self.assertEqual(plan.status, "optimal")
+        self.assertEqual(plan.grid_import_excess_penalty_cost, 0.0)
+
+
 if __name__ == "__main__":
     unittest.main()

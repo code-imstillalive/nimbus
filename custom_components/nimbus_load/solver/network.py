@@ -757,6 +757,26 @@ class Plan:
     grid_import_excess_kw: NDArray[np.float64] = field(
         default_factory=lambda: np.zeros(0)
     )
+    # nimbus issue #788 (Mark Purcell, real live finding: a ~$34 credit
+    # leaking into terminal_value_credit that #781's own soc_penalty fix
+    # didn't touch). Root cause: grid_import_excess[t]'s own LP cost is
+    # `(effective_import_price[t] + import_excess_penalty_rate) * hours[t]`
+    # (see this function's own "#390: grid_import_excess[t]'s own penalty
+    # rate" comment), but solver_writer.py's own published `net_cost` per
+    # period only ever prices the COMBINED grid_import_kw (which already
+    # folds grid_import_excess_kw in, see that field's own docstring) at
+    # the plain `effective_import_price[t]` rate -- the
+    # `import_excess_penalty_rate` markup itself was never priced
+    # anywhere else in the published breakdown, so it fell entirely into
+    # the RESIDUAL terminal_value_credit, exactly the same misattribution
+    # class #781 already fixed for soc_penalty. Computed directly from
+    # the same `import_excess_penalty_rate` local and the same solved
+    # `grid_import_excess` variables actually used to cost them (see this
+    # function's own construction site below) -- can never drift from the
+    # LP's own real number, same guarantee soc_penalty_cost already has.
+    # 0.0 whenever the excess release valve was never needed this cycle
+    # (the common case) or on a Plan built before this field existed.
+    grid_import_excess_penalty_cost: float = 0.0
     # 2026-09-07, direct household ask: the risk-aversion sliders
     # (mechanism 3, this module's own docstring) had no visible way to
     # confirm they were doing anything -- "moved slider, nothing
@@ -3730,6 +3750,15 @@ def build_plan(
 
     solar_used_arr = _get(solar_used)
     grid_import_excess_arr = _get(grid_import_excess)
+    # nimbus issue #788: the real dollar total of the excess-import
+    # penalty MARKUP only (not the underlying energy's own real price,
+    # which is already counted via grid_net -- see this field's own
+    # docstring on Plan for the full reasoning). Same
+    # `import_excess_penalty_rate` local the per-period loop above
+    # actually used to cost grid_import_excess[t].
+    grid_import_excess_penalty_cost = import_excess_penalty_rate * float(
+        np.sum(grid_import_excess_arr * hours)
+    )
     # mypy issue #384: export_bonus is list[str] | None -- restructured
     # out of the return statement's own inline ternary (which doesn't
     # narrow) into an explicit if/else on a local, same fix pattern as
@@ -3761,6 +3790,7 @@ def build_plan(
         duals=result.duals,
         reduced_costs=result.reduced_costs,
         grid_import_excess_kw=grid_import_excess_arr,
+        grid_import_excess_penalty_cost=grid_import_excess_penalty_cost,
         effective_solar_kw=np.asarray(effective_solar_kw, dtype=np.float64),
         effective_import_price=np.asarray(effective_import_price, dtype=np.float64),
         effective_export_price=np.asarray(effective_export_price, dtype=np.float64),

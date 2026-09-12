@@ -38,6 +38,7 @@ class TestCostBreakdownReconciliation(unittest.TestCase):
             battery_discharge_kw=np.array([2.0, 2.0, 2.0, 2.0]),
             period_hours=np.full(4, 0.25),
             soc_penalty_cost=1.25,
+            grid_import_excess_penalty_cost=0.6,
         )
         reconciled = (
             breakdown["grid_net"]
@@ -45,6 +46,7 @@ class TestCostBreakdownReconciliation(unittest.TestCase):
             + breakdown["charge_fee"]
             + breakdown["discharge_fee"]
             + breakdown["soc_penalty"]
+            + breakdown["grid_import_excess_penalty"]
             + breakdown["terminal_value_credit"]
         )
         self.assertAlmostEqual(reconciled, total_cost, places=6)
@@ -79,6 +81,40 @@ class TestCostBreakdownReconciliation(unittest.TestCase):
             without_penalty["terminal_value_credit"]
             - with_penalty["terminal_value_credit"],
             1678.6344,
+            places=3,
+        )
+
+    def test_grid_import_excess_penalty_is_its_own_line_not_folded_into_residual(self):
+        """nimbus issue #788 (real household finding, follow-up to #781):
+        `net_cost` per period prices the COMBINED grid_import_kw (which
+        already folds grid_import_excess_kw in) at the plain
+        effective_import_price rate -- the excess-import penalty MARKUP
+        itself (network.py's own `import_excess_penalty_rate`) had no
+        explicit line item anywhere, so it silently inflated
+        terminal_value_credit exactly the same way soc_penalty used to
+        before #781. grid_import_excess_penalty_cost must come straight
+        through as its own key, and the residual must shrink by exactly
+        that amount versus not passing it at all."""
+        common_kwargs = {
+            "net_costs": [-2.7979],
+            "total_cost": 34.83,
+            "degradation_cost_per_kwh": 0.0,
+            "total_throughput_kwh": 0.0,
+            "charge_cost": 0.0,
+            "total_charge_kwh": 0.0,
+            "discharge_cost_arr": np.zeros(1),
+            "battery_discharge_kw": np.zeros(1),
+            "period_hours": np.full(1, 1.0),
+        }
+        without_penalty = solver_writer.compute_cost_breakdown(**common_kwargs)
+        with_penalty = solver_writer.compute_cost_breakdown(
+            **common_kwargs, grid_import_excess_penalty_cost=34.0
+        )
+        self.assertEqual(with_penalty["grid_import_excess_penalty"], 34.0)
+        self.assertAlmostEqual(
+            without_penalty["terminal_value_credit"]
+            - with_penalty["terminal_value_credit"],
+            34.0,
             places=3,
         )
 
