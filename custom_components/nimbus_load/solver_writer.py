@@ -4337,6 +4337,14 @@ def load_previous_plan() -> network.Plan | None:
             sheddable_loads=[],
             adequacy_loads=[],
             total_cost=None,
+            # nimbus issue #785 (real regression from #781's own fix):
+            # Plan.soc_penalty_cost is a required field -- this
+            # reconstructed-from-cache Plan is only ever used for
+            # build_plan()'s own previous_plan= stability mechanisms
+            # (proximal/rate-limit matching), none of which read
+            # soc_penalty_cost, so 0.0 is a genuine, safe no-op here,
+            # same posture as the zero-filled arrays just above.
+            soc_penalty_cost=0.0,
             iterations=0,
             batteries=[
                 network.BatteryPlan(
