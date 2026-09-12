@@ -265,6 +265,44 @@ class TestApplyPowerSample(unittest.TestCase):
         # first-sample-of-new-day) energy delta.
         self.assertEqual(new.delivered_today_kwh, 0.0)
 
+    def test_activations_today_resets_on_the_same_rollover_as_delivered_today(self):
+        # nimbus issue #770 (Mark Purcell, real incident): a real
+        # household saw activations_today carry the previous day's "5"
+        # (already at its own max_activations_per_day cap) straight into
+        # a new day_key, permanently blocking every real dispatch attempt
+        # for 18 hours. apply_power_sample() runs on every solve tick --
+        # far more often than record_activation() ever does -- so it's
+        # what actually notices the day change first in practice; if it
+        # doesn't also reset activations_today, record_activation()'s own
+        # "day_key changed" branch never fires again for the rest of the
+        # day (state.day_key already matches by the time it's checked).
+        state = lrs.LoadRunState(
+            activations_today=5, delivered_today_kwh=3.2, day_key="2026-09-11"
+        )
+        new = lrs.apply_power_sample(
+            state,
+            now=datetime(2026, 9, 12, 0, 5, tzinfo=_TZ),
+            day_key="2026-09-12",
+            power_kw=0.5,
+        )
+        self.assertEqual(new.activations_today, 0)
+        # Confirms this is the SAME rollover as delivered_today_kwh's own
+        # reset, not a coincidentally-separate zero.
+        self.assertEqual(new.delivered_today_kwh, 0.0)
+
+    def test_activations_today_untouched_when_day_key_has_not_changed(self):
+        # The rollover branch must never fire (and never zero a real,
+        # same-day count) just because apply_power_sample() itself was
+        # called -- only a genuine day_key change should reset it.
+        state = lrs.LoadRunState(activations_today=3, day_key="2026-09-12")
+        new = lrs.apply_power_sample(
+            state,
+            now=datetime(2026, 9, 12, 10, 5, tzinfo=_TZ),
+            day_key="2026-09-12",
+            power_kw=0.5,
+        )
+        self.assertEqual(new.activations_today, 3)
+
     def test_import_price_now_accumulates_cost_today_alongside_delivered_energy(self):
         # nimbus issue #591: 0.75 kWh delivered (same shape as the
         # existing 30-min-gap test above) at a real 20c/kWh live price
