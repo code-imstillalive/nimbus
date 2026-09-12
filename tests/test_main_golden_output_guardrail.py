@@ -112,14 +112,26 @@ _EXPECTED_ATTRS = {
     # (real, deliberate throughput reduction, not drift): the LP now
     # correctly prices the round-trip loss it was previously only
     # feeling indirectly through terminal/salvage value.
-    "total_cost": 26.987646803296727,
-    "total_cost_with_fixed_costs": 34.7876,
+    # nimbus issue #776: regenerated from a fresh real run after fixing
+    # CalibratedOptions' own final blended solve leaking a mixed-unit
+    # `primary + weight * secondary` value into LPResult.objective/
+    # Plan.total_cost -- this fixture's own secondary costs (proximal_
+    # weight/smoothness_weight/battery_charge_earliness_budget_kw) are
+    # small-scale, so the pre-fix contamination here was tiny (~0.0008
+    # out of ~27, versus the ~$1295-of-$1335 real production case #776
+    # itself was filed against); total_cost/total_cost_with_fixed_costs
+    # now report the real primary-only dollar cost of the returned
+    # solution, and terminal_value_credit (a RESIDUAL against
+    # total_cost, see solver_writer.py's cost_breakdown() docstring)
+    # shifts by the same tiny amount as a direct consequence.
+    "total_cost": 26.98741722627023,
+    "total_cost_with_fixed_costs": 34.7874,
     "cost_breakdown": {
         "grid_net": 33.5015,
         "degradation": 0.0,
         "charge_fee": 0.127,
         "discharge_fee": 0.26,
-        "terminal_value_credit": -6.9008,
+        "terminal_value_credit": -6.9011,
     },
     "cost_band": {"lower": 1.741, "upper": 32.7335, "width": 30.9925},
     "cost_band_24h": {"lower": -1.2203, "upper": 8.1922, "width": 9.4125},

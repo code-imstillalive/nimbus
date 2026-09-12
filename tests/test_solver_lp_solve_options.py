@@ -48,6 +48,23 @@ def _real_price_difference_problem() -> LPProblem:
     return p
 
 
+def _huge_secondary_magnitude_tie_problem() -> LPProblem:
+    """nimbus issue #776: same genuine-tie shape as
+    `_genuine_tie_problem()` (primary cost identical for x1/x2, so the
+    true primary optimum is 10.0 no matter which tied vertex is chosen)
+    but with a secondary cost coefficient (-1e6) enormously larger than
+    anything in primary (which only ever ranges 0-10 here) -- the same
+    real-world shape as a terminal-value/tie-break secondary cost
+    denominated in different units/scale than the LP's own real dollar
+    primary cost."""
+    p = LPProblem()
+    p.add_variable("x1", ub=10.0, cost=1.0)
+    p.add_variable("x2", ub=10.0, cost=1.0)
+    p.add_eq_constraint({"x1": 1.0, "x2": 1.0}, 10.0, name="total")
+    p.set_secondary_cost("x2", -1e6)
+    return p
+
+
 class TestOptionsNoneIsByteIdenticalToPreExistingBehavior(unittest.TestCase):
     def test_explicit_none_matches_implicit_default(self):
         p1 = _genuine_tie_problem()
@@ -162,6 +179,33 @@ class TestCalibratedOptionsFindsASafeWeightAutomatically(unittest.TestCase):
         # inversion the previous test class deliberately demonstrated.
         real_primary_cost = p.value_of(result, "x1") + 100.0 * p.value_of(result, "x2")
         self.assertLess(real_primary_cost, 10.1)
+
+
+class TestCalibratedOptionsObjectiveIsRealPrimaryCostNotBlended(unittest.TestCase):
+    def test_objective_matches_true_primary_cost_not_the_mixed_unit_blended_value(
+        self,
+    ):
+        """nimbus issue #776 (real production bug): CalibratedOptions' own
+        final solve leaves HiGHS's live objective at `primary + weight *
+        secondary` -- a mixed-unit number, not a real dollar total, since
+        calibration only bounds how far the blended optimum's PRIMARY
+        cost can drift, never the secondary term's own absolute
+        magnitude. Confirmed live: a household's real 3-battery solve
+        reported total_cost=$1335 when the real primary (grid +
+        degradation + fees) cost was ~$40 -- ~$1295 of blended secondary
+        cost leaking into what solver_writer.py's cost_breakdown()
+        reports as `terminal_value_credit` (a RESIDUAL against
+        total_cost). Secondary cost here (-1e6 on x2) is deliberately
+        enormous relative to primary (0-10) so the pre-fix bug would have
+        reported an objective off by many orders of magnitude (~-1e5)
+        instead of the real, constraint-invariant primary cost of 10.0."""
+        p = _huge_secondary_magnitude_tie_problem()
+        result = p.solve(options=CalibratedOptions())
+        self.assertEqual(result.status, "optimal")
+        real_primary_cost = p.value_of(result, "x1") + p.value_of(result, "x2")
+        self.assertAlmostEqual(real_primary_cost, 10.0, places=4)
+        self.assertAlmostEqual(result.objective, real_primary_cost, places=4)
+        self.assertAlmostEqual(result.objective, 10.0, places=4)
 
 
 class TestSolveOptionsOnAMip(unittest.TestCase):
