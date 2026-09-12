@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.258] — 2026-09-12
+
+### Fixed
+- **Critical: `activations_today` never actually reset on a day-key rollover in practice** (nimbus issue #770, real production incident — Nimbus's own `commanded_state` for the household's HWS was stuck `False` for 18 straight hours; real hot water heating was coming entirely from the household's own pre-existing bridge automation, not from Nimbus, with no visible error). Root cause: `activations_today`'s own reset lived only in `record_activation()`'s "day_key changed" branch, which only fires at real dispatch time — but `apply_power_sample()`, called on every solve tick (far more often than a dispatch), rolls `day_key` over to today FIRST in practice, so `record_activation()`'s own check always read "already today" and its reset never ran again for the rest of the day. `activations_today` silently carried the previous day's count (already at `max_activations_per_day`) forever, permanently blocking dispatch. This is also the precise mechanism behind #726's own real trace (`activations_today` reading 5 with only one genuine transition in the recorder history). Fixed by resetting `activations_today` in `apply_power_sample()`'s own rollover branch too, alongside the counters it already resets — whichever function notices the day change first now resets every per-day counter together. Full local suite green (2046 passed, 13 skipped); live devhub restart/solve verification tracked on #770.
+
 ## [0.94.257] — 2026-09-11
 
 ### Added
