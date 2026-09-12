@@ -2926,6 +2926,98 @@ class TestDispatchCommandedState(unittest.TestCase):
         _domain, _service, data = services.calls[-1]
         self.assertEqual(data["operation_mode"], "eco")
 
+    def test_climate_domain_load_turning_on_calls_set_hvac_mode_with_configured_mode(
+        self,
+    ):
+        """nimbus issue #756: an ON transition with a configured
+        climate_on_hvac_mode calls climate.set_hvac_mode with that exact
+        mode -- never climate.turn_on (checked live against a real
+        reference-household climate entity: its own supported_features
+        did not advertise TURN_ON/TURN_OFF), never a guessed mode."""
+        import numpy as np
+
+        sub = _fake_subentry(
+            "s_cl",
+            "controllable_load",
+            {
+                "controllable_load_device_entity": "climate.aircon_test",
+                "controllable_load_climate_on_hvac_mode": "cool",
+            },
+        )
+        solver_writer._NATIVE_HASS, services = self._hass([sub])
+        plan = _fake_plan(sheddable=[_fake_load_plan("s_cl", np.array([1.5, 1.5]))])
+        now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+        grid_times = _grid(now, 4, minutes=5)
+        solver_writer.apply_commanded_state_guard(plan, now, grid_times)
+
+        self.assertEqual(len(services.calls), 1)
+        domain, service, data = services.calls[0]
+        self.assertEqual(domain, "climate")
+        self.assertEqual(service, "set_hvac_mode")
+        self.assertEqual(data["entity_id"], "climate.aircon_test")
+        self.assertEqual(data["hvac_mode"], "cool")
+
+    def test_climate_domain_load_turning_off_calls_set_hvac_mode_off(self):
+        """OFF always uses hvac_mode="off" -- universally present in HA's
+        own HVACMode enum, no configured mode needed for this direction."""
+        import numpy as np
+
+        sub = _fake_subentry(
+            "s_cl2",
+            "controllable_load",
+            {
+                "controllable_load_device_entity": "climate.aircon_test",
+                "controllable_load_climate_on_hvac_mode": "heat",
+                "controllable_load_min_hold_minutes": 0,
+            },
+        )
+        solver_writer._NATIVE_HASS, services = self._hass([sub])
+        start = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+        grid_times = _grid(start, 4, minutes=5)
+        on_plan = _fake_plan(sheddable=[_fake_load_plan("s_cl2", np.array([1.5, 1.5]))])
+        off_plan = _fake_plan(
+            adequacy=[_fake_load_plan("s_cl2", np.array([0.0, 0.0]), adequacy=True)]
+        )
+        solver_writer.apply_commanded_state_guard(on_plan, start, grid_times)
+        solver_writer.apply_commanded_state_guard(
+            off_plan, start + timedelta(minutes=5), grid_times
+        )
+        solver_writer.apply_commanded_state_guard(
+            off_plan, start + timedelta(minutes=10), grid_times
+        )
+
+        self.assertEqual(len(services.calls), 2)
+        domain, service, data = services.calls[-1]
+        self.assertEqual(domain, "climate")
+        self.assertEqual(service, "set_hvac_mode")
+        self.assertEqual(data["hvac_mode"], "off")
+
+    def test_climate_domain_with_no_configured_on_mode_warns_and_no_ops_on_turn_on(
+        self,
+    ):
+        """A climate device_entity with climate_on_hvac_mode left unset
+        must never guess -- logs a WARNING and dispatches nothing on an
+        ON transition, matching this field's own no-op convention."""
+        import numpy as np
+
+        sub = _fake_subentry(
+            "s_cl3",
+            "controllable_load",
+            {"controllable_load_device_entity": "climate.aircon_test"},
+        )
+        solver_writer._NATIVE_HASS, services = self._hass([sub])
+        plan = _fake_plan(sheddable=[_fake_load_plan("s_cl3", np.array([1.5, 1.5]))])
+        now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
+        grid_times = _grid(now, 4, minutes=5)
+        solver_writer.apply_commanded_state_guard(plan, now, grid_times)
+
+        self.assertEqual(len(services.calls), 0)
+        # commanded_state is still tracked normally -- only the dispatch
+        # itself is skipped, matching CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY's
+        # own no-op convention when unconfigured.
+        result = self._read_state("entry_d", "s_cl3")
+        self.assertTrue(result.commanded_state)
+
     def test_no_device_entity_configured_never_dispatches(self):
         import numpy as np
 
@@ -3045,18 +3137,20 @@ class TestDispatchCommandedState(unittest.TestCase):
         self.assertTrue(self._read_state("entry_d", "s_bad").commanded_state)
         self.assertTrue(self._read_state("entry_d", "s_good").commanded_state)
 
-    def test_climate_domain_logs_a_warning_and_does_not_raise(self):
+    def test_unsupported_domain_logs_a_warning_and_does_not_raise(self):
+        """nimbus issue #756: climate.* moved from "unsupported" to a real
+        implementation (see the climate-specific tests above) -- this test
+        now covers a genuinely still-unsupported domain instead, so the
+        generic "unsupported domain" warning path stays exercised."""
         import numpy as np
 
         sub = _fake_subentry(
-            "s_climate",
+            "s_fan",
             "controllable_load",
-            {"controllable_load_device_entity": "climate.living_room"},
+            {"controllable_load_device_entity": "fan.circulator"},
         )
         solver_writer._NATIVE_HASS, services = self._hass([sub])
-        plan = _fake_plan(
-            sheddable=[_fake_load_plan("s_climate", np.array([1.5, 1.5]))]
-        )
+        plan = _fake_plan(sheddable=[_fake_load_plan("s_fan", np.array([1.5, 1.5]))])
         now = datetime(2026, 9, 7, 8, 0, tzinfo=_TZ)
         grid_times = _grid(now, 4, minutes=5)
         with self.assertLogs(solver_writer._LOGGER, level="WARNING") as logs:
@@ -3065,7 +3159,7 @@ class TestDispatchCommandedState(unittest.TestCase):
         self.assertEqual(len(services.calls), 0)
         # commanded_state is still tracked -- only the physical dispatch
         # is a no-op for an unsupported domain.
-        result = self._read_state("entry_d", "s_climate")
+        result = self._read_state("entry_d", "s_fan")
         self.assertTrue(result.commanded_state)
 
 
