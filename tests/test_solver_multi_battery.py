@@ -384,6 +384,7 @@ class TestPerParticipantCrossSolveStability(unittest.TestCase):
             sheddable_loads=[],
             adequacy_loads=[],
             total_cost=None,
+            soc_penalty_cost=0.0,
             iterations=0,
             batteries=[
                 BatteryPlan(

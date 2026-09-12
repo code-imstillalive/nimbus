@@ -281,3 +281,71 @@ class TestTerminalValueSegmentFillStaysFeasible(unittest.TestCase):
             periods=periods, grid=grid, batteries=[battery], solar=solar, loads=loads
         )
         self.assertEqual(plan.status, "optimal")
+
+
+class TestSocPenaltyCostExposedOnPlan(unittest.TestCase):
+    """nimbus issue #781 (real household finding): the soft min/max-SoC
+    penalty is a real, LARGE ("dominant by construction") contributor to
+    total_cost that, before Plan.soc_penalty_cost existed, had no
+    explicit number anywhere -- it silently inflated total_cost and got
+    misattributed downstream (solver_writer.py's cost_breakdown()) as
+    terminal_value_credit, making a real "battery below its floor"
+    penalty look like an implausible salvage/terminal-value credit.
+    Proves the actual end-to-end LP computation, not just the hand-fed
+    solver_writer.py-level unit test."""
+
+    def test_soc_penalty_cost_matches_rate_times_underfill_when_below_floor(self):
+        # A deliberately LOW max_charge_kw (unlike _scenario()'s own
+        # 21.0, which lets the LP recover to the floor within a single
+        # period no matter the penalty rate) -- forces the recovery to
+        # genuinely take several periods, so at least one PUBLISHED
+        # soc[t] stays below MIN_SOC and underfill is truly nonzero.
+        rate = 2.5
+        start = datetime(2026, 9, 2, 0, 0, tzinfo=UTC)
+        hours = np.array([1.0] * N)
+        periods = PeriodGrid(hours=hours, start=start)
+        grid = GridConfig(
+            import_price=np.full(N, 0.25),
+            export_price=np.full(N, 0.10),
+            import_limit_kw=44.0,
+            export_limit_kw=44.0,
+        )
+        battery = BatteryConfig(
+            name="battery",
+            capacity_kwh=CAPACITY,
+            initial_soc_kwh=0.04,
+            min_soc_kwh=MIN_SOC,
+            max_soc_kwh=MAX_SOC,
+            max_charge_kw=0.5,
+            max_discharge_kw=24.0,
+            charge_efficiency=0.975,
+            discharge_efficiency=0.975,
+            charge_cost=0.01,
+            discharge_cost=0.01,
+            salvage_value=0.15,
+        )
+        solar = SolarConfig(forecast_kw=np.zeros(N))
+        loads = [LoadConfig(name="house", forecast_kw=np.full(N, 1.0))]
+        plan = build_plan(
+            periods=periods,
+            grid=grid,
+            batteries=[battery],
+            solar=solar,
+            loads=loads,
+            soft_soc_penalty_per_kwh=rate,
+        )
+        self.assertEqual(plan.status, "optimal")
+        underfill_kwh = np.clip(MIN_SOC - plan.battery_soc_kwh, 0.0, None)
+        expected = rate * float(np.sum(underfill_kwh))
+        self.assertGreater(
+            expected, 0.0, "sanity check: scenario must genuinely dip below floor"
+        )
+        self.assertAlmostEqual(plan.soc_penalty_cost, expected, places=4)
+
+    def test_soc_penalty_cost_is_zero_when_comfortably_within_envelope(self):
+        periods, grid, battery, solar, loads = _scenario(initial_soc_kwh=MAX_SOC / 2)
+        plan = build_plan(
+            periods=periods, grid=grid, batteries=[battery], solar=solar, loads=loads
+        )
+        self.assertEqual(plan.status, "optimal")
+        self.assertEqual(plan.soc_penalty_cost, 0.0)

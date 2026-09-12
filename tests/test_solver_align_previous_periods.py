@@ -94,6 +94,7 @@ def _optimal_plan(periods: PeriodGrid) -> Plan:
         sheddable_loads=[],
         adequacy_loads=[],
         total_cost=0.0,
+        soc_penalty_cost=0.0,
         iterations=1,
     )
 
@@ -263,6 +264,7 @@ class TestMatchesReferenceNestedLoop(unittest.TestCase):
             sheddable_loads=[],
             adequacy_loads=[],
             total_cost=None,
+            soc_penalty_cost=0.0,
             iterations=0,
         )
         self.assertEqual(_align_previous_periods(new, infeasible_prev), {})

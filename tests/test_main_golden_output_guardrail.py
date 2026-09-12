@@ -126,11 +126,16 @@ _EXPECTED_ATTRS = {
     # shifts by the same tiny amount as a direct consequence.
     "total_cost": 26.98741722627023,
     "total_cost_with_fixed_costs": 34.7874,
+    # nimbus issue #781: regenerated after adding the explicit
+    # `soc_penalty` line item to cost_breakdown() -- 0.0 here since this
+    # fixture's own single battery never dips below its configured floor;
+    # total_cost/terminal_value_credit are unchanged.
     "cost_breakdown": {
         "grid_net": 33.5015,
         "degradation": 0.0,
         "charge_fee": 0.127,
         "discharge_fee": 0.26,
+        "soc_penalty": 0.0,
         "terminal_value_credit": -6.9011,
     },
     "cost_band": {"lower": 1.741, "upper": 32.7335, "width": 30.9925},

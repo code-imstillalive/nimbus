@@ -710,6 +710,24 @@ class Plan:
     sheddable_loads: list[SheddableLoadPlan]
     adequacy_loads: list[AdequacyLoadPlan]
     total_cost: float | None
+    # nimbus issue #781: the real dollar total of every battery's own soft
+    # min/max-SoC violation penalty (soft_soc_penalty_per_kwh * summed
+    # underfill_kwh + overfill_kwh, across every battery and period) that
+    # already contributes to total_cost above -- computed directly from
+    # the same solved underfill/overfill variables and the same rate
+    # actually used to cost them (see build_plan()'s own "soft_soc_
+    # penalty_per_kwh" docstring section), so this can never drift from
+    # the LP's own real number. Exists because this penalty is
+    # deliberately LARGE ("dominant by construction" -- a bare $/kWh on
+    # the state violation, not scaled by hours[t], see its own set_cost()
+    # call site's comment) and, before this field existed, had NO
+    # explicit line item anywhere: solver_writer.py's own cost_breakdown()
+    # could only ever see it as part of its RESIDUAL `terminal_value_
+    # credit` figure, misrepresenting a real "your battery sat below its
+    # configured floor" penalty as if it were salvage/terminal value
+    # earned. 0.0 whenever no battery is genuinely violating its own
+    # soft floor/ceiling this cycle (the common case).
+    soc_penalty_cost: float
     iterations: int
     # Shadow prices / binding-constraint diagnostics (2026-08-18), passed
     # straight through from LPResult -- see LPResult's own docstring for
@@ -1140,6 +1158,7 @@ def _infeasible_plan(
         sheddable_loads=[],
         adequacy_loads=[],
         total_cost=None,
+        soc_penalty_cost=0.0,
         iterations=iterations,
         duals={},
         reduced_costs={},
@@ -3340,6 +3359,21 @@ def build_plan(
         (bp.soc_kwh for bp in plan_batteries), np.zeros(n)
     ).astype(np.float64)
 
+    # nimbus issue #781: the real dollar total of every battery's own
+    # soft min/max-SoC violation penalty, computed directly from the
+    # SAME solved underfill_vars/overfill_vars and the SAME
+    # soft_soc_penalty_per_kwh rate already used to cost them above (see
+    # that variable's own "set_cost" call sites) -- see Plan.soc_penalty_
+    # cost's own docstring for why this needs to be its own explicit
+    # number rather than silently folded into a residual.
+    soc_penalty_cost = soft_soc_penalty_per_kwh * float(
+        sum(
+            float(np.sum(_get(underfill_vars[b.name])))
+            + float(np.sum(_get(overfill_vars[b.name])))
+            for b in batteries
+        )
+    )
+
     # nimbus issue #491 (Signals 2/7 of #489): grid-operator + per-battery
     # headroom/forced-cost signals, straight off result's own ranging
     # (see LPResult.bound_headroom()'s own docstring) and reduced costs.
@@ -3722,6 +3756,7 @@ def build_plan(
         sheddable_loads=plan_sheddable,
         adequacy_loads=plan_adequacy,
         total_cost=result.objective,
+        soc_penalty_cost=soc_penalty_cost,
         iterations=result.iterations,
         duals=result.duals,
         reduced_costs=result.reduced_costs,
