@@ -10630,9 +10630,20 @@ def apply_commanded_state_guard(
                             float(target_kwh) if target_kwh is not None else None
                         ),
                         plan_shortfall_kwh=float(load_plan.shortfall_kwh),
-                        plan_marginal_cost=float(marginal_cost),
+                        # nimbus issue #483: rounded to 4dp at this publish
+                        # boundary, matching every other headline $ figure
+                        # this project publishes (total_cost, cost_
+                        # breakdown, cost_band -- see solver_writer.py's
+                        # own total_cost fix, nimbus issue #756-golden-CI-
+                        # flake) -- HiGHS's LP solve is not bit-for-bit
+                        # deterministic run to run, and leaving this one
+                        # unrounded would leak that same noise straight
+                        # through. Internal math (network.py's own
+                        # marginal_cost/profit_horizon computation) is
+                        # untouched -- only the published value changes.
+                        plan_marginal_cost=round(marginal_cost, 4),
                         plan_profit_horizon=(
-                            float(profit_horizon)
+                            round(profit_horizon, 4)
                             if profit_horizon is not None
                             else None
                         ),

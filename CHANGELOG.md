@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.272] — 2026-09-13
+
+### Fixed
+- **`plan_marginal_cost`/`plan_profit_horizon` (#483, v0.94.271) are now rounded to 4dp at the publish site**, matching every other headline `$` figure this project already publishes rounded (`total_cost`, `cost_breakdown`, `cost_band`). Found live on devhub immediately after v0.94.271's own deploy: the new fields were genuinely working end-to-end (`plan_marginal_cost` populated with a real, correct value, `plan_profit_horizon` correctly `None` for a load with no `value_per_kwh`), but published at full raw float precision — the exact same class of issue already fixed for `total_cost` (nimbus issue #756-golden-CI-flake): HiGHS's LP solve isn't bit-for-bit deterministic run to run, and an unrounded value leaks that noise straight through. Internal math (`network.py`'s own computation) is untouched, only the published value changes. 1 new test confirming both fields publish rounded. Full local suite green (2145 passed), `ruff check`/`format --check` clean.
+
 ## [0.94.271] — 2026-09-13
 
 ### Added
