@@ -1423,9 +1423,56 @@ def _solve_highs(
         # docstring for the real design finding that drove this). Empty
         # for every non-MIP caller, so this stays a zero-cost pass-
         # through on the pre-#702 path.
-        extra_row_names, objective_override = _solve_with_options(
-            h, var_array, col_indices, problem, options, binary_cols
-        )
+        #
+        # nimbus issue #773: an intermediate lex/calibration PHASE
+        # (_ensure_optimal_value, above) occasionally fails to reach
+        # optimal on real production data -- confirmed independently on
+        # two real installs, byte-identical traceback, two distinct
+        # HiGHS-internal signatures (an instant presolve rejection with
+        # zero simplex iterations, and a genuine time-limit/search
+        # difficulty on a large MIP), root cause not yet found despite
+        # extensive randomized-MIP reproduction attempts. Before this
+        # fix, that ValueError propagated straight out of build_plan()
+        # UNCAUGHT -- unlike the final solve's own non-optimal result
+        # (handled gracefully via _infeasible_plan() a few lines below
+        # in network.py), an intermediate-phase failure crashed the
+        # whole solve cycle, taking sensor.nimbus_solver_battery_
+        # forecast and sensor.nimbus_offer_curve fully `unavailable`
+        # for several minutes on a real household (see #773's own
+        # comment thread for that live severity finding).
+        #
+        # The fix does not (yet) resolve WHY a phase fails -- nobody has
+        # a repro -- but it stops that failure from taking dispatch down
+        # at all: fall back to a plain, single-objective solve (the path
+        # every report agrees "solves fine most of the time") for this
+        # one cycle only. The four tie-break mechanisms routed through
+        # the secondary channel (proximal/smoothness weights, adequacy/
+        # battery earliness budgets) are skipped for this cycle -- a
+        # real, honest quality cost, but strictly better than no plan at
+        # all. `_ensure_optimal_value()` has already logged a full
+        # HiGHS diagnostic ERROR line for the failing phase before this
+        # ever runs, so no diagnostic detail is lost by falling back.
+        # The very next solve cycle (60s away at most, per this
+        # project's own 1-minute native timer) retries the full phased
+        # solve from a completely fresh `h` -- nothing here disables the
+        # calibrated/lex path going forward, it degrades for one cycle.
+        try:
+            extra_row_names, objective_override = _solve_with_options(
+                h, var_array, col_indices, problem, options, binary_cols
+            )
+        except ValueError:
+            _LOGGER.warning(
+                "Nimbus #773: an intermediate lex/calibration phase failed "
+                "to reach optimal this cycle (see the ERROR line just above "
+                "for full HiGHS diagnostic detail) -- falling back to a "
+                "plain single-objective solve so dispatch doesn't go "
+                "unavailable. The calibrated/lex tie-break guarantee is "
+                "skipped for this one solve only; the next cycle retries "
+                "the full phased solve normally."
+            )
+            return _solve_highs(
+                problem, ranging=ranging, keep_basis=keep_basis, options=None
+            )
 
     # nimbus issue #696: a lex/calibrated phase adds real extra
     # constraint ROWS to `h` beyond the caller's own (see

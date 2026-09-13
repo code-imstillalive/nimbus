@@ -21,6 +21,7 @@ every assertion below:
 from __future__ import annotations
 
 import unittest
+from unittest import mock
 
 import _solver_path  # noqa: F401
 from solver.lp import BlendedOptions, CalibratedOptions, LexOptions, LPProblem
@@ -318,6 +319,82 @@ class TestSolveOptionsOnAMip(unittest.TestCase):
         self.assertEqual(result.status, "optimal")
 
 
+class TestIntermediatePhaseFailureFallsBackGracefully(unittest.TestCase):
+    """nimbus issue #773: an intermediate lex/calibration phase occasionally
+    fails to reach optimal on real production data -- confirmed independently
+    on two real installs (byte-identical traceback, two distinct HiGHS-
+    internal failure signatures), root cause not found despite extensive
+    randomized-MIP reproduction attempts. Before this fix, the ValueError
+    `_ensure_optimal_value()` raises on a failing phase propagated straight
+    out of `build_plan()` UNCAUGHT -- unlike a non-optimal FINAL solve
+    (handled gracefully via `_infeasible_plan()`), an intermediate-phase
+    failure crashed the whole solve cycle. Confirmed live on a real
+    household: `sensor.nimbus_solver_battery_forecast` and `sensor.
+    nimbus_offer_curve` both went fully `unavailable` for several minutes.
+
+    Mocks `_solve_with_options` to raise the exact ValueError shape
+    `_ensure_optimal_value()` raises, proving `_solve_highs()` catches it
+    and falls back to a plain `options=None` solve (a fresh model, not a
+    reuse of whatever partial state the failed attempt left behind) rather
+    than letting the exception escape."""
+
+    def test_falls_back_to_plain_solve_on_intermediate_phase_failure(self):
+        p = _genuine_tie_problem()
+        with (
+            mock.patch(
+                "solver.lp._solve_with_options",
+                side_effect=ValueError(
+                    "LPProblem.solve(options=...): an internal lex/calibration "
+                    "phase failed to reach optimal (status='Infeasible')"
+                ),
+            ),
+            self.assertLogs("solver.lp", level="WARNING") as cm,
+        ):
+            result = p.solve(options=LexOptions())
+        self.assertEqual(result.status, "optimal")
+        self.assertAlmostEqual(result.objective, 10.0, places=6)
+        self.assertTrue(
+            any("Nimbus #773" in msg for msg in cm.output),
+            f"expected a #773 fallback WARNING to be logged, got: {cm.output}",
+        )
+
+    def test_fallback_result_matches_a_genuine_options_none_solve(self):
+        """The fallback must be indistinguishable from a caller who never
+        passed options= at all -- not a degraded or partial result."""
+        p1 = _genuine_tie_problem()
+        p2 = _genuine_tie_problem()
+        with mock.patch(
+            "solver.lp._solve_with_options", side_effect=ValueError("boom")
+        ):
+            fallback_result = p1.solve(options=CalibratedOptions())
+        plain_result = p2.solve(options=None)
+        self.assertEqual(fallback_result.status, plain_result.status)
+        self.assertAlmostEqual(fallback_result.objective, plain_result.objective)
+
+    def test_only_the_failing_solve_falls_back_not_every_solve_forever(self):
+        """A single mocked failure must not leave any lingering state --
+        the very next .solve(options=...) call on a fresh problem must
+        still attempt (and succeed at) the real phased solve, proving the
+        fallback is scoped to one failing call, not a global downgrade."""
+        p_fails = _genuine_tie_problem()
+        with mock.patch(
+            "solver.lp._solve_with_options", side_effect=ValueError("boom")
+        ):
+            fallback_result = p_fails.solve(options=LexOptions())
+        self.assertEqual(fallback_result.status, "optimal")
+
+        p_recovers = _genuine_tie_problem()
+        recovered_result = p_recovers.solve(options=LexOptions())
+        self.assertEqual(recovered_result.status, "optimal")
+        self.assertAlmostEqual(
+            p_recovers.value_of(recovered_result, "x2"),
+            10.0,
+            places=4,
+            msg="the real phased solve must still run normally on the "
+            "next call -- the fallback must not be sticky",
+        )
+
+
 class TestBinaryTieBreak(unittest.TestCase):
     """nimbus issue #702: the direct regression test for the real bug
     found while implementing this -- see TestSolveOptionsOnAMip's own
@@ -399,21 +476,33 @@ class TestAllZeroPrimaryOrSecondaryIsAHonestNoOp(unittest.TestCase):
         self.assertAlmostEqual(p2.value_of(result, "x2"), 0.0, places=4)
 
 
-class TestNonOptimalPhaseLogsRichDiagnostics(unittest.TestCase):
+class TestNonOptimalPhaseLogsRichDiagnosticsAndFallsBackGracefully(unittest.TestCase):
     """nimbus issue #773: a real, install-independent, intermittent
     report of exactly this ValueError firing in production, with no
     root cause found yet (extensive randomized-MIP reproduction
     attempts, both in this test file's own style and at realistic
     ~96-period scale, never reproduced it locally). `_ensure_optimal_
-    value()` now logs full HiGHS diagnostic detail (phase label, MIP
-    node count/gap/dual bound, infeasibility magnitudes, problem
-    shape) at ERROR before raising, so a real future occurrence
-    carries enough detail to actually root-cause it. This test proves
-    that logging fires correctly and that the raised ValueError is
-    byte-identical to before -- it does not (and cannot, since the
-    real bug isn't reproducible locally) prove #773 itself is fixed."""
+    value()` logs full HiGHS diagnostic detail (phase label, MIP node
+    count/gap/dual bound, infeasibility magnitudes, problem shape) at
+    ERROR before raising, so a real future occurrence carries enough
+    detail to actually root-cause it -- unchanged by the fix below.
 
-    def test_infeasible_problem_logs_diagnostics_and_still_raises(self):
+    What DID change (this test used to assert the opposite -- see git
+    history if curious): `_solve_highs()` now catches that ValueError
+    and falls back to a plain `options=None` solve instead of letting
+    it escape `build_plan()` uncaught (see `_solve_highs()`'s own
+    #773 comment for the full "why" -- a real household saw dispatch
+    sensors go fully unavailable for minutes when an intermediate
+    phase failed). This problem is genuinely, structurally infeasible
+    (two contradictory equality constraints on the same variable) --
+    no objective choice can ever make it solvable -- so the honest
+    fallback outcome is `status="infeasible"`, not "optimal"; the
+    point of this test is that it's an honest LPResult, not an
+    unhandled exception."""
+
+    def test_infeasible_problem_logs_diagnostics_then_falls_back_to_an_honest_result(
+        self,
+    ):
         p = LPProblem()
         p.add_variable("x1", ub=10.0, cost=1.0)
         # Two contradictory equality constraints -- genuinely infeasible
@@ -422,16 +511,18 @@ class TestNonOptimalPhaseLogsRichDiagnostics(unittest.TestCase):
         # traceback reported.
         p.add_eq_constraint({"x1": 1.0}, 3.0, name="pin_low")
         p.add_eq_constraint({"x1": 1.0}, 7.0, name="pin_high")
-        with (
-            self.assertLogs("solver.lp", level="ERROR") as cm,
-            self.assertRaisesRegex(ValueError, r"failed to reach optimal"),
-        ):
-            p.solve(options=LexOptions())
+        with self.assertLogs("solver.lp", level="WARNING") as cm:
+            result = p.solve(options=LexOptions())
+        self.assertEqual(result.status, "infeasible")
         self.assertTrue(
             any("Nimbus #773 diag" in line for line in cm.output),
             f"expected a #773 diagnostic log line, got: {cm.output}",
         )
         self.assertTrue(any("phase1_primary" in line for line in cm.output))
+        self.assertTrue(
+            any("Nimbus #773" in line and "falling back" in line for line in cm.output),
+            f"expected a #773 fallback WARNING, got: {cm.output}",
+        )
 
 
 if __name__ == "__main__":
