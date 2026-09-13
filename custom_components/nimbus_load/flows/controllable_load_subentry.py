@@ -41,9 +41,7 @@ from ..const import (
     CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY,
     CONF_CONTROLLABLE_LOAD_MIN_HOLD_MINUTES,
     CONF_CONTROLLABLE_LOAD_NAME,
-    CONF_CONTROLLABLE_LOAD_POWER_SENSOR,
     CONF_DEFERRABLE_DEADLINE_HOUR,
-    CONF_DEFERRABLE_DONE_ENTITY,
     CONF_DEFERRABLE_DONE_WHEN,
     CONF_DEFERRABLE_EARLIEST_HOUR,
     CONF_DEFERRABLE_MAX_KWH_PER_DAY,
@@ -62,7 +60,6 @@ from ..const import (
     CONF_THERMAL_IDLE_DECAY_C_PER_HOUR,
     CONF_THERMAL_MAX_POWER_KW,
     CONF_THERMAL_TARGET_TEMPERATURE_C,
-    CONF_THERMAL_TEMPERATURE_ENTITY,
     CONTROLLABLE_LOAD_KIND_DEFERRABLE,
     CONTROLLABLE_LOAD_KIND_SHEDDABLE,
     CONTROLLABLE_LOAD_KIND_THERMAL,
@@ -147,16 +144,25 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             )
         ),
     }
-    _optional_field(
-        schema_dict,
-        CONF_CONTROLLABLE_LOAD_POWER_SENSOR,
-        defaults.get(CONF_CONTROLLABLE_LOAD_POWER_SENSOR),
-        selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
-    )
-    # nimbus issue #534: the real device this load is commanded through --
-    # no domain restriction on the selector itself (switch/water_heater/
-    # climate, per dispatch_commanded_state()'s own domain-pluggable
-    # design in solver_writer.py).
+    # nimbus issue #809 (Mark Purcell): the wizard used to ask for FOUR
+    # separate entity-selector fields -- this one, plus thermal's own
+    # temperature entity and deferrable's own done entity -- when in the
+    # overwhelmingly common real case (confirmed live: Mark's own "Hot
+    # Water Heat Pump" load) every one of them is the identical entity,
+    # typed in three or four times over. Real power sensor is no longer
+    # asked here at all (there's no single real device this load's
+    # commanded entity always shares with its own power draw the way
+    # temperature/done-condition do -- a plug/CT power sensor is
+    # frequently a genuinely different entity_id) -- it stays a valid,
+    # optional data key, settable via the more advanced `nimbus_load.
+    # set_controllable_load` service for a household that wants that
+    # extra monitoring/tracking fidelity, just not asked by this wizard's
+    # own first-run form.
+    #
+    # The real device this load is commanded through -- no domain
+    # restriction on the selector itself (switch/water_heater/climate,
+    # per dispatch_commanded_state()'s own domain-pluggable design in
+    # solver_writer.py). The one entity field this wizard still asks for.
     _optional_field(
         schema_dict,
         CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY,
@@ -271,18 +277,14 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
         _KWH_SELECTOR,
     )
     # kind=thermal fields (nimbus issue #774) -- see solver.elements.
-    # ThermalLoadConfig's own docstring for the full design. Domain-
-    # restricted to water_heater/climate (the same two domains done_
-    # condition.py's own ATTRIBUTE_DONE_DOMAINS/read_current_temperature()
-    # already support -- any other domain reads as None, a fail-open no-op).
-    _optional_field(
-        schema_dict,
-        CONF_THERMAL_TEMPERATURE_ENTITY,
-        defaults.get(CONF_THERMAL_TEMPERATURE_ENTITY),
-        selector.EntitySelector(
-            selector.EntitySelectorConfig(domain=["water_heater", "climate"])
-        ),
-    )
+    # ThermalLoadConfig's own docstring for the full design.
+    #
+    # nimbus issue #809: no longer a separate wizard field -- the live
+    # temperature reading defaults to this load's own device_entity
+    # above (see solver_writer.py's build_controllable_loads() for the
+    # actual resolution), which is already restricted to a real
+    # commandable entity and, for a genuine thermal load, is a water_
+    # heater/climate the overwhelming majority of the time anyway.
     _optional_field(
         schema_dict,
         CONF_THERMAL_MAX_POWER_KW,
@@ -349,16 +351,17 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
     )
     # nimbus issue #480: a binary_sensor's own "on" state IS the done
     # condition (done_when left blank); any other domain needs done_when
-    # too, to know what "done" means for a numeric reading. No domain
-    # restriction on the EntitySelector itself -- binary_sensor and a
-    # plain numeric sensor (tank temperature, etc.) are both real,
-    # expected choices.
-    _optional_field(
-        schema_dict,
-        CONF_DEFERRABLE_DONE_ENTITY,
-        defaults.get(CONF_DEFERRABLE_DONE_ENTITY),
-        selector.EntitySelector(),
-    )
+    # too, to know what "done" means for a numeric reading.
+    #
+    # nimbus issue #809: no longer a separate wizard field for the done
+    # ENTITY itself -- defaults to this load's own device_entity above
+    # (solver_writer.py's build_controllable_loads()), the overwhelmingly
+    # common real case (a water_heater/climate load's own done condition
+    # is its own current_temperature). done_when (below) stays a real,
+    # separate, still-configurable field -- a household with a genuinely
+    # different done SENSOR (a separate binary_sensor or numeric sensor,
+    # not the commanded device itself) sets it via the more advanced
+    # `nimbus_load.set_controllable_load` service instead of this wizard.
     _optional_field(
         schema_dict,
         CONF_DEFERRABLE_DONE_WHEN,

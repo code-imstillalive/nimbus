@@ -80,7 +80,8 @@ class TestUnloadResetsSolverRuntimeGlobals:
         # successful unload -- see test_services.py's own dedicated
         # coverage of async_unregister_services() itself for the detail;
         # this just confirms async_unload_entry() actually calls it.
-        assert hass.services.async_remove.call_count == 3
+        # 4, not 3, since nimbus issue #809's own set_controllable_load.
+        assert hass.services.async_remove.call_count == 4
 
     def test_failed_platform_unload_does_not_reset_globals(self):
         # A failed unload_platforms() means entities/timers may still be

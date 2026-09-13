@@ -8701,6 +8701,7 @@ def build_controllable_loads(
     try:
         from . import done_condition, load_run_state, thermal_forecast
         from .const import (
+            CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY,
             CONF_CONTROLLABLE_LOAD_KIND,
             CONF_CONTROLLABLE_LOAD_NAME,
             CONF_CONTROLLABLE_LOAD_POWER_SENSOR,
@@ -8736,6 +8737,7 @@ def build_controllable_loads(
         import load_run_state
         import thermal_forecast
         from const import (
+            CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY,
             CONF_CONTROLLABLE_LOAD_KIND,
             CONF_CONTROLLABLE_LOAD_NAME,
             CONF_CONTROLLABLE_LOAD_POWER_SENSOR,
@@ -8880,7 +8882,17 @@ def build_controllable_loads(
             # open (None/malformed/unavailable) is treated as NOT done,
             # same as _evaluate_done_condition()'s own contract; only ever
             # speaks to today, same reasoning as delivered_today_kwh above.
-            done_entity = data.get(CONF_DEFERRABLE_DONE_ENTITY)
+            # nimbus issue #809: the wizard no longer asks for a separate
+            # Done entity -- it defaults to this same load's own device_
+            # entity (the common real case, and Mark's own actual
+            # household config before #809: both fields pointed at the
+            # identical water_heater.wwk302). An explicit override is
+            # still honoured for a household whose done condition
+            # genuinely lives on a different entity than the one being
+            # commanded.
+            done_entity = data.get(CONF_DEFERRABLE_DONE_ENTITY) or data.get(
+                CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY
+            )
             today_done = bool(
                 done_entity
                 and _evaluate_done_condition(
@@ -9169,7 +9181,17 @@ def build_controllable_loads(
         elif kind == CONTROLLABLE_LOAD_KIND_THERMAL:
             max_power_kw = float(data.get(CONF_THERMAL_MAX_POWER_KW) or 0.0)
             target_temperature_c = data.get(CONF_THERMAL_TARGET_TEMPERATURE_C)
-            temperature_entity = data.get(CONF_THERMAL_TEMPERATURE_ENTITY)
+            # nimbus issue #809: the wizard no longer asks for a separate
+            # temperature entity -- kind=thermal only ever has one real
+            # device.py entity worth pointing at anyway (the same
+            # water_heater/climate this load is commanded through), so
+            # this defaults to the load's own device_entity. An explicit
+            # override is still honoured for the rare household whose
+            # temperature reading and commanded device are genuinely
+            # different entities.
+            temperature_entity = data.get(CONF_THERMAL_TEMPERATURE_ENTITY) or data.get(
+                CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY
+            )
             if (
                 max_power_kw <= 0.0
                 or target_temperature_c is None
@@ -10667,7 +10689,15 @@ def apply_commanded_state_guard(
                     # deliberately NOT part of this (model-based source
                     # marking, using the crossing to shorten the LP's
                     # own schedule ahead of time).
-                    done_entity = data.get(CONF_DEFERRABLE_DONE_ENTITY)
+                    # nimbus issue #809: done_entity defaults to this same
+                    # load's own device_entity -- see build_controllable_
+                    # loads()'s own matching comment for the reasoning;
+                    # duplicated here rather than shared, same accepted
+                    # drift-risk tradeoff already flagged for this
+                    # function's own duplicate of the #582 same-day fix.
+                    done_entity = data.get(CONF_DEFERRABLE_DONE_ENTITY) or data.get(
+                        CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY
+                    )
                     power_sensor = data.get(CONF_CONTROLLABLE_LOAD_POWER_SENSOR)
                     if (
                         done_entity
