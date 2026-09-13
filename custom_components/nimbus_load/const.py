@@ -883,6 +883,26 @@ DEFAULT_SOLVER_DISPATCH_DRY_RUN: Final = False
 # every cycle, for a capability most installs never asked for).
 CONF_SOLVER_OFFER_CURVE_ENABLED: Final = "solver_offer_curve_enabled"
 DEFAULT_SOLVER_OFFER_CURVE_ENABLED: Final = False
+# nimbus issue #496 (Signals 7/7 of #489): the grid-operator/load-ranging
+# flex signals (solver/network.py's own build_plan(compute_signals=True),
+# sensor.nimbus_flex_signals) -- GridSignals/BatterySignals'
+# ranging-derived fields/LoadSignals, all of #491/#492's own already-
+# shipped work, published for the first time here. Default False, same
+# "opt-in, no ambient cost" reasoning as CONF_SOLVER_OFFER_CURVE_ENABLED
+# just above -- and for good reason, not just convention: compute_signals'
+# own docstring (network.py) measured ranging adding ~5s on top of a
+# ~0.6s bare solve on this project's own 288-period timing-regression
+# scenario, and a real, live, still-open finding the same night this
+# switch was added (nimbus issue #773) confirmed devhub's own real
+# problem shape (~12k variables, ~1.5k binaries) was ALREADY occasionally
+# hitting HiGHS's 60s per-call time limit on the PLAIN solve, no ranging
+# involved. Turning this on unconditionally for every real solve cycle
+# would risk directly worsening that same live capacity problem -- a
+# household opting in should do so deliberately, watching solve times
+# after flipping it, exactly the re-measure-at-your-own-scale posture
+# compute_signals' own docstring already asks of any caller.
+CONF_SOLVER_FLEX_SIGNALS_ENABLED: Final = "solver_flex_signals_enabled"
+DEFAULT_SOLVER_FLEX_SIGNALS_ENABLED: Final = False
 # nimbus issue #696, Stage 2: opts the real production solve into the
 # new primary/secondary objective architecture (solver/lp.py's
 # CalibratedOptions) for the four existing tie-break mechanisms

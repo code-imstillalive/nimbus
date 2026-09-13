@@ -46,12 +46,14 @@ from .const import (
     CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
     CONF_SOLVER_CALIBRATED_OBJECTIVE_ENABLED,
     CONF_SOLVER_DISPATCH_DRY_RUN,
+    CONF_SOLVER_FLEX_SIGNALS_ENABLED,
     CONF_SOLVER_OFFER_CURVE_ENABLED,
     CONF_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED,
     DEFAULT_SOLVE_ON_PRICE_CHANGE,
     DEFAULT_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
     DEFAULT_SOLVER_CALIBRATED_OBJECTIVE_ENABLED,
     DEFAULT_SOLVER_DISPATCH_DRY_RUN,
+    DEFAULT_SOLVER_FLEX_SIGNALS_ENABLED,
     DEFAULT_SOLVER_OFFER_CURVE_ENABLED,
     DEFAULT_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED,
     DOMAIN,
@@ -165,6 +167,21 @@ async def async_setup_entry(
                 CONF_SOLVER_OFFER_CURVE_ENABLED,
                 "Offer Curve Enabled",
                 DEFAULT_SOLVER_OFFER_CURVE_ENABLED,
+                sw_version,
+                shared_store,
+            ),
+            # nimbus issue #496 (Signals 7/7 of #489): grid-operator/
+            # load-ranging flex signals, off by default -- see const.py's
+            # own comment on CONF_SOLVER_FLEX_SIGNALS_ENABLED for the real
+            # measured-overhead and live-capacity reasoning. Same plain-
+            # toggle pattern as CONF_SOLVER_OFFER_CURVE_ENABLED just
+            # above -- solver_writer.py reads this switch's live state
+            # fresh every solve cycle, no _reconfigure_dependents() needed.
+            NimbusSolverSwitch(
+                entry,
+                CONF_SOLVER_FLEX_SIGNALS_ENABLED,
+                "Flex Signals Enabled",
+                DEFAULT_SOLVER_FLEX_SIGNALS_ENABLED,
                 sw_version,
                 shared_store,
             ),
