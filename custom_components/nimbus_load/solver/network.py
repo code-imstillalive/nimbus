@@ -451,6 +451,19 @@ class AdequacyLoadPlan:
     meaningless without a value to measure it against, same "never
     fabricate a number that isn't real" posture as every other optional
     field here.
+
+    nimbus issue #483 (sub-issue 7 of #476, "shadow costing per
+    device" -- "what does each controllable load cost to run"):
+    `marginal_cost` is `sum(lambda(t) * power[t] * hours[t])` -- the
+    same lambda(t) `profit_horizon` above already reads, but WITHOUT
+    subtracting any credited value, and computed unconditionally (never
+    None) since it needs no `value_per_kwh` to mean something: it's the
+    honest "what this device's own energy was worth at the switchboard
+    when it ran" -- near zero on curtailed/surplus PV, real tariff value
+    at peak, battery-discharge value overnight. Deliberately a SEPARATE
+    field from `profit_horizon`, not a re-derivation of it -- a load
+    with no `value_per_kwh` configured still has a real marginal cost,
+    it just has no "profit" to compare that cost against.
     """
 
     name: str
@@ -463,6 +476,8 @@ class AdequacyLoadPlan:
     subentry_id: str | None = None
     # nimbus issue #482 -- see this class's own docstring above.
     profit_horizon: float | None = None
+    # nimbus issue #483 -- see this class's own docstring above.
+    marginal_cost: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -3584,25 +3599,27 @@ def _build_plan_once(
                 )
             )
             shortfall_kwh = p.value_of(result, adequacy_shortfall_vars[al.name])
+        # nimbus issue #483 (sub-issue 7 of #476, "shadow costing per
+        # device"): lambda(t) read straight from the same power_
+        # balance_t{t} dual #613's own per-period shadow_price exposes,
+        # with the identical #662 hours-scaling correction (the raw dual
+        # comes out in "$ per kW of RHS," not $/kWh, until divided by
+        # this period's own duration) -- computed unconditionally, every
+        # adequacy load has a real marginal cost regardless of whether
+        # value_per_kwh is configured.
+        lambda_arr = np.array(
+            [result.duals.get(f"power_balance_t{t}", 0.0) / hours[t] for t in range(n)]
+        )
+        marginal_cost = float(np.sum(lambda_arr * power_arr * hours))
         # nimbus issue #482: "what did the miner earn over what its
         # energy was worth" -- None (not 0.0) when this load has no
         # value_per_kwh configured at all, same "never fabricate a
         # number that isn't real" posture as AdequacyLoadPlan's own
-        # docstring. lambda(t) read straight from the same power_
-        # balance_t{t} dual #613's own per-period shadow_price exposes,
-        # with the identical #662 hours-scaling correction (the raw dual
-        # comes out in "$ per kW of RHS," not $/kWh, until divided by
-        # this period's own duration).
+        # docstring.
         profit_horizon: float | None = None
         if al.value_per_kwh is not None:
             value_arr = np.broadcast_to(
                 np.asarray(al.value_per_kwh, dtype=np.float64), (n,)
-            )
-            lambda_arr = np.array(
-                [
-                    result.duals.get(f"power_balance_t{t}", 0.0) / hours[t]
-                    for t in range(n)
-                ]
             )
             profit_horizon = float(np.sum((value_arr - lambda_arr) * power_arr * hours))
         plan_adequacy.append(
@@ -3613,6 +3630,7 @@ def _build_plan_once(
                 shortfall_kwh=shortfall_kwh,
                 subentry_id=al.subentry_id,
                 profit_horizon=profit_horizon,
+                marginal_cost=marginal_cost,
             )
         )
 
