@@ -107,6 +107,7 @@ from .const import (
     CONF_SOLVER_EXPORT_PRICE_SENSOR_3,
     CONF_SOLVER_FIXED_DAILY_CHARGE,
     CONF_SOLVER_FLAT_FEE_RATE,
+    CONF_SOLVER_FLEX_SIGNALS_ENABLED,
     CONF_SOLVER_GRID_MAX_EXPORT_KW,
     CONF_SOLVER_GRID_MAX_IMPORT_KW,
     CONF_SOLVER_IMPORT_PRICE_RISK_AVERSION,
@@ -373,6 +374,18 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     # resolved via _SOLVER_SWITCH_ENTITY_KEYS (see that tuple's own
     # comment) rather than entry.options directly.
     CONF_SOLVER_OFFER_CURVE_ENABLED,
+    # nimbus issue #496 (Signals 7/7 of #489): the exact same "must be
+    # exposed here too or fetch_solver_config() never sees it" gap this
+    # tuple's own comments keep warning about -- found live, 2026-09-14,
+    # right after devhub deployment: switch.nimbus_solver_flex_signals_
+    # enabled flipped on, three solves completed, sensor.nimbus_flex_
+    # signals stayed "unknown" the whole time. Confirmed via direct read:
+    # sensor.nimbus_solver_config's own attributes had solver_offer_curve_
+    # enabled and solver_calibrated_objective_enabled but NOT this key --
+    # solver_writer.py's compute_signals=flex_signals_enabled was silently
+    # always False regardless of the switch's real live state. Resolved
+    # via _SOLVER_SWITCH_ENTITY_KEYS, same mechanism as every switch above.
+    CONF_SOLVER_FLEX_SIGNALS_ENABLED,
     # nimbus issue #567: the two live number.py fields resolve via
     # _SOLVER_NUMBER_ENTITY_KEYS, the switch via _SOLVER_SWITCH_ENTITY_
     # KEYS (see each tuple's own comment) -- the alert-entity POINTER
@@ -522,6 +535,12 @@ _SOLVER_SWITCH_ENTITY_KEYS = (
     # py's main() reads this key off fetch_solver_config()'s own return
     # value to decide whether to pass solve_options=CalibratedOptions().
     CONF_SOLVER_CALIBRATED_OBJECTIVE_ENABLED,
+    # nimbus issue #496 (Signals 7/7 of #489): same live-switch resolve
+    # path -- solver_writer.py's main() reads this key off fetch_solver_
+    # config()'s own return value to decide compute_signals=. Missing
+    # from this tuple made the switch a real no-op live on devhub; see
+    # this file's own CONF_SOLVER_FLEX_SIGNALS_ENABLED comment above.
+    CONF_SOLVER_FLEX_SIGNALS_ENABLED,
 )
 
 
