@@ -8,6 +8,19 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.286] — 2026-09-14
+
+### Added
+- **A genuine per-period battery availability mask** (nimbus issue [#467](https://github.com/code-imstillalive/nimbus/issues/467), authorised by Mark Purcell: *"Build an internal gating gap please"*). `BatteryConfig` could previously only express availability as a **prefix from period 0** — `available=False` gates the whole horizon, `unavailable_until_period_index=k` (#779) gates `[0, k)`. Neither can say "away 09:00–15:00, home either side", and neither can express two separate trips in one day at all.
+
+  This closed a real correctness gap, not just a feature gap. The quality scorer's *reconstruction* side already masked per-period correctly (`_resolve_battery_participant_history()` builds `is_home_mask` from the availability entity's own recorded history and zeroes the achieved charge/discharge arrays), but the *oracle re-solve* had no equivalent gate — so on any multi-trip day the two halves of the scorer genuinely disagreed about where the car was, leaving the oracle free to schedule charging for an EV that was demonstrably out driving. That inflates the oracle's own achievable cost floor, which **overstates that participant's regret**. The limitation was documented in that function's own docstring as deliberately accepted; it is now resolved.
+
+  New `BatteryConfig.unavailable_period_indices` (a `frozenset` of period indices) is **UNIONed** onto whatever prefix/whole-horizon gate the existing fields already produce — it composes, it does not replace. `None` (the default) contributes nothing, so every existing caller and test is byte-identical to before. Indices outside a given solve's own horizon are clipped rather than raising, the same posture `must_have_soc_by_period_index` already takes. A per-period index set was chosen over a `from`/`until` pair because a pair handles exactly one trip and would need redesigning the first time a household does a school run *and* a separate evening trip; it also matches the shape the reconstruction side already uses, so both halves of the scorer now express availability identically.
+
+  The live forward-solve path (`build_extra_batteries()`) is **deliberately unchanged**: it reads the availability sensor's *current* state, and there is genuinely no forward-looking availability source today — populating a forward mask from one live reading would be fabricating information nobody has. The calendar work that would provide it is #467's own parked item 3.
+
+  9 new tests, including one pinning the oracle/reconstruction agreement directly on a synthetic two-trip day (asserting both that every reconstruction-zeroed period is LP-gated *and* that the oracle still dispatches during home periods — agreement achieved by gating everything would be useless). Full local suite green (2251 passed, 13 skipped, 142 subtests), `ruff check`/`format --check` clean, strict `mypy solver/+ml/` clean. **#467 stays open** — its two calendar questions remain parked.
+
 ## [0.94.285] — 2026-09-14
 
 ### Fixed
