@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.273] — 2026-09-13
+
+### Fixed
+- **An intermediate lex/calibration phase failure no longer crashes the whole solve cycle** (nimbus issue [#773](https://github.com/code-imstillalive/nimbus/issues/773)). `_ensure_optimal_value()`'s own `ValueError` (an internal lex/calibration phase failing to reach optimal — confirmed independently on two real installs, byte-identical tracebacks, root cause not yet found despite extensive investigation) used to propagate straight out of `build_plan()` uncaught, unlike a non-optimal *final* solve, which is already handled gracefully via `_infeasible_plan()`. Real production impact, confirmed by Mark Purcell on a second household: `sensor.nimbus_solver_battery_forecast` and `sensor.nimbus_offer_curve` both went fully `unavailable` for several minutes when this fired. `_solve_highs()` now catches the failure and falls back to a plain, single-objective solve (`options=None`, the path every report agrees "solves fine most of the time") for that one cycle only, on a completely fresh model — logging a `WARNING` so the fallback is visible without losing the existing `#773 diag` `ERROR` line's full HiGHS diagnostic detail. The very next solve cycle retries the full phased solve normally; this does not disable the calibrated/lex path going forward, and it does not resolve *why* a phase occasionally fails — only that dispatch no longer goes unavailable when it does. 3 new tests (fallback fires and returns optimal, matches a genuine `options=None` solve bit-for-bit, is scoped to one call and not sticky across subsequent solves); updated the pre-existing diagnostic-logging test to reflect the new graceful-degrade behavior (it previously asserted the hard raise this fix removes). Full local suite green (2148 passed, 13 skipped), `ruff check`/`format --check` clean, mypy delta 0 in `lp.py`.
+
 ## [0.94.272] — 2026-09-13
 
 ### Fixed
