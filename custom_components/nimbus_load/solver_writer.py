@@ -4868,6 +4868,127 @@ def fetch_entity_history_range(
     return sorted(out, key=lambda x: x[0])
 
 
+def fetch_entity_power_history_kw(
+    entity_id: str, start: datetime, end: datetime
+) -> list[tuple[datetime, float]]:
+    """Real recorded power history normalised to kW **per row**, using
+    each sample's OWN recorded `unit_of_measurement`.
+
+    nimbus issue #843 (option A of Mark Purcell's own A/B/C steer,
+    2026-09-13). `fetch_entity_history_range()` above deliberately strips
+    attributes on BOTH paths -- `no_attributes=True` natively and
+    `&minimal_response` over REST -- so per-row units are not merely
+    ignored there, they are never fetched. Every caller therefore has to
+    lean on `_kw_scale_factor()`, which reads the sensor's CURRENT LIVE
+    unit exactly once and applies that single scale across the whole
+    window.
+
+    That is structurally unable to see a sensor whose unit changes
+    mid-window, which is a real, confirmed thing rather than a
+    hypothetical: Mark's own EV pack sensor reports `W` for ~80 seconds
+    as the car wakes from sleep, then switches to `kW` --
+
+        08:51:04.410  state=1514.417   unit="W"     <- really 1.514417 kW
+        08:51:30.004  state=-774.818   (still W)
+        08:52:27.078  state=-0.774994  <- kW from here on
+
+    -- so a live check returning `kW` scaled that 1514.417 by 1.0 and
+    the quality report published ~1,500 kW of achieved battery power
+    against a real ~80 kW fleet ceiling.
+
+    Deliberately a SEPARATE function rather than a flag on
+    fetch_entity_history_range(), and deliberately used by only ONE
+    caller (`_resolve_battery_participant_history()`'s participant power
+    fetch). Preserving attributes makes a recorder read materially
+    heavier -- they are a separate join, and the quality report fetches a
+    full day per sensor per participant -- so every other history read in
+    this file keeps the cheap attribute-stripped path. That scoping is
+    the whole reason option A was viable at all; a blanket change would
+    have imposed the cost on every install to fix a wake transient on one
+    sensor family.
+
+    Per-row conversion mirrors `_async_fetch_thermal_history()`'s own
+    existing precedent in this same file (`unit == "W"` -> divide by
+    1000) rather than inventing a second convention. A row with no unit
+    at all is taken as already-kW, matching `_kw_scale_factor()`'s own
+    documented default for the same case.
+
+    Same "degrade to [] on any failure, never crash" discipline as every
+    other real-data fetch here.
+    """
+    if _NATIVE_HASS is not None:
+        try:
+            import asyncio
+
+            from homeassistant.components.recorder import (
+                get_instance as _recorder_get_instance,
+            )
+            from homeassistant.components.recorder import history as _recorder_history
+
+            async def _fetch() -> dict:
+                return await _recorder_get_instance(
+                    _NATIVE_HASS
+                ).async_add_executor_job(
+                    _recorder_history.state_changes_during_period,
+                    _NATIVE_HASS,
+                    start,
+                    end,
+                    entity_id,
+                    False,  # no_attributes=False -- unit_of_measurement lives there
+                )
+
+            future = asyncio.run_coroutine_threadsafe(_fetch(), _NATIVE_HASS.loop)
+            changes = future.result(timeout=30)
+            states = changes.get(entity_id, [])
+        except Exception:
+            _LOGGER.debug(
+                "Nimbus Solver: fetch_entity_power_history_kw(%s) recorder read failed",
+                entity_id,
+                exc_info=True,
+            )
+            return []
+        out: list[tuple[datetime, float]] = []
+        for s in states:
+            try:
+                v = float(s.state)
+            except (TypeError, ValueError):
+                continue
+            if s.attributes.get("unit_of_measurement") == "W":
+                v = v / 1000.0
+            out.append((s.last_changed.astimezone(LOCAL_TZ), v))
+        return sorted(out, key=lambda x: x[0])
+    # REST fallback: no `&minimal_response`, so each point keeps its own
+    # attributes dict (the whole point of this function).
+    url = (
+        f"{HA_BASE}/api/history/period/{start.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z"
+        f"?filter_entity_id={entity_id}"
+        f"&end_time={end.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%S')}Z"
+    )
+    req = urllib.request.Request(
+        url, headers={"Authorization": f"Bearer {_load_token()}"}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read())
+    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError):
+        return []
+    if not data or not data[0]:
+        return []
+    out = []
+    for p in data[0]:
+        state = p.get("state")
+        if state in (None, "unknown", "unavailable"):
+            continue
+        try:
+            v = float(state)
+        except (TypeError, ValueError):
+            continue
+        if (p.get("attributes") or {}).get("unit_of_measurement") == "W":
+            v = v / 1000.0
+        out.append((parse_iso(p["last_changed"]).astimezone(LOCAL_TZ), v))
+    return sorted(out, key=lambda x: x[0])
+
+
 def fetch_entity_state_history_range(
     entity_id: str, start: datetime, end: datetime
 ) -> list[tuple[datetime, str]]:
@@ -10706,7 +10827,12 @@ def _resolve_battery_participant_history(
             )
             continue
 
-        power_hist = fetch_entity_history_range(power_sensor, day_start, day_end)
+        # nimbus issue #843 (option A): per-row unit scaling, scoped to
+        # exactly this one fetch. See fetch_entity_power_history_kw()'s
+        # own docstring for why this is a separate function and why every
+        # other history read in this file deliberately keeps the cheaper
+        # attribute-stripped path.
+        power_hist = fetch_entity_power_history_kw(power_sensor, day_start, day_end)
         soc_hist = fetch_entity_history_range(
             soc_sensor, day_start - timedelta(hours=6), day_end
         )
@@ -10724,7 +10850,13 @@ def _resolve_battery_participant_history(
             continue
 
         try:
-            power_scale = _kw_scale_factor(power_sensor)
+            # nimbus issue #843 (option A): rows arrive already
+            # normalised to kW by fetch_entity_power_history_kw(), using
+            # each sample's OWN recorded unit -- so there is no whole-
+            # window scale left to apply here. _kw_scale_factor() itself
+            # is untouched and still correct for every other caller, none
+            # of which fetches per-row units.
+            power_scale = 1.0
             # Same sign convention as the home battery's own
             # solver_battery_power_positive_is_charge (nimbus #299):
             # internally, positive net_kw always means DISCHARGE. A

@@ -220,6 +220,16 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # "only ever invoked from native mode, and does nothing at all
         # when it isn't" reasoning, not a fresh gap.
         "_drop_implausible_power_samples",
+        # nimbus issue #843 (2026-09-14, option A of the same steer): a
+        # genuinely dual-mode fetch (native + REST branches, same shape
+        # as fetch_entity_history_range()) but, exactly like fetch_entity_
+        # state_history_range() above, its ONLY caller is _resolve_
+        # battery_participant_history(), itself already INTENTIONAL_
+        # NATIVE_ONLY. Porting it would add a second, more expensive
+        # recorder path to the standalone copy that nothing there can
+        # reach -- standalone/cron mode has no battery participant
+        # subentries at all.
+        "fetch_entity_power_history_kw",
         # nimbus issue #645: overlays a Controllable Load's live
         # number.nimbus_<load>_<key> entity values on top of its own
         # subentry.data, same no-standalone-equivalent reasoning as
