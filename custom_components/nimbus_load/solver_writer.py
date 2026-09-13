@@ -9996,6 +9996,105 @@ def build_controllable_loads(
 _DEFAULT_EXTRA_BATTERY_CHARGE_COST: float = 0.005
 _DEFAULT_EXTRA_BATTERY_DISCHARGE_COST: float = 0.01
 
+# nimbus issue #843 (Mark Purcell, option B of his own A/B/C steer,
+# 2026-09-13): how far past a participant's OWN configured
+# charge/discharge envelope a reconstructed sample may sit before it is
+# treated as corrupt rather than real.
+#
+# Why 10x and not something tighter: real sensors legitimately overshoot
+# a nameplate rating, and the configured figure is a household-entered
+# number that may itself be conservative -- someone who types 5.0 for a
+# 25 kW charger would have every genuine reading discarded by a tight
+# bound, which is its own (silent, worse) bug. 10x leaves room for both.
+#
+# Why 10x is still tight enough to be useful: the real failure this
+# guards against is a W-vs-kW mismatch, which is exactly 1000x. Mark's
+# own confirmed incident was a 25 kW-configured EV reporting a single
+# 1514.417 sample -- ~60x its envelope -- so a 10x bound catches it with
+# two orders of magnitude to spare while never coming near plausible
+# hardware overshoot. The gap between "conservative config" and "unit
+# error" is three orders of magnitude wide; this sits in the middle of
+# it deliberately.
+_PARTICIPANT_POWER_IMPLAUSIBLE_MULTIPLE: float = 10.0
+
+
+def _drop_implausible_power_samples(
+    power_hist: list[tuple[datetime, float]],
+    *,
+    power_scale: float,
+    max_plausible_kw: float,
+    participant_name: str,
+    power_sensor: str,
+) -> list[tuple[datetime, float]]:
+    """nimbus issue #843 (option B): drop raw power samples whose real
+    magnitude is physically impossible for this participant's own
+    configured envelope, BEFORE they reach resample_history_mean().
+
+    DISCARD, not clamp -- deliberately. Clamping a 1514 kW reading down
+    to a 250 kW bound would assert a value that was never measured, and
+    would still be ~10x what a 25 kW device can physically do: it turns
+    an obviously-absurd number into a plausible-looking but still-wrong
+    one, which is strictly worse for a figure that feeds a real cost
+    calculation, because it no longer trips anyone's suspicion. Dropping
+    the sample instead lets the period's mean be built from whatever
+    REAL samples remain; a period left with none falls through to
+    resample_history_mean()'s own `default=0.0`, which since #843's own
+    v0.94.285 fix genuinely means "no measured flow" rather than
+    "whatever this sensor read next". For a power FLOW signal that is
+    the honest answer.
+
+    Filtered on the RAW history rather than the resampled series, also
+    deliberately: a bad sample that survives into resample_history_mean()
+    has already been averaged into its period before any post-hoc check
+    could see it, so a period holding one 1514 kW sample among five good
+    ones emerges at ~252 kW -- contaminated, but no longer obviously
+    corrupt enough for a magnitude bound to catch. Filtering upstream
+    means the bad reading never enters any mean at all.
+
+    `max_plausible_kw <= 0` means this participant has no configured
+    envelope to judge against, so there is no bound and this is a
+    genuine no-op -- never clamp to zero, never divide by anything.
+
+    Logs once per call (not once per bad sample) with the count and the
+    single worst offender: this is real corrupt data in a household's
+    own recorder and they should know, but a sensor stuck in the wrong
+    unit for an hour must not produce hundreds of WARNING lines. Same
+    bounded-logging posture as _ENVELOPE_LIMIT_WARNED/_AEMO_P5MIN_LAST_
+    WARNED_PERIOD elsewhere in this file, scoped to this function's own
+    once-per-scored-day call pattern.
+    """
+    if max_plausible_kw <= 0.0 or not power_hist:
+        return power_hist
+    kept: list[tuple[datetime, float]] = []
+    dropped: list[tuple[datetime, float]] = []
+    for t, v in power_hist:
+        if abs(v * power_scale) > max_plausible_kw:
+            dropped.append((t, v))
+        else:
+            kept.append((t, v))
+    if dropped:
+        worst_t, worst_v = max(dropped, key=lambda p: abs(p[1] * power_scale))
+        _LOGGER.warning(
+            "Nimbus quality: discarded %d physically implausible reading(s) "
+            "from battery participant '%s' power sensor %s -- worst was "
+            "%.3f (scaled: %.3f kW) at %s, beyond this participant's own "
+            "configured envelope of %.3f kW (%.0fx). Most often a sensor "
+            "briefly reporting a different unit than it does now (nimbus "
+            "issue #843); the affected periods are reconstructed from the "
+            "remaining real samples instead, or read 0 kW if a period has "
+            "none left",
+            len(dropped),
+            participant_name,
+            power_sensor,
+            worst_v,
+            worst_v * power_scale,
+            worst_t.isoformat(),
+            max_plausible_kw,
+            _PARTICIPANT_POWER_IMPLAUSIBLE_MULTIPLE,
+        )
+    return kept
+
+
 # nimbus issue #779 (Mark Purcell, confirmed decision): a battery
 # participant reading "away" right now is only bounded evidence for the
 # NEAR term -- see BatteryConfig.unavailable_until_period_index's own
@@ -10636,6 +10735,28 @@ def _resolve_battery_participant_history(
                 -1.0
                 if data.get(CONF_BATTERY_PARTICIPANT_POWER_POSITIVE_IS_CHARGE)
                 else 1.0
+            )
+            # nimbus issue #843 (option B, Mark Purcell's own steer): a
+            # cheap always-on guard so no single corrupt reading can ever
+            # publish a physically impossible figure again. Judged against
+            # THIS participant's own configured envelope -- read here
+            # rather than reusing the BatteryConfig construction further
+            # down, because the filter has to run on the raw history
+            # before it is resampled (see the helper's own docstring for
+            # why upstream and why discard rather than clamp).
+            max_plausible_kw = (
+                max(
+                    float(data.get(CONF_BATTERY_PARTICIPANT_MAX_CHARGE_KW) or 0.0),
+                    float(data.get(CONF_BATTERY_PARTICIPANT_MAX_DISCHARGE_KW) or 0.0),
+                )
+                * _PARTICIPANT_POWER_IMPLAUSIBLE_MULTIPLE
+            )
+            power_hist = _drop_implausible_power_samples(
+                power_hist,
+                power_scale=power_scale,
+                max_plausible_kw=max_plausible_kw,
+                participant_name=str(name),
+                power_sensor=str(power_sensor),
             )
             net_kw = np.array(
                 [
