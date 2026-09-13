@@ -1912,6 +1912,26 @@ def _build_plan_once(
             gated_periods = frozenset(range(n))
         else:
             gated_periods = frozenset(range(min(b.unavailable_until_period_index, n)))
+        # nimbus issue #467: a genuine per-period away-window mask, UNIONed
+        # onto whatever prefix/whole-horizon gate the three branches above
+        # already produced (see BatteryConfig.unavailable_period_indices'
+        # own docstring for the full precedence table). This is what lets
+        # the ORACLE re-solve see the same multi-trip away windows the
+        # scorer's reconstruction side already masks per-period -- before
+        # this, the two halves genuinely disagreed about where an EV was on
+        # any day with more than one trip, letting the oracle "charge" a car
+        # that was demonstrably out driving.
+        #
+        # Clipped to this solve's own horizon: the mask is built from a
+        # real calendar day's periods, but a given solve may be shorter
+        # (a manual short-window solve, or the tail of a rolling horizon).
+        # An out-of-range index is a normal, expected case -- the same
+        # posture must_have_soc_by_period_index already takes -- not an
+        # error.
+        if b.unavailable_period_indices:
+            gated_periods = gated_periods | frozenset(
+                t for t in b.unavailable_period_indices if 0 <= t < n
+            )
         # nimbus issue #567: a real-time "sell into a price spike, right
         # now" household decision -- only ever period 0, only ever
         # batteries[0] (see BatteryConfig.spike_override_discharge_kw's

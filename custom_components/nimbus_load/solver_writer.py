@@ -10515,20 +10515,22 @@ def _resolve_battery_participant_history(
     `actual_discharge_kw` for any period the car was away, so only
     genuine at-home flow is ever priced against the grid.
 
-    Known, deliberately accepted limitation (Mark's own explicit choice,
-    2026-09-13): this masks the RECONSTRUCTION side only. The oracle
-    re-solve for this participant (`build_plan()`, called from
-    `compute_quality_report()`) has no equivalent per-period gate --
-    `BatteryConfig` only supports a single contiguous `unavailable_
-    until_period_index` PREFIX, not a genuine multi-window mask, so a
-    day with more than one separate trip (e.g. a morning school run AND
-    a separate evening trip) can still let the oracle unrealistically
-    assume the EV was home to charge/discharge during a real away
-    window. A single round-trip day (the common case) is unaffected --
-    the oracle already can't see any of the EV's OWN driving discharge
-    either way, since only home-grid-relevant charge/discharge ever
-    enters this scorer's own evaluation at all. A genuine multi-window
-    oracle gate is real, separate, larger LP work, not attempted here.
+    RESOLVED 2026-09-14 (nimbus issue #467, Mark Purcell: "Build an
+    internal gating gap please"). This function used to mask the
+    RECONSTRUCTION side only -- the oracle re-solve had no equivalent
+    per-period gate, because `BatteryConfig` could only express a single
+    contiguous `unavailable_until_period_index` PREFIX, so a day with
+    more than one separate trip (a morning school run AND a separate
+    evening trip) let the oracle unrealistically assume the EV was home
+    to charge/discharge during a real away window -- inflating the
+    oracle's own achievable cost floor and therefore overstating that
+    participant's regret.
+
+    `BatteryConfig.unavailable_period_indices` (#467) is now a genuine
+    per-period mask, and this function hands it exactly the same
+    `is_home_mask` it uses to zero the reconstruction arrays. Both
+    halves of the scorer now agree about where the car was, on any
+    number of trips per day.
 
     Deliberately NOT handled here either (see regret.py's own
     `oracle_dispatch()` docstring, "Still deliberately NOT extended"): a
@@ -10658,6 +10660,11 @@ def _resolve_battery_participant_history(
             # accepted multi-trip-day limitation this simple mask
             # carries (a real, separate, larger oracle-side fix, not
             # attempted here).
+            # nimbus issue #467: the away-window mask computed just below
+            # is now ALSO handed to the oracle via BatteryConfig, not only
+            # used to zero the reconstruction arrays. None means "no
+            # availability entity configured", which stays a real no-op.
+            away_period_indices: frozenset[int] | None = None
             available_entity = data.get(CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY)
             if available_entity:
                 home_hist = fetch_entity_state_history_range(
@@ -10683,6 +10690,17 @@ def _resolve_battery_participant_history(
                 is_home_mask = is_home >= 0.5
                 actual_charge_kw = np.where(is_home_mask, actual_charge_kw, 0.0)
                 actual_discharge_kw = np.where(is_home_mask, actual_discharge_kw, 0.0)
+                # nimbus issue #467: the SAME mask, in the shape the LP
+                # takes. Previously this was computed, used to zero the
+                # two reconstruction arrays above, and then thrown away --
+                # so compute_quality_report()'s own oracle re-solve had no
+                # idea the car had ever left, and was free to schedule
+                # charge/discharge during a real away window. On a
+                # multi-trip day that inflated the oracle's achievable
+                # floor and therefore overstated this participant's regret.
+                away_period_indices = frozenset(
+                    int(i) for i in np.flatnonzero(~is_home_mask)
+                )
 
             min_soc_pct = float(
                 data.get(CONF_BATTERY_PARTICIPANT_MIN_SOC_PERCENT) or 0.0
@@ -10747,6 +10765,13 @@ def _resolve_battery_participant_history(
                 ),
                 charge_efficiency=efficiency,
                 discharge_efficiency=efficiency,
+                # nimbus issue #467: the real per-period away-window mask
+                # built above, so the oracle re-solve is gated by exactly
+                # the same windows the reconstruction arrays were masked
+                # by. `available` stays True -- this is a per-period gate
+                # for an already-elapsed day, not a whole-horizon "this
+                # car is away right now" statement.
+                unavailable_period_indices=away_period_indices,
                 # Same reference constants build_extra_batteries() uses
                 # for the live forward solve -- no wizard field for a
                 # real per-participant $/kWh cost exists yet (see that
