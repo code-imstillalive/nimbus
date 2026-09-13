@@ -613,6 +613,22 @@ class TestLoadRunStateStore(unittest.TestCase):
         self.assertEqual(state_a.delivered_today_kwh, 1.0)
         self.assertEqual(state_b.delivered_today_kwh, 9.0)
 
+    def test_a_malformed_entry_reads_as_a_fresh_state_not_a_crash(self):
+        # nimbus issue #828: found live writing NimbusLoadRunStateCoordinator's
+        # own equivalent parse loop -- a genuinely malformed entry (e.g. a
+        # bare string instead of a dict, the shape a corrupted .storage
+        # file could plausibly produce) raises AttributeError inside
+        # LoadRunState.from_dict()'s own data.get(...) calls, which this
+        # method's own except clause didn't originally catch (only
+        # TypeError/ValueError). Same durability-backstop posture as a
+        # totally unreadable store file: a fresh LoadRunState, never a
+        # crash.
+        key = "test_malformed_entry"
+        store = lrs.LoadRunStateStore(store=_FakeStore(key))
+        asyncio.run(store.store.async_save({"bad_load": "not a real state dict"}))
+        state = asyncio.run(store.async_read("bad_load"))
+        self.assertEqual(state, lrs.LoadRunState())
+
 
 class TestActivationAllowedAndRecordActivation(unittest.TestCase):
     """nimbus issue #534 item 3: the daily activation cap -- "a cap of 3

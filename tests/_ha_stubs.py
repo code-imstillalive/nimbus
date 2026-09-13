@@ -285,6 +285,27 @@ class _StubCoordinatorEntity:
         self.async_write_ha_state()
 
 
+class _StubDataUpdateCoordinator:
+    """Dedicated (not the generic no-op factory above, same reasoning as
+    _StubCoordinatorEntity above it) -- real DataUpdateCoordinator.__init__
+    genuinely sets self.data = None, and a real subclass's own get()-style
+    accessor (nimbus issue #828, NimbusLoadRunStateCoordinator.get()) can
+    depend on that attribute existing even before the coordinator's first
+    real refresh ever runs. The generic factory's fully-permissive __init__
+    does nothing at all, so self.data was simply missing under it -- found
+    live 2026-09-13 writing a real "coordinator not yet refreshed" test for
+    exactly that accessor, the first test in this suite's history to read
+    .data before ever setting it manually."""
+
+    def __class_getitem__(cls, item):
+        return cls
+
+    def __init__(self, hass, logger, *args, **kwargs) -> None:
+        self.hass = hass
+        self.logger = logger
+        self.data = None
+
+
 def install_ha_stubs() -> None:
     def module(name: str, **attrs) -> types.ModuleType:
         # First-call-wins per attribute (2026-08-23): this module's own
@@ -596,7 +617,7 @@ def install_ha_stubs() -> None:
     )
     module(
         "homeassistant.helpers.update_coordinator",
-        DataUpdateCoordinator=_generic_stub_class("DataUpdateCoordinator"),
+        DataUpdateCoordinator=_StubDataUpdateCoordinator,
         CoordinatorEntity=_StubCoordinatorEntity,
     )
     module("homeassistant.loader", async_get_integration=MagicMock())

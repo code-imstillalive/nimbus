@@ -40,7 +40,6 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
-from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.loader import async_get_integration
 
@@ -188,6 +187,7 @@ from .const import (
     SUBENTRY_TYPE_SIGNAL,
 )
 from .coordinator import NimbusConfigEntry, NimbusCoordinator
+from .load_run_state_coordinator import NimbusLoadRunStateCoordinator
 
 # All real fields a topology-metadata subentry can carry, keyed by its
 # own subentry_type -- see NimbusTopologyConfigSensor's own docstring
@@ -742,63 +742,77 @@ async def async_setup_entry(
             )
         )
 
-    # nimbus issue #476/#484/#534: one Commanded State sensor per
-    # controllable_load subentry, own device -- see
-    # NimbusControllableLoadStateSensor's own docstring for why this
-    # can't share the coordinator-based loop above (LoadRunStateStore
-    # reads are async I/O against a real Store, not a coordinator).
-    for subentry in entry.subentries.values():
-        if subentry.subentry_type != SUBENTRY_TYPE_CONTROLLABLE_LOAD:
-            continue
-        # nimbus issue #614: retroactively move a pre-#579 load's own
-        # Commanded State entity_id off its stale raw-ULID form BEFORE
-        # constructing the entity below -- self.entity_id in __init__
-        # only takes effect on a genuinely first-ever registration, so
-        # this has to happen here, not inside the sensor class itself.
-        _migrate_stale_commanded_state_entity_id(hass, subentry)
-        # nimbus issue #590: the seven schedule-view entities join
-        # Commanded State on the SAME device (config_subentry_id groups
-        # them all onto this one subentry's device page) -- real separate
-        # entities per the issue's own stated preference, not folded into
-        # attributes on one sensor the way plan_forecast/etc (#581) are.
-        async_add_entities(
-            [
-                NimbusControllableLoadStateSensor(hass, entry, subentry, sw_version),
-                NimbusControllableLoadNextStartSensor(
-                    hass, entry, subentry, sw_version
-                ),
-                NimbusControllableLoadNextEndSensor(hass, entry, subentry, sw_version),
-                NimbusControllableLoadPlannedDurationSensor(
-                    hass, entry, subentry, sw_version
-                ),
-                NimbusControllableLoadPlannedEnergySensor(
-                    hass, entry, subentry, sw_version
-                ),
-                NimbusControllableLoadPlannedTodaySensor(
-                    hass, entry, subentry, sw_version
-                ),
-                NimbusControllableLoadPlannedCostSensor(
-                    hass, entry, subentry, sw_version
-                ),
-                NimbusControllableLoadDeliveredTodaySensor(
-                    hass, entry, subentry, sw_version
-                ),
-                NimbusControllableLoadCostTodaySensor(
-                    hass, entry, subentry, sw_version
-                ),
-                NimbusControllableLoadCostAvoidedTodaySensor(
-                    hass, entry, subentry, sw_version
-                ),
-                NimbusControllableLoadTargetTodaySensor(
-                    hass, entry, subentry, sw_version
-                ),
-                NimbusControllableLoadStatusSensor(hass, entry, subentry, sw_version),
-                NimbusControllableLoadTemperatureForecastSensor(
-                    hass, entry, subentry, sw_version
-                ),
-            ],
-            config_subentry_id=subentry.subentry_id,
-        )
+    # nimbus issue #476/#484/#534/#828: one Commanded State sensor per
+    # controllable_load subentry, own device. #828: all 13 per-load
+    # sensor classes below now share ONE NimbusLoadRunStateCoordinator
+    # per hub (created once here, not per load) instead of each doing
+    # its own independent Store read -- see load_run_state_coordinator.py's
+    # own module docstring for the full "13xN redundant reads" story
+    # this replaces and the real devhub incident that surfaced it.
+    controllable_load_subentries = [
+        s
+        for s in entry.subentries.values()
+        if s.subentry_type == SUBENTRY_TYPE_CONTROLLABLE_LOAD
+    ]
+    if controllable_load_subentries:
+        load_run_state_coordinator = NimbusLoadRunStateCoordinator(hass, entry)
+        await load_run_state_coordinator.async_config_entry_first_refresh()
+        for subentry in controllable_load_subentries:
+            # nimbus issue #614: retroactively move a pre-#579 load's own
+            # Commanded State entity_id off its stale raw-ULID form BEFORE
+            # constructing the entity below -- self.entity_id in __init__
+            # only takes effect on a genuinely first-ever registration, so
+            # this has to happen here, not inside the sensor class itself.
+            _migrate_stale_commanded_state_entity_id(hass, subentry)
+            # nimbus issue #590: the seven schedule-view entities join
+            # Commanded State on the SAME device (config_subentry_id groups
+            # them all onto this one subentry's device page) -- real separate
+            # entities per the issue's own stated preference, not folded into
+            # attributes on one sensor the way plan_forecast/etc (#581) are.
+            async_add_entities(
+                [
+                    NimbusControllableLoadStateSensor(
+                        load_run_state_coordinator, hass, entry, subentry, sw_version
+                    ),
+                    NimbusControllableLoadNextStartSensor(
+                        load_run_state_coordinator, hass, entry, subentry, sw_version
+                    ),
+                    NimbusControllableLoadNextEndSensor(
+                        load_run_state_coordinator, hass, entry, subentry, sw_version
+                    ),
+                    NimbusControllableLoadPlannedDurationSensor(
+                        load_run_state_coordinator, hass, entry, subentry, sw_version
+                    ),
+                    NimbusControllableLoadPlannedEnergySensor(
+                        load_run_state_coordinator, hass, entry, subentry, sw_version
+                    ),
+                    NimbusControllableLoadPlannedTodaySensor(
+                        load_run_state_coordinator, hass, entry, subentry, sw_version
+                    ),
+                    NimbusControllableLoadPlannedCostSensor(
+                        load_run_state_coordinator, hass, entry, subentry, sw_version
+                    ),
+                    NimbusControllableLoadDeliveredTodaySensor(
+                        load_run_state_coordinator, hass, entry, subentry, sw_version
+                    ),
+                    NimbusControllableLoadCostTodaySensor(
+                        load_run_state_coordinator, hass, entry, subentry, sw_version
+                    ),
+                    NimbusControllableLoadCostAvoidedTodaySensor(
+                        load_run_state_coordinator, hass, entry, subentry, sw_version
+                    ),
+                    NimbusControllableLoadTargetTodaySensor(
+                        load_run_state_coordinator, hass, entry, subentry, sw_version
+                    ),
+                    NimbusControllableLoadStatusSensor(
+                        load_run_state_coordinator, hass, entry, subentry, sw_version
+                    ),
+                    NimbusControllableLoadTemperatureForecastSensor(
+                        load_run_state_coordinator, hass, entry, subentry, sw_version
+                    ),
+                ],
+                config_subentry_id=subentry.subentry_id,
+            )
 
     # One per hub, NOT per subentry (added straight to the top-level
     # config entry, no config_subentry_id) -- the Solver's own config is
@@ -1416,7 +1430,9 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
         }
 
 
-class NimbusControllableLoadStateSensor(SensorEntity):
+class NimbusControllableLoadStateSensor(
+    CoordinatorEntity[NimbusLoadRunStateCoordinator], SensorEntity
+):
     """nimbus issue #476/#484/#534: the sensor #484's own docstring
     flagged as missing ("no consumer yet") -- exposes one Controllable
     Load's own persisted `load_run_state.LoadRunState` (currently_on,
@@ -1428,21 +1444,19 @@ class NimbusControllableLoadStateSensor(SensorEntity):
 
     Reads the SAME Store apply_commanded_state_guard() in solver_writer.py
     writes to (`f"{DOMAIN}_{entry.entry_id}_load_run_state"`) -- this
-    entity is a pure reader, it never writes. `native_value` is a plain
-    "on"/"off" string (this project's own convention for a status/state
-    sensor elsewhere, e.g. NimbusStatusSensor, rather than a dedicated
-    binary_sensor platform this repo doesn't otherwise have) reflecting
-    commanded_state; every other run-state field, plus this load's own
-    configured device_entity/min_hold_minutes/max_activations_per_day
-    (so a consumer can see WHY a value is what it is without cross-
-    referencing the wizard), is an attribute.
+    entity is a pure reader, it never writes.
 
-    `_attr_should_poll = True` with the default HA scan interval --
-    LoadRunStateStore's own `async_load()` is genuinely async I/O (reads
-    a real `.storage` JSON file), so this can't be a plain synchronous
-    property the way NimbusHealthReportSensor's own native_value is;
-    `async_update()` is HA's own supported hook for exactly this shape
-    of entity.
+    nimbus issue #828: reads the hub's own single shared
+    NimbusLoadRunStateCoordinator instead of doing its own independent
+    Store read -- see that coordinator's own module docstring for the
+    full "13xN redundant reads" story this replaces. `native_value` is a
+    plain "on"/"off" string (this project's own convention for a status/
+    state sensor elsewhere, e.g. NimbusStatusSensor, rather than a
+    dedicated binary_sensor platform this repo doesn't otherwise have)
+    reflecting commanded_state; every other run-state field, plus this
+    load's own configured device_entity/min_hold_minutes/max_activations_
+    per_day (so a consumer can see WHY a value is what it is without
+    cross-referencing the wizard), is an attribute.
 
     nimbus issue #581: also publishes each load's own full per-period
     plan (plan_forecast/plan_delivered_kwh_forecast/plan_target_kwh/
@@ -1491,11 +1505,13 @@ class NimbusControllableLoadStateSensor(SensorEntity):
 
     def __init__(
         self,
+        coordinator: NimbusLoadRunStateCoordinator,
         hass: HomeAssistant,
         entry: NimbusConfigEntry,
         subentry: ConfigSubentry,
         sw_version: str | None,
     ) -> None:
+        super().__init__(coordinator)
         self._hass = hass
         self._entry = entry
         self._subentry = subentry
@@ -1519,27 +1535,17 @@ class NimbusControllableLoadStateSensor(SensorEntity):
             model="Controllable Load",
             sw_version=sw_version,
         )
-        self._native_value: str | None = None
-        self._attrs: dict = {}
 
     @property
     def native_value(self) -> str | None:
-        return self._native_value
+        state = self.coordinator.get(self._subentry.subentry_id)
+        return "on" if state.commanded_state else "off"
 
     @property
     def extra_state_attributes(self) -> dict:
-        return self._attrs
-
-    async def async_update(self) -> None:
-        store = load_run_state.LoadRunStateStore(
-            store=Store(
-                self._hass, 1, f"{DOMAIN}_{self._entry.entry_id}_load_run_state"
-            )
-        )
-        state = await store.async_read(self._subentry.subentry_id)
-        self._native_value = "on" if state.commanded_state else "off"
+        state = self.coordinator.get(self._subentry.subentry_id)
         data = self._subentry.data
-        self._attrs = {
+        return {
             **state.to_dict(),
             "device_entity": data.get(CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY),
             "climate_on_hvac_mode": data.get(
@@ -1582,7 +1588,9 @@ def _today_mean_import_price(hass: HomeAssistant, now: datetime) -> float | None
     return sum(prices) / len(prices)
 
 
-class _NimbusControllableLoadScheduleSensorBase(SensorEntity):
+class _NimbusControllableLoadScheduleSensorBase(
+    CoordinatorEntity[NimbusLoadRunStateCoordinator], SensorEntity
+):
     """nimbus issue #590 (Mark Purcell, real household ask reading the
     #534 heat pump's own device page after #582 removed its error:
     "removed the error message, but I don't know if it is scheduled,
@@ -1599,9 +1607,19 @@ class _NimbusControllableLoadScheduleSensorBase(SensorEntity):
     derived by load_run_state.derive_schedule_view() (pure arithmetic,
     HA-import-free, fully unit-testable on its own) from what's already
     there. Each subclass sets _ENTITY_ID_SUFFIX/_UNIQUE_ID_SUFFIX/
-    _attr_name and implements _extract_value(); the store read + derive
-    call itself is identical for all seven and happens once per poll in
-    async_update() here so there's exactly one place that logic lives.
+    _attr_name and implements _extract_value(); the derive call itself
+    is identical for all eleven subclasses and lives in native_value
+    below, so there's exactly one place that logic lives.
+
+    nimbus issue #828: reads the hub's own single shared
+    NimbusLoadRunStateCoordinator instead of each subclass doing its own
+    independent Store read in its own async_update() -- see that
+    coordinator's own module docstring for the full "13xN redundant
+    reads" story this replaces. derive_schedule_view() itself (and the
+    done_condition/today_mean_import_price reads around it) is cheap,
+    pure, in-memory work -- recomputed fresh on every native_value read
+    rather than cached, the normal CoordinatorEntity idiom (see
+    NimbusForecastSensor's own native_value for the same pattern).
     """
 
     _attr_has_entity_name = True
@@ -1619,11 +1637,13 @@ class _NimbusControllableLoadScheduleSensorBase(SensorEntity):
 
     def __init__(
         self,
+        coordinator: NimbusLoadRunStateCoordinator,
         hass: HomeAssistant,
         entry: NimbusConfigEntry,
         subentry: ConfigSubentry,
         sw_version: str | None,
     ) -> None:
+        super().__init__(coordinator)
         self._hass = hass
         self._entry = entry
         self._subentry = subentry
@@ -1639,19 +1659,10 @@ class _NimbusControllableLoadScheduleSensorBase(SensorEntity):
             model="Controllable Load",
             sw_version=sw_version,
         )
-        self._native_value: object = None
 
     @property
     def native_value(self) -> object:
-        return self._native_value
-
-    async def async_update(self) -> None:
-        store = load_run_state.LoadRunStateStore(
-            store=Store(
-                self._hass, 1, f"{DOMAIN}_{self._entry.entry_id}_load_run_state"
-            )
-        )
-        state = await store.async_read(self._subentry.subentry_id)
+        state = self.coordinator.get(self._subentry.subentry_id)
         data = self._subentry.data
         load_kind = data.get(CONF_CONTROLLABLE_LOAD_KIND)
         done_entity = data.get(CONF_DEFERRABLE_DONE_ENTITY)
@@ -1692,7 +1703,7 @@ class _NimbusControllableLoadScheduleSensorBase(SensorEntity):
             done_condition_met=done_condition_met,
             today_mean_import_price=_today_mean_import_price(self._hass, now),
         )
-        self._native_value = self._extract_value(view)
+        return self._extract_value(view)
 
     def _extract_value(self, view: load_run_state.ScheduleView) -> object:
         raise NotImplementedError
@@ -1936,7 +1947,9 @@ class NimbusControllableLoadStatusSensor(_NimbusControllableLoadScheduleSensorBa
         return view.status
 
 
-class NimbusControllableLoadTemperatureForecastSensor(SensorEntity):
+class NimbusControllableLoadTemperatureForecastSensor(
+    CoordinatorEntity[NimbusLoadRunStateCoordinator], SensorEntity
+):
     """nimbus issue #819 (Mark Purcell): the key temperature answer for a
     water_heater/climate-commanded load -- native_value is the device's
     own REAL, LIVE current_temperature reading (the same read
@@ -1963,7 +1976,7 @@ class NimbusControllableLoadTemperatureForecastSensor(SensorEntity):
     sensor permanently "unknown" for any load configured since. Reading
     the device's own live state directly has no such dependency.
 
-    Deliberately its own standalone SensorEntity, NOT built on top of
+    Deliberately its own standalone entity, NOT built on top of
     _NimbusControllableLoadScheduleSensorBase like #590/#591's sensors
     -- this one genuinely needs BOTH a native_value AND a real
     extra_state_attributes (the {"forecast": [...]} series, this
@@ -1973,6 +1986,10 @@ class NimbusControllableLoadTemperatureForecastSensor(SensorEntity):
     __init__/device_info wiring here rather than extending the shared
     base is the deliberately lower-risk choice: modifying that base
     touches all eight already-shipped #590/#591 sensors at once.
+
+    nimbus issue #828: reads the hub's own single shared
+    NimbusLoadRunStateCoordinator instead of its own independent Store
+    read -- see that coordinator's own module docstring.
 
     None (never a fabricated flat line) whenever no device_entity is
     configured, the entity isn't a water_heater/climate domain, or its
@@ -1987,14 +2004,21 @@ class NimbusControllableLoadTemperatureForecastSensor(SensorEntity):
     # nimbus issue #819: the key temperature answer, not a diagnostic --
     # see this class's own docstring.
     _attr_entity_category = None
+    # nimbus issue #581's own churns-every-cycle exclusion (same
+    # reasoning as plan_forecast/plan_cost_forecast) -- a fresh
+    # projection every solve is the whole point, never worth recording
+    # long-term history for.
+    _unrecorded_attributes = frozenset({ATTR_FORECAST})
 
     def __init__(
         self,
+        coordinator: NimbusLoadRunStateCoordinator,
         hass: HomeAssistant,
         entry: NimbusConfigEntry,
         subentry: ConfigSubentry,
         sw_version: str | None,
     ) -> None:
+        super().__init__(coordinator)
         self._hass = hass
         self._entry = entry
         self._subentry = subentry
@@ -2009,21 +2033,19 @@ class NimbusControllableLoadTemperatureForecastSensor(SensorEntity):
             model="Controllable Load",
             sw_version=sw_version,
         )
-        self._native_value: object = None
-        self._forecast: list[dict] = []
-        self._rates_source: str = ""
-        self._heating_rate: float | None = None
-        self._decay_rate: float | None = None
 
     @property
     def native_value(self) -> object:
-        return self._native_value
-
-    # nimbus issue #581's own churns-every-cycle exclusion (same
-    # reasoning as plan_forecast/plan_cost_forecast) -- a fresh
-    # projection every solve is the whole point, never worth recording
-    # long-term history for.
-    _unrecorded_attributes = frozenset({ATTR_FORECAST})
+        # nimbus issue #819: the device's own real, live reading --
+        # never sourced from the coordinator/Store, no I/O involved,
+        # so this stays a plain live hass.states.get() read regardless
+        # of #828's own coordinator change below.
+        device_entity = self._subentry.data.get(CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY)
+        return (
+            done_condition.read_current_temperature(self._hass, device_entity)
+            if device_entity
+            else None
+        )
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -2033,33 +2055,17 @@ class NimbusControllableLoadTemperatureForecastSensor(SensorEntity):
         # recorder history or the #592-cited fallback defaults, plus the
         # rates themselves so a household can sanity-check them directly
         # rather than only seeing their downstream effect on the curve.
+        state = self.coordinator.get(self._subentry.subentry_id)
         return {
-            ATTR_FORECAST: self._forecast,
-            "thermal_rates_source": self._rates_source,
-            "heating_rate_c_per_kwh": self._heating_rate,
-            "idle_decay_c_per_hour": self._decay_rate,
+            # nimbus issue #819: the LP's own real solved trajectory, not
+            # the old thermal_forecast.py-projected display series -- see
+            # this class's own docstring for why the projection is
+            # superseded.
+            ATTR_FORECAST: state.plan_temperature_forecast or [],
+            "thermal_rates_source": state.thermal_rates_source,
+            "heating_rate_c_per_kwh": state.thermal_heating_rate_c_per_kwh,
+            "idle_decay_c_per_hour": state.thermal_idle_decay_c_per_hour,
         }
-
-    async def async_update(self) -> None:
-        store = load_run_state.LoadRunStateStore(
-            store=Store(
-                self._hass, 1, f"{DOMAIN}_{self._entry.entry_id}_load_run_state"
-            )
-        )
-        state = await store.async_read(self._subentry.subentry_id)
-        # nimbus issue #819: the LP's own real solved trajectory, not the
-        # old thermal_forecast.py-projected display series -- see this
-        # class's own docstring for why the projection is superseded.
-        self._forecast = state.plan_temperature_forecast or []
-        device_entity = self._subentry.data.get(CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY)
-        self._native_value = (
-            done_condition.read_current_temperature(self._hass, device_entity)
-            if device_entity
-            else None
-        )
-        self._rates_source = state.thermal_rates_source
-        self._heating_rate = state.thermal_heating_rate_c_per_kwh
-        self._decay_rate = state.thermal_idle_decay_c_per_hour
 
 
 class NimbusSolverConfigSensor(SensorEntity):
