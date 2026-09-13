@@ -6,7 +6,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
-## [Unreleased]
+## [0.94.274] — 2026-09-13
 
 ### Added
 - **`nimbus_load.set_controllable_load` service: create or update a Controllable Load subentry in one atomic call** (nimbus issue [#809](https://github.com/code-imstillalive/nimbus/issues/809)). Built directly from a real, live migration session: the config_subentries wizard's "+ Add" control looks near-identical to "Reconfigure" (would have silently created a duplicate load pointed at the same real device), and a subsequent reconfigure attempt left several optional fields (`thermal_earliest_hour`/`thermal_deadline_hour`/`controllable_load_min_hold_minutes`/`controllable_load_max_activations_per_day`/`controllable_load_device_entity`) unsaved with no way to tell short of re-solving and reverse-engineering the LP's own fallback behaviour. The new service reuses the wizard's own schema builder directly — zero risk of validation drifting between the two — accepts an explicit `subentry_id` to target a specific load unambiguously (a title match alone is defeated by something as small as retyped case/whitespace), and returns the subentry_id plus the exact data now persisted so the result is verifiable in the same call via `ha_call_service` (MCP) or Developer Tools. Reloads the hub automatically so the change takes effect immediately, matching what the wizard's own flow-manager already does under the hood.
@@ -17,6 +17,9 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 Prior art check: neither EMHASS nor HAEO expose a service/API-driven config surface as an alternative to their own setup UI (both are file/UI-config-only) — this is a Nimbus-specific mitigation for a Nimbus-specific config_subentries UX gap, not a rediscovery of existing prior art.
 
 Validated: full local pytest suite (2157 passed, 13 pre-existing skips, 0 failures), `ruff check`/`ruff format --check` both clean against the CI-pinned `ruff==0.16.4` (this session independently found and worked around a stale `/root/.local/bin/ruff==0.15.8` shadowing it locally), mypy delta check against a fresh `origin/main` worktree (+1, the already-accepted try/except no-redef pattern gaining one more name — no new error class). `strings.json`/`translations/en.json` kept byte-identical. Live devhub verification and updating Mark's own already-migrated `kind=thermal` Hot Water Heat Pump load to actually use the new device-entity defaults are follow-up steps after merge + release, not part of this PR.
+
+### Investigating
+- **Nimbus issue #757** (`battery_participant` subentries silently excluded from the solve, blocking #563/#482 devhub verification): a live check found `build_extra_batteries()`'s own diagnostic scan reporting a stale 34-subentry set that doesn't match a fresh `ha_get_integration` read of the same entry_id at the same moment — but `build_controllable_loads()`, using the textually identical config-entries lookup, was simultaneously dispatching real controllable loads correctly on the same install. Added the same entry-count/entry_id/title diagnostic to both call sites so the next occurrence settles whether they ever see genuinely different `entries[0]` objects. Diagnostic-only, no behavior change, issue remains open.
 
 ## [0.94.273] — 2026-09-13
 
