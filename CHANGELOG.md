@@ -8,6 +8,12 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.282] — 2026-09-13
+
+### Added
+- **Publish the grid/battery/load flex signals #491/#492 already computed but never exposed** (nimbus issue [#496](https://github.com/code-imstillalive/nimbus/issues/496) — partial, Mark Purcell explicitly authorized building this non-schema-dependent half on 2026-09-09 without waiting on #495). `build_plan()`'s own `GridSignals`/`BatterySignals`/`LoadSignals` (HiGHS-ranging headroom, forced cost, flex available, load headroom, per-battery/per-load intent bands) had zero references anywhere in `solver_writer.py` before this — computed every solve, never published. New `sensor.nimbus_flex_signals` (parent) plus 10 flattened period-0 children on a new "Nimbus Flex" sub-device (grid import/export headroom kW and kWh, forced import/export cost, load headroom up/down kWh, flex available up/down kW), the same #465 flattened-fan-out pattern already used for Quality/Backtest/Counterfactual. Gated behind a new `switch.nimbus_solver_flex_signals_enabled`, off by default: `compute_signals`'s own docstring measured ranging adding ~5s on top of a ~0.6s bare solve on this project's own timing-regression scenario, and #773 (still open the same night this shipped) had just confirmed devhub's real problem shape occasionally hits HiGHS's 60s time limit on the plain solve alone — turning ranging on unconditionally risked directly worsening that live incident. Ported to the standalone/cron docs copy; caught by #357's own anti-drift test before it shipped. 14 new tests. Full local suite green (2215 passed, 13 skipped, 150 subtests), `ruff check`/`format --check` clean, mypy delta +0.
+- **Deliberately not in this release**: `compute_daily_flex_report()` and `sensor.nimbus_flex_report` (a real, substantial second piece of #496, comparable in size to `compute_daily_quality_report()`'s own ~900 lines) — not attempted this pass given the size and this project's own "no half-fixes within a scoped deliverable" bar, flagged honestly rather than rushed. #496 stays open.
+
 ## [0.94.281] — 2026-09-13
 
 ### Fixed
