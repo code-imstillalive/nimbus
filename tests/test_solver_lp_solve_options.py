@@ -24,6 +24,7 @@ import unittest
 from unittest import mock
 
 import _solver_path  # noqa: F401
+from solver import lp
 from solver.lp import BlendedOptions, CalibratedOptions, LexOptions, LPProblem
 
 
@@ -338,6 +339,20 @@ class TestIntermediatePhaseFailureFallsBackGracefully(unittest.TestCase):
     reuse of whatever partial state the failed attempt left behind) rather
     than letting the exception escape."""
 
+    def setUp(self) -> None:
+        # nimbus issue #773 follow-up: _lex_calibration_failed_until is
+        # real module-level state (see its own comment in lp.py) -- must
+        # start every test from a clean "no recent failure" baseline,
+        # or an earlier test's own failure would leak a cooldown into
+        # this one.
+        lp._lex_calibration_failed_until = 0.0
+
+    def tearDown(self) -> None:
+        # Same reasoning as setUp() above -- must not leak a real 300s
+        # cooldown into some unrelated, later test file in the same
+        # pytest session.
+        lp._lex_calibration_failed_until = 0.0
+
     def test_falls_back_to_plain_solve_on_intermediate_phase_failure(self):
         p = _genuine_tie_problem()
         with (
@@ -371,17 +386,52 @@ class TestIntermediatePhaseFailureFallsBackGracefully(unittest.TestCase):
         self.assertEqual(fallback_result.status, plain_result.status)
         self.assertAlmostEqual(fallback_result.objective, plain_result.objective)
 
-    def test_only_the_failing_solve_falls_back_not_every_solve_forever(self):
-        """A single mocked failure must not leave any lingering state --
-        the very next .solve(options=...) call on a fresh problem must
-        still attempt (and succeed at) the real phased solve, proving the
-        fallback is scoped to one failing call, not a global downgrade."""
+    def test_a_second_failure_within_the_cooldown_skips_the_expensive_retry(self):
+        """nimbus issue #773 follow-up (2026-09-13, a real devhub
+        incident): confirmed live, the SAME phase failed 14 times in
+        under 8 minutes on the same install -- a deterministic failure,
+        not a one-off blip. Re-attempting (and re-failing) the full
+        expensive phased solve on literally the next cycle turned one
+        real failure into sustained executor-thread starvation severe
+        enough to fail live backups. `_solve_with_options` must NOT be
+        called again for a second .solve(options=...) call that lands
+        within the cooldown window -- it should go straight to the
+        cheap fallback instead."""
+        p_fails = _genuine_tie_problem()
+        with mock.patch(
+            "solver.lp._solve_with_options", side_effect=ValueError("boom")
+        ) as mock_solve_with_options:
+            fallback_result = p_fails.solve(options=LexOptions())
+            self.assertEqual(fallback_result.status, "optimal")
+            self.assertEqual(mock_solve_with_options.call_count, 1)
+
+            # A second call, still well within the 300s cooldown -- must
+            # skip straight to the cheap path without calling
+            # _solve_with_options again at all.
+            p_second = _genuine_tie_problem()
+            second_result = p_second.solve(options=LexOptions())
+            self.assertEqual(second_result.status, "optimal")
+            self.assertEqual(
+                mock_solve_with_options.call_count,
+                1,
+                "a second failure within the cooldown window must not "
+                "re-attempt the expensive phased solve",
+            )
+
+    def test_the_phased_solve_resumes_once_the_cooldown_expires(self):
+        """The cooldown is a real, bounded window, not a permanent
+        downgrade -- once it expires, the next .solve(options=...) call
+        must attempt (and succeed at) the real phased solve again."""
         p_fails = _genuine_tie_problem()
         with mock.patch(
             "solver.lp._solve_with_options", side_effect=ValueError("boom")
         ):
-            fallback_result = p_fails.solve(options=LexOptions())
-        self.assertEqual(fallback_result.status, "optimal")
+            p_fails.solve(options=LexOptions())
+
+        # Simulate the cooldown window having already elapsed, the same
+        # way a real clock would after 5 real minutes -- direct module-
+        # state manipulation, not a real sleep.
+        lp._lex_calibration_failed_until = 0.0
 
         p_recovers = _genuine_tie_problem()
         recovered_result = p_recovers.solve(options=LexOptions())
@@ -390,8 +440,8 @@ class TestIntermediatePhaseFailureFallsBackGracefully(unittest.TestCase):
             p_recovers.value_of(recovered_result, "x2"),
             10.0,
             places=4,
-            msg="the real phased solve must still run normally on the "
-            "next call -- the fallback must not be sticky",
+            msg="the real phased solve must resume once the cooldown "
+            "has genuinely expired",
         )
 
 
@@ -499,6 +549,20 @@ class TestNonOptimalPhaseLogsRichDiagnosticsAndFallsBackGracefully(unittest.Test
     fallback outcome is `status="infeasible"`, not "optimal"; the
     point of this test is that it's an honest LPResult, not an
     unhandled exception."""
+
+    def setUp(self) -> None:
+        # nimbus issue #773 follow-up: same reset as
+        # TestIntermediatePhaseFailureFallsBackGracefully.setUp() above
+        # -- this class's own test triggers a REAL (not mocked) phase
+        # failure, which would otherwise leave a real cooldown active
+        # for whichever test in this suite happens to run next.
+        lp._lex_calibration_failed_until = 0.0
+
+    def tearDown(self) -> None:
+        # And clean up after itself too, so this test never leaks a
+        # real 300s cooldown into some unrelated, later test file in
+        # the same pytest session.
+        lp._lex_calibration_failed_until = 0.0
 
     def test_infeasible_problem_logs_diagnostics_then_falls_back_to_an_honest_result(
         self,

@@ -907,6 +907,29 @@ def _set_cost_vector(
     h.changeObjectiveOffset(0.0)
 
 
+# nimbus issue #773 follow-up (2026-09-13, a real devhub outage): an
+# intermediate lex/calibration phase failure is often NOT a one-off --
+# confirmed live, the SAME phase ('phase2_pin_resolve') failed 14 times
+# in under 8 minutes on the same install/data shape. Each attempt costs
+# a full, genuinely expensive MIP solve (~4 minutes measured live)
+# before _solve_highs()'s own except ValueError branch below falls back
+# to the cheap options=None path for that one cycle -- but "the next
+# cycle retries the full phased solve normally" (that branch's own
+# original comment) means a DETERMINISTIC failure (the same too-hard
+# problem shape, not a transient blip) gets re-attempted, and re-fails
+# the same expensive way, on literally every subsequent cycle. Combined
+# with price-change-triggered solves firing more often than the 1-
+# minute periodic timer alone, this turned one real phase failure into
+# sustained executor-thread starvation severe enough to fail
+# `homeassistant.components.backup`'s own recorder-lock acquisition and
+# degrade the whole instance -- a real, live-confirmed incident, not a
+# hypothetical. This cooldown caps the wasted cost: once a phase fails,
+# skip straight to the cheap path for a real window instead of
+# hammering the same failing multi-minute MIP every single cycle.
+_LEX_CALIBRATION_COOLDOWN_S = 300.0  # 5 minutes
+_lex_calibration_failed_until: float = 0.0
+
+
 def _ensure_optimal_value(
     h: highspy.Highs,
     *,
@@ -1452,23 +1475,52 @@ def _solve_highs(
         # all. `_ensure_optimal_value()` has already logged a full
         # HiGHS diagnostic ERROR line for the failing phase before this
         # ever runs, so no diagnostic detail is lost by falling back.
-        # The very next solve cycle (60s away at most, per this
-        # project's own 1-minute native timer) retries the full phased
-        # solve from a completely fresh `h` -- nothing here disables the
-        # calibrated/lex path going forward, it degrades for one cycle.
+        #
+        # nimbus issue #773 follow-up (2026-09-13): a failure here used
+        # to mean "the next solve cycle retries the full phased solve
+        # normally" -- fine for a genuinely transient blip, but a real
+        # devhub incident confirmed the SAME phase failing 14 times in
+        # under 8 minutes on the same install, each attempt burning a
+        # full ~4-minute MIP solve before falling back here, which
+        # starved HA's own executor threads badly enough to fail live
+        # backups and degrade the whole instance. `_lex_calibration_
+        # failed_until` (module-level, see its own comment above) now
+        # gates the NEXT attempt: skip the expensive phased path
+        # entirely for a real cooldown window after a failure, instead
+        # of re-attempting (and re-failing, the same expensive way)
+        # every single cycle.
+        global _lex_calibration_failed_until
+        now = time.monotonic()
+        if now < _lex_calibration_failed_until:
+            _LOGGER.debug(
+                "Nimbus #773: skipping the phased lex/calibration solve "
+                "-- still within the %.0fs cooldown after a recent phase "
+                "failure (retrying again in %.0fs)",
+                _LEX_CALIBRATION_COOLDOWN_S,
+                _lex_calibration_failed_until - now,
+            )
+            return _solve_highs(
+                problem, ranging=ranging, keep_basis=keep_basis, options=None
+            )
         try:
             extra_row_names, objective_override = _solve_with_options(
                 h, var_array, col_indices, problem, options, binary_cols
             )
         except ValueError:
+            _lex_calibration_failed_until = (
+                time.monotonic() + _LEX_CALIBRATION_COOLDOWN_S
+            )
             _LOGGER.warning(
                 "Nimbus #773: an intermediate lex/calibration phase failed "
                 "to reach optimal this cycle (see the ERROR line just above "
                 "for full HiGHS diagnostic detail) -- falling back to a "
                 "plain single-objective solve so dispatch doesn't go "
                 "unavailable. The calibrated/lex tie-break guarantee is "
-                "skipped for this one solve only; the next cycle retries "
-                "the full phased solve normally."
+                "skipped for this cycle, and the full phased solve won't "
+                "be re-attempted for another %.0fs -- a deterministic "
+                "failure would otherwise re-fail the same expensive way "
+                "every cycle (confirmed live, a real devhub incident).",
+                _LEX_CALIBRATION_COOLDOWN_S,
             )
             return _solve_highs(
                 problem, ranging=ranging, keep_basis=keep_basis, options=None
