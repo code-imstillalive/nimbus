@@ -2410,6 +2410,87 @@ def _build_offer_curve_bands(
     return bands
 
 
+def publish_flex_signals(plan) -> None:
+    """nimbus issue #496 (Signals 7/7 of #489): pushes sensor.nimbus_
+    flex_signals when build_plan() actually computed ranging this cycle
+    (switch.nimbus_solver_flex_signals_enabled on) -- no-op otherwise,
+    same "None means not computed this cycle" convention publish_offer_
+    curve() already uses for #494. Called from main() right after
+    publish_offer_curve().
+
+    Period-0 only, deliberately -- this is a live "what can the grid
+    operator/aggregator/household call on RIGHT NOW" surface (#491's own
+    framing), not the full per-period forecast array every other array-
+    shaped Plan field already publishes on sensor.nimbus_solver_battery_
+    forecast. `Plan.grid_signals`' own array fields are one-per-period;
+    every value below is that array's own `[0]` entry.
+
+    Per-battery (`Plan.battery_signals`) and per-load (`Plan.load_
+    signals`) entries are published as plain JSON lists on this one
+    sensor's own attributes, not as their own dynamically-generated
+    per-battery/per-load entities -- the battery/load COUNT varies per
+    install and can change at any time (a subentry added/removed), and
+    generating/tearing-down real HA entities to match that live is a
+    genuinely different, riskier class of change (new entity-registry
+    lifecycle work) than this issue's own scope asked for. A household
+    with the common 1-battery, few-load shape sees a small, well-under-
+    16KB attribute list either way.
+    """
+    if plan.grid_signals is None:
+        return
+    gs = plan.grid_signals
+    battery_signals = [
+        {
+            "name": b.name,
+            "available_up_kw": round(float(b.available_up_kw[0]), 3),
+            "available_down_kw": round(float(b.available_down_kw[0]), 3),
+            "available_up_ranging_kw": (
+                round(float(b.available_up_ranging_kw[0]), 3)
+                if b.available_up_ranging_kw is not None
+                else None
+            ),
+            "available_down_ranging_kw": (
+                round(float(b.available_down_ranging_kw[0]), 3)
+                if b.available_down_ranging_kw is not None
+                else None
+            ),
+        }
+        for b in plan.battery_signals
+    ]
+    load_signals = [
+        {
+            "name": ls.name,
+            "intent": ls.intent[0],
+            "band_min_kw": round(float(ls.band_min_kw[0]), 3),
+            "band_max_kw": round(float(ls.band_max_kw[0]), 3),
+            "reduced_cost_per_kwh": round(float(ls.reduced_cost_per_kwh[0]), 4),
+            "degenerate": bool(ls.degenerate[0]),
+        }
+        for ls in plan.load_signals
+    ]
+    ha_post_state(
+        "sensor.nimbus_flex_signals",
+        round(float(gs.flex_available_up_kw[0]), 3),
+        {
+            "unit_of_measurement": "kW",
+            "friendly_name": "Nimbus Flex Signals",
+            "grid_import_headroom_kw": round(float(gs.grid_import_headroom_kw[0]), 3),
+            "grid_import_headroom_kwh": round(float(gs.grid_import_headroom_kwh[0]), 3),
+            "grid_export_headroom_kw": round(float(gs.grid_export_headroom_kw[0]), 3),
+            "grid_export_headroom_kwh": round(float(gs.grid_export_headroom_kwh[0]), 3),
+            "forced_import_cost": round(float(gs.forced_import_cost[0]), 4),
+            "forced_export_cost": round(float(gs.forced_export_cost[0]), 4),
+            "flex_available_up_kw": round(float(gs.flex_available_up_kw[0]), 3),
+            "flex_available_down_kw": round(float(gs.flex_available_down_kw[0]), 3),
+            "load_headroom_up_kwh": round(float(gs.load_headroom_up_kwh[0]), 3),
+            "load_headroom_down_kwh": round(float(gs.load_headroom_down_kwh[0]), 3),
+            "battery_signals": battery_signals,
+            "load_signals": load_signals,
+            "generated_at": datetime.now(UTC).astimezone(LOCAL_TZ).isoformat(),
+        },
+    )
+
+
 def _offer_curve_band_range_contains(
     outer_lower: float | None,
     outer_upper: float | None,
@@ -12974,6 +13055,11 @@ def main() -> None:
     # see const.py's own comment on CONF_SOLVER_OFFER_CURVE_ENABLED for
     # why. Same live-switch-first read as auto_include_known_solar above.
     offer_curve_enabled = bool(cfg.get("solver_offer_curve_enabled"))
+    # nimbus issue #496 (Signals 7/7 of #489): opt-in, off by default --
+    # see const.py's own comment on CONF_SOLVER_FLEX_SIGNALS_ENABLED for
+    # why this one is deliberately NOT just "same reasoning as offer
+    # curve" -- a real, live capacity concern (#773), not only convention.
+    flex_signals_enabled = bool(cfg.get("solver_flex_signals_enabled"))
     # nimbus issue #696, Stage 2: default TRUE (unlike offer_curve_
     # enabled above) -- see const.py's own comment on CONF_SOLVER_
     # CALIBRATED_OBJECTIVE_ENABLED for the full "household's own
@@ -13004,6 +13090,7 @@ def main() -> None:
         smoothness_weight=smoothness_weight,
         battery_charge_earliness_budget_kw=battery_charge_earliness_budget_kw,
         compute_offer_curve=offer_curve_enabled,
+        compute_signals=flex_signals_enabled,
         solve_options=solve_options,
     )
     _LOGGER.warning(
@@ -13109,6 +13196,10 @@ def main() -> None:
     # enabled was true above (plan.offer_curve_import stays None
     # otherwise) -- see publish_offer_curve()'s own docstring.
     publish_offer_curve(plan)
+    # nimbus issue #496 (Signals 7/7 of #489): no-op unless flex_signals_
+    # enabled was true above (plan.grid_signals stays None otherwise) --
+    # see publish_flex_signals()'s own docstring.
+    publish_flex_signals(plan)
 
 
 if __name__ == "__main__":

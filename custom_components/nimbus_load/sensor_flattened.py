@@ -1661,6 +1661,121 @@ class _FlattenedAttributeSensorSubDevice(_FlattenedAttributeSensor):
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Flex signals (nimbus issue #496, Signals 7/7 of #489): #491/#492's own
+# already-shipped GridSignals fields, period-0 only -- see NimbusFlexSignals
+# Sensor's own docstring in sensor.py for why battery_signals/load_signals
+# stay parent-only JSON-list attributes rather than their own rows here.
+# ---------------------------------------------------------------------------
+
+
+FLATTENED_ATTRS_FLEX: tuple[FlattenedAttrSpec, ...] = (
+    # Mirrors the parent's own state (same convention as Quality's own
+    # "epr_pct" row above) -- a real, independently-graphable entity
+    # even though it's byte-identical to the parent's native_value.
+    FlattenedAttrSpec(
+        source_key="flex_available_up_kw",
+        name="Flex Available Up",
+        entity_id_suffix="flex_available_up_kw",
+        entity_category=None,
+        device_class=None,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=UnitOfPower.KILO_WATT,
+        suggested_display_precision=3,
+    ),
+    FlattenedAttrSpec(
+        source_key="flex_available_down_kw",
+        name="Flex Available Down",
+        entity_id_suffix="flex_available_down_kw",
+        entity_category=None,
+        device_class=None,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=UnitOfPower.KILO_WATT,
+        suggested_display_precision=3,
+    ),
+    FlattenedAttrSpec(
+        source_key="grid_import_headroom_kw",
+        name="Flex Grid Import Headroom",
+        entity_id_suffix="grid_import_headroom_kw",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=None,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=UnitOfPower.KILO_WATT,
+        suggested_display_precision=3,
+    ),
+    FlattenedAttrSpec(
+        source_key="grid_import_headroom_kwh",
+        name="Flex Grid Import Headroom",
+        entity_id_suffix="grid_import_headroom_kwh",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=None,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_KWH,
+        suggested_display_precision=3,
+    ),
+    FlattenedAttrSpec(
+        source_key="grid_export_headroom_kw",
+        name="Flex Grid Export Headroom",
+        entity_id_suffix="grid_export_headroom_kw",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=None,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=UnitOfPower.KILO_WATT,
+        suggested_display_precision=3,
+    ),
+    FlattenedAttrSpec(
+        source_key="grid_export_headroom_kwh",
+        name="Flex Grid Export Headroom",
+        entity_id_suffix="grid_export_headroom_kwh",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=None,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_KWH,
+        suggested_display_precision=3,
+    ),
+    FlattenedAttrSpec(
+        source_key="forced_import_cost",
+        name="Flex Forced Import Cost",
+        entity_id_suffix="forced_import_cost",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=None,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_AUD_PER_KWH,
+        suggested_display_precision=4,
+    ),
+    FlattenedAttrSpec(
+        source_key="forced_export_cost",
+        name="Flex Forced Export Cost",
+        entity_id_suffix="forced_export_cost",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=None,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_AUD_PER_KWH,
+        suggested_display_precision=4,
+    ),
+    FlattenedAttrSpec(
+        source_key="load_headroom_up_kwh",
+        name="Flex Load Headroom Up",
+        entity_id_suffix="load_headroom_up_kwh",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=None,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_KWH,
+        suggested_display_precision=3,
+    ),
+    FlattenedAttrSpec(
+        source_key="load_headroom_down_kwh",
+        name="Flex Load Headroom Down",
+        entity_id_suffix="load_headroom_down_kwh",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=None,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_KWH,
+        suggested_display_precision=3,
+    ),
+)
+
+
 def create_flattened_entities_quality(
     entry, sw_version: str | None, hub_device_id: str | None = None
 ) -> list[_FlattenedAttributeSensorSubDevice]:
@@ -1725,6 +1840,36 @@ def create_flattened_entities_counterfactual(
         )
         for spec in FLATTENED_ATTRS_COUNTERFACTUAL
     ]
+
+
+def create_flattened_entities_flex(
+    entry, sw_version: str | None, hub_device_id: str | None = None
+) -> list[_FlattenedAttributeSensorSubDevice]:
+    """One SensorEntity per FLATTENED_ATTRS_FLEX row, all attached to
+    the "Nimbus Flex" sub-device (via_device/via_device_id -> hub).
+    """
+    device_identifier = (DOMAIN, f"{entry.entry_id}_flex")
+    return [
+        _FlattenedAttributeSensorSubDevice(
+            entry,
+            sw_version,
+            spec,
+            device_identifier=device_identifier,
+            device_name="Nimbus Flex",
+            entity_id_prefix="nimbus_flex",
+            hub_device_id=hub_device_id,
+        )
+        for spec in FLATTENED_ATTRS_FLEX
+    ]
+
+
+def dispatch_to_flattened_flex(
+    entities: list[_FlattenedAttributeSensorSubDevice], attributes: dict
+) -> None:
+    """Fan out the Flex parent's attribute dict to every child. See
+    dispatch_to_flattened_quality() above for the full contract."""
+    for entity in entities:
+        entity.update_from_parent(attributes)
 
 
 def dispatch_to_flattened_quality(

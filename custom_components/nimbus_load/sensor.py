@@ -1053,6 +1053,10 @@ async def async_setup_entry(
         entry, sw_version, hub_device_id
     )
     counterfactual_soc = NimbusCounterfactualSocSensor(entry, sw_version, hub_device_id)
+    # nimbus issue #496 (Signals 7/7 of #489): same sub-device/flattened-
+    # fan-out pattern as the three parents above, see NimbusFlexSignals
+    # Sensor's own docstring.
+    flex_signals = NimbusFlexSignalsSensor(entry, sw_version, hub_device_id)
 
     flattened_quality = sensor_flattened.create_flattened_entities_quality(
         entry, sw_version, hub_device_id
@@ -1065,16 +1069,21 @@ async def async_setup_entry(
             entry, sw_version, hub_device_id
         )
     )
+    flattened_flex = sensor_flattened.create_flattened_entities_flex(
+        entry, sw_version, hub_device_id
+    )
 
     quality_report._flattened_entities = flattened_quality
     efficiency_backtest._flattened_entities = flattened_backtest
     counterfactual_soc._flattened_entities = flattened_counterfactual
+    flex_signals._flattened_entities = flattened_flex
 
     _family_a_batch = (
-        [quality_report, efficiency_backtest, counterfactual_soc]
+        [quality_report, efficiency_backtest, counterfactual_soc, flex_signals]
         + flattened_quality
         + flattened_backtest
         + flattened_counterfactual
+        + flattened_flex
     )
 
     # Diagnostic only, no behaviour change (2026-09-08, real live incident:
@@ -1181,6 +1190,11 @@ async def async_setup_entry(
         "sensor.nimbus_counterfactual_soc",
         counterfactual_soc.update_from_solver,
         counterfactual_soc.entity_id,
+    )
+    solver_writer.register_entity_handler(
+        "sensor.nimbus_flex_signals",
+        flex_signals.update_from_solver,
+        flex_signals.entity_id,
     )
 
 
@@ -3594,6 +3608,80 @@ class NimbusSolverQualityReportSensor(_NimbusSolverPushSensor):
         super().update_from_solver(state, attributes)
         if self._flattened_entities:
             sensor_flattened.dispatch_to_flattened_quality(
+                self._flattened_entities, attributes
+            )
+
+
+class NimbusFlexSignalsSensor(_NimbusSolverPushSensor):
+    """nimbus issue #496 (Signals 7/7 of #489): grid-operator/load-
+    ranging flex signals -- #491/#492/#493/#494's own already-shipped
+    HiGHS-ranging computation (`Plan.grid_signals`/`battery_signals`/
+    `load_signals`), published as real entities for the first time.
+    Deliberately opt-in (`switch.nimbus_solver_flex_signals_enabled`,
+    off by default) -- see const.py's own comment on CONF_SOLVER_FLEX_
+    SIGNALS_ENABLED for the real measured-overhead and live-capacity
+    reasoning; `plan.grid_signals` stays `None` (this whole sensor's own
+    push becomes a no-op, see publish_flex_signals()'s own docstring in
+    solver_writer.py) whenever the switch is off.
+
+    Native state is `flex_available_up_kw` -- the single household-level
+    "how much MORE could an aggregator call on right now" figure, the
+    closest existing Nimbus number to the parent's own kW/POWER contract
+    already inherited from `_NimbusSolverPushSensor`. Sub-device
+    "Nimbus Flex" (via_device -> hub) so this parent AND its flattened
+    children (see FLATTENED_ATTRS_FLEX in sensor_flattened.py) group
+    under a dedicated device page, same reasoning as NimbusSolverQuality
+    ReportSensor above.
+
+    `battery_signals`/`load_signals` stay parent-only JSON-list
+    attributes, not their own flattened entities -- see publish_flex_
+    signals()'s own docstring for why (the battery/load COUNT varies per
+    install and can change live).
+    """
+
+    _UNIQUE_ID_SUFFIX = "nimbus_flex_signals"
+    _attr_name = "Flex Signals"
+    # Same "no per-attribute recorder overflow" posture as the offer-
+    # curve sensor -- battery_signals/load_signals are small JSON lists
+    # (one entry per real battery/load, not a per-period series), so no
+    # unrecorded_attributes override is needed beyond the base class's
+    # own "forecast"/"batteries" exclusion (neither key exists on this
+    # sensor's own attribute dict at all).
+
+    def __init__(
+        self,
+        entry: NimbusConfigEntry,
+        sw_version: str | None,
+        hub_device_id: str | None = None,
+    ) -> None:
+        super().__init__(entry, sw_version)
+        # Sub-device replacement -- see class docstring for why.
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"{entry.entry_id}_flex")},
+            name="Nimbus Flex",
+            manufacturer="Nimbus",
+            model="Sub-device",
+            sw_version=sw_version,
+            **_resolve_via_device_field(hub_device_id, entry.entry_id),  # type: ignore[typeddict-item]
+        )
+        # Populated by async_setup_entry immediately after construction;
+        # empty list until then. update_from_solver() below guards on
+        # this so a very-first solve tick that races setup can't crash
+        # even if the fan-out hasn't been wired in yet.
+        self._flattened_entities: list = []
+
+    @callback
+    def update_from_solver(self, state, attributes: dict) -> None:
+        """Override to fan the same attribute dict out to every flattened
+        Flex child registered under this parent (see FLATTENED_ATTRS_
+        FLEX in sensor_flattened.py). The parent's own publish happens
+        FIRST via super() so HA sees the canonical sensor.nimbus_flex_
+        signals update before any fan-out -- same pattern as
+        NimbusSolverQualityReportSensor above.
+        """
+        super().update_from_solver(state, attributes)
+        if self._flattened_entities:
+            sensor_flattened.dispatch_to_flattened_flex(
                 self._flattened_entities, attributes
             )
 

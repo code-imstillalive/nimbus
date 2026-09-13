@@ -876,3 +876,88 @@ def test_current_dispatch_direction_has_no_unit_or_state_class():
     assert dispatch_dir._attr_state_class is None
     assert dispatch_dir._attr_native_unit_of_measurement is None
     assert dispatch_dir._attr_device_class is None
+
+
+# --- Flex signals (nimbus issue #496, Signals 7/7 of #489) -----------------
+
+
+def _build_entities_flex():
+    entry = _fake_entry()
+    entities = sensor_flattened.create_flattened_entities_flex(
+        entry, sw_version="0.94.282"
+    )
+    for e in entities:
+        e.hass = None
+    return entities, entry
+
+
+def test_flex_every_spec_row_produces_one_entity():
+    entities, _ = _build_entities_flex()
+    assert len(entities) == len(sensor_flattened.FLATTENED_ATTRS_FLEX)
+
+
+def test_flex_entity_ids_are_unique():
+    entities, _ = _build_entities_flex()
+    entity_ids = [e.entity_id for e in entities]
+    assert len(set(entity_ids)) == len(entity_ids), (
+        "duplicate entity_id in FLATTENED_ATTRS_FLEX -- suffix collision"
+    )
+
+
+def test_flex_unique_ids_are_unique():
+    entities, _ = _build_entities_flex()
+    unique_ids = [e._attr_unique_id for e in entities]
+    assert len(set(unique_ids)) == len(unique_ids)
+
+
+def test_flex_source_keys_are_unique():
+    source_keys = [spec.source_key for spec in sensor_flattened.FLATTENED_ATTRS_FLEX]
+    assert len(set(source_keys)) == len(source_keys), (
+        "duplicate source_key in FLATTENED_ATTRS_FLEX -- one row would "
+        "silently overwrite another's dispatch"
+    )
+
+
+def test_flex_every_entity_id_uses_the_nimbus_flex_prefix():
+    entities, _ = _build_entities_flex()
+    for e in entities:
+        assert e.entity_id.startswith("sensor.nimbus_flex_"), e.entity_id
+
+
+def test_flex_entities_attach_to_the_flex_sub_device_not_the_hub():
+    entities, entry = _build_entities_flex()
+    for e in entities:
+        identifiers = e._attr_device_info["identifiers"]
+        assert identifiers == {(DOMAIN, f"{entry.entry_id}_flex")}, (
+            "flex flattened entities must attach to the Nimbus Flex "
+            "sub-device, not directly to the hub"
+        )
+
+
+def test_flex_dispatch_updates_every_entity_from_real_payload():
+    entities, _ = _build_entities_flex()
+    payload = {
+        "flex_available_up_kw": 2.5,
+        "flex_available_down_kw": 0.0,
+        "grid_import_headroom_kw": 2.5,
+        "grid_import_headroom_kwh": 0.625,
+        "grid_export_headroom_kw": 0.0,
+        "grid_export_headroom_kwh": 0.0,
+        "forced_import_cost": 0.12,
+        "forced_export_cost": -0.05,
+        "load_headroom_up_kwh": 1.1,
+        "load_headroom_down_kwh": 0.3,
+    }
+    sensor_flattened.dispatch_to_flattened_flex(entities, payload)
+    by_suffix = {e.entity_id.removeprefix("sensor.nimbus_flex_"): e for e in entities}
+    assert by_suffix["flex_available_up_kw"].native_value == 2.5
+    assert by_suffix["grid_import_headroom_kwh"].native_value == 0.625
+    assert by_suffix["forced_export_cost"].native_value == -0.05
+
+
+def test_flex_dispatch_covers_every_entity_no_stragglers():
+    entities, _ = _build_entities_flex()
+    payload = {spec.source_key: 1.0 for spec in sensor_flattened.FLATTENED_ATTRS_FLEX}
+    sensor_flattened.dispatch_to_flattened_flex(entities, payload)
+    for e in entities:
+        assert e.native_value == 1.0, e.entity_id
