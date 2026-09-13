@@ -245,6 +245,15 @@ CONF_DEFERRABLE_EARLIEST_HOUR: Final = "deferrable_earliest_hour"
 CONF_DEFERRABLE_DEADLINE_HOUR: Final = "deferrable_deadline_hour"
 CONF_DEFERRABLE_SHORTFALL_PRICE: Final = "deferrable_shortfall_price"
 CONF_DEFERRABLE_VALUE_PER_KWH: Final = "deferrable_value_per_kwh"
+# nimbus issue #482: a real cumulative cap on how much energy this load
+# may draw per REAL CALENDAR DAY -- see AdequacyLoadConfig's own
+# max_kwh_per_day docstring for the full reasoning (a price-gated load,
+# value_per_kwh set with no real target_kwh pressure, has nothing else
+# bounding how much it draws once the shadow price sits below its own
+# credited value; a genuine daily energy budget, e.g. "the miner may
+# use at most 20 kWh a day", needs its own explicit cap). Optional,
+# same no-op convention as every other optional deferrable field.
+CONF_DEFERRABLE_MAX_KWH_PER_DAY: Final = "deferrable_max_kwh_per_day"
 # nimbus issue #480 (sub-issue 4 of #476): "hot water scheduled for 3h,
 # tank reaches setpoint after 2h -- the third hour is still bought."
 # Both optional; done_entity alone is enough for a binary_sensor (its

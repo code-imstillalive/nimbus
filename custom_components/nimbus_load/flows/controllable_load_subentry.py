@@ -46,6 +46,7 @@ from ..const import (
     CONF_DEFERRABLE_DONE_ENTITY,
     CONF_DEFERRABLE_DONE_WHEN,
     CONF_DEFERRABLE_EARLIEST_HOUR,
+    CONF_DEFERRABLE_MAX_KWH_PER_DAY,
     CONF_DEFERRABLE_MAX_POWER_KW,
     CONF_DEFERRABLE_SHORTFALL_PRICE,
     CONF_DEFERRABLE_TARGET_KWH,
@@ -262,6 +263,12 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
         CONF_DEFERRABLE_VALUE_PER_KWH,
         defaults.get(CONF_DEFERRABLE_VALUE_PER_KWH),
         _DOLLAR_PER_KWH_SELECTOR,
+    )
+    _optional_field(
+        schema_dict,
+        CONF_DEFERRABLE_MAX_KWH_PER_DAY,
+        defaults.get(CONF_DEFERRABLE_MAX_KWH_PER_DAY),
+        _KWH_SELECTOR,
     )
     # kind=thermal fields (nimbus issue #774) -- see solver.elements.
     # ThermalLoadConfig's own docstring for the full design. Domain-
