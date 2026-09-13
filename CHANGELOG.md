@@ -6,7 +6,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
-## [0.94.274] — 2026-09-13
+## [Unreleased]
 
 ## [0.94.274] — 2026-09-13
 
