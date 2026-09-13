@@ -270,7 +270,7 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import numpy as np
 from numpy.typing import NDArray
@@ -2343,6 +2343,46 @@ def build_plan(
                 {credit_vars[t]: hours[t] for t in range(n)},
                 credit_cap,
                 name=f"adequacy_credit_cap_{al.name}",
+            )
+
+    # ---- Per-real-calendar-day cumulative energy cap (nimbus issue
+    # #482 -- see AdequacyLoadConfig's own max_kwh_per_day docstring for
+    # the full "why per-day, why separate from windows" reasoning; same
+    # implementation pattern as GridConfig's own export_bonus_volume_kwh
+    # two-tier cap above/in p2p_export.py). Groups every period this
+    # load HAS a variable for (adequacy_vars[al.name][t] is already
+    # forced to 0 outside the load's own allowed/windowed periods by its
+    # own upper bound, so including every t here is harmless -- those
+    # terms just contribute 0) by periods.period_starts' own real
+    # calendar date, one independent <= constraint per real day. Falls
+    # back to ONE global constraint across the whole horizon when
+    # `periods.start is None` -- no way to know where a real day
+    # boundary falls without real timestamps, same honest fallback
+    # convention as export_bonus_volume_kwh's own. No tie-break added
+    # here (unlike export_bonus's own latest-preferred bias): a
+    # price-gated load already has its own natural preference for
+    # cheaper/higher-value periods via value_per_kwh's credit, and a
+    # non-price-gated load with this cap set has no equivalent "prefer
+    # which period" signal this cap should be inventing one for.
+    for al in adequacy_loads:
+        if al.max_kwh_per_day is None:
+            continue
+        starts = periods.period_starts
+        if starts is None:
+            p.add_ub_constraint(
+                {adequacy_vars[al.name][t]: hours[t] for t in range(n)},
+                al.max_kwh_per_day,
+                name=f"adequacy_max_kwh_per_day_{al.name}_global",
+            )
+            continue
+        by_day: dict[date, list[int]] = {}
+        for t in range(n):
+            by_day.setdefault(starts[t].date(), []).append(t)
+        for day_date, day_indices in by_day.items():
+            p.add_ub_constraint(
+                {adequacy_vars[al.name][t]: hours[t] for t in day_indices},
+                al.max_kwh_per_day,
+                name=f"adequacy_max_kwh_per_day_{al.name}_{day_date.isoformat()}",
             )
 
     # ---- Shared-circuit caps (SharedCircuitConfig, see its own

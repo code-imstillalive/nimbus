@@ -1361,6 +1361,29 @@ class AdequacyLoadConfig:
     # earlier window's already-delivered energy toward a target it was
     # never meant to satisfy.
     windows: tuple[AdequacyWindow, ...] | None = None
+    # nimbus issue #482 (price-gated loads, e.g. a Bitcoin miner): a real
+    # cumulative energy cap applied SEPARATELY PER REAL CALENDAR DAY, not
+    # once across the whole horizon -- same reasoning, and the same
+    # network.py-level implementation pattern, as GridConfig's own
+    # export_bonus_volume_kwh (see network.py's own "TWO-TIER EXPORT
+    # BONUS" docstring for the full "why per-day not global" story: a
+    # single global cap on a multi-day horizon lets the LP greedily
+    # exhaust the entire allowance in the very first cheap window it
+    # sees, then behave as if permanently capped for every later day).
+    # A pure price-gated load (value_per_kwh set, no real target_kwh
+    # pressure) has nothing else bounding how much it draws once the
+    # shadow price sits below its own credited value -- this is the
+    # honest way to express "don't let the miner draw more than N kWh a
+    # day" without inventing a fake target_kwh/deadline to fake the same
+    # effect. Applies to EVERY period this load may draw power in for a
+    # given real day, independent of `windows` (a genuinely separate
+    # concept: windows say WHEN a deadline-driven target resets, this
+    # caps how much total energy is used per day regardless of window
+    # structure). None (the default) is a complete no-op. Validated
+    # `> 0` when given -- a zero/negative cap would either be a
+    # degenerate always-off load (better expressed by simply not
+    # configuring this load at all) or nonsensical.
+    max_kwh_per_day: float | None = None
 
     def __post_init__(self) -> None:
         if self.max_power_kw <= 0.0:
@@ -1380,6 +1403,9 @@ class AdequacyLoadConfig:
             raise ValueError(msg)
         if self.max_cost_per_run is not None and self.max_cost_per_run < 0.0:
             msg = f"Adequacy load '{self.name}' max_cost_per_run must be >= 0"
+            raise ValueError(msg)
+        if self.max_kwh_per_day is not None and self.max_kwh_per_day <= 0.0:
+            msg = f"Adequacy load '{self.name}' max_kwh_per_day must be > 0"
             raise ValueError(msg)
         if self.windows is not None:
             if len(self.windows) == 0:
