@@ -8,6 +8,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.285] — 2026-09-14
+
+### Fixed
+- **`resample_history_nearest()` returned samples recorded AFTER the instant asked for** (nimbus issue [#843](https://github.com/code-imstillalive/nimbus/issues/843), root-caused by Mark Purcell against real household recorder data). A function documented as a "nearest-at-or-**before**" lookup always initialised its running value to `pts[0][1]` — the chronologically first sample in the list — so when nothing actually preceded the requested instant, the inner loop broke immediately, that initial value survived, and it never fell through to the `default` its callers explicitly passed. Confirmed live impact: an EV whose telemetry genuinely sleeps overnight (zero recorder rows 00:00→08:51, real Tesla behaviour) had every hour from 00:00–07:00 inherit its first post-wake reading. That reading also happened to be a ~1000x-wrong W-vs-kW boot transient (the separate, still-open half of #843), so the quality report published ~1,500 kW of achieved battery power — about 19x the household's real physical fleet ceiling — for eight straight hours, making EPR/regret unusable for the day. The unit bug corrupted one sample; this bug smeared it across a third of the day.
+
+  Backfill is retained as an explicit `backfill_first=True` opt-in rather than removed, because the physically correct answer genuinely differs by signal type (the same FLOW-vs-STATE split `resample_history_mean()` already documents): a power flow with no data was not flowing, but an EV's SoC really did sit unchanged while parked. All 23 call sites were audited individually — 7 take the corrected strict behaviour (the `resample_history_mean()` fallback, solar/load flow, the availability mask, thermal power), 16 opt into backfill (all price, all SoC, and the tight ±10min solar-delivery window). A naive unconditional fix would have newly corrupted the very EV SoC trajectory this issue was reported against.
+
+  Also fixes a second, independent instance of the same defect that nobody had connected to it: `_resolve_battery_participant_history()`'s availability mask documents an explicit "no real history means assume away (0.0)" posture, which the old initialisation silently defeated — a car whose first `binary_sensor` row of the day read "on" had every earlier period masked as home, the exact opposite of the stated intent.
+
+  12 new regression tests, full CI green. **#843 stays open** — the W-vs-kW half (a sensor whose own `unit_of_measurement` genuinely changes mid-day, which `_kw_scale_factor()`'s single live-state check cannot see) is a separate fix still under discussion.
+
 ## [0.94.284] — 2026-09-14
 
 ### Added
