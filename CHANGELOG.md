@@ -6,6 +6,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [0.94.271] — 2026-09-13
+
+### Added
+- **Real shadow costing for deferrable Controllable Loads** (nimbus issue [#483](https://github.com/code-imstillalive/nimbus/issues/483), sub-issue 7 of #476, "what does each device cost to run") — new `plan_marginal_cost` attribute on `sensor.nimbus_<load>_commanded_state`, `sum(lambda(t) * power[t] * hours[t])` across the whole solve horizon, where `lambda(t)` is the real switchboard shadow price (the same `power_balance_t{t}` dual `shadow_price`/#482's own `profit_horizon` already read). Near zero on curtailed/surplus PV, real tariff value at peak, battery-discharge value overnight — the honest "what this device's own energy was worth when it ran." Computed unconditionally, unlike `profit_horizon` (no `value_per_kwh` needed for a real cost figure to mean something). **Also fixed a real, pre-existing gap while wiring this in**: `AdequacyLoadPlan.profit_horizon` (#482, shipped in v0.94.230) had never actually been threaded through to any real sensor — it existed only inside the LP internals, computed every solve and then discarded. Now published as `plan_profit_horizon` alongside the new field. Both reset to `None` for a `kind=thermal` load (not applicable — `ThermalLoadPlan` has no equivalent computed yet, a real future extension). 3 new tests (never-None regardless of `value_per_kwh`, matches a hand-computed λ·p·dt value and is genuinely distinct from `profit_horizon`, near-zero during free solar surplus), full local suite green (2144 passed), `ruff check`/`format --check` clean, mypy delta +0. Still open from #483's own original scope: tariff-attributed cost (item 2, pro-rata share of the plan's actual grid/battery/PV flows — a materially larger piece needing the existing seven-flow decomposition threaded per-load) and the sheddable/thermal-load equivalents.
+
 ## [0.94.270] — 2026-09-13
 
 ### Added

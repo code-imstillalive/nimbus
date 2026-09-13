@@ -10607,6 +10607,13 @@ def apply_commanded_state_guard(
                         np.asarray(load_plan.power_kw, dtype=np.float64)
                         * np.asarray(period_hours_arr[: len(load_plan.power_kw)])
                     )
+                    # nimbus issue #483: getattr, not direct attribute
+                    # access -- this file's own bare-SimpleNamespace test
+                    # fakes (_fake_load_plan(), same reasoning as the #774
+                    # thermal_loads getattr elsewhere in this file) predate
+                    # both of these fields.
+                    marginal_cost = getattr(load_plan, "marginal_cost", 0.0)
+                    profit_horizon = getattr(load_plan, "profit_horizon", None)
                     new = replace(
                         new,
                         plan_forecast=load_run_state.build_time_value_series(
@@ -10623,6 +10630,12 @@ def apply_commanded_state_guard(
                             float(target_kwh) if target_kwh is not None else None
                         ),
                         plan_shortfall_kwh=float(load_plan.shortfall_kwh),
+                        plan_marginal_cost=float(marginal_cost),
+                        plan_profit_horizon=(
+                            float(profit_horizon)
+                            if profit_horizon is not None
+                            else None
+                        ),
                         plan_status_reason=load_run_state.compute_load_status_reason(
                             power_kw=load_plan.power_kw,
                             shadow_price=_raw_shadow_price_series(),
@@ -10957,6 +10970,15 @@ def apply_commanded_state_guard(
                         # target/shortfall figure that no longer applies.
                         plan_target_kwh=None,
                         plan_shortfall_kwh=None,
+                        # nimbus issue #483: AdequacyLoadPlan-only fields
+                        # (a kind=thermal load has no equivalent computed
+                        # yet -- ThermalLoadPlan doesn't carry a lambda-
+                        # based cost today, a real future extension, not
+                        # attempted in this pass), same explicit-reset
+                        # reasoning as plan_target_kwh/plan_shortfall_kwh
+                        # just above.
+                        plan_marginal_cost=None,
+                        plan_profit_horizon=None,
                         plan_earliest_period=earliest_period,
                         plan_deadline_period=deadline_period,
                     )

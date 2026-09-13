@@ -159,6 +159,16 @@ class LoadRunState:
     plan_delivered_kwh_forecast: list[dict[str, Any]] | None = None
     plan_target_kwh: float | None = None
     plan_shortfall_kwh: float | None = None
+    # nimbus issue #483 (sub-issue 7 of #476, "shadow costing per
+    # device"): AdequacyLoadPlan.marginal_cost/profit_horizon (solver/
+    # network.py), same "persist what the LP already computed every
+    # cycle, discarded until now" pattern as every other plan_* field
+    # here. marginal_cost is always a real number for a deferrable
+    # load (never None); profit_horizon stays None whenever the load
+    # has no value_per_kwh configured (see AdequacyLoadPlan's own
+    # docstring for why that one specifically can be meaningless).
+    plan_marginal_cost: float | None = None
+    plan_profit_horizon: float | None = None
     plan_earliest_period: int | None = None
     plan_deadline_period: int | None = None
     plan_nominal_kw: float | None = None
@@ -271,6 +281,8 @@ class LoadRunState:
             "plan_delivered_kwh_forecast": self.plan_delivered_kwh_forecast,
             "plan_target_kwh": self.plan_target_kwh,
             "plan_shortfall_kwh": self.plan_shortfall_kwh,
+            "plan_marginal_cost": self.plan_marginal_cost,
+            "plan_profit_horizon": self.plan_profit_horizon,
             "plan_earliest_period": self.plan_earliest_period,
             "plan_deadline_period": self.plan_deadline_period,
             "plan_nominal_kw": self.plan_nominal_kw,
@@ -311,6 +323,8 @@ class LoadRunState:
             plan_delivered_kwh_forecast=data.get("plan_delivered_kwh_forecast"),
             plan_target_kwh=data.get("plan_target_kwh"),
             plan_shortfall_kwh=data.get("plan_shortfall_kwh"),
+            plan_marginal_cost=data.get("plan_marginal_cost"),
+            plan_profit_horizon=data.get("plan_profit_horizon"),
             plan_earliest_period=data.get("plan_earliest_period"),
             plan_deadline_period=data.get("plan_deadline_period"),
             plan_nominal_kw=data.get("plan_nominal_kw"),
