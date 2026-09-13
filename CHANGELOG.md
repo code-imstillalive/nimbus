@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.278] — 2026-09-13
+
+### Added
+- **Tariff-attributed cost per controllable load** (nimbus issue [#483](https://github.com/code-imstillalive/nimbus/issues/483) item 2, Mark Purcell — item 1, `marginal_cost`, shipped earlier in v0.94.271). `compute_tariff_attributed_cost()` computes each adequacy (deferrable) load's own share of the plan's real grid-import cost, pro-rata by its power draw against `grid_to_load` in each period, reusing the existing seven-flow decomposition (`_flow_decomposition()`, #264) rather than re-deriving flow economics. Published as `plan_tariff_attributed_cost` on the load's own run-state, rounded to 4dp at the publish boundary (same convention as every other headline `$` figure this project publishes). Deliberately scoped to adequacy loads only, matching `marginal_cost`'s own existing scope; sums to the plan's real grid cost exactly only in the "clean synthetic day" shape #483's own Acceptance section describes (no grid-to-battery charging, no export, no untracked background load) — a genuine partial answer on a real household with uncontrolled circuits, not a full-grid-cost claim, same honest boundary `marginal_cost` already carries. 8 new tests (6 on the computation itself, 2 on the publish path). Full local suite green (2177 passed, 13 skipped, 142 subtests), `ruff check`/`format --check` clean, mypy delta +0.
+
 ## [0.94.277] — 2026-09-13
 
 ### Changed
