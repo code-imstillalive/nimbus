@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.279] — 2026-09-13
+
+### Added
+- **Cross-check current-interval retail price against AEMO P5MIN, flag on disagreement** (nimbus issue [#452](https://github.com/code-imstillalive/nimbus/issues/452), Mark Purcell — partial, current-interval scope only, issue left open for the "next interval" half). `check_aemo_p5min_disagreement()` compares the current interval's real retail commodity price against AEMO's own live P5MIN wholesale price, reusing the existing `CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR` field rather than adding a duplicate sensor. Flags a difference from the household's own typical same-time-of-day retail markup (reusing `compute_5min_offset()`'s existing bucketed-mean computation, not a raw zero-difference check) beyond a new dashboard-tunable threshold (`number.nimbus_solver_aemo_p5min_disagreement_threshold_dollars`, default $0.10/kWh), logged as a WARNING once per period. Ported to both the native integration and the standalone/cron copy. Caught and fixed a real bug in the same pass: the new number entity was initially missing from `sensor.py`'s own live-entity resolution tables — the exact #538/#692-pattern bug class this project has hit before, where a dashboard edit would have had zero effect on the actual solve — found by this project's own `test_sensor_solver_config_keys.py` before it ever shipped. 10 new tests. Full local suite green (2187 passed, 13 skipped), `ruff check`/`format --check` clean, mypy delta +0.
+
 ## [0.94.278] — 2026-09-13
 
 ### Added
