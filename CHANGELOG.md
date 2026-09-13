@@ -8,6 +8,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.274] — 2026-09-13
+
 ### Added
 - **`nimbus_load.set_controllable_load` service: create or update a Controllable Load subentry in one atomic call** (nimbus issue [#809](https://github.com/code-imstillalive/nimbus/issues/809)). Built directly from a real, live migration session: the config_subentries wizard's "+ Add" control looks near-identical to "Reconfigure" (would have silently created a duplicate load pointed at the same real device), and a subsequent reconfigure attempt left several optional fields (`thermal_earliest_hour`/`thermal_deadline_hour`/`controllable_load_min_hold_minutes`/`controllable_load_max_activations_per_day`/`controllable_load_device_entity`) unsaved with no way to tell short of re-solving and reverse-engineering the LP's own fallback behaviour. The new service reuses the wizard's own schema builder directly — zero risk of validation drifting between the two — accepts an explicit `subentry_id` to target a specific load unambiguously (a title match alone is defeated by something as small as retyped case/whitespace), and returns the subentry_id plus the exact data now persisted so the result is verifiable in the same call via `ha_call_service` (MCP) or Developer Tools. Reloads the hub automatically so the change takes effect immediately, matching what the wizard's own flow-manager already does under the hood.
 
