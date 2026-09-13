@@ -1475,6 +1475,7 @@ class NimbusControllableLoadStateSensor(SensorEntity):
             "plan_shadow_price_forecast",
             "plan_status_reason",
             "temperature_forecast",
+            "plan_temperature_forecast",
         }
     )
 

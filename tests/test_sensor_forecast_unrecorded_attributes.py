@@ -116,6 +116,7 @@ def test_commanded_state_sensor_has_unrecorded_attributes_for_recorder_cap():
             "plan_cost_forecast",
             "plan_shadow_price_forecast",
             "temperature_forecast",
+            "plan_temperature_forecast",
         }
     )
 
