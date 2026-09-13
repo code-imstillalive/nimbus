@@ -209,6 +209,17 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # fetch_entity_attribute_history_range() already established
         # for exactly this shape, not a fresh gap.
         "fetch_entity_state_history_range",
+        # nimbus issue #843 (2026-09-14, option B of Mark Purcell's own
+        # A/B/C steer): a pure helper (list of (datetime, float) in, same
+        # out -- no HA imports at all) but, exactly like fetch_entity_
+        # state_history_range() immediately above, its ONLY caller is
+        # _resolve_battery_participant_history(), itself already
+        # INTENTIONAL_NATIVE_ONLY. Standalone/cron mode has no battery
+        # participant subentries to reconstruct in the first place, so
+        # there is no code path there for this guard to protect -- same
+        # "only ever invoked from native mode, and does nothing at all
+        # when it isn't" reasoning, not a fresh gap.
+        "_drop_implausible_power_samples",
         # nimbus issue #645: overlays a Controllable Load's live
         # number.nimbus_<load>_<key> entity values on top of its own
         # subentry.data, same no-standalone-equivalent reasoning as
