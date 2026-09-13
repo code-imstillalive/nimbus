@@ -234,6 +234,17 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # real no-op ({}) in standalone/cron mode already; porting it
         # would add dead code with nothing to ever exercise it.
         "compute_tariff_attributed_cost",
+        # nimbus issue #496 (Signals 7/7 of #489): same native-only
+        # reasoning as compute_daily_quality_report() itself (already
+        # listed above) -- compute_daily_flex_report() depends directly
+        # on resample_history_mean() and fetch_entity_attribute_history_
+        # range(), both already native-only in this same list, so this
+        # is not a separate, freshly-introduced gap; porting it would
+        # require porting those dependencies first, a genuinely larger,
+        # separate piece of work out of this issue's own scope.
+        "compute_daily_flex_report",
+        "_compute_flex_report_for_window",
+        "publish_daily_flex_report",
     }
 )
 

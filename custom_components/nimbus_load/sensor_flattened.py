@@ -1872,6 +1872,100 @@ def dispatch_to_flattened_flex(
         entity.update_from_parent(attributes)
 
 
+# ---------------------------------------------------------------------------
+# Flex report (nimbus issue #496, Signals 7/7 of #489 -- the compute_daily_
+# flex_report() half Mark Purcell authorized 2026-09-09, shipped separately
+# from FLATTENED_ATTRS_FLEX above). price_response_curve stays a parent-only
+# JSON list, same reasoning FLATTENED_ATTRS_FLEX's own battery_signals/
+# load_signals already established (a variable-length list, not one fixed
+# scalar per row).
+# ---------------------------------------------------------------------------
+
+
+FLATTENED_ATTRS_FLEX_REPORT: tuple[FlattenedAttrSpec, ...] = (
+    FlattenedAttrSpec(
+        source_key="offered_up_kwh",
+        name="Flex Offered Up",
+        entity_id_suffix="offered_up_kwh",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=None,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_KWH,
+        suggested_display_precision=3,
+    ),
+    FlattenedAttrSpec(
+        source_key="offered_down_kwh",
+        name="Flex Offered Down",
+        entity_id_suffix="offered_down_kwh",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=None,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_KWH,
+        suggested_display_precision=3,
+    ),
+    FlattenedAttrSpec(
+        source_key="realised_up_kwh",
+        name="Flex Realised Up",
+        entity_id_suffix="realised_up_kwh",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=None,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_KWH,
+        suggested_display_precision=3,
+    ),
+    FlattenedAttrSpec(
+        source_key="realised_down_kwh",
+        name="Flex Realised Down",
+        entity_id_suffix="realised_down_kwh",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=None,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_KWH,
+        suggested_display_precision=3,
+    ),
+    FlattenedAttrSpec(
+        source_key="envelope_curtailment_kwh",
+        name="Flex Envelope Curtailment",
+        entity_id_suffix="envelope_curtailment_kwh",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=None,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_KWH,
+        suggested_display_precision=3,
+    ),
+)
+
+
+def create_flattened_entities_flex_report(
+    entry, sw_version: str | None, hub_device_id: str | None = None
+) -> list[_FlattenedAttributeSensorSubDevice]:
+    """One SensorEntity per FLATTENED_ATTRS_FLEX_REPORT row, attached to
+    the SAME "Nimbus Flex" sub-device as create_flattened_entities_flex()
+    above -- a genuine sibling grouping, not a second device."""
+    device_identifier = (DOMAIN, f"{entry.entry_id}_flex")
+    return [
+        _FlattenedAttributeSensorSubDevice(
+            entry,
+            sw_version,
+            spec,
+            device_identifier=device_identifier,
+            device_name="Nimbus Flex",
+            entity_id_prefix="nimbus_flex",
+            hub_device_id=hub_device_id,
+        )
+        for spec in FLATTENED_ATTRS_FLEX_REPORT
+    ]
+
+
+def dispatch_to_flattened_flex_report(
+    entities: list[_FlattenedAttributeSensorSubDevice], attributes: dict
+) -> None:
+    """Fan out the Flex Report parent's attribute dict to every child.
+    See dispatch_to_flattened_quality() above for the full contract."""
+    for entity in entities:
+        entity.update_from_parent(attributes)
+
+
 def dispatch_to_flattened_quality(
     entities: list[_FlattenedAttributeSensorSubDevice], attributes: dict
 ) -> None:
