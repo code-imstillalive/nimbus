@@ -1,6 +1,6 @@
-# Entities reference: Quality, Backtest, Counterfactual
+# Entities reference: Quality, Backtest, Counterfactual, Flex
 
-Companion to `README.md` "What Nimbus publishes". Covers the three sub-devices introduced in Family-A (v0.94.24) and the flattened child sensors they expose. For per-load, whole-house rollup, and solver-plan entities, see the README.
+Companion to `README.md` "What Nimbus publishes". Covers the sub-devices introduced in Family-A (v0.94.24, Quality/Backtest/Counterfactual) and Flex (v0.94.282-284, nimbus issue #496) and the flattened child sensors they expose. For per-load, whole-house rollup, and solver-plan entities, see the README.
 
 Each sub-device is a HA device parented to the hub via `via_device`. The parent entity retains its full attribute payload for backwards compatibility; per-attribute flattened children are additive and let you graph, template, and script against first-class sensors without unpacking `state_attr`.
 
@@ -55,13 +55,46 @@ Publishes what Nimbus's plan would have produced against what the plant actually
 
 Delta between real and nimbus-only close = plant-side deviation from plan.
 
+## Nimbus Flex
+
+Publishes what the LP's own HiGHS ranging already knows about headroom, plus a daily flex report -- both from nimbus issue #496 (Signals 7/7 of #489), Mark Purcell-authorized 2026-09-09. Two families on the same sub-device, shipped separately: live period-0 signals (v0.94.282/283) and the daily report (v0.94.284).
+
+Live signals are gated behind `switch.nimbus_solver_flex_signals_enabled` (off by default -- ranging adds real solve overhead, see that switch's own const.py comment). All-`unknown` when the switch is off; that's expected, not a bug.
+
+| Entity | Unit | Meaning |
+| --- | --- | --- |
+| `sensor.nimbus_flex_signals` | kW | Legacy parent. State mirrors `flex_available_up_kw`; attributes also carry `battery_signals`/`load_signals` (per-participant JSON lists, variable length). |
+| `sensor.nimbus_flex_flex_available_up_kw` | kW | Upward flexibility available right now (plan-consistent, from ranging). |
+| `sensor.nimbus_flex_flex_available_down_kw` | kW | Downward flexibility available right now. |
+| `sensor.nimbus_flex_grid_import_headroom_kw` | kW | How much more import the current period could absorb at the same marginal price. |
+| `sensor.nimbus_flex_grid_import_headroom_kwh` | kWh | Same, as energy over the period. |
+| `sensor.nimbus_flex_grid_export_headroom_kw` | kW | How much more export the current period could absorb at the same marginal price. |
+| `sensor.nimbus_flex_grid_export_headroom_kwh` | kWh | Same, as energy over the period. |
+| `sensor.nimbus_flex_forced_import_cost` | AUD/kWh | Reduced cost of forcing one more kWh of import right now. |
+| `sensor.nimbus_flex_forced_export_cost` | AUD/kWh | Reduced cost of forcing one more kWh of export right now. |
+| `sensor.nimbus_flex_load_headroom_up_kwh` | kWh | Switchboard-level headroom to absorb more load at the same λ(t), from `power_balance_t` row ranging. |
+| `sensor.nimbus_flex_load_headroom_down_kwh` | kWh | Switchboard-level headroom to shed load at the same λ(t). |
+
+The daily report runs once per day for "yesterday" (same convention as `compute_daily_quality_report()`), independent of whether the live-signals switch is currently on.
+
+| Entity | Unit | Meaning |
+| --- | --- | --- |
+| `sensor.nimbus_flex_report` | kW | Legacy parent. Attributes also carry `latest_date` and `price_response_curve` (a variable-length list of `{price_band_low, price_band_high, mean_net_import_kw, n_samples}`, not flattened -- same reasoning as `battery_signals`/`load_signals` above). |
+| `sensor.nimbus_flex_offered_up_kwh` | kWh | `Σ flex_available_up_kw·dt` for the scored day. `null` (not `0`) on a day the live-signals switch was off -- there's genuinely no offered data to report, not zero flex. |
+| `sensor.nimbus_flex_offered_down_kwh` | kWh | Same, downward. |
+| `sensor.nimbus_flex_realised_up_kwh` | kWh | What the day's real measured battery charge/discharge actually moved, upward direction. |
+| `sensor.nimbus_flex_realised_down_kwh` | kWh | Same, downward direction. |
+| `sensor.nimbus_flex_envelope_curtailment_kwh` | kWh | `Σ max(0, solar - load - export_limit)·dt` for the day, using the real configured `solver_grid_max_export_kw` (never a hardcoded default). |
+
 ## Sub-device structure
 
 Each family is registered by three artefacts in `custom_components/nimbus_load/sensor_flattened.py`:
 
-- Spec dictionary: `FLATTENED_ATTRS_QUALITY`, `FLATTENED_ATTRS_BACKTEST`, `FLATTENED_ATTRS_COUNTERFACTUAL`
-- Factory: `create_flattened_entities_quality/backtest/counterfactual`
-- Dispatch handler: `dispatch_to_flattened_quality/backtest/counterfactual`
+- Spec dictionary: `FLATTENED_ATTRS_QUALITY`, `FLATTENED_ATTRS_BACKTEST`, `FLATTENED_ATTRS_COUNTERFACTUAL`, `FLATTENED_ATTRS_FLEX`, `FLATTENED_ATTRS_FLEX_REPORT`
+- Factory: `create_flattened_entities_quality/backtest/counterfactual/flex/flex_report`
+- Dispatch handler: `dispatch_to_flattened_quality/backtest/counterfactual/flex/flex_report`
+
+Flex and Flex Report are a genuine sibling pairing -- both use `entity_id_prefix="nimbus_flex"` and the SAME `device_identifier=(DOMAIN, f"{entry.entry_id}_flex")`, i.e. one "Nimbus Flex" device with two families of children, not two devices.
 
 Children inherit `_FlattenedAttributeSensorSubDevice`, which sets a DeviceInfo whose `via_device` points at the hub `entry.entry_id`.
 
