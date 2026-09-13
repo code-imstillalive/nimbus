@@ -1419,6 +1419,152 @@ class AdequacyLoadConfig:
 
 
 @dataclass(frozen=True)
+class ThermalLoadConfig:
+    """nimbus issue #774: a Controllable Load whose "must heat every day"
+    guarantee is a genuine HARD LP constraint on a real temperature STATE
+    VARIABLE, not an emergent property of several loosely-coordinated soft
+    mechanisms the way AdequacyLoadConfig's own `shortfall_price` is.
+
+    Direct response to a real, repeated failure pattern: the Hot Water Heat
+    Pump's own adequacy-load configuration broke five separate times in
+    ~36 hours (#726, #741, #733, #769, #770/#782), each a bug in a
+    DIFFERENT one of ~12 loosely-coordinated mechanisms (earliness budget,
+    smoothness weight, CalibratedOptions, semi-continuous block placement,
+    the relay-chatter guard, daily-activation-cap bookkeeping, thermal-rate
+    learning, shortfall reporting) that jointly decided "should the tank
+    heat right now" -- none of those bugs were in the LP itself, they were
+    all in mechanisms that only ever had authority over a SOFT cost term.
+    The maintainer's own follow-up on #774 found EMHASS's real answer
+    (`docs/thermal_model.md`): model tank temperature as a genuine LP state
+    variable with a HARD bound -- a tie-break or objective-weight bug can
+    never trade away a bound that isn't a cost term at all.
+
+    Deliberately mirrors BatteryConfig's own already-proven `initial_soc_
+    kwh`/`must_have_soc_by_period_index`/`must_have_soc_kwh` mechanism
+    (network.py's own SoC recursion + departure-deadline hard floor),
+    applied to a temperature state variable instead of SoC:
+    `T[t] = T[t-1] + heating_rate_c_per_kwh * power_kw[t] * hours[t] -
+    idle_decay_c_per_hour * hours[t]`, with `T[deadline_period] >=
+    target_temperature_c` enforced as a genuine hard constraint (network.py
+    -- unless the caller's own infeasibility-fallback retry had to relax
+    it, see `Plan.thermal_guarantee_relaxed`'s own docstring).
+
+    Deliberate simplification, stated explicitly rather than silently
+    assumed: this reuses the SAME flat `idle_decay_c_per_hour` model
+    `thermal_forecast.py` already learns from real recorder history (EMHASS-
+    named per nimbus issue #603's own "reuse prior art naming" standing
+    rule), not EMHASS's true ambient-scaled `cooling_constant * (T_in -
+    T_out_forecast)` -- that needs a real outdoor/ambient temperature
+    forecast series, which does not exist anywhere in this codebase today.
+    The real benefit of reusing the flat model: the LP's own hard guarantee
+    and the household's own dashboard temperature forecast now share the
+    IDENTICAL physics model, by construction -- they can never disagree
+    with each other the way a HAEO-`docs/thermal_model.md`-style ambient-
+    scaled LP model and a separately-computed flat display projection
+    could.
+
+    nimbus issue #477's own lesson, applied here rather than repeated: a
+    hard deadline that turns out genuinely unreachable (a miscalibrated
+    `heating_rate_c_per_kwh`, an unusually cold start) must never make the
+    WHOLE multi-day plan infeasible over one load. `network.py`'s
+    `build_plan()` retries once, with just the failing thermal load(s)' own
+    hard deadline relaxed to the same soft `shortfall_price` shape
+    AdequacyLoadConfig already uses, whenever the first, hard-constrained
+    solve comes back infeasible -- see `Plan.thermal_guarantee_relaxed`.
+
+    `comfort_floor_c`/`comfort_floor_cost` (optional, tier 3 of Mark's own
+    objective hierarchy -- primary: heat every day; secondary, subordinate,
+    in order: early > cheap > reheat if it gets too cold): an OWNED, priced
+    mid-day reheat action, deliberately mirroring BatteryConfig's own soft
+    min-SoC underfill-penalty mechanism (nimbus issue #328) rather than a
+    new pattern -- a real dollar cost for dipping below this floor at ANY
+    period, not just at the deadline. `None` (the default) is a complete
+    no-op: no reheat pressure at all, byte-identical to not having the
+    field.
+    """
+
+    name: str
+    max_power_kw: float
+    initial_temperature_c: float
+    target_temperature_c: (
+        float  # the hard guarantee's own target -- see class docstring
+    )
+    earliest_period: int  # start of the earliness tie-break's own preference window (see network.py) -- power itself is NOT zeroed outside [earliest_period, deadline_period], unlike AdequacyLoadConfig, so a genuine mid-day comfort-floor reheat stays possible at any hour
+    deadline_period: int  # inclusive -- the hard constraint's own period index
+    heating_rate_c_per_kwh: float  # EMHASS-named per #603's standing rule; reuses thermal_forecast.py's own learned value
+    idle_decay_c_per_hour: float  # same flat idle-decay model thermal_forecast.py already learns/uses -- see class docstring, "Deliberate simplification"
+    # A loose PHYSICAL ceiling on the temperature state variable itself
+    # (mirrors BatteryConfig's own capacity_kwh -- the true physical range,
+    # not a scheduling target). Default is a generous, safely-below-
+    # boiling figure suitable for any real tank; a caller with a genuine
+    # device-specific maximum can override it. This bound is never meant
+    # to bind economically -- it exists only so the LP's temperature
+    # variable has SOME finite upper bound, the same reason every other
+    # state variable in this module has one.
+    max_temperature_c: float = 99.0
+    comfort_floor_c: float | None = (
+        None  # None = no soft mid-day reheat pressure -- see class docstring
+    )
+    comfort_floor_cost: float = (
+        0.0  # $-equivalent per degree-period below comfort_floor_c
+    )
+    # nimbus issue #484: same reasoning as AdequacyLoadConfig's own
+    # subentry_id field -- threaded through to ThermalLoadPlan so a
+    # post-solve caller can map a plan entry back to its real
+    # load_run_state.py store entry.
+    subentry_id: str | None = None
+
+    def __post_init__(self) -> None:
+        if self.max_power_kw <= 0.0:
+            msg = f"Thermal load '{self.name}' max_power_kw must be > 0"
+            raise ValueError(msg)
+        if self.heating_rate_c_per_kwh <= 0.0:
+            msg = f"Thermal load '{self.name}' heating_rate_c_per_kwh must be > 0"
+            raise ValueError(msg)
+        if self.idle_decay_c_per_hour < 0.0:
+            msg = f"Thermal load '{self.name}' idle_decay_c_per_hour must be >= 0"
+            raise ValueError(msg)
+        if self.earliest_period < 0:
+            msg = f"Thermal load '{self.name}' earliest_period must be >= 0"
+            raise ValueError(msg)
+        if self.deadline_period < self.earliest_period:
+            msg = (
+                f"Thermal load '{self.name}' deadline_period "
+                f"({self.deadline_period}) must be >= earliest_period "
+                f"({self.earliest_period})"
+            )
+            raise ValueError(msg)
+        if self.max_temperature_c <= 0.0:
+            msg = f"Thermal load '{self.name}' max_temperature_c must be > 0"
+            raise ValueError(msg)
+        if self.target_temperature_c > self.max_temperature_c:
+            msg = (
+                f"Thermal load '{self.name}' target_temperature_c "
+                f"({self.target_temperature_c}) must be <= max_temperature_c "
+                f"({self.max_temperature_c})"
+            )
+            raise ValueError(msg)
+        if self.initial_temperature_c < 0.0:
+            msg = f"Thermal load '{self.name}' initial_temperature_c must be >= 0"
+            raise ValueError(msg)
+        if self.comfort_floor_c is not None:
+            if self.comfort_floor_c > self.target_temperature_c:
+                msg = (
+                    f"Thermal load '{self.name}' comfort_floor_c "
+                    f"({self.comfort_floor_c}) must be <= target_temperature_c "
+                    f"({self.target_temperature_c}) -- it is a MID-DAY floor "
+                    "subordinate to the real deadline target, never a higher bar"
+                )
+                raise ValueError(msg)
+            if self.comfort_floor_c < 0.0:
+                msg = f"Thermal load '{self.name}' comfort_floor_c must be >= 0"
+                raise ValueError(msg)
+        if self.comfort_floor_cost < 0.0:
+            msg = f"Thermal load '{self.name}' comfort_floor_cost must be >= 0 -- a negative cost would make the LP WANT to dip below the comfort floor"
+            raise ValueError(msg)
+
+
+@dataclass(frozen=True)
 class SharedCircuitConfig:
     """A real, physical circuit-headroom cap shared by two or more
     AdequacyLoadConfig instances -- direct response to a real household's

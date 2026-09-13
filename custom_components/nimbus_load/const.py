@@ -209,10 +209,14 @@ CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY: Final = (
 )
 CONTROLLABLE_LOAD_KIND_SHEDDABLE: Final = "sheddable"
 CONTROLLABLE_LOAD_KIND_DEFERRABLE: Final = "deferrable"
-# Reserved for #479 (quota), #481 (thermal), #482 (price_gated) --
-# not yet backed by a real solver-side class, so not offered in the
-# wizard's own kind selector yet (see flows/controllable_load_subentry.py).
+# Reserved for #479 (quota), #482 (price_gated) -- not yet backed by a
+# real solver-side class, so not offered in the wizard's own kind
+# selector yet (see flows/controllable_load_subentry.py).
 CONTROLLABLE_LOAD_KIND_QUOTA: Final = "quota"
+# nimbus issue #774: wired up (network.py's own ThermalLoadConfig/
+# ThermalLoadPlan, solver_writer.py's build_controllable_loads()) -- a
+# genuine HARD LP constraint on a real temperature state variable,
+# offered in the wizard's own kind selector alongside sheddable/deferrable.
 CONTROLLABLE_LOAD_KIND_THERMAL: Final = "thermal"
 CONTROLLABLE_LOAD_KIND_PRICE_GATED: Final = "price_gated"
 
@@ -251,6 +255,44 @@ CONF_DEFERRABLE_VALUE_PER_KWH: Final = "deferrable_value_per_kwh"
 # parsed explicitly).
 CONF_DEFERRABLE_DONE_ENTITY: Final = "deferrable_done_entity"
 CONF_DEFERRABLE_DONE_WHEN: Final = "deferrable_done_when"
+
+# kind=thermal (nimbus issue #774) -- maps directly onto
+# solver.elements.ThermalLoadConfig, see that class's own docstring for
+# the full design (a genuine HARD temperature-deadline constraint,
+# replacing AdequacyLoadConfig's own soft shortfall-price shape for loads
+# whose "must heat every day" guarantee kept breaking via ~12 loosely-
+# coordinated soft mechanisms). earliest/deadline hours use the SAME real
+# 24hr-decimal-hour convention as CONF_DEFERRABLE_EARLIEST_HOUR/
+# CONF_DEFERRABLE_DEADLINE_HOUR above -- one shared UX for both kinds.
+# heating_rate_c_per_kwh/idle_decay_c_per_hour are OPTIONAL overrides of
+# the value thermal_forecast.py's own learn_thermal_rates() already
+# derives from real recorder history -- None (the default, left blank) is
+# a complete no-op, the learned value is used exactly as it already is for
+# the dashboard's own temperature-forecast display.
+# The real water_heater/climate entity this load's own live temperature
+# is read FROM -- done_condition.py's own read_current_temperature()
+# (reused as-is, same "one real implementation" reasoning that module's
+# own docstring already establishes) reads its `current_temperature`
+# attribute to become ThermalLoadConfig.initial_temperature_c each solve.
+# Deliberately a SEPARATE field from CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY
+# (what this load is COMMANDED through) -- #534's own real device already
+# established these as genuinely different questions for deferrable
+# loads; a thermal load asks the identical two questions.
+CONF_THERMAL_TEMPERATURE_ENTITY: Final = "thermal_temperature_entity"
+CONF_THERMAL_MAX_POWER_KW: Final = "thermal_max_power_kw"
+CONF_THERMAL_TARGET_TEMPERATURE_C: Final = "thermal_target_temperature_c"
+CONF_THERMAL_EARLIEST_HOUR: Final = "thermal_earliest_hour"
+CONF_THERMAL_DEADLINE_HOUR: Final = "thermal_deadline_hour"
+# Tier 3 of Mark's own objective hierarchy (primary: heat every day;
+# secondary, subordinate, in order: early > cheap > reheat if it gets too
+# cold) -- an OWNED, priced mid-day reheat action, mirroring
+# ThermalLoadConfig.comfort_floor_c/comfort_floor_cost. Both optional;
+# None (the default, left blank) means no reheat pressure at all, exactly
+# matching that class's own no-op convention.
+CONF_THERMAL_COMFORT_FLOOR_C: Final = "thermal_comfort_floor_c"
+CONF_THERMAL_COMFORT_FLOOR_COST: Final = "thermal_comfort_floor_cost"
+CONF_THERMAL_HEATING_RATE_C_PER_KWH: Final = "thermal_heating_rate_c_per_kwh"
+CONF_THERMAL_IDLE_DECAY_C_PER_HOUR: Final = "thermal_idle_decay_c_per_hour"
 
 # Battery Participant fields (2026-09-08, nimbus issue #563 -- the
 # config surface for #467 stage 1's own `batteries: list[BatteryConfig]`

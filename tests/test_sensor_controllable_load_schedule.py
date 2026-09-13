@@ -363,3 +363,26 @@ def test_cost_avoided_today_sensor_reads_the_real_forecast_mean_import_price():
     s = _COST_AVOIDED_SENSOR_CLASS(hass, entry, subentry, "1.0.0")
     asyncio.run(s.async_update())
     assert s.native_value == pytest.approx(0.019)
+
+
+def test_entity_category_reclassification_nimbus_774():
+    """nimbus issue #774 (Mark's own objective-hierarchy/entity-design
+    ask): the device page's ONE plain-language answer (Status, alongside
+    NimbusControllableLoadStateSensor's own commanded_state, checked in
+    test_sensor_controllable_load_state.py) stays a primary,
+    undifferentiated sensor -- every supporting-detail schedule-view
+    sensor (including NimbusControllableLoadCostAvoidedTodaySensor and
+    NimbusControllableLoadTemperatureForecastSensor, checked separately
+    since neither is in _SCHEDULE_SENSOR_CLASSES) moves to diagnostic."""
+    from homeassistant.const import EntityCategory
+
+    for cls in _SCHEDULE_SENSOR_CLASSES:
+        if cls is sensor.NimbusControllableLoadStatusSensor:
+            assert cls._attr_entity_category is None, cls
+        else:
+            assert cls._attr_entity_category == EntityCategory.DIAGNOSTIC, cls
+    assert _COST_AVOIDED_SENSOR_CLASS._attr_entity_category == EntityCategory.DIAGNOSTIC
+    assert (
+        sensor.NimbusControllableLoadTemperatureForecastSensor._attr_entity_category
+        == EntityCategory.DIAGNOSTIC
+    )

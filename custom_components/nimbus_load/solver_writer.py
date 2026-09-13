@@ -8647,7 +8647,7 @@ def build_controllable_loads(
     grid_times: list[datetime],
     n_periods: int,
     import_price_arr: list[float] | None = None,
-) -> tuple[list, list]:
+) -> tuple[list, list, list]:
     """nimbus issue #486: builds SheddableLoadConfig/AdequacyLoadConfig
     lists from this hub's own `controllable_load` subentries, for
     build_plan()'s own sheddable_loads=/adequacy_loads= arguments --
@@ -8655,7 +8655,26 @@ def build_controllable_loads(
     and neither LP class (despite existing since #229/#16) had ever
     actually run on a live install.
 
-    Native/in-process mode ONLY (returns ([], []) unconditionally when
+    nimbus issue #774: also builds ThermalLoadConfig entries for
+    kind=thermal subentries, returned as a third list. `heating_rate_
+    c_per_kwh`/`idle_decay_c_per_hour` come from (in order): an explicit
+    CONF_THERMAL_HEATING_RATE_C_PER_KWH/CONF_THERMAL_IDLE_DECAY_C_PER_HOUR
+    override, else this subentry's own ALREADY-PERSISTED LoadRunState
+    (`run_state_sample.thermal_heating_rate_c_per_kwh`/`_idle_decay_c_
+    per_hour`, keyed by subentry_id -- so a load migrated from
+    kind=deferrable keeps whatever it already learned, since that
+    learning lives in the run-state store, not the kind), else
+    thermal_forecast's own module-level defaults. Real, honest scope
+    limit (not silently hidden): this function is SYNCHRONOUS (native
+    ConfigSubentry access only), and a fresh recorder-history relearn is
+    genuinely async (see apply_commanded_state_guard()'s own deferrable-
+    kind relearning block, which bridges into it via `_async_fetch_
+    thermal_history()`) -- a thermal load that has NEVER been kind=
+    deferrable has no persisted learned rate to read yet and stays on
+    config-override/module-default until a future issue extends that
+    same async relearning trigger to kind=thermal loads too.
+
+    Native/in-process mode ONLY (returns ([], [], []) unconditionally when
     _NATIVE_HASS is None, i.e. the standalone/cron deployment) --
     ConfigSubentries are a real HA config_entries object, not something
     exposed over this module's own plain-REST ha_get()/ha_post_state()
@@ -8667,7 +8686,7 @@ def build_controllable_loads(
     ever reached once _NATIVE_HASS is already known to be set.
     """
     if _NATIVE_HASS is None:
-        return [], []
+        return [], [], []
     # Same relative-then-absolute fallback as this file's own top-of-file
     # import block -- solver_writer.py can be imported either as part of
     # the real `custom_components.nimbus_load` package (native mode,
@@ -8696,8 +8715,18 @@ def build_controllable_loads(
             CONF_SHEDDABLE_MIN_FRACTION,
             CONF_SHEDDABLE_NOMINAL_KW,
             CONF_SHEDDABLE_SHED_COST,
+            CONF_THERMAL_COMFORT_FLOOR_C,
+            CONF_THERMAL_COMFORT_FLOOR_COST,
+            CONF_THERMAL_DEADLINE_HOUR,
+            CONF_THERMAL_EARLIEST_HOUR,
+            CONF_THERMAL_HEATING_RATE_C_PER_KWH,
+            CONF_THERMAL_IDLE_DECAY_C_PER_HOUR,
+            CONF_THERMAL_MAX_POWER_KW,
+            CONF_THERMAL_TARGET_TEMPERATURE_C,
+            CONF_THERMAL_TEMPERATURE_ENTITY,
             CONTROLLABLE_LOAD_KIND_DEFERRABLE,
             CONTROLLABLE_LOAD_KIND_SHEDDABLE,
+            CONTROLLABLE_LOAD_KIND_THERMAL,
             DOMAIN,
             SUBENTRY_TYPE_CONTROLLABLE_LOAD,
         )
@@ -8720,17 +8749,28 @@ def build_controllable_loads(
             CONF_SHEDDABLE_MIN_FRACTION,
             CONF_SHEDDABLE_NOMINAL_KW,
             CONF_SHEDDABLE_SHED_COST,
+            CONF_THERMAL_COMFORT_FLOOR_C,
+            CONF_THERMAL_COMFORT_FLOOR_COST,
+            CONF_THERMAL_DEADLINE_HOUR,
+            CONF_THERMAL_EARLIEST_HOUR,
+            CONF_THERMAL_HEATING_RATE_C_PER_KWH,
+            CONF_THERMAL_IDLE_DECAY_C_PER_HOUR,
+            CONF_THERMAL_MAX_POWER_KW,
+            CONF_THERMAL_TARGET_TEMPERATURE_C,
+            CONF_THERMAL_TEMPERATURE_ENTITY,
             CONTROLLABLE_LOAD_KIND_DEFERRABLE,
             CONTROLLABLE_LOAD_KIND_SHEDDABLE,
+            CONTROLLABLE_LOAD_KIND_THERMAL,
             DOMAIN,
             SUBENTRY_TYPE_CONTROLLABLE_LOAD,
         )
 
     sheddable_loads: list = []
     adequacy_loads: list = []
+    thermal_loads: list = []
     entries = _NATIVE_HASS.config_entries.async_entries(DOMAIN)
     if not entries:
-        return [], []
+        return [], [], []
     run_state_day_key = now.strftime("%Y-%m-%d")
     for subentry in entries[0].subentries.values():
         if subentry.subentry_type != SUBENTRY_TYPE_CONTROLLABLE_LOAD:
@@ -9117,7 +9157,124 @@ def build_controllable_loads(
                     subentry_id=subentry.subentry_id,
                 )
             )
-    return sheddable_loads, adequacy_loads
+        elif kind == CONTROLLABLE_LOAD_KIND_THERMAL:
+            max_power_kw = float(data.get(CONF_THERMAL_MAX_POWER_KW) or 0.0)
+            target_temperature_c = data.get(CONF_THERMAL_TARGET_TEMPERATURE_C)
+            temperature_entity = data.get(CONF_THERMAL_TEMPERATURE_ENTITY)
+            if (
+                max_power_kw <= 0.0
+                or target_temperature_c is None
+                or not temperature_entity
+            ):
+                _LOGGER.warning(
+                    "Nimbus: controllable load '%s' (thermal) is missing "
+                    "max_power_kw/target_temperature_c/temperature_entity -- "
+                    "skipping this cycle",
+                    name,
+                )
+                continue
+            live_temperature = done_condition.read_current_temperature(
+                _NATIVE_HASS, temperature_entity
+            )
+            if live_temperature is None:
+                _LOGGER.warning(
+                    "Nimbus: controllable load '%s' (thermal) has no live "
+                    "temperature reading from %s (unavailable, or not a "
+                    "water_heater/climate entity) -- skipping this cycle",
+                    name,
+                    temperature_entity,
+                )
+                continue
+            earliest_hour = data.get(CONF_THERMAL_EARLIEST_HOUR)
+            deadline_hour = data.get(CONF_THERMAL_DEADLINE_HOUR)
+            earliest_period = (
+                _resolve_hour_to_period_index(
+                    grid_times, now, float(earliest_hour), is_deadline=False
+                )
+                if earliest_hour is not None
+                else 0
+            )
+            deadline_period = (
+                _resolve_hour_to_period_index(
+                    grid_times, now, float(deadline_hour), is_deadline=True
+                )
+                if deadline_hour is not None
+                else n_periods - 1
+            )
+            # nimbus issue #582's own same-day-in-progress fix, duplicated
+            # here rather than shared -- same accepted drift-risk tradeoff
+            # already flagged for apply_commanded_state_guard()'s own
+            # duplicate of this exact block (2026-09-09 worklog).
+            if (
+                earliest_hour is not None
+                and deadline_hour is not None
+                and deadline_period < earliest_period
+            ):
+                midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+                earliest_today = midnight + timedelta(hours=float(earliest_hour))
+                deadline_today = midnight + timedelta(hours=float(deadline_hour))
+                if earliest_today <= now <= deadline_today:
+                    earliest_period = 0
+            if deadline_period < earliest_period:
+                _LOGGER.warning(
+                    "Nimbus: controllable load '%s' (thermal) resolved "
+                    "deadline_period (%d) before earliest_period (%d) for "
+                    "this cycle's own 'now' -- skipping until the window "
+                    "resolves normally",
+                    name,
+                    deadline_period,
+                    earliest_period,
+                )
+                continue
+            # nimbus issue #774: heating_rate_c_per_kwh/idle_decay_c_per_hour
+            # -- explicit override, else this subentry's own already-
+            # persisted LoadRunState (see this function's own docstring for
+            # the full "why not a fresh relearn here" reasoning), else
+            # thermal_forecast's own module-level defaults.
+            heating_rate_override = data.get(CONF_THERMAL_HEATING_RATE_C_PER_KWH)
+            idle_decay_override = data.get(CONF_THERMAL_IDLE_DECAY_C_PER_HOUR)
+            if heating_rate_override is not None:
+                heating_rate_c_per_kwh = float(heating_rate_override)
+            elif (
+                run_state_sample is not None
+                and run_state_sample.thermal_heating_rate_c_per_kwh is not None
+            ):
+                heating_rate_c_per_kwh = run_state_sample.thermal_heating_rate_c_per_kwh
+            else:
+                heating_rate_c_per_kwh = thermal_forecast.DEFAULT_HEATING_RATE_C_PER_KWH
+            if idle_decay_override is not None:
+                idle_decay_c_per_hour = float(idle_decay_override)
+            elif (
+                run_state_sample is not None
+                and run_state_sample.thermal_idle_decay_c_per_hour is not None
+            ):
+                idle_decay_c_per_hour = run_state_sample.thermal_idle_decay_c_per_hour
+            else:
+                idle_decay_c_per_hour = thermal_forecast.DEFAULT_IDLE_DECAY_C_PER_HOUR
+            comfort_floor_c = data.get(CONF_THERMAL_COMFORT_FLOOR_C)
+            comfort_floor_cost = data.get(CONF_THERMAL_COMFORT_FLOOR_COST)
+            thermal_loads.append(
+                elements.ThermalLoadConfig(
+                    name=name,
+                    max_power_kw=max_power_kw,
+                    initial_temperature_c=live_temperature,
+                    target_temperature_c=float(target_temperature_c),
+                    earliest_period=earliest_period,
+                    deadline_period=deadline_period,
+                    heating_rate_c_per_kwh=heating_rate_c_per_kwh,
+                    idle_decay_c_per_hour=idle_decay_c_per_hour,
+                    comfort_floor_c=(
+                        float(comfort_floor_c) if comfort_floor_c is not None else None
+                    ),
+                    comfort_floor_cost=(
+                        float(comfort_floor_cost)
+                        if comfort_floor_cost is not None
+                        else 0.0
+                    ),
+                    subentry_id=subentry.subentry_id,
+                )
+            )
+    return sheddable_loads, adequacy_loads, thermal_loads
 
 
 # nimbus issue #563: no wizard field exists yet for a battery
@@ -10030,15 +10187,42 @@ def apply_commanded_state_guard(
     """
     if _NATIVE_HASS is None or len(grid_times) < 2:
         return
-    entries_with_ids = [
-        (sl.subentry_id, sl.served_kw[0] if len(sl.served_kw) else 0.0, "sheddable", sl)
-        for sl in plan.sheddable_loads
-        if sl.subentry_id is not None
-    ] + [
-        (al.subentry_id, al.power_kw[0] if len(al.power_kw) else 0.0, "adequacy", al)
-        for al in plan.adequacy_loads
-        if al.subentry_id is not None
-    ]
+    entries_with_ids = (
+        [
+            (
+                sl.subentry_id,
+                sl.served_kw[0] if len(sl.served_kw) else 0.0,
+                "sheddable",
+                sl,
+            )
+            for sl in plan.sheddable_loads
+            if sl.subentry_id is not None
+        ]
+        + [
+            (
+                al.subentry_id,
+                al.power_kw[0] if len(al.power_kw) else 0.0,
+                "adequacy",
+                al,
+            )
+            for al in plan.adequacy_loads
+            if al.subentry_id is not None
+        ]
+        + [
+            # nimbus issue #774: same shape as the adequacy entries above --
+            # ThermalLoadPlan.power_kw is this load's own real driving
+            # decision variable, the same role AdequacyLoadPlan.power_kw
+            # plays for the debounce/dispatch logic below. getattr (not a
+            # direct plan.thermal_loads read): this file's own bare-
+            # SimpleNamespace test fakes predate this field, same
+            # defensive posture as every other optional-attribute read on
+            # `plan` in this function (see _raw_shadow_price_series()'s
+            # own comment for the precedent).
+            (tl.subentry_id, tl.power_kw[0] if len(tl.power_kw) else 0.0, "thermal", tl)
+            for tl in getattr(plan, "thermal_loads", [])
+            if tl.subentry_id is not None
+        ]
+    )
     if not entries_with_ids:
         return
     try:
@@ -10059,6 +10243,8 @@ def apply_commanded_state_guard(
                 CONF_DEFERRABLE_MAX_POWER_KW,
                 CONF_DEFERRABLE_TARGET_KWH,
                 CONF_SHEDDABLE_NOMINAL_KW,
+                CONF_THERMAL_DEADLINE_HOUR,
+                CONF_THERMAL_EARLIEST_HOUR,
                 DOMAIN,
             )
         except ImportError:
@@ -10078,6 +10264,8 @@ def apply_commanded_state_guard(
                 CONF_DEFERRABLE_MAX_POWER_KW,
                 CONF_DEFERRABLE_TARGET_KWH,
                 CONF_SHEDDABLE_NOMINAL_KW,
+                CONF_THERMAL_DEADLINE_HOUR,
+                CONF_THERMAL_EARLIEST_HOUR,
                 DOMAIN,
             )
 
@@ -10696,6 +10884,73 @@ def apply_commanded_state_guard(
                                         floor_temperature,
                                         floor_crossing["time"],
                                     )
+                elif load_kind == "thermal" and period_hours_arr is not None:
+                    # nimbus issue #774: same publish shape as the
+                    # adequacy branch above, but simpler -- no windowed/
+                    # done-entity/floor-crossing machinery (out of scope
+                    # for v1, see ThermalLoadConfig's own docstring).
+                    earliest_hour = data.get(CONF_THERMAL_EARLIEST_HOUR)
+                    deadline_hour = data.get(CONF_THERMAL_DEADLINE_HOUR)
+                    earliest_period = (
+                        _resolve_hour_to_period_index(
+                            grid_times, now, float(earliest_hour), is_deadline=False
+                        )
+                        if earliest_hour is not None
+                        else 0
+                    )
+                    deadline_period = (
+                        _resolve_hour_to_period_index(
+                            grid_times, now, float(deadline_hour), is_deadline=True
+                        )
+                        if deadline_hour is not None
+                        else n_periods - 1
+                    )
+                    # nimbus issue #582's own same-day-in-progress fix,
+                    # duplicated here too -- same accepted drift-risk
+                    # tradeoff already flagged on the adequacy branch
+                    # above and in build_controllable_loads() itself.
+                    if (
+                        earliest_hour is not None
+                        and deadline_hour is not None
+                        and deadline_period < earliest_period
+                    ):
+                        midnight = now.replace(
+                            hour=0, minute=0, second=0, microsecond=0
+                        )
+                        earliest_today = midnight + timedelta(
+                            hours=float(earliest_hour)
+                        )
+                        deadline_today = midnight + timedelta(
+                            hours=float(deadline_hour)
+                        )
+                        if earliest_today <= now <= deadline_today:
+                            earliest_period = 0
+                    new = replace(
+                        new,
+                        plan_forecast=load_run_state.build_time_value_series(
+                            grid_times, load_plan.power_kw
+                        ),
+                        plan_cost_forecast=_plan_cost_forecast(load_plan.power_kw),
+                        plan_shadow_price_forecast=_plan_shadow_price_forecast(),
+                        # nimbus issue #774: the LP's own real, solved
+                        # temperature trajectory -- for kind=thermal this
+                        # REPLACES the display-only thermal_forecast.py
+                        # projection a kind=deferrable load still uses
+                        # above (re-deriving the same physics model the LP
+                        # already solved with could only ever diverge from
+                        # it, see ThermalLoadPlan's own docstring).
+                        plan_temperature_forecast=load_run_state.build_time_value_series(
+                            grid_times, load_plan.temperature_c
+                        ),
+                        # Not applicable to this kind -- explicitly reset
+                        # rather than left stale, so a load migrated from
+                        # kind=deferrable doesn't keep showing an old
+                        # target/shortfall figure that no longer applies.
+                        plan_target_kwh=None,
+                        plan_shortfall_kwh=None,
+                        plan_earliest_period=earliest_period,
+                        plan_deadline_period=deadline_period,
+                    )
                 device_entity = data.get(CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY)
                 climate_on_hvac_mode = data.get(
                     CONF_CONTROLLABLE_LOAD_CLIMATE_ON_HVAC_MODE
@@ -12280,11 +12535,11 @@ def main() -> None:
         network.DEFAULT_BATTERY_CHARGE_EARLINESS_BUDGET_KW,
     )
     # nimbus issue #486: real controllable_load subentries (sheddable/
-    # deferrable kinds only -- see build_controllable_loads()'s own
-    # docstring), replacing the two hardcoded empty lists this call used
-    # to pass. Native-mode-only, a real no-op ([], []) in standalone/cron
-    # mode -- see that function's own docstring for why.
-    sheddable_loads, adequacy_loads = build_controllable_loads(
+    # deferrable/thermal kinds -- see build_controllable_loads()'s own
+    # docstring), replacing the hardcoded empty lists this call used
+    # to pass. Native-mode-only, a real no-op ([], [], []) in standalone/
+    # cron mode -- see that function's own docstring for why.
+    sheddable_loads, adequacy_loads, thermal_loads = build_controllable_loads(
         now, grid_times, n_periods, import_price
     )
     # nimbus issue #563: real battery_participant subentries, in
@@ -12347,6 +12602,7 @@ def main() -> None:
         loads=loads,
         sheddable_loads=sheddable_loads,
         adequacy_loads=adequacy_loads,
+        thermal_loads=thermal_loads,
         previous_plan=previous_plan,
         risk_aversion=risk_aversion,
         import_price_risk_aversion=import_price_risk_aversion,

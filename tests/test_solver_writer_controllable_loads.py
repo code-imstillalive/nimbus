@@ -137,7 +137,7 @@ class TestBuildControllableLoads(unittest.TestCase):
     def test_returns_empty_lists_when_not_in_native_mode(self):
         solver_writer._NATIVE_HASS = None
         now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
-        sheddable, adequacy = solver_writer.build_controllable_loads(
+        sheddable, adequacy, _thermal = solver_writer.build_controllable_loads(
             now, _grid(now, 4), 4
         )
         self.assertEqual(sheddable, [])
@@ -161,7 +161,7 @@ class TestBuildControllableLoads(unittest.TestCase):
                 )
             ]
         )
-        sheddable, adequacy = solver_writer.build_controllable_loads(
+        sheddable, adequacy, _thermal = solver_writer.build_controllable_loads(
             now, grid_times, len(grid_times)
         )
         self.assertEqual(adequacy, [])
@@ -193,7 +193,7 @@ class TestBuildControllableLoads(unittest.TestCase):
                 )
             ]
         )
-        sheddable, adequacy = solver_writer.build_controllable_loads(
+        sheddable, adequacy, _thermal = solver_writer.build_controllable_loads(
             now, grid_times, len(grid_times)
         )
         self.assertEqual(sheddable, [])
@@ -247,7 +247,7 @@ class TestBuildControllableLoads(unittest.TestCase):
                 )
             ]
         )
-        sheddable, adequacy = solver_writer.build_controllable_loads(
+        sheddable, adequacy, _thermal = solver_writer.build_controllable_loads(
             now, grid_times, len(grid_times)
         )
         self.assertEqual(sheddable, [])
@@ -289,7 +289,7 @@ class TestBuildControllableLoads(unittest.TestCase):
                 )
             ]
         )
-        _, adequacy = solver_writer.build_controllable_loads(
+        _, adequacy, _thermal = solver_writer.build_controllable_loads(
             now, grid_times, len(grid_times)
         )
         self.assertEqual(len(adequacy), 1)
@@ -329,7 +329,7 @@ class TestBuildControllableLoads(unittest.TestCase):
                 )
             ]
         )
-        _, adequacy = solver_writer.build_controllable_loads(
+        _, adequacy, _thermal = solver_writer.build_controllable_loads(
             now, grid_times, len(grid_times)
         )
         self.assertEqual(len(adequacy), 1, "genuine overnight case must still resolve")
@@ -358,7 +358,7 @@ class TestBuildControllableLoads(unittest.TestCase):
                 )
             ]
         )
-        _, adequacy = solver_writer.build_controllable_loads(
+        _, adequacy, _thermal = solver_writer.build_controllable_loads(
             now, grid_times, len(grid_times)
         )
         self.assertEqual(adequacy[0].value_per_kwh, 0.10)
@@ -378,7 +378,7 @@ class TestBuildControllableLoads(unittest.TestCase):
                 )
             ]
         )
-        sheddable, adequacy = solver_writer.build_controllable_loads(
+        sheddable, adequacy, _thermal = solver_writer.build_controllable_loads(
             now, grid_times, len(grid_times)
         )
         self.assertEqual(sheddable, [])
@@ -400,7 +400,7 @@ class TestBuildControllableLoads(unittest.TestCase):
                 )
             ]
         )
-        sheddable, adequacy = solver_writer.build_controllable_loads(
+        sheddable, adequacy, _thermal = solver_writer.build_controllable_loads(
             now, grid_times, len(grid_times)
         )
         self.assertEqual(sheddable, [])
@@ -429,7 +429,7 @@ class TestBuildControllableLoads(unittest.TestCase):
                 )
             ]
         )
-        _, adequacy = solver_writer.build_controllable_loads(
+        _, adequacy, _thermal = solver_writer.build_controllable_loads(
             now, grid_times, len(grid_times)
         )
         self.assertEqual(len(adequacy), 1)
@@ -442,7 +442,7 @@ class TestBuildControllableLoads(unittest.TestCase):
         solver_writer._NATIVE_HASS = _fake_native_hass(
             [_fake_subentry("s1", "load", {"load_sensor": "sensor.pool"})]
         )
-        sheddable, adequacy = solver_writer.build_controllable_loads(
+        sheddable, adequacy, _thermal = solver_writer.build_controllable_loads(
             now, grid_times, len(grid_times)
         )
         self.assertEqual(sheddable, [])
@@ -484,7 +484,7 @@ class TestBuildControllableLoads(unittest.TestCase):
                 ),
             ]
         )
-        sheddable, adequacy = solver_writer.build_controllable_loads(
+        sheddable, adequacy, _thermal = solver_writer.build_controllable_loads(
             now, grid_times, len(grid_times)
         )
         self.assertEqual(len(sheddable), 1)
@@ -874,7 +874,7 @@ class TestBuildControllableLoadsEarlyCompletion(unittest.TestCase):
             ],
             states={"binary_sensor.hws_at_temp": _fake_state("on")},
         )
-        _, adequacy = solver_writer.build_controllable_loads(
+        _, adequacy, _thermal = solver_writer.build_controllable_loads(
             now, grid_times, len(grid_times)
         )
         self.assertEqual(adequacy, [])
@@ -898,7 +898,7 @@ class TestBuildControllableLoadsEarlyCompletion(unittest.TestCase):
             ],
             states={"binary_sensor.hws_at_temp": _fake_state("off")},
         )
-        _, adequacy = solver_writer.build_controllable_loads(
+        _, adequacy, _thermal = solver_writer.build_controllable_loads(
             now, grid_times, len(grid_times)
         )
         self.assertEqual(len(adequacy), 1)
@@ -924,7 +924,7 @@ class TestBuildControllableLoadsEarlyCompletion(unittest.TestCase):
             ],
             states={"binary_sensor.hws_at_temp": _fake_state("unavailable")},
         )
-        _, adequacy = solver_writer.build_controllable_loads(
+        _, adequacy, _thermal = solver_writer.build_controllable_loads(
             now, grid_times, len(grid_times)
         )
         self.assertEqual(len(adequacy), 1)
@@ -949,7 +949,7 @@ class TestBuildControllableLoadsEarlyCompletion(unittest.TestCase):
             ],
             states={"sensor.tank_temp": _fake_state("65.0")},
         )
-        _, adequacy = solver_writer.build_controllable_loads(
+        _, adequacy, _thermal = solver_writer.build_controllable_loads(
             now, grid_times, len(grid_times)
         )
         self.assertEqual(adequacy, [])
@@ -971,7 +971,7 @@ class TestBuildControllableLoadsEarlyCompletion(unittest.TestCase):
                 )
             ]
         )
-        _, adequacy = solver_writer.build_controllable_loads(
+        _, adequacy, _thermal = solver_writer.build_controllable_loads(
             now, grid_times, len(grid_times)
         )
         self.assertEqual(len(adequacy), 1)
@@ -1022,7 +1022,7 @@ class TestBuildControllableLoadsFloorCrossing(unittest.TestCase):
                 )
             },
         )
-        _, adequacy = solver_writer.build_controllable_loads(
+        _, adequacy, _thermal = solver_writer.build_controllable_loads(
             now, grid_times, len(grid_times)
         )
         return adequacy
@@ -1091,7 +1091,7 @@ class TestBuildControllableLoadsFloorCrossing(unittest.TestCase):
             ],
             states={"sensor.tank_temp": _fake_state("50.0")},
         )
-        _, adequacy = solver_writer.build_controllable_loads(
+        _, adequacy, _thermal = solver_writer.build_controllable_loads(
             now, grid_times, len(grid_times)
         )
         # A plain numeric sensor isn't in ATTRIBUTE_DONE_DOMAINS --
@@ -1397,7 +1397,7 @@ class TestSampleLoadRunState(unittest.TestCase):
             loop=self._loop,
         )
         grid_times = _grid(now, 8, minutes=30)
-        sheddable, adequacy = solver_writer.build_controllable_loads(
+        sheddable, adequacy, _thermal = solver_writer.build_controllable_loads(
             now, grid_times, len(grid_times)
         )
         self.assertEqual(sheddable, [])
@@ -1441,7 +1441,7 @@ class TestSampleLoadRunState(unittest.TestCase):
             loop=self._loop,
         )
         grid_times = _grid(now, 8, minutes=30)
-        sheddable, adequacy = solver_writer.build_controllable_loads(
+        sheddable, adequacy, _thermal = solver_writer.build_controllable_loads(
             now, grid_times, len(grid_times)
         )
         self.assertEqual(sheddable, [])
@@ -1481,7 +1481,7 @@ class TestSampleLoadRunState(unittest.TestCase):
             loop=self._loop,
         )
         grid_times = _grid(now, 8, minutes=30)
-        sheddable, adequacy = solver_writer.build_controllable_loads(
+        sheddable, adequacy, _thermal = solver_writer.build_controllable_loads(
             now, grid_times, len(grid_times)
         )
         self.assertEqual(sheddable, [])

@@ -314,11 +314,20 @@
             "deferrable_shortfall_price": "Deferrable: shortfall price ($/kWh)",
             "deferrable_value_per_kwh": "Deferrable: run as soon as it's this cheap (optional, $/kWh)",
             "deferrable_done_entity": "Deferrable: done sensor (optional)",
-            "deferrable_done_when": "Deferrable: done condition (optional, e.g. \">= 60\")"
+            "deferrable_done_when": "Deferrable: done condition (optional, e.g. \">= 60\")",
+            "thermal_temperature_entity": "Thermal: temperature sensor (water_heater or climate entity)",
+            "thermal_max_power_kw": "Thermal: max power (kW)",
+            "thermal_target_temperature_c": "Thermal: target temperature (°C)",
+            "thermal_earliest_hour": "Thermal: earliest start (24hr decimal)",
+            "thermal_deadline_hour": "Thermal: deadline (24hr decimal)",
+            "thermal_comfort_floor_c": "Thermal: comfort floor (optional, °C)",
+            "thermal_comfort_floor_cost": "Thermal: comfort floor cost (optional, $/kWh)",
+            "thermal_heating_rate_c_per_kwh": "Thermal: heating rate override (optional, °C/kWh)",
+            "thermal_idle_decay_c_per_hour": "Thermal: idle decay rate override (optional, °C/h)"
           },
           "data_description": {
             "controllable_load_name": "A short, real name for this load (e.g. \"Pool Pump\", \"HWS L1\") -- becomes this subentry's device title.",
-            "controllable_load_kind": "Sheddable: the Solver can reduce it under price pressure, down to an optional minimum fraction. Deferrable: it has a real energy target and deadline (hot water, EV charging) -- the Solver decides WHEN within that window.",
+            "controllable_load_kind": "Sheddable: the Solver can reduce it under price pressure, down to an optional minimum fraction. Deferrable: it has a real energy target and deadline (hot water, EV charging) -- the Solver decides WHEN within that window, as a soft-priced preference. Thermal: a real temperature is tracked as a genuine hard guarantee (must reach the target by the deadline), not a priced preference -- for a load whose \"must heat every day\" promise matters more than any other scheduling consideration.",
             "controllable_load_power_sensor": "The real, measured power draw of this device, if you have one -- used for monitoring/tracking fidelity, never read by the LP solve itself.",
             "controllable_load_device_entity": "The real entity this load is physically commanded through -- a switch (turned on/off directly) or a water_heater (commanded via set_operation_mode: \"performance\" for on, \"eco\" for off). Leave blank for a load that's only scored/planned, never physically commanded.",
             "controllable_load_climate_on_hvac_mode": "For a climate device entity only: which hvac_mode to request when this load turns ON (e.g. \"cool\" for an air conditioner). \"off\" is always used to turn it OFF -- no ambiguity there. Never guessed from the device's own supported modes; a climate device with this left blank logs a warning and stays uncommanded on ON transitions.",
@@ -334,7 +343,16 @@
             "deferrable_shortfall_price": "A real $/kWh cost the Solver pays for every kWh short of the target by the deadline. Set high enough (the default) that a genuinely reachable target is always fully met; a genuinely unreachable one costs this instead of breaking the whole plan.",
             "deferrable_value_per_kwh": "Optional -- for a comfort load like hot water: run as soon as the price is at or below this, instead of waiting for the single cheapest hour on paper. The Solver still only ever delivers up to your real target (never more), just prefers to deliver it early and cheaply when it can, rather than defer it into a battery that would fill anyway.",
             "deferrable_done_entity": "A binary_sensor, numeric sensor, or water_heater/climate entity that tells the Solver this load is genuinely finished (a tank-at-temperature sensor, a dishwasher's own \"done\" binary_sensor, or the heat pump/HVAC entity itself). Once done, the Solver stops scheduling more energy for it this window, even if the target/deadline hasn't been reached yet. Leave blank to always follow the target/deadline as configured above. A binary_sensor's own \"on\" state alone means done; a water_heater/climate entity compares its own current_temperature attribute and defaults to its own live setpoint if the done condition below is left blank; any other domain needs the done condition field below.",
-            "deferrable_done_when": "For a numeric done sensor: the comparison that means \"done\", e.g. \">= 60\" for a tank temperature reaching 60°C. For a water_heater/climate done sensor, this compares against its current_temperature attribute instead of its state. Leave blank when the done sensor above is a binary_sensor (its own \"on\" state is the done condition) or a water_heater/climate entity (defaults to its own live setpoint)."
+            "deferrable_done_when": "For a numeric done sensor: the comparison that means \"done\", e.g. \">= 60\" for a tank temperature reaching 60°C. For a water_heater/climate done sensor, this compares against its current_temperature attribute instead of its state. Leave blank when the done sensor above is a binary_sensor (its own \"on\" state is the done condition) or a water_heater/climate entity (defaults to its own live setpoint).",
+            "thermal_temperature_entity": "The real water_heater or climate entity whose current_temperature attribute is this load's own live reading -- read every solve, the same way a deferrable load's done sensor is read. Leave blank and this load can't be planned (no live temperature to start the guarantee from).",
+            "thermal_max_power_kw": "This load's own real power ceiling while heating (e.g. a heat pump's rated input power).",
+            "thermal_target_temperature_c": "The real temperature that must be reached by the deadline -- enforced as a genuine hard constraint, not a priced preference. An unreachable target (a miscalibrated heating rate, an unusually cold start) is relaxed once, automatically, to a soft shortfall price rather than breaking the whole plan -- see the Solver's own log for when this happens.",
+            "thermal_earliest_hour": "The start of this load's own earliest-preference window (a small nudge toward heating earlier when two times would otherwise cost the same). 0 = midnight. Heating itself is never blocked outside this window -- only the deadline and any comfort floor below actually constrain it.",
+            "thermal_deadline_hour": "The real deadline -- the target temperature must be reached by this time of day.",
+            "thermal_comfort_floor_c": "Optional: a mid-day minimum temperature the Solver actively reheats toward if it would otherwise dip below, at the cost below -- not just relying on the device's own passive eco-mode floor defense. Leave blank for no mid-day reheat pressure at all (the temperature is free to drift anywhere down to 0°C between now and the deadline).",
+            "thermal_comfort_floor_cost": "The real $/kWh-equivalent cost the Solver pays for every degree-hour spent below the comfort floor above. Only meaningful when the comfort floor is set.",
+            "thermal_heating_rate_c_per_kwh": "Optional override (°C gained per kWh delivered) for the value Nimbus's own thermal-rate learner already derives from real recorder history. Leave blank to use the learned value.",
+            "thermal_idle_decay_c_per_hour": "Optional override (°C lost per hour while idle) for the value Nimbus's own thermal-rate learner already derives from real recorder history. Leave blank to use the learned value."
           }
         }
       }
@@ -418,7 +436,8 @@
     "controllable_load_kind": {
       "options": {
         "sheddable": "Sheddable (shed under price pressure)",
-        "deferrable": "Deferrable (real deadline target)"
+        "deferrable": "Deferrable (real deadline target)",
+        "thermal": "Thermal (hard temperature guarantee)"
       }
     },
     "training_source": {

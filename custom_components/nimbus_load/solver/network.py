@@ -269,7 +269,7 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 
 import numpy as np
@@ -277,6 +277,7 @@ from numpy.typing import NDArray
 
 from . import p2p_export
 from .elements import (
+    DEFAULT_ADEQUACY_SHORTFALL_PRICE,
     MIN_CHARGE_DISCHARGE_COST_SPREAD,
     AdequacyLoadConfig,
     BatteryConfig,
@@ -286,6 +287,7 @@ from .elements import (
     SharedCircuitConfig,
     SheddableLoadConfig,
     SolarConfig,
+    ThermalLoadConfig,
 )
 from .lp import LPProblem, LPResult, SolveOptions, SweepRangingStep
 
@@ -677,6 +679,28 @@ class BatteryPlan:
 
 
 @dataclass(frozen=True)
+class ThermalLoadPlan:
+    """One thermal load's own real result (nimbus issue #774) -- mirrors
+    BatteryPlan's own shape above (a per-period STATE trajectory plus its
+    own driving decision variable), the closer template than
+    AdequacyLoadPlan's own single power_kw array, since a thermal load has
+    a genuine state variable (temperature) the way a battery has SoC and
+    an adequacy load does not.
+
+    `temperature_c` is the LP's own real solved trajectory -- for a
+    `kind=thermal` load this is what load_run_state.py publishes as
+    `plan_temperature_forecast` (replacing a separately-recomputed display
+    projection, since re-deriving the same physics model a second time
+    could only ever diverge from what the LP actually solved with).
+    """
+
+    name: str
+    power_kw: NDArray[np.float64]
+    temperature_c: NDArray[np.float64]
+    subentry_id: str | None = None
+
+
+@dataclass(frozen=True)
 class Plan:
     """The solver's full output for one solve. Every array is indexed by
     period, same length as the PeriodGrid it was built from. `status` is
@@ -806,6 +830,22 @@ class Plan:
     # graceful "nothing to align against" fallback _align_previous_
     # periods() already uses.
     batteries: list[BatteryPlan] = field(default_factory=list)
+    # nimbus issue #774: per-thermal-load breakdown -- see ThermalLoadPlan's
+    # own docstring. Empty (default) on any Plan built before this field
+    # existed, constructed directly by a test, or with no thermal_loads
+    # configured this solve (the common case for every household that
+    # hasn't migrated a load to kind=thermal yet).
+    thermal_loads: list[ThermalLoadPlan] = field(default_factory=list)
+    # nimbus issue #774/#477: names of every thermal load whose own HARD
+    # temperature-deadline guarantee had to be relaxed to the old soft
+    # shortfall-price shape this solve, because the first, hard-constrained
+    # solve came back infeasible -- see build_plan()'s own "infeasibility
+    # fallback" docstring section. Empty (the common case) whenever every
+    # thermal load's own hard guarantee was genuinely reachable. Populated
+    # ONLY by the public build_plan() wrapper's own retry -- never set by
+    # a single internal solve on its own, so this field can never disagree
+    # with whether a real relaxation actually happened.
+    thermal_guarantee_relaxed: list[str] = field(default_factory=list)
     # nimbus issue #491: see GridSignals'/BatterySignals' own docstrings.
     # None/empty (the default) on any Plan built before these fields
     # existed, constructed directly by a test, non-optimal, or reached
@@ -1426,7 +1466,7 @@ def _offer_curve_price_interval(
     return (price_lower, price_upper)
 
 
-def build_plan(
+def _build_plan_once(
     *,
     periods: PeriodGrid,
     grid: GridConfig,
@@ -1435,6 +1475,7 @@ def build_plan(
     loads: list[LoadConfig] | None = None,
     sheddable_loads: list[SheddableLoadConfig] | None = None,
     adequacy_loads: list[AdequacyLoadConfig] | None = None,
+    thermal_loads: list[ThermalLoadConfig] | None = None,
     shared_circuits: list[SharedCircuitConfig] | None = None,
     previous_plan: Plan | None = None,
     proximal_weight: float = DEFAULT_PROXIMAL_WEIGHT_KW,
@@ -1450,6 +1491,7 @@ def build_plan(
     adequacy_semi_continuous: bool = True,
     battery_charge_earliness_budget_kw: float = DEFAULT_BATTERY_CHARGE_EARLINESS_BUDGET_KW,
     solve_options: SolveOptions | None = None,
+    thermal_hard_deadline: bool = True,
 ) -> Plan:
     """Build and solve one LP for the given horizon/inputs. Pure function --
     no I/O, no HA dependency, safe to call from anywhere including a plain
@@ -1654,10 +1696,29 @@ def build_plan(
     pure-LP solve, without ever second-guessing which adequacy loads
     the MIP itself chose to run. See `LPProblem.solve()`'s own
     docstring for the full mechanism.
+
+    `thermal_loads` (nimbus issue #774): loads whose "must heat every day"
+    guarantee is a genuine HARD LP constraint on a real temperature state
+    variable -- see `ThermalLoadConfig`'s own docstring for the full
+    design and why it exists alongside (not instead of) `adequacy_loads`
+    above. `None`/`[]` (the default) is a complete no-op, byte-identical
+    to every scenario built before this parameter existed.
+
+    `thermal_hard_deadline` is a PRIVATE, internal-only parameter (not
+    part of this module's own public contract -- every real caller should
+    go through the module-level `build_plan()` wrapper below, never call
+    this function directly): `True` (the default) enforces every thermal
+    load's own deadline as the genuine hard constraint `ThermalLoadConfig`
+    describes; `False` relaxes it to the same soft `shortfall_price` shape
+    `AdequacyLoadConfig` already uses. Only ever set to `False` by
+    `build_plan()`'s own infeasibility-fallback retry (nimbus issue #477's
+    lesson applied to #774), after a first, hard-constrained solve came
+    back infeasible.
     """
     loads = loads or []
     sheddable_loads = sheddable_loads or []
     adequacy_loads = adequacy_loads or []
+    thermal_loads = thermal_loads or []
     shared_circuits = shared_circuits or []
     n = periods.n_periods
     hours = periods.hours
@@ -2812,6 +2873,160 @@ def build_plan(
             use_secondary=_use_secondary_costs,
         )
 
+    # ---- Thermal loads (nimbus issue #774) -- see ThermalLoadConfig's own
+    # docstring for the full design. Two real decision variables per
+    # period per load: `power_kw[t]` (how hard it heats) and
+    # `temperature_c[t]` (the real state, mirroring BatteryConfig's own
+    # soc_vars). Deliberately NOT gated to [earliest_period, deadline_
+    # period] the way adequacy_vars is -- heating must stay possible at
+    # ANY hour so a genuine mid-day comfort-floor reheat (tier 3 of Mark's
+    # own objective hierarchy) is never structurally blocked.
+    thermal_power_vars: dict[str, list[str]] = {}
+    thermal_temp_vars: dict[str, list[str]] = {}
+    thermal_shortfall_vars: dict[str, str] = {}
+    thermal_comfort_underfill_vars: dict[str, list[str]] = {}
+    for tl in thermal_loads:
+        thermal_power_vars[tl.name] = [
+            p.add_variable(f"thermal_power_{tl.name}_{t}", lb=0.0, ub=tl.max_power_kw)
+            for t in range(n)
+        ]
+        thermal_temp_vars[tl.name] = [
+            p.add_variable(
+                f"thermal_temp_{tl.name}_{t}", lb=0.0, ub=tl.max_temperature_c
+            )
+            for t in range(n)
+        ]
+        # ---- Temperature recursion -- mirrors BatteryConfig's own SoC
+        # recursion exactly (see build_plan()'s own "SoC dynamics" comment
+        # just below), linear in temperature/power instead of SoC/charge:
+        # T[t] = T[t-1] + heating_rate_c_per_kwh * power[t] * hours[t] -
+        # idle_decay_c_per_hour * hours[t]. `initial_temperature_c` stands
+        # in for T[-1] at t=0 (a known constant, moved to the RHS), the
+        # same reasoning `initial_soc_kwh` already gets -- a currently-
+        # below-floor tank can never make the LP itself infeasible at t=0.
+        for t in range(n):
+            decay = tl.idle_decay_c_per_hour * hours[t]
+            gain_coef = -tl.heating_rate_c_per_kwh * hours[t]
+            if t == 0:
+                p.add_eq_constraint(
+                    {
+                        thermal_temp_vars[tl.name][0]: 1.0,
+                        thermal_power_vars[tl.name][0]: gain_coef,
+                    },
+                    tl.initial_temperature_c - decay,
+                )
+            else:
+                p.add_eq_constraint(
+                    {
+                        thermal_temp_vars[tl.name][t]: 1.0,
+                        thermal_power_vars[tl.name][t]: gain_coef,
+                        thermal_temp_vars[tl.name][t - 1]: -1.0,
+                    },
+                    -decay,
+                )
+        # ---- The guarantee itself -- temp[deadline_period] >=
+        # target_temperature_c. HARD by default (thermal_hard_deadline,
+        # a PRIVATE param only build_plan()'s own retry ever flips) --
+        # exactly BatteryConfig's own must_have_soc_by_period_index/
+        # must_have_soc_kwh mechanism, applied to temperature. Silently
+        # skipped (not raised) when this solve's own horizon doesn't reach
+        # deadline_period yet, same "a short manual solve window is a
+        # normal case, not a misconfiguration" reasoning that mechanism
+        # already documents.
+        if tl.deadline_period < n:
+            if thermal_hard_deadline:
+                p.add_ub_constraint(
+                    {thermal_temp_vars[tl.name][tl.deadline_period]: -1.0},
+                    -tl.target_temperature_c,
+                    name=f"thermal_deadline_hard_{tl.name}",
+                )
+            else:
+                # nimbus issue #477's lesson, applied to #774: a hard
+                # deadline that turns out genuinely unreachable must never
+                # make the WHOLE plan infeasible over one load. Relaxed
+                # to the same soft-shortfall SHAPE AdequacyLoadConfig
+                # already uses, priced in the SAME $/kWh terms via this
+                # load's own heating_rate_c_per_kwh (degrees-per-kWh), so
+                # a real 1-degree shortfall costs exactly what
+                # DEFAULT_ADEQUACY_SHORTFALL_PRICE/heating_rate_c_per_kwh
+                # kWh of equivalent heating would have cost -- not an
+                # arbitrary new unit invented for this one fallback path.
+                thermal_shortfall_vars[tl.name] = p.add_variable(
+                    f"thermal_shortfall_{tl.name}",
+                    lb=0.0,
+                    ub=tl.target_temperature_c,
+                )
+                p.add_ub_constraint(
+                    {
+                        thermal_temp_vars[tl.name][tl.deadline_period]: -1.0,
+                        thermal_shortfall_vars[tl.name]: -1.0,
+                    },
+                    -tl.target_temperature_c,
+                    name=f"thermal_deadline_soft_{tl.name}",
+                )
+                p.set_cost(
+                    thermal_shortfall_vars[tl.name],
+                    DEFAULT_ADEQUACY_SHORTFALL_PRICE / tl.heating_rate_c_per_kwh,
+                )
+        # ---- Soft comfort floor (tier 3 of Mark's own objective
+        # hierarchy: "reheat if it gets too cold", subordinate to the hard
+        # guarantee above) -- mirrors BatteryConfig's own soft min-SoC
+        # underfill mechanism (nimbus issue #328) exactly, applied at
+        # EVERY period, not just the deadline. `None` (the default) is a
+        # complete no-op.
+        if tl.comfort_floor_c is not None:
+            thermal_comfort_underfill_vars[tl.name] = [
+                p.add_variable(
+                    f"thermal_comfort_underfill_{tl.name}_{t}",
+                    lb=0.0,
+                    ub=tl.comfort_floor_c,
+                )
+                for t in range(n)
+            ]
+            for t in range(n):
+                # temp[t] + underfill[t] >= comfort_floor_c
+                p.add_ub_constraint(
+                    {
+                        thermal_temp_vars[tl.name][t]: -1.0,
+                        thermal_comfort_underfill_vars[tl.name][t]: -1.0,
+                    },
+                    -tl.comfort_floor_c,
+                )
+                p.set_cost(
+                    thermal_comfort_underfill_vars[tl.name][t], tl.comfort_floor_cost
+                )
+    # ---- Earliness tie-break for thermal loads -- reuses the SAME
+    # DEFAULT_ADEQUACY_EARLINESS_BUDGET_KW magnitude/derivation as #613's
+    # own adequacy tie-break (see that constant's own docstring), applied
+    # only across each load's own [earliest_period, deadline_period]
+    # window rather than the whole horizon -- a real tie between two
+    # equally-cheap periods breaks toward the earlier one, never large
+    # enough to be mistaken for a genuine price difference. Deliberately
+    # no separate household-facing field, same "no consumer parameter"
+    # posture #613 itself established.
+    if thermal_loads and DEFAULT_ADEQUACY_EARLINESS_BUDGET_KW > 0.0:
+        horizon_hours_thermal = float(np.sum(hours))
+        if horizon_hours_thermal > 0.0:
+            elapsed_hours_thermal = np.concatenate(
+                ([0.0], np.cumsum(hours, dtype=np.float64)[:-1])
+            )
+            thermal_earliness_rate = (
+                DEFAULT_ADEQUACY_EARLINESS_BUDGET_KW / horizon_hours_thermal
+            )
+            for tl in thermal_loads:
+                window_end = min(tl.deadline_period, n - 1)
+                for t in range(min(tl.earliest_period, n), window_end + 1):
+                    cost = (
+                        thermal_earliness_rate
+                        * float(elapsed_hours_thermal[t])
+                        * float(hours[t])
+                    )
+                    if cost != 0.0:
+                        if _use_secondary_costs:
+                            p.set_secondary_cost(thermal_power_vars[tl.name][t], cost)
+                        else:
+                            p.set_cost(thermal_power_vars[tl.name][t], cost)
+
     # ---- SoC dynamics -- each battery's own independent recursion ----
     for b in batteries:
         for t in range(n):
@@ -2958,6 +3173,12 @@ def build_plan(
             # exactly the (here, zero) base demand, making any real
             # target infeasible outright.
             terms[adequacy_vars[al.name][t]] = -1.0
+        # nimbus issue #774: a thermal load's own power draw is real
+        # demand at the switchboard, same sign convention as adequacy_vars
+        # just above (a negative LHS coefficient -- consumes rather than
+        # supplies).
+        for tl in thermal_loads:
+            terms[thermal_power_vars[tl.name][t]] = -1.0
         # Named (2026-08-18) so its dual value -- the real-time shadow
         # price of energy at this period, exactly what a live spot/P2P
         # rate is supposed to approximate -- is directly readable rather
@@ -3354,6 +3575,19 @@ def build_plan(
                 profit_horizon=profit_horizon,
             )
         )
+
+    # nimbus issue #774: one ThermalLoadPlan per thermal load -- the
+    # real, LP-solved power/temperature trajectory, mirroring BatteryPlan's
+    # own per-participant construction just below.
+    plan_thermal = [
+        ThermalLoadPlan(
+            name=tl.name,
+            power_kw=_get(thermal_power_vars[tl.name]),
+            temperature_c=_get(thermal_temp_vars[tl.name]),
+            subentry_id=tl.subentry_id,
+        )
+        for tl in thermal_loads
+    ]
 
     # nimbus issue #467: per-battery arrays first, then the summed
     # aggregate from those SAME arrays -- guarantees battery_charge_kw/
@@ -3784,6 +4018,7 @@ def build_plan(
         solar_curtailed_kw=(solar.forecast_kw - solar_used_arr).astype(np.float64),
         sheddable_loads=plan_sheddable,
         adequacy_loads=plan_adequacy,
+        thermal_loads=plan_thermal,
         total_cost=result.objective,
         soc_penalty_cost=soc_penalty_cost,
         iterations=result.iterations,
@@ -3804,3 +4039,128 @@ def build_plan(
         offer_curve_export_ranging=offer_curve_export_ranging,
         offer_curve_sweep_seconds=offer_curve_sweep_seconds,
     )
+
+
+def build_plan(
+    *,
+    periods: PeriodGrid,
+    grid: GridConfig,
+    batteries: list[BatteryConfig],
+    solar: SolarConfig,
+    loads: list[LoadConfig] | None = None,
+    sheddable_loads: list[SheddableLoadConfig] | None = None,
+    adequacy_loads: list[AdequacyLoadConfig] | None = None,
+    thermal_loads: list[ThermalLoadConfig] | None = None,
+    shared_circuits: list[SharedCircuitConfig] | None = None,
+    previous_plan: Plan | None = None,
+    proximal_weight: float = DEFAULT_PROXIMAL_WEIGHT_KW,
+    max_rate_kw: float | None = None,
+    smoothness_weight: float = 0.0,
+    risk_aversion: float = 0.0,
+    import_price_risk_aversion: float = 0.0,
+    export_price_risk_aversion: float = 0.0,
+    soft_soc_penalty_per_kwh: float | None = None,
+    compute_signals: bool = False,
+    compute_offer_curve: bool = False,
+    adequacy_earliness_budget_kw: float = DEFAULT_ADEQUACY_EARLINESS_BUDGET_KW,
+    adequacy_semi_continuous: bool = True,
+    battery_charge_earliness_budget_kw: float = DEFAULT_BATTERY_CHARGE_EARLINESS_BUDGET_KW,
+    solve_options: SolveOptions | None = None,
+) -> Plan:
+    """Build and solve one LP for the given horizon/inputs -- the real
+    public entry point every caller should use (see `_build_plan_once()`'s
+    own docstring for the full parameter reference; this wrapper's own
+    signature is identical minus the private `thermal_hard_deadline` flag).
+
+    nimbus issue #774/#477: the only behaviour this wrapper adds on top of
+    `_build_plan_once()` is the thermal-load infeasibility-fallback retry.
+    A first solve always enforces every thermal load's own hard temperature
+    deadline (see `ThermalLoadConfig`'s own docstring). If -- and only if --
+    that first solve comes back non-optimal AND `thermal_loads` is
+    non-empty, this retries ONCE with every thermal load's own hard
+    deadline relaxed to the same soft `shortfall_price` shape
+    `AdequacyLoadConfig` already uses (`thermal_hard_deadline=False`),
+    logs a WARNING naming which loads were relaxed, and returns that
+    retried plan with `Plan.thermal_guarantee_relaxed` populated -- so a
+    genuinely unreachable target now costs real money and shows up
+    honestly in the output, exactly like #477's own fix for adequacy
+    loads, instead of silently taking down the WHOLE multi-day plan over
+    one thermal load's own miscalibration.
+
+    Every existing caller (no `thermal_loads`, or a solve that's already
+    optimal on the first try -- the overwhelming common case) is
+    completely unaffected: this wrapper is then a transparent passthrough
+    to `_build_plan_once()`, with `Plan.thermal_guarantee_relaxed` left at
+    its own empty-list default.
+    """
+    plan = _build_plan_once(
+        periods=periods,
+        grid=grid,
+        batteries=batteries,
+        solar=solar,
+        loads=loads,
+        sheddable_loads=sheddable_loads,
+        adequacy_loads=adequacy_loads,
+        thermal_loads=thermal_loads,
+        shared_circuits=shared_circuits,
+        previous_plan=previous_plan,
+        proximal_weight=proximal_weight,
+        max_rate_kw=max_rate_kw,
+        smoothness_weight=smoothness_weight,
+        risk_aversion=risk_aversion,
+        import_price_risk_aversion=import_price_risk_aversion,
+        export_price_risk_aversion=export_price_risk_aversion,
+        soft_soc_penalty_per_kwh=soft_soc_penalty_per_kwh,
+        compute_signals=compute_signals,
+        compute_offer_curve=compute_offer_curve,
+        adequacy_earliness_budget_kw=adequacy_earliness_budget_kw,
+        adequacy_semi_continuous=adequacy_semi_continuous,
+        battery_charge_earliness_budget_kw=battery_charge_earliness_budget_kw,
+        solve_options=solve_options,
+        thermal_hard_deadline=True,
+    )
+    if plan.status == "optimal" or not thermal_loads:
+        return plan
+
+    relaxed_names = [tl.name for tl in thermal_loads]
+    _LOGGER.warning(
+        "Nimbus network.py: hard-constrained thermal LP came back %s with "
+        "thermal_loads %s configured -- retrying once with each load's own "
+        "hard temperature deadline relaxed to a soft shortfall price "
+        "(nimbus issue #774/#477)",
+        plan.status,
+        relaxed_names,
+    )
+    fallback_plan = _build_plan_once(
+        periods=periods,
+        grid=grid,
+        batteries=batteries,
+        solar=solar,
+        loads=loads,
+        sheddable_loads=sheddable_loads,
+        adequacy_loads=adequacy_loads,
+        thermal_loads=thermal_loads,
+        shared_circuits=shared_circuits,
+        previous_plan=previous_plan,
+        proximal_weight=proximal_weight,
+        max_rate_kw=max_rate_kw,
+        smoothness_weight=smoothness_weight,
+        risk_aversion=risk_aversion,
+        import_price_risk_aversion=import_price_risk_aversion,
+        export_price_risk_aversion=export_price_risk_aversion,
+        soft_soc_penalty_per_kwh=soft_soc_penalty_per_kwh,
+        compute_signals=compute_signals,
+        compute_offer_curve=compute_offer_curve,
+        adequacy_earliness_budget_kw=adequacy_earliness_budget_kw,
+        adequacy_semi_continuous=adequacy_semi_continuous,
+        battery_charge_earliness_budget_kw=battery_charge_earliness_budget_kw,
+        solve_options=solve_options,
+        thermal_hard_deadline=False,
+    )
+    if fallback_plan.status != "optimal":
+        # Genuinely infeasible for reasons unrelated to the thermal
+        # guarantee (relaxing it removed one possible cause) -- return the
+        # honest non-optimal result rather than pretending the retry
+        # itself fixed anything.
+        return fallback_plan
+    return replace(fallback_plan, thermal_guarantee_relaxed=relaxed_names)
