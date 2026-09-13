@@ -8689,6 +8689,7 @@ def build_controllable_loads(
             CONF_DEFERRABLE_DONE_ENTITY,
             CONF_DEFERRABLE_DONE_WHEN,
             CONF_DEFERRABLE_EARLIEST_HOUR,
+            CONF_DEFERRABLE_MAX_KWH_PER_DAY,
             CONF_DEFERRABLE_MAX_POWER_KW,
             CONF_DEFERRABLE_SHORTFALL_PRICE,
             CONF_DEFERRABLE_TARGET_KWH,
@@ -8713,6 +8714,7 @@ def build_controllable_loads(
             CONF_DEFERRABLE_DONE_ENTITY,
             CONF_DEFERRABLE_DONE_WHEN,
             CONF_DEFERRABLE_EARLIEST_HOUR,
+            CONF_DEFERRABLE_MAX_KWH_PER_DAY,
             CONF_DEFERRABLE_MAX_POWER_KW,
             CONF_DEFERRABLE_SHORTFALL_PRICE,
             CONF_DEFERRABLE_TARGET_KWH,
@@ -8846,6 +8848,7 @@ def build_controllable_loads(
                 )
             )
             value_per_kwh = data.get(CONF_DEFERRABLE_VALUE_PER_KWH)
+            max_kwh_per_day = data.get(CONF_DEFERRABLE_MAX_KWH_PER_DAY)
             shortfall_price = float(
                 data.get(CONF_DEFERRABLE_SHORTFALL_PRICE)
                 or elements.DEFAULT_ADEQUACY_SHORTFALL_PRICE
@@ -9002,6 +9005,9 @@ def build_controllable_loads(
                         value_per_kwh=float(value_per_kwh)
                         if value_per_kwh is not None
                         else None,
+                        max_kwh_per_day=float(max_kwh_per_day)
+                        if max_kwh_per_day is not None
+                        else None,
                         subentry_id=subentry.subentry_id,
                         windows=tuple(windows),
                     )
@@ -9113,6 +9119,9 @@ def build_controllable_loads(
                     shortfall_price=shortfall_price,
                     value_per_kwh=float(value_per_kwh)
                     if value_per_kwh is not None
+                    else None,
+                    max_kwh_per_day=float(max_kwh_per_day)
+                    if max_kwh_per_day is not None
                     else None,
                     subentry_id=subentry.subentry_id,
                 )
