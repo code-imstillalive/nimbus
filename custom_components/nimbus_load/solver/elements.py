@@ -750,6 +750,47 @@ class BatteryConfig:
     # there is nothing to bound in that case.
     unavailable_until_period_index: int | None = None
 
+    # nimbus issue #467 (Mark Purcell, decided 2026-09-13: "Build an
+    # internal gating gap please"): both mechanisms above can only ever
+    # express availability as a PREFIX from period 0 -- `available=False`
+    # gates the whole horizon, `unavailable_until_period_index=k` gates
+    # `[0, k)`. Neither can say "away 09:00-15:00, home either side",
+    # which is what a real trip actually looks like, and neither can
+    # express two separate trips in one day at all.
+    #
+    # That was a real correctness gap, not just a missing feature. The
+    # quality scorer's RECONSTRUCTION side already masks per-period
+    # correctly (solver_writer.py's _resolve_battery_participant_history()
+    # builds is_home_mask from the availability entity's own recorded
+    # history and zeroes actual_charge_kw/actual_discharge_kw for every
+    # away period), but the ORACLE re-solve had no equivalent gate -- so
+    # on any multi-trip day the two halves of the scorer genuinely
+    # disagreed about where the car was, and the oracle was free to
+    # "charge" an EV that was demonstrably out driving. That inflated the
+    # oracle's own achievable cost floor and therefore overstated regret.
+    #
+    # A per-period index set handles N trips per day for free, where a
+    # from/until PAIR only handles one and needs redesigning the first
+    # time a household does a school run AND a separate evening trip. It
+    # also matches the shape the reconstruction side already uses, so
+    # both halves of the scorer now express availability the same way.
+    #
+    # PRECEDENCE -- this composes with the two fields above, it does not
+    # replace them. network.py takes the UNION of every gate:
+    #   available=False, no prefix  -> whole horizon gated (unchanged)
+    #   available=False, prefix=k   -> [0, k) gated (unchanged)
+    #   available=True,  mask=M     -> exactly M gated
+    #   available=False + mask=M    -> the prefix/whole-horizon gate
+    #                                  UNION M
+    # `None` (the default) contributes nothing, so every existing caller
+    # and every test predating this field is byte-identical to before it
+    # existed.
+    #
+    # Normalised to a frozenset in __post_init__, so callers may pass any
+    # iterable of ints (a list comprehension, np.flatnonzero() output)
+    # without breaking this frozen dataclass's own hashability.
+    unavailable_period_indices: frozenset[int] | None = None
+
     # nimbus issue #563 item 2, the departure-deadline half: pushes the
     # LP to reach must_have_soc_kwh BY must_have_soc_by_period_index, the
     # same "cumulative energy... plus target" mechanism adequacy loads
@@ -822,6 +863,25 @@ class BatteryConfig:
     spike_override_discharge_kw: float | None = None
 
     def __post_init__(self) -> None:
+        # nimbus issue #467: accept any iterable of ints (a list
+        # comprehension, np.flatnonzero() output, a set) but STORE a
+        # frozenset -- this dataclass is frozen=True and therefore
+        # hashable, which a mutable list field would silently break.
+        # object.__setattr__ is the standard frozen-dataclass
+        # normalisation escape hatch.
+        if self.unavailable_period_indices is not None and not isinstance(
+            self.unavailable_period_indices, frozenset
+        ):
+            object.__setattr__(
+                self,
+                "unavailable_period_indices",
+                frozenset(int(i) for i in self.unavailable_period_indices),
+            )
+        if self.unavailable_period_indices is not None and any(
+            i < 0 for i in self.unavailable_period_indices
+        ):
+            msg = f"unavailable_period_indices must be non-negative period indices, got {sorted(i for i in self.unavailable_period_indices if i < 0)}"
+            raise ValueError(msg)
         # nimbus issue #328 (Mark Purcell): min_soc is a SCHEDULING
         # PREFERENCE the LP tries to respect and recover toward (see
         # network.py's own soft-floor/soft-ceiling penalty construction),
