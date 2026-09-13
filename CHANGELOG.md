@@ -6,6 +6,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). This pr
 
 Entries call out real, user-visible changes. They are not a `git log` dump; the commit history is the source of truth for the underlying diffs.
 
+## [Unreleased]
+
+### Added
+- **`nimbus_load.set_controllable_load` service: create or update a Controllable Load subentry in one atomic call** (nimbus issue [#809](https://github.com/code-imstillalive/nimbus/issues/809)). Built directly from a real, live migration session: the config_subentries wizard's "+ Add" control looks near-identical to "Reconfigure" (would have silently created a duplicate load pointed at the same real device), and a subsequent reconfigure attempt left several optional fields (`thermal_earliest_hour`/`thermal_deadline_hour`/`controllable_load_min_hold_minutes`/`controllable_load_max_activations_per_day`/`controllable_load_device_entity`) unsaved with no way to tell short of re-solving and reverse-engineering the LP's own fallback behaviour. The new service reuses the wizard's own schema builder directly — zero risk of validation drifting between the two — accepts an explicit `subentry_id` to target a specific load unambiguously (a title match alone is defeated by something as small as retyped case/whitespace), and returns the subentry_id plus the exact data now persisted so the result is verifiable in the same call via `ha_call_service` (MCP) or Developer Tools. Reloads the hub automatically so the change takes effect immediately, matching what the wizard's own flow-manager already does under the hood.
+
+### Changed
+- **Controllable Load wizard: one entity field instead of four** (nimbus issue #809, prompted by the same live session — the household's own real "Hot Water Heat Pump" load had the identical `water_heater.wwk302` entity typed into three separate fields). `Device to command` is now the only entity-selector field the wizard asks for; the thermal kind's temperature reading and the deferrable kind's done condition both default to it automatically (still overridable via the new `nimbus_load.set_controllable_load` service for the rare household whose done/temperature entity is genuinely different from the commanded device). The real power-monitoring sensor is no longer asked here at all — there's no single entity it can default to the way temperature/done can — and stays available only via the service, for a household that wants that extra monitoring fidelity.
+
+Prior art check: neither EMHASS nor HAEO expose a service/API-driven config surface as an alternative to their own setup UI (both are file/UI-config-only) — this is a Nimbus-specific mitigation for a Nimbus-specific config_subentries UX gap, not a rediscovery of existing prior art.
+
+Validated: full local pytest suite (2157 passed, 13 pre-existing skips, 0 failures), `ruff check`/`ruff format --check` both clean against the CI-pinned `ruff==0.16.4` (this session independently found and worked around a stale `/root/.local/bin/ruff==0.15.8` shadowing it locally), mypy delta check against a fresh `origin/main` worktree (+1, the already-accepted try/except no-redef pattern gaining one more name — no new error class). `strings.json`/`translations/en.json` kept byte-identical. Live devhub verification and updating Mark's own already-migrated `kind=thermal` Hot Water Heat Pump load to actually use the new device-entity defaults are follow-up steps after merge + release, not part of this PR.
+
 ## [0.94.273] — 2026-09-13
 
 ### Fixed

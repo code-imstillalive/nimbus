@@ -497,6 +497,16 @@ def install_ha_stubs() -> None:
         # Exception subclass is enough for a test to assert "the right
         # exception type, with the right message" via pytest.raises.
         ServiceValidationError=type("ServiceValidationError", (Exception,), {}),
+        # nimbus issue #809: services.py's own set_controllable_load
+        # handler raises this for a genuine runtime failure (no hub
+        # configured yet) rather than a call-shape problem
+        # (ServiceValidationError, above) -- services.py itself only
+        # ever imports it LOCALLY inside the one function that needs it,
+        # specifically so module import doesn't require this stub to
+        # exist; added here anyway so a test file that wants to assert
+        # on it directly (as opposed to just exercising the function
+        # that raises it) doesn't have to invent its own stand-in.
+        HomeAssistantError=type("HomeAssistantError", (Exception,), {}),
     )
     module(
         "homeassistant.helpers.config_validation",

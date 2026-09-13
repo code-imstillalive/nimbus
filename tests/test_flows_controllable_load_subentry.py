@@ -81,10 +81,15 @@ def test_name_and_kind_are_required():
     assert type(kind_marker).__name__ == "Required"
 
 
-def test_power_sensor_omits_default_entirely_when_never_configured():
+def test_power_sensor_is_no_longer_a_wizard_field():
+    # nimbus issue #809: removed from the wizard's own schema entirely --
+    # device_entity is the only entity-selector field this wizard asks
+    # for now. power_sensor stays a valid, settable data key (via the
+    # nimbus_load.set_controllable_load service, for a household that
+    # wants real power monitoring/tracking fidelity), it's just no
+    # longer offered here.
     schema = _schema({})
-    marker = _find_marker(schema, CONF_CONTROLLABLE_LOAD_POWER_SENSOR)
-    assert marker.default is vol.UNDEFINED
+    assert not any(k == CONF_CONTROLLABLE_LOAD_POWER_SENSOR for k in schema.schema)
 
 
 def test_device_entity_omits_default_entirely_when_never_configured():
@@ -159,12 +164,23 @@ def test_deferrable_value_per_kwh_same_none_default_guard():
     assert marker.default is vol.UNDEFINED
 
 
-def test_deferrable_done_entity_and_done_when_same_none_default_guard():
-    # nimbus issue #480 -- both fields are optional, never defaulted to
-    # a real value once configured (same crash-avoidance reasoning as
-    # every other optional field on this schema).
+def test_deferrable_done_entity_is_no_longer_a_wizard_field():
+    # nimbus issue #809: removed -- defaults to this load's own
+    # device_entity at solve time (solver_writer.py's build_
+    # controllable_loads()) rather than being asked for separately, the
+    # overwhelmingly common real case. Still settable via the
+    # nimbus_load.set_controllable_load service for a genuinely
+    # different done sensor.
     schema = _schema({})
-    assert _find_marker(schema, CONF_DEFERRABLE_DONE_ENTITY).default is vol.UNDEFINED
+    assert not any(k == CONF_DEFERRABLE_DONE_ENTITY for k in schema.schema)
+
+
+def test_deferrable_done_when_same_none_default_guard():
+    # done_when itself stays a real, optional wizard field -- #809 only
+    # removed the ENTITY selector, not this one (a household with a
+    # genuinely different done threshold than the device's own setpoint
+    # still configures it here).
+    schema = _schema({})
     assert _find_marker(schema, CONF_DEFERRABLE_DONE_WHEN).default is vol.UNDEFINED
 
 
@@ -219,17 +235,19 @@ def test_reconfigure_with_no_input_prefills_every_field_from_existing_data():
     # data in the first place. Confirms every kind's own real field
     # round-trips through the form's own defaults, not just the ones a
     # human happened to look at.
+    # nimbus issue #809: power_sensor and done_entity are no longer
+    # wizard fields at all (see the dedicated tests for each), so they're
+    # deliberately absent here -- this test only covers fields the
+    # wizard still actually asks about.
     existing = {
         CONF_CONTROLLABLE_LOAD_NAME: "HWS L1",
         CONF_CONTROLLABLE_LOAD_KIND: "deferrable",
-        CONF_CONTROLLABLE_LOAD_POWER_SENSOR: "sensor.hws_l1_power",
         CONF_DEFERRABLE_MAX_POWER_KW: 3.7,
         CONF_DEFERRABLE_TARGET_KWH: 5.0,
         CONF_DEFERRABLE_EARLIEST_HOUR: 1.0,
         CONF_DEFERRABLE_DEADLINE_HOUR: 6.0,
         CONF_DEFERRABLE_SHORTFALL_PRICE: 12.0,
         CONF_DEFERRABLE_VALUE_PER_KWH: 0.08,
-        CONF_DEFERRABLE_DONE_ENTITY: "binary_sensor.hws_l1_at_temp",
         CONF_DEFERRABLE_DONE_WHEN: ">= 60",
     }
     flow = _make_flow(source="reconfigure")

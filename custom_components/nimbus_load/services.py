@@ -27,6 +27,7 @@ import logging
 from datetime import datetime
 
 import voluptuous as vol
+from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.const import ATTR_ENTITY_ID
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.exceptions import ServiceValidationError
@@ -35,8 +36,35 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 
 from . import solver_runtime
-from .const import DOMAIN
+from .const import (
+    CONF_CONTROLLABLE_LOAD_KIND,
+    CONF_CONTROLLABLE_LOAD_NAME,
+    CONF_CONTROLLABLE_LOAD_POWER_SENSOR,
+    CONF_DEFERRABLE_DONE_ENTITY,
+    CONF_THERMAL_TEMPERATURE_ENTITY,
+    DOMAIN,
+    SUBENTRY_TYPE_CONTROLLABLE_LOAD,
+)
 from .coordinator import NimbusCoordinator
+
+# Reused, not reimplemented -- nimbus issue #809 (Mark Purcell): the
+# controllable_load wizard (flows/controllable_load_subentry.py) is a
+# multi-field, config_subentries-based UI that this project has already
+# found, live and repeatedly, to be fragile in ways that cost real
+# household time to diagnose: a "+ Add" tap that looks identical to
+# "Reconfigure" silently creating a duplicate load instead of editing the
+# existing one, and optional NumberSelector fields that read as filled in
+# the form but did not actually persist (both confirmed live migrating
+# Mark's own "Hot Water Heat Pump" load to kind=thermal, 2026-09-13).
+# Importing this schema builder directly -- rather than redefining the
+# ~25 controllable-load fields a second time here -- guarantees the
+# service accepts and validates EXACTLY what the wizard does, with zero
+# risk of the two drifting apart, and gives MCP/automation callers (and
+# `ha_call_service`) a single, atomic, single-shot alternative: one call
+# either fully succeeds (and the response echoes back exactly what was
+# persisted, for immediate verification) or raises, with no multi-step
+# form state to silently lose a field in.
+from .flows.controllable_load_subentry import _schema as _controllable_load_schema
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -125,6 +153,41 @@ SERVICE_COMPUTE_QUALITY_REPORT_SCHEMA = vol.Schema(
         vol.Required("start"): _coerce_datetime,
         vol.Required("end"): _coerce_datetime,
         vol.Optional("allow_partial", default=True): bool,
+    }
+)
+
+# nimbus issue #809 (Mark Purcell): a single-call, atomic alternative to
+# the config_subentries wizard for a Controllable Load. `subentry_id` is
+# the one field this schema adds beyond the wizard's own (see
+# flows/controllable_load_subentry.py's _schema()) -- an explicit,
+# unambiguous way to target an existing load for update that doesn't
+# depend on its title matching byte-for-byte (the wizard's own title is
+# free text a household can retype with different case/whitespace, e.g.
+# "Hot Water Heat Pump" vs "Hot water Heat Pump " -- both real strings
+# from this same session). Omitted entirely: create a new load, or
+# (falling back to the wizard's own title= semantics) update the one
+# existing controllable_load subentry whose title matches `name` exactly.
+#
+# The three entity-override fields below (power_sensor, thermal_
+# temperature_entity, deferrable_done_entity) are the same #809 removed
+# from the wizard's own schema -- they still default sensibly (to this
+# load's own device_entity, or to nothing at all for power_sensor -- see
+# solver_writer.py's build_controllable_loads()) without ever being set,
+# but this service, unlike the simplified wizard, still accepts an
+# explicit override for the household that genuinely needs one (a real
+# done sensor that is not the commanded device, a plug/CT power sensor
+# for monitoring). Plain `str`, not an EntitySelector -- HA's own
+# selector validation is a UI concern, not a real-domain-membership
+# check, and a bare string is enough for a schema-level shape check on a
+# service call.
+SERVICE_SET_CONTROLLABLE_LOAD = "set_controllable_load"
+
+SERVICE_SET_CONTROLLABLE_LOAD_SCHEMA = _controllable_load_schema({}).extend(
+    {
+        vol.Optional("subentry_id"): str,
+        vol.Optional(CONF_CONTROLLABLE_LOAD_POWER_SENSOR): str,
+        vol.Optional(CONF_THERMAL_TEMPERATURE_ENTITY): str,
+        vol.Optional(CONF_DEFERRABLE_DONE_ENTITY): str,
     }
 )
 
@@ -303,6 +366,116 @@ async def _async_handle_compute_quality_report(
     }
 
 
+def _find_controllable_load_subentry(
+    entry: ConfigEntry, *, subentry_id: str | None, name: str
+) -> ConfigSubentry | None:
+    """Resolve the existing controllable_load subentry a
+    set_controllable_load call should update, or None to create a new
+    one. `subentry_id`, when given, is authoritative and unambiguous --
+    it must exist and must be a controllable_load subentry, or this
+    raises rather than silently falling through to a name search that
+    could match the wrong load. Otherwise falls back to an exact title
+    match, the same identity `flows/controllable_load_subentry.py`'s own
+    wizard uses (`title=user_input[CONF_CONTROLLABLE_LOAD_NAME]`) --
+    matching more than one subentry means the household already has a
+    genuine duplicate (nimbus issue #809's own root cause) and picking
+    one silently would be exactly the wrong instinct here.
+    """
+    if subentry_id is not None:
+        candidate = entry.subentries.get(subentry_id)
+        if (
+            candidate is None
+            or candidate.subentry_type != SUBENTRY_TYPE_CONTROLLABLE_LOAD
+        ):
+            raise ServiceValidationError(
+                f"nimbus_load.set_controllable_load: no controllable_load "
+                f"subentry with subentry_id {subentry_id!r}"
+            )
+        return candidate
+
+    matches = [
+        s
+        for s in entry.subentries.values()
+        if s.subentry_type == SUBENTRY_TYPE_CONTROLLABLE_LOAD and s.title == name
+    ]
+    if len(matches) > 1:
+        raise ServiceValidationError(
+            f"nimbus_load.set_controllable_load: {len(matches)} existing "
+            f"controllable_load subentries are titled {name!r} -- pass "
+            f"subentry_id to disambiguate which one to update "
+            f"({', '.join(s.subentry_id for s in matches)})"
+        )
+    return matches[0] if matches else None
+
+
+async def _async_handle_set_controllable_load(
+    hass: HomeAssistant, call: ServiceCall
+) -> dict:
+    """Create or update one Controllable Load subentry in a single call,
+    then reload the hub so number.py/sensor.py's own kind-filtered entity
+    setup (async_setup_entry) actually picks up the change immediately --
+    the config_subentries flow manager does this automatically when a
+    household submits the wizard; calling `async_add_subentry`/
+    `async_update_subentry` directly, as this does, does not, so it is
+    done explicitly here rather than leaving a stale entity set behind
+    until the next unrelated reload or restart.
+
+    Returns the subentry_id and the exact data now persisted, so a caller
+    (ha_call_service via MCP, an automation, Developer Tools) can confirm
+    what actually saved in the same round trip -- directly closing the
+    "no way to just ask what's saved" gap nimbus issue #809 was filed
+    for.
+    """
+    from homeassistant.exceptions import HomeAssistantError
+
+    entries = hass.config_entries.async_entries(DOMAIN)
+    if not entries:
+        raise HomeAssistantError(
+            "nimbus_load.set_controllable_load: no Nimbus hub is configured "
+            "yet -- set up the Nimbus integration first"
+        )
+    entry = entries[0]
+
+    data = dict(call.data)
+    subentry_id = data.pop("subentry_id", None)
+    name = data.get(CONF_CONTROLLABLE_LOAD_NAME)
+    if not name:
+        raise ServiceValidationError(
+            "nimbus_load.set_controllable_load: 'controllable_load_name' is required"
+        )
+
+    existing = _find_controllable_load_subentry(
+        entry, subentry_id=subentry_id, name=name
+    )
+
+    if existing is not None:
+        hass.config_entries.async_update_subentry(
+            entry, existing, title=name, data=data
+        )
+        result_subentry_id = existing.subentry_id
+        created = False
+    else:
+        new_subentry = ConfigSubentry(
+            data=data,
+            subentry_type=SUBENTRY_TYPE_CONTROLLABLE_LOAD,
+            title=name,
+            unique_id=None,
+        )
+        hass.config_entries.async_add_subentry(entry, new_subentry)
+        result_subentry_id = new_subentry.subentry_id
+        created = True
+
+    await hass.config_entries.async_reload(entry.entry_id)
+
+    return {
+        "created": created,
+        "subentry_id": result_subentry_id,
+        "name": name,
+        "kind": data.get(CONF_CONTROLLABLE_LOAD_KIND),
+        "data": data,
+    }
+
+
 def async_register_services(hass: HomeAssistant) -> None:
     """Idempotent -- safe to call from every async_setup_entry run (hub
     add, edit, reload). HA's own service registry is domain-scoped, not
@@ -338,9 +511,22 @@ def async_register_services(hass: HomeAssistant) -> None:
             supports_response=True,
         )
 
+    if not hass.services.has_service(DOMAIN, SERVICE_SET_CONTROLLABLE_LOAD):
+
+        async def _handle_set_controllable_load(call: ServiceCall):
+            return await _async_handle_set_controllable_load(hass, call)
+
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_SET_CONTROLLABLE_LOAD,
+            _handle_set_controllable_load,
+            schema=SERVICE_SET_CONTROLLABLE_LOAD_SCHEMA,
+            supports_response=True,
+        )
+
 
 def async_unregister_services(hass: HomeAssistant) -> None:
-    """Removes all three Nimbus services -- the counterpart to
+    """Removes all four Nimbus services -- the counterpart to
     `async_register_services()` above, called from `__init__.py`'s own
     `async_unload_entry()` on a successful unload.
 
@@ -362,6 +548,7 @@ def async_unregister_services(hass: HomeAssistant) -> None:
         SERVICE_RETRAIN,
         SERVICE_SOLVE_NOW,
         SERVICE_COMPUTE_QUALITY_REPORT,
+        SERVICE_SET_CONTROLLABLE_LOAD,
     ):
         if hass.services.has_service(DOMAIN, service):
             hass.services.async_remove(DOMAIN, service)

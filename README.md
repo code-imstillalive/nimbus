@@ -404,6 +404,18 @@ Edit inline on the dashboard without touching the wizard:
 - `nimbus_load.solve_now`. Triggers an immediate Solver cycle on demand,
   reusing the exact same solve path the periodic timer and price-triggered
   solve both call — not a separate implementation.
+- `nimbus_load.set_controllable_load` (`controllable_load_name`,
+  `controllable_load_kind`, optional `subentry_id`, plus every field the
+  Controllable Load wizard itself accepts). Creates or updates one
+  Controllable Load subentry in a single, atomic call — an alternative to
+  the config_subentries wizard for scripting, automations, or an MCP tool
+  (`ha_call_service`), reusing the wizard's own schema so validation can
+  never drift between the two. Without `subentry_id`, matches an existing
+  load by exact name (raises if more than one matches) or creates a new
+  one; `subentry_id` targets a specific load unambiguously regardless of
+  its title. Returns the subentry_id and the exact data now persisted, so
+  the result is verifiable in the same call. Reloads the hub automatically
+  so the change takes effect immediately.
 
 ### Quality, Backtest, and Counterfactual sub-devices
 
