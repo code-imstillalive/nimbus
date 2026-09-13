@@ -1767,6 +1767,43 @@ class TestApplyCommandedStateGuardPlanForecast(unittest.TestCase):
         self.assertEqual(result.plan_deadline_period, 12)
         self.assertIsNone(result.plan_nominal_kw)
 
+    def test_marginal_cost_and_profit_horizon_are_published_rounded(self):
+        # nimbus issue #483: rounded to 4dp at the publish boundary,
+        # matching every other headline $ figure this project publishes
+        # (total_cost, cost_breakdown, cost_band) -- HiGHS's LP solve is
+        # not bit-for-bit deterministic run to run, and an unrounded
+        # value here would leak that same noise straight through.
+        import numpy as np
+
+        sub = _fake_subentry(
+            "s_shadow",
+            "controllable_load",
+            {"deferrable_target_kwh": 5.0},
+        )
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            config_entries=SimpleNamespace(
+                async_entries=lambda domain: [
+                    SimpleNamespace(entry_id="entry_sc", subentries={"s_shadow": sub})
+                ]
+            ),
+            loop=self._loop,
+        )
+        now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
+        grid_times = _grid(now, 4, minutes=30)
+        period_hours_arr = np.full(len(grid_times), 0.5)
+        load_plan = _fake_load_plan(
+            "s_shadow", np.array([1.0, 1.0, 0.0, 0.0]), adequacy=True
+        )
+        load_plan.marginal_cost = 21.891646007035034
+        load_plan.profit_horizon = 3.140159265358979
+        plan = _fake_plan(adequacy=[load_plan])
+        solver_writer.apply_commanded_state_guard(
+            plan, now, grid_times, period_hours_arr
+        )
+        result = self._read_state("entry_sc", "s_shadow")
+        self.assertEqual(result.plan_marginal_cost, 21.8916)
+        self.assertEqual(result.plan_profit_horizon, 3.1402)
+
     def test_a_same_day_window_already_open_reports_earliest_period_zero(self):
         # nimbus issue #582's own real repro, re-verified against THIS
         # function's own duplicated window-resolution logic (see its own
