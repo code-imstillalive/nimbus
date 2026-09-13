@@ -8,6 +8,14 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.281] — 2026-09-13
+
+### Fixed
+- **`fetch_solver_config()` leaked a raw HTTP 404 instead of a clear message when `sensor.nimbus_solver_config` doesn't exist yet** (nimbus issue [#831](https://github.com/code-imstillalive/nimbus/issues/831)). Found live on devhub: a scheduled `nimbus_load.compute_quality_report` automation failed 3 days running with a raw `HTTP Error 404` instead of the clear, actionable `RuntimeError` this function's own docstring says it exists to give. Now catches the entity-not-registered-yet case (startup/reload, or a scheduled automation firing while the instance is mid-restart) with the same clear message shape already used for "exists but not configured." 4 new tests.
+- **A deterministic lex/calibration phase failure re-attempted (and re-failed) the same expensive multi-minute MIP solve every cycle, forever** (nimbus issue [#773](https://github.com/code-imstillalive/nimbus/issues/773), a real devhub incident). Confirmed live: the same phase (`phase2_pin_resolve`) failed 14 times in under 8 minutes on the same install, each attempt burning a full multi-minute MIP solve before falling back — starving HA's own executor threads badly enough to fail live backups and block HA's own startup phase. A module-level cooldown now caps the wasted cost: once a phase fails, skip the expensive phased path entirely for 5 minutes instead of re-attempting it every cycle. Does not resolve why a phase fails on this problem shape — still no repro — only bounds the cost once it does; #773 stays open. Real follow-up work flagged, not attempted this pass: even the plain (non-calibrated) solve is occasionally hitting HiGHS's own per-call time limit on this same install given its current 38-subentry fixture count, a genuine CPU/compute capacity question distinct from the lex/calibration-specific fix here.
+
+Both changes verified: full local suite 2201 passed, 13 skipped, 142 subtests passed, `ruff check`/`format --check` clean, mypy delta +0. Immediate mitigation confirmed live on devhub the same night, independent of this release: `switch.nimbus_solver_calibrated_objective_enabled` turned off, CPU dropped from 26% to 8% shortly after.
+
 ## [0.94.280] — 2026-09-13
 
 ### Fixed
