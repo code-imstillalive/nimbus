@@ -1930,6 +1930,76 @@ class TestApplyCommandedStateGuardPlanForecast(unittest.TestCase):
         self.assertEqual(result.plan_marginal_cost, 21.8916)
         self.assertEqual(result.plan_profit_horizon, 3.1402)
 
+    def test_tariff_attributed_cost_is_published_rounded(self):
+        # nimbus issue #483, item 2: same publish-boundary rounding
+        # convention as marginal_cost/profit_horizon above, but this
+        # figure is passed in from main()'s own pre-computed
+        # tariff_attributed_cost_by_subentry dict rather than living on
+        # the AdequacyLoadPlan itself (it's a post-processing
+        # attribution over the flow decomposition, not LP-native).
+        import numpy as np
+
+        sub = _fake_subentry(
+            "s_tariff",
+            "controllable_load",
+            {"deferrable_target_kwh": 5.0},
+        )
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            config_entries=SimpleNamespace(
+                async_entries=lambda domain: [
+                    SimpleNamespace(entry_id="entry_tc", subentries={"s_tariff": sub})
+                ]
+            ),
+            loop=self._loop,
+        )
+        now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
+        grid_times = _grid(now, 4, minutes=30)
+        period_hours_arr = np.full(len(grid_times), 0.5)
+        load_plan = _fake_load_plan(
+            "s_tariff", np.array([1.0, 1.0, 0.0, 0.0]), adequacy=True
+        )
+        plan = _fake_plan(adequacy=[load_plan])
+        solver_writer.apply_commanded_state_guard(
+            plan,
+            now,
+            grid_times,
+            period_hours_arr,
+            tariff_attributed_cost_by_subentry={"s_tariff": 21.891646007035034},
+        )
+        result = self._read_state("entry_tc", "s_tariff")
+        self.assertEqual(result.plan_tariff_attributed_cost, 21.8916)
+
+    def test_tariff_attributed_cost_defaults_to_none_when_not_passed(self):
+        # Every pre-#483 caller (and any future one that forgets the new
+        # kwarg) must still get a defined, non-crashing result.
+        import numpy as np
+
+        sub = _fake_subentry(
+            "s_notariff",
+            "controllable_load",
+            {"deferrable_target_kwh": 5.0},
+        )
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            config_entries=SimpleNamespace(
+                async_entries=lambda domain: [
+                    SimpleNamespace(entry_id="entry_nt", subentries={"s_notariff": sub})
+                ]
+            ),
+            loop=self._loop,
+        )
+        now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
+        grid_times = _grid(now, 4, minutes=30)
+        period_hours_arr = np.full(len(grid_times), 0.5)
+        load_plan = _fake_load_plan(
+            "s_notariff", np.array([1.0, 1.0, 0.0, 0.0]), adequacy=True
+        )
+        plan = _fake_plan(adequacy=[load_plan])
+        solver_writer.apply_commanded_state_guard(
+            plan, now, grid_times, period_hours_arr
+        )
+        result = self._read_state("entry_nt", "s_notariff")
+        self.assertIsNone(result.plan_tariff_attributed_cost)
+
     def test_a_same_day_window_already_open_reports_earliest_period_zero(self):
         # nimbus issue #582's own real repro, re-verified against THIS
         # function's own duplicated window-resolution logic (see its own
