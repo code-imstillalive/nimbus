@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.284] — 2026-09-14
+
+### Added
+- **Daily flex report: `compute_daily_flex_report()` and `sensor.nimbus_flex_report`** (nimbus issue [#496](https://github.com/code-imstillalive/nimbus/issues/496), the second half Mark Purcell authorized 2026-09-09). Three components, same "yesterday" convention as `compute_daily_quality_report()`: offered vs realised flex (kWh) from real `sensor.nimbus_flex_signals` history (`None`, not `0`, on a day the opt-in switch was off) and real measured battery charge/discharge; a price-response curve (real import price vs net import kW, binned); envelope curtailment kWh using the real configured `solver_grid_max_export_kw`, not a hardcoded 5 kW default. New `sensor.nimbus_flex_report` plus 5 flattened children, on the same "Nimbus Flex" sub-device the sensor half (v0.94.282/v0.94.283) already created. No new config/switch/number entity added, so the #538/#692/#496-class bridge-sensor gap found earlier tonight doesn't apply here. 15 new tests, full local suite green (2230 passed, 13 skipped, 142 subtests), `ruff check`/`format --check` clean, mypy delta +0. #496's remaining pieces (schema diagnostics blocked on #495, the dispatch-report-skill panel) stay open.
+
 ## [0.94.283] — 2026-09-14
 
 ### Fixed
