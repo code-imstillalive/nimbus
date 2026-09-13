@@ -8714,6 +8714,7 @@ def build_controllable_loads(
             CONF_DEFERRABLE_SHORTFALL_PRICE,
             CONF_DEFERRABLE_TARGET_KWH,
             CONF_DEFERRABLE_VALUE_PER_KWH,
+            CONF_DEFERRABLE_VALUE_PER_KWH_ENTITY,
             CONF_SHEDDABLE_MIN_FRACTION,
             CONF_SHEDDABLE_NOMINAL_KW,
             CONF_SHEDDABLE_SHED_COST,
@@ -8750,6 +8751,7 @@ def build_controllable_loads(
             CONF_DEFERRABLE_SHORTFALL_PRICE,
             CONF_DEFERRABLE_TARGET_KWH,
             CONF_DEFERRABLE_VALUE_PER_KWH,
+            CONF_DEFERRABLE_VALUE_PER_KWH_ENTITY,
             CONF_SHEDDABLE_MIN_FRACTION,
             CONF_SHEDDABLE_NOMINAL_KW,
             CONF_SHEDDABLE_SHED_COST,
@@ -8931,6 +8933,21 @@ def build_controllable_loads(
                 )
             )
             value_per_kwh = data.get(CONF_DEFERRABLE_VALUE_PER_KWH)
+            # nimbus issue #482: a configured entity's CURRENT numeric
+            # state overrides the static field above for this solve --
+            # same "live override, static field as the safe_num()
+            # fallback" pattern as build_extra_batteries()'s own
+            # charge_limit_entity handling for CONF_BATTERY_PARTICIPANT_
+            # CHARGE_LIMIT_ENTITY. A household can point this at a
+            # template sensor (hashprice x hashrate / power) or a plain
+            # input_number ("willing to pay") and change it freely
+            # between solves with no config reload.
+            value_per_kwh_entity = data.get(CONF_DEFERRABLE_VALUE_PER_KWH_ENTITY)
+            if value_per_kwh_entity:
+                value_per_kwh = safe_num(
+                    value_per_kwh_entity,
+                    float(value_per_kwh) if value_per_kwh is not None else 0.0,
+                )
             max_kwh_per_day = data.get(CONF_DEFERRABLE_MAX_KWH_PER_DAY)
             shortfall_price = float(
                 data.get(CONF_DEFERRABLE_SHORTFALL_PRICE)

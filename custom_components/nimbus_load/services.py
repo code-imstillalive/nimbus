@@ -41,6 +41,7 @@ from .const import (
     CONF_CONTROLLABLE_LOAD_NAME,
     CONF_CONTROLLABLE_LOAD_POWER_SENSOR,
     CONF_DEFERRABLE_DONE_ENTITY,
+    CONF_DEFERRABLE_VALUE_PER_KWH_ENTITY,
     CONF_THERMAL_TEMPERATURE_ENTITY,
     DOMAIN,
     SUBENTRY_TYPE_CONTROLLABLE_LOAD,
@@ -180,6 +181,15 @@ SERVICE_COMPUTE_QUALITY_REPORT_SCHEMA = vol.Schema(
 # selector validation is a UI concern, not a real-domain-membership
 # check, and a bare string is enough for a schema-level shape check on a
 # service call.
+#
+# deferrable_value_per_kwh_entity (nimbus issue #482): the same kind of
+# rarely-needed, genuinely-advanced override -- a live entity (a
+# template sensor, an input_number) whose current numeric state gates a
+# price-gated load instead of a static fixed number. Was never in the
+# wizard's own schema at all (added directly here, not removed from
+# there like the other three) -- this is the ONLY place a household
+# configures it. See CONF_DEFERRABLE_VALUE_PER_KWH_ENTITY's own const.py
+# comment for the full override/fallback behaviour.
 SERVICE_SET_CONTROLLABLE_LOAD = "set_controllable_load"
 
 SERVICE_SET_CONTROLLABLE_LOAD_SCHEMA = _controllable_load_schema({}).extend(
@@ -188,6 +198,7 @@ SERVICE_SET_CONTROLLABLE_LOAD_SCHEMA = _controllable_load_schema({}).extend(
         vol.Optional(CONF_CONTROLLABLE_LOAD_POWER_SENSOR): str,
         vol.Optional(CONF_THERMAL_TEMPERATURE_ENTITY): str,
         vol.Optional(CONF_DEFERRABLE_DONE_ENTITY): str,
+        vol.Optional(CONF_DEFERRABLE_VALUE_PER_KWH_ENTITY): str,
     }
 )
 

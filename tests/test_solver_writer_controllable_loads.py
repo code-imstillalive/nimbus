@@ -363,6 +363,132 @@ class TestBuildControllableLoads(unittest.TestCase):
         )
         self.assertEqual(adequacy[0].value_per_kwh, 0.10)
 
+    def test_deferrable_value_per_kwh_entity_overrides_the_static_field(self):
+        # nimbus issue #482's own spec ("a template sensor computing
+        # hashprice x hashrate / power in $/kWh, or a 'willing to pay'
+        # input_number") -- when the entity is configured, its CURRENT
+        # state wins over the static wizard-entered number for this
+        # solve, same override precedence as CONF_BATTERY_PARTICIPANT_
+        # CHARGE_LIMIT_ENTITY already established for build_extra_
+        # batteries().
+        now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
+        grid_times = _grid(now, 8)
+        eid = "input_number.miner_willing_to_pay"
+        states = {eid: SimpleNamespace(entity_id=eid, state="0.25", attributes={})}
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [
+                _fake_subentry(
+                    "s1",
+                    "controllable_load",
+                    {
+                        "controllable_load_name": "Miner",
+                        "controllable_load_kind": "deferrable",
+                        "deferrable_max_power_kw": 5.0,
+                        "deferrable_target_kwh": 0.5,
+                        "deferrable_value_per_kwh": 0.10,
+                        "deferrable_value_per_kwh_entity": eid,
+                    },
+                )
+            ],
+            states=states,
+        )
+        _, adequacy, _thermal = solver_writer.build_controllable_loads(
+            now, grid_times, len(grid_times)
+        )
+        self.assertEqual(adequacy[0].value_per_kwh, 0.25)
+
+    def test_deferrable_value_per_kwh_entity_falls_back_to_static_field_on_bad_state(
+        self,
+    ):
+        # safe_num()'s own established degrade-gracefully contract: a
+        # non-numeric live state (unavailable/unknown/a stray string)
+        # must not crash the solve or silently zero the price gate out
+        # -- it falls back to the static field, exactly like
+        # build_extra_batteries()'s own charge_limit_entity handling.
+        now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
+        grid_times = _grid(now, 8)
+        eid = "sensor.hashprice"
+        states = {
+            eid: SimpleNamespace(entity_id=eid, state="unavailable", attributes={})
+        }
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [
+                _fake_subentry(
+                    "s1",
+                    "controllable_load",
+                    {
+                        "controllable_load_name": "Miner",
+                        "controllable_load_kind": "deferrable",
+                        "deferrable_max_power_kw": 5.0,
+                        "deferrable_target_kwh": 0.5,
+                        "deferrable_value_per_kwh": 0.10,
+                        "deferrable_value_per_kwh_entity": eid,
+                    },
+                )
+            ],
+            states=states,
+        )
+        _, adequacy, _thermal = solver_writer.build_controllable_loads(
+            now, grid_times, len(grid_times)
+        )
+        self.assertEqual(adequacy[0].value_per_kwh, 0.10)
+
+    def test_deferrable_value_per_kwh_entity_alone_with_no_static_field(self):
+        # No static deferrable_value_per_kwh configured at all -- the
+        # entity is the ONLY source, safe_num()'s own fallback (0.0)
+        # only matters if the entity itself is ever unreadable, which
+        # it isn't here.
+        now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
+        grid_times = _grid(now, 8)
+        eid = "input_number.miner_willing_to_pay"
+        states = {eid: SimpleNamespace(entity_id=eid, state="0.07", attributes={})}
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [
+                _fake_subentry(
+                    "s1",
+                    "controllable_load",
+                    {
+                        "controllable_load_name": "Miner",
+                        "controllable_load_kind": "deferrable",
+                        "deferrable_max_power_kw": 5.0,
+                        "deferrable_target_kwh": 0.5,
+                        "deferrable_value_per_kwh_entity": eid,
+                    },
+                )
+            ],
+            states=states,
+        )
+        _, adequacy, _thermal = solver_writer.build_controllable_loads(
+            now, grid_times, len(grid_times)
+        )
+        self.assertEqual(adequacy[0].value_per_kwh, 0.07)
+
+    def test_no_value_per_kwh_entity_configured_is_a_complete_no_op(self):
+        # Regression guard: a load with neither field set (every install
+        # before this feature existed) must behave byte-identically --
+        # value_per_kwh stays None, not 0.0 from an accidentally-always-
+        # applied safe_num() fallback.
+        now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
+        grid_times = _grid(now, 8)
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [
+                _fake_subentry(
+                    "s1",
+                    "controllable_load",
+                    {
+                        "controllable_load_name": "Miner",
+                        "controllable_load_kind": "deferrable",
+                        "deferrable_max_power_kw": 5.0,
+                        "deferrable_target_kwh": 0.5,
+                    },
+                )
+            ]
+        )
+        _, adequacy, _thermal = solver_writer.build_controllable_loads(
+            now, grid_times, len(grid_times)
+        )
+        self.assertIsNone(adequacy[0].value_per_kwh)
+
     def test_sheddable_missing_nominal_kw_is_skipped_not_crashed(self):
         now = datetime(2026, 9, 7, 0, 0, tzinfo=_TZ)
         grid_times = _grid(now, 4)

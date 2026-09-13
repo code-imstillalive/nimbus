@@ -245,6 +245,22 @@ CONF_DEFERRABLE_EARLIEST_HOUR: Final = "deferrable_earliest_hour"
 CONF_DEFERRABLE_DEADLINE_HOUR: Final = "deferrable_deadline_hour"
 CONF_DEFERRABLE_SHORTFALL_PRICE: Final = "deferrable_shortfall_price"
 CONF_DEFERRABLE_VALUE_PER_KWH: Final = "deferrable_value_per_kwh"
+# nimbus issue #482's own spec, deliberately left open when the rest of
+# that issue shipped (#672/v0.94.230): "either a fixed number OR an
+# entity (e.g. a template sensor computing hashprice x hashrate / power
+# in $/kWh, or a 'willing to pay' input_number)". CONF_DEFERRABLE_VALUE_
+# PER_KWH above is the fixed-number half; this is the live-entity half
+# -- same "read fresh every solve, no config reload needed" pattern
+# already established for CONF_BATTERY_PARTICIPANT_CHARGE_LIMIT_ENTITY
+# (see that field's own comment). When set, its CURRENT numeric state
+# overrides the static field above for that solve cycle -- the static
+# field still acts as the safe_num() fallback if the entity's state is
+# ever unavailable/non-numeric, so a load never silently loses its
+# price gate entirely just because one solve caught the entity mid-
+# update. None (the default, left blank) is a complete no-op -- the
+# static field above is used unconditionally, exactly like every
+# install before this field existed.
+CONF_DEFERRABLE_VALUE_PER_KWH_ENTITY: Final = "deferrable_value_per_kwh_entity"
 # nimbus issue #482: a real cumulative cap on how much energy this load
 # may draw per REAL CALENDAR DAY -- see AdequacyLoadConfig's own
 # max_kwh_per_day docstring for the full reasoning (a price-gated load,
