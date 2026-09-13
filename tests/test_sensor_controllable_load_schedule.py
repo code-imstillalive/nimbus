@@ -5,9 +5,15 @@ real tests for the seven schedule-view sensors added alongside
 NimbusControllableLoadStateSensor -- next_start/next_end/planned_
 duration/planned_energy/delivered_today/target_today/status. Same
 stub-based pattern as test_sensor_controllable_load_state.py.
+
+nimbus issue #828: rewritten to construct a real
+sensor.NimbusLoadRunStateCoordinator and set its own `.data` directly
+instead of writing through a stub Store and calling async_update() --
+see that test file's own module docstring for the full reasoning.
+native_value is now a plain synchronous property, so every test below
+reads it directly with no asyncio plumbing needed at all.
 """
 
-import asyncio
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -58,6 +64,14 @@ def _fake_entry(entry_id: str = "test_entry") -> MagicMock:
     return entry
 
 
+def _coordinator_with(data: dict, hass=None) -> sensor.NimbusLoadRunStateCoordinator:
+    coordinator = sensor.NimbusLoadRunStateCoordinator(
+        hass or MagicMock(), _fake_entry()
+    )
+    coordinator.data = data
+    return coordinator
+
+
 def test_entity_id_unique_id_and_device_are_per_subentry_for_every_sensor():
     entry = _fake_entry()
     subentry = _fake_subentry("s1", "Hot Water Heat Pump", {})
@@ -71,7 +85,7 @@ def test_entity_id_unique_id_and_device_are_per_subentry_for_every_sensor():
         "status",
     ]
     for cls, suffix in zip(_SCHEDULE_SENSOR_CLASSES, expected_suffixes):
-        s = cls(MagicMock(), entry, subentry, "1.0.0")
+        s = cls(MagicMock(), MagicMock(), entry, subentry, "1.0.0")
         assert s.entity_id == f"sensor.nimbus_hot_water_heat_pump_{suffix}", (
             cls,
             s.entity_id,
@@ -85,25 +99,14 @@ def test_all_seven_share_one_device_with_commanded_state_sensor():
     entry = _fake_entry()
     subentry = _fake_subentry("s1", "Hot Water Heat Pump", {})
     state_sensor = sensor.NimbusControllableLoadStateSensor(
-        MagicMock(), entry, subentry, "1.0.0"
+        MagicMock(), MagicMock(), entry, subentry, "1.0.0"
     )
     for cls in _SCHEDULE_SENSOR_CLASSES:
-        s = cls(MagicMock(), entry, subentry, "1.0.0")
+        s = cls(MagicMock(), MagicMock(), entry, subentry, "1.0.0")
         assert (
             s._attr_device_info["identifiers"]
             == (state_sensor._attr_device_info["identifiers"])
         )
-
-
-def _write_state(
-    hass, entry_id: str, subentry_id: str, state: load_run_state.LoadRunState
-):
-    StubStore = sensor.Store
-    StubStore._shared_data.clear()
-    store = load_run_state.LoadRunStateStore(
-        store=StubStore(hass, 1, f"nimbus_load_{entry_id}_load_run_state")
-    )
-    asyncio.run(store.async_write(subentry_id, state))
 
 
 def test_schedule_sensors_read_the_derived_view():
@@ -117,7 +120,7 @@ def test_schedule_sensors_read_the_derived_view():
             "controllable_load_max_activations_per_day": 3,
         },
     )
-    # async_update() computes `now` itself (datetime.now(UTC)) -- built
+    # native_value computes `now` itself (datetime.now(UTC)) -- built
     # relative to the real current time, comfortably in the future, so
     # every period here is genuinely "upcoming" regardless of when this
     # test actually runs (avoids the flakiness a fixed 2026-09-09 grid
@@ -130,25 +133,24 @@ def test_schedule_sensors_read_the_derived_view():
     delivered = load_run_state.build_time_value_series(
         times, [0.0, 0.325, 0.65, 0.65, 0.65, 0.65]
     )
-    _write_state(
-        hass,
-        "entry_sched",
-        "s2",
-        load_run_state.LoadRunState(
-            plan_forecast=forecast,
-            plan_delivered_kwh_forecast=delivered,
-            plan_target_kwh=0.65,
-            plan_shortfall_kwh=0.0,
-            commanded_state=False,
-            delivered_today_kwh=0.03,
-            day_key="2026-09-09",
-        ),
+    coordinator = _coordinator_with(
+        {
+            "s2": load_run_state.LoadRunState(
+                plan_forecast=forecast,
+                plan_delivered_kwh_forecast=delivered,
+                plan_target_kwh=0.65,
+                plan_shortfall_kwh=0.0,
+                commanded_state=False,
+                delivered_today_kwh=0.03,
+                day_key="2026-09-09",
+            )
+        },
+        hass=hass,
     )
 
     results = {}
     for cls in _SCHEDULE_SENSOR_CLASSES:
-        s = cls(hass, entry, subentry, "1.0.0")
-        asyncio.run(s.async_update())
+        s = cls(coordinator, hass, entry, subentry, "1.0.0")
         results[cls.__name__] = s.native_value
 
     assert results["NimbusControllableLoadNextStartSensor"] == times[1]
@@ -180,20 +182,21 @@ def test_status_sensor_reads_a_real_tank_temperature_on_done():
             "deferrable_done_entity": "water_heater.hws_l1",
         },
     )
-    _write_state(
-        hass,
-        "entry_done",
-        "s3",
-        load_run_state.LoadRunState(
-            plan_forecast=[],
-            plan_target_kwh=2.0,
-            commanded_state=False,
-            delivered_today_kwh=2.0,
-            day_key="2026-09-09",
-        ),
+    coordinator = _coordinator_with(
+        {
+            "s3": load_run_state.LoadRunState(
+                plan_forecast=[],
+                plan_target_kwh=2.0,
+                commanded_state=False,
+                delivered_today_kwh=2.0,
+                day_key="2026-09-09",
+            )
+        },
+        hass=hass,
     )
-    s = sensor.NimbusControllableLoadStatusSensor(hass, entry, subentry, "1.0.0")
-    asyncio.run(s.async_update())
+    s = sensor.NimbusControllableLoadStatusSensor(
+        coordinator, hass, entry, subentry, "1.0.0"
+    )
     assert s.native_value == "done (tank 60 °C)"
 
 
@@ -217,20 +220,21 @@ def test_status_sensor_says_target_met_not_done_when_tank_is_below_its_own_line(
             "deferrable_done_entity": "water_heater.hws_l1",
         },
     )
-    _write_state(
-        hass,
-        "entry_target_met",
-        "s3b",
-        load_run_state.LoadRunState(
-            plan_forecast=[],
-            plan_target_kwh=2.0,
-            commanded_state=False,
-            delivered_today_kwh=3.54,
-            day_key="2026-09-09",
-        ),
+    coordinator = _coordinator_with(
+        {
+            "s3b": load_run_state.LoadRunState(
+                plan_forecast=[],
+                plan_target_kwh=2.0,
+                commanded_state=False,
+                delivered_today_kwh=3.54,
+                day_key="2026-09-09",
+            )
+        },
+        hass=hass,
     )
-    s = sensor.NimbusControllableLoadStatusSensor(hass, entry, subentry, "1.0.0")
-    asyncio.run(s.async_update())
+    s = sensor.NimbusControllableLoadStatusSensor(
+        coordinator, hass, entry, subentry, "1.0.0"
+    )
     assert s.native_value == "target met (3.5 of 2.0 kWh, tank 52 °C)"
 
 
@@ -253,20 +257,21 @@ def test_status_sensor_uses_an_explicit_done_when_over_the_setpoint_fallback():
             "deferrable_done_when": ">= 60",
         },
     )
-    _write_state(
-        hass,
-        "entry_done_when",
-        "s3c",
-        load_run_state.LoadRunState(
-            plan_forecast=[],
-            plan_target_kwh=2.0,
-            commanded_state=False,
-            delivered_today_kwh=2.0,
-            day_key="2026-09-09",
-        ),
+    coordinator = _coordinator_with(
+        {
+            "s3c": load_run_state.LoadRunState(
+                plan_forecast=[],
+                plan_target_kwh=2.0,
+                commanded_state=False,
+                delivered_today_kwh=2.0,
+                day_key="2026-09-09",
+            )
+        },
+        hass=hass,
     )
-    s = sensor.NimbusControllableLoadStatusSensor(hass, entry, subentry, "1.0.0")
-    asyncio.run(s.async_update())
+    s = sensor.NimbusControllableLoadStatusSensor(
+        coordinator, hass, entry, subentry, "1.0.0"
+    )
     assert s.native_value == "done (tank 61 °C)"
 
 
@@ -276,8 +281,10 @@ def test_never_configured_load_reads_a_safe_default_view():
     subentry = _fake_subentry(
         "s4", "Never Sampled", {"controllable_load_kind": "deferrable"}
     )
-    s = sensor.NimbusControllableLoadStatusSensor(hass, entry, subentry, "1.0.0")
-    asyncio.run(s.async_update())
+    coordinator = _coordinator_with({}, hass=hass)
+    s = sensor.NimbusControllableLoadStatusSensor(
+        coordinator, hass, entry, subentry, "1.0.0"
+    )
     assert s.native_value == "outside window"
 
 
@@ -286,10 +293,10 @@ def test_cost_avoided_today_sensor_shares_entity_id_pattern_and_device():
     # as the original seven -- own test, not folded into
     # _SCHEDULE_SENSOR_CLASSES above, since this class additionally needs
     # a configured battery-forecast state to produce a real value (see
-    # the async_update test below).
+    # the test below).
     entry = _fake_entry()
     subentry = _fake_subentry("s1", "Hot Water Heat Pump", {})
-    s = _COST_AVOIDED_SENSOR_CLASS(MagicMock(), entry, subentry, "1.0.0")
+    s = _COST_AVOIDED_SENSOR_CLASS(MagicMock(), MagicMock(), entry, subentry, "1.0.0")
     assert s.entity_id == "sensor.nimbus_hot_water_heat_pump_cost_avoided_today"
     assert s._attr_unique_id == "s1_cost_avoided_today"
     assert s._attr_device_info["identifiers"] == {("nimbus_load", "s1")}
@@ -305,28 +312,26 @@ def test_cost_avoided_today_sensor_reads_none_without_a_battery_forecast_state()
     subentry = _fake_subentry(
         "s5", "Hot Water Heat Pump", {"controllable_load_kind": "deferrable"}
     )
-    _write_state(
-        hass,
-        "entry_noforecast",
-        "s5",
-        load_run_state.LoadRunState(
-            commanded_state=False,
-            delivered_today_kwh=0.325,
-            cost_today=0.046,
-            day_key="2026-09-09",
-        ),
+    coordinator = _coordinator_with(
+        {
+            "s5": load_run_state.LoadRunState(
+                commanded_state=False,
+                delivered_today_kwh=0.325,
+                cost_today=0.046,
+                day_key="2026-09-09",
+            )
+        },
+        hass=hass,
     )
-    s = _COST_AVOIDED_SENSOR_CLASS(hass, entry, subentry, "1.0.0")
-    asyncio.run(s.async_update())
+    s = _COST_AVOIDED_SENSOR_CLASS(coordinator, hass, entry, subentry, "1.0.0")
     assert s.native_value is None
 
 
 def test_cost_avoided_today_sensor_reads_the_real_forecast_mean_import_price():
-    # nimbus issue #591: end-to-end through async_update() -- a real
-    # sensor.nimbus_solver_battery_forecast state with today's own
-    # import_price series, mean = (0.10 + 0.30) / 2 = 0.20 $/kWh.
-    # delivered_today_kwh=0.325 at cost_today=0.046 -> 0.325*0.20-0.046
-    # = $0.019 avoided.
+    # nimbus issue #591: a real sensor.nimbus_solver_battery_forecast
+    # state with today's own import_price series, mean = (0.10 + 0.30) / 2
+    # = 0.20 $/kWh. delivered_today_kwh=0.325 at cost_today=0.046 ->
+    # 0.325*0.20-0.046 = $0.019 avoided.
     now = datetime.now(UTC)
     today_iso_1 = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
     today_iso_2 = now.replace(hour=1, minute=0, second=0, microsecond=0).isoformat()
@@ -349,19 +354,18 @@ def test_cost_avoided_today_sensor_reads_the_real_forecast_mean_import_price():
     subentry = _fake_subentry(
         "s6", "Hot Water Heat Pump", {"controllable_load_kind": "deferrable"}
     )
-    _write_state(
-        hass,
-        "entry_avoided",
-        "s6",
-        load_run_state.LoadRunState(
-            commanded_state=False,
-            delivered_today_kwh=0.325,
-            cost_today=0.046,
-            day_key="2026-09-09",
-        ),
+    coordinator = _coordinator_with(
+        {
+            "s6": load_run_state.LoadRunState(
+                commanded_state=False,
+                delivered_today_kwh=0.325,
+                cost_today=0.046,
+                day_key="2026-09-09",
+            )
+        },
+        hass=hass,
     )
-    s = _COST_AVOIDED_SENSOR_CLASS(hass, entry, subentry, "1.0.0")
-    asyncio.run(s.async_update())
+    s = _COST_AVOIDED_SENSOR_CLASS(coordinator, hass, entry, subentry, "1.0.0")
     assert s.native_value == pytest.approx(0.019)
 
 
@@ -398,7 +402,7 @@ def test_temperature_forecast_sensor_is_primary_not_diagnostic_nimbus_819():
 
 
 def test_temperature_forecast_sensor_reads_the_live_device_temperature_nimbus_819():
-    # native_value is now the device's own REAL, LIVE current_temperature
+    # native_value is the device's own REAL, LIVE current_temperature
     # reading (the same read done_condition.read_current_temperature()
     # already uses elsewhere) -- not the old thermal_forecast.py-projected
     # display series (LoadRunState.temperature_forecast), which #809's
@@ -422,22 +426,21 @@ def test_temperature_forecast_sensor_reads_the_live_device_temperature_nimbus_81
         {"time": "2026-09-13T16:50:00+10:00", "value": 47.917},
         {"time": "2026-09-14T16:00:00+10:00", "value": 63.472},
     ]
-    _write_state(
-        hass,
-        "entry_temp",
-        "s7",
-        load_run_state.LoadRunState(
-            plan_forecast=[],
-            plan_temperature_forecast=plan_temp_forecast,
-            temperature_forecast=[{"time": "stale", "value": 999.0}],
-            commanded_state=False,
-            day_key="2026-09-09",
-        ),
+    coordinator = _coordinator_with(
+        {
+            "s7": load_run_state.LoadRunState(
+                plan_forecast=[],
+                plan_temperature_forecast=plan_temp_forecast,
+                temperature_forecast=[{"time": "stale", "value": 999.0}],
+                commanded_state=False,
+                day_key="2026-09-09",
+            )
+        },
+        hass=hass,
     )
     s = sensor.NimbusControllableLoadTemperatureForecastSensor(
-        hass, entry, subentry, "1.0.0"
+        coordinator, hass, entry, subentry, "1.0.0"
     )
-    asyncio.run(s.async_update())
     assert s.native_value == 47.9
     # nimbus issue #819: the LP's own real solved trajectory surfaces
     # here now, not the old (and in this fixture, deliberately stale/
@@ -451,17 +454,16 @@ def test_temperature_forecast_sensor_is_none_without_a_device_entity():
     subentry = _fake_subentry(
         "s8", "Pool Pump", {"controllable_load_kind": "sheddable"}
     )
-    _write_state(
-        hass,
-        "entry_no_device",
-        "s8",
-        load_run_state.LoadRunState(
-            plan_forecast=[], commanded_state=False, day_key="2026-09-09"
-        ),
+    coordinator = _coordinator_with(
+        {
+            "s8": load_run_state.LoadRunState(
+                plan_forecast=[], commanded_state=False, day_key="2026-09-09"
+            )
+        },
+        hass=hass,
     )
     s = sensor.NimbusControllableLoadTemperatureForecastSensor(
-        hass, entry, subentry, "1.0.0"
+        coordinator, hass, entry, subentry, "1.0.0"
     )
-    asyncio.run(s.async_update())
     assert s.native_value is None
     hass.states.get.assert_not_called()

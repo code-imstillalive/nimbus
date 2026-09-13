@@ -1124,7 +1124,13 @@ class LoadRunStateStore:
             return LoadRunState()
         try:
             return LoadRunState.from_dict(data[load_key])
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, AttributeError):
+            # nimbus issue #828: found live writing NimbusLoadRunStateCoordinator's
+            # own equivalent parse loop -- a genuinely malformed entry (e.g. a
+            # bare string instead of a dict) raises AttributeError inside
+            # from_dict()'s own data.get(...) calls, not TypeError/ValueError.
+            # Same durability-backstop posture as the async_load() failure
+            # above: a fresh LoadRunState is a safe "never sampled" fallback.
             return LoadRunState()
 
     async def async_write(self, load_key: str, state: LoadRunState) -> None:
