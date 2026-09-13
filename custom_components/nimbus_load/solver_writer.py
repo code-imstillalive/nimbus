@@ -5040,15 +5040,54 @@ def fetch_entity_attribute_history_range(
 
 
 def resample_history_nearest(
-    pts: list[tuple[datetime, float]], grid_times: list[datetime], default: float = 0.0
+    pts: list[tuple[datetime, float]],
+    grid_times: list[datetime],
+    default: float = 0.0,
+    *,
+    backfill_first: bool = False,
 ) -> list[float]:
     """Nearest-at-or-before lookup against real recorded history points
     -- same convention as resample_forecast() elsewhere in this file,
     just against (datetime, value) tuples from fetch_entity_history_
-    range() instead of a forecast's own {time, value} dicts."""
+    range() instead of a forecast's own {time, value} dicts.
+
+    What happens when NOTHING in `pts` precedes a given `gt` is an
+    explicit, per-caller choice, because the physically correct answer
+    genuinely differs by signal type (the same FLOW-vs-STATE split
+    resample_history_mean() below already documents):
+
+    - `backfill_first=False` (default): return `default`. Correct for
+      power-FLOW signals (solar/load/battery/EV pack power) and for
+      boolean availability masks -- absence of data does NOT mean
+      "whatever this sensor read the next time it woke up."
+    - `backfill_first=True`: return the earliest real sample instead
+      (`pts[0][1]`), falling back to `default` only when `pts` is
+      genuinely empty. Correct for STATE signals (SoC %, prices), where
+      the first real reading of the window is a far better estimate of
+      the unobserved earlier state than a hardcoded constant -- an EV
+      parked overnight really did sit at its wake-up SoC the whole time.
+
+    nimbus issue #843 (Mark Purcell, root-caused against real household
+    recorder data): this function previously ALWAYS initialised `val` to
+    `pts[0][1]`, i.e. it silently behaved as `backfill_first=True` for
+    every caller, and could therefore return a value recorded AFTER `gt`
+    from a function whose whole contract is "at or before" -- never once
+    falling through to the `default` its callers explicitly passed.
+
+    Confirmed live impact: an EV whose telemetry genuinely sleeps
+    overnight (zero recorder rows 00:00 -> 08:51, real Tesla sleep
+    behaviour) had every hour from 00:00-07:00 inherit its first
+    post-wake reading. That reading also happened to be a ~1000x-wrong
+    W-vs-kW boot transient (a separate, still-open half of #843), so the
+    quality report published a ~1,500 kW achieved battery power -- about
+    19x the household's real physical fleet ceiling -- for eight
+    straight hours, making EPR/regret unusable for that day. The unit
+    bug corrupted one sample; THIS bug is what smeared it across a third
+    of the day.
+    """
     out = []
     for gt in grid_times:
-        val = pts[0][1] if pts else default
+        val = pts[0][1] if (pts and backfill_first) else default
         for t, v in pts:
             if t <= gt:
                 val = v
@@ -5348,7 +5387,9 @@ def _compute_flex_report_for_window(
     actual_charge_kw = np.array([max(0.0, -v) for v in actual_net_kw])
     actual_discharge_kw = np.array([max(0.0, v) for v in actual_net_kw])
     import_price = np.array(
-        resample_history_nearest(import_price_hist, grid_times, default=0.20)
+        resample_history_nearest(
+            import_price_hist, grid_times, default=0.20, backfill_first=True
+        )
     )
 
     # Component 1: offered vs realised flex -- offered needs real
@@ -5779,25 +5820,34 @@ def _compute_report_for_window(
         [
             v + import_fee_rate(cfg, grid_times[i].hour)
             for i, v in enumerate(
-                resample_history_nearest(import_price_hist, grid_times, default=0.20)
+                resample_history_nearest(
+                    import_price_hist, grid_times, default=0.20, backfill_first=True
+                )
             )
         ]
     )
     export_price = np.array(
-        resample_history_nearest(export_price_hist, grid_times, default=0.05)
+        resample_history_nearest(
+            export_price_hist, grid_times, default=0.05, backfill_first=True
+        )
     )
 
     capacity_kwh = _cfg_num(cfg, "solver_battery_capacity_kwh", 0.0)
     min_pct = _cfg_num(cfg, "solver_battery_min_soc_percent", 5.0)
     max_pct = _cfg_num(cfg, "solver_battery_max_soc_percent", 100.0)
     initial_pct = (
-        resample_history_nearest(soc_hist, [day_start], default=50.0)[0]
+        resample_history_nearest(
+            soc_hist, [day_start], default=50.0, backfill_first=True
+        )[0]
         if soc_hist
         else 50.0
     )
     final_pct = (
         resample_history_nearest(
-            soc_hist, [day_end - timedelta(seconds=1)], default=initial_pct
+            soc_hist,
+            [day_end - timedelta(seconds=1)],
+            default=initial_pct,
+            backfill_first=True,
         )[0]
         if soc_hist
         else initial_pct
@@ -6379,7 +6429,7 @@ def _soc_discrepancy_stats(
         if ach_pct is None:
             continue
         hour_dt = datetime.fromisoformat(key_str)
-        real_pct = resample_history_nearest(soc_hist, [hour_dt])[0]
+        real_pct = resample_history_nearest(soc_hist, [hour_dt], backfill_first=True)[0]
         ach_out_of_range = not (0.0 <= ach_pct <= 100.0)
         real_out_of_range = not (0.0 <= real_pct <= 100.0)
         exempted = False
@@ -6713,12 +6763,16 @@ def compute_efficiency_backtest_report(cfg: dict, now: datetime) -> dict | None:
         [
             v + import_fee_rate(cfg, grid_times[i].hour)
             for i, v in enumerate(
-                resample_history_nearest(import_price_hist, grid_times, default=0.20)
+                resample_history_nearest(
+                    import_price_hist, grid_times, default=0.20, backfill_first=True
+                )
             )
         ]
     )
     export_price = np.array(
-        resample_history_nearest(export_price_hist, grid_times, default=0.05)
+        resample_history_nearest(
+            export_price_hist, grid_times, default=0.05, backfill_first=True
+        )
     )
 
     capacity_kwh = _cfg_num(cfg, "solver_battery_capacity_kwh", 0.0)
@@ -6975,13 +7029,21 @@ def compute_nimbus_only_soc_counterfactual(cfg: dict, day: datetime) -> dict | N
         else None
     )
 
-    initial_pct = resample_history_nearest(soc_hist, [day_start], default=50.0)[0]
+    initial_pct = resample_history_nearest(
+        soc_hist, [day_start], default=50.0, backfill_first=True
+    )[0]
     real_soc_close_pct = resample_history_nearest(
-        soc_hist, [day_end - timedelta(seconds=1)], default=initial_pct
+        soc_hist,
+        [day_end - timedelta(seconds=1)],
+        default=initial_pct,
+        backfill_first=True,
     )[0]
     real_soc_checkpoint_pct = (
         resample_history_nearest(
-            soc_hist, [day_start.replace(hour=checkpoint_hour)], default=initial_pct
+            soc_hist,
+            [day_start.replace(hour=checkpoint_hour)],
+            default=initial_pct,
+            backfill_first=True,
         )[0]
         if checkpoint_hour >= 0
         else None
@@ -7019,14 +7081,19 @@ def compute_nimbus_only_soc_counterfactual(cfg: dict, day: datetime) -> dict | N
                 v + import_fee_rate(cfg, gt.hour) + flat_fee_rate
                 for v, gt in zip(
                     resample_history_nearest(
-                        import_price_hist, grid_times, default=0.20
+                        import_price_hist,
+                        grid_times,
+                        default=0.20,
+                        backfill_first=True,
                     ),
                     grid_times,
                 )
             ]
         )
         export_price = np.array(
-            resample_history_nearest(export_price_hist, grid_times, default=0.05)
+            resample_history_nearest(
+                export_price_hist, grid_times, default=0.05, backfill_first=True
+            )
         )
 
         fixed_export_kw = fetch_p2p_fixed_export_kw(cfg, grid_times)
@@ -7335,7 +7402,15 @@ def update_solar_delivery_ratio(
                 target_time + timedelta(minutes=10),
             )
             if hist:
-                actual_kw = resample_history_nearest(hist, [target_time])[0]
+                # nimbus issue #843: deliberately keeps the pre-#843
+                # backfill here. `hist` is a tight +/-10min window
+                # fetched around this exact instant, so its first sample
+                # is genuinely representative; falling through to 0.0
+                # would record a misleading "solar delivered nothing"
+                # ratio whenever the only rows land just after the mark.
+                actual_kw = resample_history_nearest(
+                    hist, [target_time], backfill_first=True
+                )[0]
                 ratios.append(
                     {"time": now.isoformat(), "ratio": actual_kw / forecast_kw}
                 )
@@ -10593,6 +10668,14 @@ def _resolve_battery_participant_history(
                 # can't confirm the car/resource is really there, don't
                 # count it" posture #563 item 2 already established for
                 # the live solve's own availability gate.
+                # nimbus issue #843, second real instance of the same
+                # defect: this default=0.0 "assume away" intent was
+                # silently defeated before that fix, because the helper
+                # always initialised to pts[0][1]. A car whose FIRST
+                # binary_sensor row of the day read "on" therefore had
+                # every period before it masked as home -- the exact
+                # opposite of the conservative posture stated above.
+                # Now genuinely honoured (backfill_first stays False).
                 home_numeric = [(t, 1.0 if v == "on" else 0.0) for t, v in home_hist]
                 is_home = np.array(
                     resample_history_nearest(home_numeric, grid_times, default=0.0)
@@ -10607,11 +10690,22 @@ def _resolve_battery_participant_history(
             max_soc_pct = float(
                 data.get(CONF_BATTERY_PARTICIPANT_MAX_SOC_PERCENT) or 100.0
             )
+            # nimbus issue #843: backfill_first=True is load-bearing for
+            # exactly the EV this bug was found on. soc_hist is fetched
+            # with a 6h lookback so a real preceding sample usually
+            # exists -- but a car that sleeps through the whole buffer
+            # (real Tesla behaviour) has none, and its SoC genuinely did
+            # NOT change while parked. Backfilling its first real reading
+            # is physically right; falling through to min_soc_pct would
+            # newly corrupt this participant's own scored trajectory.
             initial_pct = resample_history_nearest(
-                soc_hist, [day_start], default=min_soc_pct
+                soc_hist, [day_start], default=min_soc_pct, backfill_first=True
             )[0]
             final_pct = resample_history_nearest(
-                soc_hist, [day_end - timedelta(seconds=1)], default=initial_pct
+                soc_hist,
+                [day_end - timedelta(seconds=1)],
+                default=initial_pct,
+                backfill_first=True,
             )[0]
             # Physical-range clamp only (same reasoning as the home
             # battery's own #325/#327/#328 history -- a real installed
