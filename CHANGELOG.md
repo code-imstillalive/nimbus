@@ -8,6 +8,19 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.287] — 2026-09-14
+
+### Fixed
+- **A single corrupt power reading could publish a physically impossible achieved-battery figure** (nimbus issue [#843](https://github.com/code-imstillalive/nimbus/issues/843), option B of Mark Purcell's own A/B/C steer — the cheap always-on guard, landing first). A battery participant's power sensor can briefly report a different unit than it does now: confirmed live on Mark's household, where an EV pack sensor reports `W` for ~80 seconds as the car wakes from sleep, then switches to `kW`. `_kw_scale_factor()` reads the sensor's *current live* unit once and applies that single scale across a whole day of history, so it structurally cannot see a mid-day change — one `1514.417` sample was scored as 1514.417 kW against a 25 kW-configured EV.
+
+  Any reading that far outside a participant's own configured envelope is corrupt by definition, whatever produced it, so this catches unit drift, sensor glitches and firmware garbage alike. The bound is `10 × max(max_charge_kw, max_discharge_kw)`, deliberately placed in the middle of the three-orders-of-magnitude gap between plausible hardware overshoot and a 1000x unit error: a 25 kW device briefly reading 30 kW (1.2x) is kept, someone who configures `5.0` for a real 25 kW charger (5x) keeps all their real data, Mark's actual corrupt sample (~60x) is discarded, and a full W-vs-kW error (1000x) is caught with two orders of magnitude to spare.
+
+  **Discards rather than clamps.** Clamping 1514 kW down to the 250 kW bound would assert a value that was never measured and is still ~10x what the device can physically do — converting an obviously-absurd number into a plausible-looking but still-wrong one, which is strictly worse for a figure feeding a real cost calculation because it stops tripping suspicion. Dropping the sample lets the period's mean rebuild from whatever real samples remain; a period left with none falls through to `default=0.0`, which since v0.94.285 genuinely means "no measured flow".
+
+  **Filters the raw history upstream of `resample_history_mean()`**, not the resampled series: a bad sample that survives into the mean has already been blended into its period, so an hour holding one 1514 kW reading among five good ones emerges at ~252 kW — contaminated but no longer obviously corrupt enough for any magnitude bound to catch. An unconfigured envelope is a genuine no-op, never a clamp to zero. Logs one WARNING per call naming the sensor, timestamp, value and bound — not one per sample.
+
+  13 new tests including Mark's real 13 Sep rows verbatim. **#843 stays open** — the per-row unit scaling (option A) completes Option C and lands separately.
+
 ## [0.94.286] — 2026-09-14
 
 ### Added
