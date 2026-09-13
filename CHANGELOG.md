@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.283] — 2026-09-14
+
+### Fixed
+- **`switch.nimbus_solver_flex_signals_enabled` was a silent no-op** (v0.94.282 follow-up, nimbus issue [#496](https://github.com/code-imstillalive/nimbus/issues/496)). Found live on devhub minutes after v0.94.282 deployed: the switch flipped on, three real solve cycles completed, `sensor.nimbus_flex_signals` stayed `unknown` throughout. Root cause: `CONF_SOLVER_FLEX_SIGNALS_ENABLED` was wired into `solver_writer.py`'s `main()` via `cfg.get(...)` but never added to `sensor.py`'s own `_SOLVER_ALL_KEYS`/`_SOLVER_SWITCH_ENTITY_KEYS` — the exact #538/#692-pattern bug this project has hit before, where `sensor.nimbus_solver_config` (`fetch_solver_config()`'s only channel) never exposed the field, so the switch's real live state never reached the solve. New regression test guards switch.py for this bug class the same way an existing test already guards number.py — nothing equivalent existed for switches before this. Full local suite green (2216 passed, 13 skipped, 142 subtests), `ruff check`/`format --check` clean, mypy delta +0.
+
 ## [0.94.282] — 2026-09-13
 
 ### Added
