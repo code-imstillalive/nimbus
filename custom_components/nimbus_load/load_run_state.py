@@ -1005,14 +1005,25 @@ def derive_schedule_view(
                 f"{tank_current_temperature:.0f} °C)"
             )
     elif load_kind == _LOAD_KIND_THERMAL and state.plan_temperature_forecast:
-        # nimbus issue #774: the direct, plain-language answer to the
-        # hard guarantee's own question -- "will it reach target by the
-        # deadline" -- read straight from the LP's own solved trajectory
-        # (the last published point is the plan's own horizon-end
-        # temperature, not necessarily the load's own configured
-        # deadline_period if the horizon is shorter, an honest
-        # "as far as this cycle's plan reaches" answer either way).
-        final_entry = state.plan_temperature_forecast[-1]
+        # nimbus issue #816 (Mark Purcell, real live finding): this used
+        # to read state.plan_temperature_forecast[-1] -- the temperature
+        # at the very END of the whole published multi-day horizon, not
+        # at the load's own configured deadline. v1's thermal LP has no
+        # comfort floor or next-day deadline constraint once the first
+        # deadline is met (see solver.elements.ThermalLoadConfig's own
+        # docstring), so temperature decays freely for every period past
+        # it -- confirmed live: a tank hard-constrained to 45°C and
+        # actually sitting at 63°C at its real deadline still reported
+        # "tank projected 8°C", read from a point 3+ days later that the
+        # hard constraint never protected. The deadline's own period
+        # index is the honest point to report -- clamped to the
+        # published series' own length, since a plan whose horizon is
+        # shorter than the configured deadline (e.g. right after a hub
+        # restart) still needs an answer.
+        deadline_idx = state.plan_deadline_period
+        if deadline_idx is None or deadline_idx >= len(state.plan_temperature_forecast):
+            deadline_idx = len(state.plan_temperature_forecast) - 1
+        final_entry = state.plan_temperature_forecast[deadline_idx]
         final_temp = float(final_entry["value"])
         final_time = datetime.fromisoformat(str(final_entry["time"]))
         status = f"on track: tank projected {final_temp:.0f} °C by {final_time:%H:%M}"

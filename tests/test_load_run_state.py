@@ -1478,6 +1478,50 @@ class TestDeriveScheduleView(unittest.TestCase):
         self.assertIsNone(view.target_today_kwh)
         self.assertEqual(view.status, "on track: tank projected 60 °C by 08:30")
 
+    def test_thermal_load_reports_the_temperature_at_its_own_deadline_not_the_horizon_end(
+        self,
+    ):
+        # nimbus issue #816 (Mark Purcell, real live finding): a tank
+        # hard-constrained to reach its target comfortably by a real
+        # deadline still reported an absurd "tank projected 8 °C" --
+        # traced to reading plan_temperature_forecast[-1] (the very end
+        # of the whole published multi-day horizon) instead of the
+        # temperature AT the load's own configured deadline. v1's
+        # thermal LP has no comfort floor or next-day deadline once the
+        # first one is met, so temperature decays freely for every
+        # period past it -- exactly what this fixture reproduces: a real
+        # deadline met comfortably at index 2 (55 °C, well above a
+        # hypothetical ~45 °C target), followed by unconstrained decay
+        # down to 8 °C by the end of the published series.
+        temp_forecast = _series(self.times, [45.0, 50.0, 55.0, 40.0, 20.0, 8.0])
+        state = lrs.LoadRunState(
+            plan_forecast=self.forecast,
+            plan_temperature_forecast=temp_forecast,
+            plan_deadline_period=2,
+            commanded_state=False,
+            day_key="2026-09-09",
+        )
+        view = lrs.derive_schedule_view(state, load_kind="thermal", now=self.times[0])
+        self.assertEqual(view.status, "on track: tank projected 55 °C by 07:00")
+
+    def test_thermal_load_deadline_past_the_published_series_falls_back_to_the_last_point(
+        self,
+    ):
+        # A plan whose horizon is shorter than the configured deadline
+        # (e.g. right after a hub restart, before a full-length solve
+        # has published) still needs an honest answer -- clamps to the
+        # series' own last point rather than raising an IndexError.
+        temp_forecast = _series(self.times, [45.0, 50.0, 55.0, 58.0, 60.0, 60.0])
+        state = lrs.LoadRunState(
+            plan_forecast=self.forecast,
+            plan_temperature_forecast=temp_forecast,
+            plan_deadline_period=99,
+            commanded_state=False,
+            day_key="2026-09-09",
+        )
+        view = lrs.derive_schedule_view(state, load_kind="thermal", now=self.times[0])
+        self.assertEqual(view.status, "on track: tank projected 60 °C by 08:30")
+
     def test_thermal_load_with_no_published_temperature_forecast_falls_back_honestly(
         self,
     ):
