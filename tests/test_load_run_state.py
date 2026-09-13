@@ -1460,6 +1460,50 @@ class TestDeriveScheduleView(unittest.TestCase):
         self.assertIsNone(view.planned_duration_h)
         self.assertIsNone(view.planned_energy_kwh)
 
+    def test_thermal_load_reports_the_lps_own_projected_final_temperature(self):
+        # nimbus issue #774: the hard guarantee's own direct answer,
+        # read straight from ThermalLoadPlan's real solved trajectory
+        # (as published via LoadRunState.plan_temperature_forecast) --
+        # not target_today_kwh (always None for kind=thermal, this load
+        # has no kWh target at all) and not the deferrable-style
+        # shortfall/done wording.
+        temp_forecast = _series(self.times, [45.0, 50.0, 55.0, 58.0, 60.0, 60.0])
+        state = lrs.LoadRunState(
+            plan_forecast=self.forecast,
+            plan_temperature_forecast=temp_forecast,
+            commanded_state=False,
+            day_key="2026-09-09",
+        )
+        view = lrs.derive_schedule_view(state, load_kind="thermal", now=self.times[0])
+        self.assertIsNone(view.target_today_kwh)
+        self.assertEqual(view.status, "on track: tank projected 60 °C by 08:30")
+
+    def test_thermal_load_with_no_published_temperature_forecast_falls_back_honestly(
+        self,
+    ):
+        # No plan_temperature_forecast yet this cycle (a fresh subentry,
+        # or a solve that hasn't published one) -- falls through to the
+        # same generic scheduled/outside-window wording every other kind
+        # already gets, never a fabricated projection.
+        state = lrs.LoadRunState(
+            plan_forecast=self.forecast,
+            commanded_state=False,
+            day_key="2026-09-09",
+        )
+        view = lrs.derive_schedule_view(state, load_kind="thermal", now=self.times[0])
+        self.assertEqual(view.status, "scheduled 06:30–07:30")
+
+    def test_thermal_load_running_reports_running_not_the_projection(self):
+        temp_forecast = _series(self.times, [45.0, 50.0, 55.0, 58.0, 60.0, 60.0])
+        state = lrs.LoadRunState(
+            plan_forecast=self.forecast,
+            plan_temperature_forecast=temp_forecast,
+            commanded_state=True,
+            day_key="2026-09-09",
+        )
+        view = lrs.derive_schedule_view(state, load_kind="thermal", now=self.times[0])
+        self.assertEqual(view.status, "running")
+
     def test_no_plan_forecast_at_all_is_a_safe_empty_view(self):
         # A load never yet solved this cycle (fresh subentry, or the
         # store simply has nothing for it) -- LoadRunState()'s own

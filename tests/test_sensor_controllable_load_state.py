@@ -208,3 +208,12 @@ def test_plan_forecast_fields_are_excluded_from_recorder_history():
         "plan_nominal_kw",
     }
     assert expected <= sensor.NimbusControllableLoadStateSensor._unrecorded_attributes
+
+
+def test_state_sensor_stays_a_primary_undifferentiated_entity():
+    """nimbus issue #774: commanded_state is the other of the device
+    page's two primary answers (alongside Status, checked in
+    test_sensor_controllable_load_schedule.py) -- unaffected by that
+    issue's own reclassification of the eleven supporting-detail sensors
+    to diagnostic."""
+    assert sensor.NimbusControllableLoadStateSensor._attr_entity_category is None

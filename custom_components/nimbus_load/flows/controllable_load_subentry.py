@@ -6,12 +6,14 @@ Distinct from a plain Load subentry (flows/load_subentry.py): a Load is
 forecasted but always treated by the Solver as fixed, unavoidable demand.
 A Controllable Load is something the Solver actually decides the timing
 or level of -- a pool pump the Solver can shed under price pressure
-(kind=sheddable, SheddableLoadConfig), or a hot-water system with a real
+(kind=sheddable, SheddableLoadConfig), a hot-water system with a real
 deadline (kind=deferrable, AdequacyLoadConfig, #477's soft-shortfall
-version).
+version), or a load whose "must heat every day" guarantee is a genuine
+HARD LP constraint on a real temperature state variable (kind=thermal,
+ThermalLoadConfig, nimbus issue #774).
 
 Single flat step, deliberately -- see SUBENTRY_TYPE_CONTROLLABLE_LOAD's
-own comment in const.py for why only these two kinds are offered yet.
+own comment in const.py for why only these three kinds are offered yet.
 Every field beyond `kind` itself is only ever read by solver_writer.py
 if the selected kind actually uses it (see build_controllable_loads()
 there) -- leaving a sheddable load's deferrable_* fields blank (or vice
@@ -52,8 +54,18 @@ from ..const import (
     CONF_SHEDDABLE_MIN_FRACTION,
     CONF_SHEDDABLE_NOMINAL_KW,
     CONF_SHEDDABLE_SHED_COST,
+    CONF_THERMAL_COMFORT_FLOOR_C,
+    CONF_THERMAL_COMFORT_FLOOR_COST,
+    CONF_THERMAL_DEADLINE_HOUR,
+    CONF_THERMAL_EARLIEST_HOUR,
+    CONF_THERMAL_HEATING_RATE_C_PER_KWH,
+    CONF_THERMAL_IDLE_DECAY_C_PER_HOUR,
+    CONF_THERMAL_MAX_POWER_KW,
+    CONF_THERMAL_TARGET_TEMPERATURE_C,
+    CONF_THERMAL_TEMPERATURE_ENTITY,
     CONTROLLABLE_LOAD_KIND_DEFERRABLE,
     CONTROLLABLE_LOAD_KIND_SHEDDABLE,
+    CONTROLLABLE_LOAD_KIND_THERMAL,
 )
 
 # Matches DEFAULT_SHED_COST / DEFAULT_ADEQUACY_SHORTFALL_PRICE
@@ -77,6 +89,11 @@ _KWH_SELECTOR = selector.NumberSelector(
 _DOLLAR_PER_KWH_SELECTOR = selector.NumberSelector(
     selector.NumberSelectorConfig(
         min=0, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="$/kWh"
+    )
+)
+_CELSIUS_SELECTOR = selector.NumberSelector(
+    selector.NumberSelectorConfig(
+        min=0, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="°C"
     )
 )
 # Same 24hr-decimal, no-AM/PM-ambiguity choice as load_subentry.py's own
@@ -124,6 +141,7 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
                 options=[
                     CONTROLLABLE_LOAD_KIND_SHEDDABLE,
                     CONTROLLABLE_LOAD_KIND_DEFERRABLE,
+                    CONTROLLABLE_LOAD_KIND_THERMAL,
                 ],
                 translation_key=CONF_CONTROLLABLE_LOAD_KIND,
             )
@@ -251,6 +269,83 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
         CONF_DEFERRABLE_MAX_KWH_PER_DAY,
         defaults.get(CONF_DEFERRABLE_MAX_KWH_PER_DAY),
         _KWH_SELECTOR,
+    )
+    # kind=thermal fields (nimbus issue #774) -- see solver.elements.
+    # ThermalLoadConfig's own docstring for the full design. Domain-
+    # restricted to water_heater/climate (the same two domains done_
+    # condition.py's own ATTRIBUTE_DONE_DOMAINS/read_current_temperature()
+    # already support -- any other domain reads as None, a fail-open no-op).
+    _optional_field(
+        schema_dict,
+        CONF_THERMAL_TEMPERATURE_ENTITY,
+        defaults.get(CONF_THERMAL_TEMPERATURE_ENTITY),
+        selector.EntitySelector(
+            selector.EntitySelectorConfig(domain=["water_heater", "climate"])
+        ),
+    )
+    _optional_field(
+        schema_dict,
+        CONF_THERMAL_MAX_POWER_KW,
+        defaults.get(CONF_THERMAL_MAX_POWER_KW),
+        _KW_SELECTOR,
+    )
+    _optional_field(
+        schema_dict,
+        CONF_THERMAL_TARGET_TEMPERATURE_C,
+        defaults.get(CONF_THERMAL_TARGET_TEMPERATURE_C),
+        _CELSIUS_SELECTOR,
+    )
+    _optional_field(
+        schema_dict,
+        CONF_THERMAL_EARLIEST_HOUR,
+        defaults.get(CONF_THERMAL_EARLIEST_HOUR),
+        _HOUR_SELECTOR,
+    )
+    _optional_field(
+        schema_dict,
+        CONF_THERMAL_DEADLINE_HOUR,
+        defaults.get(CONF_THERMAL_DEADLINE_HOUR),
+        _HOUR_SELECTOR,
+    )
+    # Tier 3 of Mark's own objective hierarchy -- see CONF_THERMAL_
+    # COMFORT_FLOOR_C's own const.py comment. Both optional, left blank
+    # means no mid-day reheat pressure at all.
+    _optional_field(
+        schema_dict,
+        CONF_THERMAL_COMFORT_FLOOR_C,
+        defaults.get(CONF_THERMAL_COMFORT_FLOOR_C),
+        _CELSIUS_SELECTOR,
+    )
+    _optional_field(
+        schema_dict,
+        CONF_THERMAL_COMFORT_FLOOR_COST,
+        defaults.get(CONF_THERMAL_COMFORT_FLOOR_COST),
+        _DOLLAR_PER_KWH_SELECTOR,
+    )
+    # Optional overrides of thermal_forecast.py's own learn_thermal_
+    # rates() -- left blank (the default) uses the learned value exactly
+    # as the dashboard's own temperature-forecast display already does.
+    _optional_field(
+        schema_dict,
+        CONF_THERMAL_HEATING_RATE_C_PER_KWH,
+        defaults.get(CONF_THERMAL_HEATING_RATE_C_PER_KWH),
+        selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=0,
+                mode=selector.NumberSelectorMode.BOX,
+                unit_of_measurement="°C/kWh",
+            )
+        ),
+    )
+    _optional_field(
+        schema_dict,
+        CONF_THERMAL_IDLE_DECAY_C_PER_HOUR,
+        defaults.get(CONF_THERMAL_IDLE_DECAY_C_PER_HOUR),
+        selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=0, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="°C/h"
+            )
+        ),
     )
     # nimbus issue #480: a binary_sensor's own "on" state IS the done
     # condition (done_when left blank); any other domain needs done_when

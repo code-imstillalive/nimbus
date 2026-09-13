@@ -1475,6 +1475,7 @@ class NimbusControllableLoadStateSensor(SensorEntity):
             "plan_shadow_price_forecast",
             "plan_status_reason",
             "temperature_forecast",
+            "plan_temperature_forecast",
         }
     )
 
@@ -1594,7 +1595,15 @@ class _NimbusControllableLoadScheduleSensorBase(SensorEntity):
     """
 
     _attr_has_entity_name = True
-    _attr_entity_category = None  # a real, actively-read data source
+    # nimbus issue #774 (Mark's own objective-hierarchy/entity-design ask
+    # on #774): DIAGNOSTIC by default -- ten of this base's eleven real
+    # subclasses are supporting detail, not the direct answer to "what is
+    # this load doing." NimbusControllableLoadStatusSensor (the one
+    # subclass that IS the direct answer) overrides this back to None on
+    # its own class body below, same override-the-base pattern
+    # sensor_flattened.py's own Quality sub-device already established
+    # for its one primary field (epr_pct) among many diagnostic ones.
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _ENTITY_ID_SUFFIX = ""  # overridden per subclass below
     _UNIQUE_ID_SUFFIX = ""  # overridden per subclass below
 
@@ -1905,6 +1914,11 @@ class NimbusControllableLoadStatusSensor(_NimbusControllableLoadScheduleSensorBa
     configured), "shed x kWh today" (sheddable), or "outside window"."""
 
     _attr_name = "Status"
+    # nimbus issue #774: the one primary, undifferentiated answer on this
+    # device page (alongside NimbusControllableLoadStateSensor's own
+    # commanded_state) -- overrides the base class's own DIAGNOSTIC
+    # default back to None.
+    _attr_entity_category = None
     _ENTITY_ID_SUFFIX = "status"
     _UNIQUE_ID_SUFFIX = "status"
 
@@ -1943,7 +1957,10 @@ class NimbusControllableLoadTemperatureForecastSensor(SensorEntity):
     _attr_name = "Temperature Forecast"
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
     _attr_device_class = SensorDeviceClass.TEMPERATURE
-    _attr_entity_category = None
+    # nimbus issue #774: diagnostic, same reclassification as the other
+    # ten schedule-view sensors on this device page -- supporting detail
+    # behind the Status sensor's own plain-language answer.
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(
         self,

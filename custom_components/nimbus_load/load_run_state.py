@@ -242,6 +242,15 @@ class LoadRunState:
     # common, healthy case) or the load has no floor to check against.
     floor_crossing_forecast_time: str | None = None
     floor_crossing_forecast_temperature: float | None = None
+    # nimbus issue #774: for a kind=thermal load, the LP's own real,
+    # SOLVED temperature trajectory (network.py's ThermalLoadPlan.
+    # temperature_c) -- unlike temperature_forecast above (a kind=
+    # deferrable load's display-only re-projection from the chosen power
+    # schedule using the SAME physics model the LP already solved with),
+    # this is the LP's own numbers directly, so it can never diverge from
+    # what was actually solved. None for a kind=deferrable/sheddable load,
+    # or a kind=thermal load with no plan published yet this cycle.
+    plan_temperature_forecast: list[dict[str, Any]] | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -279,6 +288,7 @@ class LoadRunState:
             "floor_crossing_forecast_temperature": (
                 self.floor_crossing_forecast_temperature
             ),
+            "plan_temperature_forecast": self.plan_temperature_forecast,
         }
 
     @staticmethod
@@ -320,6 +330,7 @@ class LoadRunState:
             floor_crossing_forecast_temperature=data.get(
                 "floor_crossing_forecast_temperature"
             ),
+            plan_temperature_forecast=data.get("plan_temperature_forecast"),
         )
 
 
@@ -706,6 +717,7 @@ _SHED_EPSILON_KWH = 0.01
 # import shape (see this file's own top docstring).
 _LOAD_KIND_DEFERRABLE = "deferrable"
 _LOAD_KIND_SHEDDABLE = "sheddable"
+_LOAD_KIND_THERMAL = "thermal"
 
 
 @dataclass(frozen=True)
@@ -978,6 +990,18 @@ def derive_schedule_view(
                 f"{target_today_kwh:.1f} kWh, tank "
                 f"{tank_current_temperature:.0f} °C)"
             )
+    elif load_kind == _LOAD_KIND_THERMAL and state.plan_temperature_forecast:
+        # nimbus issue #774: the direct, plain-language answer to the
+        # hard guarantee's own question -- "will it reach target by the
+        # deadline" -- read straight from the LP's own solved trajectory
+        # (the last published point is the plan's own horizon-end
+        # temperature, not necessarily the load's own configured
+        # deadline_period if the horizon is shorter, an honest
+        # "as far as this cycle's plan reaches" answer either way).
+        final_entry = state.plan_temperature_forecast[-1]
+        final_temp = float(final_entry["value"])
+        final_time = datetime.fromisoformat(str(final_entry["time"]))
+        status = f"on track: tank projected {final_temp:.0f} °C by {final_time:%H:%M}"
     elif load_kind == _LOAD_KIND_SHEDDABLE and forecast and state.plan_nominal_kw:
         times_all = [datetime.fromisoformat(e["time"]) for e in forecast]
         values_all = [float(e["value"]) for e in forecast]
