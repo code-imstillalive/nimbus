@@ -8773,6 +8773,37 @@ def build_controllable_loads(
     entries = _NATIVE_HASS.config_entries.async_entries(DOMAIN)
     if not entries:
         return [], [], []
+    # nimbus issue #757 (temporary diagnostic, remove once root-caused):
+    # a live check found build_extra_batteries()'s own identical
+    # `_NATIVE_HASS.config_entries.async_entries(DOMAIN)` call returning
+    # a STALE `entries[0]` (34 subentries, missing every controllable_
+    # load and battery_participant, real subentry_ids that don't match
+    # a fresh `ha_get_integration` read of the SAME entry_id at the same
+    # moment) -- while THIS function, using the exact same call, was
+    # simultaneously dispatching real controllable loads correctly on
+    # the same devhub install. Logging the same entry-count/entry_id/
+    # title/subentry-count triple here too, so the next real occurrence
+    # settles directly whether these two call sites are ever actually
+    # seeing DIFFERENT `entries[0]` objects (which would mean something
+    # environmental, not a bug in either function's own logic) or the
+    # same one (which would mean build_extra_batteries()'s own filter
+    # loop, not the entries lookup itself, is where subentries are
+    # actually being lost).
+    _LOGGER.warning(
+        "Nimbus #757 diag: build_controllable_loads() async_entries(DOMAIN) "
+        "returned %d entr%s: %s",
+        len(entries),
+        "y" if len(entries) == 1 else "ies",
+        [
+            (
+                getattr(e, "entry_id", None),
+                getattr(e, "title", None),
+                getattr(getattr(e, "state", None), "value", None),
+                len(e.subentries),
+            )
+            for e in entries
+        ],
+    )
     run_state_day_key = now.strftime("%Y-%m-%d")
     for subentry in entries[0].subentries.values():
         if subentry.subentry_type != SUBENTRY_TYPE_CONTROLLABLE_LOAD:
@@ -9440,6 +9471,38 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
     # this unconditional trace hasn't been asked to explain yet. Logs
     # every subentry_type this loop actually sees, every cycle, until the
     # real mechanism is found.
+    #
+    # 2026-09-13 follow-up: a fresh devhub read found `entries[0].
+    # subentries` reporting a stable set of 34 subentries (real
+    # subentry_ids like "01KZYY...", no battery_participant present at
+    # all) that does NOT match `ha_get_integration`'s own live read of
+    # this exact entry_id moments later (38 subentries, real ids like
+    # "01M14NJ...", battery_participant "Test EV" present) -- same
+    # circuit TITLES appear under completely different subentry_ids in
+    # the two reads. Two real, testable hypotheses this alone can't
+    # distinguish between: (a) `async_entries(DOMAIN)` is genuinely
+    # returning more than one config entry for this domain and
+    # `entries[0]` is silently picking a stale/orphaned one instead of
+    # the real, currently-configured entry the household actually sees;
+    # or (b) something rarer (a stale Python object reference to the
+    # "same" entry_id surviving past a point where HA replaced it).
+    # Logging every entry this call actually returns -- not just
+    # entries[0] -- to settle this directly on the next real occurrence,
+    # rather than re-deriving it from static reading a third time.
+    _LOGGER.warning(
+        "Nimbus #757 diag: async_entries(DOMAIN) returned %d entr%s: %s",
+        len(entries),
+        "y" if len(entries) == 1 else "ies",
+        [
+            (
+                getattr(e, "entry_id", None),
+                getattr(e, "title", None),
+                getattr(getattr(e, "state", None), "value", None),
+                len(e.subentries),
+            )
+            for e in entries
+        ],
+    )
     _LOGGER.warning(
         "Nimbus #757 diag: build_extra_batteries scanning %d subentries: %s",
         len(entries[0].subentries),
