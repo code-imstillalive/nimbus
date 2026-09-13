@@ -371,9 +371,10 @@ def test_entity_category_reclassification_nimbus_774():
     NimbusControllableLoadStateSensor's own commanded_state, checked in
     test_sensor_controllable_load_state.py) stays a primary,
     undifferentiated sensor -- every supporting-detail schedule-view
-    sensor (including NimbusControllableLoadCostAvoidedTodaySensor and
-    NimbusControllableLoadTemperatureForecastSensor, checked separately
-    since neither is in _SCHEDULE_SENSOR_CLASSES) moves to diagnostic."""
+    sensor (including NimbusControllableLoadCostAvoidedTodaySensor,
+    checked separately since it isn't in _SCHEDULE_SENSOR_CLASSES) moves
+    to diagnostic. Temperature Forecast is checked separately below --
+    nimbus issue #819 later pulled it back OUT of diagnostic."""
     from homeassistant.const import EntityCategory
 
     for cls in _SCHEDULE_SENSOR_CLASSES:
@@ -382,7 +383,85 @@ def test_entity_category_reclassification_nimbus_774():
         else:
             assert cls._attr_entity_category == EntityCategory.DIAGNOSTIC, cls
     assert _COST_AVOIDED_SENSOR_CLASS._attr_entity_category == EntityCategory.DIAGNOSTIC
+
+
+def test_temperature_forecast_sensor_is_primary_not_diagnostic_nimbus_819():
+    """nimbus issue #819 (Mark Purcell): overrides #774's own original
+    "diagnostic, supporting detail" call for this one sensor -- the
+    current temperature is the key answer for a water_heater/climate
+    load, primary alongside Commanded State/Status, not a detail behind
+    them."""
     assert (
         sensor.NimbusControllableLoadTemperatureForecastSensor._attr_entity_category
-        == EntityCategory.DIAGNOSTIC
+        is None
     )
+
+
+def test_temperature_forecast_sensor_reads_the_live_device_temperature_nimbus_819():
+    # native_value is now the device's own REAL, LIVE current_temperature
+    # reading (the same read done_condition.read_current_temperature()
+    # already uses elsewhere) -- not the old thermal_forecast.py-projected
+    # display series (LoadRunState.temperature_forecast), which #809's
+    # simplified wizard leaves permanently unpopulated for any load with
+    # no power_sensor configured.
+    hass = MagicMock()
+    hass.states.get.return_value = SimpleNamespace(
+        state="eco",
+        attributes={"current_temperature": 47.9, "temperature": 45.0},
+    )
+    entry = _fake_entry("entry_temp")
+    subentry = _fake_subentry(
+        "s7",
+        "Hot Water Heat Pump",
+        {
+            "controllable_load_kind": "thermal",
+            "controllable_load_device_entity": "water_heater.wwk302",
+        },
+    )
+    plan_temp_forecast = [
+        {"time": "2026-09-13T16:50:00+10:00", "value": 47.917},
+        {"time": "2026-09-14T16:00:00+10:00", "value": 63.472},
+    ]
+    _write_state(
+        hass,
+        "entry_temp",
+        "s7",
+        load_run_state.LoadRunState(
+            plan_forecast=[],
+            plan_temperature_forecast=plan_temp_forecast,
+            temperature_forecast=[{"time": "stale", "value": 999.0}],
+            commanded_state=False,
+            day_key="2026-09-09",
+        ),
+    )
+    s = sensor.NimbusControllableLoadTemperatureForecastSensor(
+        hass, entry, subentry, "1.0.0"
+    )
+    asyncio.run(s.async_update())
+    assert s.native_value == 47.9
+    # nimbus issue #819: the LP's own real solved trajectory surfaces
+    # here now, not the old (and in this fixture, deliberately stale/
+    # wrong-looking) thermal_forecast.py projection.
+    assert s.extra_state_attributes["forecast"] == plan_temp_forecast
+
+
+def test_temperature_forecast_sensor_is_none_without_a_device_entity():
+    hass = MagicMock()
+    entry = _fake_entry("entry_no_device")
+    subentry = _fake_subentry(
+        "s8", "Pool Pump", {"controllable_load_kind": "sheddable"}
+    )
+    _write_state(
+        hass,
+        "entry_no_device",
+        "s8",
+        load_run_state.LoadRunState(
+            plan_forecast=[], commanded_state=False, day_key="2026-09-09"
+        ),
+    )
+    s = sensor.NimbusControllableLoadTemperatureForecastSensor(
+        hass, entry, subentry, "1.0.0"
+    )
+    asyncio.run(s.async_update())
+    assert s.native_value is None
+    hass.states.get.assert_not_called()

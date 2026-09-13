@@ -1927,13 +1927,31 @@ class NimbusControllableLoadStatusSensor(_NimbusControllableLoadScheduleSensorBa
 
 
 class NimbusControllableLoadTemperatureForecastSensor(SensorEntity):
-    """nimbus issue #592 (Mark Purcell, part of #589 -- "will the tank
-    be at 60 by lunchtime?"): a water_heater/climate load's own
-    projected temperature series, from thermal_forecast.py's
-    project_temperature_forecast() -- learned heating rate (degC/kWh)
-    and idle decay rate (degC/h) from recorder history, applied period
-    by period over the same plan_forecast every other Controllable Load
-    forecast sensor already publishes.
+    """nimbus issue #819 (Mark Purcell): the key temperature answer for a
+    water_heater/climate-commanded load -- native_value is the device's
+    own REAL, LIVE current_temperature reading (the same read
+    done_condition.read_current_temperature() already uses for #534's
+    done condition and #774's thermal LP), not a projection. The LP's
+    own real solved trajectory (LoadRunState.plan_temperature_forecast,
+    #774) is published as this sensor's own {"forecast": [...]}
+    attribute instead -- the actual answer to "what will the tank be
+    doing", now attached to the entity a household would naturally look
+    at for that, rather than left as an attribute buried on the
+    Commanded State sensor.
+
+    Un-diagnostic (nimbus issue #819, overriding #774's own original
+    "diagnostic, supporting detail" call): a household's real, direct
+    question is "what temperature is it right now, and where's it
+    headed" -- primary, alongside Commanded State/Status, not a detail
+    behind them.
+
+    Superseded by this change: the pre-#774 thermal_forecast.py-projected
+    display series this sensor used to publish (LoadRunState.
+    temperature_forecast, #592) -- that projection only ever populated
+    when BOTH a done_entity AND a power_sensor were configured, which
+    #809's simplified wizard no longer asks for by default, leaving this
+    sensor permanently "unknown" for any load configured since. Reading
+    the device's own live state directly has no such dependency.
 
     Deliberately its own standalone SensorEntity, NOT built on top of
     _NimbusControllableLoadScheduleSensorBase like #590/#591's sensors
@@ -1946,21 +1964,19 @@ class NimbusControllableLoadTemperatureForecastSensor(SensorEntity):
     base is the deliberately lower-risk choice: modifying that base
     touches all eight already-shipped #590/#591 sensors at once.
 
-    None (never a fabricated flat line) whenever no done_entity is
-    configured, the entity isn't a water_heater/climate domain, the live
-    current_temperature attribute isn't readable this cycle, or no plan
-    exists yet to project over -- see solver_writer.py's own
-    apply_commanded_state_guard() for exactly which of those gates a
-    given cycle's absence of data means."""
+    None (never a fabricated flat line) whenever no device_entity is
+    configured, the entity isn't a water_heater/climate domain, or its
+    live current_temperature attribute isn't readable this cycle -- same
+    fail-open contract done_condition.read_current_temperature() itself
+    already guarantees."""
 
     _attr_has_entity_name = True
     _attr_name = "Temperature Forecast"
     _attr_native_unit_of_measurement = UnitOfTemperature.CELSIUS
     _attr_device_class = SensorDeviceClass.TEMPERATURE
-    # nimbus issue #774: diagnostic, same reclassification as the other
-    # ten schedule-view sensors on this device page -- supporting detail
-    # behind the Status sensor's own plain-language answer.
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    # nimbus issue #819: the key temperature answer, not a diagnostic --
+    # see this class's own docstring.
+    _attr_entity_category = None
 
     def __init__(
         self,
@@ -2021,8 +2037,16 @@ class NimbusControllableLoadTemperatureForecastSensor(SensorEntity):
             )
         )
         state = await store.async_read(self._subentry.subentry_id)
-        self._forecast = state.temperature_forecast or []
-        self._native_value = self._forecast[0]["value"] if self._forecast else None
+        # nimbus issue #819: the LP's own real solved trajectory, not the
+        # old thermal_forecast.py-projected display series -- see this
+        # class's own docstring for why the projection is superseded.
+        self._forecast = state.plan_temperature_forecast or []
+        device_entity = self._subentry.data.get(CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY)
+        self._native_value = (
+            done_condition.read_current_temperature(self._hass, device_entity)
+            if device_entity
+            else None
+        )
         self._rates_source = state.thermal_rates_source
         self._heating_rate = state.thermal_heating_rate_c_per_kwh
         self._decay_rate = state.thermal_idle_decay_c_per_hour
