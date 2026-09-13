@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.277] — 2026-09-13
+
+### Changed
+- **Temperature Forecast is now the key temperature entity, not a diagnostic** (nimbus issue [#819](https://github.com/code-imstillalive/nimbus/issues/819), Mark Purcell — overrides #774's own original "diagnostic, supporting detail" call for this one sensor). `sensor.nimbus_<load>_temperature_forecast` is un-diagnostic (primary, alongside Commanded State/Status) and now reads the water_heater/climate device's own REAL, LIVE `current_temperature` attribute as its `native_value` — the same read `done_condition.read_current_temperature()` already uses elsewhere — instead of the pre-#774 `thermal_forecast.py`-projected display series, which #809's simplified wizard leaves permanently `unknown` for any load with no `power_sensor` configured (real live finding, confirmed on Mark's own Hot Water Heat Pump load). The LP's own real solved trajectory (`plan_temperature_forecast`, #774) now surfaces as this same sensor's own `forecast` attribute, replacing the old projection there too. 3 new tests (primary not diagnostic; reads the live device temperature and the LP's real trajectory; `None` with no `hass.states.get()` call when no device_entity is configured). Full local suite green (2167 passed, 13 skipped), `ruff check`/`format --check` clean, mypy delta +0.
+
 ## [0.94.276] — 2026-09-13
 
 ### Fixed
