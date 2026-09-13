@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.276] — 2026-09-13
+
+### Fixed
+- **`kind=thermal` load status reported the wrong point in its own forecast** (nimbus issue [#817](https://github.com/code-imstillalive/nimbus/issues/817), found live: Mark Purcell's real Hot Water Heat Pump load, hard-constrained to 45°C and actually sitting at ~47-63°C at its real deadline, reported `"on track: tank projected 8 °C by 17:30"`). `derive_schedule_view()`'s thermal-kind status phrase read `state.plan_temperature_forecast[-1]` — the temperature at the very END of the whole published multi-day horizon (currently ~4 days) — instead of at the load's own configured deadline. v1's thermal LP has no comfort floor or next-day deadline constraint once the first deadline is met (a documented, deliberate v1 simplification), so temperature decays completely freely for every period after it; the status line was reading that free-decay tail as if it answered "will this load meet its guarantee," rather than the actually-constrained deadline point. Now reads `state.plan_deadline_period`'s own entry instead, clamped to the published series' own length (a plan whose horizon happens to be shorter than the configured deadline — e.g. right after a restart — still gets an honest answer instead of an `IndexError`). 2 new tests (deadline read correctly from the middle of a decaying series; clamped fallback when the deadline index exceeds the published series). Full local suite green (2164 passed, 13 skipped), `ruff check`/`format --check` clean.
+
 ## [0.94.275] — 2026-09-13
 
 ### Added
