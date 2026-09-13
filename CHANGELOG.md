@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.275] — 2026-09-13
+
+### Added
+- **Entity-driven `value_per_kwh` for price-gated loads** (nimbus issue [#482](https://github.com/code-imstillalive/nimbus/issues/482), closing its own last documented gap). That issue's spec explicitly asked for `value_per_kwh` to be "either a fixed number or an entity (e.g. a template sensor computing hashprice × hashrate ÷ power in $/kWh, or a 'willing to pay' input_number)" — only the fixed-number half had shipped (#672, v0.94.230). The new `deferrable_value_per_kwh_entity` field, when configured, overrides the static field with its current numeric state every solve, no config reload needed — same override/fallback pattern already established for `CONF_BATTERY_PARTICIPANT_CHARGE_LIMIT_ENTITY`; the static field still acts as the safe fallback if the entity's state is ever unavailable/non-numeric. Only added to the `nimbus_load.set_controllable_load` service schema (#811/#809), not the simplified wizard — same precedent that PR set for the power-sensor field. 5 new tests, full local suite green (2164 passed, 13 skipped), `ruff check`/`format --check` clean, zero new mypy findings.
+
 ## [0.94.274] — 2026-09-13
 
 ### Added
