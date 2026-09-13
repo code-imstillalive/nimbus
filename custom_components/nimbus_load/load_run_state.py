@@ -169,6 +169,16 @@ class LoadRunState:
     # docstring for why that one specifically can be meaningless).
     plan_marginal_cost: float | None = None
     plan_profit_horizon: float | None = None
+    # nimbus issue #483, item 2: the device's own pro-rata share of the
+    # plan's real grid-to-load flow cost, a pure post-processing
+    # attribution over solver_writer.py's own flow decomposition --
+    # deliberately NOT an AdequacyLoadPlan field the way marginal_cost/
+    # profit_horizon above are (see solver_writer.py's own compute_
+    # tariff_attributed_cost() docstring for why this one specifically
+    # lives outside network.py). None whenever the caller didn't
+    # attribute a cost for this load this cycle (no configured
+    # adequacy loads, or the whole-house load was ~0 every period).
+    plan_tariff_attributed_cost: float | None = None
     plan_earliest_period: int | None = None
     plan_deadline_period: int | None = None
     plan_nominal_kw: float | None = None
@@ -283,6 +293,7 @@ class LoadRunState:
             "plan_shortfall_kwh": self.plan_shortfall_kwh,
             "plan_marginal_cost": self.plan_marginal_cost,
             "plan_profit_horizon": self.plan_profit_horizon,
+            "plan_tariff_attributed_cost": self.plan_tariff_attributed_cost,
             "plan_earliest_period": self.plan_earliest_period,
             "plan_deadline_period": self.plan_deadline_period,
             "plan_nominal_kw": self.plan_nominal_kw,
@@ -325,6 +336,7 @@ class LoadRunState:
             plan_shortfall_kwh=data.get("plan_shortfall_kwh"),
             plan_marginal_cost=data.get("plan_marginal_cost"),
             plan_profit_horizon=data.get("plan_profit_horizon"),
+            plan_tariff_attributed_cost=data.get("plan_tariff_attributed_cost"),
             plan_earliest_period=data.get("plan_earliest_period"),
             plan_deadline_period=data.get("plan_deadline_period"),
             plan_nominal_kw=data.get("plan_nominal_kw"),

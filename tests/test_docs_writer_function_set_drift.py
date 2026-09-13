@@ -225,6 +225,15 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # from sensor.py's/number.py's own _slug_for_entity_id, per this
         # project's established small-pure-helper duplication convention.
         "_slug_for_controllable_load_entity_id",
+        # nimbus issue #483 item 2: a pure function with no HA dependency
+        # of its own, but its only real caller is main()'s own tariff-
+        # attribution wiring, called with plan.adequacy_loads -- which the
+        # docs copy's own main() always builds as adequacy_loads=[] (see
+        # its Controllable-Load construction above), same no-standalone-
+        # equivalent reasoning as build_controllable_loads() itself. A
+        # real no-op ({}) in standalone/cron mode already; porting it
+        # would add dead code with nothing to ever exercise it.
+        "compute_tariff_attributed_cost",
     }
 )
 

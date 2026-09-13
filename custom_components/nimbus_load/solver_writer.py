@@ -7279,6 +7279,80 @@ def _compute_flow_economics(
     return results
 
 
+def compute_tariff_attributed_cost(
+    adequacy_loads: list,
+    grid_to_load_kw: NDArray[np.float64],
+    whole_house_load_kw: NDArray[np.float64] | list[float],
+    import_price: NDArray[np.float64] | list[float],
+    period_hours: NDArray[np.float64] | list[float],
+) -> dict[str, float]:
+    """Nimbus issue #483 (sub-issue 7 of #476), item 2 -- "the device's
+    share of the plan's actual grid flow, pro-rata by the device's power
+    in each period." Item 1 (marginal_cost, the LP's own shadow-price-
+    based figure) shipped in #483's first pass (v0.94.271) inside
+    network.py itself, since it's a genuine LP-native quantity (reads
+    the solve's own duals). This one is deliberately NOT computed
+    there -- it's a pure post-processing ATTRIBUTION over the already-
+    solved flow decomposition (_flow_decomposition(), a solver_writer.py-
+    level function with no LP/dual concept at all), not a property the
+    LP solve itself produces.
+
+    Same "Grid -> Load = -import_price (pure cost)" pricing convention
+    _compute_flow_economics()'s own shadow-price table already
+    documents -- this attributes exactly that flow's real dollar cost,
+    split pro-rata across every configured adequacy (deferrable) load
+    by its own share of the whole house's real per-period load. A
+    period with zero whole-house load has nothing to attribute (0.0
+    contribution, not a division-by-zero crash).
+
+    Honest scope, stated directly rather than left implicit: this
+    covers every ADEQUACY (deferrable) load, matching marginal_cost's
+    own existing scope -- sheddable/thermal loads don't get this
+    figure in this pass, same "kept consistent with what's already
+    shipped, not silently expanded" reasoning #774 itself used for
+    kind=thermal's own reset of plan_marginal_cost/plan_profit_horizon
+    to None.
+
+    Real-world reconciliation caveat, spelled out per #483's own
+    acceptance criterion ("sums to the plan's grid cost within
+    rounding"): this holds EXACTLY only when grid_to_load accounts for
+    the entire grid_net cost -- i.e. no grid-sourced battery charging,
+    no export, and every real watt of whole-house load belongs to a
+    configured adequacy load (the clean synthetic-day shape the issue's
+    own Acceptance section describes). On a real household with
+    uncontrolled background circuits (lighting, fridge, etc. -- not
+    configured as a Controllable Load at all) or any grid export/
+    charging in the same window, the sum of every device's own
+    attributed cost is a real, honest PARTIAL answer (exactly what the
+    tracked devices cost), not a claim that it reconciles to the full
+    grid_net figure -- the untracked remainder is real cost this
+    function has no device to attribute it to.
+    """
+    result: dict[str, float] = {}
+    n = min(
+        len(grid_to_load_kw),
+        len(whole_house_load_kw),
+        len(import_price),
+        len(period_hours),
+    )
+    for al in adequacy_loads:
+        if al.subentry_id is None:
+            continue
+        power = np.asarray(al.power_kw, dtype=np.float64)
+        cost = 0.0
+        for t in range(min(n, len(power))):
+            house_load = float(whole_house_load_kw[t])
+            if house_load <= 1e-9:
+                continue
+            share = float(power[t]) / house_load
+            device_grid_to_load_kw = share * float(grid_to_load_kw[t])
+            cost += (
+                device_grid_to_load_kw * float(import_price[t]) * float(period_hours[t])
+            )
+        result[al.subentry_id] = cost
+    return result
+
+
 def build_per_battery_forecast(
     plan, grid_times, n_periods: int, battery_capacity_by_name: dict[str, float]
 ) -> list[dict]:
@@ -10240,6 +10314,7 @@ def apply_commanded_state_guard(
     grid_times: list[datetime],
     period_hours_arr: NDArray[np.float64] | None = None,
     import_price_arr: NDArray[np.float64] | list[float] | None = None,
+    tariff_attributed_cost_by_subentry: dict[str, float] | None = None,
 ) -> None:
     """nimbus issue #484/#534: the relay-chatter guard, now with a real
     output stage. Reads each Controllable Load's own real, just-solved
@@ -10716,6 +10791,22 @@ def apply_commanded_state_guard(
                     # both of these fields.
                     marginal_cost = getattr(load_plan, "marginal_cost", 0.0)
                     profit_horizon = getattr(load_plan, "profit_horizon", None)
+                    # nimbus issue #483, item 2: looked up by subentry_id
+                    # from the dict main() computed once, up front, over
+                    # every adequacy load in the same solve -- not a
+                    # per-load LP-native value like marginal_cost/
+                    # profit_horizon above (see compute_tariff_
+                    # attributed_cost()'s own docstring for why it lives
+                    # outside network.py). None when the caller didn't
+                    # pass the dict at all (every existing test fixture
+                    # predating this field) -- a real no-op, not a
+                    # silent 0.0 masquerading as "genuinely computed and
+                    # zero."
+                    tariff_attributed_cost = (
+                        tariff_attributed_cost_by_subentry.get(subentry_id)
+                        if tariff_attributed_cost_by_subentry is not None
+                        else None
+                    )
                     new = replace(
                         new,
                         plan_forecast=load_run_state.build_time_value_series(
@@ -10747,6 +10838,11 @@ def apply_commanded_state_guard(
                         plan_profit_horizon=(
                             round(profit_horizon, 4)
                             if profit_horizon is not None
+                            else None
+                        ),
+                        plan_tariff_attributed_cost=(
+                            round(tariff_attributed_cost, 4)
+                            if tariff_attributed_cost is not None
                             else None
                         ),
                         plan_status_reason=load_run_state.compute_load_status_reason(
@@ -11100,6 +11196,7 @@ def apply_commanded_state_guard(
                         # just above.
                         plan_marginal_cost=None,
                         plan_profit_horizon=None,
+                        plan_tariff_attributed_cost=None,
                         plan_earliest_period=earliest_period,
                         plan_deadline_period=deadline_period,
                     )
@@ -12770,10 +12867,48 @@ def main() -> None:
         [b.name for b in plan.batteries],
         plan.status,
     )
+    # nimbus issue #483, item 2: tariff-attributed cost needs the same
+    # grid_to_load flow this function's own publish_plan() call below
+    # independently recomputes for the published forecast table --
+    # duplicated here (not threaded through publish_plan()'s own return,
+    # which doesn't exist today and isn't worth adding) specifically
+    # because apply_commanded_state_guard() below has to run BEFORE
+    # publish_plan() (the comment on that call explains why: real
+    # relay-dispatch timing, can't wait on the much larger diagnostic-
+    # publishing pass). Uses plan.battery_charge_kw/discharge_kw
+    # directly (not publish_plan()'s own corrected_battery_*, which
+    # only ever differs from the raw plan values during a rare
+    # historical-incident defensive clamp, see that variable's own
+    # comment) -- KNOWN DRIFT RISK, same accepted tradeoff #582's own
+    # duplicated same-day-window logic already carries in this file.
+    _flow_decomp_for_tariff = [
+        _flow_decomposition(
+            float(solar_kw[i]),
+            float(load_kw[i]),
+            float(plan.battery_charge_kw[i]),
+            float(plan.battery_discharge_kw[i]),
+            grid_export_kw_i=float(plan.grid_export_kw[i]),
+        )
+        for i in range(n_periods)
+    ]
+    tariff_attributed_cost_by_subentry = compute_tariff_attributed_cost(
+        plan.adequacy_loads,
+        np.array([f["grid_to_load"] for f in _flow_decomp_for_tariff]),
+        load_kw,
+        import_price,
+        period_hours_arr,
+    )
     # nimbus issue #484: the relay-chatter guard, run once per solve
     # right after the plan exists -- needs the plan's own just-solved
     # period-0 power per load, so it can't run any earlier than this.
-    apply_commanded_state_guard(plan, now, grid_times, period_hours_arr, import_price)
+    apply_commanded_state_guard(
+        plan,
+        now,
+        grid_times,
+        period_hours_arr,
+        import_price,
+        tariff_attributed_cost_by_subentry=tariff_attributed_cost_by_subentry,
+    )
     publish_plan(
         cfg=cfg,
         now=now,
