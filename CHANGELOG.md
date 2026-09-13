@@ -8,6 +8,11 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.280] — 2026-09-13
+
+### Fixed
+- **Every Controllable Load sensor did its own independent Store read, 13× per load per poll** (nimbus issue [#828](https://github.com/code-imstillalive/nimbus/issues/828), found live during a real devhub incident: dozens of entities blocking for 10+ seconds simultaneously, self-triggered restarts included). `load_run_state`'s Store holds every configured load's state in ONE file per hub, keyed by subentry_id — but each of the 13 per-load sensor classes was independently reading that same file on every poll, for a real 13×N amplification factor with N configured loads. `NimbusLoadRunStateCoordinator` (new) replaces this with exactly one shared `Store.async_load()` per hub per poll, propagated to every sensor via the normal `CoordinatorEntity` push mechanism — poll cadence unchanged, dispatch timing unaffected. Also fixed a real pre-existing gap found in the same pass: `LoadRunState.from_dict()` raises `AttributeError` (not `TypeError`/`ValueError`) on a genuinely malformed store entry, uncaught by the existing except clause on both the original per-load read path and the new coordinator's own equivalent. 7 new coordinator tests, both existing per-load sensor test files rewritten for the new (now synchronous, no I/O) `native_value`/`extra_state_attributes` shape. Full local suite green (2196 passed, 13 skipped), `ruff check`/`format --check` clean, mypy delta +0.
+
 ## [0.94.279] — 2026-09-13
 
 ### Added
