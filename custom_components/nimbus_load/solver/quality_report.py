@@ -444,13 +444,22 @@ def compute_quality_report(
     # no-op.
     j_ref_battery_net_kw = zero  # idle trajectory: no battery does anything
     # mypy issue #384: same numpy-stub dtype-widening note as above.
+    # Explicit ndarray `start=` (see commanded_net_kw/actual_net_kw
+    # below for the full reasoning) keeps this genuinely
+    # NDArray[float64] rather than a `ndarray | Literal[0]` union.
     j_ach_battery_net_kw = sum(
-        (c - d).astype(np.float64)
-        for c, d in zip(actual_charge_kw, actual_discharge_kw, strict=True)
+        (
+            (c - d).astype(np.float64)
+            for c, d in zip(actual_charge_kw, actual_discharge_kw, strict=True)
+        ),
+        start=np.zeros(n, dtype=np.float64),
     )
     j_star_battery_net_kw = sum(
-        (c - d).astype(np.float64)
-        for c, d in zip(oracle_charge_kw, oracle_discharge_kw, strict=True)
+        (
+            (c - d).astype(np.float64)
+            for c, d in zip(oracle_charge_kw, oracle_discharge_kw, strict=True)
+        ),
+        start=np.zeros(n, dtype=np.float64),
     )
     # SoC per trajectory: j_ref flat; j_ach as measured (approximated by
     # integrating each battery's own actual net kW from its own initial
@@ -564,14 +573,28 @@ def compute_quality_report(
 
     # mypy issue #384: same numpy-stub dtype-widening note as above.
     # Fleet-aggregate tracking too -- summed across every battery, same
-    # reasoning as the reconstruction dicts above.
+    # reasoning as the reconstruction dicts above. Explicit ndarray
+    # `start=` (rather than relying on sum()'s own default int 0) keeps
+    # the return type genuinely NDArray[float64] even in the
+    # (unreachable in practice -- "home" is always present, but not
+    # something mypy can know) zero-battery case, instead of a
+    # `ndarray | Literal[0]` union that every downstream consumer below
+    # (both _hourly_means_by_key dict entries and compute_tracking_
+    # fidelity/tracking_error_cost's own typed parameters) would then
+    # have to defensively re-narrow.
     commanded_net_kw = sum(
-        (d - c).astype(np.float64)
-        for c, d in zip(commanded_charge_kw, commanded_discharge_kw, strict=True)
+        (
+            (d - c).astype(np.float64)
+            for c, d in zip(commanded_charge_kw, commanded_discharge_kw, strict=True)
+        ),
+        start=np.zeros(n, dtype=np.float64),
     )
     actual_net_kw = sum(
-        (d - c).astype(np.float64)
-        for c, d in zip(actual_charge_kw, actual_discharge_kw, strict=True)
+        (
+            (d - c).astype(np.float64)
+            for c, d in zip(actual_charge_kw, actual_discharge_kw, strict=True)
+        ),
+        start=np.zeros(n, dtype=np.float64),
     )
     tracking_result = compute_tracking_fidelity(
         hours=hours,
