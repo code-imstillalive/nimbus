@@ -280,16 +280,16 @@ class TestSoftComfortFloor(unittest.TestCase):
         solar = SolarConfig(forecast_kw=np.zeros(n))
         battery = _base_battery()
         load = [LoadConfig(name="load", forecast_kw=np.full(n, 1.0))]
-        base_kwargs = dict(
-            name="hws",
-            max_power_kw=5.0,
-            initial_temperature_c=65.0,
-            target_temperature_c=60.0,
-            earliest_period=0,
-            deadline_period=11,
-            heating_rate_c_per_kwh=8.0,
-            idle_decay_c_per_hour=3.0,
-        )
+        base_kwargs = {
+            "name": "hws",
+            "max_power_kw": 5.0,
+            "initial_temperature_c": 65.0,
+            "target_temperature_c": 60.0,
+            "earliest_period": 0,
+            "deadline_period": 11,
+            "heating_rate_c_per_kwh": 8.0,
+            "idle_decay_c_per_hour": 3.0,
+        }
 
         plan_no_floor = build_plan(
             periods=periods,
