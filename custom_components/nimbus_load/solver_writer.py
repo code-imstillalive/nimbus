@@ -1913,8 +1913,30 @@ def fetch_solver_config() -> dict:
 
     Raises a clear, actionable RuntimeError -- not a confusing KeyError
     deep inside network.py -- if the Solver hasn't been configured yet.
+
+    nimbus issue #831: also raises that same clear RuntimeError (not a
+    raw urllib.error.HTTPError leaking straight through) if the bridge
+    entity itself doesn't exist yet -- confirmed live on devhub, a
+    scheduled `nimbus_load.compute_quality_report` call landed during a
+    window where `sensor.nimbus_solver_config` wasn't registered yet
+    (the entity genuinely not existing yet during startup/reload is a
+    different failure mode than "registered but not configured", and
+    deserves the same actionable message, not "HTTP Error 404: Entity
+    sensor.nimbus_solver_config not found" with no guidance at all).
     """
-    state = ha_get("sensor.nimbus_solver_config")
+    try:
+        state = ha_get("sensor.nimbus_solver_config")
+    except urllib.error.HTTPError as e:
+        if e.code != 404:
+            raise
+        raise RuntimeError(
+            "Nimbus Solver's own sensor.nimbus_solver_config entity does not "
+            "exist yet (the hub may still be starting up, reloading, or "
+            "hasn't been set up at all). Wait for Home Assistant to finish "
+            "loading, or if this is a fresh install, add the Nimbus "
+            "integration first (Settings -> Devices & Services -> Add "
+            "Integration -> Nimbus)."
+        ) from e
     if state["state"] != "configured":
         msg = (
             "Nimbus Solver is not configured yet. Open the Nimbus hub's own "
