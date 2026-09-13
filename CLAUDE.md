@@ -20,6 +20,32 @@ Dated work-in-progress notes live in `docs/worklog/`, one file per date — this
 the "CURRENT STATE" journal that used to live directly in this file now lives. Each
 file is not re-summarized here; read it directly for the full detail. Most recent 5:
 
+- [2026-09-13](docs/worklog/2026-09-13.md) — Overnight, ran into 09-14. Six
+  releases (v0.94.281→286) plus a docs PR, starting from a live devhub incident.
+  **#773**: `phase2_pin_resolve` failing 14x in 8 minutes, each burning a full
+  multi-minute MIP, starved HA's executor threads badly enough to fail backups
+  (`Could not lock database within 30 seconds`) and block startup. Shipped a
+  5-minute cooldown — bounds the damage, doesn't explain the failure, #773 stays
+  open. Confirmed resolved when the *automatic* backup ran unattended at 05:35
+  and succeeded. **#496** both halves: flex signals (computed every solve since
+  #491/#492 and never published anywhere) then the daily flex report, verified
+  live with real data. **v0.94.283 was a bug caught BY deploy verification** —
+  the new flex switch was a silent no-op, missing from `sensor.py`'s bridge
+  tables, same #538/#692 class; added the regression test that guarded `number.py`
+  but had no switch equivalent. **#843** (Mark Purcell): quality report publishing
+  ~1,500 kW achieved battery power, ~19x the real fleet ceiling — two compounding
+  bugs, a W-vs-kW wake transient (still open) and `resample_history_nearest()`
+  returning samples from *after* the instant asked for, which smeared one bad
+  sample across eight hours; the naive fix would have newly broken EV SoC
+  reconstruction, so backfill is retained as an explicit opt-in along the
+  FLOW-vs-STATE split. **#467**: per-period availability mask — the real payoff
+  was that the scorer's reconstruction already masked away-windows and then
+  *discarded* the mask, so the oracle could "charge" an EV that was out driving,
+  overstating regret. Carries several findings worth reading before further work:
+  devhub genuinely cannot validate #843 or #481 (synthetic sensors, null weather
+  sensor), Mark's real HWS is running on *fallback* thermal rates because it has
+  no power sensor post-#809, and #495/#485 both need an HA platform this
+  integration doesn't implement.
 - [2026-09-10](docs/worklog/2026-09-10.md) — Deployed v0.94.231, verified #680's
   fix live and closed it. Followed up #684 with live verification data, root-
   caused a real 12x shadow-price bug in `plan_shadow_price_forecast`/`plan_
