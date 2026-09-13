@@ -85,6 +85,7 @@ from .const import (
     CONF_SIGNAL_ROLE,
     CONF_SOLVE_ON_PRICE_CHANGE,
     CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
+    CONF_SOLVER_AEMO_P5MIN_DISAGREEMENT_THRESHOLD_DOLLARS,
     CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
     CONF_SOLVER_BATTERY_CAPACITY_KWH,
     CONF_SOLVER_BATTERY_CHARGE_EARLINESS_BUDGET_KW,
@@ -398,6 +399,12 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     # CalibratedOptions default-on switch -- resolved via
     # _SOLVER_SWITCH_ENTITY_KEYS (see that tuple's own comment).
     CONF_SOLVER_CALIBRATED_OBJECTIVE_ENABLED,
+    # nimbus issue #452: a genuine number.py entity from the start (see
+    # this file's own _SOLVER_NUMBER_ENTITY_KEYS comment below), same
+    # "must be exposed here too or fetch_solver_config() never sees it"
+    # requirement as every field above -- caught by this file's own real
+    # test_sensor_solver_config_keys.py before it ever shipped.
+    CONF_SOLVER_AEMO_P5MIN_DISAGREEMENT_THRESHOLD_DOLLARS,
 )
 # 2026-08-20: these 14 plain-numeric fields moved off entry.options entirely
 # -- they're now LIVE, dashboard-editable number.nimbus_solver_* entities
@@ -484,6 +491,9 @@ _SOLVER_NUMBER_ENTITY_KEYS = (
     # field above.
     CONF_SOLVER_PRICE_SPIKE_THRESHOLD,
     CONF_SOLVER_PRICE_SPIKE_DISCHARGE_KW,
+    # nimbus issue #452: same live-number-entity resolve path as every
+    # field above, for the AEMO P5MIN disagreement threshold.
+    CONF_SOLVER_AEMO_P5MIN_DISAGREEMENT_THRESHOLD_DOLLARS,
 )
 # 2026-08-22: switch.py's own one live boolean toggle -- same
 # "resolve from a live entity, not entry.options" mechanism as

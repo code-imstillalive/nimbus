@@ -70,6 +70,7 @@ from .const import (
     CONF_DEFERRABLE_SHORTFALL_PRICE,
     CONF_DEFERRABLE_TARGET_KWH,
     CONF_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
+    CONF_SOLVER_AEMO_P5MIN_DISAGREEMENT_THRESHOLD_DOLLARS,
     CONF_SOLVER_BATTERY_CAPACITY_KWH,
     CONF_SOLVER_BATTERY_CHARGE_EARLINESS_BUDGET_KW,
     CONF_SOLVER_BATTERY_MAX_SOC_PERCENT,
@@ -122,6 +123,7 @@ from .const import (
     CONTROLLABLE_LOAD_KIND_DEFERRABLE,
     CONTROLLABLE_LOAD_KIND_SHEDDABLE,
     DEFAULT_SOLVE_ON_PRICE_CHANGE_DEBOUNCE_S,
+    DEFAULT_SOLVER_AEMO_P5MIN_DISAGREEMENT_THRESHOLD_DOLLARS,
     DEFAULT_SOLVER_BATTERY_CHARGE_EARLINESS_BUDGET_KW,
     DEFAULT_SOLVER_CHARGE_COST,
     DEFAULT_SOLVER_DEGRADATION_COST_PER_KWH,
@@ -807,6 +809,20 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         100,
         0.5,
         "%",
+    ),
+    # nimbus issue #452 (Mark Purcell): threshold on the residual between
+    # the current interval's real retail price and what the household's
+    # own normal retail-markup pattern would predict from AEMO's live
+    # P5MIN wholesale price -- see check_aemo_p5min_disagreement()'s own
+    # docstring in solver_writer.py for the full computation.
+    _SolverNumberDescription(
+        CONF_SOLVER_AEMO_P5MIN_DISAGREEMENT_THRESHOLD_DOLLARS,
+        "AEMO P5MIN Disagreement Threshold",
+        DEFAULT_SOLVER_AEMO_P5MIN_DISAGREEMENT_THRESHOLD_DOLLARS,
+        0,
+        2,
+        0.01,
+        "$/kWh",
     ),
     # Real household finding (2026-09-08, NUC1's own first day of live
     # dispatch): a single solve's own battery_kw jumped mid-band (e.g.

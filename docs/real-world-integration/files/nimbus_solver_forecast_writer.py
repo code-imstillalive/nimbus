@@ -2751,6 +2751,85 @@ def compute_5min_offset(
     return {b: sum(vals) / len(vals) for b, vals in by_bucket.items()}
 
 
+def check_aemo_p5min_disagreement(
+    regional_spot_sensor: str | None,
+    retail_price_now: float,
+    bucket_5min: int,
+    offset_by_5min: dict[int, float],
+    threshold_dollars: float,
+) -> dict | None:
+    """nimbus issue #452 (Mark Purcell): cross-check the current
+    interval's real retail commodity price against AEMO's own live
+    P5MIN wholesale price. See the native integration copy's own
+    (custom_components/nimbus_load/solver_writer.py) identical function
+    for the full docstring/reasoning -- this is a byte-identical port,
+    this file's own main() call site below passes the same hardcoded
+    `sensor.aemo_nem_qld1_current_5min_period_price` entity every other
+    call in this same LocalVolts/AEMO branch already hardcodes (a real,
+    pre-existing, undocumented drift from the native copy's own cfg-
+    driven CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR field --
+    out of scope to fix here, see compute_5min_offset()'s own hardcoded
+    entity just above for the same pre-existing pattern).
+
+    A raw retail-vs-wholesale difference is EXPECTED (network fees,
+    retailer margin) -- what's genuinely anomalous is a difference from
+    the household's own typical same-time-of-day markup, which compute_
+    5min_offset() above already computes.
+
+    Returns None (no flag, no data to check) when this bucket has no
+    offset history yet, or the live AEMO read fails/is non-numeric --
+    never raises, must never break the real solve.
+    """
+    if not regional_spot_sensor:
+        return None
+    expected_offset = offset_by_5min.get(bucket_5min)
+    if expected_offset is None:
+        return None
+    try:
+        aemo_now = float(ha_get(regional_spot_sensor)["state"])
+    except (
+        urllib.error.HTTPError,
+        urllib.error.URLError,
+        KeyError,
+        TypeError,
+        ValueError,
+    ):
+        return None
+    expected_retail = aemo_now + expected_offset
+    disagreement = retail_price_now - expected_retail
+    return {
+        "aemo_p5min_now": round(aemo_now, 4),
+        "retail_now": round(retail_price_now, 4),
+        "expected_retail": round(expected_retail, 4),
+        "disagreement_dollars": round(disagreement, 4),
+        "threshold_dollars": round(threshold_dollars, 4),
+        "flagged": abs(disagreement) > threshold_dollars,
+    }
+
+
+_AEMO_P5MIN_LAST_WARNED_PERIOD: datetime | None = None
+
+
+def _warn_aemo_p5min_disagreement_once(period_start: datetime, detail: dict) -> None:
+    # This standalone script has no HA log to route into -- print(),
+    # not _LOGGER, matching every other diagnostic in this file (see
+    # _warn_solar_source_dropped_once()'s own comment above).
+    global _AEMO_P5MIN_LAST_WARNED_PERIOD
+    if _AEMO_P5MIN_LAST_WARNED_PERIOD == period_start:
+        return
+    _AEMO_P5MIN_LAST_WARNED_PERIOD = period_start
+    print(
+        f"WARN: Nimbus #452: current-interval retail price "
+        f"(${detail['retail_now']:.4f}/kWh) disagrees with AEMO P5MIN "
+        f"(${detail['aemo_p5min_now']:.4f}/kWh, expected ~"
+        f"${detail['expected_retail']:.4f}/kWh given this time-of-day's "
+        f"normal retail markup) by ${detail['disagreement_dollars']:.4f}/kWh, "
+        f"beyond the configured ${detail['threshold_dollars']:.4f}/kWh "
+        "threshold (logged once per period)",
+        file=sys.stderr,
+    )
+
+
 def compute_price_percentile_band(
     price_history: list[tuple[datetime, float]], percentile: float
 ) -> dict[int, float]:
@@ -4266,6 +4345,32 @@ def main() -> None:
             export_offset_by_5min,
         )
         p2p_export = resample_real_p2p_rate(grid_times)
+
+        # nimbus issue #452: current-interval AEMO P5MIN cross-check.
+        # See the native integration copy's own identical call site for
+        # the full reasoning -- spot_import_raw[0] is the raw retail
+        # COMMODITY price at "now", read before the TOU/flat-fee baking
+        # immediately below. Same hardcoded-entity convention as every
+        # other call in this branch (see check_aemo_p5min_disagreement()'s
+        # own docstring above for why this is a pre-existing, out-of-
+        # scope drift from the native copy's cfg-driven field, not a new
+        # one introduced here).
+        try:
+            aemo_p5min_check = check_aemo_p5min_disagreement(
+                "sensor.aemo_nem_qld1_current_5min_period_price",
+                float(spot_import_raw[0]),
+                grid_times[0].hour * 12 + grid_times[0].minute // 5,
+                import_offset_by_5min,
+                _cfg_num(cfg, "solver_aemo_p5min_disagreement_threshold_dollars", 0.10),
+            )
+        except Exception as e:  # noqa: BLE001 -- must never break the real solve
+            print(
+                f"WARN: Nimbus #452: AEMO P5MIN disagreement check failed: {e}",
+                file=sys.stderr,
+            )
+            aemo_p5min_check = None
+        if aemo_p5min_check is not None and aemo_p5min_check["flagged"]:
+            _warn_aemo_p5min_disagreement_once(grid_times[0], aemo_p5min_check)
 
         # Real, live-CONFIGURABLE TOU network + flat fees baked directly
         # into import_price[t] (2026-08-16, real ask: "it needs ot be super

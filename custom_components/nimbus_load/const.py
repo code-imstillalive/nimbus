@@ -1296,6 +1296,20 @@ CONF_SOLVER_SOC_DISCREPANCY_MEAN_THRESHOLD_PCT: Final = (
     "solver_soc_discrepancy_mean_threshold_pct"
 )
 
+# nimbus issue #452 (Mark Purcell): cross-check the current interval's
+# real retail commodity price against AEMO's own live P5MIN wholesale
+# price (CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR above -- already
+# the exact entity this check needs, no new sensor field required). A
+# raw retail-vs-wholesale gap is EXPECTED (network fees, retailer
+# margin) -- what's genuinely anomalous is a gap from the household's
+# own typical same-time-of-day markup (compute_5min_offset()'s own
+# bucketed mean). This is the threshold on THAT residual, in $/kWh, same
+# "never hardcoded, dashboard-tunable" discipline as every other Solver
+# threshold number.
+CONF_SOLVER_AEMO_P5MIN_DISAGREEMENT_THRESHOLD_DOLLARS: Final = (
+    "solver_aemo_p5min_disagreement_threshold_dollars"
+)
+
 # Intra-plan smoothness weight (real household finding, 2026-09-08): the
 # solver's own network.py already has an "intra-plan smoothness" mechanism
 # (_add_intraplan_smoothness_penalty, added 2026-08-20 for this exact
@@ -1391,6 +1405,13 @@ DEFAULT_SOLVER_EXPORT_PRICE_RISK_AVERSION: Final = 0.0
 # number, no release needed.
 DEFAULT_SOLVER_SOC_DISCREPANCY_MAX_THRESHOLD_PCT: Final = 15.0
 DEFAULT_SOLVER_SOC_DISCREPANCY_MEAN_THRESHOLD_PCT: Final = 8.0
+# nimbus issue #452: comfortably above the smallest real price step this
+# project's own data shows (~1c/kWh, same reference point CONF_SOLVER_
+# INTRAPLAN_SMOOTHNESS_WEIGHT_KW's own comment below uses) -- flags a
+# genuinely large residual, not routine forecast noise. Purely a
+# starting default; tunable per household via the dashboard number, no
+# release needed.
+DEFAULT_SOLVER_AEMO_P5MIN_DISAGREEMENT_THRESHOLD_DOLLARS: Final = 0.10
 # Matches network.py's own DEFAULT_SMOOTHNESS_WEIGHT_KW exactly -- see
 # CONF_SOLVER_INTRAPLAN_SMOOTHNESS_WEIGHT_KW's own comment above for why.
 DEFAULT_SOLVER_INTRAPLAN_SMOOTHNESS_WEIGHT_KW: Final = 0.005
