@@ -231,6 +231,39 @@ def test_set_controllable_load_pops_subentry_id_out_of_the_persisted_data():
     assert "subentry_id" not in kwargs["data"]
 
 
+def test_deferrable_value_per_kwh_entity_field_is_accepted_and_persisted():
+    """nimbus issue #482: the live-entity price-gating override is only
+    ever configurable via this service (never added to the simplified
+    wizard schema, same precedent as controllable_load_power_sensor) --
+    prove the schema accepts it and the handler persists it unchanged,
+    same "no per-field special-casing needed" path as every other plain
+    string field on this service."""
+    assert (
+        "deferrable_value_per_kwh_entity"
+        in services.SERVICE_SET_CONTROLLABLE_LOAD_SCHEMA.schema
+    )
+    hass, _entry = _fake_hass_with_entry({})
+    created_subentry = MagicMock()
+    created_subentry.subentry_id = "new_id_456"
+    call = _fake_call(
+        {
+            "controllable_load_name": "Miner",
+            "controllable_load_kind": "deferrable",
+            "deferrable_value_per_kwh_entity": "input_number.miner_willing_to_pay",
+        }
+    )
+
+    fake_config_subentry_cls = MagicMock(return_value=created_subentry)
+    with patch.object(services, "ConfigSubentry", fake_config_subentry_cls):
+        asyncio.run(services._async_handle_set_controllable_load(hass, call))
+
+    _, kwargs = fake_config_subentry_cls.call_args
+    assert (
+        kwargs["data"]["deferrable_value_per_kwh_entity"]
+        == "input_number.miner_willing_to_pay"
+    )
+
+
 # Registration/unregistration coverage (all four services, including this
 # one) lives in test_services.py's own
 # test_async_register_services_registers_both_load_and_signal /
