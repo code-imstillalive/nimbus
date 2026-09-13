@@ -36,7 +36,14 @@ install_ha_stubs()
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from custom_components.nimbus_load import number, sensor
 from custom_components.nimbus_load.const import (
+    CONF_SOLVE_ON_PRICE_CHANGE,
+    CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
+    CONF_SOLVER_CALIBRATED_OBJECTIVE_ENABLED,
+    CONF_SOLVER_DISPATCH_DRY_RUN,
+    CONF_SOLVER_FLEX_SIGNALS_ENABLED,
     CONF_SOLVER_LOAD_FORECAST_ENTITIES,
+    CONF_SOLVER_OFFER_CURVE_ENABLED,
+    CONF_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED,
     CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR,
 )
 from custom_components.nimbus_load.flows.hub_options import (
@@ -98,3 +105,56 @@ def test_every_number_entity_key_is_resolved_as_a_live_number_not_entry_options(
         "would read them from entry.options instead of the live entity -- "
         "add them to sensor.py's own _SOLVER_NUMBER_ENTITY_KEYS."
     )
+
+
+def test_every_switch_entity_key_solver_writer_reads_via_cfg_is_resolved_live():
+    """nimbus issue #496 (Signals 7/7 of #489), found live on devhub
+    2026-09-14: switch.py gained CONF_SOLVER_FLEX_SIGNALS_ENABLED, wired
+    into solver_writer.py's main() via cfg.get("solver_flex_signals_
+    enabled"), but never added to sensor.py's own _SOLVER_SWITCH_ENTITY_
+    KEYS -- the exact same "saved/toggled in one place, silently
+    unreachable from the writer" bug class test_every_number_entity_
+    key_is_resolved... above already guards for number.py, just never
+    extended to switch.py. Real live symptom: the switch flipped on,
+    three real solve cycles completed, sensor.nimbus_flex_signals stayed
+    "unknown" the entire time -- compute_signals was silently always
+    False regardless of the switch's real state.
+
+    Unlike number.py, switch.py has no single declarative _DESCRIPTIONS
+    list to iterate automatically (each NimbusSolverSwitch is
+    instantiated individually in async_setup_entry) -- this hardcodes
+    the current real set of switch keys solver_writer.py's own cfg.get()
+    calls actually read, same explicit-list convention this file's own
+    test_the_two_specific_fields_from_the_real_2026_08_23_incident_are_
+    present already uses. CONF_SOLVER_DISPATCH_DRY_RUN is a real,
+    legitimate exception (same shape as CONF_SOLVE_ON_PRICE_CHANGE_
+    DEBOUNCE_S's own documented exception above): its own consumer reads
+    the live switch entity directly, never through fetch_solver_config()
+    -- confirmed via a direct grep, zero cfg.get("solver_dispatch_dry_
+    run") call sites exist in solver_writer.py.
+    """
+    keys_solver_writer_reads_via_cfg = (
+        CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
+        CONF_SOLVE_ON_PRICE_CHANGE,
+        CONF_SOLVER_OFFER_CURVE_ENABLED,
+        CONF_SOLVER_FLEX_SIGNALS_ENABLED,
+        CONF_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED,
+        CONF_SOLVER_CALIBRATED_OBJECTIVE_ENABLED,
+    )
+    missing = [
+        key
+        for key in keys_solver_writer_reads_via_cfg
+        if key not in sensor._SOLVER_SWITCH_ENTITY_KEYS
+    ]
+    assert missing == [], (
+        f"{missing} are switches solver_writer.py's main() reads via "
+        "cfg.get(...) but sensor.py's _SOLVER_SWITCH_ENTITY_KEYS doesn't "
+        "resolve them from the live entity -- the switch would be a "
+        "real, silent no-op no matter what a household sets it to. Add "
+        "them to sensor.py's own _SOLVER_SWITCH_ENTITY_KEYS."
+    )
+    # And the reverse: DISPATCH_DRY_RUN staying OUT is deliberate, not a
+    # second copy of the same bug in the other direction -- assert it
+    # explicitly so a future refactor that adds it can't silently pass
+    # this test while actually being redundant/wrong.
+    assert CONF_SOLVER_DISPATCH_DRY_RUN not in sensor._SOLVER_SWITCH_ENTITY_KEYS
