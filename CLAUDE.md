@@ -20,7 +20,9 @@ Dated work-in-progress notes live in `docs/worklog/`, one file per date — this
 the "CURRENT STATE" journal that used to live directly in this file now lives. Each
 file is not re-summarized here; read it directly for the full detail. Most recent 5:
 
-- [2026-09-14](docs/worklog/2026-09-14.md) — Three releases (v0.94.287→289).
+- [2026-09-14](docs/worklog/2026-09-14.md) — Version reaches v0.94.293 across the
+  day (v0.94.287→289 documented in prose below; 290→292 elsewhere/other sessions;
+  293 is this file's own #481 release, see below).
   **#843 closed** with both halves of Mark Purcell's own A/B/C steer: a physical
   sanity bound that *discards* rather than clamps an implausible participant
   power sample (clamping would turn an obviously-absurd number into a
@@ -39,6 +41,17 @@ file is not re-summarized here; read it directly for the full detail. Most recen
   changelog script using `pathlib`'s default (cp1252 on Windows) encoding broke
   the v0.94.288 release, and a premature v0.94.289 was tagged off a stale premise
   *before* its own PR merged — both with the rules that came out of them.
+  **Later: #481's ambient-temperature-covariate half** (Mark's steer: "wire in
+  external temperature as a covariate for the thermal models," taken up
+  independent of the still-open hard-deadline-vs-soft-band question on the same
+  issue) — `learn_thermal_rates()`/`project_temperature_forecast()` in
+  `thermal_forecast.py` gained an optional Newton's-law-of-cooling loss
+  coefficient, verified against 4 real idle segments on the household's own
+  `weather.noosa_heads_hourly` before shipping (ambient-scaled CV 59% vs flat
+  76%). Merged as PR #864 after a real CHANGELOG conflict against #768 (Mark's
+  own ask: auto-discover a Controllable Load's power sensor via the entity
+  registry — also the reason the real HWS has been learning on fallback
+  defaults since #809), released as v0.94.293. Not yet deployed/verified live.
 - [2026-09-13](docs/worklog/2026-09-13.md) — Overnight, ran into 09-14. Six
   releases (v0.94.281→286) plus a docs PR, starting from a live devhub incident.
   **#773**: `phase2_pin_resolve` failing 14x in 8 minutes, each burning a full
