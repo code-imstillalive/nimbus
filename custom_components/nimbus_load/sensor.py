@@ -43,7 +43,7 @@ from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.loader import async_get_integration
 
-from . import done_condition, health, load_run_state, sensor_flattened
+from . import done_condition, health, load_run_state, nem_region, sensor_flattened
 from .const import (
     ATTR_FORECAST,
     ATTR_MASE_SCALE_POINTS,
@@ -2367,7 +2367,54 @@ class NimbusSolverConfigSensor(SensorEntity):
         # settling -- see this class's own docstring for the full flap
         # story.
         attrs["unresolved_required_keys"] = self._unresolved_required_keys()
+        # nimbus issue #495 (Signals 6/7 of #489): `region` and
+        # `postcode_prefix` are both in the telemetry schema's own
+        # top-level `required` array and neither existed anywhere in
+        # Nimbus. Mark Purcell's answer, after checking what was already
+        # installed rather than proposing a new mechanism: "Use companion
+        # app reverse geocode as a one time setup."
+        #
+        # Auto-discovered rather than added as a 27th wizard field --
+        # his own earlier ask on that issue was "the easiest simplest
+        # method for any user ... without scratching their heads how to
+        # do that", and #449 separately tracks that wizard as too large
+        # at 26. Same posture as #768's power-sensor discovery: use
+        # exactly one match, refuse to guess between several.
+        region, prefix = self._resolve_geocoded_region_and_prefix()
+        attrs["region"] = region
+        attrs["postcode_prefix"] = prefix
         return attrs
+
+    def _resolve_geocoded_region_and_prefix(self):
+        """(region, postcode_prefix) from the Companion App's own
+        `sensor.<device>_geocoded_location`, or (None, None).
+
+        `_geocoded_location` is Home Assistant's own documented Companion
+        App naming, not a third-party's arbitrary choice -- which is why
+        matching on it here is not the same mistake as inferring a
+        battery/solar/grid role from a sensor's name (the reason the
+        Power Signal `signal_role` dropdown exists). It reads an
+        already-installed integration's entity; Nimbus makes no outbound
+        geocoding call of its own.
+
+        More than one registered phone means more than one such sensor,
+        and they can legitimately disagree (two people in two places).
+        Refuses rather than picking one, same as #768's discovery.
+
+        Mark's own caveat, worth keeping visible: this tracks wherever
+        the phone currently is, not the fixed installation address. Fine
+        as the coarse region/prefix the schema asks for, and the reason
+        his instruction said *one time* setup -- a consumer should read
+        this once and store it, not re-derive it per record.
+        """
+        candidates = [
+            st
+            for st in self.hass.states.async_all("sensor")
+            if st.entity_id.endswith("_geocoded_location")
+        ]
+        if len(candidates) != 1:
+            return None, None
+        return nem_region.resolve_region_and_prefix(candidates[0].state)
 
 
 class NimbusTopologyConfigSensor(SensorEntity):

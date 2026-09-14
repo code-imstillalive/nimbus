@@ -8,6 +8,28 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.299] — 2026-09-14
+
+### Added
+- **`region` and `postcode_prefix`, auto-discovered from the Companion App's reverse-geocoded address** (nimbus issue [#495](https://github.com/code-imstillalive/nimbus/issues/495), Signals 6/7 of #489). Both are in the `nem-flex-telemetry` schema's top-level `required` array and neither existed anywhere in Nimbus; they were the last blocker on that issue.
+
+  Mark Purcell's answer, reached by checking what was already installed rather than proposing a new mechanism: *"Use companion app reverse geocode as a one time setup."* Home Assistant's own Companion App publishes `sensor.<device>_geocoded_location`, whose state is a formatted address ending `..., <STATE> <POSTCODE>, Australia`. Nimbus reads that already-installed entity and makes **no outbound geocoding call of its own**.
+
+  **Auto-discovered rather than a 27th wizard field**, matching his earlier ask on the same issue — *"the easiest simplest method for any user … without scratching their heads how to do that"* — and [#449](https://github.com/code-imstillalive/nimbus/issues/449)'s tracking of that wizard as already too large. Exactly one `_geocoded_location` sensor is used; several (two registered phones, which can genuinely disagree) refuses rather than picking one, the same posture as v0.94.292's power-sensor discovery.
+
+  Both fields are exposed on `sensor.nimbus_solver_config`, and can fail **independently**: a WA address yields a real postcode prefix with no NEM region, because WA is not in the NEM at all.
+
+  The parsing lives in a new HA-free `nem_region.py`, with the cases a naive implementation gets wrong covered explicitly:
+
+  - **ACT → NSW1.** The ACT has no NEM region of its own. A table built from the schema's five enum values would silently mis-tag every Canberra household.
+  - **WA / NT → `None`.** Not in the NEM (SWIS and the NT network are separate systems). A nearest-guess region is worse than a missing one in a feed keyed on it.
+  - **Trailing match wins.** A suburb can legitimately contain a state abbreviation followed by digits (`"1 Victoria SA 5000 Road, Sydney NSW 2000"` is a NSW address); a first-match parse returns `SA1` and is wrong.
+  - **A malformed postcode returns `None`, never a truncation** — a 3-digit prefix derived from garbage satisfies the schema's own `^[0-9]{3}$` while being wrong, which is the failure worth refusing.
+
+  Worth stating plainly, as Mark did: this tracks wherever the registered phone currently is, not the fixed installation address. That is fine for the coarse region/prefix the schema asks for, and is exactly why his instruction said *one time* — a consumer should read it once and store it rather than re-derive it per record.
+
+  The telemetry record itself (`nimbus_load.flex_telemetry_record` and `sensor.nimbus_flex_telemetry`) remains the open half of #495.
+
 ## [0.94.298] — 2026-09-14
 
 ### Added
@@ -24,6 +46,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   `solve_diagnostics` now carries `household_mode` (#485's acceptance criterion 3, so a plan can be read knowing which mode produced it). `None` is published when no select entity is live — honest, rather than defaulting to `"home"` and implying a mode was in force.
 
   Follows `switch.py`/`number.py`'s restore-and-seed-once pattern with the same durable-Store backstop and the same [#342](https://github.com/code-imstillalive/nimbus/issues/342) restore-vs-Store precedence. Per-load mode-suffixed overrides and the solve-time resolver are the remaining half of #485 and stay open.
+
+Devhub validation: deployed and restarted. `select.nimbus_household_mode` confirmed live with state `home` and options `['home', 'away', 'guests', 'economy']`; `nimbus_status` "Working well", solve `optimal`, zero new errors. **The bridge half could not be confirmed**: `sensor.nimbus_solver_config` does not yet carry `household_mode`, and no duplicate config sensor exists to explain it — the same separately-tracked staleness that still leaves `solve_diagnostics` on its pre-v0.94.295 shape on that install. The wiring itself is verified by CI and by a dedicated regression test asserting both resolution tables.
 
 ## [0.94.297] — 2026-09-14
 
