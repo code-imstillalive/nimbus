@@ -37,6 +37,10 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
   Both comments corrected. No behaviour change — comments and tests only.
 
+Devhub validation: deployed and restarted, `installed_version == available_version == v0.94.310`, solve `optimal` in 1.18 s over 205 periods, `nimbus_status` "Working well", no new errors (the ERROR lines present are the install's own pre-existing duplicate-unique-id condition, unchanged in pattern and count across this release). A tests-and-comments release should be invisible on a running install, and it is — both flagship sensors publish fresh with `unit_of_measurement: kW`, and `sensor.nimbus_household_load_total_forecast`'s `state` and `whole_house_live_now_kw` both read **2.99**, the same #100 post-anchor agreement v0.94.307/.308 established.
+
+The install's separately-tracked stale-execution bug is unchanged and gained a data point: a HACS download of a **different, newer** version plus a restart still left `sensor.nimbus_solver_config` without `region`/`postcode_prefix`/`aemo_30min_forecast_sensor`. The manifest on disk updated (HACS reports the new version); the loaded `sensor.py` did not. Logged, not remediated — remove+reinstall has failed every previous time.
+
 ## [0.94.309] — 2026-09-15
 
 ### Added
