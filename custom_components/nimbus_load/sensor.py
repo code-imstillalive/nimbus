@@ -74,6 +74,7 @@ from .const import (
     CONF_CONTROLLABLE_LOAD_MIN_HOLD_MINUTES,
     CONF_DEFERRABLE_DONE_ENTITY,
     CONF_DEFERRABLE_DONE_WHEN,
+    CONF_HOUSEHOLD_MODE,
     CONF_LOAD_SENSOR,
     CONF_POWER_SOURCE_BATTERY_SENSOR,
     CONF_POWER_SOURCE_DC_SENSOR,
@@ -418,6 +419,12 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     # requirement as every field above -- caught by this file's own real
     # test_sensor_solver_config_keys.py before it ever shipped.
     CONF_SOLVER_AEMO_P5MIN_DISAGREEMENT_THRESHOLD_DOLLARS,
+    # nimbus issue #485: the household mode must be exposed here too,
+    # or fetch_solver_config() never sees it and the solve-time resolver
+    # has nothing to read -- the exact silent-no-op bug v0.94.283 shipped
+    # (#837) when a new switch was added to switch.py but not to these
+    # tables. Resolved live via _SOLVER_SELECT_ENTITY_KEYS below.
+    CONF_HOUSEHOLD_MODE,
 )
 # 2026-08-20: these 14 plain-numeric fields moved off entry.options entirely
 # -- they're now LIVE, dashboard-editable number.nimbus_solver_* entities
@@ -542,6 +549,12 @@ _SOLVER_SWITCH_ENTITY_KEYS = (
     # this file's own CONF_SOLVER_FLEX_SIGNALS_ENABLED comment above.
     CONF_SOLVER_FLEX_SIGNALS_ENABLED,
 )
+# nimbus issue #485: select.py's own live string choices -- same
+# "resolve from a live entity, not entry.options" mechanism as the two
+# tuples above, a third entity domain (select.nimbus_{key}, plain string
+# state). See select.py's own module docstring for why the household
+# mode is an entity rather than a wizard field.
+_SOLVER_SELECT_ENTITY_KEYS = (CONF_HOUSEHOLD_MODE,)
 
 
 def _slug_for_entity_id(title: str) -> str:
@@ -2257,6 +2270,18 @@ class NimbusSolverConfigSensor(SensorEntity):
             if state is None or state.state in (None, "unknown", "unavailable"):
                 return None
             return state.state == "on"
+        # nimbus issue #485: select.nimbus_{key} resolves to its plain
+        # string option. Same live-entity mechanism as the number and
+        # switch branches above -- and wired here deliberately, because
+        # v0.94.283 shipped a switch that was a silent no-op for exactly
+        # the opposite reason: it was added to switch.py but never to
+        # these tables, so fetch_solver_config() never saw it and the
+        # solve read False forever.
+        if key in _SOLVER_SELECT_ENTITY_KEYS:
+            state = self.hass.states.get(self._entity_id_for("select", key))
+            if state is None or state.state in (None, "unknown", "unavailable"):
+                return None
+            return state.state
         return self._entry.options.get(key)
 
     def _unresolved_required_keys(self) -> list[str]:

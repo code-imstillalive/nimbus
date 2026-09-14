@@ -9012,6 +9012,14 @@ def publish_plan(
                 "n_sheddable_loads": len(plan.sheddable_loads),
                 "n_adequacy_loads": len(plan.adequacy_loads),
                 "n_thermal_loads": len(plan.thermal_loads),
+                # nimbus issue #485 acceptance criterion 3: "Diagnostics
+                # show household_mode alongside the plan" -- so a plan can
+                # be read knowing which mode produced it. Resolved live
+                # from select.nimbus_household_mode via the solver-config
+                # bridge; None on an install whose select entity has not
+                # come up yet, which is honest rather than defaulting to
+                # "home" and implying a mode was actually in force.
+                "household_mode": cfg.get("household_mode"),
             },
             "generated_at": now.isoformat(),
             "binding_constraint_now": binding_now,

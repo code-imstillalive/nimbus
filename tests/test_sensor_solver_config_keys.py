@@ -36,6 +36,7 @@ install_ha_stubs()
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from custom_components.nimbus_load import number, sensor
 from custom_components.nimbus_load.const import (
+    CONF_HOUSEHOLD_MODE,
     CONF_SOLVE_ON_PRICE_CHANGE,
     CONF_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
     CONF_SOLVER_CALIBRATED_OBJECTIVE_ENABLED,
@@ -158,3 +159,35 @@ def test_every_switch_entity_key_solver_writer_reads_via_cfg_is_resolved_live():
     # explicitly so a future refactor that adds it can't silently pass
     # this test while actually being redundant/wrong.
     assert CONF_SOLVER_DISPATCH_DRY_RUN not in sensor._SOLVER_SWITCH_ENTITY_KEYS
+
+
+def test_household_mode_select_key_is_resolved_live_and_exposed():
+    """nimbus issue #485: the select equivalent of the switch guard
+    above, written at the same time as the entity rather than after an
+    incident.
+
+    v0.94.283 shipped a switch that was a silent no-op for exactly this
+    reason -- added to switch.py, wired into solver_writer.py's main()
+    via cfg.get(...), but never added to sensor.py's own resolution
+    tables, so fetch_solver_config() never saw it and the solve read
+    False forever no matter what the household set. A new entity DOMAIN
+    is the highest-risk moment for repeating that, because both tables
+    have to be updated and neither failure is visible at runtime --
+    the entity works perfectly, it just never reaches the solve.
+
+    Both halves are asserted separately: presence in _SOLVER_ALL_KEYS
+    (or fetch_solver_config() omits the key entirely) and presence in
+    _SOLVER_SELECT_ENTITY_KEYS (or it resolves from entry.options,
+    which for an entity-backed value is always None).
+    """
+    assert CONF_HOUSEHOLD_MODE in sensor._SOLVER_ALL_KEYS, (
+        "CONF_HOUSEHOLD_MODE is missing from _SOLVER_ALL_KEYS, so "
+        "fetch_solver_config() will never expose it and the solve-time "
+        "resolver has nothing to read."
+    )
+    assert CONF_HOUSEHOLD_MODE in sensor._SOLVER_SELECT_ENTITY_KEYS, (
+        "CONF_HOUSEHOLD_MODE is in _SOLVER_ALL_KEYS but not "
+        "_SOLVER_SELECT_ENTITY_KEYS, so it resolves from entry.options "
+        "instead of the live select entity -- always None, a silent "
+        "no-op exactly like the v0.94.283 switch incident."
+    )
