@@ -937,8 +937,9 @@ class BatteryConfig:
             raise ValueError(msg)
         # Strict < 1.0 on BOTH sides, not <= -- exactly 100% must be
         # REJECTED, not merely allowed at the boundary (real bug caught
-        # by test_network_synthetic.py: an earlier version used <= 1.0,
-        # which let exactly 100% silently pass validation, directly
+        # by tests/test_elements_battery_config_validation.py: an
+        # earlier version used <= 1.0, which let exactly 100%
+        # silently pass validation, directly
         # contradicting the architecture sketch's own explicit call:
         # "100% is rejected as a config value, not just discouraged").
         if not (0.0 < self.charge_efficiency < 1.0) or not (
