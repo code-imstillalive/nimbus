@@ -2407,10 +2407,23 @@ class NimbusSolverConfigSensor(SensorEntity):
         his instruction said *one time* setup -- a consumer should read
         this once and store it, not re-derive it per record.
         """
+        # Unavailable/unknown states are filtered OUT of the candidate
+        # list, not merely parsed and found wanting. Found on a real
+        # install: the one geocoded sensor there reads `unavailable`
+        # (phone off, or out of range), and while parsing that string
+        # happens to yield (None, None) it does so by accident -- there
+        # is no state/postcode pair in the word "unavailable".
+        #
+        # Filtering first makes the "exactly one" rule mean exactly one
+        # USABLE sensor, which is the question actually being asked. It
+        # also fixes a real edge case: two phones where one is
+        # unavailable should resolve from the other, rather than being
+        # refused as ambiguous when only one of them can answer.
         candidates = [
             st
             for st in self.hass.states.async_all("sensor")
             if st.entity_id.endswith("_geocoded_location")
+            and st.state not in (None, "unknown", "unavailable")
         ]
         if len(candidates) != 1:
             return None, None
