@@ -34,15 +34,23 @@ from solver import lp
 class _FakeHighs:
     """Only the three reads the diagnostic performs."""
 
-    def __init__(self, iterations=12345, status="Optimal", explode=False):
+    def __init__(
+        self, iterations=12345, status="Optimal", explode=False, nodes=7, gap=0.5
+    ):
         self._iterations = iterations
         self._status = status
         self._explode = explode
+        self._nodes = nodes
+        self._gap = gap
 
     def getInfo(self):
         if self._explode:
             raise RuntimeError("highs info unavailable")
-        return MagicMock(simplex_iteration_count=self._iterations)
+        return MagicMock(
+            simplex_iteration_count=self._iterations,
+            mip_node_count=self._nodes,
+            mip_gap=self._gap,
+        )
 
     def getModelStatus(self):
         return object()
@@ -94,6 +102,26 @@ class TestThreshold(unittest.TestCase):
         degeneracy/cycling from being stuck outside the simplex loop."""
         out = self._run(61.0, iterations=987654)
         self.assertIn("simplex_iterations=987654", out[0])
+
+    def test_the_warning_carries_the_mip_node_count(self):
+        """nimbus issue #773: the field that separates the last two
+        explanations. A large node count means branch-and-bound is
+        exploring a huge tree; 0 or 1 means the solver never left the
+        ROOT and the LP relaxation itself is what is slow. Those point
+        at completely different fixes."""
+        out = self._run(61.0, nodes=48211)
+        self.assertIn("mip_node_count=48211", out[0])
+
+    def test_a_root_bound_stall_is_distinguishable(self):
+        """The other side of the same discriminator -- pinned explicitly
+        so a later change cannot drop the field and leave the two cases
+        looking identical again."""
+        out = self._run(61.0, nodes=0)
+        self.assertIn("mip_node_count=0", out[0])
+
+    def test_the_warning_carries_the_mip_gap(self):
+        out = self._run(61.0, gap=0.0123)
+        self.assertIn("mip_gap=0.0123", out[0])
 
     def test_the_warning_names_the_call_site(self):
         """Ten call sites exist; a timing line that doesn't say which one

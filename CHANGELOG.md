@@ -8,6 +8,20 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.305] — 2026-09-15
+
+### Added
+- **`mip_node_count` and `mip_gap` on the slow-call diagnostic** (nimbus issue [#773](https://github.com/code-imstillalive/nimbus/issues/773)). Two fields, one existing `getInfo()` call, no new work on the hot path — and they separate the only two explanations still standing after five measured refutations (fleet size, concurrency, the offer-curve walk, LP degeneracy, and the objective-setting API were each tested and ruled out).
+
+  - A **large node count** means branch-and-bound is exploring a huge search tree — a formulation or bounding problem.
+  - A node count of **0 or 1** means the solver never left the **root**: the LP relaxation itself is what is slow, and tightening the integer side would achieve nothing.
+
+  Those point at completely different fixes, and nothing previously logged could tell them apart. `mip_gap` adds whether the solver was close to proving optimality or nowhere near it.
+
+  Both fields were already read by `_ensure_optimal_value()` for its own failure line — they were simply never on the slow-call line, which is the one that actually fires. Same omission as v0.94.304's `n_vars=None`: the information existed, it just was not where the evidence was being produced.
+
+  Context for why a measurement rather than a sixth theory: a local A/B on a synthetic model **larger than production in the dimension that looked decisive** (8,800 variables and 4,800 binaries, against the real model's ~11,800 and 1,134) solved in **0.2 s at 1,721 iterations**, where the real one runs 157,000–214,000. Size, binary count, and the general adequacy-load structure are all ruled out as the cause; the difficulty is in the real instance, not its shape.
+
 ## [0.94.304] — 2026-09-14
 
 ### Fixed
@@ -16,6 +30,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   Now passed at the five sites that genuinely have it in scope, left `None` at the rest. The three lex phases also carry their own phase name in the label (`lex_phase:phase2_pin_resolve`), so they are distinguishable from each other rather than collapsing into one.
 
   **A false reading was caught during this change and is worth recording.** `primary_minimize` was first wired with `n_binary=0`. That is wrong: `binary_cols` is in scope at that call, and the `options is None` path genuinely solves a MIP through `h.minimize()` when a subentry contributes binaries. A hardcoded literal reads as a measurement — `None` says "not known", `0` says "measured, and it is zero" — so this would have reported a confident falsehood in exactly the case that matters. A test now pins the general rule: no `_timed_lp_call()` call site may pass a non-`None` literal for either size field.
+
+Devhub validation: deployed and restarted, `installed_version == available_version == v0.94.304`, solve running, no new errors. **The added fields immediately overturned a conclusion published the hour before.**
+
+```
+'primary_minimize'  60.0s  iters=214045  Time limit reached  n_vars=11746  n_binary=1134
+'primary_minimize'  52.1s  iters=158966  Optimal             n_vars=11693  n_binary=1134
+```
+
+`n_binary=1134` means that call is a **MIP**, not the pure LP it had been argued to be, and `primary_minimize` reaching `Optimal` at 49–52 s means it is a hard branch-and-bound landing near the limit rather than cycling forever. `n_vars ≈ 11,800`, against a docstring describing ~4,000 as full production scale, also invalidated every proportionality judgement made from the earlier lines. That is the value of having shipped the gap-fix: the missing field was load-bearing, not cosmetic.
 
 ## [0.94.303] — 2026-09-14
 
