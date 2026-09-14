@@ -8,6 +8,19 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.297] — 2026-09-14
+
+### Fixed
+- **#757's own temporary diagnostics were 55% of all log volume, and had started blocking investigation of #757 itself** (nimbus issue [#757](https://github.com/code-imstillalive/nimbus/issues/757)). Nine `Nimbus #757 diag:` messages were logging at **WARNING** on every solve cycle, and had been since v0.94.256 — roughly forty releases.
+
+  Measured on a real install: a 2000-line `error_log` fetch spanned **31 minutes**, of which 1095 lines (55%) were `custom_components.nimbus_load`, dominated by these messages at ~122 occurrences each. The log window is line-bounded, not time-bounded, so asking for a longer period doesn't help.
+
+  The concrete cost, hit first-hand: an attempt to check whether the duplicate-unique-ID burst appeared on recent restarts **could not be completed, because the restart in question had already been pushed out of the retrievable window by #757's own instrumentation.** Diagnostics for an issue had become the reason that issue couldn't be investigated.
+
+  All nine are now `_LOGGER.debug()`. Every message stays available to anyone who raises the log level while investigating — which is what a temporary per-issue diagnostic should have been from the start — and the default window is no longer consumed by them.
+
+  Guarded by `tests/test_diagnostic_log_levels.py`, scoped narrowly to the project's own `#N diag:` convention rather than policing log levels generally: plenty of genuine WARNINGs in that file (a dropped solar source, a capped activation, a failed publish) should stay WARNINGs. Mutation-verified.
+
 ## [0.94.296] — 2026-09-14
 
 ### Added
@@ -22,6 +35,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   **Deliberately observational, and that restraint is the point.** The obvious fix — re-send the command periodically — is wrong in two independent ways: it collides with the `max_activations_per_day` cap ([#534](https://github.com/code-imstillalive/nimbus/issues/534)'s real device-side constraint of 3 performance activations/24h), and re-sending every cycle is exactly what #484 exists to prevent. A correct fix must distinguish *re-affirming* an existing command from a *new activation*, a distinction the code does not currently have. It is also not yet known whether re-affirmation would even work, since something other than Nimbus appears to write to that device. Making the divergence legible is the prerequisite for choosing between those against data rather than guessing.
 
   Worth noting the signal only became real one release earlier: before v0.94.292 auto-discovered that load's power sensor, `currently_on` had nothing behind it.
+
+Devhub validation: deployed, `optimal` solve, zero new log errors — and the new attribute confirmed working on all six controllable loads, in both directions: three reported real divergence (`cmd=True/on=False` 1.8 h; `cmd=False/on=True` 7.5 h and 25.3 h) and three correctly returned `None` on agreement. **Those three are not real dispatch failures** — devhub's controllable loads are synthetic `Test` entries with no hardware behind them, so a commanded state nothing physically follows is expected there. What it verifies is the mechanism: both directions detected, agreement `None` rather than `0.0`, magnitudes plausible.
 
 ## [0.94.295] — 2026-09-14
 

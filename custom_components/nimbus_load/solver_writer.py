@@ -8750,7 +8750,7 @@ def publish_plan(
     _diag_757_battery_forecast = build_per_battery_forecast(
         plan, grid_times, n_periods, battery_capacity_by_name
     )
-    _LOGGER.warning(
+    _LOGGER.debug(
         "Nimbus #757 diag: about to ha_post_state(%s) with batteries=%s (plan id=%x)",
         ENTITY_ID,
         [b["name"] for b in _diag_757_battery_forecast],
@@ -9793,7 +9793,7 @@ def build_controllable_loads(
     # same one (which would mean build_extra_batteries()'s own filter
     # loop, not the entries lookup itself, is where subentries are
     # actually being lost).
-    _LOGGER.warning(
+    _LOGGER.debug(
         "Nimbus #757 diag: build_controllable_loads() async_entries(DOMAIN) "
         "returned %d entr%s: %s",
         len(entries),
@@ -10629,7 +10629,7 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
     # Logging every entry this call actually returns -- not just
     # entries[0] -- to settle this directly on the next real occurrence,
     # rather than re-deriving it from static reading a third time.
-    _LOGGER.warning(
+    _LOGGER.debug(
         "Nimbus #757 diag: async_entries(DOMAIN) returned %d entr%s: %s",
         len(entries),
         "y" if len(entries) == 1 else "ies",
@@ -10643,7 +10643,7 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
             for e in entries
         ],
     )
-    _LOGGER.warning(
+    _LOGGER.debug(
         "Nimbus #757 diag: build_extra_batteries scanning %d subentries: %s",
         len(entries[0].subentries),
         [
@@ -10656,7 +10656,7 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
             continue
         data = subentry.data
         name = data.get(CONF_BATTERY_PARTICIPANT_NAME) or subentry.subentry_id
-        _LOGGER.warning(
+        _LOGGER.debug(
             "Nimbus #757 diag: found battery_participant subentry name=%r data_keys=%s",
             name,
             sorted(data.keys()),
@@ -10873,7 +10873,7 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
         degradation_cost_per_kwh = float(
             data.get(CONF_BATTERY_PARTICIPANT_DEGRADATION_COST_PER_KWH) or 0.0
         )
-        _LOGGER.warning(
+        _LOGGER.debug(
             "Nimbus #757 diag: about to append BatteryConfig for %r "
             "(capacity_kwh=%s, max_charge_kw=%s, max_discharge_kw=%s, "
             "min_soc_kwh=%s, max_soc_kwh=%s, initial_soc_kwh=%s)",
@@ -10919,7 +10919,7 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
                 shared_charger_max_kw=shared_charger_max_kw,
             )
         )
-    _LOGGER.warning(
+    _LOGGER.debug(
         "Nimbus #757 diag: build_extra_batteries returning %d battery config(s): %s",
         len(batteries),
         [b.name for b in batteries],
@@ -13674,7 +13674,7 @@ def main() -> None:
     # "batteries" docstring paragraph for that explicit #467 stage-1
     # decision.
     all_batteries = [battery, *build_extra_batteries(periods)]
-    _LOGGER.warning(
+    _LOGGER.debug(
         "Nimbus #757 diag: main() all_batteries after merge = %s (periods=%r)",
         [b.name for b in all_batteries],
         "set" if periods is not None else None,
@@ -13740,7 +13740,7 @@ def main() -> None:
         compute_signals=flex_signals_enabled,
         solve_options=solve_options,
     )
-    _LOGGER.warning(
+    _LOGGER.debug(
         "Nimbus #757 diag: plan.batteries immediately after build_plan() returns = %s (status=%r)",
         [b.name for b in plan.batteries],
         plan.status,
