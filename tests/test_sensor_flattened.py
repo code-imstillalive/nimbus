@@ -244,6 +244,21 @@ def _real_looking_parent_payload() -> dict:
             "discharge_fee": 1.2692,
             "terminal_value_credit": -0.9611,
         },
+        # nimbus issue #849: six numeric attributes the parent has always
+        # published but that had no flattened child, so they had no
+        # history anywhere (the parent stores NO attribute history at all
+        # -- HA's 16 KB gate evaluates the full payload before
+        # _unrecorded_attributes drops `forecast`/`batteries`). Values
+        # below are the real shapes read off the reference household, not
+        # invented: envelope limits mirror the configured grid maxima,
+        # the risk effects are small signed adjustments, and the live
+        # whole-house reading sits near the summed-circuit figure.
+        "envelope_import_limit_kw": 20.0,
+        "envelope_export_limit_kw": 12.0,
+        "solar_risk_effect_now_kw": -0.125,
+        "import_price_risk_effect_now": 0.0031,
+        "export_price_risk_effect_now": -0.0017,
+        "load_whole_house_live_now_kw": 1.685,
     }
 
 
