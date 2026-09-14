@@ -21,6 +21,20 @@ Publishes the Efficiency Performance Ratio (EPR) and the cost decomposition behi
 | `sensor.nimbus_quality_regret_dollars` | AUD | `J_ach - J_star`. Canonical name for regret. |
 | `sensor.nimbus_quality_tracking_fidelity` | (dimensionless 0..1) | Plan-vs-actual tracking ratio. 1.0 = perfect. |
 | `sensor.nimbus_quality_tracking_cost` | AUD | Cost added by deviation between planned and actual dispatch. |
+| `sensor.nimbus_quality_achieved_energy_in_kwh` | kWh | Energy charged over the scored window. **Home battery only** — see the scope note below. |
+| `sensor.nimbus_quality_achieved_energy_out_kwh` | kWh | Energy discharged over the scored window. **Home battery only** — see the scope note below. |
+| `sensor.nimbus_quality_fleet_achieved_energy_in_kwh` | kWh | Energy charged across the **whole fleet** (home battery + every `battery_participant`). |
+| `sensor.nimbus_quality_fleet_achieved_energy_out_kwh` | kWh | Energy discharged across the **whole fleet**. |
+
+**Scope note — which figures are fleet-wide and which are not** (nimbus issue [#858](https://github.com/code-imstillalive/nimbus/issues/858)):
+
+Everything else on this device — EPR, `j_ach`, `regret_dollars`, `value_captured`, `uplift_available`, and the SoC-discrepancy fields — is scored across the **whole fleet**: the home battery plus every configured `battery_participant` (EVs, additional packs).
+
+The two `achieved_energy_*` sensors are the exception: they are **home-battery-only**. That is deliberate, not an oversight — their original purpose ([#532](https://github.com/code-imstillalive/nimbus/issues/532)) is letting you compare the energy that moved through your configured `solver_battery_power_sensor` against your configured `solver_battery_capacity_kwh`, to tell a recorder history gap from a sensor that covers more physical storage than the capacity figure describes. That comparison is inherently a home-battery question.
+
+They were added when the scorer was effectively single-battery, so "home" and "fleet" were the same number. Once `battery_participant` support landed they silently diverged. Rather than redefine a field households already diagnose with, both scopes are now published side by side. **On an install with no participants configured the two pairs are equal by construction**, so nothing changed for single-battery installs.
+
+The parent `sensor.nimbus_solver_quality_report` additionally carries `achieved_energy_by_battery`, a per-battery `{in_kwh, out_kwh}` breakdown keyed by battery name — useful on a fleet install for attributing throughput (or a bad reading) to a specific participant without a manual recorder pull. It is a dict, so it has no flattened child sensor.
 
 **Identity math** (satisfied to rounding):
 

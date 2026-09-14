@@ -1381,6 +1381,35 @@ FLATTENED_ATTRS_QUALITY: tuple[FlattenedAttrSpec, ...] = (
         unit_of_measurement=_KWH,
         suggested_display_precision=2,
     ),
+    # nimbus issue #858: the same two figures across the WHOLE scored
+    # fleet (home battery + every battery_participant), which is the
+    # scope EPR, regret and the SoC discrepancy on this same device
+    # already use. The two above are deliberately home-battery-only --
+    # correct for #532's own diagnostic, but written when the scorer was
+    # effectively single-battery, so they silently omitted participants
+    # once #563/#768 landed. Both scopes are now published side by side
+    # rather than one being quietly redefined; on an install with no
+    # participants they are equal by construction.
+    FlattenedAttrSpec(
+        source_key="fleet_achieved_energy_in_kwh",
+        name="Quality Fleet Achieved Energy In",
+        entity_id_suffix="fleet_achieved_energy_in_kwh",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=None,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_KWH,
+        suggested_display_precision=2,
+    ),
+    FlattenedAttrSpec(
+        source_key="fleet_achieved_energy_out_kwh",
+        name="Quality Fleet Achieved Energy Out",
+        entity_id_suffix="fleet_achieved_energy_out_kwh",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=None,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_KWH,
+        suggested_display_precision=2,
+    ),
 )
 
 

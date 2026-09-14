@@ -372,3 +372,154 @@ class TestPublishLogsOncePerScoredDay(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------------
+# nimbus issue #858 (2026-09-14): achieved_energy_in_kwh/out_kwh are
+# home-battery-only, while EPR/regret/SoC on the SAME sensor are
+# fleet-wide. Found while answering Mark Purcell's #842 report, where the
+# two fields stayed sane through #843's ~1,500 kW participant corruption
+# -- which is only possible because participant data never enters them.
+#
+# These tests pin BOTH halves of the contract: the home-only pair keeps
+# its exact original meaning (it is a real diagnostic against the
+# configured solver_battery_power_sensor/capacity, not an oversight), and
+# the new fleet_* / per-battery fields cover the whole scored fleet.
+# ---------------------------------------------------------------------
+
+_N_PERIODS_HINT = 96
+
+
+def _participant(name, charge_kw, discharge_kw, n_periods):
+    """One (BatteryConfig, actual_charge_kw, actual_discharge_kw,
+    final_soc_kwh) tuple shaped exactly like _resolve_battery_participant_
+    history() returns, with flat power arrays so the expected energy is
+    trivially hand-checkable."""
+    import numpy as np
+    from solver import elements
+
+    cfg = elements.BatteryConfig(
+        name=name,
+        capacity_kwh=60.0,
+        initial_soc_kwh=30.0,
+        min_soc_kwh=3.0,
+        max_soc_kwh=60.0,
+        max_charge_kw=11.0,
+        max_discharge_kw=11.0,
+        charge_efficiency=0.95,
+        discharge_efficiency=0.95,
+        charge_cost=0.01,
+        discharge_cost=0.01,
+        salvage_value=0.1,
+    )
+    return (
+        cfg,
+        np.full(n_periods, float(charge_kw)),
+        np.full(n_periods, float(discharge_kw)),
+        30.0,
+    )
+
+
+class TestFleetAchievedEnergy(unittest.TestCase):
+    def _run(self, battery_kw, participants=None):
+        """Run the real window function, optionally injecting participants
+        at the same seam _resolve_battery_participant_history() occupies."""
+
+        def _resolve(*, n_periods, **_kw):
+            if not participants:
+                return []
+            return [_participant(n, c, d, n_periods) for n, c, d in participants]
+
+        with (
+            patch.object(
+                solver_writer,
+                "fetch_entity_history_range",
+                side_effect=_make_fetch(battery_kw),
+            ),
+            patch.object(
+                solver_writer,
+                "_resolve_battery_participant_history",
+                side_effect=_resolve,
+            ),
+        ):
+            return solver_writer._compute_report_for_window(
+                _cfg(), DAY_START, DAY_END, allow_partial=True
+            )
+
+    def test_no_participants_fleet_equals_home(self):
+        """Every install before #563, and every standalone/cron run, has
+        no participants -- the new fields must be equal to the old ones by
+        construction there, so nothing changes for those installs."""
+        result = self._run(20.0)
+        self.assertIsNotNone(result)
+        self.assertAlmostEqual(
+            result["fleet_achieved_energy_out_kwh"],
+            result["achieved_energy_out_kwh"],
+            places=6,
+        )
+        self.assertAlmostEqual(
+            result["fleet_achieved_energy_in_kwh"],
+            result["achieved_energy_in_kwh"],
+            places=6,
+        )
+
+    def test_no_participants_breakdown_has_exactly_the_home_battery(self):
+        result = self._run(20.0)
+        breakdown = result["achieved_energy_by_battery"]
+        self.assertEqual(len(breakdown), 1)
+        only = next(iter(breakdown.values()))
+        self.assertAlmostEqual(only["out_kwh"], result["achieved_energy_out_kwh"], 6)
+        self.assertAlmostEqual(only["in_kwh"], result["achieved_energy_in_kwh"], 6)
+
+    def test_participants_are_included_in_fleet_totals(self):
+        # Home discharges 20 kW all day (480 kWh out). Two EVs each
+        # charge at a flat 5 kW all day (120 kWh in each).
+        result = self._run(20.0, participants=[("ev_a", 5.0, 0.0), ("ev_b", 5.0, 0.0)])
+        self.assertIsNotNone(result)
+        self.assertAlmostEqual(result["fleet_achieved_energy_out_kwh"], 480.0, places=1)
+        self.assertAlmostEqual(result["fleet_achieved_energy_in_kwh"], 240.0, places=1)
+
+    def test_participants_do_not_change_the_home_only_pair(self):
+        """The whole point of keeping the original fields: adding
+        participants must not silently redefine a number a household
+        already diagnoses against solver_battery_capacity_kwh."""
+        without = self._run(20.0)
+        with_ = self._run(20.0, participants=[("ev_a", 5.0, 0.0), ("ev_b", 5.0, 0.0)])
+        self.assertAlmostEqual(
+            with_["achieved_energy_out_kwh"], without["achieved_energy_out_kwh"], 6
+        )
+        self.assertAlmostEqual(
+            with_["achieved_energy_in_kwh"], without["achieved_energy_in_kwh"], 6
+        )
+        # ...and the home-only figure genuinely differs from the fleet one
+        # once participants exist, which is the bug this issue is about.
+        self.assertNotAlmostEqual(
+            with_["achieved_energy_in_kwh"],
+            with_["fleet_achieved_energy_in_kwh"],
+            places=1,
+        )
+
+    def test_breakdown_attributes_energy_to_the_right_battery(self):
+        result = self._run(20.0, participants=[("ev_a", 5.0, 0.0), ("ev_b", 2.0, 0.0)])
+        breakdown = result["achieved_energy_by_battery"]
+        self.assertEqual(len(breakdown), 3)
+        self.assertIn("ev_a", breakdown)
+        self.assertIn("ev_b", breakdown)
+        self.assertAlmostEqual(breakdown["ev_a"]["in_kwh"], 120.0, places=1)
+        self.assertAlmostEqual(breakdown["ev_b"]["in_kwh"], 48.0, places=1)
+        self.assertAlmostEqual(breakdown["ev_a"]["out_kwh"], 0.0, places=6)
+
+    def test_a_corrupt_participant_is_attributable_from_the_sensor_alone(self):
+        """#843's own failure shape: one participant carrying physically
+        impossible power. Before #858 the report showed a sane home-only
+        energy figure and no way to attribute the blow-up; now the
+        breakdown names the offending battery directly."""
+        result = self._run(
+            20.0, participants=[("ev_good", 5.0, 0.0), ("ev_bad", 1500.0, 0.0)]
+        )
+        breakdown = result["achieved_energy_by_battery"]
+        self.assertAlmostEqual(breakdown["ev_good"]["in_kwh"], 120.0, places=1)
+        self.assertGreater(breakdown["ev_bad"]["in_kwh"], 30000.0)
+        # The home-only field stays sane -- exactly what Mark observed on
+        # #842, and now explainable from the same sensor's attributes.
+        self.assertEqual(result["achieved_energy_in_kwh"], 0.0)
