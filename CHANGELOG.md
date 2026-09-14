@@ -8,6 +8,21 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.292] — 2026-09-14
+
+### Fixed
+- **A Controllable Load's power sensor is now auto-discovered from its own device, so thermal rate learning actually runs** (nimbus issue [#768](https://github.com/code-imstillalive/nimbus/issues/768), direct instruction from Mark Purcell: *"MQTT heat pump device has a power sensor, please use it, through auto discovery."*).
+
+  [#809](https://github.com/code-imstillalive/nimbus/issues/809) removed `power_sensor` as a wizard field and defaulted `done_entity`/`temperature_entity` to the load's own `device_entity` — but a `water_heater`/`climate` entity cannot report its own draw, so there was no equivalent default and the field simply stayed unset. The consequence was not cosmetic: `_async_fetch_thermal_history()` received `power_sensor=None`, returned `[]`, `learn_thermal_rates()` found no qualifying segments, and `thermal_rates_source` read `"fallback"` — meaning the one real thermal load in existence was being scheduled off `DEFAULT_HEATING_RATE_C_PER_KWH`/`DEFAULT_IDLE_DECAY_C_PER_HOUR`, generic constants rather than its own measured tank. Every "when must I start heating to hit target by the deadline" decision ran on a stranger's numbers, which is precisely what [#800](https://github.com/code-imstillalive/nimbus/issues/800) existed to stop.
+
+  **Discovery goes through Home Assistant's entity registry, never entity names.** Mark's real pair is `water_heater.wwk302` → `sensor.wwk302_power`, which a name-shaped guess would happily match — and that is exactly the trap. This project has already paid for that lesson once: the Power Signal `signal_role` field exists as an explicit dropdown because naming could not reliably distinguish a battery/solar/grid sensor on real hardware (the reference household's solar sensor is called "Combined Total DC Power"). The registry knows which entities belong to the same physical device, so it is asked instead. A test asserts that an identically-named sensor on a *different* device is not picked up — a name-shaped implementation passes every other test in the file and fails that one.
+
+  **Ambiguity is refused, not guessed.** Exactly one `device_class: power` sensor on the device is used; zero or several returns nothing and logs (a device exposing per-phase power is a real shape). Silently picking one of several would be the same confidently-wrong class as [#118](https://github.com/code-imstillalive/nimbus/issues/118)'s $46/day misplan. The explicit `controllable_load_power_sensor` override still exists via the `set_controllable_load` service for those cases, and an explicit setting always wins — discovery only ever fills a gap, it never overrides a household's own stated answer.
+
+  Applied to both real consumers of the field: `_async_fetch_thermal_history()`'s rate learning and `_sample_load_run_state()`'s own `delivered_today_kwh` accounting.
+
+  **This changes real dispatch on a live hot water system** — switching from generic constants to rates learned from the actual tank will move when it starts heating. That is the improvement #800 was built for and what Mark explicitly asked for, but it is a behaviour change worth watching: `thermal_rates_source` flipping from `"fallback"` to `"learned"`, and the discovered sensor named in a one-time INFO log line, are the two signals to check.
+
 ## [0.94.291] — 2026-09-14
 
 ### Added

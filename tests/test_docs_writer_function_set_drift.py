@@ -293,6 +293,18 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # unchanged in standalone mode already (_NATIVE_HASS is None
         # there), so there's nothing behavioural to port.
         "_resolve_controllable_load_tuning",
+        # nimbus issue #768 (Mark Purcell, 2026-09-14: "MQTT heat pump
+        # device has a power sensor, please use it, through auto
+        # discovery"). Reads Home Assistant's own ENTITY REGISTRY to find
+        # the single device_class=power sensor on the same physical
+        # device as a Controllable Load's device_entity -- there is no
+        # registry at all in standalone/cron mode, and Controllable Loads
+        # have no standalone existence anyway (build_controllable_loads()
+        # returns ([], []) there), so there is nothing behavioural to
+        # port. Same reasoning as _resolve_controllable_load_tuning()
+        # immediately above, which this sits directly alongside.
+        "_discover_power_sensor_for_device",
+        "resolve_controllable_load_power_sensor",
         # Pure slug helper called only by _resolve_controllable_load_
         # tuning (already listed above) -- same native-only reasoning as
         # _parse_done_when's own listing above, even though it has no HA
