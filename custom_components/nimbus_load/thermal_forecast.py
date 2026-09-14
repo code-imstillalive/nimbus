@@ -26,6 +26,27 @@ cooling_constant) per nimbus issue #603's own standing rule -- adopt an
 adjacent open-source project's already-solved semantics rather than
 inventing new ones for the same real physics.
 
+nimbus issue #481 (Mark Purcell): `idle_decay_c_per_hour` above is a flat
+average -- it ignores how far the tank's own temperature is from outdoor
+ambient, even though real heat loss scales with that gap (Newton's law of
+cooling; EMHASS's own `cooling_constant` -- `docs/thermal_model.md` --
+scales its loss term the same way, and this is exactly that mechanism
+adopted per #603's own prior-art rule: EMHASS `cooling_constant` / HAEO:
+no equivalent element found). `learn_thermal_rates()` now ALSO learns an
+optional `loss_coeff_per_h` (deg C lost per hour per deg C of tank-
+ambient gap) whenever the caller supplies real outdoor-temperature
+history alongside the load's own; `project_temperature_forecast()` uses
+it -- scaled by the LIVE tank-ambient gap each period, from a real
+outdoor forecast -- instead of the flat rate, whenever both a learned
+coefficient and a forecast are available. Both old fields/behaviour stay
+completely intact and are the automatic fallback: no weather sensor
+configured, or too little real history to learn a coefficient from
+(#481's own verification against 4 real idle segments on the household's
+`weather.noosa_heads_hourly` found directional support -- lower
+coefficient of variation for the ambient-scaled model, 59% vs 76% -- on a
+small sample, not proof; this is why the flat model stays first-class
+rather than being replaced).
+
 Deliberately NOT part of this module (left open, see nimbus issue #592's
 own worklog entry for the full reasoning): marking the forecast as
 "model-based" when the temperature source is a power-based estimate
@@ -57,6 +78,16 @@ DEFAULT_IDLE_DECAY_C_PER_HOUR = 0.5
 # the rate should not be learned from that run."
 _MIN_HEATING_SEGMENT_HOURS = 0.1  # 6 minutes -- below this, too short to trust
 
+# nimbus issue #481: below this tank-ambient gap (deg C), a segment's own
+# loss-coefficient computation (`k = decay_rate / gap`) is dropped rather
+# than used -- the same real data that motivated this design (tank ~50-65
+# degC, real outdoor ambient ~15-30 degC on the household's own
+# `weather.noosa_heads_hourly`) never comes close to this threshold, so
+# it only ever guards the genuine numerical-explosion case (a tank that
+# has cooled down to nearly ambient, or a bad/stale weather reading) --
+# never a real household's own everyday segments.
+_MIN_AMBIENT_GAP_C = 5.0
+
 # nimbus issue #610 (Mark Purcell, real finding on the #534 SG Ready
 # bridge: current_temperature reads ~10-11 degC LOW while the compressor
 # is actively running -- a device-side reporting artifact of this
@@ -85,12 +116,23 @@ class LearnedThermalRates(NamedTuple):
     # data," not just learned-vs-not.
     heating_sample_count: int
     idle_sample_count: int
+    # nimbus issue #481: the ambient-scaled loss coefficient (deg C lost
+    # per hour per deg C of tank-ambient gap -- EMHASS's own
+    # `cooling_constant`, see this module's top docstring). None whenever
+    # no `ambient_history` was supplied, or none of the real idle
+    # segments found had both a usable ambient reading and a tank-ambient
+    # gap past `_MIN_AMBIENT_GAP_C` -- the caller's signal to fall back
+    # to the flat `idle_decay_c_per_hour` above, not a value to treat as
+    # "coefficient of zero."
+    loss_coeff_per_h: float | None = None
+    loss_coeff_sample_count: int = 0
 
 
 def learn_thermal_rates(
     history: list[tuple[datetime, float, float]],
     *,
     on_threshold_kw: float,
+    ambient_history: list[tuple[datetime, float]] | None = None,
 ) -> LearnedThermalRates:
     """`history` is (timestamp, temperature_c, power_kw) samples, already
     time-ordered, covering the load's own recent recorder window (the
@@ -122,7 +164,24 @@ def learn_thermal_rates(
     False, whenever fewer than one qualifying segment of either kind was
     found -- a fresh install (or one still building up recorder history)
     answers "roughly" from day one, never "unknown," but the caller can
-    still tell the two cases apart via is_learned if it wants to."""
+    still tell the two cases apart via is_learned if it wants to.
+
+    `ambient_history` (nimbus issue #481, optional -- omitted or empty is
+    a complete no-op, `loss_coeff_per_h` comes back `None`): real outdoor
+    temperature (timestamp, temperature_c) samples covering the same
+    window, the caller's job to fetch (same posture as `history` itself
+    -- this function does no fetching). For every real idle segment
+    already used for the flat `idle_decay_c_per_hour` above, also reads
+    the ambient temperature at that segment's own start/end (nearest-
+    neighbour interpolation between whatever real samples bracket each
+    instant) and, when the segment's mean tank-ambient gap clears
+    `_MIN_AMBIENT_GAP_C`, computes a per-segment loss coefficient
+    `k = decay_rate / mean_gap` (Newton's law of cooling, rearranged --
+    `decay_rate` is already `(temp0-temp1)/hours` from the loop above).
+    `loss_coeff_per_h` is the plain average of every qualifying segment's
+    own `k`; `None` when zero segments qualify (no ambient_history at
+    all, every segment's ambient reading out of range, or every gap too
+    small to trust)."""
     segments: list[tuple[int, int, bool]] = []
     if len(history) >= 2:
         seg_start_idx = 0
@@ -139,6 +198,7 @@ def learn_thermal_rates(
                 seg_is_heating = history[i][2] > on_threshold_kw
 
     decay_rates: list[float] = []
+    loss_coeffs: list[float] = []
     for seg_start, seg_end, is_heating in segments:
         if is_heating or seg_end <= seg_start:
             continue
@@ -146,7 +206,15 @@ def learn_thermal_rates(
         t1, temp1, _ = history[seg_end]
         hours = (t1 - t0).total_seconds() / 3600.0
         if hours > 0 and temp1 < temp0:
-            decay_rates.append((temp0 - temp1) / hours)
+            decay_rate = (temp0 - temp1) / hours
+            decay_rates.append(decay_rate)
+            if ambient_history:
+                amb0 = _ambient_value_at(ambient_history, t0)
+                amb1 = _ambient_value_at(ambient_history, t1)
+                if amb0 is not None and amb1 is not None:
+                    mean_gap = (temp0 + temp1) / 2.0 - (amb0 + amb1) / 2.0
+                    if mean_gap >= _MIN_AMBIENT_GAP_C:
+                        loss_coeffs.append(decay_rate / mean_gap)
 
     heating_rates: list[float] = []
     for idx, (seg_start, seg_end, is_heating) in enumerate(segments):
@@ -199,7 +267,46 @@ def learn_thermal_rates(
         is_learned=bool(heating_rates) and bool(decay_rates),
         heating_sample_count=len(heating_rates),
         idle_sample_count=len(decay_rates),
+        loss_coeff_per_h=(
+            round(sum(loss_coeffs) / len(loss_coeffs), 6) if loss_coeffs else None
+        ),
+        loss_coeff_sample_count=len(loss_coeffs),
     )
+
+
+def _ambient_value_at(
+    ambient_history: list[tuple[datetime, float]], t: datetime
+) -> float | None:
+    """nimbus issue #481: nearest-neighbour/linear-interpolation lookup of
+    a real outdoor-temperature reading at instant `t`, from whatever real
+    samples `ambient_history` happens to contain -- a weather forecast's
+    own native cadence (typically hourly) never lines up with `t` exactly.
+    Deliberately O(n) per call -- `ambient_history` is short (a few days
+    of hourly-ish data at most) and this is called a handful of times per
+    solve, not in a hot loop. Returns `None` only when `ambient_history`
+    is empty; extrapolates (holds the nearest edge value) rather than
+    refusing when `t` falls before the first or after the last real
+    sample, since a segment's own start/end can legitimately fall just
+    outside a fetched window's edge."""
+    if not ambient_history:
+        return None
+    before: tuple[datetime, float] | None = None
+    after: tuple[datetime, float] | None = None
+    for ts, val in ambient_history:
+        if ts <= t:
+            if before is None or ts > before[0]:
+                before = (ts, val)
+        elif after is None or ts < after[0]:
+            after = (ts, val)
+    if before is None:
+        return after[1] if after is not None else None
+    if after is None:
+        return before[1]
+    span = (after[0] - before[0]).total_seconds()
+    if span <= 0:
+        return before[1]
+    frac = (t - before[0]).total_seconds() / span
+    return before[1] + frac * (after[1] - before[1])
 
 
 def project_temperature_forecast(
@@ -211,6 +318,8 @@ def project_temperature_forecast(
     on_threshold_kw: float,
     ceiling_temperature: float | None = None,
     override_first_period_power_kw: float | None = None,
+    loss_coeff_per_h: float | None = None,
+    ambient_forecast: list[dict[str, object]] | None = None,
 ) -> list[dict[str, object]]:
     """Walks `plan_forecast` (the standard {"time","value"} kW series
     #581 already publishes on every Controllable Load) forward from
@@ -245,6 +354,23 @@ def project_temperature_forecast(
     what that real, currently-commanded power actually is. None is a
     complete no-op, same as every pre-#611 caller.
 
+    `loss_coeff_per_h`/`ambient_forecast` (nimbus issue #481, both
+    optional -- either omitted or `ambient_forecast` empty is a complete
+    no-op, byte-identical to every pre-#481 caller): when BOTH are given
+    and non-empty, every idle period's decay step uses
+    `loss_coeff_per_h * (temp - ambient_c) * hours` (Newton's law of
+    cooling, scaled by that period's own real tank-ambient gap) instead
+    of the flat `idle_decay_c_per_hour * hours` -- `ambient_c` is
+    `ambient_forecast` looked up at that period's own instant (same
+    {"time","value"} shape as `plan_forecast`, via the same `_ambient_
+    value_at()` interpolation `learn_thermal_rates()` uses, including its
+    same edge-extrapolation behaviour -- once `ambient_forecast` carries
+    at least one real point, every period gets an ambient-aware value,
+    never a per-period fallback to the flat rate). Never applied to a
+    heating step, matching `learn_thermal_rates()`'s own scope (the
+    ambient covariate only ever replaces the idle-decay term, not the
+    heating-gain term).
+
     Returns the projected {"time","value"} temperature series, one
     point per plan_forecast period -- deliberately does NOT stop
     projecting once the temperature crosses any particular target; that
@@ -261,6 +387,12 @@ def project_temperature_forecast(
         powers[0] = override_first_period_power_kw
     n = len(plan_forecast)
 
+    ambient_pairs: list[tuple[datetime, float]] = []
+    if loss_coeff_per_h is not None and ambient_forecast:
+        for e in ambient_forecast:
+            t = e["time"] if isinstance(e["time"], datetime) else _parse_iso(e["time"])
+            ambient_pairs.append((t, float(e["value"])))
+
     out: list[dict[str, object]] = []
     temp = start_temperature
     for i in range(n):
@@ -275,7 +407,13 @@ def project_temperature_forecast(
             if ceiling_temperature is not None:
                 temp = min(temp, ceiling_temperature)
         else:
-            temp -= idle_decay_c_per_hour * hours
+            ambient_c = (
+                _ambient_value_at(ambient_pairs, times[i]) if ambient_pairs else None
+            )
+            if ambient_c is not None and loss_coeff_per_h is not None:
+                temp -= loss_coeff_per_h * (temp - ambient_c) * hours
+            else:
+                temp -= idle_decay_c_per_hour * hours
         out.append({"time": plan_forecast[i]["time"], "value": round(temp, 2)})
     return out
 

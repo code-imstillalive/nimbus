@@ -2184,6 +2184,43 @@ def ha_call_service_with_response(domain: str, service: str, data: dict) -> dict
     return payload.get("service_response")
 
 
+def _fetch_weather_hourly_forecast(entity_id: str) -> list[dict] | None:
+    """nimbus issue #481: the raw-fetch half of publish_weather_forecast_
+    mirrors()'s own CONF_SOLVER_WEATHER_FORECAST_SENSOR reading, factored
+    out so the new thermal ambient-covariate wiring (build_controllable_
+    loads()'s own kind=thermal/deferrable branches, learn_thermal_rates()/
+    project_temperature_forecast() callers) can source the SAME real
+    forward-temperature-forecast entity the dashboard mirror already
+    reads, rather than a second, potentially-diverging fetch or a
+    hardcoded entity preference (the exact mistake this file's own
+    publish_weather_forecast_mirrors() docstring already warns against).
+    Same two accepted entity shapes (weather.* via weather.get_forecasts,
+    sensor.* via its own 'forecast' attribute); returns None/empty on any
+    missing config or fetch failure, same graceful no-op contract as
+    every other optional external source in this file. Callers build
+    their own {"time","value"} points from the raw entries -- this
+    function only fetches, since different callers want different
+    fields (temperature only, vs. publish_weather_forecast_mirrors()'s
+    own temperature+humidity)."""
+    if not entity_id:
+        return None
+    domain = entity_id.split(".", 1)[0]
+    if domain == "weather":
+        response = ha_call_service_with_response(
+            "weather", "get_forecasts", {"entity_id": entity_id, "type": "hourly"}
+        )
+        hourly = (response or {}).get(entity_id, {}).get("forecast")
+    else:
+        try:
+            state = ha_get(entity_id)
+        except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError):
+            return None
+        hourly = (state.get("attributes", {}) if isinstance(state, dict) else {}).get(
+            "forecast"
+        )
+    return hourly if isinstance(hourly, list) and hourly else None
+
+
 def publish_weather_forecast_mirrors(cfg: dict) -> None:
     """Real forward temperature/humidity forecast for the devhub
     dashboard's Forecaster chart (2026-08-25 follow-up to that chart's
@@ -2225,21 +2262,8 @@ def publish_weather_forecast_mirrors(cfg: dict) -> None:
     entity_id = cfg.get("solver_weather_forecast_sensor")
     if not entity_id:
         return
-    domain = entity_id.split(".", 1)[0]
-    if domain == "weather":
-        response = ha_call_service_with_response(
-            "weather", "get_forecasts", {"entity_id": entity_id, "type": "hourly"}
-        )
-        hourly = (response or {}).get(entity_id, {}).get("forecast")
-    else:
-        try:
-            state = ha_get(entity_id)
-        except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError):
-            return
-        hourly = (state.get("attributes", {}) if isinstance(state, dict) else {}).get(
-            "forecast"
-        )
-    if not isinstance(hourly, list) or not hourly:
+    hourly = _fetch_weather_hourly_forecast(entity_id)
+    if not hourly:
         return
     temp_points = [
         {"time": p["datetime"], "value": round(float(p["temperature"]), 1)}
@@ -11237,6 +11261,7 @@ def apply_commanded_state_guard(
     period_hours_arr: NDArray[np.float64] | None = None,
     import_price_arr: NDArray[np.float64] | list[float] | None = None,
     tariff_attributed_cost_by_subentry: dict[str, float] | None = None,
+    cfg: dict | None = None,
 ) -> None:
     """nimbus issue #484/#534: the relay-chatter guard, now with a real
     output stage. Reads each Controllable Load's own real, just-solved
@@ -11292,6 +11317,17 @@ def apply_commanded_state_guard(
     plan.sheddable_loads/adequacy_loads are always empty there anyway
     since build_controllable_loads() already returns ([], [])
     unconditionally in that mode).
+
+    `cfg` (nimbus issue #481, optional -- omitted is a complete no-op,
+    identical to every pre-#481 caller): the same solver config dict
+    main() already threads into publish_plan()/publish_weather_forecast_
+    mirrors(). Read here only for CONF_SOLVER_WEATHER_FORECAST_SENSOR --
+    when configured, a thermal-forecast-eligible load also learns and
+    applies the ambient-scaled loss coefficient (thermal_forecast.py's
+    own learn_thermal_rates()/project_temperature_forecast() ambient
+    parameters) instead of relying solely on the flat idle-decay rate;
+    when not configured (or `cfg` itself is None), every thermal-forecast
+    call site here behaves exactly as before this issue.
     """
     if _NATIVE_HASS is None or len(grid_times) < 2:
         return
@@ -11556,6 +11592,60 @@ def apply_commanded_state_guard(
                 power_points, [t for t, _ in temp_points]
             )
             return [(t, temp, p) for (t, temp), p in zip(temp_points, power_resampled)]
+
+        async def _async_fetch_ambient_history(
+            entity_id: str, start: datetime, end: datetime
+        ) -> list[tuple[datetime, float]]:
+            # nimbus issue #481: same async-native recorder-history
+            # pattern as _async_fetch_thermal_history() just above (same
+            # deadlock reasoning -- _update_all() is itself already
+            # running on _NATIVE_HASS.loop), just reading a weather
+            # entity's own real `temperature` attribute instead of a
+            # load's own done_entity/power_sensor pair. Used only to
+            # LEARN the ambient-scaled loss coefficient from real past
+            # weather (thermal_forecast.learn_thermal_rates()'s own
+            # ambient_history parameter) -- the forward FORECAST used for
+            # projection is a completely separate fetch
+            # (_fetch_weather_hourly_forecast(), a live weather.
+            # get_forecasts call, not recorder history).
+            try:
+                from homeassistant.components.recorder import (
+                    get_instance as _recorder_get_instance,
+                )
+                from homeassistant.components.recorder import (
+                    history as _recorder_history,
+                )
+            except ImportError:
+                return []
+            try:
+                changes = await _recorder_get_instance(
+                    _NATIVE_HASS
+                ).async_add_executor_job(
+                    _recorder_history.state_changes_during_period,
+                    _NATIVE_HASS,
+                    start,
+                    end,
+                    entity_id,
+                    False,  # no_attributes=False -- temperature lives there
+                )
+            except Exception:
+                _LOGGER.debug(
+                    "Nimbus: #481 ambient history fetch failed for %s",
+                    entity_id,
+                    exc_info=True,
+                )
+                return []
+            points: list[tuple[datetime, float]] = []
+            for s in changes.get(entity_id, []):
+                raw = s.attributes.get("temperature")
+                if raw is None:
+                    continue
+                try:
+                    points.append((s.last_changed.astimezone(LOCAL_TZ), float(raw)))
+                except (TypeError, ValueError):
+                    continue
+            points.sort(key=lambda x: x[0])
+            return points
 
         async def _update_all() -> None:
             store = load_run_state.LoadRunStateStore(
@@ -11837,6 +11927,15 @@ def apply_commanded_state_guard(
                         if start_temperature is not None:
                             heating_rate = new.thermal_heating_rate_c_per_kwh
                             decay_rate = new.thermal_idle_decay_c_per_hour
+                            loss_coeff = new.thermal_loss_coeff_per_h
+                            # nimbus issue #481: resolved once per load
+                            # per cycle, used by both the (day-key-gated)
+                            # ambient-history learning fetch below and
+                            # the (every-cycle) ambient-forecast
+                            # projection fetch further down.
+                            weather_entity_id = (cfg or {}).get(
+                                "solver_weather_forecast_sensor"
+                            )
                             # Recorder history is a real DB query -- only
                             # relearn once per calendar day (#592's own
                             # "on each retrain" ask), not every solve.
@@ -11870,16 +11969,37 @@ def apply_commanded_state_guard(
                                     history_start,
                                     history_end,
                                 )
+                                # nimbus issue #481: real outdoor-
+                                # temperature history over the SAME
+                                # window, only when the household has a
+                                # weather source configured -- graceful
+                                # no-op (ambient_history stays empty,
+                                # learn_thermal_rates() returns loss_
+                                # coeff_per_h=None, thermal_loss_coeff_
+                                # per_h below stays None) for any install
+                                # that hasn't configured one.
+                                ambient_history: list[tuple[datetime, float]] = []
+                                if weather_entity_id:
+                                    ambient_history = (
+                                        await _async_fetch_ambient_history(
+                                            weather_entity_id,
+                                            history_start,
+                                            history_end,
+                                        )
+                                    )
                                 learned = thermal_forecast.learn_thermal_rates(
                                     thermal_history,
                                     on_threshold_kw=load_run_state.DEFAULT_ON_THRESHOLD_KW,
+                                    ambient_history=ambient_history,
                                 )
                                 heating_rate = learned.heating_rate_c_per_kwh
                                 decay_rate = learned.idle_decay_c_per_hour
+                                loss_coeff = learned.loss_coeff_per_h
                                 new = replace(
                                     new,
                                     thermal_heating_rate_c_per_kwh=heating_rate,
                                     thermal_idle_decay_c_per_hour=decay_rate,
+                                    thermal_loss_coeff_per_h=loss_coeff,
                                     thermal_rates_learned_day_key=day_key,
                                     # nimbus issue #610: "the published
                                     # attributes do not say which [a
@@ -11947,6 +12067,32 @@ def apply_commanded_state_guard(
                                         )
                                     except (ValueError, TypeError):
                                         ceiling_temperature = None
+                            # nimbus issue #481: the forward ambient
+                            # forecast for the PROJECTION step -- a
+                            # separate, live weather.get_forecasts fetch
+                            # from the recorder-history one just above
+                            # (used only to LEARN loss_coeff, not to
+                            # project it forward). Same weather_entity_id
+                            # resolved above; graceful no-op (empty list)
+                            # when unconfigured or the fetch fails, same
+                            # posture as publish_weather_forecast_
+                            # mirrors()'s own use of this helper.
+                            ambient_forecast_points: list[dict[str, object]] = []
+                            if weather_entity_id:
+                                _hourly = _fetch_weather_hourly_forecast(
+                                    weather_entity_id
+                                )
+                                if _hourly:
+                                    ambient_forecast_points = [
+                                        {
+                                            "time": p["datetime"],
+                                            "value": float(p["temperature"]),
+                                        }
+                                        for p in _hourly
+                                        if isinstance(p, dict)
+                                        and p.get("datetime") is not None
+                                        and p.get("temperature") is not None
+                                    ]
                             new = replace(
                                 new,
                                 temperature_forecast=thermal_forecast.project_temperature_forecast(
@@ -11965,6 +12111,8 @@ def apply_commanded_state_guard(
                                     on_threshold_kw=load_run_state.DEFAULT_ON_THRESHOLD_KW,
                                     ceiling_temperature=ceiling_temperature,
                                     override_first_period_power_kw=override_power,
+                                    loss_coeff_per_h=loss_coeff,
+                                    ambient_forecast=ambient_forecast_points,
                                 ),
                             )
                             # nimbus issue #712/#713 (Mark Purcell, real
@@ -13479,6 +13627,7 @@ def main() -> None:
         period_hours_arr,
         import_price,
         tariff_attributed_cost_by_subentry=tariff_attributed_cost_by_subentry,
+        cfg=cfg,
     )
     publish_plan(
         cfg=cfg,
