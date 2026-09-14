@@ -42,12 +42,21 @@ _note_solar_source_recovered()/_is_known_solar_integration_entity() are
 module-level and pure/near-pure beyond logging, so exercised directly
 (real functions, not a reimplementation). fetch_solar_source_safe()/
 fetch_open_meteo_solar_raw()/fetch_solcast_solar_raw() and the
-integration-level dedup wiring at the call site are nested closures
-inside main() (well over 1000 lines, live ha_get/ha_post_state calls
-throughout) -- too large to mock end-to-end for this one fix, so their
-wiring is verified source-inspection style, matching the existing
-precedent in tests/test_solver_writer_solar_fallback_not_crash.py and
+integration-level dedup wiring at the call site sit inside a pipeline
+with live ha_get/ha_post_state calls throughout -- too large to mock
+end-to-end for this one fix, so their wiring is verified source-
+inspection style, matching the existing precedent in
+tests/test_solver_writer_solar_fallback_not_crash.py and
 tests/test_stale_devices_cleanup.py.
+
+nimbus issue #735 stage 1 (2026-09-14): all three of those were nested
+closures inside main() until this block moved verbatim into
+solver_inputs/solar.py's build_solar_arrays(), where they are now
+module-level privates (leading underscore) taking grid_times/n_periods
+explicitly instead of closing over main()'s locals. The source-
+inspection assertions below are otherwise UNCHANGED and still pass
+against the relocated code -- which is the evidence that the move was
+pure code organization, not a behaviour change.
 """
 
 from __future__ import annotations
@@ -59,11 +68,12 @@ from pathlib import Path
 import _solver_path  # noqa: F401
 import solver_writer
 
-_SOLVER_WRITER_PY = (
+_SOLAR_INPUTS_PY = (
     Path(__file__).resolve().parent.parent
     / "custom_components"
     / "nimbus_load"
-    / "solver_writer.py"
+    / "solver_inputs"
+    / "solar.py"
 )
 
 
@@ -269,28 +279,29 @@ def _extract_function_source(src: str, def_line: str, max_chars: int = 4000) -> 
 
 
 class TestSolarSourceWiringSourceInspection(unittest.TestCase):
-    """fetch_solar_source_safe()/fetch_open_meteo_solar_raw()/
-    fetch_solcast_solar_raw() and the integration-level dedup at the
-    call site are nested closures inside main() -- see this file's own
-    module docstring for why source-inspection is the right tool here,
-    matching tests/test_solver_writer_solar_fallback_not_crash.py's own
+    """_fetch_solar_source_safe()/_fetch_open_meteo_solar_raw()/
+    _fetch_solcast_solar_raw() and the integration-level dedup at the
+    call site all live in solver_inputs/solar.py (nimbus issue #735
+    stage 1) -- see this file's own module docstring for why source-
+    inspection is the right tool here, matching
+    tests/test_solver_writer_solar_fallback_not_crash.py's own
     precedent."""
 
     @classmethod
     def setUpClass(cls):
-        cls.src = _SOLVER_WRITER_PY.read_text(encoding="utf-8")
+        cls.src = _SOLAR_INPUTS_PY.read_text(encoding="utf-8")
 
     def test_fetch_solar_source_safe_uses_the_shared_reshape_helper(self):
-        block = _extract_function_source(self.src, "    def fetch_solar_source_safe(")
+        block = _extract_function_source(self.src, "def _fetch_solar_source_safe(")
         self.assertIn("_solar_entries_from_attributes(attrs)", block)
 
     def test_fetch_solar_source_safe_distinguishes_unavailable_from_shape(self):
-        block = _extract_function_source(self.src, "    def fetch_solar_source_safe(")
+        block = _extract_function_source(self.src, "def _fetch_solar_source_safe(")
         self.assertIn('"unavailable"', block)
         self.assertIn('"shape not recognized"', block)
 
     def test_fetch_solar_source_safe_reports_recovery_on_success(self):
-        block = _extract_function_source(self.src, "    def fetch_solar_source_safe(")
+        block = _extract_function_source(self.src, "def _fetch_solar_source_safe(")
         self.assertIn("_note_solar_source_recovered(entity_id)", block)
 
     def test_open_meteo_raw_no_longer_takes_a_skip_entities_parameter(self):
@@ -301,21 +312,19 @@ class TestSolarSourceWiringSourceInspection(unittest.TestCase):
         # still legitimately mentions "skip_entities" by name to explain
         # why it was removed, so only the signature itself is checked).
         signature = _extract_function_source(
-            self.src, "    def fetch_open_meteo_solar_raw(", max_chars=80
+            self.src, "def _fetch_open_meteo_solar_raw(", max_chars=80
         )
         self.assertNotIn("skip_entities", signature)
-        block = _extract_function_source(
-            self.src, "    def fetch_open_meteo_solar_raw("
-        )
+        block = _extract_function_source(self.src, "def _fetch_open_meteo_solar_raw(")
         self.assertIn("_KNOWN_OPEN_METEO_SOLAR_ENTITY_IDS", block)
         self.assertIn("_solar_entries_from_attributes(", block)
 
     def test_solcast_raw_no_longer_takes_a_skip_entities_parameter(self):
         signature = _extract_function_source(
-            self.src, "    def fetch_solcast_solar_raw(", max_chars=70
+            self.src, "def _fetch_solcast_solar_raw(", max_chars=70
         )
         self.assertNotIn("skip_entities", signature)
-        block = _extract_function_source(self.src, "    def fetch_solcast_solar_raw(")
+        block = _extract_function_source(self.src, "def _fetch_solcast_solar_raw(")
         self.assertIn("_KNOWN_SOLCAST_SOLAR_ENTITY_IDS", block)
         self.assertIn("_solar_entries_from_attributes(", block)
 
