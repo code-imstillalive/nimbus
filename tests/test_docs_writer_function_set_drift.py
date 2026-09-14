@@ -22,10 +22,10 @@ one copy" is the real, cheap, high-value signal; genuine per-line drift
 inside a function both files legitimately share is a human-review
 question this test was never meant to answer.
 
-Three explicit lists, not one -- because "intentional, permanent
-difference" and "known, still-open gap this issue tracks" are honestly
-different things, and collapsing them would misrepresent which of these
-is actually finished work:
+Four explicit lists, not one -- because "intentional, permanent
+difference", "known, still-open gap this issue tracks", and "artifact of
+an in-progress refactor" are honestly different things, and collapsing
+them would misrepresent which of these is actually finished work:
 
 - INTENTIONAL_NATIVE_ONLY: real execution-context differences confirmed
   by Mark's own triage on this issue -- native-HA-only entity
@@ -48,24 +48,37 @@ is actually finished work:
   equivalent under its old name and removed from the list) -- shrinking
   it is a genuine fix; growing it silently is exactly what this test
   exists to prevent.
+- INTENTIONAL_EXTRACTED_FROM_MAIN: functions that are top-level in the
+  integration only because nimbus issue #735 pulled them out of main(),
+  while the docs/cron copy still has the same logic inline in its own
+  main(). Nothing is missing from either copy, so this is not tracked
+  work -- but it is not a permanent execution-context difference either,
+  which is why it is not folded into INTENTIONAL_NATIVE_ONLY. Expected
+  to grow as #735's remaining stages land.
 
-Any function that shows up in exactly one file's own top-level def set
-and is NOT accounted for in one of these three lists fails this test --
+Any function that shows up in exactly one side's own top-level def set
+and is NOT accounted for in one of these four lists fails this test --
 that is the actual enforcement mechanism Mark asked for: the next
 missing fix fails CI instead of waiting for someone to notice a chart.
+
+"One side's" rather than "one file's": the integration side is a UNION
+across solver_writer.py and every module #735 has extracted out of it
+(see _integration_paths() below for why, and for the two concrete ways
+a single-file comparison would report the refactor as drift -- one of
+them by forcing a factually false annotation into this file).
 """
 
 from __future__ import annotations
 
 import ast
+import glob
 import os
 import unittest
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _REPO_ROOT = os.path.dirname(_HERE)
-_INTEGRATION_PATH = os.path.join(
-    _REPO_ROOT, "custom_components", "nimbus_load", "solver_writer.py"
-)
+_NIMBUS_DIR = os.path.join(_REPO_ROOT, "custom_components", "nimbus_load")
+_INTEGRATION_PATH = os.path.join(_NIMBUS_DIR, "solver_writer.py")
 _DOCS_PATH = os.path.join(
     _REPO_ROOT,
     "docs",
@@ -73,6 +86,47 @@ _DOCS_PATH = os.path.join(
     "files",
     "nimbus_solver_forecast_writer.py",
 )
+
+# nimbus issue #735: the integration side is no longer ONE file.
+#
+# The docs/cron copy is a single standalone script and always will be --
+# that is the whole point of it. The integration copy is being split into
+# a real module structure, one slice at a time (#735 stage 1 moved solar
+# input gathering into solver_inputs/solar.py). Comparing the docs script
+# against solver_writer.py ALONE would make that split look like drift,
+# and in two genuinely wrong ways:
+#
+# 1. A function listed in KNOWN_OPEN_DRIFT_INTEGRATION_ONLY that gets
+#    relocated would vanish from the integration's def set and trip
+#    test_known_open_drift_lists_dont_silently_go_stale -- reporting a
+#    real, still-unported gap as if it had been resolved.
+# 2. Worse: a function present in BOTH copies (e.g. fetch_price_history,
+#    fetch_p2p_fixed_export_kw, both slated to move in #735 stage 2)
+#    would become "docs-only" and have to be added to KNOWN_OPEN_DRIFT_
+#    DOCS_ONLY -- an annotation asserting the integration is MISSING a
+#    fix it demonstrably still has. The test would be forcing a factually
+#    false statement into the codebase.
+#
+# So the integration's function surface is the UNION across the writer
+# and every module #735 extracts out of it. That keeps #357's actual
+# guarantee exactly as strong -- "this logic exists on the native runtime
+# but not in the standalone copy" is still caught, because relocating a
+# function inside the integration doesn't remove it from the union --
+# while letting the refactor proceed without either false annotation.
+_EXTRACTED_PACKAGE_GLOBS = (os.path.join(_NIMBUS_DIR, "solver_inputs", "*.py"),)
+
+
+def _integration_paths() -> list[str]:
+    paths = [_INTEGRATION_PATH]
+    for pattern in _EXTRACTED_PACKAGE_GLOBS:
+        for path in sorted(glob.glob(pattern)):
+            if os.path.basename(path) == "__init__.py":
+                # Package docstring/re-exports only, no solve logic of its
+                # own -- nothing here is a candidate for porting.
+                continue
+            paths.append(path)
+    return paths
+
 
 # Native-HA-only: entity registration, reporting/counterfactual publish
 # functions, and the two small native-mode-only helpers -- confirmed by
@@ -325,6 +379,50 @@ KNOWN_OPEN_DRIFT_DOCS_ONLY = frozenset(
     }
 )
 
+# A fourth category, in the same spirit as the three above: these exist
+# as top-level defs in the integration ONLY because nimbus issue #735
+# extracted them out of main(), while the docs/cron copy still has the
+# equivalent logic inline in its own main(). They were never separate
+# functions in either copy before the refactor, so there is nothing to
+# "port" -- the standalone script has the same behaviour, just not
+# factored out.
+#
+# Deliberately its own list rather than folded into INTENTIONAL_NATIVE_
+# ONLY, for the reason this file's own docstring already gives for
+# keeping three lists instead of one: these are NOT native-HA-only
+# concerns (build_solar_arrays() would work perfectly well in standalone
+# mode), and filing them as such would misrepresent why the difference
+# exists. It is also not permanent in principle -- it would disappear if
+# the standalone copy were ever refactored the same way -- but unlike
+# KNOWN_OPEN_DRIFT it is not tracked WORK, because nothing is missing.
+#
+# Precedent: publish_plan/build_per_battery_forecast already carry
+# exactly this reasoning inside INTENTIONAL_NATIVE_ONLY (from #363 step
+# 2's own staged extraction). They are left where they are -- both are
+# genuinely native-only as well as extracted, so their current listing
+# is not wrong; this list is for extractions that have no second reason.
+#
+# Expected to GROW as #735 stages 2-4 land. That growth is fine and
+# visible; what this file exists to prevent is a real missing FIX hiding
+# among them, which it still catches -- a relocated function stays in
+# the integration's union, so only genuinely new top-level functions
+# ever land here.
+INTENTIONAL_EXTRACTED_FROM_MAIN = frozenset(
+    {
+        # #735 stage 1 -- solver_inputs/solar.py. The three fetchers were
+        # nested closures inside main() before the move (and still are in
+        # the docs copy); build_solar_arrays() is the extracted block
+        # itself; _solver_writer() is the deferred-import accessor the
+        # split requires (see solver_inputs/__init__.py for why it is
+        # deferred).
+        "build_solar_arrays",
+        "_fetch_solar_source_safe",
+        "_fetch_open_meteo_solar_raw",
+        "_fetch_solcast_solar_raw",
+        "_solver_writer",
+    }
+)
+
 
 def _top_level_def_names(path: str) -> set[str]:
     with open(path, encoding="utf-8") as f:
@@ -336,9 +434,20 @@ def _top_level_def_names(path: str) -> set[str]:
     }
 
 
+def _integration_def_names() -> set[str]:
+    """Every top-level def across the integration's solve surface -- the
+    writer plus every module #735 has extracted out of it. See
+    _integration_paths()'s own comment for why this is a union rather
+    than solver_writer.py alone."""
+    names: set[str] = set()
+    for path in _integration_paths():
+        names |= _top_level_def_names(path)
+    return names
+
+
 class TestDocsWriterFunctionSetDoesNotSilentlyDrift(unittest.TestCase):
     def setUp(self):
-        self.integration_defs = _top_level_def_names(_INTEGRATION_PATH)
+        self.integration_defs = _integration_def_names()
         self.docs_defs = _top_level_def_names(_DOCS_PATH)
 
     def test_both_files_have_a_meaningful_number_of_functions(self):
@@ -354,6 +463,7 @@ class TestDocsWriterFunctionSetDoesNotSilentlyDrift(unittest.TestCase):
             integration_only
             - INTENTIONAL_NATIVE_ONLY
             - KNOWN_OPEN_DRIFT_INTEGRATION_ONLY
+            - INTENTIONAL_EXTRACTED_FROM_MAIN
         )
         self.assertEqual(
             unaccounted,
@@ -367,7 +477,10 @@ class TestDocsWriterFunctionSetDoesNotSilentlyDrift(unittest.TestCase):
             f"landed on the native runtime and never got ported). Either "
             f"port the function to the docs copy, or -- only if it's a "
             f"genuine, permanent native-HA-only concern -- add it to "
-            f"INTENTIONAL_NATIVE_ONLY with a one-line reason.",
+            f"INTENTIONAL_NATIVE_ONLY with a one-line reason (or, if it "
+            f"is purely an artifact of #735 extracting it out of main() "
+            f"and the docs copy still has the same logic inline, "
+            f"INTENTIONAL_EXTRACTED_FROM_MAIN).",
         )
 
     def test_docs_only_functions_are_all_accounted_for(self):
@@ -425,6 +538,63 @@ class TestDocsWriterFunctionSetDoesNotSilentlyDrift(unittest.TestCase):
                     f"now exists in BOTH files -- reconciled/ported. Remove "
                     f"it from this list.",
                 )
+
+    def test_the_integration_union_actually_includes_extracted_modules(self):
+        """Guard on the mechanism itself, not the data: if
+        _integration_paths() ever silently stops picking up an extracted
+        module (a renamed directory, a changed glob), every test above
+        would keep passing while quietly enforcing less. Anchored on a
+        real function that lives OUTSIDE solver_writer.py."""
+        writer_only = _top_level_def_names(_INTEGRATION_PATH)
+        self.assertNotIn(
+            "build_solar_arrays",
+            writer_only,
+            "build_solar_arrays should live in solver_inputs/solar.py, not "
+            "solver_writer.py -- if it moved back, this test's premise is stale",
+        )
+        self.assertIn(
+            "build_solar_arrays",
+            self.integration_defs,
+            "the integration def set no longer includes solver_inputs/ -- "
+            "_integration_paths() has stopped finding the extracted modules, "
+            "so #357's drift guarantee is now being enforced against only "
+            "part of the real integration surface",
+        )
+        self.assertGreater(len(_integration_paths()), 1)
+
+    def test_extracted_list_does_not_go_stale(self):
+        """Same discipline the KNOWN_OPEN_DRIFT lists already get: an
+        entry that no longer exists anywhere in the integration is a
+        stale slot a different function could silently reuse."""
+        for name in INTENTIONAL_EXTRACTED_FROM_MAIN:
+            with self.subTest(name=name):
+                self.assertIn(
+                    name,
+                    self.integration_defs,
+                    f"{name!r} is listed in INTENTIONAL_EXTRACTED_FROM_MAIN "
+                    f"but no longer exists in the integration -- remove it "
+                    f"from the list (renamed, deleted, or inlined again).",
+                )
+
+    def test_the_four_lists_do_not_overlap(self):
+        """Each difference should be explained by exactly one reason. An
+        entry in two lists means one of them is wrong, and whichever is
+        consulted first would silently mask the other."""
+        named = {
+            "INTENTIONAL_NATIVE_ONLY": INTENTIONAL_NATIVE_ONLY,
+            "KNOWN_OPEN_DRIFT_INTEGRATION_ONLY": KNOWN_OPEN_DRIFT_INTEGRATION_ONLY,
+            "INTENTIONAL_EXTRACTED_FROM_MAIN": INTENTIONAL_EXTRACTED_FROM_MAIN,
+        }
+        items = list(named.items())
+        for i, (name_a, a) in enumerate(items):
+            for name_b, b in items[i + 1 :]:
+                with self.subTest(pair=f"{name_a}/{name_b}"):
+                    self.assertEqual(
+                        a & b,
+                        set(),
+                        f"{sorted(a & b)} appears in both {name_a} and "
+                        f"{name_b} -- one of those reasons is wrong.",
+                    )
 
 
 if __name__ == "__main__":
