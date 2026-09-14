@@ -35,12 +35,49 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _solver_path  # noqa: F401  -- side-effect: puts solver/ + ml/ on sys.path
 
-_SOLVER_WRITER_PY = (
-    Path(__file__).resolve().parent.parent
-    / "custom_components"
-    / "nimbus_load"
-    / "solver_writer.py"
+# nimbus issue #735 stage 3: this publish moved out of
+# solver_writer.main() into solver_publish.py, because the load-input
+# block stage 2 extracts had an ha_post_state() call sitting INSIDE it
+# -- moving that block wholesale would have put a publish into an
+# inputs module, contradicting the very split #735 is building.
+#
+# This guard now follows the CODE rather than the file. The #100 bug it
+# protects against is a property of the call (state must read the
+# post-anchor load_kw[0], never the pre-anchor snapshot), not of which
+# module happens to host it. Both candidates are searched, so the guard
+# keeps working whichever side the call sits on as #735 continues.
+_NIMBUS_LOAD = (
+    Path(__file__).resolve().parent.parent / "custom_components" / "nimbus_load"
 )
+_CANDIDATE_SOURCES = (
+    _NIMBUS_LOAD / "solver_publish.py",
+    _NIMBUS_LOAD / "solver_writer.py",
+)
+
+
+def _read_source_carrying_the_push() -> str:
+    """The source of whichever module currently hosts the publish.
+
+    Raises loudly, naming every file checked, if none does -- an
+    unfindable marker must never be mistaken for a passing guard. That
+    is the failure mode this helper exists to prevent: a source-
+    inspection test whose target moved silently becomes a test of
+    nothing.
+    """
+    marker = "sensor.nimbus_household_load_total_forecast"
+    for path in _CANDIDATE_SOURCES:
+        if not path.exists():
+            continue
+        src = path.read_text(encoding="utf-8")
+        if marker in src and "ha_post_state(" in src:
+            return src
+    searched = ", ".join(str(p) for p in _CANDIDATE_SOURCES)
+    msg = (
+        "the household_load_total_forecast publish was not found in any "
+        f"known module ({searched}) -- nimbus issue #100's guard cannot "
+        "run, which is a failure, not a pass"
+    )
+    raise AssertionError(msg)
 
 
 def _extract_household_load_total_push(src: str) -> str:
@@ -59,7 +96,7 @@ def _extract_household_load_total_push(src: str) -> str:
 
 
 def test_state_uses_the_post_anchor_load_kw_not_the_pre_anchor_snapshot():
-    src = _SOLVER_WRITER_PY.read_text(encoding="utf-8")
+    src = _read_source_carrying_the_push()
     block = _extract_household_load_total_push(src)
 
     # The real fix: the state argument (the line right after the entity
@@ -86,7 +123,7 @@ def test_signal_role_and_source_sensor_are_now_exposed():
     class, _NimbusSolverPushSensor) never got either key, a real missed
     code path. Confirms both are now present in the actual push call.
     """
-    src = _SOLVER_WRITER_PY.read_text(encoding="utf-8")
+    src = _read_source_carrying_the_push()
     block = _extract_household_load_total_push(src)
     assert '"signal_role": "other"' in block, (
         "sensor.nimbus_household_load_total_forecast is missing "
@@ -107,5 +144,10 @@ def test_solver_config_diagnostic_still_deliberately_uses_the_pre_anchor_snapsho
     a forecast against an already-live-corrected value. If a future
     edit "fixes" this one too, it silently breaks the cross-check
     diagnostic's own real purpose."""
-    src = _SOLVER_WRITER_PY.read_text(encoding="utf-8")
+    # Deliberately NOT _read_source_carrying_the_push(): this assertion
+    # is about a DIFFERENT publish -- sensor.nimbus_solver_config's own
+    # cross-check diagnostic -- which stays in solver_writer.py. Reusing
+    # the helper here would search whichever module happens to host the
+    # household-load-total push and quietly assert nothing.
+    src = (_NIMBUS_LOAD / "solver_writer.py").read_text(encoding="utf-8")
     assert '"load_summed_18_now_kw": round(summed_18_now_kw, 3),' in src
