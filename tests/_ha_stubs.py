@@ -428,6 +428,14 @@ def install_ha_stubs() -> None:
         "homeassistant.components.switch",
         SwitchEntity=_generic_stub_class("SwitchEntity"),
     )
+    # nimbus issue #485: select.py is the first SELECT-platform module
+    # in this integration, so its base class needs a stub here like every
+    # other platform above -- without it, importing
+    # custom_components.nimbus_load.select fails at collection.
+    module(
+        "homeassistant.components.select",
+        SelectEntity=_generic_stub_class("SelectEntity"),
+    )
     module(
         "homeassistant.config_entries",
         ConfigEntry=_generic_stub_class("ConfigEntry"),

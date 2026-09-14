@@ -189,6 +189,11 @@ _EXPECTED_ATTRS = {
         "n_sheddable_loads": 0,
         "n_adequacy_loads": 0,
         "n_thermal_loads": 0,
+        # nimbus issue #485: None here is correct and meaningful -- this
+        # fixture has no live select entity, and the honest answer is
+        # "no mode was in force" rather than defaulting to "home" and
+        # implying one was.
+        "household_mode": None,
     },
     "horizon_hours": 96.0,
     "solve_seconds": 0.0,  # excluded from comparison -- see test body

@@ -8,6 +8,23 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.298] — 2026-09-14
+
+### Added
+- **`select.nimbus_household_mode` — the household mode entity, and Nimbus's first SELECT platform** (nimbus issue [#485](https://github.com/code-imstillalive/nimbus/issues/485), Loads spec 9/10 of #476). Options `home` / `away` / `guests` / `economy`, default `home`, settable by hand or by an automation (presence, calendar), read at solve time so a change takes effect on the next cycle with no reload.
+
+  Mark's use case: *"Away for a week: no HWS deadline, pool pump at a maintenance quota, pool heater off. Guests: bigger HWS target, earlier deadline."* Neither reference project has an equivalent — HAEO's "scenarios" are snapshot tests, EMHASS leaves it to the caller's runtime params.
+
+  **Deliberately not a wizard field.** Mark's instruction on that issue was verbatim: *"Reuse existing pattern, don't use more wizard fields."* An earlier recap of the settled design reintroduced a per-load `mode_overrides_enabled` flag — that was caught and dropped, because it **is** a wizard field (the one thing that instruction most directly rejected) and because it's redundant: "no mode-suffixed entity set for this field" is already a perfectly good off-switch, and [#449](https://github.com/code-imstillalive/nimbus/issues/449) separately tracks that wizard as too large at 26 fields.
+
+  Modes are a fixed set rather than free text, because the mode string keys the mode-suffixed override entities — an arbitrary value wouldn't fail loudly, it would silently make every override unreachable. `async_select_option()` refuses an unrecognised mode at the entity boundary for the same reason, and a garbage restored/stored value falls back rather than becoming live.
+
+  **Wired into the solver-config bridge in the same change, not after an incident.** v0.94.283 shipped a switch that was a silent no-op (#837) because it was added to `switch.py` and read by `main()` via `cfg.get(...)` but never added to `sensor.py`'s resolution tables — so `fetch_solver_config()` never saw it and the solve read `False` forever. A new entity *domain* is the highest-risk moment to repeat that, since both `_SOLVER_ALL_KEYS` and a new `_SOLVER_SELECT_ENTITY_KEYS` have to be updated and neither failure is visible at runtime: the entity works perfectly, it just never reaches the solve. A regression test asserts both halves.
+
+  `solve_diagnostics` now carries `household_mode` (#485's acceptance criterion 3, so a plan can be read knowing which mode produced it). `None` is published when no select entity is live — honest, rather than defaulting to `"home"` and implying a mode was in force.
+
+  Follows `switch.py`/`number.py`'s restore-and-seed-once pattern with the same durable-Store backstop and the same [#342](https://github.com/code-imstillalive/nimbus/issues/342) restore-vs-Store precedence. Per-load mode-suffixed overrides and the solve-time resolver are the remaining half of #485 and stay open.
+
 ## [0.94.297] — 2026-09-14
 
 ### Fixed
@@ -20,6 +37,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   All nine are now `_LOGGER.debug()`. Every message stays available to anyone who raises the log level while investigating — which is what a temporary per-issue diagnostic should have been from the start — and the default window is no longer consumed by them.
 
   Guarded by `tests/test_diagnostic_log_levels.py`, scoped narrowly to the project's own `#N diag:` convention rather than policing log levels generally: plenty of genuine WARNINGs in that file (a dropped solar source, a capped activation, a failed publish) should stay WARNINGs. Mutation-verified.
+
+Devhub validation: deployed and restarted, `optimal` solve, zero new errors — but the nine `#757 diag:` lines were **still appearing at WARNING**, which proves the executing `solver_writer.py` was still pre-v0.94.297 even after a `__pycache__` clear, a Supervisor-level container restart, a fresh HACS install and two HA restarts. That is the separately-tracked staleness defect, not a fault in this change. Worth recording as a positive too: this release's own log-level change became the cleanest probe yet for that staleness — a single grep now answers "is the running solver_writer current?", which is how #757 was finally root-caused the same evening.
 
 ## [0.94.296] — 2026-09-14
 

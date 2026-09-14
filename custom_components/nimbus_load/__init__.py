@@ -43,7 +43,15 @@ from .const import (
 from .coordinator import NimbusConfigEntry, NimbusCoordinator
 from .sensor import object_id_from_source
 
-PLATFORMS: list[Platform] = [Platform.SENSOR, Platform.NUMBER, Platform.SWITCH]
+PLATFORMS: list[Platform] = [
+    Platform.SENSOR,
+    Platform.NUMBER,
+    Platform.SWITCH,
+    # nimbus issue #485: select.nimbus_household_mode, the one
+    # hub-level mode entity. See select.py's own docstring for why
+    # this is an entity rather than a wizard field.
+    Platform.SELECT,
+]
 
 # Nimbus issue #244 (Mark Purcell, 2026-08-27): a plain 1-minute
 # `async_track_time_interval` has no phase relationship to the NEM 5-minute

@@ -1481,3 +1481,28 @@ CONF_SWITCHBOARD_BATTERY_CHARGE_DAILY_SENSOR: Final = (
 CONF_SWITCHBOARD_BATTERY_DISCHARGE_DAILY_SENSOR: Final = (
     "switchboard_battery_discharge_daily_sensor"
 )
+
+
+# nimbus issue #485 (Mark Purcell, Loads spec 9/10): household modes.
+#
+# "Specific modes of operation for the electric household." Away for a
+# week: no HWS deadline, pool pump at a maintenance quota, pool heater
+# off. Guests: bigger HWS target, earlier deadline. Neither reference
+# project has this -- HAEO's "scenarios" are snapshot tests, EMHASS
+# leaves it to the caller's runtime params.
+#
+# ONE new hub-level entity, and deliberately NOT a new wizard field.
+# Mark's own instruction on that issue was verbatim: "Reuse existing
+# pattern, don't use more wizard fields." An earlier recap of the
+# settled design reintroduced a per-load `mode_overrides_enabled` flag;
+# that was caught and dropped, because it IS a wizard field and because
+# it is redundant -- "no mode-suffixed entity set for this field" is
+# already a perfectly good off-switch, and #449 separately tracks that
+# wizard as too large at 26 fields.
+#
+# Modes are a fixed set rather than free text: they key the mode-suffixed
+# override entities, so an arbitrary string would silently create
+# unreachable overrides. Extending the set is a deliberate code change.
+CONF_HOUSEHOLD_MODE: Final = "household_mode"
+DEFAULT_HOUSEHOLD_MODE: Final = "home"
+HOUSEHOLD_MODES: Final = ("home", "away", "guests", "economy")
