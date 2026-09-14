@@ -1048,7 +1048,12 @@ def _ensure_optimal_value(
     "status='Infeasible'" this project has only ever had to go on so
     far -- same diagnostic-logging-before-guessing discipline already
     used for #757."""
-    with _timed_lp_call(h, "lex_phase"):
+    with _timed_lp_call(
+        h,
+        f"lex_phase:{phase}",
+        n_vars=problem.n_variables if problem is not None else None,
+        n_binary=len(binary_cols) if binary_cols is not None else None,
+    ):
         h.run()
     status = h.getModelStatus()
     if status != highspy.HighsModelStatus.kOptimal:
@@ -1325,7 +1330,12 @@ def _solve_with_options(
     if isinstance(options, BlendedOptions):
         blended = primary_vec + options.blend_weight * secondary_vec
         _set_cost_vector(h, col_indices, blended)
-        with _timed_lp_call(h, "options_blended"):
+        with _timed_lp_call(
+            h,
+            "options_blended",
+            n_vars=problem.n_variables,
+            n_binary=len(binary_cols),
+        ):
             h.run()
         _pin_binaries_to_current_solution(h, var_array, binary_cols)
         if binary_cols:
@@ -1334,7 +1344,12 @@ def _solve_with_options(
             # make, but a blended-cost solve's result is never checked
             # against any acceptance criterion the way Lex/Calibrated's
             # own phases are, so a plain re-run is enough here.
-            with _timed_lp_call(h, "options_blended_pin_refresh"):
+            with _timed_lp_call(
+                h,
+                "options_blended_pin_refresh",
+                n_vars=problem.n_variables,
+                n_binary=len(binary_cols),
+            ):
                 h.run()
         return [], None
 
@@ -1530,7 +1545,7 @@ def _solve_highs(
             problem._cost.get(name, 0.0) * var_array[i]
             for i, name in enumerate(problem._var_names)
         )
-        with _timed_lp_call(h, "primary_minimize"):
+        with _timed_lp_call(h, "primary_minimize", n_vars=n, n_binary=len(binary_cols)):
             h.minimize(cost_expr)
     else:
         col_indices = np.arange(n, dtype=np.int32)
@@ -1713,7 +1728,9 @@ def _solve_highs(
             fixed = float(round(x[i]))
             h.changeColIntegrality(i, highspy.HighsVarType.kContinuous)
             h.changeColBounds(i, fixed, fixed)
-        with _timed_lp_call(h, "mip_pin_reoptimise"):
+        with _timed_lp_call(
+            h, "mip_pin_reoptimise", n_vars=n, n_binary=len(binary_cols)
+        ):
             h.run()
         if h.getModelStatus() == highspy.HighsModelStatus.kOptimal:
             # Re-read from the pinned LP: x is unchanged by construction

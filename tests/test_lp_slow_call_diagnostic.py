@@ -222,6 +222,40 @@ class TestEverySolveCallIsTimed(unittest.TestCase):
         ]
         self.assertEqual(len(found), 1)
 
+    def test_no_call_site_reports_a_hardcoded_problem_size(self):
+        """Caught during review of this very change: `primary_minimize`
+        was first wired with `n_binary=0`, which reads as a real
+        measurement and is a lie whenever the options=None path solves a
+        MIP (`binary_cols` is in scope there and can be non-empty).
+
+        A hardcoded size is worse than `None` -- `None` says "not
+        known", a literal says "measured, and it is this". Pinned so a
+        future call site cannot quietly reintroduce one.
+        """
+        tree = self._tree()
+        offenders = []
+        for node in ast.walk(tree):
+            if not (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "_timed_lp_call"
+            ):
+                continue
+            for kw in node.keywords:
+                if kw.arg not in ("n_vars", "n_binary"):
+                    continue
+                if isinstance(kw.value, ast.Constant) and kw.value.value is not None:
+                    offenders.append(
+                        f"{kw.arg}={kw.value.value!r} at line {node.lineno}"
+                    )
+        self.assertEqual(
+            offenders,
+            [],
+            "a problem-size argument must be read from the real problem "
+            "or left as None -- a hardcoded literal reports a measurement "
+            "that was never taken",
+        )
+
     def test_both_run_and_minimize_are_covered(self):
         """`h.minimize()` is the options=None primary solve and is easy to
         miss when only `h.run()` is grepped for -- it was, until #773's
