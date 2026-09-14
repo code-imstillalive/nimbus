@@ -8981,11 +8981,37 @@ def publish_plan(
             # mechanism) so a future jump can be attributed on sight.
             # Straight from the plan build_plan() itself just solved
             # against, so this can never drift from what actually ran.
+            # nimbus issue #773 (2026-09-14): n_controllable_loads used to
+            # sum only sheddable + adequacy loads, silently omitting
+            # `thermal_loads` -- a first-class controllable-load kind
+            # since #774/#800, and the kind the one real thermal load in
+            # existence actually uses.
+            #
+            # Found live on devhub, not reasoned about: six controllable
+            # loads were demonstrably in the plan (their own status
+            # sensors reading "scheduled 09:00-15:30", "running", "done")
+            # while this field reported 0. That is not a cosmetic
+            # undercount -- #773's own triage reasoned directly from this
+            # number ("whether the calibrated/secondary-cost lex phase has
+            # an edge case that a large controllable-load + multi-battery-
+            # participant combination can push into infeasibility"), so an
+            # under-reporting field was actively misleading the
+            # investigation into the problem shape.
+            #
+            # Broken out per kind rather than only corrected in total:
+            # "which KIND of load grew" is the question a solve-time or
+            # infeasibility regression actually needs answered, and a
+            # single total cannot answer it. n_controllable_loads stays as
+            # the honest sum so nothing consuming it breaks.
             "solve_diagnostics": {
                 "n_batteries": len(plan.batteries),
                 "n_periods": n_periods,
                 "n_controllable_loads": len(plan.sheddable_loads)
-                + len(plan.adequacy_loads),
+                + len(plan.adequacy_loads)
+                + len(plan.thermal_loads),
+                "n_sheddable_loads": len(plan.sheddable_loads),
+                "n_adequacy_loads": len(plan.adequacy_loads),
+                "n_thermal_loads": len(plan.thermal_loads),
             },
             "generated_at": now.isoformat(),
             "binding_constraint_now": binding_now,

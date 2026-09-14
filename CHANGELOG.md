@@ -8,6 +8,19 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.295] — 2026-09-14
+
+### Fixed
+- **`solve_diagnostics.n_controllable_loads` was under-reporting, and it was misleading an open investigation** (nimbus issue [#773](https://github.com/code-imstillalive/nimbus/issues/773)). The field summed `sheddable_loads + adequacy_loads` only, silently omitting `thermal_loads` — a first-class controllable-load kind since [#774](https://github.com/code-imstillalive/nimbus/issues/774)/[#800](https://github.com/code-imstillalive/nimbus/issues/800), and the kind the one real thermal load in existence actually uses.
+
+  Found live rather than by reading: on a real install six controllable loads were demonstrably in the plan — their own status sensors reading `"scheduled 09:00–15:30"`, `"running"` and `"done"` — while this field reported `0`.
+
+  That is not cosmetic. #773's own triage reasoned directly from this number (*"whether the calibrated/secondary-cost lex phase has an edge case that a large controllable-load + multi-battery-participant combination can push into infeasibility"*), so a field that under-reports load count was actively misleading an open infeasibility investigation about problem shape.
+
+  Now broken out per kind — `n_sheddable_loads`, `n_adequacy_loads`, `n_thermal_loads` — rather than only corrected in total, because "which *kind* of load grew" is the question a solve-time or infeasibility regression actually needs answered and a single total cannot answer it. `n_controllable_loads` stays as the honest sum, so nothing consuming it breaks.
+
+  Guarded two ways: the arithmetic contract, plus an AST walk asserting the real publish expression references all three plan lists, so the tests can't pass while the shipped code drifts back.
+
 ## [0.94.294] — 2026-09-14
 
 ### Fixed
