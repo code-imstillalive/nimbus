@@ -354,6 +354,23 @@ INTENTIONAL_CRON_ONLY = frozenset({"seconds_to_settlement_capture"})
 # expected to shrink, one porting PR at a time, not grow silently.
 KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
     {
+        # nimbus issue #452, the forecast-vs-actuals half. The log-once
+        # helper for it is integration-only because the check it reports
+        # depends on two things the standalone/cron copy does not have:
+        # the `aemo_crosscheck` module (a separate file, which porting
+        # would mean copying wholesale or inlining), and the discovered
+        # `aemo_30min_forecast_sensor` key, which is resolved by
+        # sensor.py walking `hass.states` -- a module the cron script
+        # has no equivalent of at all.
+        #
+        # Deliberately NOT filed under INTENTIONAL_NATIVE_ONLY: this is
+        # portable in principle (the cron copy already reads
+        # sensor.nimbus_solver_config over REST, so the discovered key
+        # would reach it on any install that also runs the integration),
+        # so calling it a permanent execution-context difference would
+        # be untrue. Real, disclosed follow-up work -- same posture as
+        # the #493 helpers below.
+        "_warn_aemo_forecast_vs_actuals_once",
         "_hour_in_schedule_block",
         "_kw_scale_factor",
         # nimbus issue #493 (Signals 4/7 of #489, item 1): the new
