@@ -438,6 +438,15 @@ INTENTIONAL_EXTRACTED_FROM_MAIN = frozenset(
         "_fetch_open_meteo_solar_raw",
         "_fetch_solcast_solar_raw",
         "_solver_writer",
+        # #735 stage 2 -- solver_inputs/load.py. build_load_arrays() is
+        # the extracted block; the docs copy still has the identical
+        # logic inline in its own main(), so nothing is missing from
+        # either side.
+        #
+        # LoadArrays is a dataclass, not a def, so it does not appear
+        # here -- worth noting because the twelve-output seam is exactly
+        # why stage 2 needed one where stage 1 returned a plain tuple.
+        "build_load_arrays",
     }
 )
 
