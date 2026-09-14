@@ -8,6 +8,21 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.290] — 2026-09-14
+
+### Fixed
+- **The quality report's `achieved_energy_in_kwh`/`achieved_energy_out_kwh` were home-battery-only on a fleet-scale report** (nimbus issue [#858](https://github.com/code-imstillalive/nimbus/issues/858)). Every other figure on `sensor.nimbus_solver_quality_report` — EPR, `j_ach`, `regret_dollars`, `value_captured`, `uplift_available`, the SoC-discrepancy fields — is scored across the whole fleet (home battery plus every `battery_participant`). These two silently covered the home battery alone, with nothing in the names, the docs or the sensor surface saying so.
+
+  Found while answering Mark Purcell's 14 Sep dispatch report (#842), from a detail that didn't add up. With #843's corruption active — achieved battery power reaching ~1,500 kW, `soc_pct` to ~7,900% — he reported these two as *"the honest, unaffected numbers"* at 36.5 and 41.9 kWh. But `achieved_energy_in_kwh` is the time-integral of that same achieved-power series, so if it covered the series that blew up it could not have returned 36.5 kWh. It stayed sane because it reads a different array: the bare `actual_charge_kw`, element 0 of the `actual_*_kw_list` handed to `compute_quality_report()`.
+
+  **Drift from a later change, not an original mistake.** #532 added these fields on 7 Sep, when the scorer was effectively single-battery and "home" and "fleet" were the same number. The `battery_participant` work (#563/#768) made them different without revisiting this — the same class as #467's discarded availability mask: a value that was correct when written and silently made partial afterwards.
+
+  **Additive fix; nothing renamed and no meaning changed.** The existing pair stays home-scoped, because that is genuinely correct for its stated diagnostic — comparing the configured `solver_battery_power_sensor` against `solver_battery_capacity_kwh` is inherently a home-battery question — and silently redefining a field a household already diagnoses with is worse than the ambiguity. New alongside it: `fleet_achieved_energy_in_kwh`/`fleet_achieved_energy_out_kwh` (summed across every scored battery, with matching flattened child sensors) and `achieved_energy_by_battery`, a per-battery `{in_kwh, out_kwh}` breakdown on the parent attribute. **On an install with no participants all of these are equal by construction**, so nothing changes for single-battery or standalone/cron deployments.
+
+  The breakdown is also the shape that would have made #843 attributable from the sensor alone rather than needing raw history pulled by hand — one of the six new tests reproduces exactly that failure shape and asserts the offending participant is named.
+
+  `docs/entities.md` gains the four achieved-energy rows (previously undocumented entirely) plus an explicit scope note covering which figures on that device are fleet-wide and which are not.
+
 ## [0.94.289] — 2026-09-14
 
 ### Changed

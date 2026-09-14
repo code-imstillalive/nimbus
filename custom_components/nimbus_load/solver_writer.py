@@ -6441,12 +6441,61 @@ def _compute_report_for_window(
         # build; the two raw numbers are honest and sufficient on their
         # own for a human (or a future automated check) to draw the
         # same conclusion.
+        #
+        # nimbus issue #858 (2026-09-14): these two are deliberately
+        # HOME-BATTERY-ONLY -- they read the bare actual_charge_kw/
+        # actual_discharge_kw, which is element 0 of the actual_*_kw_list
+        # handed to compute_quality_report(), not the whole fleet. That
+        # is correct for the diagnostic described above (it compares the
+        # configured solver_battery_power_sensor against solver_battery_
+        # capacity_kwh, an inherently home-battery question), but it was
+        # written in #532 when the scorer was effectively single-battery
+        # and "home" and "fleet" were the same number. #563/#768's
+        # battery_participant work made them different without revisiting
+        # this, so on a fleet install these two silently omitted every
+        # participant while EPR/regret/SoC on the SAME sensor were
+        # fleet-wide. Kept home-scoped (renaming a field a household
+        # already diagnoses with is worse than the ambiguity) and the
+        # scope is now stated here, in docs/entities.md, and by the
+        # fleet_* companions immediately below.
         "achieved_energy_in_kwh": round(
             float(np.sum(actual_charge_kw * period_hours_arr)), 3
         ),
         "achieved_energy_out_kwh": round(
             float(np.sum(actual_discharge_kw * period_hours_arr)), 3
         ),
+        # nimbus issue #858: the same two figures at the scope every
+        # OTHER number on this sensor already uses -- summed across
+        # every scored battery. On a single-battery install (every
+        # install before #563, and every standalone/cron deployment,
+        # where build_extra_batteries() returns []) these are equal to
+        # the home-only pair above by construction, so nothing changes
+        # for anyone who has no participants configured.
+        "fleet_achieved_energy_in_kwh": round(
+            float(sum(np.sum(a * period_hours_arr) for a in actual_charge_kw_list)), 3
+        ),
+        "fleet_achieved_energy_out_kwh": round(
+            float(sum(np.sum(a * period_hours_arr) for a in actual_discharge_kw_list)),
+            3,
+        ),
+        # nimbus issue #858: per-battery breakdown, keyed by each
+        # scored battery's own name. A fleet install can see which
+        # participant contributed what without a manual recorder pull --
+        # and this is the shape that would have made #843's ~1,500 kW
+        # participant corruption attributable from the sensor alone,
+        # rather than needing the raw history pulled by hand.
+        "achieved_energy_by_battery": {
+            b.name: {
+                "in_kwh": round(float(np.sum(chg * period_hours_arr)), 3),
+                "out_kwh": round(float(np.sum(dis * period_hours_arr)), 3),
+            }
+            for b, chg, dis in zip(
+                batteries,
+                actual_charge_kw_list,
+                actual_discharge_kw_list,
+                strict=True,
+            )
+        },
         # nimbus issue #533: the EPR headline's own reliability
         # qualifier, named for what it qualifies (today identical to
         # soc_discrepancy_reliable -- EPR is driven directly by J_ach's
