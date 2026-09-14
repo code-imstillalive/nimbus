@@ -8,6 +8,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.288] — 2026-09-14
+
+### Fixed
+- **A battery participant's power history is now scaled per row by its own recorded unit** (nimbus issue [#843](https://github.com/code-imstillalive/nimbus/issues/843), option A of Mark Purcell's own A/B/C steer — completing the Option C he chose; option B shipped in v0.94.287). `_kw_scale_factor()` reads a sensor's *current live* `unit_of_measurement` exactly once and applies that single scale across a whole day of fetched history, so it is structurally unable to see a sensor whose unit changes mid-window. Mark pulled the raw history with attributes and found the exact rows: his EV pack sensor reports `W` for ~80 seconds as the car wakes from sleep, then `kW`, and a live check made hours later returned `kW` — so `1514.417` was scaled by 1.0 and the quality report published ~1,500 kW of achieved battery power against a real ~80 kW fleet ceiling.
+
+  `fetch_entity_power_history_kw()` fetches **with** attributes on both the native and REST paths and converts each row by its own recorded unit, mirroring the thermal-history path's existing precedent rather than inventing a second convention for the same problem. Where v0.94.287's bound *discards* an implausible sample, this *corrects* it — the real 1.514417 kW reading now survives into the day's reconstruction instead of being thrown away as corrupt.
+
+  **Deliberately a separate function with exactly one caller.** Preserving attributes makes a recorder read materially heavier — a separate join, on a report that fetches a full day per sensor per participant — so every other history read keeps the cheap attribute-stripped path. That scoping is what made option A affordable at all; a blanket change would impose the cost on every install to fix a wake transient on one sensor family. `_kw_scale_factor()` is untouched and still correct for its seven other callers, none of which fetch per-row units.
+
+  13 new tests driving the REST branch with Mark's four real rows verbatim, asserting `[1.514417, -0.774818, -0.774994, -0.42282]` — a result no single whole-window scale can produce. **Verified on devhub: restart clean, solve `optimal`, no new log lines.** Devhub cannot validate the fix itself — its `Test EV` participant uses synthetic sensors with no wake transient, so it never reproduced the failure; the real check is Mark re-running `compute_quality_report` for 13 Sep on his own data. Closes #843.
+
 ## [0.94.287] â€” 2026-09-14
 
 ### Fixed
