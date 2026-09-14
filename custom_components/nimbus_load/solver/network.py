@@ -914,6 +914,25 @@ class Plan:
         return self.status == "optimal"
 
     @property
+    def solver_failed(self) -> bool:
+        """True only for status == "error" -- the solver itself gave up
+        (limit hit, internal error) without ever determining whether a
+        feasible dispatch exists. See `raw_status` above for HiGHS's own
+        reason, and lp.py's own status docstring (nimbus issue #356) for
+        why this is a genuinely different thing from "infeasible".
+
+        Deliberately NOT `not is_optimal`. "infeasible" and "unbounded"
+        are real ANSWERS about the model: HiGHS proved something about
+        it, and a consumer is entitled to act on that (and to show it to
+        a household). "error" is the absence of an answer, so a
+        consumer that would otherwise treat an all-zero Plan as a real
+        decision -- solver_writer.publish_plan() is the one that matters
+        (nimbus issue #757) -- can single that case out without
+        re-deriving the status taxonomy at each call site.
+        """
+        return self.status == "error"
+
+    @property
     def import_cap_breach_kwh(self) -> float:
         """Total real energy this plan drew above `import_limit_kw`, summed
         across the whole horizon. 0.0 whenever grid_import_excess_kw is
