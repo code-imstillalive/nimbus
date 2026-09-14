@@ -20,9 +20,25 @@ Dated work-in-progress notes live in `docs/worklog/`, one file per date — this
 the "CURRENT STATE" journal that used to live directly in this file now lives. Each
 file is not re-summarized here; read it directly for the full detail. Most recent 5:
 
-- [2026-09-14](docs/worklog/2026-09-14.md) — Version reaches v0.94.293 across the
-  day (v0.94.287→289 documented in prose below; 290→292 elsewhere/other sessions;
-  293 is this file's own #481 release, see below).
+- [2026-09-14](docs/worklog/2026-09-14.md) — Version reaches **v0.94.295** across
+  the day, nine releases in total (v0.94.287→295), from two sessions working the
+  repo concurrently. Highlights beyond the #843/#481 work described below:
+  **#768** — a Controllable Load's power sensor is now auto-discovered from its own
+  device via the **entity registry, deliberately not by name**, on Mark's direct
+  instruction; the name-shaped version would have worked on his hardware and failed
+  on everyone else's, the same lesson the Power Signal `signal_role` dropdown
+  already encodes. That closed a real gap where `thermal_rates_source` read
+  `"fallback"`, meaning the one real thermal load was scheduled off generic
+  constants rather than its own tank. **#735** gained two follow-ups whose shared
+  shape matters more than either fix: both blockers were invisible from reading the
+  code being moved, and only appeared from asking what *else* resolves the names
+  involved — one of which reverses stage 1's own staging recommendation (the
+  deferred import is load-bearing, not a wart; `ha_bridge` now goes **last**).
+  **Three self-corrections are recorded deliberately**: an impact claim in a
+  self-filed issue that re-measurement disproved, a "found live" provenance claim
+  corrected in the changelog after shipping, and #773 auto-closed a fourth time by
+  a sentence written specifically to say it should stay open — good intentions, not
+  inattention, are that rule's real failure mode.
   **#843 closed** with both halves of Mark Purcell's own A/B/C steer: a physical
   sanity bound that *discards* rather than clamps an implausible participant
   power sample (clamping would turn an obviously-absurd number into a
