@@ -8,6 +8,24 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.303] — 2026-09-14
+
+### Added
+- **Per-call timing on every HiGHS solve invocation** (nimbus issue [#773](https://github.com/code-imstillalive/nimbus/issues/773)). A diagnostic, not a fix — added after three separate hypotheses for that issue's `"Time limit reached"` failures were each measured and **refuted**: a large fleet pushing the lex phase infeasible, wall-clock contention between concurrent solves, and the offer-curve ranging walk.
+
+  What survived all three is the shape of the thing. On a real install a whole solve cycle takes **0.6 s** and the entire offer-curve sweep takes **47 ms**, while roughly once a minute a single HiGHS call runs past the 60 s per-call limit. Same code, same problem shape, three orders of magnitude apart — which `lp.py`'s own docstring says should not happen (*"every real solve this project has ever measured completes in well under a second even at full production scale"*). That cannot be diagnosed from outside the process, so the next step is a measurement rather than a fourth theory.
+
+  `_timed_lp_call()` wraps all ten solve invocations, logging at WARNING above 5 s with the call-site label, elapsed time, problem size, and — the field that actually discriminates — `simplex_iterations`. A stalled call with a huge iteration count is degeneracy/cycling; one with a small count is stuck before the simplex loop ever starts (presolve, a MIP tree, numerics). Those point at completely different fixes, and nothing previously logged could tell them apart. On a healthy install this never fires.
+
+  **Investigating it found the call site nobody had been looking at.** The `options is None` primary solve goes through `h.minimize()`, not `h.run()` — so every grep for `h.run()` across this investigation silently skipped the most-executed solve in the module. An AST guard now asserts that no untimed `h.run()`/`h.minimize()` can be added later.
+
+  Combined with the switch states on the affected install (`calibrated_objective_enabled: off`, `n_controllable_loads: 0`) and the offer-curve experiment, seven of the ten call sites are unreachable and one is exonerated — leaving the stall in a single `h.minimize()` on a **pure LP**, by elimination.
+
+### Fixed
+- **A failed solve now reports how long it took** (nimbus issue [#773](https://github.com/code-imstillalive/nimbus/issues/773)). An unintended consequence of v0.94.301's own publish guard: that guard returns early on a failed solve, and `solve_seconds` is published ~750 lines past the return — so from v0.94.301 onward `sensor.nimbus_solver_solve_seconds` reported **only successful solves**, and the duration of a failing one became invisible.
+
+  That is exactly the number #773 needs (these failures take ~60 s against a 0.6 s healthy cycle), and it made the sensor look like it was contradicting the logs. The elapsed time is now logged in the branch that already logs the reason. Nothing is published, so the guard itself is unchanged.
+
 ## [0.94.302] — 2026-09-14
 
 ### Fixed
