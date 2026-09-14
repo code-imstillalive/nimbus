@@ -2118,6 +2118,26 @@ class NimbusControllableLoadTemperatureForecastSensor(
             "thermal_rates_source": state.thermal_rates_source,
             "heating_rate_c_per_kwh": state.thermal_heating_rate_c_per_kwh,
             "idle_decay_c_per_hour": state.thermal_idle_decay_c_per_hour,
+            # nimbus issue #481 (PR #864, purcell-lab): the ambient-scaled
+            # loss coefficient was being learned, persisted to the Store
+            # and applied by project_temperature_forecast() -- but never
+            # published, so there was no way to tell from a live install
+            # whether the ambient path was actually active or whether it
+            # had silently fallen back to flat idle decay.
+            #
+            # That is exactly the gap #610 already closed for the other
+            # two rates, in Mark's own words: "the published attributes do
+            # not say which [a learned rate from a default]". Same
+            # reasoning, same dict, one more field.
+            #
+            # None is meaningful here rather than missing data: it means
+            # no ambient-scaled coefficient is in force (no weather
+            # sensor configured, or not enough qualifying idle segments to
+            # fit one), and the projection is using the flat
+            # idle_decay_c_per_hour above instead. Published as-is rather
+            # than coerced to 0.0, which would read as "no heat loss at
+            # all" -- a different and wrong claim.
+            "thermal_loss_coeff_per_h": state.thermal_loss_coeff_per_h,
         }
 
 
