@@ -1547,8 +1547,8 @@ class NimbusControllableLoadStateSensor(
     # v0.94.195) were never added here when they shipped, even though
     # the class docstring above already describes the #362/#581 posture
     # every per-cycle-churning series is supposed to follow). See
-    # test_sensor_commanded_state_unrecorded_attributes.py's own
-    # generic guard -- it asserts every list-valued field LoadRunState.
+    # test_sensor_forecast_unrecorded_attributes.py's own generic
+    # guard -- it asserts every list-valued field LoadRunState.
     # to_dict() can produce is in this frozenset, specifically so the
     # next new series (there have been four this week alone) can't
     # regress this again the same way.

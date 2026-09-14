@@ -8,6 +8,35 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.310] — 2026-09-15
+
+### Added
+- **A generic recorder-cap guard for the two flagship Solver push sensors, measured against the payload `main()` actually publishes.** Closes the nimbus issue [#625](https://github.com/code-imstillalive/nimbus/issues/625) bug class on `sensor.nimbus_solver_battery_forecast` and `sensor.nimbus_household_load_total_forecast`, where it was still open.
+
+  #625's shape: a new per-cycle series was added to a published payload and never added to `_unrecorded_attributes`, so the Recorder hit its 16 KB per-state cap and dropped **the whole row's** attributes — not just the oversized series. Every other attribute on that sensor lost its history too, silently.
+
+  Its fix came in two halves and only the second is durable. A fixed-set assertion catches a *regression* of an already-known field; a generic check catches the *next* new one. `NimbusControllableLoadStateSensor` has both — the generic half introspects `LoadRunState`'s own dataclass fields. These two sensors had the fixed-set half only, **and no dataclass to introspect**: their attributes are a hand-built dict literal in `main()` and in `solver_publish.publish_household_load_total_forecast()`, where a new key is one line in a 60-key dict.
+
+  So the source of truth is taken from the only place it is honestly available — **the real published payload**. The new test drives the real `main()` through the same fixture the [#363](https://github.com/code-imstillalive/nimbus/issues/363) golden-output guardrail already established (reused, not re-fixtured), captures what `ha_post_state()` receives for both entities, and applies two rules:
+
+  - **Per-period series.** Any list-valued attribute with one entry per forecast period must be excluded. Size-independent, so it holds on a real 18-circuit household exactly as on the fixture.
+  - **Size.** Any attribute serialising above 2,048 bytes must be excluded. Needed because the first rule cannot see `batteries`, whose length is the number of participants (one here), not periods — while each element carries a full per-period series inside it.
+
+  Neither rule subsumes the other, so each carries a sanity assertion that it actually caught something: the failure mode of a structural test is passing vacuously. A third check budgets the **recorded remainder** — what actually reaches the database — at 8,192 bytes, half the Recorder's cap, so a future addition fails while there is still room to think rather than at the cliff, which is what #625 did.
+
+  Thresholds are measured, not round: on the fixture the largest *recorded* attribute is `cost_breakdown` at 174 bytes, against 268,707 (`forecast`) and 23,344 (`batteries`) for the two excluded ones, and the recorded remainder totals 2,432 bytes. Verified to actually bite: removing `batteries` from the frozenset trips the size rule, removing `forecast` trips the per-period rule, and a hypothetical new 5,000-element series trips both the size rule and the budget.
+
+  This came out of [#890](https://github.com/code-imstillalive/nimbus/issues/890)'s investigation, and stands regardless of how that issue resolves — it was written because that work showed `_unrecorded_attributes` correctness is load-bearing on these two sensors and silently breakable, not because it explains #890.
+
+- **Every `test_*.py` filename a source comment points at must now exist.** Two did not, both found by the sweep this test added:
+
+  - `sensor.py` credited the generic `_unrecorded_attributes` guard to `test_sensor_commanded_state_unrecorded_attributes.py`, which has never existed. The guard is real and does exactly what the comment says — it lives in `test_sensor_forecast_unrecorded_attributes.py`.
+  - `solver/elements.py` credited the exactly-100%-efficiency rejection to `test_network_synthetic.py`, also gone. That check lives in `test_elements_battery_config_validation.py`.
+
+  Neither is cosmetic. A comment naming a test file is how the next reader answers "is this constraint actually enforced, or just asserted in prose?" A name that resolves to nothing reads as *no* rather than *elsewhere*, and the natural response to *no* is to write a duplicate guard, or to stop trusting the invariant. Same shape as `solver/README.md`'s own "not wired into anything" claim ([#364](https://github.com/code-imstillalive/nimbus/issues/364)), which went unnoticed for months — this is `test_readme_entity_references_exist.py`'s idea pointed at the source tree instead of the docs. Scoped to `test_*.py` names specifically, because that is a reference this repo can resolve with certainty; prose references have no checkable referent.
+
+  Both comments corrected. No behaviour change — comments and tests only.
+
 ## [0.94.309] — 2026-09-15
 
 ### Added
@@ -24,6 +53,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   Two honest properties, stated rather than discovered later: the comparison is **weakest in the first five minutes** of each window (a single realised sample) and strongest by minute 25, so `n_samples` is returned rather than hidden and `min_samples` defaults to 1 — the caller decides whether one sample is enough, since defaulting higher would quietly discard the early-window signal for everyone. And a **completed** window cannot be scored: the forecast lives in an entity attribute and this project's history fetch passes `no_attributes=True`, so there is no record of what the forecast said for a window that has since elapsed.
 
   36 tests (27 on the pure comparison, 9 on discovery). A clean no-op on any install without exactly one of each entity.
+
+Devhub validation: deployed and restarted, `installed_version == available_version == v0.94.309`, solve `optimal` in 1.21 s, `nimbus_status` "Working well", both flagship sensors publishing fresh with the full 18-circuit `load_forecast_source_used`, no new errors. **The #452 feature itself could not be confirmed on that install**: `sensor.nimbus_solver_config` carries none of `region`, `postcode_prefix` or `aemo_30min_forecast_sensor` — three keys set unconditionally, two of them since v0.94.300 — so the executing `sensor.py` predates that release despite HACS reporting v0.94.309. That is this install's known, separately-tracked stale-execution bug; a restart did not clear it and remove+reinstall has failed every previous time, so no remediation was attempted. Discovery and comparison rest on their 36 tests; what the deploy does confirm is that the release does not break a running install.
 
 ## [0.94.308] — 2026-09-15
 
