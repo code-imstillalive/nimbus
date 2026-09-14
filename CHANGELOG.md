@@ -8,6 +8,28 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.308] — 2026-09-15
+
+### Changed
+- **The load-forecast input slice extracted into `solver_inputs/load.py`** (nimbus issue [#735](https://github.com/code-imstillalive/nimbus/issues/735), stage 2). Internal structure only — 168 lines moved verbatim, no value recomputed and no ordering changed. `main()` is now **1,118 lines**, from 1,268 after the publish hoist and ~1,646 originally: a third of the function gone across three stages.
+
+  **This is deliberately not the clean analogue of stage 1**, and the differences were measured before the move rather than discovered during it:
+
+  - **Four inputs, twelve outputs** (against solar's three out), which is why this returns a frozen `LoadArrays` dataclass where stage 1 returned a tuple. Twelve positional values at a call site are unreadable and silently order-dependent.
+  - **An earlier count of this seam said eleven outputs.** It missed `load_forecast_entities` — anyone building an eleven-field result from that count would have hit an unresolvable name in `main()` afterwards.
+  - **A grep of the block's dependencies finds five module-level names; an AST walk finds fourteen.** The nine a grep misses — three stdlib imports and six helpers — are each a runtime `NameError` that would surface only on a real solve. The list was computed, not read.
+
+  **The snapshot-before-overwrite ordering is preserved verbatim and documented as un-tidyable.** `summed_18_now_kw` is taken from `load_kw[0]` *before* the optional live whole-house cross-check anchor overwrites that element in place; recomputing it from the returned array afterwards reintroduces nimbus issue [#100](https://github.com/code-imstillalive/nimbus/issues/100). Both values are carried on the dataclass precisely so no caller ever reconstructs the wrong one.
+
+  The `#357` anti-drift guard caught `build_load_arrays` as integration-only and named its own remedy; it is recorded under `INTENTIONAL_EXTRACTED_FROM_MAIN` alongside stage 1's, with a note that `LoadArrays` never appears in that comparison at all because it is a dataclass rather than a `def` — which is itself the reason stage 2 needed one and stage 1 did not.
+
+### Added
+- **8 tests pinning the anchor ordering at its source** (nimbus issue [#100](https://github.com/code-imstillalive/nimbus/issues/100)). Both existing #100 guards sit at the *publish*; these sit where the two values are produced, so a regression is caught a layer earlier and does not depend on the publish being wired correctly.
+
+  The blunt one is `test_the_two_values_genuinely_differ`. `summed_18_now_kw` and `load_kw[0]` are **equal on most installs** — only a configured whole-house cross-check makes them diverge. That apparent redundancy is exactly what makes the pair attractive to collapse, and collapsing it *is* #100. A comment cannot prevent that; an assertion can.
+
+  Two fixture mistakes were made and corrected while writing these, both by reading the code instead of guessing twice: `cfg["solver_load_forecast_sensor"]` is a bare subscript rather than a `.get()`, so it is required even on the branch that never reads it; and `sum_load_forecasts()` returns **six** values, not seven, with the error not among them.
+
 ## [0.94.307] — 2026-09-15
 
 ### Changed
@@ -26,6 +48,10 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **The #100 source-inspection guard now follows the code rather than the file.** It searches both `solver_publish.py` and `solver_writer.py`, and raises loudly — naming every file checked — if the publish is in neither. A source-inspection test whose target moves does not fail; it silently stops testing anything, which is the failure mode worth refusing.
 
   One sibling assertion in the same file is deliberately pinned to `solver_writer.py` and **must not** use that helper: it guards a *different* publish (`sensor.nimbus_solver_config`'s cross-check diagnostic) which correctly keeps reading the pre-anchor snapshot. Repointing it alongside the others would have had it search the wrong module and quietly assert nothing.
+
+Devhub validation: deployed and restarted. A correct refactor should be invisible, and it is — `sensor.nimbus_household_load_total_forecast` published fresh with its full attribute set intact (real 18-circuit `load_forecast_source_used`), `nimbus_status` "Working well", solve `optimal`, and **zero** `solver_publish` log entries, confirming the deferred by-module import resolves on the real package path rather than only through the test harness.
+
+One reading confirms nimbus issue [#100](https://github.com/code-imstillalive/nimbus/issues/100) live rather than by assertion: `state` and `whole_house_live_now_kw` both read **0.99** — identical, i.e. `load_kw[0]` *after* the live cross-check anchor overwrote it. Had the hoist captured the pre-anchor snapshot instead, those two would differ.
 
 ## [0.94.306] — 2026-09-15
 
