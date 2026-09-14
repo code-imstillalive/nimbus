@@ -237,8 +237,25 @@ def _timed_lp_call(
         if elapsed >= _SLOW_LP_CALL_SECONDS:
             iterations: object = None
             status: object = None
+            nodes: object = None
+            gap: object = None
             try:
-                iterations = int(h.getInfo().simplex_iteration_count)
+                info = h.getInfo()
+                iterations = int(info.simplex_iteration_count)
+                # nimbus issue #773: these two separate the only two
+                # explanations left for a call that runs 100x longer than
+                # the same model shape does in a synthetic fixture. A large
+                # mip_node_count means branch-and-bound is exploring a huge
+                # search tree (a formulation/bound problem). A node count of
+                # 0 or 1 means the solver never got past the ROOT -- the LP
+                # relaxation itself is what is slow, and no amount of
+                # tightening the integer side would help. mip_gap says
+                # whether it was close to proving optimality or nowhere
+                # near. Both are already read by _ensure_optimal_value()
+                # for its own failure line; they were simply never on the
+                # slow-call line, which is the one that actually fires.
+                nodes = info.mip_node_count
+                gap = info.mip_gap
                 status = h.modelStatusToString(h.getModelStatus())
             except Exception:  # noqa: BLE001, S110 -- a diagnostic must
                 # never be the reason a solve cycle dies, and the elapsed
@@ -247,12 +264,15 @@ def _timed_lp_call(
             _LOGGER.warning(
                 "Nimbus #773 diag: HiGHS call %r took %.1fs "
                 "(threshold %.0fs, per-call limit %.0fs) -- "
-                "simplex_iterations=%s, status=%s, n_vars=%s, n_binary=%s",
+                "simplex_iterations=%s, mip_node_count=%s, mip_gap=%s, "
+                "status=%s, n_vars=%s, n_binary=%s",
                 label,
                 elapsed,
                 _SLOW_LP_CALL_SECONDS,
                 DEFAULT_TIME_LIMIT_SECONDS,
                 iterations,
+                nodes,
+                gap,
                 status,
                 n_vars,
                 n_binary,
