@@ -8,6 +8,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.304] — 2026-09-14
+
+### Fixed
+- **The #773 timing diagnostic now reports the real problem size** (nimbus issue [#773](https://github.com/code-imstillalive/nimbus/issues/773)). v0.94.303's lines carried `n_vars=None, n_binary=None` — the parameters existed and were wired through, but were never passed at the call sites, so the one number needed to judge whether ~200,000 simplex iterations is proportionate to the model was missing from the line reporting them.
+
+  Now passed at the five sites that genuinely have it in scope, left `None` at the rest. The three lex phases also carry their own phase name in the label (`lex_phase:phase2_pin_resolve`), so they are distinguishable from each other rather than collapsing into one.
+
+  **A false reading was caught during this change and is worth recording.** `primary_minimize` was first wired with `n_binary=0`. That is wrong: `binary_cols` is in scope at that call, and the `options is None` path genuinely solves a MIP through `h.minimize()` when a subentry contributes binaries. A hardcoded literal reads as a measurement — `None` says "not known", `0` says "measured, and it is zero" — so this would have reported a confident falsehood in exactly the case that matters. A test now pins the general rule: no `_timed_lp_call()` call site may pass a non-`None` literal for either size field.
+
 ## [0.94.303] — 2026-09-14
 
 ### Added
@@ -25,6 +34,18 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **A failed solve now reports how long it took** (nimbus issue [#773](https://github.com/code-imstillalive/nimbus/issues/773)). An unintended consequence of v0.94.301's own publish guard: that guard returns early on a failed solve, and `solve_seconds` is published ~750 lines past the return — so from v0.94.301 onward `sensor.nimbus_solver_solve_seconds` reported **only successful solves**, and the duration of a failing one became invisible.
 
   That is exactly the number #773 needs (these failures take ~60 s against a 0.6 s healthy cycle), and it made the sensor look like it was contradicting the logs. The elapsed time is now logged in the branch that already logs the reason. Nothing is published, so the guard itself is unchanged.
+
+Devhub validation: deployed and restarted — **and the diagnostic answered [#773](https://github.com/code-imstillalive/nimbus/issues/773) on its first cycle.**
+
+```
+Nimbus #773 diag: HiGHS call 'primary_minimize' took 60.0s
+  (threshold 5s, per-call limit 60s) -- simplex_iterations=204735,
+  status=Time limit reached
+```
+
+The call site is exactly where an elimination argument had placed it, and **~200,000 simplex iterations without converging** is the discriminator answering unambiguously: degeneracy/cycling, not something stuck in presolve or numerics. The restored duration line reads `did not complete after 60.3s` against a 60.0 s LP call — so essentially the entire failing cycle *is* that one call, confirming nothing else in it is slow.
+
+Honest gap in the same release: those lines carry `n_vars=None, n_binary=None`. The fields are wired through but were never passed at the call sites, so problem size — the thing needed to judge whether 200k iterations is proportionate — is still missing. Fixed in v0.94.304.
 
 ## [0.94.302] — 2026-09-14
 
