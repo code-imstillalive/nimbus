@@ -8,6 +8,25 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.307] — 2026-09-15
+
+### Changed
+- **`sensor.nimbus_household_load_total_forecast`'s publish moved out of `main()` into a new `solver_publish.py`** (nimbus issue [#735](https://github.com/code-imstillalive/nimbus/issues/735), stage 3 pulled forward). Internal structure only — the published entity, its state, and every attribute are byte-identical; the 96-line call moved verbatim with only two module-level names rebound onto the deferred module handle.
+
+  **This was a prerequisite for stage 2, not a detour.** The load-input block stage 2 wants to extract had this `ha_post_state()` call sitting *inside* it, so moving that block wholesale would have put a publish into an inputs module and contradicted the very `solver_inputs/` vs `solver_publish.py` split the issue is building. `main()` is now **1,268 lines**, down from 1,347 after stage 1 and ~1,646 originally.
+
+### Added
+- **12 behavioural tests for that publish, replacing a source-grep.** Until the hoist, the only guard on it was `test_solver_writer_load_total_state_consistency.py` searching the file for `round(load_kw[0], 3)` — the honest choice when the call sat 1,600 lines deep inside `main()` and could not be reached without mocking a whole solve cycle.
+
+  Now it is a function with an explicit signature, so the property is asserted by calling it and reading back what it published. That is strictly stronger: a grep proves the source *contains* an expression, but cannot notice that it sits in a branch that never runs, or that the right expression was applied to the wrong array.
+
+  The property in question is nimbus issue [#100](https://github.com/code-imstillalive/nimbus/issues/100) — this sensor's `state` must be `load_kw[0]` **after** the live whole-house cross-check anchor overwrites it, not the pre-anchor `summed_18_now_kw` snapshot. `test_state_and_forecast_zero_agree` checks the two numbers actually *match*, which the grep never could. `test_summed_18_now_kw_is_not_a_parameter_at_all` makes reintroducing the snapshot a visible API change rather than a one-word edit buried deep in `main()`.
+
+### Fixed
+- **The #100 source-inspection guard now follows the code rather than the file.** It searches both `solver_publish.py` and `solver_writer.py`, and raises loudly — naming every file checked — if the publish is in neither. A source-inspection test whose target moves does not fail; it silently stops testing anything, which is the failure mode worth refusing.
+
+  One sibling assertion in the same file is deliberately pinned to `solver_writer.py` and **must not** use that helper: it guards a *different* publish (`sensor.nimbus_solver_config`'s cross-check diagnostic) which correctly keeps reading the pre-anchor snapshot. Repointing it alongside the others would have had it search the wrong module and quietly assert nothing.
+
 ## [0.94.306] — 2026-09-15
 
 ### Changed
@@ -18,6 +37,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   Every crossing of the 5 s line is still measured and still logged, at **DEBUG**. **WARNING** is now reserved for a call genuinely heading for trouble: one that did **not** reach optimal (whatever its duration — a failed call is always worth an alarm, even a quick one), or one past `DEFAULT_TIME_LIMIT_SECONDS / 2`, which is the point where the next slightly-harder instance starts timing out for real.
 
   A test pins that the alarming threshold sits strictly between the two: at or above the per-call limit it could only ever fire on a call that had **already** failed, which is too late to be a warning about anything.
+
+Devhub validation: deployed and restarted, solve `optimal`, `nimbus_status` "Working well", no new errors — and the verification is unusually direct: **`#773 diag` at WARNING is now zero occurrences**, where it had been firing roughly once a minute. Still measuring and still logging every 5 s crossing at DEBUG; the WARNING stream for a known, non-actionable condition is gone.
 
 ## [0.94.305] — 2026-09-15
 

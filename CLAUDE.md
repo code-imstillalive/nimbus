@@ -20,9 +20,36 @@ Dated work-in-progress notes live in `docs/worklog/`, one file per date — this
 the "CURRENT STATE" journal that used to live directly in this file now lives. Each
 file is not re-summarized here; read it directly for the full detail. Most recent 5:
 
-- [2026-09-14](docs/worklog/2026-09-14.md) — Version reaches **v0.94.295** across
-  the day, nine releases in total (v0.94.287→295), from two sessions working the
-  repo concurrently. Highlights beyond the #843/#481 work described below:
+- [2026-09-15](docs/worklog/2026-09-15.md) — Releases v0.94.305 → v0.94.307,
+  continuing directly from 09-14. **#773 got a positive result after five
+  refuted hypotheses**: `mip_node_count=1, mip_gap=0.0` means the search tree
+  is trivial and optimality is proved, so all 12k–29k simplex iterations land
+  at the **root** — the 1,134 binaries are a red herring resolved there, which
+  retires every integer-formulation fix. A synthetic model *larger than
+  production* (8,800 vars, 4,800 binaries vs the real ~11,800 and 1,134) solves
+  in 0.2 s at 1,721 iterations against the real 157k–214k, so size and shape are
+  ruled out and the difficulty is in the real instance. The diagnostic was then
+  **quieted** (v0.94.306, two-tier DEBUG/WARNING) rather than left firing once a
+  minute for a known non-actionable condition — the exact noise v0.94.297 had to
+  clean up for #757. Also resolves a reading used as a premise twice:
+  `n_controllable_loads: 0` came from **pre-v0.94.295 code omitting thermal
+  loads**, spotted not by its value but by the *shape of the object around it*
+  (three keys where current code emits seven). **#735 stage 3 pulled forward**
+  because stage 2 could not start without it — the load block it wants to
+  extract had an `ha_post_state()` inside it; `main()` 1,347 → 1,268, and the
+  #100 source-grep became 12 behavioural tests that can check the two published
+  numbers actually *match*, which a grep never could.
+- [2026-09-14](docs/worklog/2026-09-14.md) — Version reaches **v0.94.304** across
+  the day, eighteen releases in total (v0.94.287→304), from two sessions working
+  the repo concurrently. **The day's largest thread was #757, root-caused in
+  full**: two real defects behind an issue that had survived ten disagreeing
+  investigations — failed solves publishing an all-zero plan over a good one
+  (v0.94.301), and an overlap guard that had *never refused anything* in native
+  mode because a PID file cannot see a sibling thread (v0.94.302). HA itself had
+  been logging four concurrent solves blocking its own startup. The lesson worth
+  re-reading: a guard that cannot fail is indistinguishable from a guard that
+  works — the *absence* of #315's WARNING was the evidence, and absence is what
+  nobody checks. That thread then opened #773's, carried into 09-15. Highlights beyond the #843/#481 work described below:
   **#768** — a Controllable Load's power sensor is now auto-discovered from its own
   device via the **entity registry, deliberately not by name**, on Mark's direct
   instruction; the name-shaped version would have worked on his hardware and failed
