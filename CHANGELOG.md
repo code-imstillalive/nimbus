@@ -21,6 +21,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
   Guarded two ways: the arithmetic contract, plus an AST walk asserting the real publish expression references all three plan lists, so the tests can't pass while the shipped code drifts back.
 
+Devhub validation: deployed, `optimal` solve on a confirmed-fresh cycle (`n_periods` moved 200 → 201) — but the per-kind keys were **absent**, an occurrence of the separately-tracked defect where that install's executing code lags its reported version. Measured precisely this time: surfaces unique to v0.94.290, .291 and .294 were all live and only v0.94.295's were missing, i.e. exactly one release behind with everything prior present. Not retried, per the standing rule; the fix is verified by CI and the AST guard regardless.
+
 ## [0.94.294] — 2026-09-14
 
 ### Fixed
@@ -32,10 +34,14 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
   `None` is published as-is rather than coerced to `0.0` — it means "no ambient-scaled coefficient in force, the flat idle decay is being used instead", whereas `0.0` would read as "this tank loses no heat at all", a different and wrong claim that would also make the ambient path look active when it isn't.
 
+Devhub validation: deployed, and the new attribute confirmed published — `thermal_loss_coeff_per_h` present with value `None`, which is the correct answer on an install with no weather sensor configured, and specifically confirms it is not being coerced to `0.0`. Zero new log errors.
+
 ## [0.94.293] — 2026-09-14
 
 ### Added
 - **Thermal-forecast idle decay can now scale with the real outdoor-ambient gap, not just a flat average** (nimbus issue [#481](https://github.com/code-imstillalive/nimbus/issues/481)). `learn_thermal_rates()` optionally learns an ambient-scaled loss coefficient (Newton's law of cooling — the tank sheds heat roughly in proportion to how far it sits from outdoor temperature, not at a fixed rate) alongside its existing flat heating/decay rates, whenever the hub's already-configured `solver_weather_forecast_sensor` is set; `project_temperature_forecast()` applies it, scaled by each period's own live tank-ambient gap from a real forecast, in place of the flat idle decay. Verified against 4 real idle segments on the household's own weather source before shipping: the ambient-scaled coefficient's coefficient of variation (59%) beat the flat rate's own (76%) — directional support, not proof, on a small sample. No weather sensor configured (the common case today) degrades byte-identically to the existing flat-rate behaviour; no new wizard field.
+
+Devhub validation: deployed, `optimal` solve, all 8 `*_temperature_forecast` entities publishing, zero log lines matching `thermal|ambient|loss_coeff|weather`. **What this proves is the no-weather-sensor degradation path**, not the ambient path — devhub's own `solver_weather_forecast_sensor` is `None`, confirmed directly. The ambient path remains unverified anywhere and needs a household with a real weather source.
 
 ## [0.94.292] — 2026-09-14
 
@@ -51,6 +57,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   Applied to both real consumers of the field: `_async_fetch_thermal_history()`'s rate learning and `_sample_load_run_state()`'s own `delivered_today_kwh` accounting.
 
   **This changes real dispatch on a live hot water system** — switching from generic constants to rates learned from the actual tank will move when it starts heating. That is the improvement #800 was built for and what Mark explicitly asked for, but it is a behaviour change worth watching: `thermal_rates_source` flipping from `"fallback"` to `"learned"`, and the discovered sensor named in a one-time INFO log line, are the two signals to check.
+
+Devhub validation: deployed, `optimal` solve, zero new log errors. **Devhub cannot validate the discovery itself** — its thermal loads are synthetic and it has no MQTT heat-pump device, so there was nothing for the registry lookup to find. Confirmed no regression only; the real confirmation is the reference household.
 
 ## [0.94.291] — 2026-09-14
 
@@ -71,6 +79,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ### Documentation
 - `docs/entities.md` gains an **"Attribute history: the parent sensors store none"** section — `state_attr()` works live but returns nothing for any past timestamp on the large parents, so look-back templates and charts must read the child sensors. Explains the 16 KB gate, why #59/#99/#625 each closed as fixed while the warnings kept firing, and states plainly which fields are live-only by nature.
 
+Devhub validation: deployed, and all six new flattened sensors confirmed present with real values matching their parent attributes (`envelope_import_limit_kw` 42.0, `envelope_export_limit_kw` 40.0, `load_whole_house_live_now_kw` 2.93). One initially read 0.01 low; re-checked rather than dismissed, and it was sampling skew on a continuously-updating live value, not a wiring fault. Zero new log errors.
+
 ## [0.94.290] — 2026-09-14
 
 ### Fixed
@@ -85,6 +95,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   The breakdown is also the shape that would have made #843 attributable from the sensor alone rather than needing raw history pulled by hand — one of the six new tests reproduces exactly that failure shape and asserts the offending participant is named.
 
   `docs/entities.md` gains the four achieved-energy rows (previously undocumented entirely) plus an explicit scope note covering which figures on that device are fleet-wide and which are not.
+
+Devhub validation: deployed, `optimal` solve, and the new fields confirmed live with both batteries enumerated by name — `achieved_energy_by_battery` returned `{home: {in 99.384, out 106.903}, Test EV: {in 0, out 0}}` with `scored_participants: ["home", "Test EV"]`, and the home-only pair unchanged beside the fleet totals. Zero new log errors.
 
 ## [0.94.289] — 2026-09-14
 
@@ -102,6 +114,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   **Known cost, stated plainly.** Modules under `solver_inputs/` reach back into `solver_writer` for shared HA-bridge helpers via a *deferred, in-function* import. Two real reasons: `solver_writer` imports this package at module scope so a module-scope import back would be circular, and the test suite patches those helpers as attributes on the `solver_writer` module object — resolving them at call time keeps every one of those patches working, where `from ..solver_writer import ha_get` would bind the original and silently defeat them. Both reasons dissolve once #735's own `solver/ha_bridge.py` step lands. It is the honest cost of doing this in reversible stages instead of one large move.
 
   Stages 2-4 (the remaining load/price/p2p inputs, then publish, then element construction) remain open on #735.
+
+Devhub validation: deployed, `optimal` solve over 203 periods, and the moved live-anchor path confirmed working end to end — period 0 solar read **4.524 kW** against the live PV sensor's **4524 W**, with period 1 onward (6.042 kW) still forecast, proving the anchor applies to index 0 only and scales correctly. Zero new log errors.
 
 ## [0.94.288] — 2026-09-14
 
