@@ -205,6 +205,23 @@ DEFAULT_TIME_LIMIT_SECONDS: float = 60.0
 # healthy install this never fires.
 _SLOW_LP_CALL_SECONDS: float = 5.0
 
+# nimbus issue #773: the level split, added once the diagnostic above had
+# actually answered its question.
+#
+# The 5s line found the answer in a day -- but on a real install it then
+# fires roughly once a MINUTE at WARNING, for a condition now understood
+# (an expensive root LP relaxation; mip_node_count=1, mip_gap=0.0, so
+# branch-and-bound is not involved at all). A permanent warning for a known,
+# non-actionable condition is exactly the log noise v0.94.297 had to clean up
+# for this project's own #757 diag lines, and leaving it would repeat that.
+#
+# So: still measured and still logged at every crossing of the 5s line, but
+# at DEBUG. WARNING is reserved for a call that is genuinely heading for
+# trouble -- one that did NOT reach optimal, or one past this second
+# threshold, which is half the per-call limit and therefore the point where
+# the next slightly-harder instance starts timing out for real.
+_ALARMING_LP_CALL_SECONDS: float = DEFAULT_TIME_LIMIT_SECONDS / 2
+
 
 @contextlib.contextmanager
 def _timed_lp_call(
@@ -261,7 +278,13 @@ def _timed_lp_call(
                 # never be the reason a solve cycle dies, and the elapsed
                 # time plus the label are worth logging without it.
                 pass
-            _LOGGER.warning(
+            # A successful, merely-slow call is information, not an alarm;
+            # a non-optimal one always is, regardless of how long it took.
+            alarming = elapsed >= _ALARMING_LP_CALL_SECONDS or (
+                status is not None and status != "Optimal"
+            )
+            log = _LOGGER.warning if alarming else _LOGGER.debug
+            log(
                 "Nimbus #773 diag: HiGHS call %r took %.1fs "
                 "(threshold %.0fs, per-call limit %.0fs) -- "
                 "simplex_iterations=%s, mip_node_count=%s, mip_gap=%s, "

@@ -8,6 +8,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.306] — 2026-09-15
+
+### Changed
+- **The #773 timing diagnostic is now two-tier: DEBUG for slow, WARNING for alarming** (nimbus issue [#773](https://github.com/code-imstillalive/nimbus/issues/773)). The 5 s line found the root cause in a day — and then kept firing at WARNING roughly **once a minute** on a real install, for a condition that is now understood (an expensive root LP relaxation; `mip_node_count=1`, `mip_gap=0.0`, branch-and-bound not involved).
+
+  A permanent warning for a known, non-actionable condition is precisely the log noise v0.94.297 had to clean up for this project's own `#757 diag` lines. Leaving it would have repeated that deliberately.
+
+  Every crossing of the 5 s line is still measured and still logged, at **DEBUG**. **WARNING** is now reserved for a call genuinely heading for trouble: one that did **not** reach optimal (whatever its duration — a failed call is always worth an alarm, even a quick one), or one past `DEFAULT_TIME_LIMIT_SECONDS / 2`, which is the point where the next slightly-harder instance starts timing out for real.
+
+  A test pins that the alarming threshold sits strictly between the two: at or above the per-call limit it could only ever fire on a call that had **already** failed, which is too late to be a warning about anything.
+
 ## [0.94.305] — 2026-09-15
 
 ### Added
@@ -21,6 +32,16 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   Both fields were already read by `_ensure_optimal_value()` for its own failure line — they were simply never on the slow-call line, which is the one that actually fires. Same omission as v0.94.304's `n_vars=None`: the information existed, it just was not where the evidence was being produced.
 
   Context for why a measurement rather than a sixth theory: a local A/B on a synthetic model **larger than production in the dimension that looked decisive** (8,800 variables and 4,800 binaries, against the real model's ~11,800 and 1,134) solved in **0.2 s at 1,721 iterations**, where the real one runs 157,000–214,000. Size, binary count, and the general adequacy-load structure are all ruled out as the cause; the difficulty is in the real instance, not its shape.
+
+Devhub validation: deployed and restarted, solve `optimal`, `nimbus_status` "Working well", no new errors — **and the two fields answered the question on the first cycles**:
+
+```
+'lex_phase:phase2_secondary' 12.8s  iters=25595  mip_node_count=1  mip_gap=0.0  n_vars=11958
+'lex_phase:phase2_secondary' 17.1s  iters=28780  mip_node_count=7  mip_gap=0.0  n_vars=11905
+'lex_phase:phase2_secondary'  9.3s  iters=12075  mip_node_count=1  mip_gap=0.0  n_vars=11852
+```
+
+**Node count 1, gap 0.0.** The search tree is trivial and optimality is proved, so all 12,000–29,000 simplex iterations happen at the **root**. The 1,134 binaries are a red herring — they are resolved at the root, so every candidate fix aimed at the integer formulation (tighter linking, cuts, branching priorities, fewer binaries) would move nothing. What remains is an expensive **LP relaxation** on this specific instance: ~11,900 columns needing an order of magnitude more iterations per column than a structurally similar synthetic model.
 
 ## [0.94.304] — 2026-09-14
 

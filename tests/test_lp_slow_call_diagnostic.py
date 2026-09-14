@@ -75,63 +75,96 @@ class TestThreshold(unittest.TestCase):
         self.addCleanup(lambda: setattr(lp.time, "monotonic", self._real_monotonic))
 
     def _run(self, elapsed, **kwargs):
+        """Returns (warning_lines, debug_lines) for one timed call."""
         lp.time.monotonic = _Clock(100.0, 100.0 + elapsed)
-        with self.assertLogs(lp._LOGGER, level="WARNING") as caught:
-            # A guaranteed log so assertLogs never fails for the "nothing
-            # was logged" reason when we are asserting absence.
+        with self.assertLogs(lp._LOGGER, level="DEBUG") as caught:
+            # A guaranteed record so assertLogs never fails for the
+            # "nothing was logged" reason when asserting absence.
             lp._LOGGER.warning("sentinel")
             with lp._timed_lp_call(_FakeHighs(**kwargs), "primary_minimize"):
                 pass
-        return [r for r in caught.output if "sentinel" not in r]
+        lines = [r for r in caught.output if "sentinel" not in r]
+        return (
+            [r for r in lines if r.startswith("WARNING")],
+            [r for r in lines if r.startswith("DEBUG")],
+        )
 
     def test_a_fast_call_logs_nothing(self):
-        """The common case by an enormous margin — a healthy install must
+        """The common case by an enormous margin -- a healthy install must
         stay silent, or this diagnostic is just noise."""
-        self.assertEqual(self._run(0.6), [])
+        warns, debugs = self._run(0.6)
+        self.assertEqual(warns, [])
+        self.assertEqual(debugs, [])
 
     def test_a_call_just_under_the_threshold_logs_nothing(self):
-        self.assertEqual(self._run(lp._SLOW_LP_CALL_SECONDS - 0.01), [])
+        warns, debugs = self._run(lp._SLOW_LP_CALL_SECONDS - 0.01)
+        self.assertEqual(warns, [])
+        self.assertEqual(debugs, [])
 
-    def test_a_slow_call_warns(self):
-        out = self._run(lp._SLOW_LP_CALL_SECONDS + 0.01)
-        self.assertEqual(len(out), 1)
-        self.assertIn("#773 diag", out[0])
+    def test_a_slow_but_successful_call_is_debug_not_warning(self):
+        """nimbus issue #773: the 5s line answered its question in a day,
+        then fired roughly once a MINUTE on a real install for a condition
+        now understood (expensive root relaxation, mip_node_count=1). A
+        permanent warning for a known, non-actionable condition is the
+        same log noise v0.94.297 had to clean up for #757 -- so this is
+        still measured and still logged, just not as an alarm."""
+        warns, debugs = self._run(lp._SLOW_LP_CALL_SECONDS + 0.01)
+        self.assertEqual(warns, [])
+        self.assertEqual(len(debugs), 1)
+        self.assertIn("#773 diag", debugs[0])
 
-    def test_the_warning_carries_the_discriminating_field(self):
-        """`simplex_iterations` is the whole point: it separates
-        degeneracy/cycling from being stuck outside the simplex loop."""
-        out = self._run(61.0, iterations=987654)
-        self.assertIn("simplex_iterations=987654", out[0])
+    def test_a_call_past_the_alarming_threshold_warns(self):
+        """Half the per-call limit -- the point where the next slightly
+        harder instance starts timing out for real."""
+        warns, _debugs = self._run(lp._ALARMING_LP_CALL_SECONDS + 0.1)
+        self.assertEqual(len(warns), 1)
+        self.assertIn("#773 diag", warns[0])
+
+    def test_a_non_optimal_call_warns_however_brief(self):
+        """Status matters independently of duration: a call that did not
+        reach optimal is always worth an alarm, even a quick one."""
+        warns, _debugs = self._run(
+            lp._SLOW_LP_CALL_SECONDS + 0.01, status="Time limit reached"
+        )
+        self.assertEqual(len(warns), 1)
+        self.assertIn("Time limit reached", warns[0])
+
+    def test_the_alarming_threshold_is_below_the_hard_limit(self):
+        """A threshold at or above the per-call limit could only ever fire
+        on a call that had already failed, which is too late to be a
+        warning about anything."""
+        self.assertLess(lp._ALARMING_LP_CALL_SECONDS, lp.DEFAULT_TIME_LIMIT_SECONDS)
+        self.assertGreater(lp._ALARMING_LP_CALL_SECONDS, lp._SLOW_LP_CALL_SECONDS)
 
     def test_the_warning_carries_the_mip_node_count(self):
-        """nimbus issue #773: the field that separates the last two
+        """nimbus issue #773: the field that separated the last two
         explanations. A large node count means branch-and-bound is
         exploring a huge tree; 0 or 1 means the solver never left the
-        ROOT and the LP relaxation itself is what is slow. Those point
-        at completely different fixes."""
-        out = self._run(61.0, nodes=48211)
-        self.assertIn("mip_node_count=48211", out[0])
+        ROOT and the LP relaxation itself is what is slow."""
+        warns, _d = self._run(61.0, nodes=48211)
+        self.assertIn("mip_node_count=48211", warns[0])
 
     def test_a_root_bound_stall_is_distinguishable(self):
-        """The other side of the same discriminator -- pinned explicitly
-        so a later change cannot drop the field and leave the two cases
-        looking identical again."""
-        out = self._run(61.0, nodes=0)
-        self.assertIn("mip_node_count=0", out[0])
+        warns, _d = self._run(61.0, nodes=0)
+        self.assertIn("mip_node_count=0", warns[0])
 
     def test_the_warning_carries_the_mip_gap(self):
-        out = self._run(61.0, gap=0.0123)
-        self.assertIn("mip_gap=0.0123", out[0])
+        warns, _d = self._run(61.0, gap=0.0123)
+        self.assertIn("mip_gap=0.0123", warns[0])
 
     def test_the_warning_names_the_call_site(self):
         """Ten call sites exist; a timing line that doesn't say which one
         it measured would not have narrowed anything."""
-        out = self._run(61.0)
-        self.assertIn("primary_minimize", out[0])
+        warns, _d = self._run(61.0)
+        self.assertIn("primary_minimize", warns[0])
+
+    def test_the_discriminating_field_is_carried(self):
+        warns, _d = self._run(61.0, iterations=987654)
+        self.assertIn("simplex_iterations=987654", warns[0])
 
     def test_the_elapsed_time_is_reported(self):
-        out = self._run(61.5)
-        self.assertIn("61.5s", out[0])
+        warns, _d = self._run(61.5)
+        self.assertIn("61.5s", warns[0])
 
 
 class TestRobustness(unittest.TestCase):
