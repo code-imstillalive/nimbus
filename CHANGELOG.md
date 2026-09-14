@@ -32,6 +32,10 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
   It also fixes a real edge case the accidental behaviour got wrong: with two registered phones where one is unavailable, the previous logic counted two candidates and refused as ambiguous, when only one of them could answer. It now resolves from that one.
 
+Devhub validation: deployed and restarted; `installed_version == available_version == v0.94.300`, `pending_update: false`, `nimbus_status` "Working well", solve `optimal`. The discovery path this release fixes still reports `region`/`postcode_prefix` as `None` there, because that install's one `sensor.*_geocoded_location` genuinely reads `unavailable` — which is precisely the state this release now filters, so the fix is confirmed by the absence of a wrong answer rather than by the presence of a right one. A real answer needs an install whose phone is reachable.
+
+The same deploy turned up something unrelated and more serious, now recorded on [#757](https://github.com/code-imstillalive/nimbus/issues/757): 31 `"solve did not complete -- HiGHS solver failure"` warnings, and four concurrent `_run_price_change_solve()` tasks in flight at once, blocking HA's own bootstrap. Addressed in v0.94.301.
+
 ## [0.94.299] — 2026-09-14
 
 ### Added
