@@ -847,6 +847,24 @@ class TestLoadRunStateThermalAnchorRoundTrip(unittest.TestCase):
         self.assertEqual(restored.thermal_rates_source, "")
 
 
+class TestLoadRunStateThermalLossCoeffRoundTrip(unittest.TestCase):
+    """nimbus issue #481: thermal_loss_coeff_per_h (the ambient-scaled
+    Newton's-law-of-cooling coefficient thermal_forecast.learn_thermal_
+    rates() now optionally derives alongside its two flat rates) round-
+    trips through to_dict()/from_dict() the same way its thermal_heating_
+    rate_c_per_kwh/thermal_idle_decay_c_per_hour siblings already do."""
+
+    def test_to_dict_and_from_dict_round_trip(self):
+        state = lrs.LoadRunState(thermal_loss_coeff_per_h=0.012579)
+        restored = lrs.LoadRunState.from_dict(state.to_dict())
+        self.assertEqual(restored.thermal_loss_coeff_per_h, 0.012579)
+
+    def test_from_dict_defaults_to_none_for_old_data(self):
+        old_data = {"currently_on": True, "delivered_today_kwh": 1.5}
+        restored = lrs.LoadRunState.from_dict(old_data)
+        self.assertIsNone(restored.thermal_loss_coeff_per_h)
+
+
 class TestLoadRunStateFloorCrossingRoundTrip(unittest.TestCase):
     """nimbus issue #712/#713 (Mark Purcell, real live finding): the
     projected hardware-floor-crossing time/temperature round-trip

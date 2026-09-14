@@ -171,6 +171,12 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         "publish_efficiency_backtest_report",
         "publish_nimbus_only_soc_counterfactual",
         "publish_weather_forecast_mirrors",
+        # nimbus issue #481: the fetch half of publish_weather_forecast_
+        # mirrors() (already listed above), factored out so the new
+        # thermal ambient-covariate wiring in apply_commanded_state_
+        # guard() (itself native-only, listed further below) could reuse
+        # it -- same native-only reasoning, not a separate gap.
+        "_fetch_weather_hourly_forecast",
         "resolve_real_entity_id",
         "_load_token",
         # nimbus issue #486: reads real ConfigSubentries

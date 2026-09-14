@@ -166,6 +166,142 @@ class TestLearnThermalRates(unittest.TestCase):
         self.assertFalse(rates.is_learned)
 
 
+class TestLearnThermalRatesAmbientCovariate(unittest.TestCase):
+    """nimbus issue #481 (Mark Purcell: "wire in external temperature as
+    a covariate for the thermal models" -- verified against 4 real idle
+    segments on the household's own weather.noosa_heads_hourly before
+    building this)."""
+
+    def test_no_ambient_history_leaves_loss_coeff_none(self):
+        # Omitted entirely -- byte-identical to every pre-#481 caller.
+        t0 = datetime(2026, 9, 6, 8, 0, tzinfo=_TZ)
+        history = [(t0, 60.0, 0.0), (t0 + timedelta(hours=1), 59.5, 0.0)]
+        rates = tf.learn_thermal_rates(history, on_threshold_kw=0.05)
+        self.assertIsNone(rates.loss_coeff_per_h)
+        self.assertEqual(rates.loss_coeff_sample_count, 0)
+        # The flat rate is completely unaffected either way.
+        self.assertAlmostEqual(rates.idle_decay_c_per_hour, 0.5)
+
+    def test_empty_ambient_history_is_the_same_no_op(self):
+        t0 = datetime(2026, 9, 6, 8, 0, tzinfo=_TZ)
+        history = [(t0, 60.0, 0.0), (t0 + timedelta(hours=1), 59.5, 0.0)]
+        rates = tf.learn_thermal_rates(
+            history, on_threshold_kw=0.05, ambient_history=[]
+        )
+        self.assertIsNone(rates.loss_coeff_per_h)
+        self.assertEqual(rates.loss_coeff_sample_count, 0)
+
+    def test_loss_coeff_learned_from_a_real_idle_segment_with_ambient_data(self):
+        # Same idle segment as test_idle_decay_rate_is_learned_from_a_
+        # clean_idle_segment above (60.0 -> 59.5 over 1h, flat rate
+        # 0.5 degC/h) -- now with a real ambient reading of 20.0 degC
+        # held flat across the segment, so the segment's own mean gap is
+        # (60.0+59.5)/2 - 20.0 = 39.75 degC, well past the guard.
+        t0 = datetime(2026, 9, 6, 8, 0, tzinfo=_TZ)
+        t1 = t0 + timedelta(hours=1)
+        history = [(t0, 60.0, 0.0), (t1, 59.5, 0.0)]
+        ambient_history = [(t0, 20.0), (t1, 20.0)]
+        rates = tf.learn_thermal_rates(
+            history, on_threshold_kw=0.05, ambient_history=ambient_history
+        )
+        self.assertEqual(rates.loss_coeff_sample_count, 1)
+        # k = decay_rate / mean_gap = 0.5 / 39.75
+        self.assertAlmostEqual(rates.loss_coeff_per_h, 0.5 / 39.75, places=6)
+        # The flat rate is published alongside, completely unchanged --
+        # both models coexist, neither replaces the other.
+        self.assertAlmostEqual(rates.idle_decay_c_per_hour, 0.5)
+
+    def test_loss_coeff_dropped_when_tank_ambient_gap_is_too_small(self):
+        # Same segment, but the ambient reading (57.0) sits close enough
+        # to the tank (59.75 mean) that the gap (2.75 degC) falls under
+        # _MIN_AMBIENT_GAP_C (5.0) -- must be dropped from the fit rather
+        # than producing a numerically unstable coefficient, the same
+        # denominator-guard reasoning _MIN_HEATING_SEGMENT_HOURS already
+        # applies to short heating runs.
+        t0 = datetime(2026, 9, 6, 8, 0, tzinfo=_TZ)
+        t1 = t0 + timedelta(hours=1)
+        history = [(t0, 60.0, 0.0), (t1, 59.5, 0.0)]
+        ambient_history = [(t0, 57.0), (t1, 57.0)]
+        rates = tf.learn_thermal_rates(
+            history, on_threshold_kw=0.05, ambient_history=ambient_history
+        )
+        self.assertIsNone(rates.loss_coeff_per_h)
+        self.assertEqual(rates.loss_coeff_sample_count, 0)
+        # The flat rate is still learned normally -- the guard only
+        # drops this segment from the ambient-scaled fit, not from the
+        # flat one.
+        self.assertAlmostEqual(rates.idle_decay_c_per_hour, 0.5)
+
+    def test_loss_coeff_averages_across_multiple_qualifying_segments(self):
+        # Two clean idle segments with different rates and different
+        # ambient gaps -- loss_coeff_per_h is the plain average of both
+        # segments' own k, same "plain average across real segments"
+        # posture the flat rate already uses.
+        t0 = datetime(2026, 9, 6, 8, 0, tzinfo=_TZ)
+        t1 = t0 + timedelta(hours=1)
+        t2 = t0 + timedelta(hours=2, minutes=30)  # heating in between
+        t3 = t2 + timedelta(minutes=20)
+        t4 = t3 + timedelta(hours=6, minutes=2)  # settled idle-after start
+        t5 = t4 + timedelta(hours=1)
+        history = [
+            (t0, 60.0, 0.0),
+            (t1, 59.5, 0.0),  # idle segment 1: 0.5 degC/h, gap vs 20.0 = 39.75
+            (t2, 59.5, 0.6),  # a heating segment in between -- irrelevant
+            (t3, 59.0, 0.6),  # to this test, just proves it doesn't interfere
+            (t4, 45.0, 0.0),  # idle segment 2 starts
+            (t5, 44.4, 0.0),  # idle segment 2: 0.6 degC/h, gap vs 20.0 = 24.7
+        ]
+        ambient_history = [(t0, 20.0), (t1, 20.0), (t4, 20.0), (t5, 20.0)]
+        rates = tf.learn_thermal_rates(
+            history, on_threshold_kw=0.05, ambient_history=ambient_history
+        )
+        self.assertEqual(rates.loss_coeff_sample_count, 2)
+        k1 = 0.5 / 39.75
+        k2 = 0.6 / 24.7
+        self.assertAlmostEqual(rates.loss_coeff_per_h, (k1 + k2) / 2.0, places=6)
+
+
+class TestAmbientValueAt(unittest.TestCase):
+    """nimbus issue #481: the shared nearest-neighbour/interpolation
+    lookup both learn_thermal_rates() and project_temperature_forecast()
+    use to read a real outdoor-temperature series at an arbitrary
+    instant."""
+
+    def test_empty_history_returns_none(self):
+        self.assertIsNone(
+            tf._ambient_value_at([], datetime(2026, 9, 6, 8, 0, tzinfo=_TZ))
+        )
+
+    def test_exact_match_returns_that_sample(self):
+        t0 = datetime(2026, 9, 6, 8, 0, tzinfo=_TZ)
+        history = [(t0, 15.0), (t0 + timedelta(hours=1), 17.0)]
+        self.assertEqual(tf._ambient_value_at(history, t0), 15.0)
+
+    def test_interpolates_between_bracketing_samples(self):
+        t0 = datetime(2026, 9, 6, 8, 0, tzinfo=_TZ)
+        history = [(t0, 10.0), (t0 + timedelta(hours=2), 20.0)]
+        value = tf._ambient_value_at(history, t0 + timedelta(hours=1))
+        self.assertAlmostEqual(value, 15.0)
+
+    def test_extrapolates_before_the_first_sample(self):
+        t0 = datetime(2026, 9, 6, 8, 0, tzinfo=_TZ)
+        history = [(t0, 15.0), (t0 + timedelta(hours=1), 17.0)]
+        value = tf._ambient_value_at(history, t0 - timedelta(hours=1))
+        self.assertEqual(value, 15.0)
+
+    def test_extrapolates_after_the_last_sample(self):
+        t0 = datetime(2026, 9, 6, 8, 0, tzinfo=_TZ)
+        history = [(t0, 15.0), (t0 + timedelta(hours=1), 17.0)]
+        value = tf._ambient_value_at(history, t0 + timedelta(hours=5))
+        self.assertEqual(value, 17.0)
+
+    def test_single_sample_history_returns_that_value_everywhere(self):
+        t0 = datetime(2026, 9, 6, 8, 0, tzinfo=_TZ)
+        history = [(t0, 18.0)]
+        self.assertEqual(tf._ambient_value_at(history, t0 - timedelta(hours=3)), 18.0)
+        self.assertEqual(tf._ambient_value_at(history, t0 + timedelta(hours=3)), 18.0)
+
+
 class TestProjectTemperatureForecast(unittest.TestCase):
     def setUp(self):
         self.t0 = datetime(2026, 9, 9, 6, 0, tzinfo=_TZ)
@@ -298,6 +434,100 @@ class TestProjectTemperatureForecast(unittest.TestCase):
         # Period 0 heats (override), period 1 decays (real plan, unchanged).
         self.assertGreater(forecast[0]["value"], 50.0)
         self.assertLess(forecast[1]["value"], forecast[0]["value"])
+
+
+class TestProjectTemperatureForecastAmbientCovariate(unittest.TestCase):
+    """nimbus issue #481: loss_coeff_per_h/ambient_forecast, both
+    optional and both required together to change any behaviour."""
+
+    def setUp(self):
+        self.t0 = datetime(2026, 9, 9, 6, 0, tzinfo=_TZ)
+
+    def _plan(self, values, hours=1.0):
+        return [
+            {"time": (self.t0 + timedelta(hours=hours * i)).isoformat(), "value": v}
+            for i, v in enumerate(values)
+        ]
+
+    def test_ambient_aware_decay_differs_from_the_flat_rate(self):
+        plan = self._plan([0.0, 0.0], hours=1.0)
+        ambient = self._plan([15.0, 15.0], hours=1.0)
+        flat = tf.project_temperature_forecast(
+            plan,
+            start_temperature=60.0,
+            heating_rate_c_per_kwh=8.0,
+            idle_decay_c_per_hour=0.5,
+            on_threshold_kw=0.05,
+        )
+        ambient_aware = tf.project_temperature_forecast(
+            plan,
+            start_temperature=60.0,
+            heating_rate_c_per_kwh=8.0,
+            idle_decay_c_per_hour=0.5,
+            on_threshold_kw=0.05,
+            loss_coeff_per_h=0.02,
+            ambient_forecast=ambient,
+        )
+        # Period 0: gap = 60.0 - 15.0 = 45.0, decay = 0.02 * 45.0 * 1h = 0.9.
+        self.assertAlmostEqual(ambient_aware[0]["value"], 59.1)
+        self.assertNotAlmostEqual(ambient_aware[0]["value"], flat[0]["value"])
+
+    def test_missing_loss_coeff_falls_back_to_flat_even_with_a_forecast(self):
+        # ambient_forecast alone, without loss_coeff_per_h, must be a
+        # complete no-op -- the two parameters are only ever meaningful
+        # together.
+        plan = self._plan([0.0, 0.0], hours=1.0)
+        ambient = self._plan([15.0, 15.0], hours=1.0)
+        forecast = tf.project_temperature_forecast(
+            plan,
+            start_temperature=60.0,
+            heating_rate_c_per_kwh=8.0,
+            idle_decay_c_per_hour=0.5,
+            on_threshold_kw=0.05,
+            ambient_forecast=ambient,
+        )
+        self.assertAlmostEqual(forecast[0]["value"], 59.5)
+
+    def test_missing_ambient_forecast_falls_back_to_flat_even_with_loss_coeff(self):
+        plan = self._plan([0.0, 0.0], hours=1.0)
+        forecast = tf.project_temperature_forecast(
+            plan,
+            start_temperature=60.0,
+            heating_rate_c_per_kwh=8.0,
+            idle_decay_c_per_hour=0.5,
+            on_threshold_kw=0.05,
+            loss_coeff_per_h=0.02,
+        )
+        self.assertAlmostEqual(forecast[0]["value"], 59.5)
+
+    def test_empty_ambient_forecast_list_is_the_same_no_op(self):
+        plan = self._plan([0.0, 0.0], hours=1.0)
+        forecast = tf.project_temperature_forecast(
+            plan,
+            start_temperature=60.0,
+            heating_rate_c_per_kwh=8.0,
+            idle_decay_c_per_hour=0.5,
+            on_threshold_kw=0.05,
+            loss_coeff_per_h=0.02,
+            ambient_forecast=[],
+        )
+        self.assertAlmostEqual(forecast[0]["value"], 59.5)
+
+    def test_ambient_covariate_is_never_applied_to_a_heating_step(self):
+        # Same fixture/expected value as the flat-model heating test --
+        # the covariate only ever touches the idle/decay branch.
+        plan = self._plan([0.65, 0.65], hours=1.0)
+        ambient = self._plan([15.0, 15.0], hours=1.0)
+        forecast = tf.project_temperature_forecast(
+            plan,
+            start_temperature=53.8,
+            heating_rate_c_per_kwh=8.0,
+            idle_decay_c_per_hour=0.5,
+            on_threshold_kw=0.05,
+            loss_coeff_per_h=0.02,
+            ambient_forecast=ambient,
+        )
+        self.assertAlmostEqual(forecast[0]["value"], 59.0)
 
 
 class TestFindFloorCrossing(unittest.TestCase):

@@ -229,6 +229,17 @@ class LoadRunState:
     # or one not (yet) of a kind this applies to.
     thermal_heating_rate_c_per_kwh: float | None = None
     thermal_idle_decay_c_per_hour: float | None = None
+    # nimbus issue #481: the ambient-scaled loss coefficient
+    # thermal_forecast.py's own learn_thermal_rates() derives alongside
+    # the two flat rates above, whenever a real outdoor-temperature
+    # history was available to learn from -- None whenever it wasn't
+    # (no weather sensor configured, or no real idle segment cleared the
+    # learner's own denominator guard), in which case the flat
+    # thermal_idle_decay_c_per_hour above is what gets used, unchanged.
+    # Persisted alongside its siblings for the same reason: relearning
+    # needs a real recorder query, throttled to once per calendar day via
+    # thermal_rates_learned_day_key, same as the two fields above.
+    thermal_loss_coeff_per_h: float | None = None
     thermal_rates_learned_day_key: str = ""
     temperature_forecast: list[dict[str, Any]] | None = None
     # nimbus issue #610 (Mark Purcell, real finding on the #534 SG Ready
@@ -303,6 +314,7 @@ class LoadRunState:
             "cost_today": self.cost_today,
             "thermal_heating_rate_c_per_kwh": self.thermal_heating_rate_c_per_kwh,
             "thermal_idle_decay_c_per_hour": self.thermal_idle_decay_c_per_hour,
+            "thermal_loss_coeff_per_h": self.thermal_loss_coeff_per_h,
             "thermal_rates_learned_day_key": self.thermal_rates_learned_day_key,
             "temperature_forecast": self.temperature_forecast,
             "last_idle_temperature": self.last_idle_temperature,
@@ -346,6 +358,7 @@ class LoadRunState:
             cost_today=float(data.get("cost_today", 0.0)),
             thermal_heating_rate_c_per_kwh=data.get("thermal_heating_rate_c_per_kwh"),
             thermal_idle_decay_c_per_hour=data.get("thermal_idle_decay_c_per_hour"),
+            thermal_loss_coeff_per_h=data.get("thermal_loss_coeff_per_h"),
             thermal_rates_learned_day_key=str(
                 data.get("thermal_rates_learned_day_key", "")
             ),
