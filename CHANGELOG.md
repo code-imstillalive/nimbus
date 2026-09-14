@@ -8,6 +8,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.293] — 2026-09-14
+
 ### Added
 - **Thermal-forecast idle decay can now scale with the real outdoor-ambient gap, not just a flat average** (nimbus issue [#481](https://github.com/code-imstillalive/nimbus/issues/481)). `learn_thermal_rates()` optionally learns an ambient-scaled loss coefficient (Newton's law of cooling — the tank sheds heat roughly in proportion to how far it sits from outdoor temperature, not at a fixed rate) alongside its existing flat heating/decay rates, whenever the hub's already-configured `solver_weather_forecast_sensor` is set; `project_temperature_forecast()` applies it, scaled by each period's own live tank-ambient gap from a real forecast, in place of the flat idle decay. Verified against 4 real idle segments on the household's own weather source before shipping: the ambient-scaled coefficient's coefficient of variation (59%) beat the flat rate's own (76%) — directional support, not proof, on a small sample. No weather sensor configured (the common case today) degrades byte-identically to the existing flat-rate behaviour; no new wizard field.
 
