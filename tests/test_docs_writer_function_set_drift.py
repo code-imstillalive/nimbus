@@ -464,6 +464,18 @@ INTENTIONAL_EXTRACTED_FROM_MAIN = frozenset(
         # here -- worth noting because the twelve-output seam is exactly
         # why stage 2 needed one where stage 1 returned a plain tuple.
         "build_load_arrays",
+        # #735 stage 5 -- solver_inputs/battery_soc.py.
+        # resolve_soc_envelope() is the extracted block; verified
+        # directly rather than assumed -- the docs copy still computes
+        # max_soc_kwh_val inline in its own main() and still logs the
+        # same floor/ceiling excursion. It does so without a warn-once
+        # flag, which is correct there and not drift: the cron script
+        # is one process per run, so "log this once per excursion" has
+        # nothing to dedup against.
+        #
+        # SocEnvelope is a dataclass, not a def, so it does not appear
+        # here -- same as LoadArrays above.
+        "resolve_soc_envelope",
     }
 )
 

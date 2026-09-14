@@ -200,6 +200,12 @@ try:
     from .solver_inputs import load as load_inputs
 except ImportError:
     from solver_inputs import load as load_inputs  # type: ignore[no-redef]
+try:
+    from .solver_inputs import battery_soc as battery_soc_inputs
+except ImportError:
+    from solver_inputs import (  # type: ignore[no-redef]
+        battery_soc as battery_soc_inputs,
+    )
 
 # nimbus issue #735 stage 3, pulled forward: the load-input block stage 2
 # wants to extract has an ha_post_state() call sitting INSIDE it, so that
@@ -10656,12 +10662,10 @@ _BATTERY_PARTICIPANT_AWAY_EXCLUSION_HOURS: float = 1.0
 # two track genuinely different condition shapes.
 _BATTERY_PARTICIPANT_WARNED: set[str] = set()
 
-# nimbus issue #601: the same warn-once/debug/recovered treatment as
-# _BATTERY_PARTICIPANT_WARNED's own SoC-excursion key, for the single
-# home battery's own equivalent warning in main() -- a plain module-level
-# flag rather than a set entry, since there is only ever one "home"
-# instance (unlike battery participants, which are keyed by name).
-_HOME_BATTERY_SOC_EXCURSION_WARNED = False
+# nimbus issue #735 stage 5: _HOME_BATTERY_SOC_EXCURSION_WARNED moved to
+# solver_inputs/battery_soc.py with the only block that ever read it.
+# Its sibling _BATTERY_PARTICIPANT_WARNED above stays here, keyed by
+# participant name, for build_extra_batteries()'s own equivalent warning.
 
 
 def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
@@ -13378,97 +13382,26 @@ def main() -> None:
             base_lower[i] - export_price_cross_spread[i] / 2 for i in range(n_periods)
         ]
 
-    max_soc_kwh_val = capacity_kwh * max_pct / 100.0
-    min_soc_kwh_val = resolve_min_soc_kwh(min_pct, capacity_kwh, max_soc_kwh_val)
-    initial_soc_kwh_raw = capacity_kwh * initial_pct / 100.0
-
-    # nimbus issue #328 (Mark Purcell) -- honest pass-through, no clamp.
-    # The 2026-08-23 clamp this replaced stopped the real 27+-crashes-per-
-    # window incident (a live SoC sensor reading below/above the
-    # configured floor/ceiling used to crash elements.BatteryConfig's own
-    # invariant, propagating a ValueError up through async_track_time_
-    # interval every minute), but it did so by silently reporting a
-    # FICTIONAL in-range starting SoC to the LP -- every downstream
-    # number (planned throughput, total_cost, next cycle's own starting
-    # assumption, and the quality-report scorer's EPR ratio) was then
-    # quietly wrong by the clamped gap, with only a single WARN log
-    # naming that it happened. elements.BatteryConfig.__post_init__ now
-    # only requires initial_soc_kwh to sit inside the PHYSICAL range [0,
-    # capacity_kwh] (never raises for a below-floor/above-ceiling value
-    # on its own), and build_plan()'s own soc[t]/underfill[t]/overfill[t]
-    # construction treats min_soc/max_soc as a SOFT, costed preference
-    # the LP schedules real recovery toward -- so the raw, true value can
-    # go straight to the LP honestly, with both sides of any downstream
-    # comparison (this solve and the quality-report scorer) seeing the
-    # same real state.
-    initial_soc_kwh = initial_soc_kwh_raw
-    # nimbus issue #601: same warn-once/debug/recovered treatment as
-    # build_extra_batteries()'s own per-participant SoC-excursion warning
-    # -- the 8 Sep day at 0% would otherwise have logged this ~800 times
-    # overnight. See _HOME_BATTERY_SOC_EXCURSION_WARNED's own module-
-    # level comment for why this is a plain flag, not a set entry.
-    global _HOME_BATTERY_SOC_EXCURSION_WARNED
-    if not (min_soc_kwh_val <= initial_soc_kwh_raw <= max_soc_kwh_val):
-        _initial_pct_raw = (
-            initial_soc_kwh_raw / capacity_kwh * 100.0 if capacity_kwh > 0 else 0.0
-        )
-        if not _HOME_BATTERY_SOC_EXCURSION_WARNED:
-            _HOME_BATTERY_SOC_EXCURSION_WARNED = True
-            _LOGGER.warning(
-                "Nimbus Solver: live battery SoC %.2f%% is outside the "
-                "configured Solver floor/ceiling [%.2f%%, %.2f%%] -- the LP "
-                "is scheduling real recovery this cycle rather than having "
-                "this state clamped away. If this repeats every period the "
-                "real battery is stuck outside its own configured range "
-                "(fault, cold pack, sensor drift) -- investigate rather "
-                "than lower the floor. (Logged once per excursion; further "
-                "cycles are DEBUG until it recovers.)",
-                _initial_pct_raw,
-                min_pct,
-                max_pct,
-            )
-        else:
-            _LOGGER.debug(
-                "Nimbus Solver: live battery SoC %.2f%% still outside the "
-                "configured Solver floor/ceiling [%.2f%%, %.2f%%] this "
-                "cycle.",
-                _initial_pct_raw,
-                min_pct,
-                max_pct,
-            )
-    elif _HOME_BATTERY_SOC_EXCURSION_WARNED:
-        _HOME_BATTERY_SOC_EXCURSION_WARNED = False
-        _initial_pct_raw = (
-            initial_soc_kwh_raw / capacity_kwh * 100.0 if capacity_kwh > 0 else 0.0
-        )
-        _LOGGER.info(
-            "Nimbus Solver: live battery SoC %.2f%% has recovered back "
-            "inside the configured Solver floor/ceiling [%.2f%%, %.2f%%].",
-            _initial_pct_raw,
-            min_pct,
-            max_pct,
-        )
-    # A genuinely PHYSICAL clamp still has to stay, same reasoning as
-    # _compute_report_for_window()'s own site (see that comment) --
-    # elements.BatteryConfig still rejects a value outside the true
-    # physical range [0, capacity_kwh], and this loop runs every solve
-    # cycle against a live sensor, so a single glitch reading (>100% or
-    # negative) must not crash the periodic solve the way the original
-    # 27+-crashes-per-window incident did.
-    if not (0.0 <= initial_soc_kwh_raw <= capacity_kwh):
-        initial_soc_kwh = min(max(initial_soc_kwh_raw, 0.0), capacity_kwh)
-        _LOGGER.warning(
-            "Nimbus Solver: live battery SoC reading is outside the "
-            "battery's own PHYSICAL range [0, %.2f kWh] -- clamping to "
-            "%.4f kWh to keep this solve alive. This is sensor nonsense "
-            "(calibration drift, a template-averaging overshoot), not a "
-            "real state -- investigate the sensor if this recurs.",
-            capacity_kwh,
-            initial_soc_kwh,
-        )
-    charge_discharge_efficiency = (
-        min(_cfg_num(cfg, "solver_efficiency_percent", 95.0) / 100.0, 0.999) ** 0.5
+    # nimbus issue #735 stage 5: the SoC-envelope slice (configured
+    # percents to kWh, the #328 honest pass-through, the #601 warn-once
+    # excursion log, the separate PHYSICAL clamp, and the round-trip
+    # efficiency) lives in solver_inputs/battery_soc.py. Five inputs,
+    # four outputs -- measured narrower than either seam already
+    # extracted. The element construction immediately below is
+    # DELIBERATELY not extracted with it: the same measurement puts it
+    # at 27 inputs, which would be a worse call site than the inline
+    # code. See that module's own docstring for the numbers.
+    _soc_envelope = battery_soc_inputs.resolve_soc_envelope(
+        cfg,
+        capacity_kwh=capacity_kwh,
+        min_pct=min_pct,
+        max_pct=max_pct,
+        initial_pct=initial_pct,
     )
+    initial_soc_kwh = _soc_envelope.initial_soc_kwh
+    min_soc_kwh_val = _soc_envelope.min_soc_kwh
+    max_soc_kwh_val = _soc_envelope.max_soc_kwh
+    charge_discharge_efficiency = _soc_envelope.charge_discharge_efficiency
     # nimbus issue #567 (issue #694: now wins over P2P, see
     # resolve_price_spike_override()'s own docstring): real-time "sell
     # into a price spike, right now" override. spike_detected is
