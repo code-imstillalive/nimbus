@@ -11,13 +11,21 @@ cycle.
 
 Source-inspection style, matching the existing precedent in
 tests/test_stale_devices_cleanup.py and tests/test_solver_writer_
-load_total_state_consistency.py -- main()'s own real pipeline (this
-block is itself a nested closure inside main(), well over 1000 lines,
-live ha_get/ha_post_state calls throughout) is too large to mock
+load_total_state_consistency.py -- the real pipeline around this block
+(live ha_get/ha_post_state calls throughout) is too large to mock
 end-to-end for one narrow fallback-behaviour fix; reading the real,
 deployed source and asserting the crash is gone (replaced by a real,
 loud-but-non-fatal fallback) is a real, if lightweight, guard against
 an accidental revert.
+
+nimbus issue #735 stage 1 (2026-09-14): this block moved verbatim out
+of main() into solver_inputs/solar.py's build_solar_arrays(), so this
+file now reads THAT source instead. The move is pure code organization
+-- every assertion below is unchanged and still passes against the
+relocated code, which is exactly the evidence that the extraction did
+not alter behaviour. (This test was written when the block was a nested
+closure inside main(); that's no longer true, hence the reworded
+paragraph above.)
 """
 
 from __future__ import annotations
@@ -25,11 +33,12 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-_SOLVER_WRITER_PY = (
+_SOLAR_INPUTS_PY = (
     Path(__file__).resolve().parent.parent
     / "custom_components"
     / "nimbus_load"
-    / "solver_writer.py"
+    / "solver_inputs"
+    / "solar.py"
 )
 
 
@@ -47,7 +56,7 @@ def _extract_no_solar_data_block(src: str) -> str:
 
 
 def test_no_solar_data_no_longer_raises_a_runtime_error():
-    src = _SOLVER_WRITER_PY.read_text(encoding="utf-8")
+    src = _SOLAR_INPUTS_PY.read_text(encoding="utf-8")
     block = _extract_no_solar_data_block(src)
     # The exact old statement (with the opening paren) -- NOT a bare
     # "raise RuntimeError" substring check, which would false-positive
@@ -63,7 +72,7 @@ def test_no_solar_data_no_longer_raises_a_runtime_error():
 
 
 def test_no_solar_data_falls_back_to_a_real_zero_array_not_none():
-    src = _SOLVER_WRITER_PY.read_text(encoding="utf-8")
+    src = _SOLAR_INPUTS_PY.read_text(encoding="utf-8")
     block = _extract_no_solar_data_block(src)
     # The real fix: solar_values/solar_lowers/solar_uppers get
     # reassigned to a genuine [n_periods]-length zero array, so the
@@ -88,6 +97,6 @@ def test_no_solar_data_still_logs_a_loud_warning():
     bare print(file=sys.stderr), invisible to HA's own log -- now a real
     _LOGGER.warning() call.
     """
-    src = _SOLVER_WRITER_PY.read_text(encoding="utf-8")
+    src = _SOLAR_INPUTS_PY.read_text(encoding="utf-8")
     block = _extract_no_solar_data_block(src)
     assert "_LOGGER.warning(" in block

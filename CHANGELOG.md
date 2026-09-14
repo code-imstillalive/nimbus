@@ -8,6 +8,23 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.289] — 2026-09-14
+
+### Changed
+- **`main()` is 391 lines shorter: solar input gathering moved into a new `solver_inputs/` package** (nimbus issue [#735](https://github.com/code-imstillalive/nimbus/issues/735), stage 1). No user-visible behaviour change — this is a pure code-organization move, and the evidence for that claim is below rather than asserted.
+
+  `solver_writer.py`'s `main()` had reached 1,735 lines and was still growing (1,646 when #735 was filed three days earlier; the #452, #496 and #467 work all landed inside or adjacent to it). Every feature touching the solve path made the eventual split harder, which is the argument against deferring it indefinitely.
+
+  #735's own triage identified input gathering as ~67% of `main()` and the mechanically safest third to move: fetch-and-transform with clear inputs (`cfg`, `grid_times`) and clear outputs (arrays), no LP state, no publish side effects, no ordering subtleties with the solve. This ships the **solar** slice of that — `build_solar_arrays()` in `solver_inputs/solar.py` — rather than all four input sources at once, so each slice stays independently revertible. `main()` drops 1,735 → 1,344 lines; `solver_writer.py` drops 13,880 → 13,510.
+
+  **The real payoff is testability, not line count.** Every pre-existing guard on this logic was source-*inspection* style — `test_solver_writer_solar_fallback_not_crash.py` and `test_solar_source_shape_and_dedup.py`'s wiring class both read `solver_writer.py` as text and grep it, for the honest reason both docstrings state: the code was a nested closure inside a 1,700-line function making live `ha_get`/`ha_post_state` calls, unreachable end-to-end without mocking the entire solve cycle. It is now a directly callable function, so 15 new tests in `test_solver_inputs_solar.py` assert the same properties by **running** the real code: the #115 no-source fallback returns real zero arrays and logs rather than raising, a failed source is *dropped* rather than zero-filled into the blend, disagreeing sources widen the confidence band, the live power anchor overrides period 0 only and respects per-sensor units (#453), and #546's auto-include dedup represents a known integration exactly once. Those tests use the real `resample_forecast()`/`_solar_entries_from_attributes()`, mocking only the genuine I/O boundary.
+
+  **On "no behaviour change" as a verifiable claim.** The moved code is faithful line-for-line including every comment — those comments carry real institutional history (live household findings, the deliberately-reversed "i do not want tricks" decision, and the specific regression each guard prevents) that paraphrasing would destroy. The two source-inspection test files were repointed at the new path with their assertions otherwise unchanged, and they still pass: the same greps matching the same code at a new location is direct evidence the move altered nothing. The full local suite is green.
+
+  **Known cost, stated plainly.** Modules under `solver_inputs/` reach back into `solver_writer` for shared HA-bridge helpers via a *deferred, in-function* import. Two real reasons: `solver_writer` imports this package at module scope so a module-scope import back would be circular, and the test suite patches those helpers as attributes on the `solver_writer` module object — resolving them at call time keeps every one of those patches working, where `from ..solver_writer import ha_get` would bind the original and silently defeat them. Both reasons dissolve once #735's own `solver/ha_bridge.py` step lands. It is the honest cost of doing this in reversible stages instead of one large move.
+
+  Stages 2-4 (the remaining load/price/p2p inputs, then publish, then element construction) remain open on #735.
+
 ## [0.94.288] — 2026-09-14
 
 ### Fixed
