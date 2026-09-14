@@ -9486,6 +9486,138 @@ def _resolve_controllable_load_tuning(data: dict, subentry) -> dict:
     return resolved
 
 
+# nimbus issue #768 (Mark Purcell, 2026-09-14): "MQTT heat pump device
+# has a power sensor, please use it, through auto discovery."
+#
+# Context: #809 removed `power_sensor` as a wizard field and defaulted
+# done_entity/temperature_entity to the load's own device_entity -- but a
+# water_heater/climate entity cannot report its own draw, so there was no
+# equivalent default and the field stayed unset. Consequence, confirmed
+# live on Mark's install: `_async_fetch_thermal_history()` got
+# power_sensor=None, returned [], `learn_thermal_rates()` found no
+# segments, and `thermal_rates_source` read "fallback" -- meaning the
+# real HWS was being scheduled off DEFAULT_HEATING_RATE_C_PER_KWH /
+# DEFAULT_IDLE_DECAY_C_PER_HOUR, generic constants rather than its own
+# tank. #800's whole value proposition was silently not delivering on
+# the one real thermal load that exists.
+#
+# Discovery is via the DEVICE REGISTRY, never the entity's name. A
+# name-shaped guess ("sensor.<device slug>_power") would work on Mark's
+# `water_heater.wwk302` -> `sensor.wwk302_power` and fail on anything
+# else, and this project has already had that exact lesson: the Power
+# Signal `signal_role` field exists precisely because naming could not
+# reliably distinguish a battery/solar/grid sensor on real hardware
+# ("Combined Total DC Power" has no "solar" in it). Same rule here --
+# the device registry knows which entities belong to the same physical
+# device, so ask it.
+#
+# Ambiguity is NOT resolved by guessing. Zero matches, or more than one
+# (a device exposing per-phase power, say), returns None and logs once;
+# the explicit CONF_CONTROLLABLE_LOAD_POWER_SENSOR override still exists
+# via the set_controllable_load service for those cases. Silently
+# picking one of several would be the same class of confidently-wrong
+# behaviour #118 already cost this project a $46/day misplan over.
+_POWER_SENSOR_DISCOVERY_LOGGED: set[str] = set()
+
+
+def _discover_power_sensor_for_device(device_entity: str) -> str | None:
+    """The single `device_class: power` sensor on the same physical
+    device as `device_entity`, or None when there isn't exactly one.
+
+    Native-mode only -- a standalone/cron run has no entity or device
+    registry to consult, and Controllable Loads have no standalone
+    existence anyway (build_controllable_loads() returns ([], []) there).
+    """
+    if _NATIVE_HASS is None or not device_entity:
+        return None
+    try:
+        from homeassistant.helpers import entity_registry as er
+    except ImportError:  # pragma: no cover - standalone/cron path
+        return None
+
+    registry = er.async_get(_NATIVE_HASS)
+    entry = registry.async_get(device_entity)
+    if entry is None or entry.device_id is None:
+        return None
+
+    candidates = [
+        sibling.entity_id
+        for sibling in er.async_entries_for_device(
+            registry, entry.device_id, include_disabled_entities=False
+        )
+        if sibling.domain == "sensor"
+        # A user override on the registry entry wins over the
+        # integration's own original_device_class, same precedence HA
+        # itself applies when rendering the entity.
+        and (sibling.device_class or sibling.original_device_class) == "power"
+    ]
+
+    if len(candidates) == 1:
+        if device_entity not in _POWER_SENSOR_DISCOVERY_LOGGED:
+            _POWER_SENSOR_DISCOVERY_LOGGED.add(device_entity)
+            _LOGGER.info(
+                "Nimbus: auto-discovered power sensor %s for controllable load "
+                "device %s (same device in the registry, device_class=power). "
+                "Set controllable_load_power_sensor explicitly via the "
+                "set_controllable_load service to override.",
+                candidates[0],
+                device_entity,
+            )
+        return candidates[0]
+
+    if device_entity not in _POWER_SENSOR_DISCOVERY_LOGGED:
+        _POWER_SENSOR_DISCOVERY_LOGGED.add(device_entity)
+        if not candidates:
+            _LOGGER.debug(
+                "Nimbus: no device_class=power sensor found on the same device "
+                "as %s -- thermal rate learning stays on fallback constants "
+                "until controllable_load_power_sensor is set explicitly.",
+                device_entity,
+            )
+        else:
+            _LOGGER.warning(
+                "Nimbus: %d power sensors found on the same device as %s (%s) "
+                "-- refusing to guess which one measures this load. Set "
+                "controllable_load_power_sensor explicitly via the "
+                "set_controllable_load service.",
+                len(candidates),
+                device_entity,
+                ", ".join(sorted(candidates)),
+            )
+    return None
+
+
+def resolve_controllable_load_power_sensor(data: dict) -> str | None:
+    """`controllable_load_power_sensor` if configured, otherwise the one
+    auto-discovered from the load's own device (nimbus issue #768).
+
+    An explicit setting always wins -- discovery only fills a gap, it
+    never overrides a household's own stated answer.
+    """
+    # Same dual-mode deferred const import every other function in this
+    # file uses -- solver_writer is loaded both as part of the real
+    # package and as a bare top-level module (tests/_solver_path.py, the
+    # standalone/cron deployment), and these names are not bound at
+    # module scope here.
+    try:
+        from .const import (
+            CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY,
+            CONF_CONTROLLABLE_LOAD_POWER_SENSOR,
+        )
+    except ImportError:  # pragma: no cover - standalone/cron path
+        from const import (  # type: ignore[no-redef]
+            CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY,
+            CONF_CONTROLLABLE_LOAD_POWER_SENSOR,
+        )
+
+    explicit = data.get(CONF_CONTROLLABLE_LOAD_POWER_SENSOR)
+    if explicit:
+        return explicit
+    return _discover_power_sensor_for_device(
+        data.get(CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY) or ""
+    )
+
+
 def build_controllable_loads(
     now: datetime,
     grid_times: list[datetime],
@@ -9548,7 +9680,6 @@ def build_controllable_loads(
             CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY,
             CONF_CONTROLLABLE_LOAD_KIND,
             CONF_CONTROLLABLE_LOAD_NAME,
-            CONF_CONTROLLABLE_LOAD_POWER_SENSOR,
             CONF_DEFERRABLE_DEADLINE_HOUR,
             CONF_DEFERRABLE_DONE_ENTITY,
             CONF_DEFERRABLE_DONE_WHEN,
@@ -9585,7 +9716,6 @@ def build_controllable_loads(
             CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY,
             CONF_CONTROLLABLE_LOAD_KIND,
             CONF_CONTROLLABLE_LOAD_NAME,
-            CONF_CONTROLLABLE_LOAD_POWER_SENSOR,
             CONF_DEFERRABLE_DEADLINE_HOUR,
             CONF_DEFERRABLE_DONE_ENTITY,
             CONF_DEFERRABLE_DONE_WHEN,
@@ -9662,7 +9792,9 @@ def build_controllable_loads(
         data = _resolve_controllable_load_tuning(subentry.data, subentry)
         name = data.get(CONF_CONTROLLABLE_LOAD_NAME) or subentry.subentry_id
         kind = data.get(CONF_CONTROLLABLE_LOAD_KIND)
-        power_sensor = data.get(CONF_CONTROLLABLE_LOAD_POWER_SENSOR)
+        # nimbus issue #768: falls back to the single device_class=power
+        # sensor on this load's own device when the field is unset.
+        power_sensor = resolve_controllable_load_power_sensor(data)
         run_state_sample = None
         if power_sensor:
             # nimbus issue #479: every configured load's own currently_on/
@@ -11379,7 +11511,6 @@ def apply_commanded_state_guard(
                 CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY,
                 CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY,
                 CONF_CONTROLLABLE_LOAD_MIN_HOLD_MINUTES,
-                CONF_CONTROLLABLE_LOAD_POWER_SENSOR,
                 CONF_DEFERRABLE_DEADLINE_HOUR,
                 CONF_DEFERRABLE_DONE_ENTITY,
                 CONF_DEFERRABLE_DONE_WHEN,
@@ -11400,7 +11531,6 @@ def apply_commanded_state_guard(
                 CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY,
                 CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY,
                 CONF_CONTROLLABLE_LOAD_MIN_HOLD_MINUTES,
-                CONF_CONTROLLABLE_LOAD_POWER_SENSOR,
                 CONF_DEFERRABLE_DEADLINE_HOUR,
                 CONF_DEFERRABLE_DONE_ENTITY,
                 CONF_DEFERRABLE_DONE_WHEN,
@@ -11886,7 +12016,10 @@ def apply_commanded_state_guard(
                     done_entity = data.get(CONF_DEFERRABLE_DONE_ENTITY) or data.get(
                         CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY
                     )
-                    power_sensor = data.get(CONF_CONTROLLABLE_LOAD_POWER_SENSOR)
+                    # nimbus issue #768 (Mark Purcell): unset here meant thermal
+                    # rate learning silently stayed on generic fallback
+                    # constants -- auto-discover from the load's own device.
+                    power_sensor = resolve_controllable_load_power_sensor(data)
                     if (
                         done_entity
                         and power_sensor
