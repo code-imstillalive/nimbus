@@ -173,12 +173,22 @@ _EXPECTED_ATTRS = {
     "n_clamped_periods": 0,
     # nimbus issue #652: this fixture is a single-battery, no-
     # controllable-load scenario -- 1 battery (the home pack), 0
-    # sheddable/adequacy loads (no controllable_load subentries in
-    # this fixture's own config).
+    # sheddable/adequacy/thermal loads (no controllable_load subentries
+    # in this fixture's own config).
+    #
+    # nimbus issue #773 (2026-09-14): the per-kind breakdown was added
+    # after n_controllable_loads was found under-reporting on a real
+    # install -- it summed only sheddable + adequacy, omitting thermal
+    # loads entirely. All four stay 0 here because this fixture
+    # genuinely has no controllable loads of any kind, so this entry is
+    # unchanged in substance.
     "solve_diagnostics": {
         "n_batteries": 1,
         "n_periods": 202,
         "n_controllable_loads": 0,
+        "n_sheddable_loads": 0,
+        "n_adequacy_loads": 0,
+        "n_thermal_loads": 0,
     },
     "horizon_hours": 96.0,
     "solve_seconds": 0.0,  # excluded from comparison -- see test body
