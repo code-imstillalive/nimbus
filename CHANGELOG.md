@@ -8,6 +8,21 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.296] — 2026-09-14
+
+### Added
+- **`command_divergence_seconds` — how long a Controllable Load's real measured on/off has disagreed with what Nimbus commanded** (nimbus issue [#875](https://github.com/code-imstillalive/nimbus/issues/875), Mark Purcell's real household). Published on each load's commanded-state sensor; `None` when the two agree.
+
+  The reported case: an HWS heat pump sat at ~5 W standby for **14+ hours** while `commanded_state` stayed `true` throughout, and nothing noticed. Tracing the dispatch path confirmed why — `apply_commanded_state_guard()` gates every `dispatch_commanded_state()` call on `new.commanded_state != prev.commanded_state`, and both call sites sit inside that `if`. Dispatch is edge-triggered by design ([#484](https://github.com/code-imstillalive/nimbus/issues/484)'s relay-chatter guard), so a device that diverges *after* the command lands is never corrected — and, until now, was never reported either.
+
+  **Both halves of the comparison were already persisted and simply never compared**: `commanded_state` from the command, `currently_on` from the real power sensor. So this is a pure function over existing state — no new field, no Store schema change, and nothing on the dispatch path changes.
+
+  The divergence is measured from the **later** of the two transitions, which is the subtle part: `commanded_since` alone over-reports a device that was already off before the command arrived, and `off_since` alone over-reports one idle for hours while Nimbus also wanted it off. Validated against the reported timeline before implementing — commanded 07:20, went idle 01:41, observed 16:25 → 9.1 h, matching the "9+ hours straight" in that report. That timeline is now a test fixture.
+
+  **Deliberately observational, and that restraint is the point.** The obvious fix — re-send the command periodically — is wrong in two independent ways: it collides with the `max_activations_per_day` cap ([#534](https://github.com/code-imstillalive/nimbus/issues/534)'s real device-side constraint of 3 performance activations/24h), and re-sending every cycle is exactly what #484 exists to prevent. A correct fix must distinguish *re-affirming* an existing command from a *new activation*, a distinction the code does not currently have. It is also not yet known whether re-affirmation would even work, since something other than Nimbus appears to write to that device. Making the divergence legible is the prerequisite for choosing between those against data rather than guessing.
+
+  Worth noting the signal only became real one release earlier: before v0.94.292 auto-discovered that load's power sensor, `currently_on` had nothing behind it.
+
 ## [0.94.295] — 2026-09-14
 
 ### Fixed

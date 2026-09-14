@@ -20,6 +20,16 @@ enforced by being written down. This test is the enforcement: a release
 entry that doesn't say what was checked fails CI, at the moment the
 entry is written, instead of surfacing in an audit weeks later.
 
+**On the in-flight release.** Only versions strictly BELOW the one in
+`manifest.json` are checked. A release cannot be validated before it is
+cut -- the entry is written at PR time, the deploy happens after the tag
+-- so demanding the line in the same commit that bumps the version is an
+impossible ordering. (Found the hard way: the first version of this file
+did exactly that and failed the very next release it was supposed to
+guard.) Exempting only the in-flight version keeps the discipline real:
+the moment the *next* release is prepared, the previous one falls inside
+the window and must have gained its validation line.
+
 **On the grandfather boundary.** Only releases from _MIN_ENFORCED_VERSION
 onward are checked. Earlier entries are left alone deliberately: this
 session can only honestly attest to the releases it personally deployed
@@ -31,11 +41,14 @@ knowable, not a loophole; it should never move backwards.
 
 from __future__ import annotations
 
+import json
 import re
 import unittest
 from pathlib import Path
 
-_CHANGELOG = Path(__file__).resolve().parent.parent / "CHANGELOG.md"
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+_CHANGELOG = _REPO_ROOT / "CHANGELOG.md"
+_MANIFEST = _REPO_ROOT / "custom_components" / "nimbus_load" / "manifest.json"
 
 # First release this session personally deployed, verified, and can
 # honestly attest to. See the module docstring on why this doesn't
@@ -51,6 +64,13 @@ _SECTION_RE = re.compile(r"^## \[(\d+\.\d+\.\d+)\][^\n]*$", re.MULTILINE)
 _VALIDATION_RE = re.compile(r"devhub validation:", re.IGNORECASE)
 
 
+def _in_flight_version() -> tuple[int, ...]:
+    """The version currently being prepared -- bumped in manifest.json,
+    not yet tagged or deployed, so not yet validatable."""
+    raw = json.loads(_MANIFEST.read_text(encoding="utf-8"))["version"]
+    return tuple(int(p) for p in raw.split("."))
+
+
 def _sections() -> dict[tuple[int, ...], str]:
     text = _CHANGELOG.read_text(encoding="utf-8")
     out: dict[tuple[int, ...], str] = {}
@@ -64,10 +84,12 @@ def _sections() -> dict[tuple[int, ...], str]:
 
 class TestReleasesNameTheirValidation(unittest.TestCase):
     def test_every_enforced_release_states_what_was_validated(self):
+        in_flight = _in_flight_version()
         missing = sorted(
             ".".join(str(p) for p in ver)
             for ver, body in _sections().items()
-            if ver >= _MIN_ENFORCED_VERSION and not _VALIDATION_RE.search(body)
+            if _MIN_ENFORCED_VERSION <= ver < in_flight
+            and not _VALIDATION_RE.search(body)
         )
         self.assertEqual(
             missing,
@@ -85,7 +107,8 @@ class TestReleasesNameTheirValidation(unittest.TestCase):
         """Guards the guard: if _MIN_ENFORCED_VERSION ever drifted above
         the newest release, every assertion above would pass vacuously
         while enforcing nothing."""
-        enforced = [v for v in _sections() if v >= _MIN_ENFORCED_VERSION]
+        in_flight = _in_flight_version()
+        enforced = [v for v in _sections() if _MIN_ENFORCED_VERSION <= v < in_flight]
         self.assertGreater(
             len(enforced),
             0,

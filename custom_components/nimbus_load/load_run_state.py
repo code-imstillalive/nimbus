@@ -663,6 +663,56 @@ def decide_commanded_state(
     return state
 
 
+def command_divergence_seconds(
+    state: LoadRunState,
+    now_ts: float,
+) -> float | None:
+    """How long this load's real measured on/off has disagreed with what
+    Nimbus commanded, in seconds -- or None when the two agree.
+
+    nimbus issue #875 (Mark Purcell, real household): his HWS sat at 5 W
+    standby for 14+ hours while `commanded_state` stayed `true` the whole
+    time and nothing ever noticed. Dispatch is edge-triggered by design
+    (#484's relay-chatter guard -- see apply_commanded_state_guard()'s own
+    gate, which fires only when commanded_state genuinely CHANGES), so a
+    device that diverges after the command lands is never corrected and,
+    until this, never even reported.
+
+    Both halves of that comparison were already persisted here -- what we
+    commanded, and what the power sensor actually measured -- they were
+    simply never compared. This is deliberately a PURE function over
+    existing state: no new persisted field, no Store schema change, and
+    nothing on the dispatch path changes. It only makes a divergence
+    that was already visible in the data actually legible.
+
+    The divergence began at the LATER of the two transitions, which is
+    the subtle part. Using `commanded_since` alone would over-report a
+    device that was already off before the command arrived; using
+    `on_since`/`off_since` alone would over-report one that has been off
+    for hours while Nimbus also wanted it off. Validated against #875's
+    own real timeline before being written: commanded_since 07:20,
+    off_since 01:41, observed at 16:25 -> max() gives 07:20 and a
+    duration of 9.1 h, matching the "9+ hours straight" in that report.
+
+    Returns None rather than 0.0 when the two agree, so "no divergence"
+    and "divergence just started" stay distinguishable -- a consumer
+    charting this wants a gap, not a zero line. Also returns None when
+    the relevant timestamp has never been set (a load that has not yet
+    been commanded or sampled), since "unknown" is not "in agreement".
+    """
+    if state.commanded_state == state.currently_on:
+        return None
+
+    commanded_at = state.commanded_since
+    # The device's own last transition INTO its current real state.
+    measured_at = state.on_since if state.currently_on else state.off_since
+    if commanded_at is None or measured_at is None:
+        return None
+
+    began = max(commanded_at, measured_at)
+    return max(0.0, now_ts - began)
+
+
 def activation_allowed(
     state: LoadRunState,
     *,
