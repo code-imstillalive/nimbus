@@ -20,6 +20,25 @@ Dated work-in-progress notes live in `docs/worklog/`, one file per date — this
 the "CURRENT STATE" journal that used to live directly in this file now lives. Each
 file is not re-summarized here; read it directly for the full detail. Most recent 5:
 
+- [2026-09-14](docs/worklog/2026-09-14.md) — Three releases (v0.94.287→289).
+  **#843 closed** with both halves of Mark Purcell's own A/B/C steer: a physical
+  sanity bound that *discards* rather than clamps an implausible participant
+  power sample (clamping would turn an obviously-absurd number into a
+  plausible-looking but still-wrong one, which is worse for a figure feeding a
+  cost calculation), then per-row unit scaling via a new
+  `fetch_entity_power_history_kw()` — the root cause was `_kw_scale_factor()`
+  reading a sensor's unit *once* and applying it across a whole day, structurally
+  blind to Mark's EV reporting `W` for ~80s on wake then `kW`. Deliberately one
+  function with exactly one caller, since preserving attributes makes a recorder
+  read materially heavier. **#735 stage 1**: solar input gathering extracted into
+  a new `solver_inputs/` package — `main()` 1,735→1,344 lines. The triage was
+  wrong about which guardrail would bite (the #357 anti-drift test never fired;
+  the two *source-inspection* files did), and the real payoff was converting
+  logic that had been guarded by text-matching since it was written into 15
+  executable behavioural tests. **Also two process failures worth reading**: a
+  changelog script using `pathlib`'s default (cp1252 on Windows) encoding broke
+  the v0.94.288 release, and a premature v0.94.289 was tagged off a stale premise
+  *before* its own PR merged — both with the rules that came out of them.
 - [2026-09-13](docs/worklog/2026-09-13.md) — Overnight, ran into 09-14. Six
   releases (v0.94.281→286) plus a docs PR, starting from a live devhub incident.
   **#773**: `phase2_pin_resolve` failing 14x in 8 minutes, each burning a full
