@@ -56,6 +56,7 @@ necessary at all; this is a real simplification, not just a swap.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import time
 from collections.abc import Callable
@@ -172,6 +173,91 @@ SolveOptions = LexOptions | BlendedOptions | CalibratedOptions
 # comment at its call site for the full reasoning) -- not a performance
 # tuning knob, a safety backstop.
 DEFAULT_TIME_LIMIT_SECONDS: float = 60.0
+
+# nimbus issue #773: per-CALL timing for every HiGHS solve invocation.
+#
+# Added after three separate hypotheses for this issue's "Time limit
+# reached" failures were each measured and refuted -- a large fleet
+# pushing the lex phase infeasible, wall-clock contention between
+# concurrent solves, and the offer-curve ranging walk. What survived all
+# three is the shape of the thing: on a real install, a whole solve cycle
+# takes 0.6s and the entire offer-curve sweep takes 47ms, while roughly
+# once a minute a single HiGHS call runs past DEFAULT_TIME_LIMIT_SECONDS.
+# Same code, same problem shape, three orders of magnitude apart.
+#
+# That bimodality cannot be diagnosed from outside the process, and this
+# module's own docstring sets the expectation it violates: "every real
+# solve this project has ever measured completes in well under a second
+# even at full production scale (~4000 variables, ~1500 constraints)".
+# So the next step is a measurement, not a fourth theory.
+#
+# `simplex_iterations` is the field that actually discriminates: a stalled
+# call with a huge iteration count is degeneracy/cycling (HiGHS pivoting
+# forever without improving), while a stalled call with a small one is
+# stuck somewhere that is not the simplex loop at all -- presolve, a MIP
+# branch-and-bound tree, or numerical trouble. Those two answers point at
+# completely different fixes, and nothing currently logged can tell them
+# apart.
+#
+# 5s is deliberately far below the 60s limit: the point is to catch a call
+# that is going wrong while it is still only somewhat wrong, and to
+# confirm that the other calls in the same cycle are NOT slow. On a
+# healthy install this never fires.
+_SLOW_LP_CALL_SECONDS: float = 5.0
+
+
+@contextlib.contextmanager
+def _timed_lp_call(
+    h: Any,
+    label: str,
+    *,
+    n_vars: int | None = None,
+    n_binary: int | None = None,
+):
+    """Time one HiGHS solve invocation, logging at WARNING when it exceeds
+    `_SLOW_LP_CALL_SECONDS`. See that constant's own comment for why this
+    exists and what the logged fields are for.
+
+    Wraps the call in `try/finally` so a call that raises is still timed
+    and still reported -- a solve that blows up after 55 seconds is at
+    least as interesting as one that returns slowly, and the exception
+    itself carries no timing.
+
+    Deliberately never raises on its own. Reading HiGHS's own info struct
+    is best-effort: if that read fails, the elapsed time and the label are
+    still worth having, and a diagnostic must never be the reason a real
+    solve cycle dies (same posture as every other defensive read in this
+    project).
+    """
+    started = time.monotonic()
+    try:
+        yield
+    finally:
+        elapsed = time.monotonic() - started
+        if elapsed >= _SLOW_LP_CALL_SECONDS:
+            iterations: object = None
+            status: object = None
+            try:
+                iterations = int(h.getInfo().simplex_iteration_count)
+                status = h.modelStatusToString(h.getModelStatus())
+            except Exception:  # noqa: BLE001, S110 -- a diagnostic must
+                # never be the reason a solve cycle dies, and the elapsed
+                # time plus the label are worth logging without it.
+                pass
+            _LOGGER.warning(
+                "Nimbus #773 diag: HiGHS call %r took %.1fs "
+                "(threshold %.0fs, per-call limit %.0fs) -- "
+                "simplex_iterations=%s, status=%s, n_vars=%s, n_binary=%s",
+                label,
+                elapsed,
+                _SLOW_LP_CALL_SECONDS,
+                DEFAULT_TIME_LIMIT_SECONDS,
+                iterations,
+                status,
+                n_vars,
+                n_binary,
+            )
+
 
 # nimbus issue #490: below this, a ranging interval is treated as
 # genuinely zero-width (a real tie in the optimal basis, HAEO #465's own
@@ -433,7 +519,8 @@ class LPResult:
         try:
             for cost in costs:
                 h.changeColCost(col, cost)
-                h.run()
+                with _timed_lp_call(h, "sweep_cost"):
+                    h.run()
                 if h.getModelStatus() != highspy.HighsModelStatus.kOptimal:
                     msg = (
                         f"sweep_cost({var!r}): re-solve at cost={cost} did not "
@@ -500,7 +587,8 @@ class LPResult:
         try:
             for cost in costs:
                 h.changeColCost(col, cost)
-                h.run()
+                with _timed_lp_call(h, "sweep_cost_with_ranging"):
+                    h.run()
                 if h.getModelStatus() != highspy.HighsModelStatus.kOptimal:
                     msg = (
                         f"sweep_cost_with_ranging({var!r}): re-solve at cost={cost} did "
@@ -960,7 +1048,8 @@ def _ensure_optimal_value(
     "status='Infeasible'" this project has only ever had to go on so
     far -- same diagnostic-logging-before-guessing discipline already
     used for #757."""
-    h.run()
+    with _timed_lp_call(h, "lex_phase"):
+        h.run()
     status = h.getModelStatus()
     if status != highspy.HighsModelStatus.kOptimal:
         info = h.getInfo()
@@ -1074,7 +1163,8 @@ def _calibrate_blend_weight(
         weight = 1e-3  # safe default -- no primary cost to distort
         blended = primary_vec + weight * secondary_vec
         _set_cost_vector(h, col_indices, blended)
-        h.run()
+        with _timed_lp_call(h, "calibrate_blend_probe"):
+            h.run()
         bl_vals = np.asarray(h.getSolution().col_value)
         return weight, float(primary_vec @ bl_vals)
 
@@ -1084,7 +1174,8 @@ def _calibrate_blend_weight(
         w = 10.0**log_w
         blended = primary_vec + w * secondary_vec
         _set_cost_vector(h, col_indices, blended)
-        h.run()
+        with _timed_lp_call(h, "primary_acceptable_probe"):
+            h.run()
         if h.getModelStatus() != highspy.HighsModelStatus.kOptimal:
             return False
         bl_vals = np.asarray(h.getSolution().col_value)
@@ -1116,7 +1207,8 @@ def _calibrate_blend_weight(
 
     blended = primary_vec + weight * secondary_vec
     _set_cost_vector(h, col_indices, blended)
-    h.run()
+    with _timed_lp_call(h, "calibrate_blend_final"):
+        h.run()
     bl_vals = np.asarray(h.getSolution().col_value)
     return weight, float(primary_vec @ bl_vals)
 
@@ -1233,7 +1325,8 @@ def _solve_with_options(
     if isinstance(options, BlendedOptions):
         blended = primary_vec + options.blend_weight * secondary_vec
         _set_cost_vector(h, col_indices, blended)
-        h.run()
+        with _timed_lp_call(h, "options_blended"):
+            h.run()
         _pin_binaries_to_current_solution(h, var_array, binary_cols)
         if binary_cols:
             # Refresh h's own live state on the now-continuous, pinned
@@ -1241,7 +1334,8 @@ def _solve_with_options(
             # make, but a blended-cost solve's result is never checked
             # against any acceptance criterion the way Lex/Calibrated's
             # own phases are, so a plain re-run is enough here.
-            h.run()
+            with _timed_lp_call(h, "options_blended_pin_refresh"):
+                h.run()
         return [], None
 
     # LexOptions and CalibratedOptions both start with the same phase 1
@@ -1436,7 +1530,8 @@ def _solve_highs(
             problem._cost.get(name, 0.0) * var_array[i]
             for i, name in enumerate(problem._var_names)
         )
-        h.minimize(cost_expr)
+        with _timed_lp_call(h, "primary_minimize"):
+            h.minimize(cost_expr)
     else:
         col_indices = np.arange(n, dtype=np.int32)
         # nimbus issue #702 (#696's own tracked MIP follow-up):
@@ -1618,7 +1713,8 @@ def _solve_highs(
             fixed = float(round(x[i]))
             h.changeColIntegrality(i, highspy.HighsVarType.kContinuous)
             h.changeColBounds(i, fixed, fixed)
-        h.run()
+        with _timed_lp_call(h, "mip_pin_reoptimise"):
+            h.run()
         if h.getModelStatus() == highspy.HighsModelStatus.kOptimal:
             # Re-read from the pinned LP: x is unchanged by construction
             # (every binary pinned, every continuous variable re-optimised

@@ -8370,11 +8370,24 @@ def publish_plan(
         # the constraints given), the household needs to see it, and #773's
         # own fallback path depends on it being published. "error" is the
         # only status where the solver never determined anything at all.
+        # nimbus issue #773: the elapsed time is logged HERE because
+        # this function returns before ever publishing it. #757's own
+        # guard above is right to skip the publish, but solve_seconds
+        # reaches sensor.nimbus_solver_solve_seconds ~750 lines below
+        # this point -- so from v0.94.301 onward that sensor only ever
+        # reported SUCCESSFUL solves, and the duration of a failing one
+        # became invisible. That is exactly the number #773 needs: on a
+        # real install these failures take ~60s (the per-call limit)
+        # against a 0.6s healthy cycle, and a guard that hides the
+        # symptom it protects against is a bad trade. Logged, not
+        # published -- no plan is written, so nothing about the guard
+        # itself changes.
         _LOGGER.warning(
-            "Nimbus: solve did not complete -- HiGHS solver failure (%s), "
-            "not a genuinely infeasible model; keeping the previous "
-            "published plan rather than overwriting it with an empty one "
-            "(nimbus issue #757)",
+            "Nimbus: solve did not complete after %.1fs -- HiGHS solver "
+            "failure (%s), not a genuinely infeasible model; keeping the "
+            "previous published plan rather than overwriting it with an "
+            "empty one (nimbus issue #757)",
+            solve_seconds,
             plan.raw_status or "unknown reason",
         )
         return
