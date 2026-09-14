@@ -167,6 +167,7 @@ class TestDiscoveryRefusesAmbiguity(unittest.TestCase):
             (eid, state)
             for eid, state in entity_ids_and_states
             if eid.endswith("_geocoded_location")
+            and state not in (None, "unknown", "unavailable")
         ]
         if len(candidates) != 1:
             return None, None
@@ -195,3 +196,28 @@ class TestDiscoveryRefusesAmbiguity(unittest.TestCase):
         not an error -- same blank-is-off convention as every other
         optional source in this project."""
         self.assertEqual(self._pick([("sensor.unrelated", "x")]), (None, None))
+
+    def test_an_unavailable_sensor_is_skipped_not_parsed(self):
+        """Found on a real install: the one geocoded sensor there reads
+        `unavailable` (phone off or out of range). Parsing that happens
+        to yield (None, None), but only by accident -- there is no
+        state/postcode pair in the word. Filtering it out first makes
+        the "exactly one" rule mean exactly one USABLE sensor."""
+        for bad in ("unavailable", "unknown", None):
+            with self.subTest(state=bad):
+                self.assertEqual(
+                    self._pick([("sensor.phone_geocoded_location", bad)]),
+                    (None, None),
+                )
+
+    def test_one_unavailable_phone_does_not_block_the_other(self):
+        """The edge case the filter actually fixes: two phones where one
+        is unavailable should resolve from the one that can answer,
+        rather than being refused as ambiguous."""
+        got = self._pick(
+            [
+                ("sensor.pixel_geocoded_location", "unavailable"),
+                ("sensor.iphone_geocoded_location", "Melbourne VIC 3000, Australia"),
+            ]
+        )
+        self.assertEqual(got, ("VIC1", "300"))

@@ -8,6 +8,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.300] — 2026-09-14
+
+### Fixed
+- **An unavailable geocoded-location sensor is now skipped rather than parsed** (nimbus issue [#495](https://github.com/code-imstillalive/nimbus/issues/495)). Found immediately on deploying v0.94.299: the one `sensor.*_geocoded_location` on the verification install reads `unavailable` (phone off, or out of range).
+
+  Parsing that string already produced the right answer — there is no state/postcode pair in the word "unavailable" — but only **by accident**. Filtering unusable states out of the candidate list first makes the "exactly one sensor" rule mean exactly one *usable* sensor, which is the question actually being asked.
+
+  It also fixes a real edge case the accidental behaviour got wrong: with two registered phones where one is unavailable, the previous logic counted two candidates and refused as ambiguous, when only one of them could answer. It now resolves from that one.
+
 ## [0.94.299] — 2026-09-14
 
 ### Added
@@ -29,6 +38,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   Worth stating plainly, as Mark did: this tracks wherever the registered phone currently is, not the fixed installation address. That is fine for the coarse region/prefix the schema asks for, and is exactly why his instruction said *one time* — a consumer should read it once and store it rather than re-derive it per record.
 
   The telemetry record itself (`nimbus_load.flex_telemetry_record` and `sensor.nimbus_flex_telemetry`) remains the open half of #495.
+
+Devhub validation: deployed and restarted, `nimbus_status` "Working well", solve `optimal`, zero new errors. Exactly one `sensor.*_geocoded_location` exists on that install — the intended happy path for discovery — but `region`/`postcode_prefix` read `None`, as does `household_mode` from v0.94.298: the same separately-tracked staleness keeping that install's `sensor.py`/`solver_writer.py` behind. **The deploy did surface a real defect anyway**: that sensor reads `unavailable`, which v0.94.300 now filters explicitly rather than relying on the parse failing by accident.
 
 ## [0.94.298] — 2026-09-14
 
