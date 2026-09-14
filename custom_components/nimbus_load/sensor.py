@@ -1608,6 +1608,25 @@ class NimbusControllableLoadStateSensor(
             "max_activations_per_day": data.get(
                 CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY
             ),
+            # nimbus issue #875: how long this load's real measured
+            # on/off has disagreed with what Nimbus commanded. None when
+            # the two agree.
+            #
+            # Dispatch is edge-triggered (#484's relay-chatter guard), so
+            # a device that diverges AFTER the command lands is never
+            # corrected -- and, until this, was never reported either.
+            # The real case: an HWS sat at 5 W standby for 14+ hours
+            # while commanded_state stayed true throughout.
+            #
+            # Purely derived from state already persisted here: no new
+            # field, no Store schema change, and nothing on the dispatch
+            # path changes. Deliberately observational -- it makes the
+            # divergence legible so a real fix can be chosen against
+            # data, rather than guessing whether a blind periodic
+            # re-send would even help.
+            "command_divergence_seconds": load_run_state.command_divergence_seconds(
+                state, datetime.now(UTC).timestamp()
+            ),
         }
 
 
