@@ -37,6 +37,22 @@ class TestSelfPidLockReclaim(unittest.TestCase):
         solver_writer.LOCK_PATH = self.lock_path
 
     def tearDown(self):
+        # nimbus issue #757: acquire_lock() now ALSO takes a
+        # process-local threading.Lock, so a test that acquires and
+        # never releases leaks it into every later test in this file.
+        # That is not hypothetical -- it broke three of the tests
+        # below the first time the lock landed, and, worse, made
+        # test_lock_held_by_a_real_different_running_process_is_still_
+        # respected PASS FOR THE WRONG REASON: it expects False and
+        # got False from the leaked lock without ever reaching the
+        # PID check it exists to verify.
+        #
+        # Released via the real release_lock() rather than by touching
+        # the lock object directly, and BEFORE LOCK_PATH is restored,
+        # so it targets this test's own temp file and not the real
+        # one. Harmless when the test never acquired -- release_lock()
+        # swallows both the missing file and the unheld lock.
+        solver_writer.release_lock()
         solver_writer.LOCK_PATH = self._orig_lock_path
         if os.path.exists(self.lock_path):
             os.remove(self.lock_path)
