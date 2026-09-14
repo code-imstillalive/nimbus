@@ -8,6 +8,31 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.311] — 2026-09-15
+
+### Changed
+- **The battery's SoC-envelope slice extracted into `solver_inputs/battery_soc.py`** (nimbus issue [#735](https://github.com/code-imstillalive/nimbus/issues/735), stage 5). Internal structure only — the logic moved verbatim, no value recomputed. `main()` is now **1,084 lines**, from ~1,646 originally.
+
+  **The measurement changed what got moved, and that is the finding.** This issue proposes a `solver_plan` module covering the LP setup. An AST walk of that whole region reports **26 inputs and 8 outputs** — a 26-parameter function, strictly worse to read than the inline code. Split at the seam the measurement actually shows, it is two very different halves:
+
+  | half | lines | inputs | outputs |
+  |---|---|---|---|
+  | SoC envelope, validation, efficiency | 91 | **5** | 4 |
+  | element construction (`BatteryConfig`/`GridConfig`/…) | 82 | **27** | 6 |
+
+  Five in and four out is narrower than either seam already extracted (solar: three out; load: four in, twelve out). The other half is a *constructor call*, not logic — extracting it would move an argument list into a second file and add a hop for nothing. **It is deliberately left in `main()`**, recorded as a finding about the proposed module list rather than left as a silent omission.
+
+  **The real payoff is coverage, not line count.** Before this move nothing in the suite touched this block — a grep for the excursion warning, the physical-clamp warning and the warn-once flag returned no test file at all. Two deliberate, hard-won behaviours were guarded only by the comments beside them, and both are now pinned by 20 executable tests:
+
+  - **[#328](https://github.com/code-imstillalive/nimbus/issues/328): the starting SoC is passed through honestly, never clamped to the configured floor/ceiling.** The clamp this replaced reported a *fictional* in-range SoC to the LP, making planned throughput, `total_cost`, the next cycle's own starting assumption and the quality report's EPR all quietly wrong by the clamped gap. That is invisible in any output, which is exactly why a comment was never enough.
+  - **[#601](https://github.com/code-imstillalive/nimbus/issues/601): warn once, then DEBUG, then log a recovery — and re-arm.** The 8 Sep day spent at 0% would otherwise have logged ~800 lines overnight. The re-arm is the half a naive "log once ever" would miss.
+
+  A **physical** clamp to `[0, capacity_kwh]` remains and is a different thing from the one #328 removed: a single glitch reading would otherwise fail `elements.BatteryConfig`'s own invariant and kill the periodic solve — the original 27-crashes-per-window incident. The two are easy to confuse and one test states the distinction directly, so a failure says which.
+
+  `_HOME_BATTERY_SOC_EXCURSION_WARNED` moved with the code. Every reference to it in the repo was inside this block, so the flag had been living three thousand lines from its only reader. Logging still goes through `solver_writer._LOGGER`, so an install configuring that logger keeps control of these lines — asserted, not assumed.
+
+  Verified behaviour-preserving by the #363 golden-output guardrail, which drives the real `main()` to a real optimal solve and compares the pushed attributes byte for byte.
+
 ## [0.94.310] — 2026-09-15
 
 ### Added
