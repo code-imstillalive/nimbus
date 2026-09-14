@@ -42,6 +42,10 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ### Changed
 - **#346's own regression tests no longer leak the lock between tests.** They call `acquire_lock()` without a matching release, which was harmless while the guard was purely file-based. With a process-local lock it broke three of them — and, worse, made `test_lock_held_by_a_real_different_running_process_is_still_respected` **pass for the wrong reason**: it expects `False` and got `False` from the leaked lock without ever reaching the PID check it exists to verify. `tearDown` now releases through the real `release_lock()`, before `LOCK_PATH` is restored so it targets the test's own temp file.
 
+Devhub validation: deployed and restarted, `installed_version == available_version == v0.94.302`, `pending_update: false`, solve `optimal` on a fresh cycle (206 periods, `generated_at` advancing), no new errors. **The headline confirmation is a log line that had never executed before**: `"previous cycle still in progress -- skipping this tick (consecutive skips: 1 ... 7)"`, 11 occurrences, from #315's own WARNING — unreachable code on every in-process install since it was written. Runs of up to seven consecutive skips say the overlap was routine, not marginal.
+
+Alongside it, `"HiGHS solver failure (Time limit reached)"` went **31 → 7 → 0** across v0.94.300 / .301 / .302 on the same install. Recorded with its caveat rather than as a clean win: serializing solves also means fewer solves run, so part of that drop is fewer attempts rather than a lower failure rate per attempt. The [#773](https://github.com/code-imstillalive/nimbus/issues/773) prediction this tests was posted before the deploy, not after.
+
 ## [0.94.301] — 2026-09-14
 
 ### Fixed
