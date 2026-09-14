@@ -8,6 +8,25 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.291] — 2026-09-14
+
+### Added
+- **Six solver-plan attributes now have flattened child sensors, and therefore history** (nimbus issue [#849](https://github.com/code-imstillalive/nimbus/issues/849)): `envelope_import_limit_kw`, `envelope_export_limit_kw`, `solar_risk_effect_now_kw`, `import_price_risk_effect_now`, `export_price_risk_effect_now`, `load_whole_house_live_now_kw`.
+
+  These are numeric, genuinely variable, and had no child entity at all — so on the parent sensor, which stores **no** attribute history (HA's 16 KB recorder gate evaluates the full payload *before* `_unrecorded_attributes` drops `forecast`/`batteries`), they had no history anywhere. The two envelope limits are the real [#493](https://github.com/code-imstillalive/nimbus/issues/493) limits actually in force; the three `*_effect_now` values are what risk aversion actually *did* to a given solve, which is the half you need when asking retrospectively why a plan looked conservative.
+
+  **This corrects #849's own text twice, from re-measuring rather than trusting it.** It claimed `status` and `binding_constraint_now` had "no history anywhere" — both have had flattened string children for some time (`sensor.nimbus_solver_lp_status`, `sensor.nimbus_solver_binding_constraint_now`), carrying 232 and 689 recorded states respectively over 24h on devhub. It also claimed everything numeric was already covered by the #465 fan-out; diffing the parent's live attribute keys against every declared `source_key` (including the dotted `cost_band.*`/`cost_breakdown.*` children) found the six above.
+
+  Deliberately excluded on measured grounds: the near-constant strings (`battery_kw_side`, `battery_kw_sign_convention`, `efficiency_convention`, `price_blend_algorithm` — a value that never changes gains nothing from history), the dict-valued fields, and `load_forecast_source_used`, which measures **762 characters** against Home Assistant's own 255-character state limit and therefore cannot be a sensor state at all. A test asserts those stay absent, so a future pass has to delete it and say why.
+
+### Fixed
+- **An over-long string state can no longer silently freeze a flattened sensor.** HA rejects a state above 255 characters outright and logs an error, leaving the entity stuck at its previous value with no visible cause — the same "silently stops working" class as [#538](https://github.com/code-imstillalive/nimbus/issues/538)/[#692](https://github.com/code-imstillalive/nimbus/issues/692)/[#837](https://github.com/code-imstillalive/nimbus/issues/837). Every flattened child now truncates an over-long string instead, warning once per entity per restart rather than every solve.
+
+  Applied to all children, not just the string ones: a numeric child is unaffected by the type check, and a future spec added without reading the comment gets the protection automatically. Relevant because `binding_constraint_now` is a real, already-published string generated from the LP's own binding constraint, with nothing bounding its length as the model grows.
+
+### Documentation
+- `docs/entities.md` gains an **"Attribute history: the parent sensors store none"** section — `state_attr()` works live but returns nothing for any past timestamp on the large parents, so look-back templates and charts must read the child sensors. Explains the 16 KB gate, why #59/#99/#625 each closed as fixed while the warnings kept firing, and states plainly which fields are live-only by nature.
+
 ## [0.94.290] — 2026-09-14
 
 ### Fixed

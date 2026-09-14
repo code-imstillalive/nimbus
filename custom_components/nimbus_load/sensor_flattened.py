@@ -649,6 +649,94 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         unit_of_measurement=None,
         suggested_display_precision=3,
     ),
+    # --- #849: numeric plan attributes that had NO child at all --------------
+    # The parent sensor stores NO attribute history (HA's 16 KB recorder
+    # gate evaluates the full payload BEFORE _unrecorded_attributes drops
+    # `forecast`/`batteries`, so the ~3 KB remainder is condemned with
+    # them). #849 originally asserted that only non-numeric fields were
+    # affected because "the #465 fan-out already publishes everything
+    # numeric". Diffing the parent's live attribute keys against every
+    # source_key here -- including the dotted cost_band.*/cost_breakdown.*
+    # children -- showed that was wrong: these six are numeric, genuinely
+    # variable, and had no child, so they had no history anywhere.
+    #
+    # The RISK_AVERSION/AVERSION pairs above are the configured knobs; the
+    # three *_effect_now values below are what that aversion actually DID
+    # to this particular solve, which is the half you need when asking
+    # retrospectively why a plan looked conservative.
+    #
+    # Deliberately excluded, having measured rather than assumed: the
+    # near-constant strings (battery_kw_side, battery_kw_sign_convention,
+    # efficiency_convention, price_blend_algorithm -- a value that never
+    # changes gains nothing from history), the dict-valued fields
+    # (solve_diagnostics, load_forecast_warnings, cost_band_24h -- not
+    # scalar states), and load_forecast_source_used, which measured 762
+    # characters on the reference household against HA's own 255-char
+    # MAX_LENGTH_STATE_STATE and therefore cannot be a sensor state at
+    # all. Those need the documentation route, not a child entity.
+    FlattenedAttrSpec(
+        source_key="envelope_import_limit_kw",
+        name="Solver Envelope Import Limit",
+        entity_id_suffix="envelope_import_limit_kw",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=UnitOfPower.KILO_WATT,
+        suggested_display_precision=2,
+    ),
+    FlattenedAttrSpec(
+        source_key="envelope_export_limit_kw",
+        name="Solver Envelope Export Limit",
+        entity_id_suffix="envelope_export_limit_kw",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=UnitOfPower.KILO_WATT,
+        suggested_display_precision=2,
+    ),
+    FlattenedAttrSpec(
+        source_key="solar_risk_effect_now_kw",
+        name="Solver Solar Risk Effect (Now)",
+        entity_id_suffix="solar_risk_effect_now_kw",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=UnitOfPower.KILO_WATT,
+        suggested_display_precision=3,
+    ),
+    FlattenedAttrSpec(
+        source_key="import_price_risk_effect_now",
+        name="Solver Import Price Risk Effect (Now)",
+        entity_id_suffix="import_price_risk_effect_now",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        # Same #283 reasoning as the shadow prices above: a point-in-time
+        # AUD/kWh value that can go up or down is MEASUREMENT, and HA core
+        # refuses MONETARY+MEASUREMENT, so device_class is dropped.
+        device_class=None,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_AUD_PER_KWH,
+        suggested_display_precision=4,
+    ),
+    FlattenedAttrSpec(
+        source_key="export_price_risk_effect_now",
+        name="Solver Export Price Risk Effect (Now)",
+        entity_id_suffix="export_price_risk_effect_now",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=None,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=_AUD_PER_KWH,
+        suggested_display_precision=4,
+    ),
+    FlattenedAttrSpec(
+        source_key="load_whole_house_live_now_kw",
+        name="Solver Load Whole House Live (Now)",
+        entity_id_suffix="load_whole_house_live_now_kw",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=SensorDeviceClass.POWER,
+        state_class=SensorStateClass.MEASUREMENT,
+        unit_of_measurement=UnitOfPower.KILO_WATT,
+        suggested_display_precision=3,
+    ),
     FlattenedAttrSpec(
         source_key="solar_delivery_ratio",
         name="Solver Solar Delivery Ratio",
@@ -874,7 +962,7 @@ class _FlattenedAttributeSensor(SensorEntity):
         value = self._extract(attributes)
         if value is _SENTINEL_MISSING:
             return
-        self._state = value
+        self._state = _clamp_state_length(value, self.entity_id or self._attr_name)
         self._last_updated = time.monotonic()
         # Optional second lookup for extra_state_attributes -- silently
         # skipped when either attrs_source_key isn't set or the value at
@@ -960,6 +1048,66 @@ class _FlattenedAttributeSensor(SensorEntity):
 # payload" from "key is present and its value is None". _extract()
 # above and update_from_parent() both need that distinction.
 _SENTINEL_MISSING: Any = object()
+
+# nimbus issue #849: every flattened child before this change carried a
+# NUMBER, so nothing here could ever approach Home Assistant's own
+# 255-character state-length ceiling. #849 adds string-valued children
+# (the solver's diagnostic strings, which have no history anywhere else
+# because the recorder's 16 KB attribute gate evaluates the parent's
+# FULL payload before _unrecorded_attributes filtering drops the big
+# arrays), and a string CAN grow past it.
+#
+# HA rejects an over-long state outright and logs an error, which would
+# leave the entity stuck at its previous value with no visible reason --
+# the exact "silently stops working" shape this project keeps getting
+# bitten by. Truncating keeps the sensor live and the first 252
+# characters are what a human reads anyway.
+#
+# Measured before choosing which attributes to publish, not assumed:
+# status 7 chars, binding_constraint_now 46, price_blend_algorithm 45 --
+# all far under. load_forecast_source_used measured 762 on the reference
+# household and is deliberately NOT published as a child for that reason
+# (see #849). This guard exists for the growth case (more batteries,
+# more circuits, a longer binding-constraint description), not for
+# today's values.
+#
+# Deliberately applied to EVERY child, not just the string ones: a
+# numeric child is unaffected (the isinstance check skips it), and a
+# future spec added without reading this comment gets the protection
+# automatically.
+# Mirrors homeassistant.const.MAX_LENGTH_STATE_STATE (255), defined
+# locally rather than imported on purpose: this project's own test
+# harness stubs `homeassistant.const` with only the names it needs, so
+# importing a new one from it breaks collection for every test that
+# touches sensor_flattened. Verified against the real installed HA
+# (MAX_LENGTH_STATE_STATE == 255) rather than copied from memory, and
+# test_flattened_state_length_guard.py re-asserts that equality against
+# the real constant whenever a real homeassistant is importable, so this
+# cannot silently drift if HA ever changes it.
+_MAX_STATE_LENGTH = 255
+_STATE_TRUNCATION_SUFFIX = "..."
+_LOGGED_TRUNCATION: set[str] = set()
+
+
+def _clamp_state_length(value: Any, entity_label: str | None) -> Any:
+    """Truncate an over-long STRING state to HA's own limit, warning
+    once per entity. Non-string values pass through untouched."""
+    if not isinstance(value, str) or len(value) <= _MAX_STATE_LENGTH:
+        return value
+    label = entity_label or "<unknown flattened entity>"
+    if label not in _LOGGED_TRUNCATION:
+        _LOGGED_TRUNCATION.add(label)
+        _LOGGER.warning(
+            "Nimbus: flattened sensor %s produced a %d-character state, over "
+            "Home Assistant's %d-character limit -- truncating so the entity "
+            "keeps updating instead of being rejected outright. Logged once "
+            "per entity per restart (nimbus issue #849).",
+            label,
+            len(value),
+            _MAX_STATE_LENGTH,
+        )
+    keep = _MAX_STATE_LENGTH - len(_STATE_TRUNCATION_SUFFIX)
+    return value[:keep] + _STATE_TRUNCATION_SUFFIX
 
 
 # ---------------------------------------------------------------------------

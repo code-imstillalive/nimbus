@@ -43,6 +43,16 @@ value_captured + uplift_available = theoretical_maximum_yield
 J_ref - J_ach + J_ach - J_star   = J_ref - J_star
 ```
 
+## Attribute history: the parent sensors store none
+
+**`state_attr()` works live, but returns nothing for any past timestamp** on the large parent sensors (`sensor.nimbus_solver_battery_forecast`, `sensor.nimbus_health_report`). If you are writing a template, automation, or chart that looks back in time, read the flattened child sensors instead — they are ordinary sensors with ordinary history and long-term statistics.
+
+Why (nimbus issue [#849](https://github.com/code-imstillalive/nimbus/issues/849)): Home Assistant's recorder refuses to store attributes for a state whose attribute payload exceeds 16 KB, and it evaluates that size against the **full** payload *before* `_unrecorded_attributes` filtering removes the big arrays. On the reference household `sensor.nimbus_solver_battery_forecast` measures ~307 KB in total (`forecast` 280 KB, `batteries` 24 KB), so although only ~3 KB would actually be written, the whole attribute set is dropped — every historical state records `attributes: {}`.
+
+This is why issues [#59](https://github.com/code-imstillalive/nimbus/issues/59) / [#99](https://github.com/code-imstillalive/nimbus/issues/99) / [#625](https://github.com/code-imstillalive/nimbus/issues/625) each closed as fixed while the recorder warnings kept firing: adding `_unrecorded_attributes` correctly stopped the bulk data being *written*, but never brought the *measured* payload under the gate.
+
+**What this does and doesn't cost you.** Every numeric and short-string field that is worth tracking over time now has its own child sensor with real history — including `sensor.nimbus_solver_lp_status` and `sensor.nimbus_solver_binding_constraint_now`, so "was the solver infeasible overnight" and "what was binding at 03:00" are both answerable. What has no history, and cannot have: the dict-valued attributes (`solve_diagnostics`, `load_forecast_warnings`, `cost_band_24h`) and `load_forecast_source_used`, which measures ~762 characters against Home Assistant's own 255-character limit on a sensor state. Those are live-only by nature.
+
 ## Nimbus Backtest
 
 Publishes the results of the offline reference-benchmark harness (`tests/run_reference_benchmark.py`, added in v0.94.24).
