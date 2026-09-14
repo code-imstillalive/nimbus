@@ -8,6 +8,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.294] — 2026-09-14
+
+### Fixed
+- **`thermal_loss_coeff_per_h` is now published as a sensor attribute**, so a household can tell whether #481's ambient-scaled decay is actually in force. v0.94.293 learned the coefficient, persisted it to the `load_run_state` Store, and applied it inside `project_temperature_forecast()` — but never exposed it, so on a live install there was no way to distinguish "the ambient path is active" from "it quietly fell back to flat idle decay."
+
+  That is precisely the gap [#610](https://github.com/code-imstillalive/nimbus/issues/610) already closed for the other two rates, in Mark Purcell's own words at the time: *"the published attributes do not say which [a learned rate from a default]"*. Same principle, same attribute dict, one more field alongside `thermal_rates_source`/`heating_rate_c_per_kwh`/`idle_decay_c_per_hour`.
+
+  Not cosmetic: [#769](https://github.com/code-imstillalive/nimbus/issues/769)'s "is this resolved by #800?" observation window depends on reading the learned rates off a real solve, and this was the one field that couldn't be read.
+
+  `None` is published as-is rather than coerced to `0.0` — it means "no ambient-scaled coefficient in force, the flat idle decay is being used instead", whereas `0.0` would read as "this tank loses no heat at all", a different and wrong claim that would also make the ambient path look active when it isn't.
+
 ## [0.94.293] — 2026-09-14
 
 ### Added
