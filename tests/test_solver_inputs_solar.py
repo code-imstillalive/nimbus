@@ -323,3 +323,87 @@ class TestAutoIncludeDedup(_SolarTestBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestDeferredImportSeamIsLoadBearing(unittest.TestCase):
+    """nimbus issue #735 (2026-09-14): pins WHY solver_inputs reaches
+    solver_writer's helpers through a deferred, by-MODULE import
+    (`sw.ha_get(...)`) rather than a module-scope `from ..solver_writer
+    import ha_get`.
+
+    This was first written up as a stylistic wart to be removed once
+    solver/ha_bridge.py landed. That was wrong. The by-module indirection
+    is what keeps every `patch.object(solver_writer, "ha_get", ...)` in
+    the suite (31 test files for ha_get alone, 24 for ha_post_state, 14
+    for fetch_entity_history_range) actually reaching the code under
+    test, because attribute lookup happens at CALL time against whatever
+    object the patch installed.
+
+    Without these assertions the pattern reads like an artifact of
+    staging and would plausibly be "tidied up" -- silently converting a
+    large number of mocked tests into ones that attempt real HTTP.
+
+    Scope, stated honestly: the dangerous form (`from ..solver_writer
+    import ha_get` at module scope) is currently impossible anyway,
+    because it is a circular import that fails at collection. These
+    guards are therefore FORWARD-looking -- they bite once
+    solver/ha_bridge.py exists and `from ..solver.ha_bridge import
+    ha_get` becomes a perfectly importable, perfectly silent way to
+    break every seam. Verified by injecting the forbidden binding
+    directly rather than by a source mutation, since the realistic
+    mutation is not reachable today.
+
+    Deliberately NOT asserted here: that binding a helper to a local
+    inside a function is unsafe. It isn't -- `sw = _solver_writer()`
+    still resolves after the patch is installed, so `ha_get = sw.ha_get`
+    within a function body is fine. Checked, and the guards correctly
+    stay silent on it; over-broad assertions here would just block
+    harmless refactors.
+    """
+
+    def test_patching_solver_writer_reaches_the_extracted_module(self):
+        """The whole seam, in one assertion: a patch applied to
+        solver_writer must be what solver_inputs/solar.py actually
+        calls."""
+        calls = []
+
+        def _spy(entity_id):
+            calls.append(entity_id)
+            return {"attributes": _forecast_attrs([1.0] * _N)}
+
+        cfg = {"solver_solar_forecast_sensor": "sensor.a"}
+        with (
+            patch.object(solver_writer, "ha_get", _spy),
+            patch.object(solver_writer, "entity_exists", lambda e: True),
+        ):
+            kw, _lo, _up = solar_inputs.build_solar_arrays(cfg, _GRID, _N)
+
+        self.assertIn(
+            "sensor.a",
+            calls,
+            "solar.py did not route through the patched solver_writer.ha_get "
+            "-- the deferred by-module import has been replaced with a "
+            "direct name import, which silently defeats every "
+            "patch.object(solver_writer, ...) in this suite",
+        )
+        self.assertEqual(kw, [1.0] * _N)
+
+    def test_solar_module_does_not_bind_helper_names_at_import_time(self):
+        """The structural half of the same guarantee. Binding a helper as
+        a module-global in solar.py is exactly the change the test above
+        would stop catching if someone also updated the call sites, so
+        assert the module namespace stays clean."""
+        for name in (
+            "ha_get",
+            "entity_exists",
+            "resample_forecast",
+            "_kw_scale_factor",
+        ):
+            with self.subTest(name=name):
+                self.assertFalse(
+                    hasattr(solar_inputs, name),
+                    f"solver_inputs.solar has bound {name!r} at module scope. "
+                    f"It must reach it as an attribute of the solver_writer "
+                    f"MODULE at call time instead -- see solver_inputs/"
+                    f"__init__.py for the seam this protects.",
+                )
