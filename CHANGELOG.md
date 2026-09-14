@@ -8,6 +8,21 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.301] — 2026-09-14
+
+### Fixed
+- **A failed solve no longer overwrites the last good published plan** (nimbus issue [#757](https://github.com/code-imstillalive/nimbus/issues/757)).
+
+  `_infeasible_plan()` builds a well-formed but **entirely zero-filled** `Plan` for any non-optimal solve — no batteries, no loads, every array `zeros(n)`. `publish_plan()` published that like any other plan, so `sensor.nimbus_solver_battery_forecast` would read "0 kW everywhere, `batteries: []`" — on a dashboard, indistinguishable from a real solve that genuinely decided to do nothing.
+
+  That is the mechanism behind #757's entire history. The issue was filed as *"a battery participant is silently excluded from the solve"* and ten separate investigations disagreed with each other about whether it reproduced. A live trace settled it: `build_plan()` returned `batteries=['home','Test EV']` with `status='optimal'` on **24 of 24** cycles, while **7 of 10** actual publishes in the same window carried `batteries=[]` with `status='error'`, each on a different worker thread. Nothing was ever excluded. Failed solves were overwriting good ones, and whoever looked next saw whichever write landed last.
+
+  A `status='error'` solve now logs HiGHS's own reason and returns without publishing. **That is honest, not silent**: `_NimbusSolverPushSensor.available` goes `False` once five minutes pass with no fresh push, so a persistently failing solver surfaces as *unavailable* — which is what it is — instead of as a confident plan of zeros. A single transient failure keeps the last good plan for under five minutes, which is strictly better than replacing it with nothing.
+
+  **Deliberately scoped to `"error"` only.** `"infeasible"` is a real modelling *answer* — HiGHS proved no feasible dispatch exists for the constraints given — the household needs to see it, and [#773](https://github.com/code-imstillalive/nimbus/issues/773)'s own fallback path depends on it being published. `"error"` is the one status where the solver never determined anything at all. The new `Plan.solver_failed` property names that distinction in one place rather than leaving each call site to re-derive the status taxonomy; it is pointedly **not** `not is_optimal`, and a test asserts exactly that.
+
+  #757 itself stays open. This addresses the half that made every prior reading of the issue untrustworthy; the remaining half is why solves fire every few seconds (four within five seconds in the same trace) against a one-minute timer, which is plausibly the same executor pressure #773 documents.
+
 ## [0.94.300] — 2026-09-14
 
 ### Fixed
@@ -16,6 +31,10 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   Parsing that string already produced the right answer — there is no state/postcode pair in the word "unavailable" — but only **by accident**. Filtering unusable states out of the candidate list first makes the "exactly one sensor" rule mean exactly one *usable* sensor, which is the question actually being asked.
 
   It also fixes a real edge case the accidental behaviour got wrong: with two registered phones where one is unavailable, the previous logic counted two candidates and refused as ambiguous, when only one of them could answer. It now resolves from that one.
+
+Devhub validation: deployed and restarted; `installed_version == available_version == v0.94.300`, `pending_update: false`, `nimbus_status` "Working well", solve `optimal`. The discovery path this release fixes still reports `region`/`postcode_prefix` as `None` there, because that install's one `sensor.*_geocoded_location` genuinely reads `unavailable` — which is precisely the state this release now filters, so the fix is confirmed by the absence of a wrong answer rather than by the presence of a right one. A real answer needs an install whose phone is reachable.
+
+The same deploy turned up something unrelated and more serious, now recorded on [#757](https://github.com/code-imstillalive/nimbus/issues/757): 31 `"solve did not complete -- HiGHS solver failure"` warnings, and four concurrent `_run_price_change_solve()` tasks in flight at once, blocking HA's own bootstrap. Addressed in v0.94.301.
 
 ## [0.94.299] — 2026-09-14
 

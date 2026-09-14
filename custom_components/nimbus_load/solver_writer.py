@@ -8264,7 +8264,7 @@ def publish_plan(
     solve_seconds = time.monotonic() - solve_started
     if plan.status == "optimal":
         save_plan_state(plan, period_hours_arr, grid_times[0])
-    elif plan.status == "error":
+    elif plan.solver_failed:
         # nimbus issue #356 (Mark Purcell): this is genuinely NOT the same
         # thing as a real infeasible model -- HiGHS gave up/hit a limit
         # without ever determining feasibility either way (see network.py's
@@ -8272,11 +8272,48 @@ def publish_plan(
         # operator sees "the solver failed, here's HiGHS's own reason"
         # rather than being sent hunting for a modeling/config problem that
         # doesn't exist.
+        #
+        # nimbus issue #757: and do not publish it. _infeasible_plan()
+        # builds a well-formed but ENTIRELY ZERO-FILLED Plan for any
+        # non-optimal solve -- no batteries, no loads, every array
+        # zeros(n). Publishing that overwrites a perfectly good live plan
+        # with a plausible-looking blank one: sensor.nimbus_solver_battery_
+        # forecast reads "0 kW everywhere, batteries=[]", which is
+        # indistinguishable on a dashboard from a real solve that genuinely
+        # decided to do nothing.
+        #
+        # That is not hypothetical. #757 ("battery participant silently
+        # excluded from the solve") sat open through TEN separate
+        # investigations that disagreed with each other, because a live
+        # trace showed build_plan() returning batteries=['home','Test EV']
+        # with status='optimal' on every cycle while 7 of 10 actual
+        # publishes carried batteries=[] with status='error'. The
+        # "exclusion" was never an exclusion -- it was failed solves
+        # overwriting good ones. Whoever looked next saw whichever write
+        # landed last.
+        #
+        # Skipping the publish is the honest outcome, not a silent one:
+        # _NimbusSolverPushSensor.available goes False once
+        # _STALE_AFTER_SECONDS (5 min) passes with no fresh push, so a
+        # persistently failing solver surfaces as "unavailable" -- which is
+        # exactly what it is -- rather than as a confident plan of zeros.
+        # A transient single failure keeps the last good plan for under
+        # five minutes, which is strictly better than replacing it with
+        # nothing.
+        #
+        # Deliberately NOT extended to "infeasible". That one is a real
+        # modelling ANSWER (HiGHS proved no feasible dispatch exists for
+        # the constraints given), the household needs to see it, and #773's
+        # own fallback path depends on it being published. "error" is the
+        # only status where the solver never determined anything at all.
         _LOGGER.warning(
             "Nimbus: solve did not complete -- HiGHS solver failure (%s), "
-            "not a genuinely infeasible model",
+            "not a genuinely infeasible model; keeping the previous "
+            "published plan rather than overwriting it with an empty one "
+            "(nimbus issue #757)",
             plan.raw_status or "unknown reason",
         )
+        return
 
     # Real fixed daily charges (Network Access + LV Fee), reported
     # honestly alongside the LP's own total_cost -- NOT fed into the LP
