@@ -9,6 +9,7 @@ test_solver_writer_battery_participants.py.
 
 from __future__ import annotations
 
+import contextlib
 import unittest
 from datetime import datetime, timedelta
 from types import SimpleNamespace
@@ -21,6 +22,26 @@ BRISBANE = solver_writer.LOCAL_TZ
 NOW = datetime(2026, 8, 25, 10, 0, tzinfo=BRISBANE)
 YESTERDAY_START = datetime(2026, 8, 24, 0, 0, tzinfo=BRISBANE)
 YESTERDAY_END = YESTERDAY_START + timedelta(days=1)
+
+
+@contextlib.contextmanager
+def _patch_history(fetch=None, **kwargs):
+    """Back both of this function's history reads with one fixture.
+
+    Since #843 option A, `_resolve_battery_participant_history()` reads a
+    participant's POWER sensor through `fetch_entity_power_history_kw()`
+    (which preserves per-row `unit_of_measurement`) and everything else
+    through the shared, attribute-stripping `fetch_entity_history_range()`.
+    Both return `(datetime, kW)` pairs, so a single side_effect fixture
+    correctly backs both -- the split is about what the recorder is asked
+    for, not about the shape that comes back.
+    """
+    kw = {"side_effect": fetch} if fetch is not None else kwargs
+    with (
+        patch.object(solver_writer, "fetch_entity_history_range", **kw),
+        patch.object(solver_writer, "fetch_entity_power_history_kw", **kw),
+    ):
+        yield
 
 
 def _fake_subentry(subentry_id: str, subentry_type: str, data: dict):
@@ -114,7 +135,7 @@ class TestResolveBatteryParticipantHistory(unittest.TestCase):
             [_fake_subentry("s1", "battery_participant", _EV_DATA)],
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
         )
-        with patch.object(solver_writer, "fetch_entity_history_range", return_value=[]):
+        with _patch_history(return_value=[]):
             self.assertEqual(self._call(), [])
 
     def test_builds_a_real_battery_and_dispatch_from_history(self):
@@ -135,9 +156,7 @@ class TestResolveBatteryParticipantHistory(unittest.TestCase):
                 return _flat_history(5.0, YESTERDAY_START, YESTERDAY_END)
             return []
 
-        with patch.object(
-            solver_writer, "fetch_entity_history_range", side_effect=fetch
-        ):
+        with _patch_history(fetch):
             results = self._call()
         self.assertEqual(len(results), 1)
         battery, charge_kw, discharge_kw, final_soc_kwh = results[0]
@@ -169,9 +188,7 @@ class TestResolveBatteryParticipantHistory(unittest.TestCase):
                 return _flat_history(0.0, YESTERDAY_START, YESTERDAY_END)
             return []
 
-        with patch.object(
-            solver_writer, "fetch_entity_history_range", side_effect=fetch
-        ):
+        with _patch_history(fetch):
             self.assertEqual(self._call(), [])
 
 
@@ -225,9 +242,7 @@ class TestAvailabilityGating(unittest.TestCase):
                 return _flat_history(5.0, YESTERDAY_START, YESTERDAY_END)
             return []
 
-        with patch.object(
-            solver_writer, "fetch_entity_history_range", side_effect=fetch
-        ):
+        with _patch_history(fetch):
             results = self._call()
         self.assertEqual(len(results), 1)
         _, charge_kw, discharge_kw, _ = results[0]
@@ -280,9 +295,7 @@ class TestAvailabilityGating(unittest.TestCase):
             return []
 
         with (
-            patch.object(
-                solver_writer, "fetch_entity_history_range", side_effect=fetch
-            ),
+            _patch_history(fetch),
             patch.object(
                 solver_writer,
                 "fetch_entity_state_history_range",
@@ -325,9 +338,7 @@ class TestAvailabilityGating(unittest.TestCase):
             return []
 
         with (
-            patch.object(
-                solver_writer, "fetch_entity_history_range", side_effect=fetch
-            ),
+            _patch_history(fetch),
             patch.object(
                 solver_writer, "fetch_entity_state_history_range", return_value=[]
             ),
@@ -394,9 +405,7 @@ class TestComputeDailyQualityReportIncludesParticipants(unittest.TestCase):
             [_fake_subentry("s1", "battery_participant", _EV_DATA)],
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
         )
-        with patch.object(
-            solver_writer, "fetch_entity_history_range", side_effect=self._fetch
-        ):
+        with _patch_history(self._fetch):
             report = solver_writer.compute_daily_quality_report(self._cfg(), NOW)
         self.assertIsNotNone(report)
         self.assertEqual(report["scored_participants"], ["home", "ev_m3p"])
@@ -411,9 +420,7 @@ class TestComputeDailyQualityReportIncludesParticipants(unittest.TestCase):
         #768/#585, and any install with none configured) is a real
         no-op -- scored_participants stays exactly ["home"]."""
         solver_writer._NATIVE_HASS = _fake_native_hass([])
-        with patch.object(
-            solver_writer, "fetch_entity_history_range", side_effect=self._fetch
-        ):
+        with _patch_history(self._fetch):
             report = solver_writer.compute_daily_quality_report(self._cfg(), NOW)
         self.assertIsNotNone(report)
         self.assertEqual(report["scored_participants"], ["home"])
