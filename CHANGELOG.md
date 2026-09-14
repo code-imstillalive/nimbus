@@ -8,6 +8,40 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.302] — 2026-09-14
+
+### Fixed
+- **The solve overlap guard now actually guards in native (in-process) mode** (nimbus issue [#757](https://github.com/code-imstillalive/nimbus/issues/757), the second half).
+
+  Every solve is gated on `acquire_lock()`, which was a **PID file**. That is exactly right for the standalone/cron script, where two runs genuinely are two processes. In native mode every solve runs in the *same* Home Assistant process, on different executor worker threads, so the PID in that file is always our own — and the branch added for [#346](https://github.com/code-imstillalive/nimbus/issues/346) reads that as a stale file and hands out the lock:
+
+  ```python
+  if old_pid == os.getpid():
+      pass  # stale file from an unclean stop -- safe to reclaim
+  ```
+
+  #346 was a real bug and that fix was right for it: a worker thread killed mid-solve leaves the file holding a PID that, in a container, is frequently identical after a restart — so `os.kill(old_pid, 0)` succeeds (it's us), every tick returns `False` forever, and nothing ever cleans up. But *"this PID is our own"* is **also** exactly what a genuine concurrent in-process solve looks like, and a PID file has no information left to tell the two apart.
+
+  Measured against the real function before the fix:
+
+  ```
+  thread A acquires: True
+  thread B acquires WHILE A HOLDS IT: True
+  ```
+
+  So on any in-process install the guard had **never refused anything**, and [#315](https://github.com/code-imstillalive/nimbus/issues/315)'s own `"previous cycle still in progress (consecutive skips: N)"` WARNING — shipped specifically to make this visible — has been unreachable code since it was written.
+
+  Confirmed live rather than only in a harness: Home Assistant itself logged `Setup timed out for bootstrap waiting on {...}` naming **four** concurrent `_run_price_change_solve()` tasks in flight at once, each holding an executor worker, blocking HA's own startup. That is also the concrete link between this issue and [#773](https://github.com/code-imstillalive/nimbus/issues/773) — four simultaneous solves holding four executor workers *is* the executor starvation #773 documents, and starvation is what produces its `Could not lock database within 30 seconds` backup symptom.
+
+  Fixed by adding a process-local `threading.Lock`, acquired **non-blocking**, alongside the existing PID file. Both mechanisms are kept because they answer genuinely different questions: a PID file cannot see a sibling thread, and a process-local lock cannot see a sibling process. #346's branch is untouched — it is still the only thing that reclaims a lock file left behind by a killed worker thread.
+
+  Non-blocking is deliberate: parking an HA executor worker for the whole of another solve would be worse than the bug, and is precisely the starvation above. The caller's contract is unchanged — `False` still means "skip this tick cleanly" — so #315's WARNING now fires for real, which is the point.
+
+  **Expect to see that WARNING on a busy install.** It is not a new fault; it is the first honest report of overlaps that were already happening silently.
+
+### Changed
+- **#346's own regression tests no longer leak the lock between tests.** They call `acquire_lock()` without a matching release, which was harmless while the guard was purely file-based. With a process-local lock it broke three of them — and, worse, made `test_lock_held_by_a_real_different_running_process_is_still_respected` **pass for the wrong reason**: it expects `False` and got `False` from the leaked lock without ever reaching the PID check it exists to verify. `tearDown` now releases through the real `release_lock()`, before `LOCK_PATH` is restored so it targets the test's own temp file.
+
 ## [0.94.301] — 2026-09-14
 
 ### Fixed
@@ -22,6 +56,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   **Deliberately scoped to `"error"` only.** `"infeasible"` is a real modelling *answer* — HiGHS proved no feasible dispatch exists for the constraints given — the household needs to see it, and [#773](https://github.com/code-imstillalive/nimbus/issues/773)'s own fallback path depends on it being published. `"error"` is the one status where the solver never determined anything at all. The new `Plan.solver_failed` property names that distinction in one place rather than leaving each call site to re-derive the status taxonomy; it is pointedly **not** `not is_optimal`, and a test asserts exactly that.
 
   #757 itself stays open. This addresses the half that made every prior reading of the issue untrustworthy; the remaining half is why solves fire every few seconds (four within five seconds in the same trace) against a one-minute timer, which is plausibly the same executor pressure #773 documents.
+
+Devhub validation: deployed and restarted, `installed_version == available_version == v0.94.301`, `pending_update: false`, `nimbus_status` "Working well", solve `optimal`. **The verification install was reproducing the failure while this was checked**, which is as direct a confirmation as this project has had. Before, on v0.94.300, it logged `"solve did not complete -- HiGHS solver failure (Time limit reached)"` **31 times**, each one publishing an all-zero plan. After: the same failure, **7 times**, now reading `"...keeping the previous published plan rather than overwriting it with an empty one"` — and `sensor.nimbus_solver_battery_forecast` still held a full 200-period plan at `status: optimal` (13.1 kW discharge, SoC 55.2%) through all seven. The solver is no healthier; the published output no longer lies about it. New line number and new message text both confirm the running code is genuinely this release, not the separately-tracked staleness.
 
 ## [0.94.300] — 2026-09-14
 
