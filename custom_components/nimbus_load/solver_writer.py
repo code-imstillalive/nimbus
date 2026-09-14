@@ -211,6 +211,10 @@ try:
     from . import solver_publish
 except ImportError:
     import solver_publish  # type: ignore[no-redef]
+try:
+    from . import aemo_crosscheck
+except ImportError:
+    import aemo_crosscheck  # type: ignore[no-redef]
 
 # Real, confirmed-live bug (2026-08-17): this script's own docstrings
 # used to assert "this NUC runs Australia/Brisbane" and relied on plain
@@ -4332,6 +4336,34 @@ def _warn_aemo_p5min_disagreement_once(period_start: datetime, detail: dict) -> 
         detail["retail_now"],
         detail["aemo_p5min_now"],
         detail["expected_retail"],
+        detail["disagreement_dollars"],
+        detail["threshold_dollars"],
+    )
+
+
+# nimbus issue #452: same log-once-per-PERIOD discipline as the
+# current-interval check above -- a forecast/actuals divergence is a
+# fresh event each window, not a persistent degraded state, so it must
+# re-fire when "now" rolls into a new period rather than going silent
+# forever after the first one.
+_AEMO_FC_LAST_WARNED_PERIOD: datetime | None = None
+
+
+def _warn_aemo_forecast_vs_actuals_once(period_start: datetime, detail: dict) -> None:
+    global _AEMO_FC_LAST_WARNED_PERIOD
+    if _AEMO_FC_LAST_WARNED_PERIOD == period_start:
+        return
+    _AEMO_FC_LAST_WARNED_PERIOD = period_start
+    _LOGGER.warning(
+        "Nimbus #452: AEMO's own 30-min forecast ($%.4f/kWh) for %s-%s "
+        "disagrees with its own realised 5-min prices so far ($%.4f/kWh "
+        "from %d sample(s)) by $%.4f/kWh, beyond the configured "
+        "$%.4f/kWh threshold (logged once per period)",
+        detail["forecast_price"],
+        detail["window_start"],
+        detail["window_end"],
+        detail["realised_mean_price"],
+        detail["n_samples"],
         detail["disagreement_dollars"],
         detail["threshold_dollars"],
     )
@@ -12926,6 +12958,43 @@ def main() -> None:
             aemo_p5min_check = None
         if aemo_p5min_check is not None and aemo_p5min_check["flagged"]:
             _warn_aemo_p5min_disagreement_once(grid_times[0], aemo_p5min_check)
+
+        # nimbus issue #452, the other half: AEMO's own 30-minute
+        # forecast against AEMO's own realised 5-minute prices for the
+        # SAME window. Wholesale against wholesale, so unlike the
+        # retail check above there is no markup offset term at all --
+        # this asks whether AEMO's predispatch is tracking AEMO's own
+        # dispatch, which is a genuinely different question.
+        #
+        # Both entities are discovered, not configured: Mark Purcell
+        # chose auto-discovery over a 27th wizard field ("proceed with
+        # auto discovery"), consistent with #495/#768 and with #449
+        # tracking that wizard as already too large. A no-op on any
+        # install without exactly one of each -- same blank-is-off
+        # convention as every other optional source here.
+        try:
+            forecast_entity = cfg.get("aemo_30min_forecast_sensor")
+            actuals_entity = cfg.get("solver_regional_spot_current_price_sensor")
+            aemo_fc_check = None
+            if forecast_entity and actuals_entity:
+                entries = ha_get(forecast_entity)["attributes"].get("forecast")
+                window_start = now - timedelta(minutes=30)
+                samples = fetch_entity_history_range(actuals_entity, window_start, now)
+                aemo_fc_check = aemo_crosscheck.compare_forecast_to_actuals(
+                    entries,
+                    samples,
+                    now,
+                    _cfg_num(
+                        cfg,
+                        "solver_aemo_p5min_disagreement_threshold_dollars",
+                        0.10,
+                    ),
+                )
+        except Exception as e:  # noqa: BLE001 -- a diagnostic must never break a real solve
+            _LOGGER.warning("Nimbus #452: AEMO forecast-vs-actuals check failed: %s", e)
+            aemo_fc_check = None
+        if aemo_fc_check is not None and aemo_fc_check["flagged"]:
+            _warn_aemo_forecast_vs_actuals_once(grid_times[0], aemo_fc_check)
 
         # Real, live-CONFIGURABLE TOU network + flat fees baked directly
         # into import_price[t] (2026-08-16, real ask: "it needs ot be super

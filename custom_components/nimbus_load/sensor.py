@@ -2383,6 +2383,9 @@ class NimbusSolverConfigSensor(SensorEntity):
         region, prefix = self._resolve_geocoded_region_and_prefix()
         attrs["region"] = region
         attrs["postcode_prefix"] = prefix
+        attrs["aemo_30min_forecast_sensor"] = (
+            self._discover_aemo_30min_forecast_sensor()
+        )
         return attrs
 
     def _resolve_geocoded_region_and_prefix(self):
@@ -2428,6 +2431,45 @@ class NimbusSolverConfigSensor(SensorEntity):
         if len(candidates) != 1:
             return None, None
         return nem_region.resolve_region_and_prefix(candidates[0].state)
+
+    def _discover_aemo_30min_forecast_sensor(self) -> str | None:
+        """The `sensor.aemo_nem_<region>_current_30min_forecast` entity,
+        or None when there is not exactly one usable candidate.
+
+        nimbus issue #452. Mark Purcell asked for the 30-minute forecast
+        to be compared against the relevant 6x 5-minute realised
+        intervals, and then chose auto-discovery over a wizard field
+        ("proceed with auto discovery") -- consistent with #495 and
+        #768, and with #449 tracking that wizard as already too large.
+
+        **Why matching this suffix is not the region-name hardcoding
+        this project already fixed once.** `const.py` records that
+        hardcoding one specific region's entity (`sensor.aemo_nem_qld1_
+        ...`) was a real bug: a NSW household could never reach it.
+        This matches the SUFFIX only, so every region resolves through
+        the identical code path and nobody's region is privileged.
+
+        Exactly one usable candidate, or nothing. A household running
+        more than one AEMO integration genuinely has two answers, and
+        picking whichever sorts first would tag every comparison with a
+        silently-chosen source -- the same confidently-wrong shape
+        #768's power-sensor discovery refuses, for the same reason.
+
+        Unusable states are filtered out BEFORE the count, so "exactly
+        one" means exactly one sensor that can actually answer -- the
+        correction v0.94.300 had to make to the geocoded discovery
+        above, applied here from the start rather than after a deploy
+        surfaced it.
+        """
+        candidates = [
+            st
+            for st in self.hass.states.async_all("sensor")
+            if st.entity_id.endswith("_current_30min_forecast")
+            and st.state not in (None, "unknown", "unavailable")
+        ]
+        if len(candidates) != 1:
+            return None
+        return candidates[0].entity_id
 
 
 class NimbusTopologyConfigSensor(SensorEntity):

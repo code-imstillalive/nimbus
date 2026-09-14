@@ -8,6 +8,23 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.309] — 2026-09-15
+
+### Added
+- **AEMO's own 30-minute forecast is now cross-checked against AEMO's own realised 5-minute prices for the same window** (nimbus issue [#452](https://github.com/code-imstillalive/nimbus/issues/452)). This completes that issue: the current-interval half (retail vs wholesale) shipped earlier, and this is the like-for-like comparison Mark Purcell specified — *"compare the 30 minute forecast with the relevant 6x 5 minute intervals."*
+
+  **Wholesale against wholesale, so there is no markup offset at all.** The shipped current-interval check must correct for the household's own retail markup; applying an offset here would be actively wrong. This asks whether AEMO's predispatch is tracking AEMO's own dispatch — a genuinely different question, and a real data-quality signal rather than a retailer one.
+
+  **Both entities are discovered, not configured** — Mark's call (*"proceed with auto discovery"*), consistent with [#495](https://github.com/code-imstillalive/nimbus/issues/495) and [#768](https://github.com/code-imstillalive/nimbus/issues/768), and with [#449](https://github.com/code-imstillalive/nimbus/issues/449) tracking that wizard as already too large at 26 fields. Exactly one usable `*_current_30min_forecast` sensor is used; several refuses rather than picking, since a household running two AEMO integrations genuinely has two answers and choosing whichever sorts first would tag every comparison with a silently-chosen source.
+
+  Discovery matches the **suffix only**, never a region. `const.py` records that hardcoding one specific region's entity (`sensor.aemo_nem_qld1_...`) was a real bug a NSW household could never reach; a test loops all five NEM regions to assert none is privileged.
+
+  Unusable states are filtered **before** the count, so "exactly one" means one sensor that can actually answer — the correction v0.94.300 had to ship for #495's discovery after a live deploy found its sole candidate reading `unavailable`, applied here from the start rather than learned twice.
+
+  Two honest properties, stated rather than discovered later: the comparison is **weakest in the first five minutes** of each window (a single realised sample) and strongest by minute 25, so `n_samples` is returned rather than hidden and `min_samples` defaults to 1 — the caller decides whether one sample is enough, since defaulting higher would quietly discard the early-window signal for everyone. And a **completed** window cannot be scored: the forecast lives in an entity attribute and this project's history fetch passes `no_attributes=True`, so there is no record of what the forecast said for a window that has since elapsed.
+
+  36 tests (27 on the pure comparison, 9 on discovery). A clean no-op on any install without exactly one of each entity.
+
 ## [0.94.308] — 2026-09-15
 
 ### Changed
@@ -29,6 +46,10 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   The blunt one is `test_the_two_values_genuinely_differ`. `summed_18_now_kw` and `load_kw[0]` are **equal on most installs** — only a configured whole-house cross-check makes them diverge. That apparent redundancy is exactly what makes the pair attractive to collapse, and collapsing it *is* #100. A comment cannot prevent that; an assertion can.
 
   Two fixture mistakes were made and corrected while writing these, both by reading the code instead of guessing twice: `cfg["solver_load_forecast_sensor"]` is a bare subscript rather than a `.get()`, so it is required even on the branch that never reads it; and `sum_load_forecasts()` returns **six** values, not seven, with the error not among them.
+
+Devhub validation: deployed and restarted. A correct refactor should be invisible, and it is — `sensor.nimbus_household_load_total_forecast` published fresh (state **0.98**) with its full 18-circuit `load_forecast_source_used` intact, `nimbus_status` "Working well", solve `optimal`, no new errors.
+
+The check that matters spans two releases: `state` and `whole_house_live_now_kw` both read **0.98**, identical — so `build_load_arrays()` (extracted here) produced the array and the anchor overwrite, and `publish_household_load_total_forecast()` (extracted in v0.94.307) read `load_kw[0]` from it. A broken deferred import, or a shifted snapshot/overwrite ordering, would have made those two differ or removed the sensor entirely.
 
 ## [0.94.307] — 2026-09-15
 
