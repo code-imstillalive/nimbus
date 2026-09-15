@@ -157,5 +157,85 @@ class TestPublishedShape(unittest.TestCase):
         self.assertEqual(attrs["whole_house_live_now_kw"], 2.5)
 
 
+class TestTheLeadTimeScalarsAreActuallyWired(unittest.TestCase):
+    """nimbus issue #937. The pure picker has its own unit tests; these
+    assert the values genuinely **reach the published attributes**.
+
+    That distinction is not pedantic here — it is the exact shape of
+    #538/#692, where a field was added in one place and silently never
+    reached the bridge that publishes it, so a household adjusting it had
+    zero effect forever. A tested helper wired to nothing looks identical
+    to a working feature from the outside.
+    """
+
+    def test_all_three_keys_are_always_present(self):
+        """Stable attribute set: a key that appears and vanishes between
+        cycles is #589's "empty attributes for one cycle" problem, and it
+        would also put holes in the very lead-time series these exist to
+        build."""
+        _entity_id, _state, attrs = _publish()
+        for key in (
+            "load_forecast_plus_1h_kw",
+            "load_forecast_plus_6h_kw",
+            "load_forecast_plus_24h_kw",
+        ):
+            self.assertIn(key, attrs)
+
+    def test_a_short_horizon_publishes_none_rather_than_clamping(self):
+        """The default fixture grid spans 20 minutes, so every one of
+        these lead times is beyond it. None is the honest answer;
+        clamping to the last period would publish a 20-minute-ahead
+        number under a key claiming 24 hours."""
+        _entity_id, _state, attrs = _publish()
+        self.assertIsNone(attrs["load_forecast_plus_1h_kw"])
+        self.assertIsNone(attrs["load_forecast_plus_6h_kw"])
+        self.assertIsNone(attrs["load_forecast_plus_24h_kw"])
+
+    def test_a_real_horizon_publishes_the_right_period(self):
+        """Hourly grid, value == index, so the published figure names the
+        index it came from and a shifted pick is unmissable."""
+        hours = 30
+        _entity_id, _state, attrs = _publish(
+            grid_times=[_NOW + timedelta(hours=i) for i in range(hours)],
+            n_periods=hours,
+            load_kw=np.arange(hours, dtype=float),
+            load_lower_kw=np.arange(hours, dtype=float),
+            load_upper_kw=np.arange(hours, dtype=float),
+        )
+        self.assertEqual(attrs["load_forecast_plus_1h_kw"], 1.0)
+        self.assertEqual(attrs["load_forecast_plus_6h_kw"], 6.0)
+        self.assertEqual(attrs["load_forecast_plus_24h_kw"], 24.0)
+
+    def test_the_published_values_are_rounded_like_every_other_kw_figure(self):
+        """3 dp, matching `forecast[i].value` itself — otherwise these
+        would be the only kW figures on the sensor carrying full float
+        noise."""
+        hours = 30
+        raw = np.full(hours, 1.23456789)
+        _entity_id, _state, attrs = _publish(
+            grid_times=[_NOW + timedelta(hours=i) for i in range(hours)],
+            n_periods=hours,
+            load_kw=raw,
+            load_lower_kw=raw,
+            load_upper_kw=raw,
+        )
+        self.assertEqual(attrs["load_forecast_plus_6h_kw"], 1.235)
+
+    def test_they_are_plain_floats_not_numpy_scalars(self):
+        """These go into a published attribute dict; `np.float64` is not
+        what HA's own JSON encoder expects."""
+        hours = 30
+        _entity_id, _state, attrs = _publish(
+            grid_times=[_NOW + timedelta(hours=i) for i in range(hours)],
+            n_periods=hours,
+            load_kw=np.arange(hours, dtype=float),
+            load_lower_kw=np.arange(hours, dtype=float),
+            load_upper_kw=np.arange(hours, dtype=float),
+        )
+        value = attrs["load_forecast_plus_24h_kw"]
+        self.assertIsInstance(value, float)
+        self.assertNotIsInstance(value, np.floating)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,32 @@
+# Automatic review requests.
+#
+# GitHub requests a review from the owners of any path a pull request
+# touches. This is not a permission grant and it blocks nothing -- it
+# exists so that review of the areas below stops depending on someone
+# remembering to ask.
+#
+# @purcell-lab is listed alongside the maintainer on the solver core and
+# the LP for a plain reason: that is where his findings have repeatedly
+# landed. The overlap guard that never guarded (#757), the W-vs-kW
+# sampling transient (#843), the semi-continuous linking constraint
+# (#616), the availability mask the oracle never saw (#467), the P2P
+# export-commitment chain (#921-#926), and the 48-hour IV&V pass (#950)
+# all came out of reading this code.
+
+# Default owner for anything not matched below.
+*                                               @code-imstillalive
+
+# Solver core: the LP formulation, the network/plan construction, the
+# scoring and regret machinery.
+/custom_components/nimbus_load/solver/          @code-imstillalive @purcell-lab
+
+# The writer that drives the solve and publishes its results, plus the
+# runtime that schedules it.
+/custom_components/nimbus_load/solver_writer.py @code-imstillalive @purcell-lab
+/custom_components/nimbus_load/solver_runtime.py @code-imstillalive @purcell-lab
+/custom_components/nimbus_load/solver_inputs/   @code-imstillalive @purcell-lab
+/custom_components/nimbus_load/solver_publish.py @code-imstillalive @purcell-lab
+
+# The standalone/cron deployment, which is the reference for how the
+# solver is run outside Home Assistant's own process.
+/docs/real-world-integration/                   @code-imstillalive @purcell-lab

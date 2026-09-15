@@ -33,6 +33,34 @@ day/night cycle — including a real P2P window if the fix touches anything
 P2P-adjacent — before cutting the tag. If nothing looks wrong, release the
 next day. If something does, fix it first and restart the clock.
 
+**The one carve-out: provably identity on the default path, with a test.**
+(Household decision, 2026-09-15, [#594](https://github.com/code-imstillalive/nimbus/issues/594).)
+A change that touches dispatch code but cannot alter dispatch for an install
+that has not opted into it may ship same-day — **only when a test in the same
+PR demonstrates that**. Exercise the default path and show the behaviour is
+unchanged; an assertion in the PR description that it is a no-op does not
+qualify.
+
+The condition is the point, not a formality. The two releases that prompted
+this (v0.94.315 and v0.94.318, household-mode presets) were genuinely
+identity on the default path — `home` is absent from the preset tables
+entirely, so the mode lookup returns the input object unchanged — and that
+absence is itself tested. That test is what earns the carve-out. Without it,
+"I am confident this is a no-op" is worth very little: the same day this rule
+was written, a fix was twice reported as not working on the strength of a
+live reading that turned out to come from ~30-release-old code, and a `0`
+that was documented as "disables re-sending" would have meant "re-send every
+cycle" until a test caught it.
+
+Worked examples, from the day the rule was adopted:
+
+| change | same-day? | why |
+|---|---|---|
+| household-mode presets | **yes** | `home` absent from the tables, absence tested — identity proven |
+| re-affirming a dispatch a device is ignoring ([#875](https://github.com/code-imstillalive/nimbus/issues/875)) | **no** | a diverging load genuinely behaves differently; that is the feature |
+| net-vs-gross thermal rate ([#897](https://github.com/code-imstillalive/nimbus/issues/897)) | **no** | changes the arithmetic behind a real hot-water guarantee |
+| tests-only, docs-only | **yes** | not dispatch code at all; the rule never applied |
+
 ## Why not a full RC channel
 
 A formal release-candidate process (a separate pre-release channel, a fixed

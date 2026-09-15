@@ -165,6 +165,13 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # report's own solar/load/battery resampling (already listed
         # above) -- same native-only reasoning, not a separate gap.
         "resample_history_mean",
+        # nimbus issue #919: called only from _compute_report_for_window
+        # (already listed above), and it reads back the recorded STATE
+        # HISTORY of a Nimbus-published sensor -- which only exists on a
+        # real HA install with a recorder. A standalone/cron script has
+        # no recorder to read a forecast trail out of at all, so this is
+        # a genuine execution-context difference, not a missing fix.
+        "_load_nowcast_skill_attributes",
         "compute_efficiency_backtest_report",
         "compute_nimbus_only_soc_counterfactual",
         "publish_daily_quality_report",

@@ -2,7 +2,7 @@
   "domain": "nimbus_load",
   "name": "Nimbus",
   "after_dependencies": ["energy"],
-  "codeowners": ["@code-imstillalive"],
+  "codeowners": ["@code-imstillalive", "@purcell-lab"],
   "config_flow": true,
   "dependencies": ["frontend", "http", "recorder"],
   "documentation": "https://github.com/code-imstillalive/nimbus",

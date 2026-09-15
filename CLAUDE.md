@@ -20,6 +20,60 @@ Dated work-in-progress notes live in `docs/worklog/`, one file per date — this
 the "CURRENT STATE" journal that used to live directly in this file now lives. Each
 file is not re-summarized here; read it directly for the full detail. Most recent 5:
 
+- [2026-09-16](docs/worklog/2026-09-16.md) — **No release cut; the version queue is
+  blocked** and that is the day's key operational fact — `main` sits two merged
+  PRs ahead of v0.94.330 (#935, #936) while PRs #930/#931 are held overnight for
+  the household carrying manifest bumps to v0.94.331/332 in their own branches, so
+  no tag from `main` is clean in either direction. It has a real cost: #773's
+  diagnostic only reports from a real install, so the queue is what holds up its
+  measurement. **#919 shipped** (PR #936) — a deployed install can finally answer
+  "is the ML forecaster beating persistence on my data?" — and the sensor choice
+  was the entire fix: the design published the night before would have read
+  `sensor.nimbus_household_load_total_forecast`, whose state `solver_inputs/
+  load.py` overwrites with the live cross-check reading (#429's anchor)
+  immediately before publish — **the same sensor the quality report uses as
+  ground truth**. Confirmed live at the cent on every row of three hours of
+  history. It would have published near-perfect skill on every install forever,
+  and not as an edge case: the precondition for computing the metric is the
+  precondition for it being fake. Fixed by using the pre-anchor snapshot instead.
+  **Then the larger finding (#937)**: the reference household's install has been
+  computing real day-ahead forecast regret since 08-30 and nobody had read it —
+  **persistence beat the forecaster on 11 of 14 days, mean −$0.71/day**, which
+  reframes a claim this project has made freely. **#933's own published negative
+  result was also wrong** (eleven days of statistics exist, not two; the summed
+  total hit exactly 0.0 on five days), and **#773's candidate 3 did not
+  reproduce** across ten trials. The day's shape: three published claims
+  overturned by measurement, two of them this session's own from the previous
+  day — the failure mode is not carelessness but confidence in a reading never
+  checked at the site that produces it.
+  **The overnight continuation added five more merged PRs and four filed
+  issues**, and by the end the count was **five** published claims overturned by
+  measurement, three of them this session's own. The worst was #890, where three
+  different positions were posted in one evening before the verified one: HA
+  applies `_unrecorded_attributes` only via `state.state_info`, which only
+  entity-written states carry, so an oversize-attribute drop on an entity whose
+  class *does* declare that key excluded means **the writer is not the entity**.
+  The install being read was executing stale code, identified by
+  `solve_diagnostics` carrying 3 keys where current code emits 7 — a fingerprint
+  that had already retracted a wrong claim on #921 hours earlier, and **not
+  reaching for it again is the actual error, not the individual wrong answers.**
+  Generalising the verified mechanism produced **#944**: `_unrecorded_attributes`
+  cannot work at all on the cron/REST deployment, a structural gap #357's
+  function-set drift apparatus cannot see because both transports call the same
+  function and differ only in runtime capability. Also **#945** (a WARNING
+  stream firing 99 times an hour on the case its own comment calls harmless,
+  burying its own signal — fixed while deliberately preserving the
+  cadence-degradation evidence it was the only source of), **#942** (the Sources
+  form now says only 2 of its 16 fields are required, and #448's counts became a
+  build artifact), and **#949** from Mark's #948 — `soc_discrepancy_*` compares
+  the *home* battery's sensor against a *fleet-blended* reconstruction, yielding
+  25 pt from perfect data on a three-battery fleet and 0.0 pt on a single-battery
+  install. Mark predicted that mechanism; this found the line. **The release
+  queue ended the night 11 commits deep and still blocked** on #930/#931, whose
+  own `Devhub validation:` lines were found to claim "tests only — no production
+  Python" while changing `solver_writer.py` and `solver/network.py` — a
+  present-and-false line the #594 guard cannot catch, since it checks only that
+  the phrase exists.
 - [2026-09-15](docs/worklog/2026-09-15.md) — Releases v0.94.305 → **v0.94.317**,
   continuing directly from 09-14. **#773 got a positive result after five
   refuted hypotheses**: `mip_node_count=1, mip_gap=0.0` means the search tree
@@ -60,7 +114,7 @@ file is not re-summarized here; read it directly for the full detail. Most recen
   day** before #481's ambient covariate landed on a different issue (#897).
   Four public corrections along the way, three of them from checking something
   already published; the reliable move every time was reading the site that
-  *consumes* a number rather than the description of what produces it.
+  *consumes* a number rather than the description of what produces it.
 - [2026-09-14](docs/worklog/2026-09-14.md) — Version reaches **v0.94.304** across
   the day, eighteen releases in total (v0.94.287→304), from two sessions working
   the repo concurrently. **The day's largest thread was #757, root-caused in

@@ -3121,10 +3121,35 @@ class _NimbusSolverPushSensor(SensorEntity):
 
     _attr_device_class / _attr_state_class / _attr_native_unit_of_
     measurement are set at class-attribute time (subclass overrides
-    below) so the Recorder's own "unit changed" repair (see issue #61)
-    stops firing -- the unit now comes from the SensorEntity contract,
-    not from a raw attribute the state machine happens to have been
-    handed.
+    below), so the unit comes from the SensorEntity contract rather than
+    from a raw attribute the state machine happens to have been handed
+    (issue #61).
+
+    **How that interacts with the Recorder, because #890 got re-derived
+    wrong twice in one session and this is the durable answer.**
+
+    HA applies `_unrecorded_attributes` only through `state.state_info`
+    (`recorder/db_schema.py::shared_attrs_bytes_from_event`): absent it,
+    the exclusion set falls back to `ALL_DOMAIN_EXCLUDE_ATTRS` and, if
+    the resulting payload exceeds 16 KB, the **entire** attribute row is
+    dropped -- `unit_of_measurement` with it, which then suppresses
+    long-term statistics against the previously-compiled unit.
+
+    `state_info` is present only on states written **by the entity**. On
+    the native path that is what happens: `ha_post_state()` routes
+    through `update_from_solver()` -> `async_write_ha_state()`, so
+    `forecast` (17.6 KB of the ~19.3 KB payload) is excluded and ~1.7 KB
+    is recorded. Both of this class's big entity_ids are also in
+    `_NATIVE_MANAGED_ENTITY_IDS`, so a missing handler SKIPS the push
+    rather than raw-writing it.
+
+    Which makes the oversize warning a useful signal rather than a
+    defect: **if `recorder.db_schema` logs "State attributes for
+    <one of these> exceed maximum size", the writer is not this entity.**
+    Check `solve_diagnostics`' key count on the state -- current code
+    emits seven; fewer means stale or external code wrote it, which is a
+    deployment problem, not this class's. That check has caught three
+    wrong conclusions about live behaviour in a single session.
     """
 
     _attr_has_entity_name = True
