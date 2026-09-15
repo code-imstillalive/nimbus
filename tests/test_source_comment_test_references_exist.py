@@ -30,6 +30,55 @@ Scoped to `test_*.py` specifically because that is a name this repo can
 resolve with certainty: it either is a file under `tests/` or it is not.
 Deliberately not extended to prose references ("see the solver's own
 docstring"), which have no checkable referent.
+
+WHAT A GREEN RUN OF THIS FILE DOES NOT MEAN (nimbus issue #955, Mark
+Purcell, 48-hour IV&V #950)
+--------------------------------------------------------------------
+**This checks that a referenced file EXISTS. It does not check that the
+file contains the guard the comment claims lives there.** A comment
+saying *"see `test_foo.py`'s own guard for X"* passes as long as
+`test_foo.py` exists at all -- even if that file has since been
+rewritten to test something else entirely. The two real regressions this
+file was built for are still caught, because both filenames genuinely
+resolved to nothing; the subtler case -- name survives, content diverges
+-- is out of scope, and a reader should not over-trust a green run here.
+
+Two content heuristics were measured against the real corpus before
+settling for saying so plainly, because "document the limitation" is
+otherwise too easy an answer:
+
+1. **Bidirectional issue link** -- require the issue number cited near
+   the reference to also appear in the referenced test file. 11 of 22
+   references carry an issue number nearby; only 6 of those 11 would
+   pass. The 5 failures are legitimate (the issue number next to a
+   reference is frequently the issue being *discussed*, not the one the
+   test was written under).
+2. **Enclosing symbol** -- require the def/class containing the comment
+   to be named somewhere in the referenced test file. 7 of 12 resolvable
+   references pass, 5 fail legitimately (a test can guard
+   `_build_plan_once`'s behaviour perfectly well while only ever calling
+   the public `build_plan`), and 10 of the 22 sit in module-level
+   comments with no enclosing symbol to check at all.
+
+Both would fail on roughly 40% of a corpus with no real defects in it,
+and a guard that cries wolf twice a week gets an allowlist bolted on and
+then gets ignored. "Does this file test X" is a genuinely harder
+question than "does this file exist", and the honest answer was to keep
+the check precise and state its ceiling here.
+
+What WAS extended in response to #955 is coverage rather than depth: the
+sweep now also reads the standalone/cron writer under
+`docs/real-world-integration/files/`. That is real shipped source with 5
+references of its own and no guard on any of them -- the same class of
+stale name, in a file a household actually runs, going entirely
+unchecked. It is clean today, so this lands green.
+
+`tests/` itself is deliberately still excluded. It carries 97
+references, of which the only unresolvable ones are this file's own
+illustrative examples (`test_foo.py`, and the two historical names
+quoted above) plus a `test_X.py` placeholder in `_solver_path.py` --
+so guarding it would mean an allowlist of deliberate non-names, for
+references that are far less load-bearing than a source comment.
 """
 
 from __future__ import annotations
@@ -41,6 +90,11 @@ from pathlib import Path
 _REPO_ROOT = Path(__file__).resolve().parent.parent
 _INTEGRATION = _REPO_ROOT / "custom_components" / "nimbus_load"
 _TESTS = _REPO_ROOT / "tests"
+# nimbus issue #955: the standalone/cron writer is real shipped source a
+# household actually runs, and its own test-file references were never
+# swept. Same guarantee, same failure shape, one more root.
+_STANDALONE = _REPO_ROOT / "docs" / "real-world-integration" / "files"
+_SCANNED_ROOTS = (_INTEGRATION, _STANDALONE)
 
 # A bare `test_foo.py`, or a `tests/test_foo.py` path form. Both appear
 # in the tree today.
@@ -53,13 +107,14 @@ def _existing_test_filenames() -> set[str]:
 
 def _references() -> dict[str, set[str]]:
     """{referenced filename: {source files naming it}} across the whole
-    integration package."""
+    integration package, plus the standalone/cron writer (#955)."""
     found: dict[str, set[str]] = {}
-    for path in sorted(_INTEGRATION.rglob("*.py")):
-        text = path.read_text(encoding="utf-8")
-        for match in _REFERENCE.finditer(text):
-            rel = path.relative_to(_REPO_ROOT).as_posix()
-            found.setdefault(match.group(1), set()).add(rel)
+    for root in _SCANNED_ROOTS:
+        for path in sorted(root.rglob("*.py")):
+            text = path.read_text(encoding="utf-8")
+            for match in _REFERENCE.finditer(text):
+                rel = path.relative_to(_REPO_ROOT).as_posix()
+                found.setdefault(match.group(1), set()).add(rel)
     return found
 
 
@@ -86,6 +141,29 @@ class TestSourceCommentsPointAtRealTestFiles(unittest.TestCase):
             "guard (it usually still exists under a different name after a "
             "split or rename), or drop the reference if the guard is "
             f"genuinely gone: {broken}",
+        )
+
+    def test_the_standalone_writer_is_actually_being_swept(self):
+        """Guard on the mechanism, not the data (nimbus issue #955).
+
+        Adding `_STANDALONE` to the scanned roots is worth nothing if a
+        later refactor moves or renames that directory: `rglob` on a
+        missing path yields nothing and raises nothing, so this file
+        would keep passing while silently dropping back to
+        integration-only coverage -- the exact "enforcing less, still
+        green" shape #955 is about.
+        """
+        self.assertTrue(
+            _STANDALONE.is_dir(),
+            f"{_STANDALONE} no longer exists -- the standalone/cron writer has "
+            "moved, and this file is silently no longer sweeping it",
+        )
+        sources = {where for wheres in _references().values() for where in wheres}
+        self.assertTrue(
+            any(s.startswith("docs/real-world-integration/files/") for s in sources),
+            "no test-file reference was found in the standalone/cron writer at "
+            "all. Either every one was removed (fine -- delete this test with "
+            "them), or the sweep has stopped reaching that directory.",
         )
 
     def test_the_two_known_corrections_stay_correct(self):
