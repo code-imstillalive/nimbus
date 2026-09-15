@@ -1058,6 +1058,11 @@ def _set_cost_vector(
 # skip straight to the cheap path for a real window instead of
 # hammering the same failing multi-minute MIP every single cycle.
 _LEX_CALIBRATION_COOLDOWN_S = 300.0  # 5 minutes
+# How far a solved binary may sit from 0/1 before pinning it by rounding
+# becomes suspect (nimbus issue #773). HiGHS's own default MIP
+# integrality tolerance is 1e-6; anything materially beyond that was
+# never a clean integer assignment to begin with.
+_BINARY_INTEGRALITY_TOLERANCE = 1e-6
 _lex_calibration_failed_until: float = 0.0
 
 
@@ -1145,6 +1150,42 @@ def _pin_binaries_to_current_solution(
     if not binary_cols:
         return
     x = np.array([h.val(var_array[i]) for i in range(len(var_array))])
+    # nimbus issue #773 diagnostic (2026-09-16). Measurement only --
+    # nothing about the pinning below changes.
+    #
+    # 'phase2_pin_resolve' has been observed returning Infeasible, which
+    # contradicts this function's own invariant: every binary is pinned to
+    # the value the previous solve just returned, so that solution stays
+    # feasible by construction and the re-solve should reproduce it.
+    # Infeasible means the pinned assignment is NOT the one just found.
+    #
+    # Two candidates. The rounding below is unconditional, so a value that
+    # is not actually near-integral gets snapped anyway -- and against a
+    # tight semi-continuous linking constraint (#616's power[t] <=
+    # max_power * on[t]) a snapped assignment can genuinely be infeasible.
+    # The alternative is that h.val() after a MIP solve returns the final
+    # node's relaxation rather than the incumbent.
+    #
+    # This separates them for the cost of one max(): a materially
+    # off-integral value confirms the rounding path, while crisply integral
+    # values point at the read-back path instead. WARNING rather than DEBUG
+    # because it stays silent on a healthy solve -- it fires only when the
+    # anomaly is genuinely present, and an install logging at WARNING is
+    # exactly the one that needs to see it.
+    worst_integrality_gap = max(
+        (abs(float(x[i]) - round(float(x[i]))) for i in binary_cols),
+        default=0.0,
+    )
+    if worst_integrality_gap > _BINARY_INTEGRALITY_TOLERANCE:
+        _LOGGER.warning(
+            "Nimbus #773 diag: about to pin %d binaries, but the worst sits "
+            "%.3e away from integral (tolerance %.0e). Rounding it anyway is "
+            "how a supposedly-identical pin resolve can come back Infeasible "
+            "-- see _pin_binaries_to_current_solution().",
+            len(binary_cols),
+            worst_integrality_gap,
+            _BINARY_INTEGRALITY_TOLERANCE,
+        )
     for i in binary_cols:
         fixed = float(round(x[i]))
         h.changeColIntegrality(i, highspy.HighsVarType.kContinuous)
