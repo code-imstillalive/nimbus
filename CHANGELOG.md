@@ -8,6 +8,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.319] — 2026-09-15
+
+### Added
+- **The per-load half of a household mode is now observable** (nimbus issue [#485](https://github.com/code-imstillalive/nimbus/issues/485)). A moded load value lives only inside the solve — it is never written back to a `number.*` entity and never published as an attribute — so until now *"which of my levers did `away` actually move?"* had **no answer at all**. That is the first question a household asks when a mode does not do what they expected.
+
+  A DEBUG line per load now names the mode, the count, the load, and the levers.
+
+  **DEBUG rather than INFO, deliberately.** This fires once per load per solve, so a six-load install sitting in `away` would emit six lines a minute at INFO — exactly the noise [#757](https://github.com/code-imstillalive/nimbus/issues/757) and [#773](https://github.com/code-imstillalive/nimbus/issues/773) each had to clean up *after* shipping. The solver-lever half stays at INFO because it fires once per solve, not once per load.
+
+  Found while writing v0.94.318's validation line: the honest scope note there said the deploy could not exercise the price gate, and checking why surfaced that the per-load half had no observability to exercise it *with*. Four tests pin it, including that `apply_to_load_config()` keeps returning what it changed — a refactor dropping that second value would silently remove the only visibility this half has.
+
 ## [0.94.318] — 2026-09-15
 
 ### Added

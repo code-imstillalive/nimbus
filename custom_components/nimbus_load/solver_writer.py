@@ -9704,7 +9704,26 @@ def _resolve_controllable_load_tuning(data: dict, subentry) -> dict:
         "unavailable",
     ):
         mode = mode_state.state
-    resolved, _ = household_modes.apply_to_load_config(resolved, mode)
+    resolved, _mode_applied = household_modes.apply_to_load_config(resolved, mode)
+    if _mode_applied:
+        # DEBUG, not INFO, deliberately: this fires once per load per
+        # solve, so a six-load install in `away` would emit six lines a
+        # minute at INFO -- exactly the noise #757 and #773 each had to
+        # clean up after shipping. The solver-lever half logs at INFO
+        # because it fires once per solve, not once per load.
+        #
+        # Worth having at all because "which of my levers did `away`
+        # actually move?" is the first question a household asks when a
+        # mode does not do what they expected, and without this the
+        # per-load half is invisible: the moded value lives only inside
+        # the solve and is never published anywhere.
+        _LOGGER.debug(
+            "Nimbus #485: household mode %r moved %d lever(s) on %r: %s",
+            mode,
+            len(_mode_applied),
+            title,
+            _mode_applied,
+        )
     return resolved
 
 
