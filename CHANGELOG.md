@@ -19,6 +19,18 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
   Found while writing v0.94.318's validation line: the honest scope note there said the deploy could not exercise the price gate, and checking why surfaced that the per-load half had no observability to exercise it *with*. Four tests pin it, including that `apply_to_load_config()` keeps returning what it changed — a refactor dropping that second value would silently remove the only visibility this half has.
 
+Devhub validation: deployed and restarted, `installed_version == available_version == v0.94.319`. **And this closed the verification gap v0.94.318's own note had to leave open.** With the new line enabled, a synthetic price-gated Controllable Load was created on that install, solved in each mode, and removed afterwards:
+
+```
+home   no #485 line at all                       <- identity, as designed
+away   "moved 3 lever(s) on 'ZZ Mode Test Price Gate':
+        {'deferrable_value_per_kwh': 0.02, ...}"  <- 0.05 -> 0.02
+```
+
+**0.05 → 0.02 is exactly the `away` threshold Mark specified**, reached through the real solve path rather than asserted by a test. The DEBUG-over-INFO choice was validated at the same time: seven loads produced seven lines per solve, which at INFO would have been seven a minute.
+
+The same log window also produced **the clearest evidence yet for that install's separately-tracked staleness bug** — and it is per-file, not per-package. `solver_writer.py` is current (this release's own brand-new line fires) while `sensor.py` is about nineteen releases behind (`sensor.nimbus_solver_config` carries none of `region`, `postcode_prefix` or `aemo_30min_forecast_sensor`, all set unconditionally since v0.94.300). Two files, one package, one download, one restart, read seconds apart. That also explains the 16 KB recorder warning in the same window, and is consistent with — not a reopening of — [#890](https://github.com/code-imstillalive/nimbus/issues/890), which closed on a *current-code* install showing unbroken statistics.
+
 ## [0.94.318] — 2026-09-15
 
 ### Added
