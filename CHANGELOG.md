@@ -8,6 +8,23 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.329] — 2026-09-15
+
+### Added
+- **The six report publishes in `main()` are wrapped so a failure in any of them "must never take down the real solve" -- and nothing tested that.** Fifteen tests now do ([#735](https://github.com/code-imstillalive/nimbus/issues/735)).
+
+  Found by probing `main()`'s own warning sites against the suite: of eight `_LOGGER.warning`/`error` calls inside it, **none** appeared verbatim in any test. Six are these isolation guards. (An earlier, weaker probe -- checking whether every issue number cited in `main()`'s comments appears somewhere in `tests/` -- reported full coverage at 39 of 39, which is exactly the kind of reassuring-but-useless measurement worth not trusting.)
+
+  **There are two invariants here, not one, and the second is the one that actually broke in production.** Every one of these `except` branches used to be a bare `pass`, and the comment beside them records the cost:
+
+  > 2026-08-31: previously a bare `pass` -- made the entity-id-collision incident this file's own `resolve_real_entity_id()` fixes completely invisible in the log for days (confirmed live on devhub: 200+ recent log lines matching "nimbus", zero exceptions, zero tracebacks, because every failure here was silently swallowed).
+
+  So: (1) a failing report must not stop the solve or the dispatch push, and (2) a failing report must be **logged**, not swallowed. A regression to a bare `pass` satisfies (1) perfectly and re-breaks (2) invisibly, which is why both are asserted per publisher rather than just the first.
+
+  Driven through the real `main()` on the #363 golden-output fixture, so the actual call site is what runs. Covers each publisher alone, all six failing at once (the realistic shape -- they share helpers), and a clean baseline asserting none of those phrases appears on a healthy run, so nothing above can pass vacuously.
+
+  This is the pattern [#735](https://github.com/code-imstillalive/nimbus/issues/735) itself identified as its real return: *"the line count is the visible part, and converting comment-guarded invariants into tests is the part that keeps paying."* These calls are also exactly what that issue's plan moves into `solver_reports/` on their own timer -- refactoring a guard nothing tests is how a guard quietly stops guarding.
+
 ## [0.94.328] — 2026-09-15
 
 ### Fixed
@@ -27,6 +44,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   The comparison is invalid for a structural reason: `AdequacyLoadConfig` has no contiguity or minimum-run field, so the LP chooses a **set** of periods delivering `target_kwh`, not a start time -- about 6.15 hours' worth for #769's own load. A single period's lambda prices one more kW *there*, given everything else the plan is doing; it says nothing about the cost of the whole set. One cheap period stranded among expensive neighbours is no use to a load that needs six hours, and an optimal LP correctly declines it.
 
   Worth having before the main #769 work rather than after: that issue's real question -- whether `adequacy_earliness_budget_kw` needs redesigning -- changes live hot-water dispatch, and should not be decided on top of a phantom second defect.
+
+Devhub validation: deployed and restarted, `installed_version == available_version == v0.94.328`, solve `optimal`, health report **0** errors, no new log lines. The only production file in the diff is `solver/elements.py` and every changed line in it is docstring prose -- verified by filtering the diff for non-comment code, which came back empty. So nothing behavioural to confirm, and (per the v0.94.327 note) that install could not confirm one anyway.
 
 ## [0.94.327] — 2026-09-15
 
