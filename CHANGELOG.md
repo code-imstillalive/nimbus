@@ -29,6 +29,10 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
   Real `build_plan()` and the real projection function, with the LP's own chosen power series fed straight into the projection — a comparison between the two shipped equations, not between one of them and a restatement of it. Four of the six tests guard against the comparison being vacuous: one fails if the LP never actually heats, one pins the direction, one pins monotonicity, and one confirms they agree exactly while the load is idle.
 
+Devhub validation: deployed and restarted, `installed_version == available_version == v0.94.312`, solve `optimal` in 1.18 s over 198 periods, `nimbus_status` "Working well", no new errors. A tests-and-docs release should be invisible on a running install, and it is — both flagship sensors published fresh with `unit_of_measurement: kW`, `state` and `whole_house_live_now_kw` both **2.57**.
+
+That install's stale-execution bug is now unchanged across **three consecutive version changes** (v0.94.310 → .311 → .312, each a real HACS download of a newer release plus a restart): `sensor.nimbus_solver_config` still does not carry `region` as a key at all, and that attribute has been set unconditionally since v0.94.300. Logged, not remediated.
+
 ## [0.94.311] — 2026-09-15
 
 ### Changed
