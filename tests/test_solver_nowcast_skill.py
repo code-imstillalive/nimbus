@@ -26,8 +26,10 @@ which was caught only by reading the code that writes the sensor rather
 than trusting the sensor's name.
 """
 
+import re
 import unittest
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import _solver_path  # noqa: F401
 import numpy as np
@@ -296,6 +298,61 @@ class TestItDegradesInsteadOfFabricating(unittest.TestCase):
         self.assertAlmostEqual(result.coverage, 0.75)
         self.assertEqual(result.n_periods_measured, 18)
         self.assertEqual(result.n_periods, N)
+
+
+class TestTheBenchmarkDocsClaimStaysTrue(unittest.TestCase):
+    """`docs/reference-benchmark.md` makes a factual claim about who
+    calls `compute_forecast_regret()`, and that claim went stale silently
+    the moment this module started calling it.
+
+    It had said the HACS integration "never calls it -- nothing outside
+    `custom_components/nimbus_load/solver/` even imports
+    `forecast_regret`". Nothing asserted that, so nothing caught it. This
+    is the same stale-documented-claim class as the four guards added on
+    2026-09-15 (entity names in a docs table, test-file names in source
+    comments, units, and physics in a docstring) -- a claim a reader will
+    trust needs something that fails when it stops being true.
+    """
+
+    def setUp(self):
+        self.repo = Path(__file__).resolve().parent.parent
+
+    def test_the_documented_importer_set_is_the_real_one(self):
+        """Measures real IMPORT statements, not textual mentions. The
+        first version of this test matched any file containing the string
+        and so flagged `solver_writer.py`, which only names the module in
+        a docstring -- a count measuring the wrong thing, the same error
+        four probes made on 2026-09-15. The doc's claim is about who
+        CALLS it, so imports are the right proxy; prose is not.
+        """
+        importers = {
+            path.name
+            for path in (self.repo / "custom_components" / "nimbus_load").rglob("*.py")
+            if re.search(
+                r"^\s*(?:from\s+\.?\S*forecast_regret\s+import|import\s+\S*forecast_regret)",
+                path.read_text(encoding="utf-8"),
+                re.MULTILINE,
+            )
+        }
+        self.assertEqual(
+            importers,
+            {"nowcast_skill.py", "reference_benchmark.py"},
+            "the set of modules referencing forecast_regret changed. "
+            "docs/reference-benchmark.md documents exactly who calls it "
+            "and why the field number is not comparable to the "
+            "benchmark's -- update that section, then update this test",
+        )
+
+    def test_the_doc_tells_a_reader_the_field_number_is_a_different_horizon(self):
+        """The specific thing a reader could get wrong: comparing
+        `load_nowcast_skill_value_add_dollars` against the benchmark's
+        own `nimbus_value_add_dollars` as though they measured the same
+        thing. One is one-step-ahead, the other day-ahead."""
+        doc = (self.repo / "docs" / "reference-benchmark.md").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("nowcast_skill", doc)
+        self.assertIn("one-step-ahead", doc)
 
 
 if __name__ == "__main__":

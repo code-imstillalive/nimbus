@@ -24,25 +24,38 @@ household data every day."* That was true of the standalone/cron
 deployment when it was written, and it is not true of the way installs
 run Nimbus now.
 
-`compute_forecast_regret()` has exactly two non-test callers: this
-benchmark, and the standalone/cron script
-`docs/real-world-integration/files/nimbus_solver_quality_writer.py`. The
-HACS integration never calls it — nothing outside
-`custom_components/nimbus_load/solver/` even imports `forecast_regret`.
+**Updated 2026-09-16 (#919): a native install now does call it**, via
+`solver/nowcast_skill.py`, which `_compute_report_for_window()` drives
+once per scored day. So `compute_forecast_regret()` has three non-test
+callers: this benchmark, the standalone/cron script
+`docs/real-world-integration/files/nimbus_solver_quality_writer.py`, and
+the HACS integration's own daily quality report.
 
-A native install computes a *different* metric on a separate
-implementation: `_compute_report_for_window()` publishes `epr`, `j_ref`,
-`j_ach`, `j_star`, `regret_dollars` and the tracking figures, but no
-`j_forecast` and no `j_persistence` — so the forecast-regret
-decomposition this benchmark reports is not produced anywhere in the
-field.
+**But it is deliberately not the same measurement, and the difference
+matters before you compare the two numbers.** A deployed install
+publishes `load_nowcast_skill_j_forecast` / `_j_persistence` /
+`_value_add_dollars`, which differ from this benchmark's figures in two
+ways by design:
 
-That does not make the benchmark dishonest: the scenario is fixed, the
-function is real, and a change in the number is still a change in that
-code. It does mean the number is **not currently anchored to anything a
-deployed install produces**, so treat it as a property of the
-`solver/` package rather than as evidence about live behaviour. Tracked
-in [#919](https://github.com/code-imstillalive/nimbus/issues/919).
+1. **Horizon.** The field number is built from a *nowcast trail*
+   recovered from recorder history — for each moment, what the
+   forecaster said about that moment. That is **one-step-ahead** skill.
+   This benchmark's scenario supplies a whole-day-ahead forecast array.
+   A day-ahead forecast is a harder problem, so the field number is not
+   the pessimistic or optimistic version of this one; it is a different
+   question.
+2. **Scope.** The field number holds solar at its real measured values
+   in every scenario, because Nimbus does not forecast solar
+   (Solcast/Open-Meteo do) and their accuracy is not this project's to
+   report. Its delta is therefore attributable to **load** forecast
+   quality alone. This benchmark varies both.
+
+The naming is the guardrail: every field attribute carries the
+`load_nowcast_skill_` prefix so nobody reads it as this document's
+number. Treat the benchmark as a property of the `solver/` package that
+detects regressions in that code, and the `load_nowcast_skill_*`
+attributes as the evidence about live behaviour — related, not
+interchangeable.
 
 ## Why synthetic, not a captured real day
 
