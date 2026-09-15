@@ -213,3 +213,105 @@ class TestTheSizeOfIt(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _project_ambient(power_kw, ambient_c, loss_coeff_per_h):
+    """The same projection with #481's ambient-scaled decay in force —
+    what an install with `solver_weather_forecast_sensor` configured
+    actually gets."""
+    plan_forecast = [
+        {"time": (_T0 + timedelta(hours=_HOURS * i)).isoformat(), "value": float(p)}
+        for i, p in enumerate(power_kw)
+    ]
+    ambient_forecast = [
+        {"time": (_T0 + timedelta(hours=_HOURS * i)).isoformat(), "value": ambient_c}
+        for i in range(len(power_kw))
+    ]
+    return tf.project_temperature_forecast(
+        plan_forecast,
+        start_temperature=40.0,
+        heating_rate_c_per_kwh=_RATE,
+        idle_decay_c_per_hour=_DECAY,
+        on_threshold_kw=0.05,
+        loss_coeff_per_h=loss_coeff_per_h,
+        ambient_forecast=ambient_forecast,
+    )
+
+
+class TestTheAmbientCovariateWidensTheDivergence(unittest.TestCase):
+    """nimbus issue #897, second divergence — found 2026-09-15.
+
+    `ThermalLoadConfig`'s own docstring justifies the flat LP model by
+    claiming the LP and the display projection *"share the IDENTICAL
+    physics model, by construction — they can never disagree"*, and that
+    an ambient forecast series *"does not exist anywhere in this codebase
+    today"*.
+
+    Both were true when written (#774/#800, 2026-09-13) and **false one
+    day later**: #481/#864 (v0.94.293, 2026-09-14) learns
+    `loss_coeff_per_h` and applies Newton's-law decay in the projection
+    whenever a weather sensor is configured. The LP recursion still
+    subtracts a flat `idle_decay_c_per_hour * hours[t]` with no ambient
+    term anywhere.
+
+    So the warned-against shape arrived with the roles swapped: an
+    ambient-scaled projection against a flat LP. Nobody erred — #864 is
+    correctly scoped to the projection and says so — the invariant broke
+    because the two changes sat on different issues and nothing checked
+    the claim.
+
+    This only bites on an install with `solver_weather_forecast_sensor`
+    set. The reference household has one; devhub does not, which is
+    exactly why devhub cannot surface it.
+
+    As with the tests above, these pin the disagreement rather than
+    asserting agreement: which model is right changes live dispatch on a
+    real hot water system, and that is #897's open question.
+    """
+
+    def test_the_lp_config_has_no_ambient_input_at_all(self):
+        """Structural, and the reason the projection can never be matched
+        by tuning: `ThermalLoadConfig` carries nowhere to put a loss
+        coefficient or an ambient series. Closing #897 toward the
+        ambient model means adding a field here, not changing a number."""
+        import dataclasses
+
+        from solver.elements import ThermalLoadConfig
+
+        fields = {f.name for f in dataclasses.fields(ThermalLoadConfig)}
+        self.assertNotIn("loss_coeff_per_h", fields)
+        self.assertNotIn("ambient_forecast", fields)
+        self.assertIn("idle_decay_c_per_hour", fields)
+
+    def test_configuring_a_weather_sensor_changes_the_projection(self):
+        """The two decay models genuinely differ on the same plan. If this
+        ever stops being true, either #481's covariate stopped applying or
+        the LP grew an ambient term — both worth knowing."""
+        tl = _solve()
+        flat = _project(tl.power_kw)
+        # A 20 C ambient against a 40-60 C tank: the real gap range the
+        # reference household's own 4-segment fit was taken over.
+        ambient = _project_ambient(tl.power_kw, 20.0, 0.02)
+        self.assertNotAlmostEqual(
+            float(flat[-1]["value"]), float(ambient[-1]["value"]), places=2
+        )
+
+    def test_the_ambient_projection_also_disagrees_with_the_lp(self):
+        """The point of #897, restated for the second divergence: on an
+        install with a weather sensor, what the household is shown and
+        what the LP guaranteed are computed from different physics, not
+        merely different bookkeeping."""
+        tl = _solve()
+        ambient = _project_ambient(tl.power_kw, 20.0, 0.02)
+        gap = float(ambient[-1]["value"]) - float(tl.temperature_c[-1])
+        self.assertNotAlmostEqual(gap, 0.0, places=2)
+
+    def test_without_a_weather_sensor_the_projection_stays_flat(self):
+        """The degradation path #864 promised: no coefficient, no ambient
+        series, byte-identical to the pre-#481 behaviour — which is why
+        devhub sees none of this."""
+        tl = _solve()
+        flat = _project(tl.power_kw)
+        none_configured = _project_ambient(tl.power_kw, 20.0, None)
+        for a, b in zip(flat, none_configured, strict=True):
+            self.assertAlmostEqual(float(a["value"]), float(b["value"]), places=9)
