@@ -13,7 +13,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ### Added
 - **The per-load half of a household mode is now observable** (nimbus issue [#485](https://github.com/code-imstillalive/nimbus/issues/485)). A moded load value lives only inside the solve — it is never written back to a `number.*` entity and never published as an attribute — so until now *"which of my levers did `away` actually move?"* had **no answer at all**. That is the first question a household asks when a mode does not do what they expected.
 
-  A DEBUG line per load now names the mode, the count, the load, and the levers.
+  A DEBUG line per load now names the mode, the count, the load, and the levers. **It needs debug logging enabled for that component to be visible at all** — `custom_components.nimbus_load.solver_writer: debug` in `configuration.yaml`, or a `logger.set_level` call. Worth saying plainly rather than leaving implied: a reference install sits at `WARNING` by default, so a household following this entry as originally written would have seen nothing and reasonably concluded the feature was missing.
 
   **DEBUG rather than INFO, deliberately.** This fires once per load per solve, so a six-load install sitting in `away` would emit six lines a minute at INFO — exactly the noise [#757](https://github.com/code-imstillalive/nimbus/issues/757) and [#773](https://github.com/code-imstillalive/nimbus/issues/773) each had to clean up *after* shipping. The solver-lever half stays at INFO because it fires once per solve, not once per load.
 
