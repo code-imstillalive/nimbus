@@ -728,6 +728,11 @@ def _risk_aversion_effect_now(
     }
 
 
+# See the integration copy for why this is a real tolerance rather
+# than a float-equality epsilon (nimbus issue #921).
+_PIN_MATCH_TOLERANCE_KW = 0.01
+
+
 def resolve_fixed_export_charge_clamp(
     fixed_export_kw: NDArray[np.float64] | None,
     *,
@@ -922,7 +927,8 @@ def compute_binding_constraint_label(
                 var_key == "grid_export_0"
                 and fixed_export_kw_now is not None
                 and not math.isnan(fixed_export_kw_now)
-                and abs(solved_value - float(fixed_export_kw_now)) <= 1e-6
+                and abs(solved_value - float(fixed_export_kw_now))
+                <= _PIN_MATCH_TOLERANCE_KW
             ):
                 # nimbus issue #921: the third bound grid_export[t]
                 # really has. p2p_export.grid_export_bounds() pins it
@@ -932,7 +938,8 @@ def compute_binding_constraint_label(
                 # fall into the 'shouldn't happen' branch below --
                 # every period of every evening block.
                 binding_now = (
-                    f"{short_name} pinned at {solved_value:.2f} kW "
+                    f"{short_name} pinned at "
+                    f"{float(fixed_export_kw_now):.2f} kW "
                     "by P2P export commitment"
                 )
             else:
@@ -941,9 +948,17 @@ def compute_binding_constraint_label(
                 # exactly at a bound) -- represented honestly rather
                 # than assumed, matching this module's own "never paper
                 # over an unexpected state" convention.
+                _pin_note = (
+                    f", P2P commitment {float(fixed_export_kw_now):.2f} kW"
+                    if var_key == "grid_export_0"
+                    and fixed_export_kw_now is not None
+                    and not math.isnan(fixed_export_kw_now)
+                    else ""
+                )
                 binding_now = (
                     f"{short_name} at {solved_value:.2f} kW "
-                    f"(unexpected -- neither its 0 nor {limit_kw:.2f} kW bound)"
+                    f"(unexpected -- neither its 0 nor {limit_kw:.2f} kW bound"
+                    f"{_pin_note})"
                 )
             binding_now_value_per_kwh = round(val / period_0_hours, 4)
     if binding_now is None:

@@ -965,6 +965,16 @@ def _risk_aversion_effect_now(
     }
 
 
+# How far below-or-at its own committed rate grid_export[0] may sit and
+# still be called "pinned by the P2P commitment" (nimbus issue #921).
+# Not a float-equality epsilon: this is one variable out of a ~12,000-
+# column two-phase MIP, and the residual on a real instance is nothing
+# like the exact bound a small synthetic LP returns. 10 W is far below
+# anything a household could act on and far above any plausible solver
+# residual on a 12 kW commitment.
+_PIN_MATCH_TOLERANCE_KW = 0.01
+
+
 def resolve_fixed_export_charge_clamp(
     fixed_export_kw: NDArray[np.float64] | None,
     *,
@@ -1161,7 +1171,8 @@ def compute_binding_constraint_label(
                 var_key == "grid_export_0"
                 and fixed_export_kw_now is not None
                 and not math.isnan(fixed_export_kw_now)
-                and abs(solved_value - float(fixed_export_kw_now)) <= 1e-6
+                and abs(solved_value - float(fixed_export_kw_now))
+                <= _PIN_MATCH_TOLERANCE_KW
             ):
                 # nimbus issue #921: a THIRD bound this variable really
                 # has, and the only one not in _BINDING_FAMILIES above.
@@ -1175,10 +1186,35 @@ def compute_binding_constraint_label(
                 # household its solver was confused, every period of every
                 # evening block -- the hours where the most money moves
                 # and where someone is most likely to be reading this
-                # field to understand the plan. Observed live at 12.00 kW
-                # against a 40 kW export limit on a 17:00-24:00 block.
+                # field to understand the plan.
+                #
+                # The tolerance is the whole point of this second pass.
+                # v0.94.324 shipped this branch testing `abs(solved -
+                # pin) <= 1e-6` and, on the very install it was written
+                # for, it never fired: the attribute still published
+                # "12.00 kW (unexpected ...)" with a 12.0 kW commitment
+                # genuinely in force that period. A small synthetic LP
+                # returns a pinned variable at exactly its bound (checked
+                # directly: delta 0.000e+00), which is what made 1e-6
+                # look safe -- and that does not generalise to one
+                # variable out of a ~12,000-column two-phase MIP.
+                #
+                # Still two-sided, deliberately. A value well BELOW the
+                # commitment is as impossible as one well above it, since
+                # grid_export_bounds() returns (pin, pin); and #694's
+                # price-spike override, which relaxes the bounds to (pin,
+                # export_limit_kw) at t=0, is exactly a case where export
+                # rises above the commitment and must NOT be reported as
+                # pinned. Both are real states worth surfacing, so the
+                # test is "within a real tolerance of the pin", not "at
+                # or below it".
+                #
+                # Reports the COMMITMENT, not the solved value: the
+                # commitment is the exact configured number the household
+                # recognises, and the solved value is the same quantity
+                # plus whatever the solver's own residual is.
                 binding_now = (
-                    f"{short_name} pinned at {solved_value:.2f} kW "
+                    f"{short_name} pinned at {float(fixed_export_kw_now):.2f} kW "
                     "by P2P export commitment"
                 )
             else:
@@ -1195,9 +1231,28 @@ def compute_binding_constraint_label(
                 # above). Anything still landing here is a bound nothing
                 # in this function models -- which is worth saying loudly
                 # rather than smoothing over, so keep this branch.
+                #
+                # It now names this period's own P2P commitment when there
+                # is one. v0.94.324's branch above failed silently on the
+                # exact install it was written for, and the message it
+                # fell through to gave no way to tell "no commitment this
+                # period" from "a commitment the comparison rejected".
+                # Carrying the number makes the next misfire diagnosable
+                # from the published attribute alone.
+                # Only on grid export -- the commitment bounds that one
+                # variable, and naming it beside a battery's own binding
+                # constraint would be a non-sequitur.
+                _pin_note = (
+                    f", P2P commitment {float(fixed_export_kw_now):.2f} kW"
+                    if var_key == "grid_export_0"
+                    and fixed_export_kw_now is not None
+                    and not math.isnan(fixed_export_kw_now)
+                    else ""
+                )
                 binding_now = (
                     f"{short_name} at {solved_value:.2f} kW "
-                    f"(unexpected -- neither its 0 nor {limit_kw:.2f} kW bound)"
+                    f"(unexpected -- neither its 0 nor {limit_kw:.2f} kW bound"
+                    f"{_pin_note})"
                 )
             binding_now_value_per_kwh = round(val / period_0_hours, 4)
     if binding_now is None:
