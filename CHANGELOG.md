@@ -8,6 +8,28 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.327] — 2026-09-15
+
+### Added
+- **An end-to-end test proving the P2P commitment actually reaches the binding-constraint label** ([#921](https://github.com/code-imstillalive/nimbus/issues/921)), and with it, the answer to that issue: **the fix works.**
+
+  `tests/test_main_p2p_pin_binding_label.py` drives the real `main()` the way the #363 golden-output guardrail does — a fixed set of source-sensor states in, the actual pushed `sensor.nimbus_solver_battery_forecast` attributes out — with a 3 kW P2P block configured over 17:00–24:00 and the clock frozen at 20:00 local, inside it. The pushed `binding_constraint_now` reads:
+
+  > `Grid export pinned at 3.00 kW by P2P export commitment`
+
+  Mutation-verified: removing the pin from the `publish_plan()` call site — precisely the pre-#921 state — fails that assertion and nothing else.
+
+  **This is the gap that let #921 be declared fixed twice without being verified.** Every test on that path asserted what `compute_binding_constraint_label()` does *when handed a pin*. Not one asserted that `publish_plan()` hands it one. The whole wiring — `fetch_p2p_fixed_export_kw()` → `GridConfig.fixed_export_kw` → `_fixed_export_now` → the label — had no coverage at all, and a live reading stood in for it. A function-boundary test cannot catch a wiring bug, and three releases were spent learning that.
+
+### Notes
+- **Retraction: "v0.94.324's fix did not fire" was wrong, and so was the diagnosis that replaced it.** Both conclusions came from `sensor.nimbus_solver_battery_forecast` on one install. That sensor's own `solve_diagnostics` carries three keys (`n_batteries`, `n_periods`, `n_controllable_loads`) where current code emits seven unconditionally, which puts its publisher **before v0.94.295** — roughly thirty releases back. It also reports `n_controllable_loads: 0` and `n_batteries: 1` on an install with six registered `commanded_state` entities and a battery participant.
+
+  A pre-v0.94.295 publisher cannot show a v0.94.324 branch, and emits exactly the string that was observed. The follow-on inference — that the `, P2P commitment` note's absence proved `fixed_export_kw_now` was None or NaN — fails for the same reason: that note's *code* was not running. A diagnostic built to distinguish two cases was read in a context where it could not appear.
+
+  What made this hard to see is worth recording: the same module's **log lines** were provably current on that install (`solver_writer.py:569`, `:7117`, matching the merged source exactly) while its **published output** was thirty releases stale, at the same moment. The code-currency check this project sharpened on #594 is real and was not sufficient, because it answers "is this file current" and not "did this file produce that value".
+
+  v0.94.326's tolerance change stands on its own merits — a `1e-6` equality against one variable of a ~12,000-column MIP is brittle regardless — but it was justified as fixing an observed failure, and that justification does not hold.
+
 ## [0.94.326] — 2026-09-15
 
 ### Fixed
@@ -28,6 +50,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **The fallback message now names the period's own commitment.** v0.94.324's miss was undiagnosable from the published attribute — *"no commitment this period"* and *"a commitment the comparison rejected"* produced byte-identical text. The `unexpected` message now appends `, P2P commitment 12.00 kW` when one is in force, so the next misfire is readable from the attribute alone. Only on grid export, where the commitment actually binds; naming it beside a battery's own binding constraint would be a non-sequitur. The no-commitment wording is byte-identical to before.
 
   Six new tests, including the exact regression (`solved = 12.0004` against a 12.0 commitment, which `1e-6` rejected and the install lived in), a guard on the constant itself, and a mutation check confirming the two residual tests fail when the tolerance is put back to `1e-6`. Both writer copies, per [#357](https://github.com/code-imstillalive/nimbus/issues/357).
+
+Devhub validation: deployed and restarted, `installed_version == available_version == v0.94.326`, solve `optimal`, no new errors. **This release's own fix could not be observed on that install, and the reason is the finding above**: its plan sensor is published by pre-v0.94.295 code (three `solve_diagnostics` keys where current code emits seven), so no branch added in v0.94.324 or later can appear there. The executing module's own log lines were confirmed current (`solver_writer.py:569`, `:7117`) at the same moment -- current file, stale published output. Verified instead by the end-to-end test in v0.94.327 above, which drives real `main()` and asserts the pushed attribute directly.
 
 ## [0.94.325] — 2026-09-15
 
