@@ -8,6 +8,30 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.323] — 2026-09-15
+
+### Fixed
+
+Four claims this repo makes about its own code, each checked against the code and each wrong. Documentation and comments only — no Python behaviour changed.
+
+- **`docs/ivv/README.md` step 4 has never been runnable.** It told installers to verify `total_cost`, `naive_pv_only_cost` and `flat_tariff_cost` on `sensor.nimbus_solver_config`. All three are wrong: the two baseline names appear **nowhere in the source in any version** (`git log -S` finds them only in the commit that added this doc, under [#217](https://github.com/code-imstillalive/nimbus/issues/217)/#219), and `sensor.nimbus_solver_config` mirrors *configuration*, not plan results — `total_cost` lives on `sensor.nimbus_solver_battery_forecast`.
+
+  This is the worst kind of doc error: a user-facing checklist that ends *"file an issue"*, where the check itself cannot run. Rewritten against what the install actually publishes — `status`, `total_cost`, `total_cost_with_fixed_costs`, `cost_band`, `binding_constraint_now`, and the Quality sub-device's `epr`/`j_ref`/`j_ach`/`j_star` decomposition for the real counterfactual comparison.
+
+- **`docs/reference-benchmark.md` described a production path that is no longer the production path.** It said the benchmark runs *"the exact same function `nimbus_solver_quality_writer.py` calls against real household data every day."* `compute_forecast_regret()` has exactly two non-test callers — the benchmark, and the standalone/cron script. The HACS integration never calls it, and nothing outside `custom_components/nimbus_load/solver/` imports `forecast_regret` at all.
+
+  The benchmark is still honest about itself; the number it tracks just is not anchored to anything a deployed install produces. The doc now says so. The substance — that **no HACS install computes `j_forecast` or `j_persistence`, so none can show the Forecaster beats persistence** — is [#919](https://github.com/code-imstillalive/nimbus/issues/919).
+
+- **`README.md` stated two different, both badly stale test counts** — "249 unit tests" in one section and "the full 313-test suite" in another. The stub suite reported **2580 passed, 14 skipped, 328 subtests** on this tree. Replaced with the two commands CI actually runs and an explicitly dated figure, on the same reasoning the version line at the top of that file was rewritten for: a hardcoded count rots, and two of them rot into contradicting each other.
+
+- **`README.md` listed a CI gate that does not exist.** Contributing required passing *"the `Version lockstep (integration <-> add-on)` job"*. That job went with the `nimbus_solver_app` add-on in **v0.94.85** ([#357](https://github.com/code-imstillalive/nimbus/issues/357)). The real gates are `Lint (ruff)`, `Unit Tests (pytest)`, `HA Manifest / Strings / Translations`, two `validate` jobs, and mypy (one strict on `solver`+`ml`, one advisory).
+
+- **`pyproject.toml`'s `[dev]` comment** claimed verification against "320 stub tests plus the 9 real-HA tests". Same rot, same fix: the claim is now about the suite passing rather than about a number.
+
+### Notes
+
+- **The common thread is worth stating.** v0.94.320 through this release have corrected eleven claims across seven files, and not one was a lie at the time it was written — every one was true and then quietly stopped being true, in a repo whose CI is strict about code and silent about prose. Two of them (`docs/TESTERS.md`'s shadow-mode line in v0.94.322, and the IV&V step above) were user-facing instructions that would have actively misled a real tester. The checks that caught them were all the same shape: take a sentence that asserts something falsifiable, and go ask the code. That is cheap and it keeps finding things.
+
 ## [0.94.322] — 2026-09-15
 
 ### Fixed
@@ -31,6 +55,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   - Matching **labels** from `strings.json` fails too: **27 of its 46 `data` values are over 60 characters** — full sentences rather than labels — and the doc legitimately paraphrases them.
 
   A guard that fails on most fields for reasons unrelated to the doc's accuracy is worse than none: it gets disabled, or its failures ignored, and the two real gaps stay buried among forty false ones. Recorded so the next person does not rediscover the same dead end; the two genuine gaps are fixed by hand above.
+
+Devhub validation: deployed, `installed_version == available_version == v0.94.322`. The install was **not** restarted this time and sat at pending-restart, so unlike every prior entry here this line is not reporting a post-restart solve. It does not need to: `git diff v0.94.321 v0.94.322` touches `CHANGELOG.md`, `manifest.json`, `docs/TESTERS.md` and `docs/configuration-reference.md` and **no Python at all**, so the code executing on that install is byte-identical to this release's code. What was confirmed live on it: solve `optimal`, `total_cost` **−68.13**, health report **0** errors with an empty `recent_errors`, `sensor.nimbus_solver_config` reading `configured`, last solve stamped seconds before the check. Stated plainly rather than dressed up as a full validation, because a version number matching is exactly the thing this project has already learned not to trust on its own (see v0.94.319's entry).
 
 ## [0.94.321] — 2026-09-15
 

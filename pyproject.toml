@@ -59,7 +59,11 @@ dependencies = [
 [project.optional-dependencies]
 # Everything a fresh clone needs to run `pytest -q` green.
 # Verified against the current tree with the base [project.dependencies]
-# above: 320 stub tests plus the 9 real-HA tests pass. highspy is a hard
+# above: the stub suite and the real-HA harness both pass. (This comment
+# read "320 stub tests plus the 9 real-HA tests" until 2026-09-15, when
+# the stub suite was at 2580 -- a hardcoded count here rots the same way
+# README's did, so the claim is now about passing, not about a number.)
+# highspy is a hard
 # import in solver/stochastic.py -- can't be optional at collection time.
 dev = [
     "pytest>=8.0",

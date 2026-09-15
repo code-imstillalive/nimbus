@@ -12,11 +12,37 @@ resolved — this is #3.
 `solver/reference_benchmark.py` defines one fixed, fully synthetic
 "household" (a generic 15kWh battery, 10kW inverter, a plausible
 time-of-use price shape, a plausible daily solar/load curve) and runs it
-through the real, production `compute_forecast_regret()` — the exact
-same function `nimbus_solver_quality_writer.py` calls against real
-household data every day. Nothing about the scenario is randomly
+through the real, production `compute_forecast_regret()`. Nothing about the scenario is randomly
 sampled without a fixed seed, and nothing in it is tied to any one real
 installation's own numbers.
+
+## Where that function actually runs (read this before trusting the number)
+
+Until 2026-09-15 this section claimed the benchmark exercised *"the exact
+same function `nimbus_solver_quality_writer.py` calls against real
+household data every day."* That was true of the standalone/cron
+deployment when it was written, and it is not true of the way installs
+run Nimbus now.
+
+`compute_forecast_regret()` has exactly two non-test callers: this
+benchmark, and the standalone/cron script
+`docs/real-world-integration/files/nimbus_solver_quality_writer.py`. The
+HACS integration never calls it — nothing outside
+`custom_components/nimbus_load/solver/` even imports `forecast_regret`.
+
+A native install computes a *different* metric on a separate
+implementation: `_compute_report_for_window()` publishes `epr`, `j_ref`,
+`j_ach`, `j_star`, `regret_dollars` and the tracking figures, but no
+`j_forecast` and no `j_persistence` — so the forecast-regret
+decomposition this benchmark reports is not produced anywhere in the
+field.
+
+That does not make the benchmark dishonest: the scenario is fixed, the
+function is real, and a change in the number is still a change in that
+code. It does mean the number is **not currently anchored to anything a
+deployed install produces**, so treat it as a property of the
+`solver/` package rather than as evidence about live behaviour. Tracked
+in [#919](https://github.com/code-imstillalive/nimbus/issues/919).
 
 ## Why synthetic, not a captured real day
 

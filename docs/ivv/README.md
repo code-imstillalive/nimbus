@@ -115,15 +115,49 @@ with which numbers.
 
 ### 4 · Compare plan cost vs the naive baselines
 
-The `sensor.nimbus_solver_config` bridge sensor exposes `total_cost` and
-supporting counterfactuals. Confirm:
+> **Corrected 2026-09-15.** This step previously told you to read
+> `total_cost`, `naive_pv_only_cost` and `flat_tariff_cost` off
+> `sensor.nimbus_solver_config`. All three were wrong, and had been since
+> this file was written under [#217](https://github.com/code-imstillalive/nimbus/issues/217)/#219
+> — the two baseline names appear nowhere in the source, in any version,
+> and `sensor.nimbus_solver_config` mirrors *configuration*, not plan
+> results. The step has never been runnable as written. Below is what the
+> install actually publishes.
 
-- `total_cost < naive_pv_only_cost` (using the battery should be no worse than
-  ignoring it)
-- `total_cost < flat_tariff_cost` if you're on a time-varying tariff
+The plan cost lives on the plan sensor, not the config sensor:
 
-If either isn't true, either your config is degenerate or the LP is choosing
-a bad plan. File an issue with your diagnostic JSON attached.
+```bash
+curl -sH "Authorization: Bearer $HA_TOKEN" \
+  "$HA/api/states/sensor.nimbus_solver_battery_forecast" \
+  | jq '.attributes | {status, total_cost, total_cost_with_fixed_costs, cost_band, binding_constraint_now}'
+```
+
+Confirm:
+
+- `status` is `optimal`. Anything else (`infeasible`, a clamped or
+  fallback status) means the plan you are looking at is not the plan the
+  LP wanted, and every number below it is suspect.
+- `total_cost` is negative on an export-capable install with a
+  time-varying tariff, or at least below what standing still would cost
+  you. A positive total cost on a day with real solar and real spread is
+  worth investigating.
+- `binding_constraint_now` names a bound you actually configured. If it
+  reports a value that is neither of a constraint's own limits, say so in
+  an issue — that is the constraint reporter disagreeing with the solve,
+  not a config problem.
+
+For a real before/after against counterfactual controllers, the Quality
+sub-device is the honest source: `epr`, `j_ref` (no-control reference),
+`j_ach` (achieved), `j_star` (oracle), `regret_dollars`,
+`value_captured` and `uplift_available`, with the identity
+`value_captured + uplift_available = theoretical_maximum_yield`. See
+[`docs/entities.md`](../entities.md) for the per-entity table.
+
+Note that forecast regret specifically — "what did forecast error cost
+me", "does the Forecaster beat persistence" — is **not** among these on a
+HACS install; see [#919](https://github.com/code-imstillalive/nimbus/issues/919).
+
+If a check fails, file an issue with your diagnostic JSON attached.
 
 ## Extending the regression suite
 
