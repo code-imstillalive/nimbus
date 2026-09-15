@@ -8,16 +8,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
-### Fixed
-- **A P2P household's post-midnight self-consume window no longer reads as "not economical"** ([#951](https://github.com/code-imstillalive/nimbus/issues/951), Mark Purcell, from the 48-hour IV&V pass [#950](https://github.com/code-imstillalive/nimbus/issues/950)). `binding_constraint_now` evaluated its generic zero-check *before* [#921](https://github.com/code-imstillalive/nimbus/issues/921)'s P2P-pin check, so a commitment of exactly **0.0 kW** was intercepted and labelled `"Grid export at zero (not economical right now)"` instead of naming the pin.
-
-  That 0.0 is not a contrived value. `fetch_p2p_fixed_export_kw()` deliberately pins export to `0.0` for `solver_post_window_self_consume_hours` after midnight on any block configured with `end_hour=24`, mirroring the real automation's own self-consume window. So a correctly-configured overnight P2P household was told the solver saw no economic reason to export, during exactly the hours export was **deterministically forbidden** — a residual of the precise "the solver looks confused when it isn't" failure #921 exists to prevent, surviving for the one value the zero-branch caught first.
-
-  Fixed by evaluating the pin check before the zero-check. **Why that cannot relabel a genuine "not economical" period** — the part worth not re-deriving: a period with no commitment never arrives carrying `0.0`. `fetch_p2p_fixed_export_kw()` returns `None` when no block is configured at all and defaults an unmatched period to `float("nan")`, both of which the pin branch's own guards reject. A test now covers both shapes explicitly, since the safety of the reorder rests entirely on them.
-
-  The test that asserted the old label is updated rather than renumbered, and records why it was **wrong rather than stale**: its reasoning ("a 0 kW commitment and a 'not economical' decision look identical in the solved value") is true only of the solved value, while the function already holds `fixed_export_kw_now` and already uses it to disambiguate every other pin magnitude.
-
-  Diagnostic label only — no plan, price or commanded state changes.
+## [0.94.332] — 2026-09-16
 
 ### Changed
 - **A single solve-cycle overlap no longer logs a WARNING** ([#945](https://github.com/code-imstillalive/nimbus/issues/945)). Measured on a real install: **99 WARNINGs in 63 minutes**, every one reading `consecutive skips: 1` — the loudest Nimbus line in the log by a wide margin.
@@ -64,35 +55,6 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
   *(Changelog entry added retroactively — #935 merged without one, which would have left it absent from its own release notes.)*
 
-### Fixed
-- **The LP counted the tank's heat loss twice** ([#897](https://github.com/code-imstillalive/nimbus/issues/897), household decision 2026-09-15: **the learned rate is NET**).
-
-  `learn_thermal_rates()` fits `rate = gain / kwh` from a **measured** idle-before to settled-idle-after change. Whatever the tank lost to ambient during that run is already inside that number -- it has to be, because a thermometer cannot separate the two. The LP's recursion then subtracted `idle_decay_c_per_hour * hours[t]` in **every** period, heating ones included, which only balances for a *gross* rate. Feed it the fitter's net rate and the loss is counted twice.
-
-  Nothing had gone wrong yet only because the two never met: deferrable loads learn and consume the rate in a model with no second decay term, while thermal loads use this recursion but are fed a flat constant. [#873](https://github.com/code-imstillalive/nimbus/issues/873) is what makes them meet -- which is why this was ordered first.
-
-  **How it is expressed, since "do not decay while heating" is a condition on a decision variable and so not directly an LP constraint.** Adding an on/off binary per period would do it, and is not affordable here: #773 shows this model's root relaxation is already the expensive part, and a thermal load spans the whole horizon. Scaling the decay by the period's **idle fraction** is linear, needs no binary, and is physically truer than either extreme:
-
-  ```
-  T[t] = T[t-1] + rate*p[t]*h - decay*(1 - p[t]/max_power)
-  ```
-
-  Full power for the period means no decay (the net rate already carries it); idle means the full loss; half duty means half, because the tank genuinely does sit cooling for the other half. Rearranged it is one extra term on `p[t]`'s coefficient, with the RHS unchanged. Guarded against a zero `max_power_kw`, which degrades to the previous always-decay behaviour rather than dividing by zero.
-
-  **The measured effect on the two models agreeing, which is the useful part:** on the divergence fixture the gap between the LP's trajectory and the dashboard projection falls from `0.6 °C` to `0.26 °C`, and a **full-power heating period now contributes exactly zero** -- the two models agree wherever the load runs flat out, which is how a resistive element or a heat pump actually runs. The residual is only the partial-duty periods the LP uses to land precisely on target.
-
-### Notes
-- **This makes the plan LESS conservative, and that is worth saying out loud.** Double-counting the loss made the LP believe the tank heated more slowly than it does, so it planned a longer block and the tank finished *hotter* than target -- an accidental safety margin. Removing the double-count removes that margin: the plan now heats the amount actually required. Correct, and less forgiving of a mis-learned rate, which is exactly why [#873](https://github.com/code-imstillalive/nimbus/issues/873) (learning real rates for thermal loads) should land close behind it.
-
-- **Two guards were updated deliberately, not worked around.** `test_thermal_model_divergence.py` existed precisely so that whoever resolved #897 had to change it on purpose -- v0.94.328's own entry said so -- and `test_solver_network_thermal_load.py` recomputes the trajectory by hand from the same recurrence. Both now encode the new model, and the divergence file's headline assertion is the new one: a full-power heating period adds no gap at all.
-
-- **Held overnight rather than shipped**, per the #594 rule: this changes the arithmetic behind a real hot-water guarantee and is not identity on the default path.
-
-- **No version bump rides in this branch.** An earlier revision of this PR carried its own `manifest.json` bump to v0.94.332 and its own `## [0.94.332]` heading, which collided with [#930](https://github.com/code-imstillalive/nimbus/pull/930) doing the same at v0.94.331 and put a never-tagged version inside the [#594](https://github.com/code-imstillalive/nimbus/issues/594) guard’s enforced window. Neither number was ever released. Per this repo’s own documented convention the bump belongs in a separate Release PR, so this content sits under `Unreleased` and is versioned when it is actually tagged and validated.
-
-## [0.94.331] — 2026-09-15
-
-### Added
 - **Nimbus now re-sends a command a device is visibly not following -- and a re-send never counts against the activations/day cap** ([#875](https://github.com/code-imstillalive/nimbus/issues/875), household decision 2026-09-15).
 
   This is the gap that let a real HWS sit at 5 W standby for **14+ hours** while the dashboard said it was on. Dispatch is edge-triggered by design (#484's relay-chatter guard), so once `commanded_state` went true and stayed true, nothing ever repeated the instruction.
@@ -110,13 +72,50 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
   A **20-per-day ceiling** bounds the whole thing. If something else genuinely wins control of the device -- the reference household's own SG-Ready bridge writes to the same water heater -- the useful outcome is a bounded, legible pattern in the log rather than an endless silent argument. Separate from, and additional to, the 3/day hardware cap.
 
+### Fixed
+- **The LP counted the tank's heat loss twice** ([#897](https://github.com/code-imstillalive/nimbus/issues/897), household decision 2026-09-15: **the learned rate is NET**).
+
+  `learn_thermal_rates()` fits `rate = gain / kwh` from a **measured** idle-before to settled-idle-after change. Whatever the tank lost to ambient during that run is already inside that number -- it has to be, because a thermometer cannot separate the two. The LP's recursion then subtracted `idle_decay_c_per_hour * hours[t]` in **every** period, heating ones included, which only balances for a *gross* rate. Feed it the fitter's net rate and the loss is counted twice.
+
+  Nothing had gone wrong yet only because the two never met: deferrable loads learn and consume the rate in a model with no second decay term, while thermal loads use this recursion but are fed a flat constant. [#873](https://github.com/code-imstillalive/nimbus/issues/873) is what makes them meet -- which is why this was ordered first.
+
+  **How it is expressed, since "do not decay while heating" is a condition on a decision variable and so not directly an LP constraint.** Adding an on/off binary per period would do it, and is not affordable here: #773 shows this model's root relaxation is already the expensive part, and a thermal load spans the whole horizon. Scaling the decay by the period's **idle fraction** is linear, needs no binary, and is physically truer than either extreme:
+
+  ```
+  T[t] = T[t-1] + rate*p[t]*h - decay*(1 - p[t]/max_power)
+  ```
+
+  Full power for the period means no decay (the net rate already carries it); idle means the full loss; half duty means half, because the tank genuinely does sit cooling for the other half. Rearranged it is one extra term on `p[t]`'s coefficient, with the RHS unchanged. Guarded against a zero `max_power_kw`, which degrades to the previous always-decay behaviour rather than dividing by zero.
+
+  **The measured effect on the two models agreeing, which is the useful part:** on the divergence fixture the gap between the LP's trajectory and the dashboard projection falls from `0.6 °C` to `0.26 °C`, and a **full-power heating period now contributes exactly zero** -- the two models agree wherever the load runs flat out, which is how a resistive element or a heat pump actually runs. The residual is only the partial-duty periods the LP uses to land precisely on target.
+
+- **A P2P household's post-midnight self-consume window no longer reads as "not economical"** ([#951](https://github.com/code-imstillalive/nimbus/issues/951), Mark Purcell, from the 48-hour IV&V pass [#950](https://github.com/code-imstillalive/nimbus/issues/950)). `binding_constraint_now` evaluated its generic zero-check *before* [#921](https://github.com/code-imstillalive/nimbus/issues/921)'s P2P-pin check, so a commitment of exactly **0.0 kW** was intercepted and labelled `"Grid export at zero (not economical right now)"` instead of naming the pin.
+
+  That 0.0 is not a contrived value. `fetch_p2p_fixed_export_kw()` deliberately pins export to `0.0` for `solver_post_window_self_consume_hours` after midnight on any block configured with `end_hour=24`, mirroring the real automation's own self-consume window. So a correctly-configured overnight P2P household was told the solver saw no economic reason to export, during exactly the hours export was **deterministically forbidden** — a residual of the precise "the solver looks confused when it isn't" failure #921 exists to prevent, surviving for the one value the zero-branch caught first.
+
+  Fixed by evaluating the pin check before the zero-check. **Why that cannot relabel a genuine "not economical" period** — the part worth not re-deriving: a period with no commitment never arrives carrying `0.0`. `fetch_p2p_fixed_export_kw()` returns `None` when no block is configured at all and defaults an unmatched period to `float("nan")`, both of which the pin branch's own guards reject. A test now covers both shapes explicitly, since the safety of the reorder rests entirely on them.
+
+  The test that asserted the old label is updated rather than renumbered, and records why it was **wrong rather than stale**: its reasoning ("a 0 kW commitment and a 'not economical' decision look identical in the solved value") is true only of the solved value, while the function already holds `fixed_export_kw_now` and already uses it to disambiguate every other pin magnitude.
+
+  Diagnostic label only — no plan, price or commanded state changes.
+
 ### Notes
+- **This makes the plan LESS conservative, and that is worth saying out loud.** Double-counting the loss made the LP believe the tank heated more slowly than it does, so it planned a longer block and the tank finished *hotter* than target -- an accidental safety margin. Removing the double-count removes that margin: the plan now heats the amount actually required. Correct, and less forgiving of a mis-learned rate, which is exactly why [#873](https://github.com/code-imstillalive/nimbus/issues/873) (learning real rates for thermal loads) should land close behind it.
+
+- **Two guards were updated deliberately, not worked around.** `test_thermal_model_divergence.py` existed precisely so that whoever resolved #897 had to change it on purpose -- v0.94.328's own entry said so -- and `test_solver_network_thermal_load.py` recomputes the trajectory by hand from the same recurrence. Both now encode the new model, and the divergence file's headline assertion is the new one: a full-power heating period adds no gap at all.
+
+- **Held overnight rather than shipped**, per the #594 rule: this changes the arithmetic behind a real hot-water guarantee and is not identity on the default path.
+
+- **No version bump rides in this branch.** An earlier revision of this PR carried its own `manifest.json` bump to v0.94.332 and its own `## [0.94.332]` heading, which collided with [#930](https://github.com/code-imstillalive/nimbus/pull/930) doing the same at v0.94.331 and put a never-tagged version inside the [#594](https://github.com/code-imstillalive/nimbus/issues/594) guard’s enforced window. Neither number was ever released. Per this repo’s own documented convention the bump belongs in a separate Release PR, so this content sits under `Unreleased` and is versioned when it is actually tagged and validated.
+
 - **Two bugs caught during implementation, both by tests, both worth recording.**
 
   - **`0` would have meant the opposite of what it says.** Documented as "disables re-sending", it was implemented as a threshold -- and `divergence >= 0` is always true, so a household setting 0 would have got a re-send *every solve cycle*. Now checked explicitly, before everything else.
   - **A relative-only import silently aborted every dispatch.** `_resolve_reaffirm_after_seconds()` used `from .const import ...` on the reasoning that it is reachable only from a native-only function. That reasoning is wrong: the test harness imports `solver_writer` as a **bare module** and calls that guard directly, so the import raised `ImportError`, which the guard's own whole-function handler swallows at DEBUG -- aborting every dispatch for the cycle, silently. Three existing #741/#484 tests went red, which is exactly what they are for. Restored to the dual-mode import the rest of the file uses.
 
 - **Held overnight rather than shipped same-day**, per the release-timing rule the household settled on #594 the same evening. This touches dispatch and is **not** identity on the default path -- a diverging load now genuinely behaves differently, which is the whole point -- so it does not qualify for the proof-backed carve-out and waits.
+
+- **Version numbering: v0.94.331 was never tagged, and this release absorbs it.** PRs [#930](https://github.com/code-imstillalive/nimbus/pull/930) and [#931](https://github.com/code-imstillalive/nimbus/pull/931) each carried their own `manifest.json` bump inside a feature branch, to v0.94.331 and v0.94.332 respectively. They collided on merge, and resolving that collision in favour of either number put a never-released version inside the [#594](https://github.com/code-imstillalive/nimbus/issues/594) guard’s enforced window (`_MIN_ENFORCED_VERSION <= v < in_flight`), where it had no `Devhub validation:` line it could honestly carry — nothing had been deployed at that version, because no such release existed. `main` had been green only because `.331` was itself the in-flight version. Both sections are folded here, and `.332` is used rather than reusing `.331` because `main` already carried `0.94.331` in `manifest.json` with different code than a `v0.94.331` tag would now hold — one version string, two code states, on a project whose reference deploy is a raw git clone. Per this repo’s own documented convention the bump belongs in a Release PR, not a feature branch.
 
 ## [0.94.330] — 2026-09-15
 
