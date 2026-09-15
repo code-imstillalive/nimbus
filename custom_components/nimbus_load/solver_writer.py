@@ -318,7 +318,7 @@ from numpy.typing import NDArray
 # not unconditionally on every import.
 try:
     from .ml.blend import blend_forecast_array, cross_source_spread
-    from .solver import elements, lp, network
+    from .solver import elements, lp, network, nowcast_skill
     from .solver.backtest import run_efficiency_sensitivity_sweep
     from .solver.quality_report import compute_quality_report
     from .solver.regret import evaluate_realized_cost
@@ -352,7 +352,7 @@ except ImportError:
     # distinct top-level `ml` module" guarantee. Removing it would
     # break both.
     from ml.blend import blend_forecast_array, cross_source_spread  # noqa: F401
-    from solver import elements, lp, network
+    from solver import elements, lp, network, nowcast_skill
     from solver.backtest import run_efficiency_sensitivity_sweep
     from solver.quality_report import compute_quality_report
     from solver.regret import evaluate_realized_cost
@@ -6072,6 +6072,139 @@ def compute_daily_quality_report(cfg: dict, now: datetime) -> dict | None:
     return _compute_report_for_window(cfg, day_start, day_end, allow_partial=False)
 
 
+_LOAD_NOWCAST_TRAIL_ENTITY_ID = (
+    "sensor.nimbus_solver_load_whole_house_cross_check_now_kw"
+)
+"""The recorded forecast trail #919 reads back -- deliberately NOT
+`sensor.nimbus_household_load_total_forecast`.
+
+That sensor's state is `round(load_kw[0], 3)`, and `solver_inputs/
+load.py` overwrites `load_kw[0]` with the live cross-check reading right
+before the publish (#429's anchor). The cross-check sensor is the same
+one this function uses as its real-load ground truth, so that trail is
+the ground truth echoed back -- confirmed live, agreeing to the cent on
+every row of three hours of history. It would have published
+near-perfect skill on every install, forever.
+
+This entity carries `whole_house_now_kw`, snapshotted BEFORE the anchor
+precisely so #429's cross-check compares two genuine forecasts. It is
+the forecast OF the ground-truth sensor, which is exactly the pairing a
+skill measurement wants. See solver/nowcast_skill.py's own docstring.
+"""
+
+_NOWCAST_SKILL_KEYS = (
+    "load_nowcast_skill_j_star",
+    "load_nowcast_skill_j_forecast",
+    "load_nowcast_skill_j_persistence",
+    "load_nowcast_skill_value_add_dollars",
+    "load_nowcast_skill_coverage",
+    "load_nowcast_skill_periods_measured",
+)
+
+
+def _load_nowcast_skill_attributes(
+    *,
+    load_sensor: str,
+    load_scale: float,
+    grid_times: list[datetime],
+    period_hours: float,
+    periods,
+    grid,
+    battery,
+    solar_real_kw,
+    load_real_kw,
+    day_start: datetime,
+    day_end: datetime,
+) -> dict:
+    """Recover the forecast trail from recorder history and score this
+    window's one-step-ahead load-forecast skill (nimbus issue #919).
+
+    Always returns every key in `_NOWCAST_SKILL_KEYS`, with None values
+    when the skill could not be computed -- a stable attribute set, so a
+    consumer never sees a key appear and vanish between windows (#589's
+    own "empty attributes for one cycle" lesson).
+
+    Persistence is same-time-yesterday from the REAL load sensor's own
+    history, shifted forward 24 h onto this window's grid. That needs no
+    new storage either, and it is the baseline forecast_regret.py's own
+    docstring already recommends for a real writer.
+    """
+    blank = dict.fromkeys(_NOWCAST_SKILL_KEYS)
+
+    trail_hist = fetch_entity_history_range(
+        _LOAD_NOWCAST_TRAIL_ENTITY_ID, day_start, day_end
+    )
+    if not trail_hist:
+        _LOGGER.debug(
+            "Nimbus quality: no load-nowcast skill. No recorded history for "
+            "%s over [%s, %s] -- expected on an install that has not run "
+            "this version for a full window yet",
+            _LOAD_NOWCAST_TRAIL_ENTITY_ID,
+            day_start.isoformat(),
+            day_end.isoformat(),
+        )
+        return blank
+
+    # No _kw_scale_factor() on the trail: it is Nimbus's own published
+    # sensor and always declares kW. The REAL load sensor is a household
+    # entity that may report W, so its own scale is passed in and applied
+    # to the persistence series below -- the same factor already applied
+    # to load_real_kw by the caller.
+    shift = timedelta(hours=24)
+    prev_hist = fetch_entity_history_range(
+        load_sensor, day_start - shift, day_end - shift
+    )
+    if not prev_hist:
+        _LOGGER.debug(
+            "Nimbus quality: no load-nowcast skill. No real load history for "
+            "the preceding 24 h, so there is no persistence baseline to "
+            "compare against"
+        )
+        return blank
+
+    measured, _total = nowcast_skill.period_sample_coverage(
+        [t for t, _v in trail_hist], grid_times, period_hours
+    )
+    load_nowcast_kw = np.array(
+        resample_history_mean(trail_hist, grid_times, period_hours)
+    )
+    load_persistence_kw = np.array(
+        resample_history_mean(
+            [(t + shift, v * load_scale) for t, v in prev_hist],
+            grid_times,
+            period_hours,
+        )
+    )
+
+    result = nowcast_skill.compute_load_nowcast_skill(
+        periods=periods,
+        grid=grid,
+        battery=battery,
+        solar_real_kw=solar_real_kw,
+        load_real_kw=load_real_kw,
+        load_nowcast_kw=load_nowcast_kw,
+        load_persistence_kw=load_persistence_kw,
+        n_periods_measured=measured,
+    )
+    if result is None:
+        _LOGGER.debug(
+            "Nimbus quality: no load-nowcast skill. Only %d of %d periods "
+            "carried a real recorded sample, or a scenario solve failed",
+            measured,
+            len(grid_times),
+        )
+        return blank
+
+    return {
+        "load_nowcast_skill_j_star": round(result.j_star, 4),
+        "load_nowcast_skill_j_forecast": round(result.j_forecast, 4),
+        "load_nowcast_skill_j_persistence": round(result.j_persistence, 4),
+        "load_nowcast_skill_value_add_dollars": round(result.value_add_dollars, 4),
+        "load_nowcast_skill_coverage": round(result.coverage, 3),
+        "load_nowcast_skill_periods_measured": result.n_periods_measured,
+    }
+
+
 def _compute_report_for_window(
     cfg: dict,
     day_start: datetime,
@@ -6652,7 +6785,29 @@ def _compute_report_for_window(
         max_threshold_pct=soc_discrepancy_max_threshold_pct,
         mean_threshold_pct=soc_discrepancy_mean_threshold_pct,
     )
+    # nimbus issue #919: "is the ML load forecaster actually beating naive
+    # persistence on this household's data?" -- a question no deployed
+    # install could answer until now. Uses grid_oracle, not grid_residual:
+    # all three scenarios must plan against the same unconstrained grid
+    # the oracle itself uses, since a pinned P2P export commitment would
+    # stop the battery responding to a load-forecast difference at all and
+    # so mask the very thing being measured. Costs two extra LP solves,
+    # paid once per day behind this function's own latest_date fast path.
+    nowcast_skill_attrs = _load_nowcast_skill_attributes(
+        load_sensor=load_sensor,
+        load_scale=load_scale,
+        grid_times=grid_times,
+        period_hours=period_hours,
+        periods=periods,
+        grid=grid_oracle,
+        battery=battery_cfg,
+        solar_real_kw=solar_kw,
+        load_real_kw=load_kw,
+        day_start=day_start,
+        day_end=day_end,
+    )
     return {
+        **nowcast_skill_attrs,
         # Fractional EPR (0..1). Canonical downstream contract: the OpEd
         # hero chart, the compute_quality_report service payload, and the
         # LinkedIn article all treat this attribute as a 0..1 ratio. Do

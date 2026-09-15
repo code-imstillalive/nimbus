@@ -8,6 +8,23 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Added
+- **A deployed install can finally answer "is the ML load forecaster actually beating naive persistence on my data?"** ([#919](https://github.com/code-imstillalive/nimbus/issues/919)). The daily quality report now publishes `load_nowcast_skill_j_star`, `load_nowcast_skill_j_forecast`, `load_nowcast_skill_j_persistence`, `load_nowcast_skill_value_add_dollars`, `load_nowcast_skill_coverage` and `load_nowcast_skill_periods_measured`.
+
+  `forecast_regret.py` has been able to compute this since [#273](https://github.com/code-imstillalive/nimbus/issues/273), but only ever driven by `reference_benchmark.py` against synthetic scenarios — no real install, on any household, has ever produced the number, because the forecast *as it was made at the time* was not recoverable after the fact. Per the household's decision it is now recovered from Home Assistant recorder history, writing no new storage.
+
+  **Which recorded sensor is the entire fix, and the obvious candidate was wrong.** `sensor.nimbus_household_load_total_forecast`'s state is `round(load_kw[0], 3)` — and `solver_inputs/load.py` overwrites `load_kw[0]` with the live cross-check reading immediately before that publish ([#429](https://github.com/code-imstillalive/nimbus/issues/429)'s anchor, which is correct and doing its job). That cross-check sensor is the *same one* the quality report uses as its real-load ground truth, so its recorded state is the ground truth echoed back. Confirmed live: three hours of recorded history agreed to the cent on every single row. Using it would have driven `j_forecast` onto `j_star` and published near-perfect skill on every install, forever — and not as an edge case, since a report needs that sensor configured to run at all and the anchor fires exactly when it is configured. The trail instead comes from `whole_house_now_kw`, snapshotted *before* the anchor precisely so #429's cross-check compares two genuine forecasts, and already flattened to a recorded entity — the forecast **of** the ground-truth sensor.
+
+  **Solar is deliberately held at its real measured values** in all three scenarios. Nimbus publishes no solar nowcast; solar forecasts come from Solcast/Open-Meteo, whose accuracy is not this project's to claim. Holding it at truth makes the published delta attributable to load-forecast quality alone.
+
+  **What the number is and is not**: one-step-ahead skill — how well the forecaster describes the moment it is in. It is *not* the day-ahead forecast the dispatch was built on, which would require persisting forecasts (the option the household ruled out). Hence `load_nowcast_skill_*` on every key, so it is never mistaken for `reference_benchmark.py`'s own day-ahead figure. A **negative** `value_add_dollars` is a real, published answer, not an error: it means persistence would have done better over that window.
+
+  Degrades honestly — too little recorded history, mismatched grids or a failed scenario solve all publish stable `None`-valued keys rather than a confident figure built on held-over samples. Costs two extra LP solves, paid once per day behind the report's own `latest_date` fast path. Not a dispatch change: this is a retrospective scorer and no plan, price or commanded state moves because of it.
+
+- **A diagnostic that splits [#773](https://github.com/code-imstillalive/nimbus/issues/773)'s last two candidate causes** ([#935](https://github.com/code-imstillalive/nimbus/issues/935)). `_pin_binaries_to_current_solution()` now logs a WARNING when the worst binary sits materially off integral before being rounded and pinned. `phase2_pin_resolve` returning `Infeasible` contradicts that function's own invariant, and this one `max()` separates "the unconditional rounding snapped a non-integral value" from "the read-back was never an integer solution" — needing no captured model file and no synthetic repro, unlike every earlier lead on that issue. Measurement only; the pinning itself is unchanged, and it stays silent on a healthy solve.
+
+  *(Changelog entry added retroactively — #935 merged without one, which would have left it absent from its own release notes.)*
+
 ## [0.94.330] — 2026-09-15
 
 ### Added
