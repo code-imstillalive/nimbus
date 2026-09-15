@@ -1,5 +1,6 @@
-"""Every entity_id `docs/entities.md` names must be one this integration
-actually creates.
+"""Every entity_id the user-facing docs name must be one this integration
+actually creates, and every unit `docs/entities.md` claims must match the
+spec that produces it.
 
 `README.md` has had this guard since nimbus issue #364
 (`test_readme_entity_references_exist.py`). `docs/entities.md` — the
@@ -51,6 +52,7 @@ place.
 from __future__ import annotations
 
 import ast
+import importlib
 import re
 import sys
 import unittest
@@ -60,6 +62,27 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 _NIMBUS = _REPO_ROOT / "custom_components" / "nimbus_load"
 _DOC = _REPO_ROOT / "docs" / "entities.md"
 _FLATTENED_PY = _NIMBUS / "sensor_flattened.py"
+
+# The user-facing docs. Deliberately NOT every .md in the repo:
+#
+# - `docs/worklog/*` is dated historical narrative. Several entity ids in
+#   there were real when written and have since been removed, which is
+#   the record doing its job — a guard over those would fight history.
+# - `docs/real-world-integration/*` documents a standalone deployment
+#   against one reference household, naming per-subentry ids a user
+#   creates (`sensor.nimbus_test_hvac_power`). Those cannot be composed
+#   from this source at all, so they are legitimately unverifiable rather
+#   than stale.
+# - `README.md` has its own guard (`test_readme_entity_references_exist`)
+#   and deliberately shows `nimbus_load`-domain spellings while
+#   explaining that naming quirk, which this check would misread.
+_USER_FACING_DOCS = (
+    "docs/entities.md",
+    "docs/configuration-reference.md",
+    "docs/dashboards.md",
+    "docs/controllable-loads.md",
+    "docs/setup-guide.md",
+)
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ha_stubs import install_ha_stubs
@@ -143,23 +166,72 @@ def _solver_family_prefix() -> str:
     return matches[0]
 
 
-def _real_entity_ids() -> set[str]:
-    real: set[str] = set()
+def _documented_units() -> dict[str, str | None]:
+    """{entity_id: unit} for every row of `docs/entities.md`'s own tables.
 
-    for tuple_name, prefix in _family_prefixes().items():
-        for spec in getattr(sf, tuple_name):
-            real.add(f"sensor.{prefix}_{spec.entity_id_suffix}")
+    `None` where the Unit column is a prose placeholder rather than a real
+    unit — the table writes a dimensionless ratio as `(dimensionless
+    0..1)`, which is the honest thing to show a reader and corresponds to
+    a spec unit of `None`.
+    """
+    text = _DOC.read_text(encoding="utf-8")
+    rows = re.findall(
+        r"^\|\s*`([a-z_]+\.nimbus[a-z0-9_]*)`\s*\|\s*([^|]*?)\s*\|", text, re.MULTILINE
+    )
+    placeholders = {"(dimensionless 0..1)", "—", "-", ""}
+    return {
+        eid: (None if unit.strip() in placeholders else unit.strip())
+        for eid, unit in rows
+    }
+
+
+def _real_units() -> dict[str, str | None]:
+    return {
+        f"sensor.{prefix}_{spec.entity_id_suffix}": spec.unit_of_measurement
+        for tuple_name, prefix in _family_prefixes().items()
+        for spec in getattr(sf, tuple_name)
+    }
+
+
+def _description_tuple_ids(module_name: str, domain: str) -> set[str]:
+    """Entity ids composed from an EntityDescription-style tuple.
+
+    `number.py` builds its ids as `f"number.nimbus_{desc.key}"`, so the
+    full string exists nowhere in the source — the same shape as a
+    flattened child, and the reason an earlier version of this test
+    reported 36 of `configuration-reference.md`'s 41 number ids as
+    phantom when every one of them was real.
+    """
+    mod = importlib.import_module(f"custom_components.nimbus_load.{module_name}")
+    ids: set[str] = set()
+    for name in dir(mod):
+        obj = getattr(mod, name)
+        if isinstance(obj, tuple) and obj and hasattr(obj[0], "key"):
+            ids.update(f"{domain}.nimbus_{desc.key}" for desc in obj)
+    return ids
+
+
+def _real_entity_ids() -> set[str]:
+    real: set[str] = set(_real_units())
+    real |= _description_tuple_ids("number", "number")
 
     # Every entity_id written as a literal anywhere in the integration —
-    # the hub-level sensors, switches and numbers that are not part of
-    # any flattened family.
+    # the hub-level sensors, switches and selects that are not part of
+    # any flattened family or description tuple.
+    #
+    # Honest weakness, stated rather than hidden: this matches literals in
+    # COMMENTS too, so a comment naming a removed entity would make it
+    # resolve. The `uplift_available` row this file was written for only
+    # stayed detectable because `sensor_flattened.py`'s removal note names
+    # the bare attribute, never the full entity_id. A composed source is
+    # always preferred; this is the fallback for domains that have none.
     for path in _NIMBUS.rglob("*.py"):
         real.update(_ENTITY_RE.findall(path.read_text(encoding="utf-8")))
     return real
 
 
-def _documented_entity_ids() -> set[str]:
-    return set(_ENTITY_RE.findall(_DOC.read_text(encoding="utf-8")))
+def _documented_entity_ids(path: Path | None = None) -> set[str]:
+    return set(_ENTITY_RE.findall((path or _DOC).read_text(encoding="utf-8")))
 
 
 class TestEntitiesDocNamesOnlyRealEntities(unittest.TestCase):
@@ -175,16 +247,45 @@ class TestEntitiesDocNamesOnlyRealEntities(unittest.TestCase):
         self.assertGreater(len(self.documented), 20)
 
     def test_every_documented_entity_id_is_real(self):
-        phantom = sorted(self.documented - self.real)
-        self.assertEqual(
-            phantom,
-            [],
-            "docs/entities.md names these entity_ids, and this integration "
-            "creates none of them. A user reading that table would look for "
-            "an entity that does not exist -- the exact shape of nimbus "
-            "issue #364. Either the entity was removed and the row should "
-            "go (see uplift_available, removed under #283), or it was "
-            "renamed and the row should follow it.",
+        for rel in _USER_FACING_DOCS:
+            path = _REPO_ROOT / rel
+            with self.subTest(doc=rel):
+                self.assertTrue(path.exists(), f"{rel} is gone -- update this list")
+                phantom = sorted(_documented_entity_ids(path) - self.real)
+                self.assertEqual(
+                    phantom,
+                    [],
+                    f"{rel} names these entity_ids, and this integration "
+                    "creates none of them. A user reading that doc would "
+                    "look for an entity that does not exist -- the exact "
+                    "shape of nimbus issue #364. Either the entity was "
+                    "removed and the reference should go (see "
+                    "uplift_available, removed under #283), or it was "
+                    "renamed and the reference should follow it.",
+                )
+
+    def test_every_documented_unit_matches_the_real_spec(self):
+        """Names alone would not have caught #283's other two defects.
+        This file's own Unit column is a claim about the entity, and it
+        is checkable against the spec that produces it."""
+        real = _real_units()
+        documented = _documented_units()
+        checked = 0
+        for eid, doc_unit in sorted(documented.items()):
+            if eid not in real:
+                continue  # a non-flattened entity; names are covered above
+            checked += 1
+            with self.subTest(entity=eid):
+                self.assertEqual(
+                    doc_unit,
+                    real[eid],
+                    f"docs/entities.md says {eid} has unit {doc_unit!r}, its "
+                    f"spec says {real[eid]!r}. #283's `tracking_fidelity` "
+                    "defect was exactly this shape -- a unit that reads "
+                    "plausibly and does not match the value.",
+                )
+        self.assertGreater(
+            checked, 20, "sanity check: almost no documented units were compared"
         )
 
     def test_every_flattened_family_is_accounted_for(self):
