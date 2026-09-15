@@ -89,6 +89,16 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
   **The measured effect on the two models agreeing, which is the useful part:** on the divergence fixture the gap between the LP's trajectory and the dashboard projection falls from `0.6 °C` to `0.26 °C`, and a **full-power heating period now contributes exactly zero** -- the two models agree wherever the load runs flat out, which is how a resistive element or a heat pump actually runs. The residual is only the partial-duty periods the LP uses to land precisely on target.
 
+- **A P2P household's post-midnight self-consume window no longer reads as "not economical"** ([#951](https://github.com/code-imstillalive/nimbus/issues/951), Mark Purcell, from the 48-hour IV&V pass [#950](https://github.com/code-imstillalive/nimbus/issues/950)). `binding_constraint_now` evaluated its generic zero-check *before* [#921](https://github.com/code-imstillalive/nimbus/issues/921)'s P2P-pin check, so a commitment of exactly **0.0 kW** was intercepted and labelled `"Grid export at zero (not economical right now)"` instead of naming the pin.
+
+  That 0.0 is not a contrived value. `fetch_p2p_fixed_export_kw()` deliberately pins export to `0.0` for `solver_post_window_self_consume_hours` after midnight on any block configured with `end_hour=24`, mirroring the real automation's own self-consume window. So a correctly-configured overnight P2P household was told the solver saw no economic reason to export, during exactly the hours export was **deterministically forbidden** — a residual of the precise "the solver looks confused when it isn't" failure #921 exists to prevent, surviving for the one value the zero-branch caught first.
+
+  Fixed by evaluating the pin check before the zero-check. **Why that cannot relabel a genuine "not economical" period** — the part worth not re-deriving: a period with no commitment never arrives carrying `0.0`. `fetch_p2p_fixed_export_kw()` returns `None` when no block is configured at all and defaults an unmatched period to `float("nan")`, both of which the pin branch's own guards reject. A test now covers both shapes explicitly, since the safety of the reorder rests entirely on them.
+
+  The test that asserted the old label is updated rather than renumbered, and records why it was **wrong rather than stale**: its reasoning ("a 0 kW commitment and a 'not economical' decision look identical in the solved value") is true only of the solved value, while the function already holds `fixed_export_kw_now` and already uses it to disambiguate every other pin magnitude.
+
+  Diagnostic label only — no plan, price or commanded state changes.
+
 ### Notes
 - **This makes the plan LESS conservative, and that is worth saying out loud.** Double-counting the loss made the LP believe the tank heated more slowly than it does, so it planned a longer block and the tank finished *hotter* than target -- an accidental safety margin. Removing the double-count removes that margin: the plan now heats the amount actually required. Correct, and less forgiving of a mis-learned rate, which is exactly why [#873](https://github.com/code-imstillalive/nimbus/issues/873) (learning real rates for thermal loads) should land close behind it.
 
