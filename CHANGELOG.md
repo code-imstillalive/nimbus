@@ -34,6 +34,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
   Both new checks verified to bite: a documented unit changed from `%` to `kWh` fails naming both values, and a phantom id added to `dashboards.md` fails naming it.
 
+Devhub validation: deployed and restarted, `installed_version == available_version == v0.94.314`, solve `optimal` in 1.21 s, `nimbus_status` "Working well", no new errors, both flagship sensors fresh with `state` and `whole_house_live_now_kw` both **6.2**. A docs-and-tests release should be invisible on a running install, and it is.
+
 ## [0.94.313] — 2026-09-15
 
 ### Fixed
