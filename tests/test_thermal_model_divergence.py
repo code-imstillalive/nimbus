@@ -1,6 +1,6 @@
-"""nimbus issue #897: the LP's thermal recursion and the published
-temperature projection are two different models of the same tank, and
-nothing compared them until this file.
+"""nimbus issue #897: the LP's thermal recursion and the temperature
+projection are two different equations, and nothing compared them until
+this file.
 
 - `solver/network.py`'s recursion subtracts `idle_decay_c_per_hour *
   hours[t]` in **every** period, heating ones included.
@@ -8,14 +8,26 @@ nothing compared them until this file.
   either/or: a heating period gains and does **not** decay.
 
 Both behaviours are deliberate in their own place and both already have
-passing tests. Neither test looks at the other model, which is exactly
-how a 3 °C disagreement over a single four-hour run went unnoticed.
+passing tests. Neither test looks at the other model.
 
-**These tests do not assert the two models agree.** They cannot — the
-disagreement is real today, and choosing which model is right changes
-live dispatch on a real hot water system, which is #897's open question
-and not one a test should settle by fiat. What they do instead is pin
-the disagreement to its exact closed form:
+**Scope, stated up front so this file is not read as more than it is.**
+The two never touch the same load today: a `kind=deferrable` load learns
+a rate and consumes it in the projection, while a `kind=thermal` load
+publishes the LP's own solved `temperature_c` rather than a re-derived
+projection — #774 designed that out deliberately, see `ThermalLoadPlan`'s
+own docstring. **Nothing here says a household is shown a curve that
+disagrees with the guarantee.** It is not.
+
+What this file compares is the two **functions**, because #897's real
+concern is narrower: `learn_thermal_rates()` fits a NET rate (whatever
+the tank lost during a run is inside the measured change) while the LP's
+recursion only balances for a GROSS one — and #873 would route a learned
+value into that recursion for the first time.
+
+**These tests do not assert the two models agree.** Choosing which is
+right changes live dispatch on a real hot water system, which is #897's
+open question and not one a test should settle by fiat. What they do
+instead is pin the difference to its exact closed form:
 
     LP trajectory = projection − idle_decay_c_per_hour × (heating hours)
 
@@ -150,10 +162,12 @@ class TestTheTwoModelsDisagreeByExactlyTheHeatingPeriodDecay(unittest.TestCase):
             with self.subTest(period=t):
                 self.assertAlmostEqual(actual_gap, expected_gap, places=1)
 
-    def test_the_projection_runs_hotter_than_the_guaranteed_trajectory(self):
-        """Direction stated on its own: what the household is shown is
-        the optimistic one, and the LP's hard guarantee is against the
-        colder number."""
+    def test_the_projection_runs_hotter_than_the_lp_trajectory(self):
+        """Direction stated on its own, as a property of the two
+        FUNCTIONS — not of anything published. It matters because it says
+        which way a net-vs-gross rate mix-up would push a plan: toward
+        believing the tank is colder than it is, and so toward demanding
+        a longer heating block than reality needs."""
         final_gap = float(self.projected[-1]["value"]) - float(
             self.tl.temperature_c[-1]
         )

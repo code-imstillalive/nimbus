@@ -11,21 +11,23 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [0.94.312] — 2026-09-15
 
 ### Added
-- **The two thermal models are now compared against each other in a test** (nimbus issue [#897](https://github.com/code-imstillalive/nimbus/issues/897)). No behaviour change — this pins a disagreement that already exists, so that resolving it has to be deliberate.
+- **The two thermal-model equations are now compared against each other in a test** (nimbus issue [#897](https://github.com/code-imstillalive/nimbus/issues/897)). No behaviour change — this pins a difference that already exists, so that resolving it has to be deliberate.
 
-  `solver/network.py`'s temperature recursion subtracts `idle_decay_c_per_hour · hours[t]` in **every** period, heating ones included. `thermal_forecast.project_temperature_forecast()` is a strict either/or: a heating period gains and does not decay. Both are deliberate in their own place, **both already had passing tests, and neither test looked at the other model** — which is exactly how the disagreement went unnoticed.
+  `solver/network.py`'s temperature recursion subtracts `idle_decay_c_per_hour · hours[t]` in **every** period, heating ones included. `thermal_forecast.project_temperature_forecast()` is a strict either/or: a heating period gains and does not decay. Both are deliberate in their own place, **both already had passing tests, and neither test looked at the other equation.**
 
-  The new test asserts the closed form rather than agreement:
+  **Scope, because this is easy to over-read:** the two never touch the same load. A `kind=deferrable` load learns a rate and consumes it in the projection; a `kind=thermal` load publishes the LP's own solved `temperature_c` rather than a re-derived projection, which [#774](https://github.com/code-imstillalive/nimbus/issues/774) designed out deliberately. No household is shown a curve that disagrees with the guarantee.
+
+  The real concern is narrower: `learn_thermal_rates()` fits `rate = gain / kWh` from a **measured** idle-before → settled-idle-after change, so the loss during a run is already inside it — a **net** rate. The LP's recursion only balances for a **gross** one. [#873](https://github.com/code-imstillalive/nimbus/issues/873) would route a learned value into that recursion for the first time. Separately, `DEFAULT_HEATING_RATE_C_PER_KWH = 8.0` feeds both equations today, so there is no value of it that is correct in both places.
+
+  The test asserts the closed form rather than agreement:
 
   ```
   LP trajectory = projection − idle_decay_c_per_hour × (heating hours)
   ```
 
-  Green today and loud the moment either model moves. Asserting agreement instead would fail immediately, and choosing which model is right changes live dispatch on a real hot water system — that is #897's open question, not one a test should settle by fiat.
+  Green today and loud the moment either equation moves. Asserting agreement would fail immediately, and choosing which is right changes live dispatch on a real hot water system — #897's open question, not one a test should settle by fiat.
 
-  **Naming the responsible term is the point.** `learn_thermal_rates()` fits `rate = net_gain / kWh` from a measured idle-before → settled-idle-after change, so the loss during a run is already inside the learned rate; subtracting it again double-counts. That claim is now executable rather than argued. It matters now because [#873](https://github.com/code-imstillalive/nimbus/issues/873) would begin feeding a genuinely learned rate into that recursion for `kind=thermal` loads, which today run on a flat fallback constant.
-
-  Real `build_plan()` and the real projection function, with the LP's own chosen power series fed straight into the projection — a comparison between the two shipped models, not between one of them and a restatement of it. Four of the six tests guard against the comparison being vacuous: one fails if the LP never actually heats, one pins the direction (the published projection runs *hotter* than the guaranteed trajectory), one pins monotonicity, and one confirms the models agree exactly while the load is idle, which is why this was invisible on any install whose load had not run yet.
+  Real `build_plan()` and the real projection function, with the LP's own chosen power series fed straight into the projection — a comparison between the two shipped equations, not between one of them and a restatement of it. Four of the six tests guard against the comparison being vacuous: one fails if the LP never actually heats, one pins the direction, one pins monotonicity, and one confirms they agree exactly while the load is idle.
 
 ## [0.94.311] — 2026-09-15
 
