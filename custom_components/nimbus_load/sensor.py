@@ -43,7 +43,13 @@ from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.loader import async_get_integration
 
-from . import done_condition, health, load_run_state, nem_region, sensor_flattened
+from . import (
+    done_condition,
+    health,
+    load_run_state,
+    sensor_discovery,
+    sensor_flattened,
+)
 from .const import (
     ATTR_FORECAST,
     ATTR_MASE_SCALE_POINTS,
@@ -2392,6 +2398,10 @@ class NimbusSolverConfigSensor(SensorEntity):
         """(region, postcode_prefix) from the Companion App's own
         `sensor.<device>_geocoded_location`, or (None, None).
 
+        The rule itself lives in `sensor_discovery.py` so the tests can
+        call the shipped code rather than a copy of it (nimbus issue
+        #954) -- this method is now only the `hass.states` read.
+
         `_geocoded_location` is Home Assistant's own documented Companion
         App naming, not a third-party's arbitrary choice -- which is why
         matching on it here is not the same mistake as inferring a
@@ -2410,27 +2420,9 @@ class NimbusSolverConfigSensor(SensorEntity):
         his instruction said *one time* setup -- a consumer should read
         this once and store it, not re-derive it per record.
         """
-        # Unavailable/unknown states are filtered OUT of the candidate
-        # list, not merely parsed and found wanting. Found on a real
-        # install: the one geocoded sensor there reads `unavailable`
-        # (phone off, or out of range), and while parsing that string
-        # happens to yield (None, None) it does so by accident -- there
-        # is no state/postcode pair in the word "unavailable".
-        #
-        # Filtering first makes the "exactly one" rule mean exactly one
-        # USABLE sensor, which is the question actually being asked. It
-        # also fixes a real edge case: two phones where one is
-        # unavailable should resolve from the other, rather than being
-        # refused as ambiguous when only one of them can answer.
-        candidates = [
-            st
-            for st in self.hass.states.async_all("sensor")
-            if st.entity_id.endswith("_geocoded_location")
-            and st.state not in (None, "unknown", "unavailable")
-        ]
-        if len(candidates) != 1:
-            return None, None
-        return nem_region.resolve_region_and_prefix(candidates[0].state)
+        return sensor_discovery.resolve_geocoded_region_and_prefix(
+            self.hass.states.async_all("sensor")
+        )
 
     def _discover_aemo_30min_forecast_sensor(self) -> str | None:
         """The `sensor.aemo_nem_<region>_current_30min_forecast` entity,
@@ -2460,16 +2452,14 @@ class NimbusSolverConfigSensor(SensorEntity):
         correction v0.94.300 had to make to the geocoded discovery
         above, applied here from the start rather than after a deploy
         surfaced it.
+
+        The rule itself lives in `sensor_discovery.py` so the tests can
+        call the shipped code rather than a copy of it (nimbus issue
+        #954) -- this method is now only the `hass.states` read.
         """
-        candidates = [
-            st
-            for st in self.hass.states.async_all("sensor")
-            if st.entity_id.endswith("_current_30min_forecast")
-            and st.state not in (None, "unknown", "unavailable")
-        ]
-        if len(candidates) != 1:
-            return None
-        return candidates[0].entity_id
+        return sensor_discovery.discover_aemo_30min_forecast_sensor(
+            self.hass.states.async_all("sensor")
+        )
 
 
 class NimbusTopologyConfigSensor(SensorEntity):

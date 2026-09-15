@@ -32,6 +32,15 @@ from nem_region import (
     postcode_prefix,
     resolve_region_and_prefix,
 )
+from sensor_discovery import resolve_geocoded_region_and_prefix
+
+
+class _State:
+    """The two attributes the discovery rule reads off an HA state."""
+
+    def __init__(self, entity_id: str, state: str):
+        self.entity_id = entity_id
+        self.state = state
 
 
 class TestTheRealCompanionAppShape(unittest.TestCase):
@@ -163,15 +172,22 @@ class TestDiscoveryRefusesAmbiguity(unittest.TestCase):
 
     @staticmethod
     def _pick(entity_ids_and_states):
-        candidates = [
-            (eid, state)
-            for eid, state in entity_ids_and_states
-            if eid.endswith("_geocoded_location")
-            and state not in (None, "unknown", "unavailable")
-        ]
-        if len(candidates) != 1:
-            return None, None
-        return resolve_region_and_prefix(candidates[0][1])
+        """Calls the SHIPPED rule -- `sensor_discovery.
+        resolve_geocoded_region_and_prefix()`, the exact function
+        `NimbusSolverConfigSensor._resolve_geocoded_region_and_prefix()`
+        delegates to.
+
+        This used to be a hand-copied mirror of that logic, which nimbus
+        issue #954 (Mark Purcell) correctly called out: the copy agreed
+        with the real code, but agreement is not coverage. Any future
+        edit to the shipped rule would have kept this file green while
+        the shipped path quietly lost its only tests -- the "tested
+        helper wired to nothing" shape this project has already been
+        burned by twice (#538, #692).
+        """
+        return resolve_geocoded_region_and_prefix(
+            _State(eid, state) for eid, state in entity_ids_and_states
+        )
 
     def test_exactly_one_is_used(self):
         got = self._pick(

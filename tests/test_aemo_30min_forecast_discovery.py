@@ -30,20 +30,33 @@ from __future__ import annotations
 import unittest
 
 import _solver_path  # noqa: F401
+from sensor_discovery import discover_aemo_30min_forecast_sensor
+
+
+class _State:
+    """The two attributes the discovery rule reads off an HA state."""
+
+    def __init__(self, entity_id: str, state: str):
+        self.entity_id = entity_id
+        self.state = state
 
 
 def _discover(entity_ids_and_states):
-    """The discovery rule, mirroring
-    NimbusSolverConfigSensor._discover_aemo_30min_forecast_sensor()."""
-    candidates = [
-        eid
-        for eid, state in entity_ids_and_states
-        if eid.endswith("_current_30min_forecast")
-        and state not in (None, "unknown", "unavailable")
-    ]
-    if len(candidates) != 1:
-        return None
-    return candidates[0]
+    """Calls the SHIPPED rule -- `sensor_discovery.
+    discover_aemo_30min_forecast_sensor()`, the exact function
+    `NimbusSolverConfigSensor._discover_aemo_30min_forecast_sensor()`
+    delegates to.
+
+    This used to be a hand-copied mirror of that logic, which nimbus
+    issue #954 (Mark Purcell) correctly called out: the copy agreed with
+    the real code, but agreement is not coverage. Any future edit to the
+    shipped rule would have kept this file green while the shipped path
+    quietly lost its only tests -- the "tested helper wired to nothing"
+    shape this project has already been burned by twice (#538, #692).
+    """
+    return discover_aemo_30min_forecast_sensor(
+        _State(eid, state) for eid, state in entity_ids_and_states
+    )
 
 
 class TestEveryRegionResolvesIdentically(unittest.TestCase):
