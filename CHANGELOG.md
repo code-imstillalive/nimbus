@@ -8,6 +8,27 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.312] — 2026-09-15
+
+### Added
+- **The two thermal-model equations are now compared against each other in a test** (nimbus issue [#897](https://github.com/code-imstillalive/nimbus/issues/897)). No behaviour change — this pins a difference that already exists, so that resolving it has to be deliberate.
+
+  `solver/network.py`'s temperature recursion subtracts `idle_decay_c_per_hour · hours[t]` in **every** period, heating ones included. `thermal_forecast.project_temperature_forecast()` is a strict either/or: a heating period gains and does not decay. Both are deliberate in their own place, **both already had passing tests, and neither test looked at the other equation.**
+
+  **Scope, because this is easy to over-read:** the two never touch the same load. A `kind=deferrable` load learns a rate and consumes it in the projection; a `kind=thermal` load publishes the LP's own solved `temperature_c` rather than a re-derived projection, which [#774](https://github.com/code-imstillalive/nimbus/issues/774) designed out deliberately. No household is shown a curve that disagrees with the guarantee.
+
+  The real concern is narrower: `learn_thermal_rates()` fits `rate = gain / kWh` from a **measured** idle-before → settled-idle-after change, so the loss during a run is already inside it — a **net** rate. The LP's recursion only balances for a **gross** one. [#873](https://github.com/code-imstillalive/nimbus/issues/873) would route a learned value into that recursion for the first time. Separately, `DEFAULT_HEATING_RATE_C_PER_KWH = 8.0` feeds both equations today, so there is no value of it that is correct in both places.
+
+  The test asserts the closed form rather than agreement:
+
+  ```
+  LP trajectory = projection − idle_decay_c_per_hour × (heating hours)
+  ```
+
+  Green today and loud the moment either equation moves. Asserting agreement would fail immediately, and choosing which is right changes live dispatch on a real hot water system — #897's open question, not one a test should settle by fiat.
+
+  Real `build_plan()` and the real projection function, with the LP's own chosen power series fed straight into the projection — a comparison between the two shipped equations, not between one of them and a restatement of it. Four of the six tests guard against the comparison being vacuous: one fails if the LP never actually heats, one pins the direction, one pins monotonicity, and one confirms they agree exactly while the load is idle.
+
 ## [0.94.311] — 2026-09-15
 
 ### Changed
@@ -32,6 +53,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   `_HOME_BATTERY_SOC_EXCURSION_WARNED` moved with the code. Every reference to it in the repo was inside this block, so the flag had been living three thousand lines from its only reader. Logging still goes through `solver_writer._LOGGER`, so an install configuring that logger keeps control of these lines — asserted, not assumed.
 
   Verified behaviour-preserving by the #363 golden-output guardrail, which drives the real `main()` to a real optimal solve and compares the pushed attributes byte for byte.
+
+Devhub validation: deployed and restarted, `installed_version == available_version == v0.94.311`, solve `optimal` in 1.72 s over 205 periods, `nimbus_status` "Working well", no new errors. **The extracted function is confirmed live, not only by the golden test**: the install's own SoC sensor reads **10.1%** and the plan's `forecast[0].soc_pct` reads **10.18%** (end of period 0), so `resolve_soc_envelope()`'s `initial_soc_kwh` reached the LP unchanged — and with the configured range at [2.0%, 100.0%] neither the #328 soft-excursion path nor the physical clamp fired, which is the correct answer for a healthy tank rather than an untested one. Both flagship sensors published fresh with `unit_of_measurement: kW`, `state` and `whole_house_live_now_kw` both **2.88**.
 
 ## [0.94.310] — 2026-09-15
 
