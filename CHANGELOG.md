@@ -33,6 +33,10 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
   Verified behaviour-preserving on the default path by the [#363](https://github.com/code-imstillalive/nimbus/issues/363) golden-output guardrail.
 
+  **A second-order bug was caught before this merged, and is worth recording because it is the kind a feature like this creates silently.** `main()` passes `cfg` to four publishes that score a **past** day — the quality report, the flex report, the counterfactual and the backtest. With the preset applied to `cfg` in place, a household in `away` mode would have had *yesterday* priced with an `away` degradation cost it never actually paid, shifting `j_ach`/`j_star` and therefore EPR and regret, with nothing to show it had happened.
+
+  Nimbus does not record which mode was in force on a past day — that is a real new capability, not a lookup — so the historical publishes now take an explicit unmoded baseline. A test drives the real `main()` with `away` set and asserts the scorer receives the baseline value, with a companion assertion that the preset really would have changed it, so the guard cannot pass vacuously if presets silently stop working. Mutation-checked: reverting the one call site fails it.
+
 ## [0.94.314] — 2026-09-15
 
 ### Fixed

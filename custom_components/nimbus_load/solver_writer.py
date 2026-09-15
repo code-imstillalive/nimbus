@@ -12716,6 +12716,16 @@ def main() -> None:
     # `home` (the default) and an unrecognised/absent mode are both the
     # identity transform, so this is provably a no-op until a household
     # deliberately switches.
+    # `cfg_unmoded` is kept deliberately: the historical report
+    # publishes below score a PAST day, and that day was not run under
+    # today's mode. Scoring yesterday with an `away` degradation cost it
+    # never actually paid would shift j_ach/j_star and therefore EPR and
+    # regret, silently. Nimbus does not record which mode was in force on
+    # a past day (that is a real new capability, not a lookup), so the
+    # honest choice is to score against the household's own baseline
+    # configuration rather than a mode that may have been switched on
+    # this morning.
+    cfg_unmoded = cfg
     cfg, _mode_applied_solver = household_modes.apply_to_solver_config(
         cfg, cfg.get("household_mode")
     )
@@ -12830,7 +12840,7 @@ def main() -> None:
     # wrapped the same way as every other non-essential publish in this
     # file, since a failure here must never take down the real solve.
     try:
-        publish_daily_quality_report(cfg, now)
+        publish_daily_quality_report(cfg_unmoded, now)
     except Exception as e:  # noqa: BLE001 -- see comment above; must never break the real solve
         # 2026-08-31: previously a bare `pass` -- made the entity-id-
         # collision incident this file's own resolve_real_entity_id()
@@ -12848,7 +12858,7 @@ def main() -> None:
     # Purcell authorized 2026-09-09, shipped separately from the sensor
     # half already published above via publish_flex_signals()).
     try:
-        publish_daily_flex_report(cfg, now)
+        publish_daily_flex_report(cfg_unmoded, now)
     except Exception as e:  # noqa: BLE001 -- see comment above; must never break the real solve
         _LOGGER.warning("Nimbus: daily flex report publish failed: %s", e)
 
@@ -12857,7 +12867,7 @@ def main() -> None:
     # docstring (2026-08-25, "i want u to build that into devbox
     # package").
     try:
-        publish_nimbus_only_soc_counterfactual(cfg, now)
+        publish_nimbus_only_soc_counterfactual(cfg_unmoded, now)
     except Exception as e:  # noqa: BLE001 -- see comment above; must never break the real solve
         # 2026-08-31: see publish_daily_quality_report()'s own matching
         # comment -- same "bare pass hid a real, diagnosable bug for
@@ -12868,7 +12878,7 @@ def main() -> None:
     # publish_efficiency_backtest_report()'s own docstring (2026-08-25,
     # the "outstanding, unique" backtesting-engine ask).
     try:
-        publish_efficiency_backtest_report(cfg, now)
+        publish_efficiency_backtest_report(cfg_unmoded, now)
     except Exception as e:  # noqa: BLE001 -- see comment above; must never break the real solve
         # 2026-08-31: see publish_daily_quality_report()'s own matching
         # comment -- same "bare pass hid a real, diagnosable bug for

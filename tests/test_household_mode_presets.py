@@ -189,3 +189,90 @@ class TestTheTablesOnlyTouchRealLevers(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheHistoricalScorersKeepTheUnmodedBaseline(unittest.TestCase):
+    """The second-order bug this feature can cause, caught before merge.
+
+    `main()` applies the mode preset to `cfg` and then passes `cfg` to
+    four publishes that score a **past** day. Yesterday was not run under
+    today's mode, so pricing it with an `away` degradation cost it never
+    actually paid would shift `j_ach`/`j_star`, and therefore EPR and
+    regret, silently.
+
+    Nimbus does not record which mode was in force on a past day -- that
+    is a real new capability, not a lookup -- so the honest answer is to
+    score against the household's own baseline. This test exists because
+    `cfg_unmoded` looks redundant next to `cfg` and is exactly the kind of
+    variable a later tidy-up deletes.
+    """
+
+    def _run_main_capturing(self, mode):
+        import urllib.error
+        from unittest.mock import patch
+
+        import solver_writer
+        from test_main_golden_output_guardrail import _SOLVER_CONFIG_ATTRS
+
+        attrs = dict(_SOLVER_CONFIG_ATTRS)
+        attrs["household_mode"] = mode
+        attrs["solver_degradation_cost_per_kwh"] = 0.02
+        known = {
+            "sensor.nimbus_solver_config": {"state": "configured", "attributes": attrs},
+            "sensor.fake_soc": {"state": "55.0", "attributes": {}},
+            "sensor.fake_import_price": {"state": "0.30", "attributes": {}},
+            "sensor.fake_export_price": {"state": "0.05", "attributes": {}},
+        }
+        from test_main_golden_output_guardrail import _HEALTHY_LOAD_STATE, _LOAD_SENSOR
+
+        known[_LOAD_SENSOR] = _HEALTHY_LOAD_STATE
+
+        def _ha_get(entity_id):
+            if entity_id in known:
+                return known[entity_id]
+            raise urllib.error.HTTPError(entity_id, 404, "not found", {}, None)
+
+        seen = {}
+
+        def _capture_quality(cfg, now):
+            seen["cfg"] = cfg
+
+        with (
+            patch.object(solver_writer, "ha_get", side_effect=_ha_get),
+            patch.object(solver_writer, "ha_post_state"),
+            patch.object(solver_writer, "acquire_lock", return_value=True),
+            patch.object(solver_writer, "release_lock"),
+            patch.object(
+                solver_writer,
+                "publish_daily_quality_report",
+                side_effect=_capture_quality,
+            ),
+            patch.object(solver_writer, "publish_daily_flex_report"),
+            patch.object(solver_writer, "publish_nimbus_only_soc_counterfactual"),
+            patch.object(solver_writer, "publish_efficiency_backtest_report"),
+            patch.object(
+                solver_writer, "PLAN_STATE_PATH", "/tmp/nonexistent_mode_test.json"
+            ),
+        ):
+            solver_writer.main()
+        return seen.get("cfg")
+
+    def test_the_scorer_sees_the_baseline_not_the_moded_value(self):
+        cfg = self._run_main_capturing("away")
+        self.assertIsNotNone(cfg, "publish_daily_quality_report was never called")
+        self.assertAlmostEqual(
+            float(cfg["solver_degradation_cost_per_kwh"]),
+            0.02,
+            msg="the historical scorer received a mode-adjusted degradation "
+            "cost -- it would price a past day with a lever that day never "
+            "actually ran under",
+        )
+
+    def test_the_preset_really_would_have_changed_it(self):
+        """Without this, the test above passes even if the preset silently
+        stopped working -- both values would be the baseline."""
+        moded, applied = hm.apply_to_solver_config(
+            {"solver_degradation_cost_per_kwh": 0.02}, "away"
+        )
+        self.assertNotAlmostEqual(moded["solver_degradation_cost_per_kwh"], 0.02)
+        self.assertIn("solver_degradation_cost_per_kwh", applied)
