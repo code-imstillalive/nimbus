@@ -11792,6 +11792,50 @@ async def dispatch_commanded_state(
         )
 
 
+def _resolve_reaffirm_after_seconds(data: dict) -> float | None:
+    """How long this load may be seen disagreeing with its own command
+    before Nimbus re-sends it (nimbus issue #875).
+
+    Per load, not global -- the household's own reasoning on #769, which
+    applies identically here: "each load can have its own urgency."
+
+    Returns None when nothing is configured, leaving the default to
+    load_run_state.reaffirm_allowed() itself rather than resolving it
+    here -- the default belongs beside the behaviour it governs, and
+    this keeps the helper free of any cross-module import.
+
+    **0 disables re-sending for this load**, restoring exactly the
+    pre-#875 edge-triggered-only behaviour, which is the escape hatch
+    for a device that must never be commanded twice. A negative or
+    unparseable value is treated as unset rather than as 0, so a typo
+    fails towards the working default instead of silently switching the
+    feature off.
+    """
+    # Dual-mode, and NOT optional. A relative-only import looked safe
+    # here -- this helper is reachable only from apply_commanded_state_
+    # guard(), which is native-only -- and that reasoning is wrong: the
+    # test harness imports solver_writer as a BARE module and calls that
+    # guard directly. A relative import then raises ImportError, which
+    # the guard's own whole-function handler swallows at DEBUG, aborting
+    # every dispatch for that cycle silently. Caught by three existing
+    # #741/#484 tests going red, which is exactly what they are for.
+    try:
+        from .const import CONF_CONTROLLABLE_LOAD_REAFFIRM_AFTER_MINUTES as _KEY
+    except ImportError:  # bare-module import shape
+        from const import CONF_CONTROLLABLE_LOAD_REAFFIRM_AFTER_MINUTES as _KEY
+
+    raw = data.get(_KEY)
+    if raw is None:
+        return None
+    try:
+        minutes = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if minutes < 0:
+        return None
+    return minutes * 60.0
+
+
 def apply_commanded_state_guard(
     plan: network.Plan,
     now: datetime,
@@ -12838,14 +12882,24 @@ def apply_commanded_state_guard(
                                 new = load_run_state.record_activation(
                                     new, day_key=day_key
                                 )
+                                new = replace(new, last_dispatch_failed=False)
                             except Exception:
                                 _LOGGER.warning(
                                     "Nimbus: dispatch ON failed for "
-                                    "controllable load '%s' (%s)",
+                                    "controllable load '%s' (%s) -- will retry "
+                                    "next cycle (nimbus issue #875)",
                                     subentry_id,
                                     device_entity,
                                     exc_info=True,
                                 )
+                                # nimbus issue #875: the command did not go
+                                # out. Recording that is what makes the retry
+                                # possible at all -- before this, the failed
+                                # attempt was persisted as commanded, and
+                                # edge-triggering meant the next cycle saw no
+                                # transition and never tried again. One
+                                # transient failure cost the load its window.
+                                new = replace(new, last_dispatch_failed=True)
                         else:
                             _LOGGER.warning(
                                 "Nimbus: controllable load '%s' wants ON but "
@@ -12859,14 +12913,66 @@ def apply_commanded_state_guard(
                             await dispatch_commanded_state(
                                 _NATIVE_HASS, device_entity, False
                             )
+                            new = replace(new, last_dispatch_failed=False)
                         except Exception:
                             _LOGGER.warning(
                                 "Nimbus: dispatch OFF failed for "
-                                "controllable load '%s' (%s)",
+                                "controllable load '%s' (%s) -- will retry "
+                                "next cycle (nimbus issue #875)",
                                 subentry_id,
                                 device_entity,
                                 exc_info=True,
                             )
+                            new = replace(new, last_dispatch_failed=True)
+                elif device_entity and load_run_state.reaffirm_allowed(
+                    new,
+                    now_ts=now.timestamp(),
+                    reaffirm_after_seconds=_resolve_reaffirm_after_seconds(data),
+                    day_key=day_key,
+                ):
+                    # nimbus issue #875, household decision 2026-09-15: the
+                    # device is not following a command already given (or the
+                    # last send never went out). Re-send the SAME state --
+                    # deliberately NOT via record_activation(), so this cannot
+                    # consume one of #534's capped device-side activations. A
+                    # reminder is not a new activation.
+                    _why = (
+                        "last dispatch failed"
+                        if new.last_dispatch_failed
+                        else "device has not followed the command"
+                    )
+                    try:
+                        await dispatch_commanded_state(
+                            _NATIVE_HASS,
+                            device_entity,
+                            new.commanded_state,
+                            climate_on_hvac_mode=(
+                                climate_on_hvac_mode if new.commanded_state else None
+                            ),
+                        )
+                        new = load_run_state.record_reaffirm(
+                            new, now_ts=now.timestamp(), day_key=day_key
+                        )
+                        new = replace(new, last_dispatch_failed=False)
+                        _LOGGER.info(
+                            "Nimbus: re-sent %s to controllable load '%s' (%s) "
+                            "-- %s. Re-send %d of %d today; this does NOT "
+                            "count against the activations/day cap.",
+                            "ON" if new.commanded_state else "OFF",
+                            subentry_id,
+                            device_entity,
+                            _why,
+                            new.reaffirms_today,
+                            load_run_state.DEFAULT_MAX_REAFFIRMS_PER_DAY,
+                        )
+                    except Exception:
+                        _LOGGER.warning(
+                            "Nimbus: re-send failed for controllable load '%s' (%s)",
+                            subentry_id,
+                            device_entity,
+                            exc_info=True,
+                        )
+                        new = replace(new, last_dispatch_failed=True)
                 if new is not prev:
                     await store.async_write(subentry_id, new)
 
