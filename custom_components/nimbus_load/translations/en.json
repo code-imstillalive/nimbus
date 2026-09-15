@@ -22,7 +22,7 @@
       },
       "forecaster": {
         "title": "Nimbus settings (shared by every load/signal)",
-        "description": "These apply to every load or power signal you add -- set once here rather than re-entering them each time.",
+        "description": "Every field on this form is OPTIONAL -- submitting it blank is a complete, working configuration, and Nimbus forecasts fine without any of them. They apply to every load or power signal you add, set once here rather than re-entering them each time: the sensors below give a load's model real system context (was the battery charging at this exact moment?), and the three numbers at the bottom already have sensible defaults.",
         "data": {
           "temperature_sensor": "Temperature sensor (optional, improves accuracy)",
           "temperature_forecast_sensor": "Temperature forecast sensor (optional, used for future predictions)",

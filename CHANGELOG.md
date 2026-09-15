@@ -8,6 +8,30 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.317] — 2026-09-15
+
+### Changed
+- **The Forecaster settings form now says that every field on it is optional** (nimbus issue [#449](https://github.com/code-imstillalive/nimbus/issues/449)). Text only — no schema change, no behaviour change.
+
+  Counted from the schemas rather than estimated, `vol.Required` against `vol.Optional`:
+
+  | form | required | optional |
+  |---|---|---|
+  | Forecaster | **0** | 12 |
+  | Solver: Battery | 1 | 1 |
+  | Solver: Grid | 2 | 6 |
+  | Solver: Sources | 2 | 14 |
+  | Switchboard | 0 | 8 |
+  | **Configure, everything** | **5** | **41** |
+
+  **The wizard looks like 46 decisions and is actually 5, plus 41 optional refinements.** Two forms have no required fields at all and can be submitted entirely blank; Switchboard's description already said so, and that was the model for this change. The Forecaster form had zero required fields and a description that never mentioned it.
+
+  Which reframes #449: the quick-versus-advanced tiering it asks for **largely already exists in the schema** — it is simply not surfaced, because the forms render required and optional fields identically. Saying what is already true is cheaper than building a mechanism, and it is what a household actually needs to know before deciding whether to fill a form in.
+
+  `strings.json` and `translations/en.json` updated together and verified byte-identical, per this repo's own standing rule that there is no build step generating one from the other.
+
+  Worth recording the counting trap, because it nearly produced a wrong number in the issue: counting `vol.Optional(` calls in the source reports Switchboard as **1** field. It is 8 — that schema is built in a loop over its own key list. Every figure above comes from the key-list constants and an AST walk.
+
 ## [0.94.316] — 2026-09-15
 
 ### Added
