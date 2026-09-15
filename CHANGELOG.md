@@ -8,6 +8,36 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.333] - 2026-09-16
+
+### Fixed
+- **A battery that is away can no longer be handed an impossible discharge bound** ([#953](https://github.com/code-imstillalive/nimbus/issues/953), Mark Purcell, from the 48-hour IV&V pass [#950](https://github.com/code-imstillalive/nimbus/issues/950)). `discharge_vars` built its two bounds from conditions that never consulted each other: `ub` honoured `gated_periods`, `lb` did not. A battery carrying both a positive `spike_override_discharge_kw` and period 0 inside `unavailable_period_indices` therefore built a positive floor against a zero ceiling, which `add_variable` rejects outright -- the solve fails, it does not degrade.
+
+  Fixed in `lb` alone. `ub` already evaluates the gate first, so ORing the spike condition into it would be a no-op in exactly the conflicting case, and `charge_vars` is not a usable template either: charge has no `lb` override at all, because a spike override raises a minimum *discharge* and never a minimum charge. The two constructions are legitimately different in shape; only one had been taught about the mask.
+
+  **The gate wins over the override**, rather than the pair being rejected in `__post_init__`: an unavailable battery cannot discharge whatever the price is doing, so "the car is out and prices spiked" is well-defined rather than a hard failure -- and [#467](https://github.com/code-imstillalive/nimbus/issues/467)'s own design note already says the mask composes as a UNION with the existing gates.
+
+  **Scope corrected while writing the tests**, worth recording rather than quietly dropping: a test asserting [#779](https://github.com/code-imstillalive/nimbus/issues/779)'s prefix gate hit the same conflict *failed*, because it cannot. That index is read only inside the `elif` under `if b.available`, so on an available battery it gates nothing, and on an unavailable one the override never arms. #467's per-period mask is the only source that can gate period 0 while the override is live.
+
+### Changed
+- **The #357 anti-drift guard now sees `solver_publish.py`** ([#952](https://github.com/code-imstillalive/nimbus/issues/952), Mark Purcell). Its globs listed `solver_inputs/*.py` alone, so a module extracted from `main()` by the same #735 refactor -- but landing directly under `nimbus_load/` rather than inside a package -- was invisible. A fix applied only there and never ported to the standalone/cron copy would have passed the entire suite silently. No live drift had resulted; an unguarded blind spot, not a gap.
+
+  Registering it immediately surfaced `publish_household_load_total_forecast`, verified before annotating: the docs copy still publishes that sensor inline in its own `main()`, carrying the same #100 fix and the same `failed_load_entities` list. Present in both copies; only the integration has given it a name.
+
+  A new test is the durable half -- every top-level `solver_*.py` must be either read by the guard or named as deliberately outside the solve surface, so #735's remaining stages cannot land in the same blind spot.
+
+- **The #495/#452 discovery rules are now tested through the code that ships** ([#954](https://github.com/code-imstillalive/nimbus/issues/954), Mark Purcell). Both lived as methods on `NimbusSolverConfigSensor` whose only coverage was hand-copied mirrors of their logic; grepping `tests/` for either method name returned nothing. The mirrors agreed with the real code, which is the point: **agreement is not coverage** -- an edit to either method would have kept the suite green while the shipped path silently lost its only tests, the same "tested helper wired to nothing" shape as [#538](https://github.com/code-imstillalive/nimbus/issues/538)/[#692](https://github.com/code-imstillalive/nimbus/issues/692).
+
+  Both now live in a new `sensor_discovery.py` as plain functions taking any iterable of objects with `.entity_id`/`.state`, callable without a Home Assistant instance. Behaviour-identity on purpose: the unusable-state set is exactly the three states already filtered, since widening it would be a real change to live discovery smuggled in under a refactor.
+
+  A guard keeps the rules single-sourced -- the suffix literals defining each may appear in executable code in exactly one module, with docstrings and comments excluded via AST since three modules legitimately name these entity shapes in prose.
+
+- **The source-comment guard now says what it does not check, and sweeps the standalone writer** ([#955](https://github.com/code-imstillalive/nimbus/issues/955), Mark Purcell). It verifies a referenced `test_*.py` exists, never that the file contains the guard the comment claims. Two content heuristics were measured against the real corpus before settling for saying so plainly: a bidirectional issue link passes only 6 of the 11 references that carry an issue number, and an enclosing-symbol match passes 7 of 12 while 10 of 22 references have no enclosing symbol at all. Both would fail on ~40% of a corpus with no real defects, and a guard that cries wolf gets an allowlist bolted on and then ignored.
+
+  Coverage was extended instead of depth: the sweep now also reads `docs/real-world-integration/files/` -- real shipped source a household runs via cron, carrying 5 references of its own with no guard on any of them. Clean today.
+
+- **The #594 changelog guard no longer counts an entry that merely mentions validation** ([#594](https://github.com/code-imstillalive/nimbus/issues/594)). Found the honest way while preparing this release: v0.94.332's own entry explains why a never-tagged version *"had no Devhub-validation line it could honestly carry"*, and that sentence satisfied the search -- the section passing while genuinely having no such line. Inline code spans and fenced blocks are now stripped before the phrase is looked for, which separates the two cases reliably: a real validation line is written as prose, while a reference to the concept is written as code precisely because it is naming the literal string the guard looks for. Same shape as #955 next door -- a guard answering a weaker question than it appears to.
+
 ## [0.94.332] — 2026-09-16
 
 ### Changed
@@ -116,6 +146,9 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **Held overnight rather than shipped same-day**, per the release-timing rule the household settled on #594 the same evening. This touches dispatch and is **not** identity on the default path -- a diverging load now genuinely behaves differently, which is the whole point -- so it does not qualify for the proof-backed carve-out and waits.
 
 - **Version numbering: v0.94.331 was never tagged, and this release absorbs it.** PRs [#930](https://github.com/code-imstillalive/nimbus/pull/930) and [#931](https://github.com/code-imstillalive/nimbus/pull/931) each carried their own `manifest.json` bump inside a feature branch, to v0.94.331 and v0.94.332 respectively. They collided on merge, and resolving that collision in favour of either number put a never-released version inside the [#594](https://github.com/code-imstillalive/nimbus/issues/594) guard’s enforced window (`_MIN_ENFORCED_VERSION <= v < in_flight`), where it had no `Devhub validation:` line it could honestly carry — nothing had been deployed at that version, because no such release existed. `main` had been green only because `.331` was itself the in-flight version. Both sections are folded here, and `.332` is used rather than reusing `.331` because `main` already carried `0.94.331` in `manifest.json` with different code than a `v0.94.331` tag would now hold — one version string, two code states, on a project whose reference deploy is a raw git clone. Per this repo’s own documented convention the bump belongs in a Release PR, not a feature branch.
+
+- Devhub validation: deployed via HACS and restarted, `installed_version == available_version == v0.94.332`, `nimbus_load.solve_now` returned a real plan (`solve_seconds: 1.13`, published state `-3.857 kW`). Confirmed the install is genuinely executing this code rather than hitting the known stale-deploy bug: `solve_diagnostics` carried all **7** keys current code emits, against the 3 a stale install reports. [#945](https://github.com/code-imstillalive/nimbus/issues/945) confirmed live -- only `consecutive skips: 2` and `3` appear at WARNING, with the single-skip case now silent, which is the whole intent of that change. [#951](https://github.com/code-imstillalive/nimbus/issues/951)'s reorder behaves correctly on an install with no P2P blocks configured: `binding_constraint_now` reads the generic zero label, the pin branch correctly not taken. No new WARNING/ERROR attributable to the release -- every line in the log is pre-existing and separately tracked (#773's lex infeasibility, the devhub duplicate-unique-id entities, the statistics unit warnings, persisted-model schema notices). The codeowners change is live too: HACS now lists @purcell-lab alongside the maintainer.
+
 
 ## [0.94.330] — 2026-09-15
 
