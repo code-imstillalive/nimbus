@@ -102,9 +102,22 @@ def test_battery_forecast_has_required_sensor_entity_class_attributes():
     assert cls._attr_has_entity_name is True
     assert cls._attr_name == "Solver Battery Forecast"
     assert cls._attr_suggested_display_precision == 3
-    # The whole reason the "unit changed" repair (#61) stops firing:
-    # unit now comes from the SensorEntity contract, not from an attrs
-    # dict. Same reasoning for device_class and state_class.
+    # Why these are class attributes (#61): the unit comes from the
+    # SensorEntity contract, not from an attrs dict. Same reasoning for
+    # device_class and state_class.
+    #
+    # These assertions have never been in doubt. What HAS been re-derived
+    # wrong twice is the CONSEQUENCE claimed around them, so the class
+    # docstring in sensor.py now carries the verified version and this
+    # comment deliberately does not restate it -- see it and #890.
+    #
+    # The one line worth having here: setting the unit as a class
+    # attribute only reaches the recorder for states written BY the
+    # entity (HA passes `_unrecorded_attributes` via `state.state_info`).
+    # A stale or external writer produces a state with no `state_info`,
+    # so nothing is excluded, the 16 KB cap trips, and every attribute is
+    # dropped -- which looks exactly like these class attributes not
+    # working, and is not.
     assert cls._attr_native_unit_of_measurement == "kW"
     # SensorDeviceClass / SensorStateClass are MagicMock in the test
     # stubs; identity comparison against the same mock attribute is the

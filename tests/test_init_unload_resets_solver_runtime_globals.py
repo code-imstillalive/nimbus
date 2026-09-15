@@ -47,6 +47,10 @@ def _seed_solver_runtime_state() -> None:
     solver_runtime._import_error_notified = True
     solver_runtime._price_latency_sensor = object()
     solver_runtime._consecutive_lock_skips = 7
+    # nimbus issue #945: cumulative single-overlap count. Its summary
+    # WARNING says "since startup", so a reload must give a clean count
+    # rather than carrying a previous config entry's overlaps forward.
+    solver_runtime._single_skip_total = 13
 
 
 def _clear_solver_runtime_state() -> None:
@@ -55,6 +59,7 @@ def _clear_solver_runtime_state() -> None:
     solver_runtime._import_error_notified = False
     solver_runtime._price_latency_sensor = None
     solver_runtime._consecutive_lock_skips = 0
+    solver_runtime._single_skip_total = 0
 
 
 class TestUnloadResetsSolverRuntimeGlobals:
@@ -76,6 +81,7 @@ class TestUnloadResetsSolverRuntimeGlobals:
         assert solver_runtime._import_error_notified is False
         assert solver_runtime._price_latency_sensor is None
         assert solver_runtime._consecutive_lock_skips == 0
+        assert solver_runtime._single_skip_total == 0
         # nimbus issue #365 item 1: services must also be torn down on a
         # successful unload -- see test_services.py's own dedicated
         # coverage of async_unregister_services() itself for the detail;
@@ -113,3 +119,4 @@ class TestResetModuleStateDirectly:
         assert solver_runtime._import_error_notified is False
         assert solver_runtime._price_latency_sensor is None
         assert solver_runtime._consecutive_lock_skips == 0
+        assert solver_runtime._single_skip_total == 0

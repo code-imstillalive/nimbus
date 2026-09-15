@@ -146,6 +146,17 @@ _in_flight_future: asyncio.Future[bool] | None = None
 # itself (a much larger, riskier change deferred for a follow-up once
 # these logs identify which specific publish is actually slow, if any).
 _consecutive_lock_skips = 0
+# nimbus issue #945: cumulative count of SINGLE-tick overlaps (the kind
+# that self-heal on the next tick and are therefore logged at DEBUG).
+# Deliberately not reset on a successful acquire, unlike
+# _consecutive_lock_skips -- the whole point is to notice a persistent
+# skip/succeed alternation, which by definition resets the consecutive
+# counter every time.
+_single_skip_total = 0
+# How many single-tick overlaps between summary WARNINGs. At the rate
+# measured on a real install (99/hour) this is roughly 4 lines an hour;
+# on a healthy install it is silent for days, which is the intent.
+_SINGLE_SKIP_SUMMARY_EVERY = 25
 # Real, measured baseline per acquire_lock()'s own docstring: "45-52s solve
 # time" for a genuine LP solve. 120s (roughly 2.5x that measured ceiling)
 # is comfortably above any legitimate single-cycle duration seen so far,
@@ -286,12 +297,16 @@ def reset_module_state() -> None:
     has already reset it to None on its own.
     """
     global _solver_writer, _last_solve_completed_monotonic, _import_error_notified
-    global _price_latency_sensor, _consecutive_lock_skips
+    global _price_latency_sensor, _consecutive_lock_skips, _single_skip_total
     _solver_writer = None
     _last_solve_completed_monotonic = None
     _import_error_notified = False
     _price_latency_sensor = None
     _consecutive_lock_skips = 0
+    # nimbus issue #945: "since startup" in the summary WARNING means
+    # since this reset, so a reload gives a clean count rather than
+    # carrying a previous config entry's overlaps into a new one.
+    _single_skip_total = 0
 
 
 def set_default_env_vars(hass: HomeAssistant) -> None:
@@ -577,19 +592,64 @@ def _run_one_cycle(hass: HomeAssistant) -> bool:
                 },
             )
         return False
-    global _consecutive_lock_skips
+    global _consecutive_lock_skips, _single_skip_total
     if not sw.acquire_lock():
         _consecutive_lock_skips += 1
-        # nimbus issue #315: WARNING, not DEBUG -- this is the exact
-        # silent-skip mechanism that reproduces "fires every ~44 min"
-        # with zero prior log breadcrumb. count included so a real
-        # multi-tick stall (several of these in a row) is visibly
-        # distinct from one ordinary, harmless overlap.
-        _LOGGER.warning(
-            "Nimbus Solver: previous cycle still in progress -- skipping "
-            "this tick (consecutive skips: %d)",
-            _consecutive_lock_skips,
-        )
+        # nimbus issue #315 made this a WARNING, because the silent-skip
+        # mechanism behind "fires every ~44 min" had zero log breadcrumb,
+        # and added the count so "a real multi-tick stall (several of
+        # these in a row) is visibly distinct from one ordinary, harmless
+        # overlap."
+        #
+        # nimbus issue #945: it was not distinct -- both logged at
+        # WARNING, so telling them apart meant reading the number.
+        # Measured on a real install: 99 WARNINGs in 63 minutes, every
+        # one of them `consecutive skips: 1`. Since the counter resets on
+        # every successful acquire, that is skip/succeed/skip/succeed --
+        # a stream of exactly the case #315 itself called harmless, and
+        # expected whenever a cycle runs longer than a tick (acquire_
+        # lock()'s own docstring records a measured 45-52 s solve).
+        #
+        # A WARNING stream that is almost always benign is how the #757
+        # and #773 signals got buried; v0.94.306 and v0.94.297 both had
+        # to clean up precisely this. So the tiers now say what #315
+        # meant:
+        if _consecutive_lock_skips == 1:
+            _single_skip_total += 1
+            _LOGGER.debug(
+                "Nimbus Solver: previous cycle still in progress -- "
+                "skipping this tick (single overlap, self-heals next "
+                "tick; %d since startup)",
+                _single_skip_total,
+            )
+            # ...but a PERSISTENT skip/succeed alternation is not
+            # harmless even though each skip is: it means main()
+            # routinely overruns the tick, so the solver is effectively
+            # running at a fraction of its configured cadence. Quieting
+            # the single skip outright would delete the only signal that
+            # exists for that today, so it is summarised periodically
+            # instead -- roughly 4 lines an hour at the rate measured
+            # above, against 99.
+            #
+            # solve_seconds cannot answer this: it times the LP solve,
+            # not the whole cycle, which also runs every non-essential
+            # publish (weather mirrors, quality report, counterfactual,
+            # backtest, solar delivery ratio) -- none of which has its
+            # own timeout, per this module's own note above.
+            if _single_skip_total % _SINGLE_SKIP_SUMMARY_EVERY == 0:
+                _LOGGER.warning(
+                    "Nimbus Solver: %d single-tick overlaps since startup "
+                    "-- each one self-healed, but a cycle routinely "
+                    "overrunning its tick means the solver is running "
+                    "below its configured cadence (nimbus issue #945)",
+                    _single_skip_total,
+                )
+        else:
+            _LOGGER.warning(
+                "Nimbus Solver: previous cycle still in progress -- skipping "
+                "this tick (consecutive skips: %d)",
+                _consecutive_lock_skips,
+            )
         return False
     _consecutive_lock_skips = 0
     cycle_started = time.monotonic()

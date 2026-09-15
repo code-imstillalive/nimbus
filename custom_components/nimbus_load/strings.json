@@ -90,7 +90,7 @@
       },
       "solver_sources": {
         "title": "Solver: Solar & Load Forecasts (3 of 3)",
-        "description": "Where the Solver gets its forward-looking view of what solar you'll generate and what your house will consume -- point these at your own forecast sensors (Solcast, Open-Meteo, Nimbus's own Power Signals, or anything similar that already exists on your system). 🔴 = required.",
+        "description": "Where the Solver gets its forward-looking view of what solar you'll generate and what your house will consume -- point these at your own forecast sensors (Solcast, Open-Meteo, Nimbus's own Power Signals, or anything similar that already exists on your system). Only 2 of the 16 fields here are required -- one solar forecast and one load forecast; the rest are refinements you can add later. Worth knowing: the daily quality report needs all three real-measurement sensors (whole-house, solar power, battery power), so leaving any one blank means Nimbus solves normally but publishes no score at all. 🔴 = required.",
         "data": {
           "solver_solar_forecast_sensor": "🔴 Solar generation forecast sensor (kW or kWh) -- your existing solar forecast integration",
           "solver_solar_forecast_sensor_2": "Optional: second, independently-modeled solar forecast source to blend with the first",

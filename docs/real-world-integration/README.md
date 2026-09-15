@@ -72,7 +72,29 @@ result to `sensor.nimbus_solver_battery_forecast`. This plan now drives real,
 live battery and grid dispatch on the reference household — it has
 graduated out of observe-only shadow mode.
 
-Two things worth knowing before reading it:
+Three things worth knowing before reading it:
+
+- **This cron path cannot keep attribute history for the two big output
+  sensors, and that is a property of the transport, not a bug you can
+  configure away** (nimbus issue #944). `_unrecorded_attributes` — the
+  mechanism that keeps the per-period `forecast` series out of the
+  recorder so it cannot trip HA's 16 KB per-attribute cap — only applies
+  to states written *by an entity*, because HA passes it through
+  `state.state_info` (`recorder/db_schema.py`), and only
+  `async_write_ha_state()` populates that. This script publishes over
+  `POST /api/states/<entity_id>`, which reaches `hass.states.async_set()`
+  with `state_info=None`, so nothing is excluded, the whole ~19 KB
+  payload is measured, and the recorder drops **every** attribute on the
+  row (`return b"{}"`) — `unit_of_measurement` included, which then
+  suppresses that entity's long-term statistics too.
+  What you lose: attribute history and statistics on
+  `sensor.nimbus_solver_battery_forecast` and
+  `sensor.nimbus_household_load_total_forecast`. What still works: the
+  live state and live attributes (so every dashboard card reading
+  `attributes.forecast` is unaffected), dispatch, and every smaller
+  sensor. The only symptom is a `recorder.db_schema` warning that reads
+  like a database performance note. The HACS/native install does not
+  have this limitation, since it writes through the entity.
 
 - It reads its economic settings (risk aversion, P2P bonus, battery
   capacity, etc.) live from `sensor.nimbus_solver_config`, itself
