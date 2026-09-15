@@ -8,6 +8,29 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.325] — 2026-09-15
+
+### Fixed
+- **The `fixed_export_kw` "mathematically should be impossible" clamp fired 126 times an hour on a real install, and silently falsified the published plan every time** ([#923](https://github.com/code-imstillalive/nimbus/issues/923)).
+
+  `network.py` gates battery charging during a committed P2P export period with
+
+  ```python
+  charging_ub_during_fixed_window(t, grid, b.max_charge_kw) if b_idx == 0 else b.max_charge_kw
+  ```
+
+  — a hard `ub=0`, *"a hard, mathematically-impossible-to-choose gate"*, reaching **battery 0 only**. Every battery participant ([#467](https://github.com/code-imstillalive/nimbus/issues/467): a second inverter, an EV) keeps its ordinary ceiling and may legitimately charge inside the window; `grid_export` is pinned there, so such a charge draws from solar or import rather than from committed export.
+
+  The backstop in `publish_plan()` compared `Plan.battery_charge_kw` — which is, by its own documented contract, the **summed aggregate across every participant** — against that per-battery bound. So on a multi-battery install an EV charging inside the window read as an impossible solve. The clamp does not merely warn: it then **zeroed the EV's real charge out of the published plan and reduced published grid import by the same amount**, making the plan's own numbers stop adding up, in the direction of looking cheaper than it is.
+
+  The check was correct when it was written (2026-08-22 — one battery, so the aggregate *was* battery 0's charge). #467 changed what the aggregate means and the backstop was not revisited with it.
+
+  Now compares `plan.batteries[0].charge_kw`, the array the gate was actually applied to, and removes only that battery's own charge. A participant's charge in the same period survives into every published figure.
+
+  Extracted to `resolve_fixed_export_charge_clamp()` as a pure function first — same precedent as `compute_binding_constraint_label()`, and for a sharper reason: this is the rare code that *silently rewrites published data* when its premise is wrong, so a wrong premise shows up as wrong numbers on a dashboard rather than as an error, and it had **no test at all**. It now has 18, including the discriminating mixed case (the home battery violating *and* a participant charging in the same period, where zeroing the aggregate throws away the legal half with the illegal one) and a mutation check confirming 7 of them fail under the old aggregate comparison.
+
+  Landed in both writer copies per [#357](https://github.com/code-imstillalive/nimbus/issues/357) — the function-set drift guard caught the port being missing and was allowed to do its job rather than silenced with a bucket exception.
+
 ## [0.94.324] — 2026-09-15
 
 ### Fixed
@@ -24,6 +47,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   The guard branch itself is **kept**, deliberately narrowed to the pin rather than widened to a tolerance, so the next unmodelled bound still surfaces loudly. Its comment now records why it was reachable. Fixed in both copies of the function — the integration's and the standalone/cron writer's — per [#357](https://github.com/code-imstillalive/nimbus/issues/357)'s reasoning, with a test asserting both carry it.
 
   Eight new tests, including a mutation check that reproduces the exact observed string byte-for-byte without the new argument (so the fix is proven to be what changed), NaN handling for the uncommitted periods that make up most of a real `fixed_export_kw` array, and ordering checks that the existing "at the ceiling" wording — a compatibility guarantee since #125/#133 — and the "at zero" economic label both still win where they should.
+
+Devhub validation: deployed and restarted, `installed_version == available_version == v0.94.324`, solve `optimal`, health report **0** errors. **The fix itself could not be confirmed live**, and this line says so rather than implying otherwise: an explicit `solve_now` produced a genuinely fresh solve (`total_cost` and `binding_constraint_shadow_price` both moved between reads) that still published the *old* string, on an install sitting inside its own P2P window with the branch firing every cycle. That is the already-tracked per-file staleness defect on that install — HACS reports the new version while the executing module is older — and per the standing rule it is logged, not chased. Worth recording one detail: the previous occurrence, three hours earlier on v0.94.319, proved `solver_writer.py` was the file that *was* current while `sensor.py` lagged ~19 releases. This time `solver_writer.py` is the stale one. The stale set moves between deploys, which is a real constraint on any explanation for it. The fix is verified independently: eight tests including the mutation check, the #363 golden guardrail unchanged, full CI green, and the full local suite at 2588 passed / 14 skipped.
 
 ## [0.94.323] — 2026-09-15
 

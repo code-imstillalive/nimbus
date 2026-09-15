@@ -211,6 +211,7 @@ sys.path.insert(
 # solver/ package from wherever it's checked out.
 import numpy as np
 from ml.blend import blend_forecast_array, cross_source_spread
+from numpy.typing import NDArray
 from solver import elements, network
 
 if os.environ.get("SUPERVISOR_TOKEN") and not os.environ.get("HA_BASE"):
@@ -725,6 +726,76 @@ def _risk_aversion_effect_now(
             float(export_price[0]) - float(plan.effective_export_price[0]), 4
         ),
     }
+
+
+def resolve_fixed_export_charge_clamp(
+    fixed_export_kw: NDArray[np.float64] | None,
+    *,
+    gated_charge_kw: NDArray[np.float64],
+    aggregate_charge_kw: NDArray[np.float64],
+    discharge_kw: NDArray[np.float64],
+    grid_import_kw: NDArray[np.float64],
+) -> tuple[
+    NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.bool_]
+]:
+    """The P2P fixed-export charge backstop, as a pure function.
+
+    Returns `(net_battery, charge_kw, grid_import_kw, violation_mask)`.
+
+    Extracted 2026-09-15 for nimbus issue #923 -- same precedent as
+    compute_binding_constraint_label() above, and for the same reason:
+    this code had no test of its own, and it does not merely warn. It
+    rewrites three published quantities, so a wrong premise here
+    silently publishes wrong numbers rather than failing loudly.
+
+    **`gated_charge_kw` must be the charge array of the battery the
+    LP gate was actually applied to, not the fleet total.** network.py
+    bounds charging during a commitment with
+
+        charging_ub_during_fixed_window(t, grid, b.max_charge_kw)
+        if b_idx == 0 else b.max_charge_kw
+
+    -- a hard `ub=0` for battery 0 only. Every battery participant
+    (#467: a second inverter, an EV) keeps its ordinary ceiling and may
+    legitimately charge inside a committed window; `grid_export` is
+    pinned there, so such a charge draws from solar or import rather
+    than from committed export.
+
+    `Plan.battery_charge_kw` is the documented SUMMED AGGREGATE across
+    all of them. Comparing that aggregate against a per-battery bound is
+    what #923 was: on a multi-battery install a participant's legal
+    charge read as an impossible solve, and the clamp then erased it
+    from the published plan and understated grid import by the same
+    amount, every period of every committed window. The check was right
+    when written (2026-08-22, one battery, aggregate == battery 0);
+    #467 changed what the aggregate means and this was not revisited.
+
+    Only the gated battery's own charge is removed. A participant's
+    charge in the same period is real and survives into every published
+    figure.
+    """
+    net_battery: NDArray[np.float64] = (discharge_kw - aggregate_charge_kw).astype(
+        np.float64
+    )
+    no_violation: NDArray[np.bool_] = np.zeros(net_battery.shape, dtype=np.bool_)
+    if fixed_export_kw is None:
+        return net_battery, aggregate_charge_kw, grid_import_kw, no_violation
+
+    violation = (~np.isnan(fixed_export_kw)) & (gated_charge_kw > 0.05)
+    if not violation.any():
+        return net_battery, aggregate_charge_kw, grid_import_kw, no_violation
+
+    kept_charge_kw = np.maximum(0.0, aggregate_charge_kw - gated_charge_kw)
+    return (
+        np.where(violation, discharge_kw - kept_charge_kw, net_battery),
+        np.where(violation, kept_charge_kw, aggregate_charge_kw),
+        np.where(
+            violation,
+            np.maximum(0.0, grid_import_kw - gated_charge_kw),
+            grid_import_kw,
+        ),
+        violation,
+    )
 
 
 def compute_binding_constraint_label(
@@ -4889,7 +4960,6 @@ def main() -> None:
         total_throughput_kwh / (2.0 * capacity_kwh) if capacity_kwh > 0 else 0.0
     )
 
-    net_battery = plan.battery_discharge_kw - plan.battery_charge_kw
     corrected_grid_import = plan.grid_import_kw
 
     # DEFENSIVE SAFETY NET (2026-08-22) -- this file's own real, found
@@ -4913,26 +4983,32 @@ def main() -> None:
     # immediate same-night mitigation, since that correctly cancels this
     # module's own timer (entry.async_on_unload, __init__.py) without a
     # restart.
-    if grid.fixed_export_kw is not None:
-        _fixed_mask = ~np.isnan(grid.fixed_export_kw)
-        _violation_mask = _fixed_mask & (plan.battery_charge_kw > 0.05)
-        _n_violations = int(np.sum(_violation_mask))
-        if _n_violations > 0:
-            print(
-                f"[{now.isoformat()}] *** WARNING: solver returned {_n_violations} "
-                f"period(s) with battery_charge_kw>0 during a committed "
-                f"fixed_export_kw period -- mathematically should be impossible, "
-                f"applying defensive clamp before push. ***",
-                file=sys.stderr,
-            )
-            net_battery = np.where(
-                _violation_mask, plan.battery_discharge_kw, net_battery
-            )
-            corrected_grid_import = np.where(
-                _violation_mask,
-                np.maximum(0.0, plan.grid_import_kw - plan.battery_charge_kw),
-                plan.grid_import_kw,
-            )
+    # nimbus issue #923: `plan.batteries[0]` is the battery the LP gate
+    # was applied to; the fleet aggregate is not. See the docstring.
+    (
+        net_battery,
+        _corrected_battery_charge_kw,
+        corrected_grid_import,
+        _violation_mask,
+    ) = resolve_fixed_export_charge_clamp(
+        grid.fixed_export_kw,
+        gated_charge_kw=(
+            plan.batteries[0].charge_kw if plan.batteries else plan.battery_charge_kw
+        ),
+        aggregate_charge_kw=plan.battery_charge_kw,
+        discharge_kw=plan.battery_discharge_kw,
+        grid_import_kw=plan.grid_import_kw,
+    )
+    if _violation_mask.any():
+        print(
+            f"[{now.isoformat()}] *** WARNING: solver returned "
+            f"{int(np.sum(_violation_mask))} period(s) with "
+            f"battery_charge_kw>0 on the home battery during a committed "
+            f"fixed_export_kw period -- mathematically should be impossible, "
+            f"applying defensive clamp before push. (Participant batteries "
+            f"are not gated here, see nimbus issue #923.) ***",
+            file=sys.stderr,
+        )
 
     # Real per-period source/destination breakdown (2026-08-28) -- see
     # _dispatch_source_breakdown()'s own module-level docstring for the
