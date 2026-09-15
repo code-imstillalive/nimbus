@@ -206,6 +206,13 @@ except ImportError:
     from solver_inputs import (  # type: ignore[no-redef]
         battery_soc as battery_soc_inputs,
     )
+# nimbus issue #485: household-mode presets. Pure, HA-free table +
+# two apply functions; same dual-mode import as every other
+# project-internal module here.
+try:
+    from . import household_modes
+except ImportError:
+    import household_modes  # type: ignore[no-redef]
 
 # nimbus issue #735 stage 3, pulled forward: the load-input block stage 2
 # wants to extract has an ha_post_state() call sitting INSIDE it, so that
@@ -9684,6 +9691,20 @@ def _resolve_controllable_load_tuning(data: dict, subentry) -> dict:
             resolved[key] = float(state.state)
         except (TypeError, ValueError):
             continue
+    # nimbus issue #485: the household-mode preset lands LAST, on
+    # top of the live number.* overlay above -- so it scales the
+    # value actually in force, never a stale wizard entry the
+    # household has already tuned past. `home` and an unset mode
+    # are the identity transform.
+    mode_state = _NATIVE_HASS.states.get("select.nimbus_household_mode")
+    mode = None
+    if mode_state is not None and mode_state.state not in (
+        None,
+        "unknown",
+        "unavailable",
+    ):
+        mode = mode_state.state
+    resolved, _ = household_modes.apply_to_load_config(resolved, mode)
     return resolved
 
 
@@ -12679,6 +12700,42 @@ def main() -> None:
     # been configured yet -- see fetch_solver_config()'s own docstring
     # for the full "installable by anyone" context this closes.
     cfg = fetch_solver_config()
+    # nimbus issue #485: household-mode presets, applied to `cfg`
+    # ITSELF and here rather than at each consumer -- the battery and
+    # solver levers are read at 3-4 independent `_cfg_num(cfg, ...)`
+    # sites apiece with no chokepoint between them, so a preset applied
+    # anywhere downstream would reach some of them and silently miss
+    # the rest.
+    #
+    # Deliberately NOT claimed: this does not change what sensor.nimbus_
+    # solver_config shows. `cfg` is a COPY fetched FROM that sensor's
+    # attributes, so a moded value lives only in this solve. The INFO
+    # log below is therefore the record of what a mode actually moved --
+    # checked rather than assumed, after an earlier draft of this comment
+    # asserted the opposite.
+    # `home` (the default) and an unrecognised/absent mode are both the
+    # identity transform, so this is provably a no-op until a household
+    # deliberately switches.
+    # `cfg_unmoded` is kept deliberately: the historical report
+    # publishes below score a PAST day, and that day was not run under
+    # today's mode. Scoring yesterday with an `away` degradation cost it
+    # never actually paid would shift j_ach/j_star and therefore EPR and
+    # regret, silently. Nimbus does not record which mode was in force on
+    # a past day (that is a real new capability, not a lookup), so the
+    # honest choice is to score against the household's own baseline
+    # configuration rather than a mode that may have been switched on
+    # this morning.
+    cfg_unmoded = cfg
+    cfg, _mode_applied_solver = household_modes.apply_to_solver_config(
+        cfg, cfg.get("household_mode")
+    )
+    if _mode_applied_solver:
+        _LOGGER.info(
+            "Nimbus #485: household mode %r applied to %d solver lever(s): %s",
+            cfg.get("household_mode"),
+            len(_mode_applied_solver),
+            _mode_applied_solver,
+        )
     _log_active_household_specific_overrides_once(cfg)
 
     now = datetime.now(UTC).astimezone(LOCAL_TZ).replace(second=0, microsecond=0)
@@ -12783,7 +12840,7 @@ def main() -> None:
     # wrapped the same way as every other non-essential publish in this
     # file, since a failure here must never take down the real solve.
     try:
-        publish_daily_quality_report(cfg, now)
+        publish_daily_quality_report(cfg_unmoded, now)
     except Exception as e:  # noqa: BLE001 -- see comment above; must never break the real solve
         # 2026-08-31: previously a bare `pass` -- made the entity-id-
         # collision incident this file's own resolve_real_entity_id()
@@ -12801,7 +12858,7 @@ def main() -> None:
     # Purcell authorized 2026-09-09, shipped separately from the sensor
     # half already published above via publish_flex_signals()).
     try:
-        publish_daily_flex_report(cfg, now)
+        publish_daily_flex_report(cfg_unmoded, now)
     except Exception as e:  # noqa: BLE001 -- see comment above; must never break the real solve
         _LOGGER.warning("Nimbus: daily flex report publish failed: %s", e)
 
@@ -12810,7 +12867,7 @@ def main() -> None:
     # docstring (2026-08-25, "i want u to build that into devbox
     # package").
     try:
-        publish_nimbus_only_soc_counterfactual(cfg, now)
+        publish_nimbus_only_soc_counterfactual(cfg_unmoded, now)
     except Exception as e:  # noqa: BLE001 -- see comment above; must never break the real solve
         # 2026-08-31: see publish_daily_quality_report()'s own matching
         # comment -- same "bare pass hid a real, diagnosable bug for
@@ -12821,7 +12878,7 @@ def main() -> None:
     # publish_efficiency_backtest_report()'s own docstring (2026-08-25,
     # the "outstanding, unique" backtesting-engine ask).
     try:
-        publish_efficiency_backtest_report(cfg, now)
+        publish_efficiency_backtest_report(cfg_unmoded, now)
     except Exception as e:  # noqa: BLE001 -- see comment above; must never break the real solve
         # 2026-08-31: see publish_daily_quality_report()'s own matching
         # comment -- same "bare pass hid a real, diagnosable bug for

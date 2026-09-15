@@ -8,6 +8,35 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.315] — 2026-09-15
+
+### Added
+- **Household modes now change dispatch** (nimbus issue [#485](https://github.com/code-imstillalive/nimbus/issues/485)). `select.nimbus_household_mode` has existed since v0.94.298 and only ever appeared in diagnostics; it now applies preset adjustments to the levers that already exist. **Zero new entities, zero new wizard fields** — Mark Purcell's own steer, which reversed two earlier proposals (~125 disabled-by-default sibling entities, then a wizard flag): *"These modes should have preset values for the existing levers, not generate new levers."*
+
+  **`home` is the identity transform, so nothing changes until a household deliberately switches.** `home` is absent from the preset tables entirely rather than listed with factors of 1.0 — a table full of 1.0s satisfies this issue's second acceptance criterion numerically and rots the first time a lever is added without one. An unrecognised mode, and the `None` an install reports before its select entity comes up, are also identity: a mode nobody recognises must never reshape a real dispatch.
+
+  **Every preset is relative to the household's own configured value**, never an absolute this project invents. An install that has tuned `deferrable_target_kwh` to 4.0 keeps that as its baseline and `guests` asks for 30% more of *their* number. An absolute would silently discard real tuning the moment someone switched modes, and be wrong by a different amount on every install.
+
+  **Two seams, because one is not enough** — the finding that gated this work:
+
+  ```
+  _resolve_controllable_load_tuning()   2 call sites -- a real chokepoint
+  solver_battery_min_soc_percent        read at 4 sites via _cfg_num(cfg, ...)
+  solver_degradation_cost_per_kwh       read at 3 sites via _cfg_num(cfg, ...)
+  ```
+
+  The battery and solver levers are not funnelled through any resolver — each site reads `cfg` directly at the point of use — so a preset applied only at the load chokepoint would reach the load levers and silently miss every battery one. `apply_to_solver_config()` therefore runs once on `cfg` itself, immediately after it is built, and the per-load preset lands **after** the live `number.*` overlay so it scales the value actually in force rather than a stale wizard entry.
+
+  Two obvious candidate levers are deliberately **left alone**: the **SoC floor**, because how much reserve a house keeps while empty is a real safety and money judgement about that household rather than something a table should assume; and **deadline/earliest hours**, because they are clock values with wrap-around behaviour that [#582](https://github.com/code-imstillalive/nimbus/issues/582) was a real bug in — "no HWS deadline while away" is expressed as a much lower `shortfall_price` instead, the same intent without the hour arithmetic.
+
+  The factors themselves are one dict and are the part most open to adjustment; the mechanism does not change if they do. Tests pin the properties rather than the numbers, including that every preset key is a real lever and every mode a real selectable one, so a table entry naming something nothing reads fails rather than silently doing nothing.
+
+  Verified behaviour-preserving on the default path by the [#363](https://github.com/code-imstillalive/nimbus/issues/363) golden-output guardrail.
+
+  **A second-order bug was caught before this merged, and is worth recording because it is the kind a feature like this creates silently.** `main()` passes `cfg` to four publishes that score a **past** day — the quality report, the flex report, the counterfactual and the backtest. With the preset applied to `cfg` in place, a household in `away` mode would have had *yesterday* priced with an `away` degradation cost it never actually paid, shifting `j_ach`/`j_star` and therefore EPR and regret, with nothing to show it had happened.
+
+  Nimbus does not record which mode was in force on a past day — that is a real new capability, not a lookup — so the historical publishes now take an explicit unmoded baseline. A test drives the real `main()` with `away` set and asserts the scorer receives the baseline value, with a companion assertion that the preset really would have changed it, so the guard cannot pass vacuously if presets silently stop working. Mutation-checked: reverting the one call site fails it.
+
 ## [0.94.314] — 2026-09-15
 
 ### Fixed
