@@ -8,6 +8,28 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.318] — 2026-09-15
+
+### Added
+- **The pool heater's price gate now follows household mode** (nimbus issue [#485](https://github.com/code-imstillalive/nimbus/issues/485)). Mark Purcell's spec, verbatim: *"turn on the pool heater when the marginal cost is less than 5c/kWh"* at home, 2 ¢ away, 8 ¢ with guests.
+
+  That rule is `value_per_kwh` — a price-gated load ([#482](https://github.com/code-imstillalive/nimbus/issues/482)) runs exactly where the switchboard's own shadow price sits at or below this value, which is the same mechanism HAEO's `consumption_cost` uses. **No new mechanism, and it does not touch the tank's physics**, so it is unaffected by the open net-versus-gross question on [#897](https://github.com/code-imstillalive/nimbus/issues/897) — the reason the pool heater had been held back.
+
+  His three numbers fall out of one baseline and two multipliers, so the relative rule holds:
+
+  ```
+  deferrable_value_per_kwh = 0.05   ->   home 5c   away 2c   guests 8c
+  ```
+
+  A household that later decides 6 ¢ is its real baseline gets 2.4 ¢ and 9.6 ¢ rather than having its own tuned number silently overridden.
+
+### Changed
+- **A guard widened, deliberately rather than deleted.** `deferrable_value_per_kwh` is a real wizard-saved config key that is **not** in `_CONTROLLABLE_LOAD_LIVE_NUMBER_KEYS` — it has no live `number.*` entity. The preset still reaches it, because `_resolve_controllable_load_tuning()` starts from the subentry's own data and the live overlay only adds to it.
+
+  The old assertion ("every preset key is a live-tunable key") would have blocked a legitimate lever, so it is now "every preset key is a real config key", with a second test keeping the narrower property for the keys that genuinely do have live entities. A preset naming a key nothing reads is still dead config that looks live — the failure mode being that a household switches mode and nothing happens, with no error to explain it.
+
+  **This is a lever with no load to attach to yet on the reference install**, established live rather than assumed: a search for `commanded_state` there returns exactly one match (`sensor.nimbus_hot_water_heat_pump_commanded_state`). The real pool hardware exists and is automated outside Nimbus; it has never been wired in as a Controllable Load. So this ships the half that belongs in Nimbus, ready for the subentry whenever it is created.
+
 ## [0.94.317] — 2026-09-15
 
 ### Changed

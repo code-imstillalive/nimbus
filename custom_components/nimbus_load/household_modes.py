@@ -104,6 +104,14 @@ LOAD_PRESETS: dict[str, dict[str, tuple[str, float]]] = {
     "away": {
         # "pool pump at a maintenance quota" -- half the daily energy.
         "deferrable_target_kwh": (MULTIPLY, 0.5),
+        # Mark Purcell, 2026-09-15, for the pool heater specifically:
+        # "turn on when the marginal cost is less than 5c/kWh" at home,
+        # 2c away, 8c with guests. `value_per_kwh` IS that rule -- a
+        # price-gated load runs exactly where the switchboard's own
+        # shadow price is at or below this value (#482). Expressed
+        # relative so a household that decides 6c is its real baseline
+        # gets 2.4c/9.6c rather than having its own number overridden.
+        "deferrable_value_per_kwh": (MULTIPLY, 0.4),
         # "no HWS deadline" -- expressed as a much weaker penalty for
         # missing the target rather than by moving the deadline hour.
         "deferrable_shortfall_price": (MULTIPLY, 0.25),
@@ -113,6 +121,8 @@ LOAD_PRESETS: dict[str, dict[str, tuple[str, float]]] = {
     "guests": {
         # "bigger HWS target, earlier deadline" -- the target half.
         "deferrable_target_kwh": (MULTIPLY, 1.3),
+        # 5c baseline -> 8c, per the same steer as `away` above.
+        "deferrable_value_per_kwh": (MULTIPLY, 1.6),
         # ...and the deadline half, as urgency rather than clock maths.
         "deferrable_shortfall_price": (MULTIPLY, 1.5),
     },

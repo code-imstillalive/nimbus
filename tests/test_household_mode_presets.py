@@ -156,14 +156,49 @@ class TestTheTablesOnlyTouchRealLevers(unittest.TestCase):
     live -- the failure mode is that someone switches to `away` and
     nothing happens, with no error to explain why."""
 
-    def test_every_load_lever_is_a_real_live_tunable_key(self):
-        from custom_components.nimbus_load import solver_writer as sw
+    def test_every_load_lever_is_a_real_config_key(self):
+        """Widened from "is a live-tunable `number.*` key" on 2026-09-15,
+        when the pool-heater price gate landed.
 
-        known = set(sw._CONTROLLABLE_LOAD_LIVE_NUMBER_KEYS)
+        `deferrable_value_per_kwh` is a real, wizard-saved config key and
+        is deliberately NOT in `_CONTROLLABLE_LOAD_LIVE_NUMBER_KEYS` — it
+        has no live `number.*` entity. The preset still reaches it,
+        because `_resolve_controllable_load_tuning()` starts from the
+        subentry's own data and the live overlay only adds to that.
+
+        So the right invariant is "names a real config key", not "names a
+        live-tunable one" — the narrower version would have blocked a
+        legitimate lever. Kept rather than dropped: a preset naming a key
+        nothing reads is dead config that looks live, and a household
+        would see a mode switch do nothing with no error to explain it.
+        """
+        from custom_components.nimbus_load import const
+
+        known = {
+            getattr(const, name)
+            for name in dir(const)
+            if name.startswith("CONF_") and isinstance(getattr(const, name), str)
+        }
         for mode, levers in hm.LOAD_PRESETS.items():
             for key in levers:
                 with self.subTest(mode=mode, key=key):
                     self.assertIn(key, known)
+
+    def test_the_live_tunable_levers_are_still_live_tunable(self):
+        """The half of the old assertion worth keeping: a preset key that
+        DOES have a live `number.*` entity must stay in that list, so a
+        lever cannot silently lose its live overlay."""
+        from custom_components.nimbus_load import solver_writer as sw
+
+        live = set(sw._CONTROLLABLE_LOAD_LIVE_NUMBER_KEYS)
+        # The price gate is deliberately wizard-only; see the test above.
+        wizard_only = {"deferrable_value_per_kwh"}
+        for mode, levers in hm.LOAD_PRESETS.items():
+            for key in levers:
+                if key in wizard_only:
+                    continue
+                with self.subTest(mode=mode, key=key):
+                    self.assertIn(key, live)
 
     def test_every_solver_lever_is_a_real_configured_key(self):
         from custom_components.nimbus_load import const
