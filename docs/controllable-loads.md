@@ -85,25 +85,17 @@ crash — the next cycle's own "now" almost always resolves it correctly.
 
 Real, tracked gaps, not oversights being papered over:
 
-- **`climate` domain dispatch.** #534's own "written for both domains" note
-  flags `climate.*` (an HVAC zone) as sharing the same `current_temperature`/
-  `temperature` shape `water_heater` already has — Device entity accepts any
-  domain in the selector, but `dispatch_commanded_state()` (`solver_writer.py`)
-  only recognizes `switch`/`water_heater` today. Pointing Device entity at a
-  `climate.*` entity logs a WARNING and dispatches nothing, rather than
-  guessing at a service call against hardware this project hasn't verified
-  against yet.
+- **`climate` dispatch needs its ON mode named.** `dispatch_commanded_state()`
+  does recognise `climate.*` now (#756) and issues `set_hvac_mode`. It will not
+  guess *which* mode: a real unit's `hvac_modes` can be any subset of
+  heat/cool/dry/fan_only/heat_cool/auto, so the ON mode must be named in
+  `climate_on_hvac_mode`. Left blank, an ON transition logs a WARNING and
+  dispatches nothing; OFF always works, since `"off"` is universal.
 - **No per-load, per-domain mode-string override for `water_heater`.**
   `dispatch_commanded_state()` always issues `"performance"`/`"eco"` — the
   exact convention #534's own investigated device uses. A future household
   whose bridge uses different mode names would need that made configurable;
   not built speculatively ahead of a real need.
-- **No thermal-state target (#481).** Device entity lets Nimbus command a
-  `water_heater` on/off, but the LP still schedules it as a plain
-  Sheddable/Deferrable load (kW and kWh) — it does not yet understand "heat
-  to 60°C by 17:00" as a real temperature-band target. #481 (thermal kind) is
-  the largest unbuilt piece of the whole spec — a genuine new LP model
-  (heat-transfer dynamics, a comfort-band construction), not a wiring task.
 - **No tracking-fidelity/monitoring sensors comparing plan to reality**
   (`actual_kw`, `tracking_fidelity_24h`, `tracking_error_cost_24h`, the
   plain-language `sensor.nimbus_<load>_status`, `delivered_today_kwh` vs
@@ -114,12 +106,13 @@ Real, tracked gaps, not oversights being papered over:
 - **No linked-Forecaster-load option.** A sheddable load's forecast is always
   flat (`nominal_kw`) — there's no way yet to point it at an existing Load
   subentry's own real per-period forecast instead.
-- **`quota`/`thermal`/`price_gated` kinds** aren't selectable — #481/#482
-  need to land first, and #479's own daily-carry math (below) needs a
-  `quota` wizard kind to actually attach to.
-- **No shadow costing or household-mode wiring** (#483/#485) — a
-  Controllable Load's real running cost isn't computed or exposed
-  anywhere yet.
+- **`quota` and `price_gated` are not separate wizard kinds.** The selector
+  offers `sheddable`, `deferrable` and `thermal` (thermal shipped with #774).
+  **Price-gating does not need a kind of its own**: a `deferrable` load with
+  `value_per_kwh` set and no real deadline pressure *is* a price-gated load --
+  it runs exactly where the switchboard's own shadow price sits at or below
+  that value (#482). `quota` still has no wizard kind for #479's own
+  daily-carry math to attach to.
 - **No `completed_early_periods`/`kwh_released` reporting, no EMA
   learning hook** (#480's own remaining scope) — see "Early completion"
   below for what IS built (the core stop-scheduling mechanic).

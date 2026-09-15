@@ -8,6 +8,28 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.320] — 2026-09-15
+
+### Fixed
+- **`docs/controllable-loads.md` told readers that shipped features do not exist.** Its "What's not built yet" section was last touched 2026-09-09 and had missed the thermal kind, household modes and climate dispatch. Documentation only — no behaviour change.
+
+  Most striking: it described **#481's thermal-state target as *"the largest unbuilt piece of the whole spec"*** — while `kind=thermal` has been shipped since [#774](https://github.com/code-imstillalive/nimbus/issues/774)/v0.94.270 and is what the reference household's hot water actually runs on. A user reading that page would conclude the feature driving their tank did not exist.
+
+  Each claim re-checked against the code before rewriting:
+
+  | claim | reality |
+  |---|---|
+  | "No thermal-state target… largest unbuilt piece" | **shipped** — `kind=thermal`, a real LP temperature state variable, live on real hardware |
+  | "No shadow costing or household-mode wiring (#483/#485)" | **both shipped** — #483 closed, #485 in v0.94.315 |
+  | "`dispatch_commanded_state()` only recognizes `switch`/`water_heater`" | **climate is recognised** (#756) and issues `set_hvac_mode`; what it will not do is *guess* the ON mode |
+  | "`quota`/`thermal`/`price_gated` kinds aren't selectable" | **thermal is selectable**; `quota`/`price_gated` genuinely are not |
+
+  The last row gained something the original framing hid: **price-gating needs no kind of its own.** A `deferrable` load with `value_per_kwh` and no real deadline pressure *is* a price-gated load ([#482](https://github.com/code-imstillalive/nimbus/issues/482)) — which is exactly how v0.94.318's pool-heater presets reach it. The doc implied the capability was missing when it has been reachable all along.
+
+  `const.py`'s own comment mirrored the same staleness ("thermal… reserved… for #481 to extend into once their own underlying solver-side work lands") and is corrected in the same pass, with the price-gating note added so the next person does not add a redundant kind.
+
+  Found by checking the age of every doc after the entity-table fix earlier today: this one had gone six days across three shipped features.
+
 ## [0.94.319] — 2026-09-15
 
 ### Added

@@ -71,14 +71,17 @@ SUBENTRY_TYPE_BATTERY_TOWER: Final = "battery_tower"
 # #16, had ever run on a live install.
 #
 # Scoped to the two `kind`s with an existing, tested solver class
-# today -- "sheddable" (SheddableLoadConfig) and "deferrable"
-# (AdequacyLoadConfig, #477's soft-shortfall version). "quota",
-# "thermal", and "price_gated" kinds are reserved in CONF_CONTROLLABLE_
-# LOAD_KINDS below for #479/#481/#482 to extend into once their own
-# underlying solver-side work lands -- Mark's own stated delivery order
-# puts this wizard right after #477 (foundation) but before those, so
-# the wizard is deliberately built to grow one kind at a time rather
-# than wait for the whole spec to land at once.
+# today -- "sheddable" (SheddableLoadConfig), "deferrable"
+# (AdequacyLoadConfig, #477's soft-shortfall version) and, since
+# #774/v0.94.270, "thermal" (ThermalLoadConfig's hard-constrained
+# temperature state variable). The wizard grew one kind at a time as
+# the solver-side work landed, exactly as intended.
+#
+# "quota" and "price_gated" remain reserved rather than selectable.
+# Worth knowing before anyone adds the latter: price-gating needs no
+# kind of its own -- a "deferrable" load with value_per_kwh set and no
+# real deadline pressure IS a price-gated load (#482), and that is how
+# the household-mode price presets reach the pool heater.
 SUBENTRY_TYPE_CONTROLLABLE_LOAD: Final = "controllable_load"
 
 # Power Source fields -- one real hardware unit that connects to the
