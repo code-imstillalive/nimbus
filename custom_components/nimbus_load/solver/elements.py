@@ -789,6 +789,14 @@ class BatteryConfig:
     # Normalised to a frozenset in __post_init__, so callers may pass any
     # iterable of ints (a list comprehension, np.flatnonzero() output)
     # without breaking this frozen dataclass's own hashability.
+    #
+    # nimbus issue #953 (Mark Purcell): interacts with
+    # `spike_override_discharge_kw` below, and THIS GATE WINS. A battery
+    # that is away cannot discharge whatever the price is doing, so
+    # network.py zeroes both discharge bounds for a gated period even
+    # when a spike override is active. Neither field is validated
+    # against the other on purpose -- the combination is well-defined
+    # rather than an error.
     unavailable_period_indices: frozenset[int] | None = None
 
     # nimbus issue #563 item 2, the departure-deadline half: pushes the
@@ -860,6 +868,16 @@ class BatteryConfig:
     # mechanism; the real-world priority decision lives where the other
     # cfg-driven decisions already do (solver_writer.py / network.py's
     # own grid_export construction).
+    #
+    # nimbus issue #953 (Mark Purcell): interacts with
+    # `unavailable_period_indices`/`available` above, and LOSES to them.
+    # This raises discharge's LOWER bound at t=0, which is why it can
+    # conflict with a gate that zeroes the upper bound -- before #953,
+    # setting both produced lb > ub, which `add_variable` rejects with a
+    # ValueError -- the solve fails outright rather than degrading.
+    # network.py
+    # now suppresses the override for a gated period; see its own
+    # discharge_vars construction for the full reasoning.
     spike_override_discharge_kw: float | None = None
 
     def __post_init__(self) -> None:

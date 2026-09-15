@@ -1987,7 +1987,48 @@ def _build_plan_once(
         discharge_vars[b.name] = [
             p.add_variable(
                 f"battery_discharge_{b.name}_{t}",
-                lb=(spike_override_value if spike_active_now and t == 0 else 0.0),
+                # nimbus issue #953 (Mark Purcell, 48-hour IV&V #950):
+                # `t not in gated_periods` is load-bearing here, not
+                # defensive. Before it, `lb` was set from the spike-
+                # override condition ALONE while `ub` checked the gate
+                # first -- so a battery with both a positive
+                # `spike_override_discharge_kw` and period 0 inside
+                # `unavailable_period_indices` got lb > ub (a positive
+                # floor against a zero ceiling), which `add_variable`
+                # rejects outright:
+                #
+                #   ValueError: Variable 'battery_discharge_home_0'
+                #   has lb=5.0 > ub=0.0
+                #
+                # A hard failure of the whole solve, then, rather than a
+                # wrong number -- the plan does not degrade, it does not
+                # arrive.
+                #
+                # Unreachable today only because the two mechanisms sit
+                # on disjoint call sites (the spike override is set on
+                # the live-forward "home" construction, the mask only on
+                # the oracle re-solve's). Either being extended would
+                # make it reachable, which is exactly why it is worth
+                # closing now rather than after.
+                #
+                # The gate deliberately WINS over the override: a
+                # battery that is away cannot discharge, whatever the
+                # price is doing. That makes "the car is out and prices
+                # spiked" a well-defined no-discharge period rather than
+                # an error, and it is what #467 already says the mask
+                # does -- "composes as a UNION with the existing gates".
+                #
+                # Note `charge_vars` above is NOT a template for this:
+                # charge has no `lb` override at all, because a spike
+                # override raises a *minimum discharge* and never a
+                # minimum charge. The two constructions are legitimately
+                # different in shape; only one of them had been taught
+                # about the mask.
+                lb=(
+                    spike_override_value
+                    if spike_active_now and t == 0 and t not in gated_periods
+                    else 0.0
+                ),
                 ub=0.0
                 if t in gated_periods
                 else (
