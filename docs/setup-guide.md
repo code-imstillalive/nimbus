@@ -138,8 +138,9 @@ skip this screen entirely — nothing else depends on it.
 
 ## Step 4 — Add the things you want forecast
 
-Back on the Nimbus device page, click **"+ Add"**. You'll get a menu —
-the two you'll actually use most are:
+Back on the Nimbus device page, click **"+ Add"**. You'll get a menu of
+seven things. Most installs only ever use the first one or two; the rest
+are there when you need them.
 
 ### Load — "forecast one appliance or circuit"
 
@@ -170,7 +171,38 @@ topology diagram knows which sensor is which.
   tells the diagram what it's looking at; it doesn't change the
   forecasting itself.
 
-### The other three ("+ Add" menu) — purely for the diagram
+### Controllable Load — "let Nimbus decide *when* this runs"
+
+The one people miss. A plain **Load** (above) only *forecasts* an
+appliance; a **Controllable Load** is one the Solver actually schedules
+and commands — your hot water, a pool pump, a dishwasher you do not mind
+running at 2 pm instead of 6 pm.
+
+You pick a **Kind**, and only that kind's fields matter (leave the rest
+blank):
+
+- **Deferrable** — "needs this much energy by this hour, I do not care
+  when." Hot water by 4 pm, a pool pump's daily hours.
+- **Thermal** — "be at this temperature by this hour," with the tank's own
+  heating and cooling modelled. What a hot-water system with a real
+  temperature sensor should use.
+- **Sheddable** — "run this, but you may turn it down when power is
+  expensive."
+
+Leave **Device entity** blank and Nimbus plans the load but commands
+nothing — a genuinely useful way to watch what it *would* do for a few
+days before handing it a relay.
+
+### Battery Participant — "a second battery, or the car"
+
+An **additional** battery the Solver should dispatch in its own right — a
+second inverter, or an EV. Not your main household battery, which you
+already pointed at in Solver settings.
+
+Easy to confuse with **Battery Tower** below, and the difference matters:
+a Participant is *planned for*; a Tower is *drawn on a diagram*.
+
+### The remaining three ("+ Add" menu) — purely for the diagram
 
 **Power Source**, **PV String**, and **Battery Tower** don't forecast
 anything — they only exist to draw an accurate picture of your physical

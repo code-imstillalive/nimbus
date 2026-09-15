@@ -8,6 +8,26 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.321] — 2026-09-15
+
+### Fixed
+- **The new-installer guide was missing two of the seven subentry types, including the whole Controllable Load family.** `docs/setup-guide.md` is what `README.md` points a new user at for the plain-English walkthrough, and it was last touched 2026-08-26 — twenty days, spanning everything #476's loads spec shipped. Documentation only.
+
+  Its Step 4 enumerated the "+ Add" menu as *"the two you'll actually use most"* plus *"the other three"* — an exhaustive-sounding count that is now wrong by two. The menu offers **seven**:
+
+  | missing | what it is |
+  |---|---|
+  | **Controllable Load** ([#486](https://github.com/code-imstillalive/nimbus/issues/486)) | the one people miss — a load the Solver *schedules and commands* rather than merely forecasts, with the deferrable / thermal / sheddable kinds |
+  | **Battery Participant** ([#563](https://github.com/code-imstillalive/nimbus/issues/563)) | an additional battery the Solver dispatches in its own right — a second inverter, or an EV |
+
+  A new installer following that guide would never learn Controllable Loads exist, which is the feature family driving the reference household's hot water.
+
+  The Battery Participant entry also names the confusion it is adjacent to, since the guide has a whole section for exactly that class of trap: **a Participant is planned for; a Tower is drawn on a diagram.**
+
+  The Controllable Load entry makes one practical point worth having in a beginner's guide: leaving **Device entity** blank means Nimbus plans the load but commands nothing — a real way to watch what it *would* do for a few days before handing it a relay.
+
+  Found by sorting every doc by last-modified date rather than re-reading them. `setup-guide.md` was the oldest at twenty days, and nothing about reading the page suggests it is describing a version of the project from three weeks ago.
+
 ## [0.94.320] — 2026-09-15
 
 ### Fixed
