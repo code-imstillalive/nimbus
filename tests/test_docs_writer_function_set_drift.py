@@ -231,6 +231,14 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # and does nothing at all when it isn't (apply_commanded_state_
         # guard() itself no-ops with _NATIVE_HASS is None).
         "dispatch_commanded_state",
+        # nimbus issue #875: resolves this load's own re-send interval
+        # from its subentry data. Pure -- no HA dependency of its own --
+        # but called ONLY from apply_commanded_state_guard() above, which
+        # is native-only, so there is nothing in standalone/cron mode that
+        # could call it: Controllable Loads have no existence there at all
+        # (build_controllable_loads() returns ([], []) unconditionally).
+        # Exactly the _parse_done_when() case below -- not a fresh gap.
+        "_resolve_reaffirm_after_seconds",
         # nimbus issue #480: reads a real done_entity's live state off
         # _NATIVE_HASS.states -- only ever called from build_
         # controllable_loads() itself, which is native-only; Mark's own
