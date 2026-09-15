@@ -37,6 +37,21 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
   Nimbus does not record which mode was in force on a past day — that is a real new capability, not a lookup — so the historical publishes now take an explicit unmoded baseline. A test drives the real `main()` with `away` set and asserts the scorer receives the baseline value, with a companion assertion that the preset really would have changed it, so the guard cannot pass vacuously if presets silently stop working. Mutation-checked: reverting the one call site fails it.
 
+Devhub validation: deployed and restarted, `installed_version == available_version == v0.94.315`, solve `optimal`, no new errors — and this one was **exercised end to end on a real install**, which is unusual for a dispatch feature here:
+
+| mode | HWS `plan_target_kwh` | pool pump | expected |
+|---|---|---|---|
+| `home` | 4.0 | 6.0 | baseline |
+| `away` | **2.0** | **3.0** | ×0.5 |
+| `guests` | **5.2** | **7.8** | ×1.3 |
+| `home` again | **4.0** | **6.0** | restored |
+
+The last row is the one that matters: a mode is a transform over the household's own values, and switching back restores them exactly. The underlying `number.*` entities read 4.0/6.0 throughout — nothing was ever written back to configuration.
+
+**One observation, chased to its cause rather than left as a caveat.** The published `plan_target_kwh` appeared to lag a mode change. Mid-verification this looked exactly like "switching back does not restore" — what separated the two was switching to a *third* mode and seeing the **previous** mode's numbers rather than a stuck value: a lag, not a leak.
+
+It is a **sensor refresh delay, not a dispatch delay**, and the code already says so. `apply_commanded_state_guard()` is driven to completion inside the solve (`future.result(timeout=10)`), and `build_controllable_loads()` feeds the LP from the same live mode read in that same solve — so the plan uses the current mode immediately. `NimbusControllableLoadStateSensor` is a pure reader on `NimbusLoadRunStateCoordinator`'s **30-second** poll, whose own comment states it: *"Dispatch itself is unaffected either way... regardless of how often the SENSOR side re-reads it."* That also explains why the first switch looked instant and later ones did not — the reads landed at different points in that 30 s window.
+
 ## [0.94.314] — 2026-09-15
 
 ### Fixed
