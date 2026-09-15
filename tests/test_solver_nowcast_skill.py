@@ -36,6 +36,7 @@ import numpy as np
 from solver.elements import BatteryConfig, GridConfig, PeriodGrid
 from solver.nowcast_skill import (
     compute_load_nowcast_skill,
+    forecast_value_at_lead_hours,
     period_sample_coverage,
 )
 
@@ -353,6 +354,90 @@ class TestTheBenchmarkDocsClaimStaysTrue(unittest.TestCase):
         )
         self.assertIn("nowcast_skill", doc)
         self.assertIn("one-step-ahead", doc)
+
+
+class TestForecastValueAtLeadHours(unittest.TestCase):
+    """nimbus #937: the three published `load_forecast_plus_*h_kw`
+    scalars are what make error-versus-lead-time measurable from
+    ordinary recorder history, since the full `forecast` array is
+    deliberately unrecorded. If this picks the wrong period the whole
+    curve is quietly shifted, and nobody would notice.
+    """
+
+    def setUp(self):
+        # Deliberately NON-UNIFORM, matching the real tiered grid (#438):
+        # six 5-min periods, then 15-min. A lead time therefore cannot be
+        # turned into an index by division.
+        self.times = [START + timedelta(minutes=5 * i) for i in range(6)]
+        self.times += [
+            START + timedelta(minutes=30) + timedelta(minutes=15 * i) for i in range(12)
+        ]
+        self.vals = np.arange(len(self.times), dtype=float)
+
+    def test_it_returns_the_value_for_the_period_containing_the_target(self):
+        """now + 1 h = 60 min. The 15-min tier starts at 30 min, so 60 min
+        lands in the period starting at 60 min -- index 8, not the index
+        12 a naive 5-min division would give."""
+        self.assertEqual(
+            forecast_value_at_lead_hours(self.times, self.vals, START, 1.0), 8.0
+        )
+
+    def test_a_target_inside_a_period_takes_that_period_not_the_next(self):
+        """35 min sits inside the period starting at 30 min. Reading the
+        next period would bias every published figure one step into the
+        future."""
+        self.assertEqual(
+            forecast_value_at_lead_hours(self.times, self.vals, START, 35.0 / 60.0),
+            6.0,
+        )
+
+    def test_an_exact_period_start_takes_that_period(self):
+        self.assertEqual(
+            forecast_value_at_lead_hours(self.times, self.vals, START, 0.5), 6.0
+        )
+
+    def test_zero_lead_is_the_current_period(self):
+        self.assertEqual(
+            forecast_value_at_lead_hours(self.times, self.vals, START, 0.0), 0.0
+        )
+
+    def test_beyond_the_horizon_is_none_not_the_last_period(self):
+        """The honest answer. A forecast that does not reach 24 h ahead
+        has no 24 h-ahead value, and clamping would publish "the far end
+        of whatever we had" under a name claiming a specific lead time --
+        corrupting the very curve these scalars exist to measure."""
+        self.assertIsNone(
+            forecast_value_at_lead_hours(self.times, self.vals, START, 24.0)
+        )
+
+    def test_a_target_before_the_grid_is_none(self):
+        """Guards a clock-skew / stale-`now` case rather than returning
+        period 0 as though it applied."""
+        self.assertIsNone(
+            forecast_value_at_lead_hours(self.times, self.vals, START, -1.0)
+        )
+
+    def test_empty_and_mismatched_inputs_are_none(self):
+        self.assertIsNone(forecast_value_at_lead_hours([], np.array([]), START, 1.0))
+        self.assertIsNone(
+            forecast_value_at_lead_hours(self.times, np.arange(3.0), START, 0.1)
+        )
+
+    def test_the_last_period_start_is_reachable(self):
+        """Boundary: the final grid point is inside the horizon, so it
+        must resolve rather than trip the beyond-horizon guard."""
+        total_h = (self.times[-1] - START).total_seconds() / 3600.0
+        self.assertEqual(
+            forecast_value_at_lead_hours(self.times, self.vals, START, total_h),
+            float(len(self.times) - 1),
+        )
+
+    def test_it_returns_a_real_float_not_a_numpy_scalar(self):
+        """These go straight into a published attribute dict, and a
+        numpy float64 is not what HA's own JSON encoder expects."""
+        got = forecast_value_at_lead_hours(self.times, self.vals, START, 1.0)
+        self.assertIsInstance(got, float)
+        self.assertNotIsInstance(got, np.floating)
 
 
 if __name__ == "__main__":

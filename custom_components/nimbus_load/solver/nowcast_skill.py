@@ -66,6 +66,7 @@ day-ahead figure by mistake.
 
 from __future__ import annotations
 
+from bisect import bisect_right
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 
@@ -156,6 +157,60 @@ def period_sample_coverage(
         if any(gt <= t < window_end for t in sample_times):
             measured += 1
     return (measured, len(grid_times))
+
+
+def forecast_value_at_lead_hours(
+    grid_times: list[datetime],
+    values: NDArray[np.float64],
+    now: datetime,
+    lead_hours: float,
+) -> float | None:
+    """The value the current forecast assigns to `now + lead_hours`.
+
+    nimbus issue #937. Publishing a handful of these as plain scalars is
+    what makes **forecast error as a function of lead time** measurable
+    from ordinary recorder history, which it is not today: the full
+    `forecast` array is in `_unrecorded_attributes` (correctly -- it is
+    what keeps the per-period series from tripping the recorder's 16 KB
+    per-attribute cap and taking every other attribute down with it,
+    #625/#890), so no historical forecast exists at ANY lead time.
+
+    That left #937 with only two points on the curve: one-step-ahead,
+    where the forecaster beats persistence by ~50% on MAE, and day-ahead,
+    where its dispatch value came out negative on 11 of 14 real days. The
+    shape between those endpoints is the whole question, and it is the
+    difference between "the model is wrong" and "the recursive
+    multi-step path degrades" -- the latter being a failure mode this
+    repo has already fixed seven separate bugs in.
+
+    Three scalars cost nothing against the attribute budget and need no
+    new storage subsystem, which is the same reasoning the household
+    accepted for #919: read it back from history rather than writing a
+    per-cycle store.
+
+    Returns the value for the period **containing** the target instant,
+    matching how every other consumer reads this array. Returns None when
+    the target falls outside the published horizon rather than clamping
+    to the last period -- a forecast that does not reach 24 h ahead has no
+    24 h-ahead value, and saying so honestly is worth more than a number
+    that silently means "the far end of whatever we had".
+
+    Note the grid is deliberately non-uniform (5-min for the first tier,
+    coarser later -- #438), so a lead time cannot be converted to an
+    index by division; the target has to be located against `grid_times`
+    itself.
+    """
+    if len(grid_times) == 0 or len(values) != len(grid_times):
+        return None
+    target = now + timedelta(hours=lead_hours)
+    if target < grid_times[0] or target > grid_times[-1]:
+        return None
+    # Last period whose start is at or before the target -- the period
+    # the target sits inside. bisect_right - 1 gives exactly that.
+    idx = bisect_right(grid_times, target) - 1
+    if idx < 0 or idx >= len(values):
+        return None
+    return float(values[idx])
 
 
 def compute_load_nowcast_skill(

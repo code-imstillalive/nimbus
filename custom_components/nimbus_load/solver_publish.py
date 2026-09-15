@@ -82,6 +82,20 @@ def publish_household_load_total_forecast(
     (see this module's docstring for why that specific read matters).
     """
     sw = _solver_writer()
+
+    # nimbus issue #937 -- see the three load_forecast_plus_*_kw keys
+    # below for why these exist. Rounded to 3 dp to match every other
+    # kW figure this publish emits, including forecast[i].value itself.
+    def _lead(hours: float) -> float | None:
+        v = sw.nowcast_skill.forecast_value_at_lead_hours(
+            grid_times, load_kw, now, hours
+        )
+        return round(v, 3) if v is not None else None
+
+    lead_1h = _lead(1.0)
+    lead_6h = _lead(6.0)
+    lead_24h = _lead(24.0)
+
     sw.ha_post_state(
         "sensor.nimbus_household_load_total_forecast",
         # Real bug found via a real-install health check (nimbus repo
@@ -175,6 +189,26 @@ def publish_household_load_total_forecast(
             # None on success -- the exact human-readable reason on
             # failure, real proposal #2 from nimbus repo issue #66.
             "load_forecast_source_error": load_forecast_error,
+            # nimbus issue #937: three scalars that make forecast error
+            # as a FUNCTION OF LEAD TIME measurable from ordinary
+            # recorder history. The full `forecast` array is
+            # unrecorded (#625/#890's 16 KB cap), so today no historical
+            # forecast exists at any lead time and #937 has only two
+            # points on the curve: one-step-ahead, where the forecaster
+            # beats persistence by ~50% on MAE, and day-ahead, where its
+            # dispatch value was negative on 11 of 14 real days. The
+            # shape between them separates "the model is wrong" from
+            # "the recursive multi-step path degrades".
+            #
+            # Read them back by comparing the value recorded at time T
+            # against the REAL load at T + the lead time. Same "recover
+            # it from history" approach the household chose for #919 --
+            # no new storage, and three floats are nothing against the
+            # attribute budget. None beyond the published horizon rather
+            # than clamped to the last period.
+            "load_forecast_plus_1h_kw": lead_1h,
+            "load_forecast_plus_6h_kw": lead_6h,
+            "load_forecast_plus_24h_kw": lead_24h,
             "generated_at": now.isoformat(),
         },
     )
