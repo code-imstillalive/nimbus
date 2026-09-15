@@ -20,7 +20,7 @@ Dated work-in-progress notes live in `docs/worklog/`, one file per date — this
 the "CURRENT STATE" journal that used to live directly in this file now lives. Each
 file is not re-summarized here; read it directly for the full detail. Most recent 5:
 
-- [2026-09-15](docs/worklog/2026-09-15.md) — Releases v0.94.305 → v0.94.307,
+- [2026-09-15](docs/worklog/2026-09-15.md) — Releases v0.94.305 → **v0.94.317**,
   continuing directly from 09-14. **#773 got a positive result after five
   refuted hypotheses**: `mip_node_count=1, mip_gap=0.0` means the search tree
   is trivial and optimality is proved, so all 12k–29k simplex iterations land
@@ -39,6 +39,28 @@ file is not re-summarized here; read it directly for the full detail. Most recen
   extract had an `ha_post_state()` inside it; `main()` 1,347 → 1,268, and the
   #100 source-grep became 12 behavioural tests that can check the two published
   numbers actually *match*, which a grep never could.
+  **Later the same day, v0.94.308→317.** #735 reached stage 5, and the finding
+  was what *not* to move: the region this issue calls `solver_plan` measures 26
+  inputs / 8 outputs, so it was split — the SoC-envelope half (5 in, 4 out)
+  extracted, the element-construction half (**27 inputs**) deliberately left in
+  `main()` as a constructor rather than logic. `main()` 1,155 → 1,084. **#485
+  shipped** (v0.94.315): `select.nimbus_household_mode` finally changes dispatch,
+  as presets over existing levers with zero new entities, verified end to end on a
+  real install (`home` 4.0 → `away` 2.0 → `guests` 5.2 → `home` 4.0). Its
+  second-order bug is the one worth reading — four publishes score a **past** day
+  from the same `cfg`, so a household in `away` would have had yesterday priced
+  with a cost it never paid; **the full suite passed 2570 tests on that version**,
+  because every test scores a day in the same mode it was solved in.
+  **The day's recurring shape was stale claims**, and four guards now exist for
+  it: entity names in docs (a table listed `sensor.nimbus_quality_uplift_available`,
+  removed under #283), test-file names in source comments (two pointed at files
+  that never existed), units in that same table, and **physics in a docstring** —
+  `ThermalLoadConfig` claimed the LP and the display projection *"share the
+  IDENTICAL physics model, by construction"*, which was true for exactly **one
+  day** before #481's ambient covariate landed on a different issue (#897).
+  Four public corrections along the way, three of them from checking something
+  already published; the reliable move every time was reading the site that
+  *consumes* a number rather than the description of what produces it.
 - [2026-09-14](docs/worklog/2026-09-14.md) — Version reaches **v0.94.304** across
   the day, eighteen releases in total (v0.94.287→304), from two sessions working
   the repo concurrently. **The day's largest thread was #757, root-caused in
