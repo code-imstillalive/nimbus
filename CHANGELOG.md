@@ -30,6 +30,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
   Only bites where `solver_weather_forecast_sensor` is set — the reference household has one, devhub does not, which is precisely why devhub cannot surface it.
 
+Devhub validation: deployed and restarted, `installed_version == available_version == v0.94.316`, solve `optimal` in 1.15 s, `nimbus_status` "Working well", no new errors, `state` and `whole_house_live_now_kw` both **2.85**. A tests-only release should be invisible on a running install, and it is. One incidental confirmation worth having: `select.nimbus_household_mode` came back as `home` after the restart and the HWS target read its **4.0** baseline, so v0.94.315's identity transform survives a restart rather than needing a mode to be re-selected.
+
 ## [0.94.315] — 2026-09-15
 
 ### Added
