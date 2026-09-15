@@ -152,6 +152,7 @@ from __future__ import annotations
 import functools
 import io
 import json
+import math
 import os
 import re
 import statistics
@@ -733,6 +734,7 @@ def compute_binding_constraint_label(
     max_charge_kw: float,
     max_discharge_kw: float,
     period_0_hours: float,
+    fixed_export_kw_now: float | None = None,
 ) -> tuple[str, float | None]:
     """ "What's binding RIGHT NOW (period 0)" -- Mark Purcell's audit item
     #3 (2026-08-18), deliberately a SMALL summary rather than the raw
@@ -845,6 +847,23 @@ def compute_binding_constraint_label(
                 # economic decision, NOT a capacity constraint. Distinct
                 # from the ceiling case on purpose (see docstring above).
                 binding_now = f"{short_name} at zero (not economical right now)"
+            elif (
+                var_key == "grid_export_0"
+                and fixed_export_kw_now is not None
+                and not math.isnan(fixed_export_kw_now)
+                and abs(solved_value - float(fixed_export_kw_now)) <= 1e-6
+            ):
+                # nimbus issue #921: the third bound grid_export[t]
+                # really has. p2p_export.grid_export_bounds() pins it
+                # to lb == ub == the committed rate under a real P2P
+                # export commitment, so the variable sits at a bound
+                # that is neither 0 nor export_limit_kw and used to
+                # fall into the 'shouldn't happen' branch below --
+                # every period of every evening block.
+                binding_now = (
+                    f"{short_name} pinned at {solved_value:.2f} kW "
+                    "by P2P export commitment"
+                )
             else:
                 # Shouldn't happen for a variable with a genuinely
                 # nonzero reduced cost (LP optimality: only ever nonzero
@@ -5101,6 +5120,14 @@ def main() -> None:
     # reports what's binding RIGHT NOW (period 0) and tonight's own P2P
     # volume-cap shadow price -- the two answers this feature actually
     # exists to give, not a full dump.
+    # nimbus issue #921: period 0's own P2P commitment, when there is
+    # one, so the label can name the pin rather than report this
+    # function's own bound-table blind spot as a solver anomaly.
+    _fixed_export_now = (
+        float(grid.fixed_export_kw[0])
+        if grid.fixed_export_kw is not None and len(grid.fixed_export_kw) > 0
+        else None
+    )
     binding_now, binding_now_value_per_kwh = compute_binding_constraint_label(
         plan,
         export_limit_kw,
@@ -5108,6 +5135,7 @@ def main() -> None:
         max_charge_kw,
         max_discharge_kw,
         period_hours_arr[0],
+        _fixed_export_now,
     )
     # Earliest export_bonus_cap_<date> entry (ISO date strings sort
     # correctly as plain strings) is always tonight's/the current cap --

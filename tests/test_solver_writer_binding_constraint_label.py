@@ -267,3 +267,162 @@ class TestPeriod0HoursCorrection(unittest.TestCase):
         )
         _label_out, shadow_price = _label(plan, period_0_hours=1.0)
         self.assertEqual(shadow_price, 0.05)
+
+
+class TestP2PPinnedExport(unittest.TestCase):
+    """nimbus issue #921, found live rather than reasoned about.
+
+    A real install running a P2P export block of 12 kW over 17:00-24:00
+    published, at 19:05 and again at 19:18:
+
+        Grid export at 12.00 kW (unexpected -- neither its 0 nor
+        40.00 kW bound)
+
+    Nothing was unexpected. `p2p_export.grid_export_bounds()` pins
+    grid_export[t] to `lb == ub == 12.0` for every period under a real
+    commitment, so the variable genuinely is at a bound -- LP optimality
+    is satisfied exactly as the "shouldn't happen" branch's own comment
+    reasons. What that comment did not say is that it assumed 0 and
+    `limit_kw` are the ONLY bounds, and the P2P pin is a third one.
+
+    The consequence was worse than a wrong string: the message fired for
+    every period of every evening block -- the household's highest-value
+    hours, and the ones someone is most likely to be inspecting this
+    field to understand -- telling a correctly-configured install its
+    solver was in a state that should not occur.
+    """
+
+    _PIN_KW = 12.0
+
+    def _pinned_plan(self, value_kw=None):
+        return _fake_plan(
+            reduced_costs={"grid_export_0": 0.05},
+            grid_export_kw=(self._PIN_KW if value_kw is None else value_kw,),
+        )
+
+    def test_the_live_misreport_is_reproduced_without_the_pin(self):
+        """Mutation check, and the exact observed string. Without the new
+        argument the old behaviour must still be reachable -- otherwise
+        the test below proves nothing about what changed."""
+        label, _ = _label(self._pinned_plan())
+        self.assertEqual(
+            label,
+            "Grid export at 12.00 kW (unexpected -- neither its 0 nor 40.00 kW bound)",
+        )
+
+    def test_a_p2p_pin_is_named_rather_than_called_unexpected(self):
+        label, _ = solver_writer.compute_binding_constraint_label(
+            self._pinned_plan(),
+            _EXPORT_LIMIT_KW,
+            _IMPORT_LIMIT_KW,
+            _MAX_CHARGE_KW,
+            _MAX_DISCHARGE_KW,
+            1.0,
+            self._PIN_KW,
+        )
+        self.assertEqual(
+            label, "Grid export pinned at 12.00 kW by P2P export commitment"
+        )
+        self.assertNotIn("unexpected", label)
+
+    def test_a_period_with_no_commitment_reads_nan_and_falls_through(self):
+        """`fixed_export_kw` is an array over the whole horizon with NaN
+        in every uncommitted period, so period 0 is routinely NaN on an
+        install that has P2P configured at all. That must not swallow a
+        genuinely unexplained value."""
+        label, _ = solver_writer.compute_binding_constraint_label(
+            self._pinned_plan(),
+            _EXPORT_LIMIT_KW,
+            _IMPORT_LIMIT_KW,
+            _MAX_CHARGE_KW,
+            _MAX_DISCHARGE_KW,
+            1.0,
+            float("nan"),
+        )
+        self.assertIn("unexpected", label)
+
+    def test_a_value_that_is_not_the_pin_is_still_unexpected(self):
+        """The guard this branch sits next to exists to surface bounds
+        nothing in the function models. Narrowing it to the pin keeps
+        that guard live for the next one."""
+        label, _ = solver_writer.compute_binding_constraint_label(
+            self._pinned_plan(value_kw=7.5),
+            _EXPORT_LIMIT_KW,
+            _IMPORT_LIMIT_KW,
+            _MAX_CHARGE_KW,
+            _MAX_DISCHARGE_KW,
+            1.0,
+            self._PIN_KW,
+        )
+        self.assertIn("unexpected", label)
+
+    def test_a_pin_at_the_export_limit_keeps_the_original_ceiling_label(self):
+        """Order matters: the ceiling branch is checked first and its
+        wording is a documented compatibility guarantee (#125/#133). A
+        commitment that happens to equal the export limit must not
+        quietly re-word it."""
+        label, _ = solver_writer.compute_binding_constraint_label(
+            self._pinned_plan(value_kw=_EXPORT_LIMIT_KW),
+            _EXPORT_LIMIT_KW,
+            _IMPORT_LIMIT_KW,
+            _MAX_CHARGE_KW,
+            _MAX_DISCHARGE_KW,
+            1.0,
+            _EXPORT_LIMIT_KW,
+        )
+        self.assertEqual(label, "Grid export limit")
+
+    def test_a_zero_commitment_is_still_the_at_zero_story(self):
+        """A 0 kW commitment and a "not economical" decision look
+        identical in the solved value. The existing, more specific
+        economic label wins, unchanged."""
+        label, _ = solver_writer.compute_binding_constraint_label(
+            self._pinned_plan(value_kw=0.0),
+            _EXPORT_LIMIT_KW,
+            _IMPORT_LIMIT_KW,
+            _MAX_CHARGE_KW,
+            _MAX_DISCHARGE_KW,
+            1.0,
+            0.0,
+        )
+        self.assertEqual(label, "Grid export at zero (not economical right now)")
+
+    def test_the_pin_only_applies_to_grid_export(self):
+        """`fixed_export_kw` bounds one variable. A battery value that
+        coincidentally equals the pin must not borrow its explanation."""
+        plan = _fake_plan(
+            reduced_costs={"battery_discharge_0": 0.05},
+            battery_discharge_kw=(self._PIN_KW,),
+        )
+        label, _ = solver_writer.compute_binding_constraint_label(
+            plan,
+            _EXPORT_LIMIT_KW,
+            _IMPORT_LIMIT_KW,
+            _MAX_CHARGE_KW,
+            _MAX_DISCHARGE_KW,
+            1.0,
+            self._PIN_KW,
+        )
+        self.assertIn("unexpected", label)
+        self.assertNotIn("P2P", label)
+
+
+class TestBothWriterCopiesStayInSync(unittest.TestCase):
+    """#357's lesson: the standalone/cron writer carries its own copy of
+    this function, and a fix landing in only one of them is how the two
+    drifted last time. Checks the fix is present in both, by behaviour
+    of the source rather than by a byte-comparison of files that do have
+    real, deliberate differences elsewhere."""
+
+    def test_the_standalone_writer_has_the_same_new_branch(self):
+        import pathlib
+
+        standalone = (
+            pathlib.Path(__file__).resolve().parent.parent
+            / "docs"
+            / "real-world-integration"
+            / "files"
+            / "nimbus_solver_forecast_writer.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn("by P2P export commitment", standalone)
+        self.assertIn("fixed_export_kw_now", standalone)

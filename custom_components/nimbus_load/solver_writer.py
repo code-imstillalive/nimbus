@@ -153,6 +153,7 @@ import functools
 import io
 import json
 import logging
+import math
 import os
 import re
 import statistics
@@ -971,6 +972,7 @@ def compute_binding_constraint_label(
     max_charge_kw: float,
     max_discharge_kw: float,
     period_0_hours: float,
+    fixed_export_kw_now: float | None = None,
 ) -> tuple[str, float | None]:
     """ "What's binding RIGHT NOW (period 0)" -- Mark Purcell's audit item
     #3 (2026-08-18), deliberately a SMALL summary rather than the raw
@@ -1085,12 +1087,44 @@ def compute_binding_constraint_label(
                 # economic decision, NOT a capacity constraint. Distinct
                 # from the ceiling case on purpose (see docstring above).
                 binding_now = f"{short_name} at zero (not economical right now)"
+            elif (
+                var_key == "grid_export_0"
+                and fixed_export_kw_now is not None
+                and not math.isnan(fixed_export_kw_now)
+                and abs(solved_value - float(fixed_export_kw_now)) <= 1e-6
+            ):
+                # nimbus issue #921: a THIRD bound this variable really
+                # has, and the only one not in _BINDING_FAMILIES above.
+                # p2p_export.grid_export_bounds() pins grid_export[t] to
+                # lb == ub == the committed rate for every period under a
+                # real P2P export commitment -- so the variable is at a
+                # bound (nonzero reduced cost, exactly as LP optimality
+                # says) at a value that is neither 0 nor export_limit_kw.
+                # Before this branch existed that landed in the "shouldn't
+                # happen" case below and told a correctly-configured P2P
+                # household its solver was confused, every period of every
+                # evening block -- the hours where the most money moves
+                # and where someone is most likely to be reading this
+                # field to understand the plan. Observed live at 12.00 kW
+                # against a 40 kW export limit on a 17:00-24:00 block.
+                binding_now = (
+                    f"{short_name} pinned at {solved_value:.2f} kW "
+                    "by P2P export commitment"
+                )
             else:
                 # Shouldn't happen for a variable with a genuinely
                 # nonzero reduced cost (LP optimality: only ever nonzero
                 # exactly at a bound) -- represented honestly rather
                 # than assumed, matching this module's own "never paper
                 # over an unexpected state" convention.
+                #
+                # The LP-optimality reasoning above is sound; what makes
+                # this branch reachable is the unstated assumption that
+                # 0 and limit_kw are a variable's ONLY bounds. #921 found
+                # one that isn't (the P2P export pin, handled directly
+                # above). Anything still landing here is a bound nothing
+                # in this function models -- which is worth saying loudly
+                # rather than smoothing over, so keep this branch.
                 binding_now = (
                     f"{short_name} at {solved_value:.2f} kW "
                     f"(unexpected -- neither its 0 nor {limit_kw:.2f} kW bound)"
@@ -8901,6 +8935,14 @@ def publish_plan(
     # correct "what's binding RIGHT NOW" bound to compare against
     # (matches this function's own existing period_hours_arr[0] usage
     # right below).
+    # nimbus issue #921: period 0's own P2P commitment, when there is
+    # one, so the label can name the pin instead of reporting its own
+    # bound table's blind spot as an unexpected solver state.
+    _fixed_export_now = (
+        float(grid.fixed_export_kw[0])
+        if grid.fixed_export_kw is not None and len(grid.fixed_export_kw) > 0
+        else None
+    )
     binding_now, binding_now_value_per_kwh = compute_binding_constraint_label(
         plan,
         export_limit_kw[0],
@@ -8908,6 +8950,7 @@ def publish_plan(
         max_charge_kw,
         max_discharge_kw,
         period_hours_arr[0],
+        _fixed_export_now,
     )
     # Earliest export_bonus_cap_<date> entry (ISO date strings sort
     # correctly as plain strings) is always tonight's/the current cap --
