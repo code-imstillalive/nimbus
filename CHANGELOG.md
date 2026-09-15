@@ -8,6 +8,25 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.330] — 2026-09-15
+
+### Added
+- **The two things the dispatch path currently gets right are now pinned** ([#875](https://github.com/code-imstillalive/nimbus/issues/875), [#534](https://github.com/code-imstillalive/nimbus/issues/534)). These branches switch real hardware and neither had any test.
+
+  1. **A failed ON dispatch cannot consume one of the day's activations.** `record_activation()` sits inside the same `try` as the `await dispatch_commanded_state(..., True, ...)`, *after* it, so it is unreachable if the dispatch raised. #534 caps performance activations at a real device-side limit -- spending one on a command that never went out would burn a scarce, physical resource on nothing, and the cap would then block the retry.
+  2. **Releasing a load never consumes an activation.** The OFF branch has no `record_activation()` at all, matching the docstring: *"An OFF transition is never capped -- #534's own cap is specifically on 'performance activations', not on releasing a load."*
+  3. **Neither dispatch failure may be swallowed silently** -- the same lesson as v0.94.329's six report guards.
+
+  These assert code *shape* rather than behaviour, which is unusual here and deliberate: the invariants are about **what is reachable when an await raises**, which is a property of where a call sits relative to a `try`. A behavioural test would need a real event loop, `Store` and `_NATIVE_HASS` (the function dispatches via `run_coroutine_threadsafe`) to assert that arrangement indirectly through a lot of scaffolding. Mutation-verified: moving `record_activation()` before the await fails the ordering test.
+
+### Notes
+- **Two real problems on this path are recorded and deliberately NOT pinned**, because pinning current behaviour would make fixing them harder:
+
+  - **A failed dispatch is persisted as a successful command.** `new` already carries `commanded_state=True`, and it is written regardless of whether the service call raised. Since dispatch is edge-triggered, the next cycle sees no transition and **never retries** -- one transient failure silently costs that load its whole window. Reported on [#875](https://github.com/code-imstillalive/nimbus/issues/875); fixing it changes dispatch on live hot water, so it is a decision rather than a patch.
+  - **A failure of the entire guard is invisible at WARNING.** The whole-function handler logs at DEBUG, matching its own docstring (*"Best-effort and silent on any WHOLE-FUNCTION failure"*) -- so a `future.result(timeout=10)` timeout leaves no trace on a normally-configured install. Same shape as the bare-`pass` lesson one level up, and a judgement call (a persistent failure would log every cycle) rather than something to change from a test.
+
+- **Where these came from.** A behaviour-level audit of `except` guards across the integration: **25** have no test asserting their message anywhere (12 in `solver_writer.py`, 7 in `coordinator.py`, 4 in `solver_runtime.py`). The dispatch pair is the highest-consequence entry on that list. Worth recording that the first version of the audit -- checking whether every issue number cited in `main()`'s comments appears somewhere in `tests/` -- reported **39 of 39 covered**, and a later variant reported **100% uncovered** because it demanded the `"Nimbus: "` prefix verbatim. Both were artefacts of the probe, not measurements of the code; the sliding-window version that survived scrutiny says **69%** of warning sites, and 25 `except` guards specifically.
+
 ## [0.94.329] — 2026-09-15
 
 ### Added
@@ -24,6 +43,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   Driven through the real `main()` on the #363 golden-output fixture, so the actual call site is what runs. Covers each publisher alone, all six failing at once (the realistic shape -- they share helpers), and a clean baseline asserting none of those phrases appears on a healthy run, so nothing above can pass vacuously.
 
   This is the pattern [#735](https://github.com/code-imstillalive/nimbus/issues/735) itself identified as its real return: *"the line count is the visible part, and converting comment-guarded invariants into tests is the part that keeps paying."* These calls are also exactly what that issue's plan moves into `solver_reports/` on their own timer -- refactoring a guard nothing tests is how a guard quietly stops guarding.
+
+Devhub validation: deployed and restarted, `installed_version == available_version == v0.94.329`, solve `optimal`, health report **0** errors. Tests only -- `git diff v0.94.328 v0.94.329` touches `CHANGELOG.md`, `manifest.json` and one new test file, with **no production Python at all** -- so there is nothing behavioural to confirm and none is claimed.
 
 ## [0.94.328] — 2026-09-15
 
