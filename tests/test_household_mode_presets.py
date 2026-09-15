@@ -311,3 +311,59 @@ class TestTheHistoricalScorersKeepTheUnmodedBaseline(unittest.TestCase):
         )
         self.assertNotAlmostEqual(moded["solver_degradation_cost_per_kwh"], 0.02)
         self.assertIn("solver_degradation_cost_per_kwh", applied)
+
+
+class TestThePerLoadPresetIsObservable(unittest.TestCase):
+    """The per-load half is otherwise invisible.
+
+    A moded load value lives only inside the solve — it is never written
+    back to a `number.*` entity and never published as an attribute. So
+    without a log line, "which of my levers did `away` actually move?"
+    has no answer at all, which is the first question a household asks
+    when a mode does not do what they expected.
+
+    Pinned at DEBUG on purpose. This fires once per load per solve, so a
+    six-load install in `away` would emit six lines a minute at INFO —
+    exactly the noise #757 and #773 each had to clean up after shipping.
+    The solver-lever half logs at INFO because it fires once per solve.
+    """
+
+    def test_apply_returns_what_it_changed_not_just_the_new_values(self):
+        """The log depends on this second return value. A refactor that
+        dropped it would silently remove the only observability the
+        per-load half has."""
+        _out, applied = hm.apply_to_load_config(
+            {"deferrable_target_kwh": 4.0, "deferrable_shortfall_price": 2.0}, "away"
+        )
+        self.assertEqual(
+            applied, {"deferrable_target_kwh": 2.0, "deferrable_shortfall_price": 0.5}
+        )
+
+    def test_nothing_changed_reports_nothing_rather_than_empty_values(self):
+        """`home` must produce a falsy map so the caller logs nothing at
+        all — not a line saying zero levers moved, every solve, forever."""
+        _out, applied = hm.apply_to_load_config({"deferrable_target_kwh": 4.0}, "home")
+        self.assertFalse(applied)
+
+    def test_the_call_site_logs_at_debug_and_names_the_load(self):
+        """Source-level, because the alternative is driving a full native
+        solve to observe a log line. Checks the three things that make
+        the line useful: the level, the mode, and WHICH load — a six-load
+        install needs to know which one moved."""
+        from pathlib import Path
+
+        src = (
+            Path(__file__).resolve().parent.parent
+            / "custom_components"
+            / "nimbus_load"
+            / "solver_writer.py"
+        ).read_text(encoding="utf-8")
+        i = src.index("household_modes.apply_to_load_config")
+        # Wide enough to reach the whole log call. An earlier 900
+        # truncated mid-argument and failed on `title` -- the window
+        # was wrong, not the assertion.
+        window = src[i : i + 1400]
+        self.assertIn("_LOGGER.debug(", window)
+        self.assertIn("#485", window)
+        self.assertIn("title", window)
+        self.assertNotIn("_LOGGER.info(", window)
