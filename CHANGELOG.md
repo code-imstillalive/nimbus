@@ -8,6 +8,28 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.316] — 2026-09-15
+
+### Added
+- **A second thermal-model divergence is now pinned, and a stated design invariant is recorded as broken** (nimbus issue [#897](https://github.com/code-imstillalive/nimbus/issues/897)). No behaviour change.
+
+  `ThermalLoadConfig`'s own docstring justifies the LP's flat decay model by claiming the LP and the display projection *"share the **IDENTICAL physics model, by construction** — they can never disagree"*, and that an ambient forecast series *"does not exist anywhere in this codebase today."*
+
+  **Both were true when written ([#774](https://github.com/code-imstillalive/nimbus/issues/774)/#800, 2026-09-13) and false one day later.** [#481](https://github.com/code-imstillalive/nimbus/issues/481)/#864 (v0.94.293, 2026-09-14) learns `loss_coeff_per_h` and applies Newton's-law ambient-scaled decay in `project_temperature_forecast()` whenever a weather sensor is configured. The LP recursion still subtracts a flat `idle_decay_c_per_hour · hours[t]` with no ambient term anywhere in `elements.py` or `network.py`. The shape that docstring warned against arrived with the roles swapped: an ambient-scaled **projection** against a flat **LP**.
+
+  So the two models now differ in **two independent ways**:
+
+  | | `project_temperature_forecast()` | LP recursion |
+  |---|---|---|
+  | decay during a **heating** period | none | subtracted every period |
+  | decay **physics** | ambient-scaled, with a weather sensor | flat, always |
+
+  Nobody erred: #864 is correctly scoped to the projection path and says so, and #800's rationale was accurate when written. The invariant broke because the two changes sat on different issues and **nothing checked the claim** — the same shape as the three reference guards added earlier today.
+
+  Four new tests extend `test_thermal_model_divergence.py`, pinning the disagreement rather than asserting agreement (which model is right changes live dispatch on a real hot water system, and that is #897's open question). One is structural and says what fixing this actually costs: `ThermalLoadConfig` has **nowhere to put** a loss coefficient or an ambient series, so closing #897 toward the ambient model means adding a field to the LP, not tuning a number.
+
+  Only bites where `solver_weather_forecast_sensor` is set — the reference household has one, devhub does not, which is precisely why devhub cannot surface it.
+
 ## [0.94.315] — 2026-09-15
 
 ### Added
