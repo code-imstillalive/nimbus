@@ -8,6 +8,27 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.313] — 2026-09-15
+
+### Fixed
+- **`docs/entities.md` listed a sensor that does not exist.** `sensor.nimbus_quality_uplift_available` had a row in the per-entity table — unit, meaning and all — but the flattened child was **deliberately removed** under [#283](https://github.com/code-imstillalive/nimbus/issues/283) defect 2 as a byte-identical duplicate of `regret_dollars`. The same file's own defect list, two sections below, still recommended *making* that removal: the doc simultaneously presented the entity as shipped and argued it should be deleted.
+
+  Confirmed three ways before touching anything: the composed spec set does not contain it, `sensor_flattened.py` carries a comment naming the removal directly above where the spec used to be, and a live install returns 404 for it while `sensor.nimbus_quality_regret_dollars` answers.
+
+  `uplift_available` is still a real **attribute** on the quality report — only the entity went away — so the row is replaced with a note saying exactly that, and the defect entry is marked fixed rather than left standing as a recommendation.
+
+### Added
+- **A guard so that file cannot drift again** — `README.md` has had one since [#364](https://github.com/code-imstillalive/nimbus/issues/364); `docs/entities.md`, the table a user actually reads to find out what exists, had none. Same failure mode as `solver/README.md`'s "not wired into anything" claim, which went unnoticed for months: wrong in a checkable way, with nothing checking it.
+
+  **Composing the real entity set is the whole difficulty**, and two traps were hit while writing it:
+
+  - A flattened child's entity_id never appears as a literal anywhere — it is built at runtime from a family prefix plus the spec's `entity_id_suffix`. A plain grep reports **35 of the 45** documented ids as missing; all but one are real.
+  - **The family prefix is not derivable from the tuple's name.** `FLATTENED_ATTRS_FLEX_REPORT` publishes under `nimbus_flex`, not `nimbus_flex_report`. Guessing produced five more false positives.
+
+  So prefixes are read from the **instantiation sites** via the AST, with nothing hardcoded — a new family is picked up without editing the test. The guard-on-the-guard (`test_every_flattened_family_is_accounted_for`) failed twice during development, on `FLATTENED_ATTRS_CURRENT` and then `FLATTENED_ATTRS_P2P`, both real gaps in an earlier hardcoded version. Verified to bite: a phantom row added to the doc fails the test.
+
+  This is the third reference guard now, after `README.md` and (earlier today) source comments naming test files. The recurring shape is the same one in all three: a claim that is cheap to verify, and was never verified.
+
 ## [0.94.312] — 2026-09-15
 
 ### Added
