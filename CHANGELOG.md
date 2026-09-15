@@ -8,6 +8,32 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.314] — 2026-09-15
+
+### Fixed
+- **`docs/entities.md` told readers to expect three warnings that no longer fire.** Its "Known warnings" section described all three [#283](https://github.com/code-imstillalive/nimbus/issues/283) defects as live and closed with *"can ship in one follow-up PR"* — framing shipped work as pending. **#283 itself closed on 2026-08-29.** Each was verified fixed before the section was rewritten:
+
+  | listed defect | verified state |
+  |---|---|
+  | `state_class='measurement'` mismatches | **zero** `MONETARY`/`ENERGY` device classes across all 107 flattened specs; 81 set `device_class=None` with a comment citing the issue, and only `POWER` (19), `BATTERY` (4), `DURATION` (3) remain — all legal with `MEASUREMENT`. The three `MONETARY` sensors in `sensor.py` deliberately carry no `state_class`. |
+  | duplicate `uplift_available` == `regret_dollars` | fixed in v0.94.313 — the phantom table row |
+  | `tracking_fidelity` unit-vs-value | its spec's `unit_of_measurement` is `None`, and a live install publishes that sensor with no unit key at all |
+
+  Rewritten as a record of resolved work rather than deleted: the shape — a spec table that is easy to get subtly wrong, producing warnings that only surface at restart — is worth remembering.
+
+### Added
+- **The `docs/entities.md` guard now checks units, the `number` domain, and five docs instead of one.**
+
+  - **Units.** The table's Unit column is a checkable claim about each entity, and names alone would not have caught two of #283's three defects. Now compared against each spec's own `unit_of_measurement`.
+  - **The `number` domain.** `number.py` builds ids as `f"number.nimbus_{desc.key}"`, so they exist as literals nowhere. Without composing them, a first scan of `docs/configuration-reference.md` reported **36 of its 41** number ids as phantom — every one of them real. That near-miss is why this is composed rather than grepped.
+  - **Five user-facing docs**: `entities.md`, `configuration-reference.md`, `dashboards.md`, `controllable-loads.md`, `setup-guide.md`. All pass today, so this locks in accurate docs rather than papering over failures.
+
+  **Scope exclusions are written into the test with reasons**, not left implicit: `docs/worklog/*` is dated history and several ids there were real when written, so a guard would fight the record; `docs/real-world-integration/*` names per-subentry ids a user creates, which cannot be composed from this source and are legitimately unverifiable; `README.md` keeps its own guard and deliberately shows `nimbus_load`-domain spellings while explaining that quirk.
+
+  The guard's honest weakness is documented too: ids also resolve by appearing as a **literal anywhere in the integration, comments included** — so a comment naming a removed entity would make it resolve. The `uplift_available` row stayed detectable only because the removal note names the bare attribute, never the full entity_id.
+
+  Both new checks verified to bite: a documented unit changed from `%` to `kWh` fails naming both values, and a phantom id added to `dashboards.md` fails naming it.
+
 ## [0.94.313] — 2026-09-15
 
 ### Fixed
@@ -28,6 +54,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   So prefixes are read from the **instantiation sites** via the AST, with nothing hardcoded — a new family is picked up without editing the test. The guard-on-the-guard (`test_every_flattened_family_is_accounted_for`) failed twice during development, on `FLATTENED_ATTRS_CURRENT` and then `FLATTENED_ATTRS_P2P`, both real gaps in an earlier hardcoded version. Verified to bite: a phantom row added to the doc fails the test.
 
   This is the third reference guard now, after `README.md` and (earlier today) source comments naming test files. The recurring shape is the same one in all three: a claim that is cheap to verify, and was never verified.
+
+Devhub validation: deployed and restarted, `installed_version == available_version == v0.94.313`, solve `optimal` in 1.22 s, `nimbus_status` "Working well", no new errors, both flagship sensors fresh with `state` and `whole_house_live_now_kw` both **6.28**. **The doc correction is confirmed against a running install, not only against the specs**: `sensor.nimbus_quality_regret_dollars` answers with unit `AUD` exactly as the table says, and `sensor.nimbus_quality_uplift_available` returns 404 — which is what made the removed row a real defect rather than a formatting quibble.
 
 ## [0.94.312] — 2026-09-15
 

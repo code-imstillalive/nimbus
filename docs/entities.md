@@ -121,12 +121,12 @@ Flex and Flex Report are a genuine sibling pairing -- both use `entity_id_prefix
 
 Children inherit `_FlattenedAttributeSensorSubDevice`, which sets a DeviceInfo whose `via_device` points at the hub `entry.entry_id`.
 
-## Known warnings
+## Resolved warnings (#283)
 
-Tracked in [#283](https://github.com/code-imstillalive/nimbus/issues/283). Warnings only, entities are safe to use:
+[#283](https://github.com/code-imstillalive/nimbus/issues/283) tracked three defects in this family. **All three are fixed**, and that issue closed on 2026-08-29. Until 2026-09-15 this section still described them as live — telling a reader to expect warnings at HA restart that no longer fire, and framing shipped work as a pending follow-up PR.
 
-- **24 `state_class='measurement'` mismatches** at HA restart — 17 monetary + 5 energy + 2 semantic (see below).
-- ~~**Duplicate `uplift_available` == `regret_dollars`**~~ — **fixed.** The flattened `uplift_available` child sensor was removed; `regret_dollars` is the canonical entity. `uplift_available` remains an **attribute** on `sensor.nimbus_solver_quality_report` (and on `epr.py`'s own report) for the `value_captured + uplift_available = theoretical_maximum_yield` identity below — it is no longer an entity, and this table listed one until 2026-09-15.
-- **`tracking_fidelity` unit-vs-value** — reads `1.0` with unit `%`. Value is a dimensionless 0..1 ratio; recommend dropping the unit.
+- **`state_class='measurement'` mismatches at HA restart** — fixed. No spec in `sensor_flattened.py` pairs a `MONETARY` or `ENERGY` device class with a state class any more: 81 of the 107 specs set `device_class=None` explicitly, each with a comment citing this issue, and the only device classes left are `POWER` (19), `BATTERY` (4) and `DURATION` (3) — all of which HA accepts alongside `MEASUREMENT`. The three `MONETARY` sensors in `sensor.py` deliberately carry no `state_class` at all.
+- **Duplicate `uplift_available` == `regret_dollars`** — fixed. The flattened child was removed; `regret_dollars` is the canonical entity. `uplift_available` remains an **attribute** on `sensor.nimbus_solver_quality_report` (and on `epr.py`'s own report) for the `value_captured + uplift_available = theoretical_maximum_yield` identity above. This file's own table listed it as a real entity until 2026-09-15.
+- **`tracking_fidelity` unit-vs-value** — fixed. Its spec's `unit_of_measurement` is `None`; the value is the dimensionless 0..1 ratio the table above already describes.
 
-All three defects live in the same spec dictionaries in `sensor_flattened.py` and can ship in one follow-up PR.
+Kept as a record rather than deleted, because the shape is worth remembering: a spec table that is easy to get subtly wrong, producing warnings that only surface at restart. `tests/test_entities_doc_references_exist.py` now checks this file's entity names **and units** against the real specs, so the table cannot drift from them again silently.
