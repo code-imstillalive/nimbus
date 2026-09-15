@@ -50,9 +50,22 @@ def _make_sw(*, acquire_ok: bool = True, main_side_effect=None) -> MagicMock:
 
 def _reset_module_state() -> None:
     solver_runtime._consecutive_lock_skips = 0
+    solver_runtime._single_skip_total = 0
 
 
-def test_lock_skip_is_logged_at_warning_not_debug_with_consecutive_count():
+def test_a_single_overlap_is_debug_not_warning():
+    """nimbus issue #945. #315 made every skip a WARNING so the
+    silent-skip mechanism had a breadcrumb, and added a count so that "a
+    real multi-tick stall ... is visibly distinct from one ordinary,
+    harmless overlap". Both logged at WARNING, so they were not distinct.
+
+    Measured on a real install: 99 WARNINGs in 63 minutes, every one
+    `consecutive skips: 1` -- i.e. skip/succeed/skip/succeed, the case
+    #315 itself called harmless, and expected whenever a cycle outlasts a
+    tick (acquire_lock()'s own docstring records a measured 45-52 s
+    solve). A WARNING stream that is almost always benign is how the #757
+    and #773 signals got buried.
+    """
     _reset_module_state()
     hass = MagicMock()
     sw = _make_sw(acquire_ok=False)
@@ -64,17 +77,20 @@ def test_lock_skip_is_logged_at_warning_not_debug_with_consecutive_count():
 
     assert result is False
     sw.main.assert_not_called()  # never reached -- lock wasn't acquired
-    assert mock_logger.debug.call_count == 0, (
-        "the real bug: this used to be _LOGGER.debug(), invisible at this "
-        "project's default WARNING logger level -- must be WARNING now"
+    assert mock_logger.warning.call_count == 0, (
+        "a single overlap self-heals on the next tick and must not WARN -- "
+        "that is the #945 noise"
     )
-    assert mock_logger.warning.call_count == 1
-    warning_args = mock_logger.warning.call_args[0]
-    assert "skipping" in warning_args[0]
-    assert warning_args[-1] == 1  # first consecutive skip
+    assert mock_logger.debug.call_count == 1
+    assert "skipping" in mock_logger.debug.call_args[0][0]
 
 
-def test_consecutive_lock_skips_increment_across_calls():
+def test_a_sustained_stall_still_warns_with_an_incrementing_count():
+    """#315's actual incident was 8-9 skips in a row, and that must stay
+    loud. Only the FIRST skip moved to DEBUG, so a real stall is still
+    reported -- one tick later than before, which is the whole cost of
+    #945.
+    """
     _reset_module_state()
     sw = _make_sw(acquire_ok=False)
     with (
@@ -85,11 +101,59 @@ def test_consecutive_lock_skips_increment_across_calls():
             solver_runtime._run_one_cycle(MagicMock())
 
     counts_logged = [call[0][-1] for call in mock_logger.warning.call_args_list]
-    assert counts_logged == [1, 2, 3], (
-        "each successive skip must report an incrementing count -- this is "
-        "the signal that distinguishes one harmless overlap from a real, "
-        "sustained multi-tick stall"
+    assert counts_logged == [2, 3], (
+        "every skip after the first must still report an incrementing "
+        "count -- this is the signal that distinguishes a real, sustained "
+        "multi-tick stall, and #945 must not weaken it"
     )
+
+
+def test_persistent_single_overlaps_are_summarised_periodically():
+    """The signal #945 was careful not to delete. A persistent
+    skip/succeed alternation is not harmless even though each skip is: it
+    means main() routinely overruns the tick, so the solver runs below
+    its configured cadence. Quieting the single skip outright would
+    remove the only evidence of that, so it is summarised instead.
+
+    `solve_seconds` cannot answer this -- it times the LP solve, not the
+    whole cycle.
+    """
+    _reset_module_state()
+    every = solver_runtime._SINGLE_SKIP_SUMMARY_EVERY
+    sw = _make_sw(acquire_ok=False)
+    with (
+        patch.object(solver_runtime, "_ensure_ready", return_value=sw),
+        patch.object(solver_runtime, "_LOGGER") as mock_logger,
+    ):
+        # Each iteration is an isolated single overlap: the successful
+        # acquire in between is what resets the consecutive counter, which
+        # is exactly why the consecutive counter can never see this shape.
+        for _ in range(every):
+            solver_runtime._consecutive_lock_skips = 0
+            solver_runtime._run_one_cycle(MagicMock())
+
+    summaries = [
+        c for c in mock_logger.warning.call_args_list if "since startup" in c[0][0]
+    ]
+    assert len(summaries) == 1, (
+        f"expected exactly one summary WARNING after {every} single "
+        f"overlaps, got {len(summaries)}"
+    )
+    assert summaries[0][0][-1] == every
+
+
+def test_an_isolated_single_overlap_never_summarises():
+    """Guards the other direction: on a healthy install this must stay
+    silent, not emit a summary on the first overlap."""
+    _reset_module_state()
+    sw = _make_sw(acquire_ok=False)
+    with (
+        patch.object(solver_runtime, "_ensure_ready", return_value=sw),
+        patch.object(solver_runtime, "_LOGGER") as mock_logger,
+    ):
+        solver_runtime._run_one_cycle(MagicMock())
+
+    assert mock_logger.warning.call_count == 0
 
 
 def test_successful_acquire_resets_the_consecutive_skip_counter():
