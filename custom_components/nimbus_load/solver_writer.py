@@ -1162,11 +1162,6 @@ def compute_binding_constraint_label(
                 # byte-identical, no compatibility break for anyone
                 # already reading this field for this specific case.
                 binding_now = ceiling_label
-            elif solved_value <= 1e-6:
-                # Pinned at zero -- a real "not worth it right now"
-                # economic decision, NOT a capacity constraint. Distinct
-                # from the ceiling case on purpose (see docstring above).
-                binding_now = f"{short_name} at zero (not economical right now)"
             elif (
                 var_key == "grid_export_0"
                 and fixed_export_kw_now is not None
@@ -1217,6 +1212,33 @@ def compute_binding_constraint_label(
                     f"{short_name} pinned at {float(fixed_export_kw_now):.2f} kW "
                     "by P2P export commitment"
                 )
+            elif solved_value <= 1e-6:
+                # Pinned at zero -- a real "not worth it right now"
+                # economic decision, NOT a capacity constraint. Distinct
+                # from the ceiling case on purpose (see docstring above).
+                #
+                # nimbus issue #951 (Mark Purcell, 48-hour IV&V #950):
+                # this branch used to sit ABOVE the P2P-pin branch, which
+                # left a residual of the exact bug class #921 was filed to
+                # fix. `fetch_p2p_fixed_export_kw()` deliberately pins
+                # export to 0.0 for `solver_post_window_self_consume_hours`
+                # after midnight on any block configured with end_hour=24,
+                # matching the real automation's own self-consume window --
+                # so 0.0 is a genuine, reachable COMMITMENT, not an absence
+                # of one. Evaluated first, it intercepted that case and
+                # told a correctly-configured P2P household its solver saw
+                # no economic reason to export, during hours when export
+                # was in fact deterministically forbidden.
+                #
+                # Safe to demote below the pin branch, and this is the part
+                # worth not re-deriving: a period with NO commitment never
+                # reaches here carrying 0.0. `fetch_p2p_fixed_export_kw()`
+                # returns None when no block is configured at all, and
+                # defaults an unmatched period to float("nan") -- both of
+                # which the pin branch's own guards reject. 0.0 appears
+                # only for the real post-midnight pin, so hoisting the pin
+                # check cannot relabel a genuine "not economical" period.
+                binding_now = f"{short_name} at zero (not economical right now)"
             else:
                 # Shouldn't happen for a variable with a genuinely
                 # nonzero reduced cost (LP optimality: only ever nonzero
