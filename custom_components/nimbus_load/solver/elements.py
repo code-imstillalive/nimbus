@@ -1541,14 +1541,39 @@ class ThermalLoadConfig:
     `thermal_forecast.py` already learns from real recorder history (EMHASS-
     named per nimbus issue #603's own "reuse prior art naming" standing
     rule), not EMHASS's true ambient-scaled `cooling_constant * (T_in -
-    T_out_forecast)` -- that needs a real outdoor/ambient temperature
-    forecast series, which does not exist anywhere in this codebase today.
-    The real benefit of reusing the flat model: the LP's own hard guarantee
-    and the household's own dashboard temperature forecast now share the
-    IDENTICAL physics model, by construction -- they can never disagree
-    with each other the way a HAEO-`docs/thermal_model.md`-style ambient-
-    scaled LP model and a separately-computed flat display projection
-    could.
+    T_out_forecast)`.
+
+    **This paragraph made two claims that are no longer true, and the
+    correction matters more than the original rationale did** (nimbus
+    issue #897, corrected 2026-09-15):
+
+    - It said an ambient forecast series "does not exist anywhere in this
+      codebase today". It does. #481/#864 (v0.94.293) taught
+      `learn_thermal_rates()` a real `loss_coeff_per_h` from outdoor-
+      temperature history, and `project_temperature_forecast()` applies
+      Newton's-law ambient-scaled decay whenever a weather sensor is
+      configured.
+    - It claimed the LP's hard guarantee and the dashboard projection
+      "share the IDENTICAL physics model, by construction -- they can
+      never disagree". They now disagree in two independent ways. The
+      projection skips decay during a heating period; this recursion
+      subtracts it every period. And the projection is ambient-scaled on
+      an install with a weather sensor, while this model stays flat --
+      `network.py` has no ambient term at all.
+
+    The shape that paragraph warned against therefore arrived one day
+    after it was written, with the roles swapped: an ambient-scaled
+    display projection against a flat LP model. Nobody erred -- #864 is
+    correctly scoped to the projection path and says so, and #800's
+    rationale was true when written. The invariant broke because the two
+    changes sat on different issues and nothing checked the claim.
+
+    `tests/test_thermal_model_divergence.py` now pins both divergences to
+    their closed forms rather than asserting an agreement that does not
+    hold. Resolving #897 -- deciding whether the learned rate is NET (what
+    the fitter measures) or GROSS (what this recursion assumes) -- is what
+    would let the two models be reconciled; until then, treat any claim
+    that they agree as false.
 
     nimbus issue #477's own lesson, applied here rather than repeated: a
     hard deadline that turns out genuinely unreachable (a miscalibrated
