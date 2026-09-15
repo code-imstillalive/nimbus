@@ -106,16 +106,18 @@ def test_battery_forecast_has_required_sensor_entity_class_attributes():
     # SensorEntity contract, not from an attrs dict. Same reasoning for
     # device_class and state_class.
     #
-    # This comment used to say that is "the whole reason the 'unit
-    # changed' repair (#61) stops firing". Corrected 2026-09-16 -- it
-    # does not stop the Recorder's unit-mismatch warning, which was
-    # measured firing on v0.94.330 for both of these entities, with no
-    # long-term statistics at all for either. A class attribute cannot
-    # help when the unit reads None because the entity has no value yet
-    # (unknown/unavailable before the first push). See the class
-    # docstring in sensor.py and #890 for the measurement. The
-    # assertions below are still exactly right; only the stated
-    # consequence was wrong.
+    # These assertions have never been in doubt. What HAS been re-derived
+    # wrong twice is the CONSEQUENCE claimed around them, so the class
+    # docstring in sensor.py now carries the verified version and this
+    # comment deliberately does not restate it -- see it and #890.
+    #
+    # The one line worth having here: setting the unit as a class
+    # attribute only reaches the recorder for states written BY the
+    # entity (HA passes `_unrecorded_attributes` via `state.state_info`).
+    # A stale or external writer produces a state with no `state_info`,
+    # so nothing is excluded, the 16 KB cap trips, and every attribute is
+    # dropped -- which looks exactly like these class attributes not
+    # working, and is not.
     assert cls._attr_native_unit_of_measurement == "kW"
     # SensorDeviceClass / SensorStateClass are MagicMock in the test
     # stubs; identity comparison against the same mock attribute is the

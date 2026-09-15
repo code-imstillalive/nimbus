@@ -3125,41 +3125,31 @@ class _NimbusSolverPushSensor(SensorEntity):
     from a raw attribute the state machine happens to have been handed
     (issue #61).
 
-    **This paragraph used to claim that "stops" the Recorder's own "unit
-    changed" repair from firing. Corrected 2026-09-16: it does not, and
-    the difference matters to anyone reading a statistics chart.**
-    Measured on a real install running v0.94.330 -- current code, well
-    past the 2026-09-10 change that #890 was closed on:
+    **How that interacts with the Recorder, because #890 got re-derived
+    wrong twice in one session and this is the durable answer.**
 
-        sensor.nimbus_household_load_total_forecast   0 hourly stats / 3 days
-        sensor.nimbus_solver_battery_forecast         0 hourly stats / 3 days
-        sensor.nimbus_solver_solve_seconds           71 hourly stats, complete
+    HA applies `_unrecorded_attributes` only through `state.state_info`
+    (`recorder/db_schema.py::shared_attrs_bytes_from_event`): absent it,
+    the exclusion set falls back to `ALL_DOMAIN_EXCLUDE_ATTRS` and, if
+    the resulting payload exceeds 16 KB, the **entire** attribute row is
+    dropped -- `unit_of_measurement` with it, which then suppresses
+    long-term statistics against the previously-compiled unit.
 
-    with `homeassistant.components.sensor.recorder` logging "The unit of
-    <entity> (None) cannot be converted to the unit of previously
-    compiled statistics (kW)" for both of the first two, currently, not
-    historically. The third is the control: same install, same class,
-    full series -- so this is not "push sensors are broken".
+    `state_info` is present only on states written **by the entity**. On
+    the native path that is what happens: `ha_post_state()` routes
+    through `update_from_solver()` -> `async_write_ha_state()`, so
+    `forecast` (17.6 KB of the ~19.3 KB payload) is excluded and ~1.7 KB
+    is recorded. Both of this class's big entity_ids are also in
+    `_NATIVE_MANAGED_ENTITY_IDS`, so a missing handler SKIPS the push
+    rather than raw-writing it.
 
-    A class attribute cannot help here, because the unit reads None when
-    the entity has no value yet at all -- `unknown`/`unavailable` before
-    the first push lands -- and a statistics-compilation cycle falling in
-    that window sees no unit regardless of what the class declares.
-
-    Not this class's defect, and not worth chasing from here: the same
-    warning batch names `sensor.amber_express_*` and
-    `sensor.localvolts_v2_*`, two unrelated third-party integrations, in
-    identical shape. It is an install-level condition affecting anything
-    that is empty until its first push or API fetch. Recorded so the
-    claim above is not trusted again -- see #890 for the full
-    measurement, including that the oversized-attribute mechanism in that
-    issue's title is NOT the cause (the recorded payload measures ~1.7 KB
-    against a 16 KB cap).
-
-    Scope of what was actually verified: the statistics-suppression
-    WARNING and the absent statistics. Whether HA's repairs-panel item
-    for a unit change also appears was not checked, so nothing here
-    claims either way about that surface.
+    Which makes the oversize warning a useful signal rather than a
+    defect: **if `recorder.db_schema` logs "State attributes for
+    <one of these> exceed maximum size", the writer is not this entity.**
+    Check `solve_diagnostics`' key count on the state -- current code
+    emits seven; fewer means stale or external code wrote it, which is a
+    deployment problem, not this class's. That check has caught three
+    wrong conclusions about live behaviour in a single session.
     """
 
     _attr_has_entity_name = True
