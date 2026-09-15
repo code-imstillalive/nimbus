@@ -8,6 +8,23 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.324] — 2026-09-15
+
+### Fixed
+- **`binding_constraint_now` called a correctly-configured P2P household's own export commitment an unexpected solver state, every evening** ([#921](https://github.com/code-imstillalive/nimbus/issues/921)). A live install running a 12 kW P2P block over 17:00–24:00 published, at 19:05 and again at 19:18:
+
+  > `Grid export at 12.00 kW (unexpected -- neither its 0 nor 40.00 kW bound)`
+
+  Nothing was unexpected. `p2p_export.grid_export_bounds()` pins `grid_export[t]` to `lb == ub ==` the committed rate for every period under a real commitment, so the variable genuinely sits at a bound — exactly as the "shouldn't happen" branch's own comment reasons from LP optimality. What that comment did not say is that it assumed `0` and `limit_kw` are a variable's **only** bounds. The P2P pin is a third one, and `_BINDING_FAMILIES` does not model it.
+
+  The field now names the real reason: `Grid export pinned at 12.00 kW by P2P export commitment`.
+
+  Worth noting what this was: not a cosmetic string. The message fired for every period of the evening block — a P2P household's highest-value hours, and precisely when someone is most likely to be reading this field to understand why the plan is doing what it is doing. The true answer was crisp and useful and got replaced by one suggesting the solver was confused. A "shouldn't happen" that happens every evening also teaches people to stop reading the diagnostic that is right the rest of the time.
+
+  The guard branch itself is **kept**, deliberately narrowed to the pin rather than widened to a tolerance, so the next unmodelled bound still surfaces loudly. Its comment now records why it was reachable. Fixed in both copies of the function — the integration's and the standalone/cron writer's — per [#357](https://github.com/code-imstillalive/nimbus/issues/357)'s reasoning, with a test asserting both carry it.
+
+  Eight new tests, including a mutation check that reproduces the exact observed string byte-for-byte without the new argument (so the fix is proven to be what changed), NaN handling for the uncommitted periods that make up most of a real `fixed_export_kw` array, and ordering checks that the existing "at the ceiling" wording — a compatibility guarantee since #125/#133 — and the "at zero" economic label both still win where they should.
+
 ## [0.94.323] — 2026-09-15
 
 ### Fixed
@@ -29,6 +46,8 @@ Four claims this repo makes about its own code, each checked against the code an
 - **`pyproject.toml`'s `[dev]` comment** claimed verification against "320 stub tests plus the 9 real-HA tests". Same rot, same fix: the claim is now about the suite passing rather than about a number.
 
 ### Notes
+
+Devhub validation: deployed, `installed_version == available_version == v0.94.323`, install healthy alongside it — solve `optimal`, `total_cost` **−75.29**, health report **0** errors. As with v0.94.322 the install was left at pending-restart and no restart-dependent claim is made: `git diff v0.94.322 v0.94.323` touches `CHANGELOG.md`, `README.md`, `manifest.json`, `pyproject.toml` and two files under `docs/`, and **no Python at all**. What the deploy did produce was a real find — `binding_constraint_now` reading `Grid export at 12.00 kW (unexpected ...)` on that install is [#921](https://github.com/code-imstillalive/nimbus/issues/921), fixed in v0.94.324 above. A documentation release cannot be verified by a solve, but looking at the solve anyway is evidently still worth doing.
 
 - **The common thread is worth stating.** v0.94.320 through this release have corrected eleven claims across seven files, and not one was a lie at the time it was written — every one was true and then quietly stopped being true, in a repo whose CI is strict about code and silent about prose. Two of them (`docs/TESTERS.md`'s shadow-mode line in v0.94.322, and the IV&V step above) were user-facing instructions that would have actively misled a real tester. The checks that caught them were all the same shape: take a sentence that asserts something falsifiable, and go ask the code. That is cheap and it keeps finding things.
 
