@@ -502,8 +502,9 @@ default, range, and unit table for every `number.nimbus_solver_*` entity above.
 - Persist across restarts. The Forecaster saves trained models to
   `.storage/nimbus_load_*.pkl` and `.json`. The Solver optionally caches plan state
   and holds a lock file at env-var-overridable paths (see `solver_writer.py`).
-- 249 unit tests pass on a fresh clone with `pip install -e '.[dev]' && pytest`.
+- The suite passes on a fresh clone with `pip install -e '.[dev]' && pytest`.
   ruff format, ruff check, and pytest are strict CI gates on every PR.
+  See "Contributing" below for the current size and the exact commands.
 
 ## Compatibility
 
@@ -563,11 +564,27 @@ charge and discharge power, and a blended round-trip efficiency.
 
 ## Contributing
 
-- `pip install -e '.[dev]' && pytest` from a fresh clone runs the full 313-test
-  suite green.
-- Every PR must pass `ruff format --check`, `ruff check`, `pytest`, `hassfest`,
-  and the `Version lockstep (integration <-> add-on)` job. All strict gates
-  on `main`. `Type Check (mypy)` runs advisory.
+- `pip install -e '.[dev]' && pytest` from a fresh clone runs the suite green.
+  It splits the way CI splits it: the stub-based suite, which is the bulk of
+  it, and a much smaller real-HA-harness suite under `tests/hass_integration/`
+  that needs a Home Assistant matching `manifest.json`'s minimum version.
+
+  ```bash
+  pytest tests/ --ignore=tests/hass_integration/ -p no:homeassistant   # the stub suite
+  pytest tests/hass_integration/                                       # the real-HA harness
+  ```
+
+  On 2026-09-15 the first of those reported **2580 passed, 14 skipped, 328
+  subtests**. That figure is here to convey scale, not as a number to keep
+  in sync — this line previously read "313" in one place and "249" in
+  another, both several thousand tests out of date, which is exactly the
+  drift the version line at the top of this file was already rewritten to
+  avoid. Run the command for the real answer.
+- Every PR must pass `ruff format --check`, `ruff check`, `pytest`, `hassfest`
+  and the HACS `validate` job. All strict gates on `main`. `Type Check (mypy)`
+  runs advisory. (A `Version lockstep (integration <-> add-on)` job used to be
+  listed here; it went with the `nimbus_solver_app` add-on in v0.94.85, #357,
+  and no such job exists.)
 - **Quality Scale.** Bronze, Silver, Gold, and Platinum tier-gap work has
   landed (issues [#37](https://github.com/code-imstillalive/nimbus/issues/37),
   [#38](https://github.com/code-imstillalive/nimbus/issues/38),
