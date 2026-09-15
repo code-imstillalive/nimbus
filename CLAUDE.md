@@ -20,11 +20,14 @@ Dated work-in-progress notes live in `docs/worklog/`, one file per date — this
 the "CURRENT STATE" journal that used to live directly in this file now lives. Each
 file is not re-summarized here; read it directly for the full detail. Most recent 5:
 
-- [2026-09-16](docs/worklog/2026-09-16.md) — **No release cut; the version queue is
-  blocked** and that is the day's key operational fact — `main` sits two merged
-  PRs ahead of v0.94.330 (#935, #936) while PRs #930/#931 are held overnight for
+- [2026-09-16](docs/worklog/2026-09-16.md) — **By morning the queue was unblocked
+  and two releases shipped (v0.94.332, v0.94.333), closing all four of Mark
+  Purcell's #950 IV&V findings** (#952, #953, #954, #955) — see the end of that
+  file. Overnight the operational fact was the opposite: **no release cut, the
+  version queue blocked** — `main` sat two merged
+  PRs ahead of v0.94.330 (#935, #936) while PRs #930/#931 were held overnight for
   the household carrying manifest bumps to v0.94.331/332 in their own branches, so
-  no tag from `main` is clean in either direction. It has a real cost: #773's
+  no tag from `main` was clean in either direction. It has a real cost: #773's
   diagnostic only reports from a real install, so the queue is what holds up its
   measurement. **#919 shipped** (PR #936) — a deployed install can finally answer
   "is the ML forecaster beating persistence on my data?" — and the sensor choice
@@ -74,6 +77,25 @@ file is not re-summarized here; read it directly for the full detail. Most recen
   Python" while changing `solver_writer.py` and `solver/network.py` — a
   present-and-false line the #594 guard cannot catch, since it checks only that
   the phrase exists.
+  **The morning resolved that queue and then found the guard was weaker still.**
+  The collision was self-inflicted — a manifest bump inside a feature branch, twice
+  — and neither number had ever been tagged, so the fix was to take the bump out of
+  the branches entirely (this repo's own documented convention) rather than
+  back-write a validation claim. Then, while writing v0.94.333's entry, **the #594
+  guard was found passing a section that genuinely had no validation line**: v0.94.332's
+  own prose *explaining* why a never-tagged version `had no "Devhub validation:" line
+  it could honestly carry` satisfied the guard's own search. Code spans and fenced
+  blocks are now stripped before the phrase is looked for — a real line is written as
+  prose, a reference to the concept as code. **Three separate guards were found
+  enforcing less than they appeared to in one morning** (#594's changelog check,
+  #955's source-comment check, #952's drift glob), and in two of the three *nothing
+  was failing*, which is exactly why nobody had noticed — the #757 lesson restated:
+  a guard that cannot fail is indistinguishable from a guard that works. Each fix
+  therefore shipped with a durable half, confirmed to fire by planting the thing it
+  forbids. Devhub verification also produced real live evidence rather than a clean
+  restart: **#945 confirmed** (only `consecutive skips: 2`/`3` at WARNING, single
+  skips silent) and **#954's refusal rule confirmed** against three usable AEMO
+  candidates and three unavailable geocoded ones.
 - [2026-09-15](docs/worklog/2026-09-15.md) — Releases v0.94.305 → **v0.94.317**,
   continuing directly from 09-14. **#773 got a positive result after five
   refuted hypotheses**: `mip_node_count=1, mip_gap=0.0` means the search tree
