@@ -372,10 +372,30 @@ class TestP2PPinnedExport(unittest.TestCase):
         )
         self.assertEqual(label, "Grid export limit")
 
-    def test_a_zero_commitment_is_still_the_at_zero_story(self):
-        """A 0 kW commitment and a "not economical" decision look
-        identical in the solved value. The existing, more specific
-        economic label wins, unchanged."""
+    def test_a_zero_commitment_is_reported_as_the_commitment(self):
+        """nimbus issue #951 (Mark Purcell, 48-hour IV&V #950).
+
+        **This test previously asserted the opposite**, and its stated
+        reasoning was: *"A 0 kW commitment and a 'not economical'
+        decision look identical in the solved value. The existing, more
+        specific economic label wins, unchanged."*
+
+        That was wrong, not merely stale. The premise is true only of the
+        **solved value** — and the function is not limited to the solved
+        value. It already has `fixed_export_kw_now` in hand, and already
+        uses it to disambiguate every other pin magnitude. Declining to
+        use it for exactly one value left a residual of the bug class
+        #921 was filed to eliminate.
+
+        And 0.0 is a real, reachable commitment rather than a contrived
+        one: `fetch_p2p_fixed_export_kw()` deliberately pins export to
+        0.0 for `solver_post_window_self_consume_hours` after midnight on
+        any block configured with `end_hour=24`, mirroring the real
+        automation's own self-consume window. So a correctly-configured
+        overnight P2P household was being told its solver saw no economic
+        reason to export, during the exact hours export was
+        deterministically forbidden.
+        """
         label, _ = solver_writer.compute_binding_constraint_label(
             self._pinned_plan(value_kw=0.0),
             _EXPORT_LIMIT_KW,
@@ -385,7 +405,37 @@ class TestP2PPinnedExport(unittest.TestCase):
             1.0,
             0.0,
         )
-        self.assertEqual(label, "Grid export at zero (not economical right now)")
+        self.assertEqual(
+            label, "Grid export pinned at 0.00 kW by P2P export commitment"
+        )
+
+    def test_a_genuine_not_economical_zero_is_untouched_by_that_change(self):
+        """The regression the #951 reorder had to not cause, and the
+        reason it is safe.
+
+        A period with no commitment never reaches the zero-check carrying
+        0.0: `fetch_p2p_fixed_export_kw()` returns None when no block is
+        configured at all, and defaults an unmatched period to
+        `float("nan")`. Both are rejected by the pin branch's own guards,
+        so a real "not worth exporting right now" still reads as one.
+
+        Covering both shapes explicitly, because the safety of hoisting
+        the pin check rests entirely on them.
+        """
+        for fixed_export in (None, float("nan")):
+            with self.subTest(fixed_export_kw_now=fixed_export):
+                label, _ = solver_writer.compute_binding_constraint_label(
+                    self._pinned_plan(value_kw=0.0),
+                    _EXPORT_LIMIT_KW,
+                    _IMPORT_LIMIT_KW,
+                    _MAX_CHARGE_KW,
+                    _MAX_DISCHARGE_KW,
+                    1.0,
+                    fixed_export,
+                )
+                self.assertEqual(
+                    label, "Grid export at zero (not economical right now)"
+                )
 
     def test_the_pin_only_applies_to_grid_export(self):
         """`fixed_export_kw` bounds one variable. A battery value that
