@@ -16,7 +16,6 @@ Publishes the Efficiency Performance Ratio (EPR) and the cost decomposition behi
 | `sensor.nimbus_quality_j_ach` | AUD | Achieved 24h cost: what Nimbus's plan actually cost. |
 | `sensor.nimbus_quality_j_star` | AUD | Oracle 24h cost: what a perfect-foresight plan would have cost. |
 | `sensor.nimbus_quality_value_captured` | AUD | `J_ref - J_ach`. Positive = Nimbus beats do-nothing. |
-| `sensor.nimbus_quality_uplift_available` | AUD | `J_ach - J_star`. Uplift still on the table vs oracle. |
 | `sensor.nimbus_quality_theoretical_maximum_yield` | AUD | `J_ref - J_star`. Total spread between do-nothing and oracle. |
 | `sensor.nimbus_quality_regret_dollars` | AUD | `J_ach - J_star`. Canonical name for regret. |
 | `sensor.nimbus_quality_tracking_fidelity` | (dimensionless 0..1) | Plan-vs-actual tracking ratio. 1.0 = perfect. |
@@ -127,7 +126,7 @@ Children inherit `_FlattenedAttributeSensorSubDevice`, which sets a DeviceInfo w
 Tracked in [#283](https://github.com/code-imstillalive/nimbus/issues/283). Warnings only, entities are safe to use:
 
 - **24 `state_class='measurement'` mismatches** at HA restart — 17 monetary + 5 energy + 2 semantic (see below).
-- **Duplicate `uplift_available` == `regret_dollars`** — both publish `J_ach - J_star`. Recommend keeping `regret_dollars` (canonical) and dropping `uplift_available`, or re-deriving it as a percentage of TMY.
+- ~~**Duplicate `uplift_available` == `regret_dollars`**~~ — **fixed.** The flattened `uplift_available` child sensor was removed; `regret_dollars` is the canonical entity. `uplift_available` remains an **attribute** on `sensor.nimbus_solver_quality_report` (and on `epr.py`'s own report) for the `value_captured + uplift_available = theoretical_maximum_yield` identity below — it is no longer an entity, and this table listed one until 2026-09-15.
 - **`tracking_fidelity` unit-vs-value** — reads `1.0` with unit `%`. Value is a dimensionless 0..1 ratio; recommend dropping the unit.
 
 All three defects live in the same spec dictionaries in `sensor_flattened.py` and can ship in one follow-up PR.
