@@ -32,6 +32,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
   Worth recording the counting trap, because it nearly produced a wrong number in the issue: counting `vol.Optional(` calls in the source reports Switchboard as **1** field. It is 8 — that schema is built in a loop over its own key list. Every figure above comes from the key-list constants and an AST walk.
 
+Devhub validation: deployed and restarted, `installed_version == available_version == v0.94.317`, solve `optimal` in 1.27 s, `nimbus_status` "Working well", no new errors, `state` and `whole_house_live_now_kw` both **1.12**. A text-only change should be invisible to the solver, and it is — the wizard copy itself is only visible when the form is opened, so this release's own change is verified by the translations-completeness guard and the byte-identical check on `strings.json`/`translations/en.json` rather than by anything a solve could show.
+
 ## [0.94.316] — 2026-09-15
 
 ### Added
