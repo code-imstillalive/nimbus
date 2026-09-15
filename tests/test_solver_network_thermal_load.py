@@ -110,11 +110,17 @@ class TestThermalRecurrenceMatchesHandComputedTrajectory(unittest.TestCase):
         # Hand-computed: whatever heating happened in period 0/1 plus
         # pure idle decay for the rest must reproduce the exact published
         # trajectory via the same recurrence the LP itself solved with.
+        # nimbus issue #897, household decision 2026-09-15: the learned
+        # rate is NET, so the loss it already contains is no longer
+        # subtracted a second time while heating. The decay term is now
+        # scaled by the period's IDLE fraction -- full power means no
+        # decay, idle means full decay, half duty means half.
         recomputed = thermal.initial_temperature_c
         for t in range(n):
+            idle_fraction = 1.0 - (tl.power_kw[t] / thermal.max_power_kw)
             recomputed += (
                 thermal.heating_rate_c_per_kwh * tl.power_kw[t] * periods.hours[t]
-                - thermal.idle_decay_c_per_hour * periods.hours[t]
+                - thermal.idle_decay_c_per_hour * periods.hours[t] * idle_fraction
             )
             self.assertAlmostEqual(recomputed, tl.temperature_c[t], places=6)
 

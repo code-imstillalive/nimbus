@@ -53,6 +53,32 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
   *(Changelog entry added retroactively — #935 merged without one, which would have left it absent from its own release notes.)*
 
+### Fixed
+- **The LP counted the tank's heat loss twice** ([#897](https://github.com/code-imstillalive/nimbus/issues/897), household decision 2026-09-15: **the learned rate is NET**).
+
+  `learn_thermal_rates()` fits `rate = gain / kwh` from a **measured** idle-before to settled-idle-after change. Whatever the tank lost to ambient during that run is already inside that number -- it has to be, because a thermometer cannot separate the two. The LP's recursion then subtracted `idle_decay_c_per_hour * hours[t]` in **every** period, heating ones included, which only balances for a *gross* rate. Feed it the fitter's net rate and the loss is counted twice.
+
+  Nothing had gone wrong yet only because the two never met: deferrable loads learn and consume the rate in a model with no second decay term, while thermal loads use this recursion but are fed a flat constant. [#873](https://github.com/code-imstillalive/nimbus/issues/873) is what makes them meet -- which is why this was ordered first.
+
+  **How it is expressed, since "do not decay while heating" is a condition on a decision variable and so not directly an LP constraint.** Adding an on/off binary per period would do it, and is not affordable here: #773 shows this model's root relaxation is already the expensive part, and a thermal load spans the whole horizon. Scaling the decay by the period's **idle fraction** is linear, needs no binary, and is physically truer than either extreme:
+
+  ```
+  T[t] = T[t-1] + rate*p[t]*h - decay*(1 - p[t]/max_power)
+  ```
+
+  Full power for the period means no decay (the net rate already carries it); idle means the full loss; half duty means half, because the tank genuinely does sit cooling for the other half. Rearranged it is one extra term on `p[t]`'s coefficient, with the RHS unchanged. Guarded against a zero `max_power_kw`, which degrades to the previous always-decay behaviour rather than dividing by zero.
+
+  **The measured effect on the two models agreeing, which is the useful part:** on the divergence fixture the gap between the LP's trajectory and the dashboard projection falls from `0.6 °C` to `0.26 °C`, and a **full-power heating period now contributes exactly zero** -- the two models agree wherever the load runs flat out, which is how a resistive element or a heat pump actually runs. The residual is only the partial-duty periods the LP uses to land precisely on target.
+
+### Notes
+- **This makes the plan LESS conservative, and that is worth saying out loud.** Double-counting the loss made the LP believe the tank heated more slowly than it does, so it planned a longer block and the tank finished *hotter* than target -- an accidental safety margin. Removing the double-count removes that margin: the plan now heats the amount actually required. Correct, and less forgiving of a mis-learned rate, which is exactly why [#873](https://github.com/code-imstillalive/nimbus/issues/873) (learning real rates for thermal loads) should land close behind it.
+
+- **Two guards were updated deliberately, not worked around.** `test_thermal_model_divergence.py` existed precisely so that whoever resolved #897 had to change it on purpose -- v0.94.328's own entry said so -- and `test_solver_network_thermal_load.py` recomputes the trajectory by hand from the same recurrence. Both now encode the new model, and the divergence file's headline assertion is the new one: a full-power heating period adds no gap at all.
+
+- **Held overnight rather than shipped**, per the #594 rule: this changes the arithmetic behind a real hot-water guarantee and is not identity on the default path.
+
+- **No version bump rides in this branch.** An earlier revision of this PR carried its own `manifest.json` bump to v0.94.332 and its own `## [0.94.332]` heading, which collided with [#930](https://github.com/code-imstillalive/nimbus/pull/930) doing the same at v0.94.331 and put a never-tagged version inside the [#594](https://github.com/code-imstillalive/nimbus/issues/594) guard’s enforced window. Neither number was ever released. Per this repo’s own documented convention the bump belongs in a separate Release PR, so this content sits under `Unreleased` and is versioned when it is actually tagged and validated.
+
 ## [0.94.331] — 2026-09-15
 
 ### Added

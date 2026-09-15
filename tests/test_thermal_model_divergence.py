@@ -136,60 +136,88 @@ def _project(power_kw):
     )
 
 
-class TestTheTwoModelsDisagreeByExactlyTheHeatingPeriodDecay(unittest.TestCase):
+class TestTheModelsNowAgreeWhereverTheLoadRunsAtFullPower(unittest.TestCase):
+    """nimbus issue #897, resolved 2026-09-15: the household decided the
+    learned rate is NET, so the LP no longer subtracts the loss a second
+    time while heating.
+
+    This class used to pin the opposite -- `LP = projection - decay x
+    cumulative heating hours` -- and its own docstring said it existed so
+    that whoever resolved #897 would have to change it deliberately
+    rather than by accident. This is that deliberate change.
+
+    What replaced the always-subtract term is the period's IDLE FRACTION,
+    `decay * (1 - power/max_power)`. That is linear, so it needs no
+    per-period binary (which #773 shows this model cannot afford), and it
+    is physically truer than either extreme: heat for the whole period
+    and the net rate already carries the loss; sit idle and you lose the
+    lot; run at half duty and you lose half.
+
+    The consequence worth stating plainly, because it is the useful one:
+    **the two models now agree exactly wherever the load runs at full
+    power**, which is how a resistive element or a heat pump actually
+    runs. The residual gap is only ever the partial-duty periods the LP
+    uses to land precisely on its target.
+    """
+
     def setUp(self):
         self.tl = _solve()
         self.projected = _project(self.tl.power_kw)
         self.on = [float(p) > 0.05 for p in self.tl.power_kw]
+        self.max_power_kw = 3.0  # matches _solve()'s own fixture
 
     def test_the_lp_actually_heats_so_the_comparison_is_not_vacuous(self):
         """If the LP chose never to run the load, both models would be
-        pure decay and would agree trivially — every assertion below
+        pure decay and would agree trivially -- every assertion below
         would pass while comparing nothing."""
         self.assertTrue(any(self.on), "fixture must produce real heating periods")
 
-    def test_the_gap_is_decay_times_cumulative_heating_hours(self):
-        """The closed form, period by period. This is the assertion that
-        names which term is responsible."""
-        heating_hours = 0.0
-        for t in range(_N):
-            if self.on[t]:
-                heating_hours += _HOURS
-            expected_gap = _DECAY * heating_hours
-            actual_gap = float(self.projected[t]["value"]) - float(
-                self.tl.temperature_c[t]
-            )
-            with self.subTest(period=t):
-                self.assertAlmostEqual(actual_gap, expected_gap, places=1)
-
-    def test_the_projection_runs_hotter_than_the_lp_trajectory(self):
-        """Direction stated on its own, as a property of the two
-        FUNCTIONS — not of anything published. It matters because it says
-        which way a net-vs-gross rate mix-up would push a plan: toward
-        believing the tank is colder than it is, and so toward demanding
-        a longer heating block than reality needs."""
-        final_gap = float(self.projected[-1]["value"]) - float(
-            self.tl.temperature_c[-1]
-        )
-        self.assertGreater(final_gap, 0.0)
-
-    def test_the_gap_never_shrinks(self):
-        """Monotonic by construction — decay is only ever added to one
-        side. A shrinking gap would mean one of the two models had
-        changed shape, not merely drifted in magnitude."""
-        gaps = [
-            float(self.projected[t]["value"]) - float(self.tl.temperature_c[t])
+    def test_a_full_power_heating_period_adds_no_gap_at_all(self):
+        """#897's fix, stated as directly as it can be. Before it, every
+        heating period drove the two models apart by a full period's
+        decay; now a full-power one contributes nothing."""
+        full = [
+            t
             for t in range(_N)
+            if abs(float(self.tl.power_kw[t]) - self.max_power_kw) < 1e-6
         ]
-        for t in range(1, _N):
+        self.assertTrue(
+            full,
+            "fixture no longer contains a full-power heating period, so this "
+            "assertion proves nothing -- fix the fixture, not the assertion",
+        )
+        for t in full:
+            prev_gap = (
+                0.0
+                if t == 0
+                else float(self.projected[t - 1]["value"])
+                - float(self.tl.temperature_c[t - 1])
+            )
+            gap = float(self.projected[t]["value"]) - float(self.tl.temperature_c[t])
             with self.subTest(period=t):
-                self.assertGreaterEqual(gaps[t], gaps[t - 1] - 1e-6)
+                self.assertAlmostEqual(gap, prev_gap, places=6)
 
-    def test_they_agree_exactly_while_the_load_is_idle(self):
-        """Before the first heating period the two models are identical —
-        which is why this was invisible on any install whose load had not
-        run yet, and why the gap is a property of running the tank, not
-        of configuring it."""
+    def test_the_remaining_gap_is_exactly_the_idle_fraction_of_each_period(self):
+        """The closed form of what is left. Names the term responsible,
+        the same way the old assertion did for the term that went."""
+        expected = 0.0
+        for t in range(_N):
+            p_kw = float(self.tl.power_kw[t])
+            lp_decay = _DECAY * _HOURS * (1.0 - p_kw / self.max_power_kw)
+            proj_decay = 0.0 if self.on[t] else _DECAY * _HOURS
+            expected += lp_decay - proj_decay
+            actual = float(self.projected[t]["value"]) - float(self.tl.temperature_c[t])
+            with self.subTest(period=t):
+                # places=1, not 6: both series are ROUNDED at publish (the
+                # LP trajectory to 1dp, the projection to 2dp), so a tighter
+                # comparison measures that rounding rather than either
+                # model. Same tolerance the pre-#897 version of this
+                # assertion used, for the same reason.
+                self.assertAlmostEqual(actual, expected, places=1)
+
+    def test_they_still_agree_exactly_while_the_load_is_idle(self):
+        """Unchanged by #897, and still the reason this was invisible on
+        an install whose load had not run yet."""
         first_on = self.on.index(True)
         for t in range(first_on):
             with self.subTest(period=t):
@@ -201,18 +229,20 @@ class TestTheTwoModelsDisagreeByExactlyTheHeatingPeriodDecay(unittest.TestCase):
 
 
 class TestTheSizeOfIt(unittest.TestCase):
-    def test_the_gap_is_material_not_a_rounding_difference(self):
-        """A guard against anyone reading #897 as pedantry. On this
-        fixture the divergence is whole degrees, and it scales linearly
-        with how long the tank runs."""
+    def test_the_gap_is_now_much_smaller_than_the_model_it_replaced(self):
+        """A guard on the direction of the change. The pre-#897 model
+        diverged by a full period's decay for EVERY heating period; the
+        replacement only ever diverges on partial-duty ones, so on this
+        fixture the gap must be strictly smaller than the old closed
+        form. If it is not, the fix did not do what it claims."""
         tl = _solve()
         projected = _project(tl.power_kw)
+        heating_hours = sum(_HOURS for p in tl.power_kw if float(p) > 0.05)
+        old_model_gap = _DECAY * heating_hours
+
         gap = float(projected[-1]["value"]) - float(tl.temperature_c[-1])
-        self.assertGreater(gap, 0.5)
-
-
-if __name__ == "__main__":
-    unittest.main()
+        self.assertLess(gap, old_model_gap - 1e-9)
+        self.assertGreaterEqual(gap, 0.0)
 
 
 def _project_ambient(power_kw, ambient_c, loss_coeff_per_h):
