@@ -52,11 +52,27 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
   Landed in both writer copies per [#357](https://github.com/code-imstillalive/nimbus/issues/357) — the function-set drift guard caught the port being missing and was allowed to do its job rather than silenced with a bucket exception.
 
-Devhub validation: deployed and restarted, `installed_version == available_version == v0.94.325`, solve `optimal`, health report **0** errors — **and this one is a genuine live confirmation rather than a version-number match.** The install logged that clamp **126 times in the hour before** the deploy. After it: **zero**, with the precondition unchanged — its battery participant is still below its own floor (`live SoC 7.01% is outside its own configured floor/ceiling [20.00%, 100.00%] -- the LP is scheduling real recovery this cycle`), i.e. still charging inside the committed window, which is exactly what produced those 126 warnings.
+Devhub validation: deployed and restarted, `installed_version == available_version == v0.94.325`, solve `optimal`, health report **0** errors. **This release's own fix is NOT verified live, and an earlier draft of this entry wrongly claimed it was.**
 
-The executing code was confirmed current by a **behavioural** check rather than by HACS's version, per the rule sharpened on #594: three independent `solver_writer.py` log-line numbers on the install (`569`, `7062`, `11102`) match the merged source exactly, and shifted from their pre-deploy values (`568`, `6958`, `10990`) by precisely what v0.94.324 and v0.94.325 added. Worth noting because the two releases before this one were **not** running on that install — the stale set moves between deploys.
+The claim was that the clamp logged **126 times in the hour before** the deploy and **zero** after, with the precondition unchanged — the install's battery participant still below its floor and charging. The before/after counts are real. The attribution was not, and checking one step further is what showed it:
 
-That same behavioural check is what exposed v0.94.324's own fix as not working, which is fixed in v0.94.326 above. A version match would have called both releases verified.
+```
+plan.batteries          -> ["home"]        (one entry)
+n_batteries             -> 1
+n_controllable_loads    -> 0
+```
+
+The solve sees **one** battery. With a single battery, `plan.batteries[0].charge_kw` **is** `plan.battery_charge_kw` — the gated array and the aggregate are the same object's values, so this release's change is a **no-op on that install as it is currently running**. It cannot be what silenced the warning.
+
+The likelier explanation is the already-tracked #757 mechanism: the running process is bound to the config entry with no `battery_participant` and no controllable loads, where the pre-restart process had the one with them. The EV leaving the plan removes the aggregate/gated divergence entirely — which silences the warning for a reason that has nothing to do with the fix.
+
+So: the fix is verified by code reading, 18 tests and a mutation check, and **not** by this install. Noted plainly because this entry was one step away from being exactly the kind of false confirmation the paragraph below it is about.
+
+What *was* established, and is worth keeping: the executing **code** is current, confirmed behaviourally rather than by HACS's version, per the rule sharpened on #594. Three independent `solver_writer.py` log-line numbers on the install (`569`, `7062`, `11102`) match the merged source exactly, and shifted from their pre-deploy values (`568`, `6958`, `10990`) by precisely what v0.94.324 and v0.94.325 added. The two releases before this one were **not** running on that install, so the stale set genuinely moves between deploys.
+
+That check is what exposed v0.94.324's own fix as not working (fixed in v0.94.326 above) — a version match would have called it verified.
+
+And the correction above adds a second, sharper lesson to the same file: current code is **not** the same as a current config entry. `solver_writer.py` is current here while the solve runs against an entry missing every `battery_participant` and controllable load. A release whose behaviour depends on a subentry type that entry lacks cannot be confirmed on this install at all, however current its code is — which is a distinct failure mode from the staleness this project already tracks, and it produced a real false positive before it was caught.
 
 ## [0.94.324] — 2026-09-15
 
