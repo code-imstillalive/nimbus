@@ -8,6 +8,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Changed
+- **The Solar & Load Forecasts form now says that only 2 of its 16 fields are required, and what the other 14 actually buy you** ([#449](https://github.com/code-imstillalive/nimbus/issues/449)). Text only — no schema change, no behaviour change, same approach already taken for the Forecaster form.
+
+  It is the form where this pays most: 2 required, 14 optional, 88% optional, and the largest of the five. Counts re-verified by an AST walk of each schema rather than by grepping `vol.Optional(` — that grep reports Switchboard as 1 field when it is really 8, because that schema is built in a loop, which is the exact trap this issue's own earlier measurement flagged.
+
+  Beyond the count it adds one fact that is genuinely not discoverable from the form: **the daily quality report needs all three real-measurement sensors (whole-house cross-check, solar power, battery power), so leaving any one blank means Nimbus solves normally but publishes no score at all** — `_compute_report_for_window()` returns `None` unless all three are configured. A household with an unexplained empty quality report has no way to find that out today.
+
+  A first draft also grouped all 14 optional fields by what each unlocks, and was cut: at 986 characters it was 2.3× the next-longest form description in the file and 3.7× the median, and a blurb nobody reads is worse than a short one they do. The field taxonomy belongs in the docs, not above a form.
+
+  `strings.json` and `translations/en.json` kept byte-identical per this repo's own rule.
+
 ### Added
 - **Forecast error as a function of lead time is now measurable from ordinary recorder history** ([#937](https://github.com/code-imstillalive/nimbus/issues/937)). `sensor.nimbus_household_load_total_forecast` gains three recorded scalars — `load_forecast_plus_1h_kw`, `load_forecast_plus_6h_kw`, `load_forecast_plus_24h_kw` — each the value the current forecast assigns to that lead time. Compare the figure recorded at time *T* against the real load at *T + lead* to get the curve.
 
