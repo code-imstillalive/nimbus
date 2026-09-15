@@ -46,6 +46,34 @@ file is not re-summarized here; read it directly for the full detail. Most recen
   overturned by measurement, two of them this session's own from the previous
   day — the failure mode is not carelessness but confidence in a reading never
   checked at the site that produces it.
+  **The overnight continuation added five more merged PRs and four filed
+  issues**, and by the end the count was **five** published claims overturned by
+  measurement, three of them this session's own. The worst was #890, where three
+  different positions were posted in one evening before the verified one: HA
+  applies `_unrecorded_attributes` only via `state.state_info`, which only
+  entity-written states carry, so an oversize-attribute drop on an entity whose
+  class *does* declare that key excluded means **the writer is not the entity**.
+  The install being read was executing stale code, identified by
+  `solve_diagnostics` carrying 3 keys where current code emits 7 — a fingerprint
+  that had already retracted a wrong claim on #921 hours earlier, and **not
+  reaching for it again is the actual error, not the individual wrong answers.**
+  Generalising the verified mechanism produced **#944**: `_unrecorded_attributes`
+  cannot work at all on the cron/REST deployment, a structural gap #357's
+  function-set drift apparatus cannot see because both transports call the same
+  function and differ only in runtime capability. Also **#945** (a WARNING
+  stream firing 99 times an hour on the case its own comment calls harmless,
+  burying its own signal — fixed while deliberately preserving the
+  cadence-degradation evidence it was the only source of), **#942** (the Sources
+  form now says only 2 of its 16 fields are required, and #448's counts became a
+  build artifact), and **#949** from Mark's #948 — `soc_discrepancy_*` compares
+  the *home* battery's sensor against a *fleet-blended* reconstruction, yielding
+  25 pt from perfect data on a three-battery fleet and 0.0 pt on a single-battery
+  install. Mark predicted that mechanism; this found the line. **The release
+  queue ended the night 11 commits deep and still blocked** on #930/#931, whose
+  own `Devhub validation:` lines were found to claim "tests only — no production
+  Python" while changing `solver_writer.py` and `solver/network.py` — a
+  present-and-false line the #594 guard cannot catch, since it checks only that
+  the phrase exists.
 - [2026-09-15](docs/worklog/2026-09-15.md) — Releases v0.94.305 → **v0.94.317**,
   continuing directly from 09-14. **#773 got a positive result after five
   refuted hypotheses**: `mip_node_count=1, mip_gap=0.0` means the search tree
