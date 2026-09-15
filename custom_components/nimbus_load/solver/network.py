@@ -3000,7 +3000,40 @@ def _build_plan_once(
         # below-floor tank can never make the LP itself infeasible at t=0.
         for t in range(n):
             decay = tl.idle_decay_c_per_hour * hours[t]
-            gain_coef = -tl.heating_rate_c_per_kwh * hours[t]
+            # nimbus issue #897, household decision 2026-09-15: the learned
+            # heating rate is a NET rate, so the loss it already contains
+            # must not be subtracted a second time while heating.
+            #
+            # learn_thermal_rates() fits `rate = gain / kwh` from a MEASURED
+            # idle-before -> settled-idle-after change. Whatever the tank
+            # lost to ambient during that run is inside that number already;
+            # it has to be, because a thermometer cannot separate the two.
+            # This recursion previously subtracted `decay` in every period,
+            # heating ones included, which only balances for a GROSS rate --
+            # so feeding it the fitter's net rate counts the loss twice.
+            #
+            # "Do not decay while heating" is a condition on a DECISION
+            # variable, so it is not directly expressible in an LP, and
+            # adding an on/off binary per period is not affordable here --
+            # #773 shows this model's root relaxation is already the
+            # expensive part, and a thermal load spans the whole horizon.
+            #
+            # Scaling the decay by the period's IDLE FRACTION is linear,
+            # needs no binary, and is physically truer than either extreme:
+            #
+            #   T[t] = T[t-1] + rate*p[t]*h - decay*(1 - p[t]/Pmax)
+            #
+            # Full power for the period -> no decay (the net rate already
+            # carries it). Idle -> full decay. Half duty -> half, because
+            # the tank genuinely does sit losing heat for the other half.
+            # Rearranged, that is a single extra term on p[t]'s own
+            # coefficient, with the RHS unchanged.
+            #
+            # Guarded against a zero/absent max_power_kw, which would make
+            # the duty fraction undefined; that degrades to the previous
+            # always-decay behaviour rather than dividing by zero.
+            duty_decay_coef = decay / tl.max_power_kw if tl.max_power_kw > 1e-9 else 0.0
+            gain_coef = -(tl.heating_rate_c_per_kwh * hours[t] + duty_decay_coef)
             if t == 0:
                 p.add_eq_constraint(
                     {

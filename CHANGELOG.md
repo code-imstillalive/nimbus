@@ -8,6 +8,34 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.332] — 2026-09-15
+
+### Fixed
+- **The LP counted the tank's heat loss twice** ([#897](https://github.com/code-imstillalive/nimbus/issues/897), household decision 2026-09-15: **the learned rate is NET**).
+
+  `learn_thermal_rates()` fits `rate = gain / kwh` from a **measured** idle-before to settled-idle-after change. Whatever the tank lost to ambient during that run is already inside that number -- it has to be, because a thermometer cannot separate the two. The LP's recursion then subtracted `idle_decay_c_per_hour * hours[t]` in **every** period, heating ones included, which only balances for a *gross* rate. Feed it the fitter's net rate and the loss is counted twice.
+
+  Nothing had gone wrong yet only because the two never met: deferrable loads learn and consume the rate in a model with no second decay term, while thermal loads use this recursion but are fed a flat constant. [#873](https://github.com/code-imstillalive/nimbus/issues/873) is what makes them meet -- which is why this was ordered first.
+
+  **How it is expressed, since "do not decay while heating" is a condition on a decision variable and so not directly an LP constraint.** Adding an on/off binary per period would do it, and is not affordable here: #773 shows this model's root relaxation is already the expensive part, and a thermal load spans the whole horizon. Scaling the decay by the period's **idle fraction** is linear, needs no binary, and is physically truer than either extreme:
+
+  ```
+  T[t] = T[t-1] + rate*p[t]*h - decay*(1 - p[t]/max_power)
+  ```
+
+  Full power for the period means no decay (the net rate already carries it); idle means the full loss; half duty means half, because the tank genuinely does sit cooling for the other half. Rearranged it is one extra term on `p[t]`'s coefficient, with the RHS unchanged. Guarded against a zero `max_power_kw`, which degrades to the previous always-decay behaviour rather than dividing by zero.
+
+  **The measured effect on the two models agreeing, which is the useful part:** on the divergence fixture the gap between the LP's trajectory and the dashboard projection falls from `0.6 °C` to `0.26 °C`, and a **full-power heating period now contributes exactly zero** -- the two models agree wherever the load runs flat out, which is how a resistive element or a heat pump actually runs. The residual is only the partial-duty periods the LP uses to land precisely on target.
+
+### Notes
+- **This makes the plan LESS conservative, and that is worth saying out loud.** Double-counting the loss made the LP believe the tank heated more slowly than it does, so it planned a longer block and the tank finished *hotter* than target -- an accidental safety margin. Removing the double-count removes that margin: the plan now heats the amount actually required. Correct, and less forgiving of a mis-learned rate, which is exactly why [#873](https://github.com/code-imstillalive/nimbus/issues/873) (learning real rates for thermal loads) should land close behind it.
+
+- **Two guards were updated deliberately, not worked around.** `test_thermal_model_divergence.py` existed precisely so that whoever resolved #897 had to change it on purpose -- v0.94.328's own entry said so -- and `test_solver_network_thermal_load.py` recomputes the trajectory by hand from the same recurrence. Both now encode the new model, and the divergence file's headline assertion is the new one: a full-power heating period adds no gap at all.
+
+- **Held overnight rather than shipped**, per the #594 rule: this changes the arithmetic behind a real hot-water guarantee and is not identity on the default path.
+
+- **Merge order:** this assumes [#930](https://github.com/code-imstillalive/nimbus/pull/930) (v0.94.331, #875's re-send) merges first. If it does not, renumber this to v0.94.331 before tagging.
+
 ## [0.94.330] — 2026-09-15
 
 ### Added
@@ -26,6 +54,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   - **A failure of the entire guard is invisible at WARNING.** The whole-function handler logs at DEBUG, matching its own docstring (*"Best-effort and silent on any WHOLE-FUNCTION failure"*) -- so a `future.result(timeout=10)` timeout leaves no trace on a normally-configured install. Same shape as the bare-`pass` lesson one level up, and a judgement call (a persistent failure would log every cycle) rather than something to change from a test.
 
 - **Where these came from.** A behaviour-level audit of `except` guards across the integration: **25** have no test asserting their message anywhere (12 in `solver_writer.py`, 7 in `coordinator.py`, 4 in `solver_runtime.py`). The dispatch pair is the highest-consequence entry on that list. Worth recording that the first version of the audit -- checking whether every issue number cited in `main()`'s comments appears somewhere in `tests/` -- reported **39 of 39 covered**, and a later variant reported **100% uncovered** because it demanded the `"Nimbus: "` prefix verbatim. Both were artefacts of the probe, not measurements of the code; the sliding-window version that survived scrutiny says **69%** of warning sites, and 25 `except` guards specifically.
+
+Devhub validation: deployed and restarted, `installed_version == available_version == v0.94.330`, solve `optimal`, health report **0** errors. Tests only -- no production Python in the diff -- so nothing behavioural to confirm and none claimed.
 
 ## [0.94.329] — 2026-09-15
 
