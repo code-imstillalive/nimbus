@@ -113,7 +113,33 @@ _DOCS_PATH = os.path.join(
 # but not in the standalone copy" is still caught, because relocating a
 # function inside the integration doesn't remove it from the union --
 # while letting the refactor proceed without either false annotation.
-_EXTRACTED_PACKAGE_GLOBS = (os.path.join(_NIMBUS_DIR, "solver_inputs", "*.py"),)
+#
+# nimbus issue #952 (Mark Purcell, 48-hour IV&V #950): this tuple listed
+# `solver_inputs/*.py` ALONE, so `solver_publish.py` -- extracted from
+# `main()` by the same #735 refactor (PR #888, hoisting
+# `publish_household_load_total_forecast()`) but landing directly under
+# `nimbus_load/` rather than inside a package -- was invisible here. A
+# fix applied only inside it and never ported to the standalone copy
+# would have passed this entire suite silently, which is exactly the
+# regression class #357 exists to catch. No live drift had resulted yet;
+# it was an unguarded blind spot, not a gap.
+#
+# Registered explicitly rather than by widening this to a
+# `solver_*.py` glob. That glob would also sweep in `solver_runtime.py`,
+# which is HA-scheduling machinery with no standalone counterpart at
+# all -- adding its defs to the integration union could make a genuinely
+# docs-only entry look present. The union must track what #735
+# *extracted from main()*, not everything whose filename happens to
+# start with "solver".
+#
+# `test_a_new_top_level_extraction_cannot_go_unregistered` below is the
+# durable half of this fix: it fails when the NEXT extraction lands
+# without being added here, so #952 cannot recur silently for stages
+# 2-4.
+_EXTRACTED_PACKAGE_GLOBS = (
+    os.path.join(_NIMBUS_DIR, "solver_inputs", "*.py"),
+    os.path.join(_NIMBUS_DIR, "solver_publish.py"),
+)
 
 
 def _integration_paths() -> list[str]:
@@ -491,6 +517,19 @@ INTENTIONAL_EXTRACTED_FROM_MAIN = frozenset(
         # SocEnvelope is a dataclass, not a def, so it does not appear
         # here -- same as LoadArrays above.
         "resolve_soc_envelope",
+        # #735 / PR #888 -- solver_publish.py. Registered here by nimbus
+        # issue #952 (Mark Purcell): this module was invisible to the
+        # guard entirely until its path joined _EXTRACTED_PACKAGE_GLOBS,
+        # so the annotation below never had to be written.
+        #
+        # Verified rather than assumed, the same way resolve_soc_envelope
+        # above was: the docs copy still publishes this sensor inline in
+        # its own main() -- a direct ha_post_state(
+        # "sensor.nimbus_household_load_total_forecast", ...) call, with
+        # the same #100 state-vs-forecast[0] fix and the same
+        # failed_load_entities list. So the logic is present in both
+        # copies; only the integration has given it a name.
+        "publish_household_load_total_forecast",
     }
 )
 
@@ -632,6 +671,53 @@ class TestDocsWriterFunctionSetDoesNotSilentlyDrift(unittest.TestCase):
             "part of the real integration surface",
         )
         self.assertGreater(len(_integration_paths()), 1)
+
+    def test_a_new_top_level_extraction_cannot_go_unregistered(self):
+        """The durable half of nimbus issue #952 (Mark Purcell).
+
+        Registering `solver_publish.py` fixes the one module that had
+        gone unnoticed. It does nothing to stop the NEXT one: #735's own
+        list says stages 2-4 are still to land, and any of them may put a
+        module directly under `nimbus_load/` rather than inside
+        `solver_inputs/`. That module would be invisible here for exactly
+        the same reason, and every test in this file would keep passing
+        while enforcing less.
+
+        So: every top-level `solver_*.py` must be either part of the
+        solve surface this guard reads, or named below as deliberately
+        outside it. Adding a module and neither registering nor
+        acknowledging it fails here rather than silently narrowing
+        #357's guarantee.
+        """
+        # Deliberately outside the solve surface. `solver_runtime.py` is
+        # HA scheduling machinery -- the tick loop, the overlap guard
+        # (#757/#945) -- with no standalone counterpart at all: the cron
+        # script IS the schedule, one process per run. Folding its defs
+        # into the union would let a genuinely docs-only entry look
+        # present in the integration, which is the opposite of what this
+        # file is for.
+        deliberately_outside = {"solver_runtime.py"}
+
+        registered = {os.path.basename(p) for p in _integration_paths()}
+        found = {
+            os.path.basename(p)
+            for p in glob.glob(os.path.join(_NIMBUS_DIR, "solver_*.py"))
+        }
+
+        unaccounted = found - registered - deliberately_outside
+        self.assertEqual(
+            unaccounted,
+            set(),
+            f"{sorted(unaccounted)} sit directly under nimbus_load/ but are "
+            f"neither read by _integration_paths() nor listed as deliberately "
+            f"outside the solve surface. This is #952's exact blind spot: a "
+            f"fix applied only inside such a module and never ported to "
+            f"docs/real-world-integration/files/nimbus_solver_forecast_writer.py "
+            f"would pass this entire suite silently. Either add its path to "
+            f"_EXTRACTED_PACKAGE_GLOBS (and annotate whatever it newly "
+            f"surfaces), or add it to this test's own deliberately_outside "
+            f"set with a one-line reason.",
+        )
 
     def test_extracted_list_does_not_go_stale(self):
         """Same discipline the KNOWN_OPEN_DRIFT lists already get: an
