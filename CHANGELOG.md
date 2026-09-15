@@ -30,6 +30,10 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
   **This is a lever with no load to attach to yet on the reference install**, established live rather than assumed: a search for `commanded_state` there returns exactly one match (`sensor.nimbus_hot_water_heat_pump_commanded_state`). The real pool hardware exists and is automated outside Nimbus; it has never been wired in as a Controllable Load. So this ships the half that belongs in Nimbus, ready for the subentry whenever it is created.
 
+Devhub validation: deployed and restarted, `installed_version == available_version == v0.94.318`, solve `optimal` in 1.14 s, `nimbus_status` "Working well", mode `home` with the HWS target at its **4.0** baseline, `state` and `whole_house_live_now_kw` both **1.03**, no new errors.
+
+**What that does and does not verify, stated rather than implied.** Devhub has no pool heater either — its six Controllable Loads are synthetic and none is price-gated — so a deploy here confirms the release does not break a running install and that the preset table still resolves (`home` remaining the identity transform is visible in the 4.0). It does **not** exercise the price gate, which needs a load with a `value_per_kwh` baseline to scale. That is verified by the tests and awaits a real subentry.
+
 ## [0.94.317] — 2026-09-15
 
 ### Changed
