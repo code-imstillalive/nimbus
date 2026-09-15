@@ -9,6 +9,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 ### Changed
+- **A single solve-cycle overlap no longer logs a WARNING** ([#945](https://github.com/code-imstillalive/nimbus/issues/945)). Measured on a real install: **99 WARNINGs in 63 minutes**, every one reading `consecutive skips: 1` — the loudest Nimbus line in the log by a wide margin.
+
+  [#315](https://github.com/code-imstillalive/nimbus/issues/315) made every skip a WARNING because the silent-skip mechanism behind "fires every ~44 min" had no breadcrumb at all, and added a count so that *"a real multi-tick stall is visibly distinct from one ordinary, harmless overlap."* Both logged at WARNING, so they were not distinct — you had to read the number. And since the counter resets on every successful acquire, a repeating `1` means skip/succeed/skip/succeed: a stream of exactly the case #315 itself called harmless, and entirely expected whenever a cycle outlasts a tick (`acquire_lock()`'s own docstring records a measured 45–52 s solve).
+
+  Now: a **single** overlap logs at DEBUG; **two or more consecutive** still WARN with the incrementing count, so #315's real incident (8–9 in a row) stays loud — one tick later than before, which is the entire cost. A WARNING stream that is almost always benign is how the #757 and #773 signals got buried; v0.94.306 and v0.94.297 both had to clean up precisely this.
+
+  **The signal this deliberately does not delete**: a *persistent* skip/succeed alternation is not harmless even though each skip is — it means the cycle routinely overruns its tick, so the solver runs below its configured cadence, and quieting the single skip outright would remove the only evidence. So single overlaps are counted and summarised at WARNING every 25 (roughly 4 lines an hour at the rate measured above, against 99; silent for days on a healthy install). Note `solve_seconds` cannot answer this — it times the LP solve, not the whole cycle, which also runs every non-essential publish, none of which has its own timeout.
 - **The Solar & Load Forecasts form now says that only 2 of its 16 fields are required, and what the other 14 actually buy you** ([#449](https://github.com/code-imstillalive/nimbus/issues/449)). Text only — no schema change, no behaviour change, same approach already taken for the Forecaster form.
 
   It is the form where this pays most: 2 required, 14 optional, 88% optional, and the largest of the five. Counts re-verified by an AST walk of each schema rather than by grepping `vol.Optional(` — that grep reports Switchboard as 1 field when it is really 8, because that schema is built in a loop, which is the exact trap this issue's own earlier measurement flagged.
