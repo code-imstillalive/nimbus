@@ -8,6 +8,27 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.326] — 2026-09-15
+
+### Fixed
+- **v0.94.324's `binding_constraint_now` fix did not work, and this is the second pass at it** ([#921](https://github.com/code-imstillalive/nimbus/issues/921)). Deploying v0.94.325 and looking at the same install showed the attribute still reading:
+
+  > `Grid export at 12.00 kW (unexpected -- neither its 0 nor 40.00 kW bound)`
+
+  The branch was shipped with `abs(solved_value - pin) <= 1e-6`. The commitment was genuinely in force — the plan's own pinned run covers 17:00–24:00 local and period 0 sat inside it — and the branch still did not fire, so the solved value differs from the 12.0 kW commitment by more than a part in a million.
+
+  **What made the first attempt wrong was the shape of the test, not the arithmetic.** A small synthetic LP returns a pinned variable at exactly its bound — checked directly while diagnosing this, `delta = 0.000e+00` — which is what made `1e-6` look safe. That does not generalise to one variable out of a ~12,000-column two-phase MIP. Now compares against a real tolerance (`_PIN_MATCH_TOLERANCE_KW = 0.01`, 10 W — far below anything a household could act on).
+
+  **The live residual is bounded, not guessed at.** `publish_plan()` writes `round(float(plan.grid_export_kw[i]), 3)`, and that install published exactly `12.0`, so the raw solved value sits within **0.5 W** of the 12.0 kW commitment. Combined with `1e-6` kW (0.001 W) having failed, the real residual is somewhere between 0.001 W and 0.5 W — so 10 W clears it by more than twenty times, and the number is anchored to a measurement rather than to a feeling about solver noise.
+
+  Still **two-sided**, deliberately, and the first draft of this fix got that wrong too: `grid_export_bounds()` returns `(pin, pin)`, so a value well *below* the commitment is as impossible as one well above it, and [#694](https://github.com/code-imstillalive/nimbus/issues/694)'s price-spike override — which relaxes the bounds to `(pin, export_limit_kw)` at `t=0` — is precisely a case where export legitimately rises above the commitment and must not be called pinned. Two existing tests from v0.94.324 caught that and were right.
+
+  The label now reports the **commitment** rather than the solved value: the commitment is the exact number the household configured, and the solved value is that same quantity plus the solver's own residual.
+
+- **The fallback message now names the period's own commitment.** v0.94.324's miss was undiagnosable from the published attribute — *"no commitment this period"* and *"a commitment the comparison rejected"* produced byte-identical text. The `unexpected` message now appends `, P2P commitment 12.00 kW` when one is in force, so the next misfire is readable from the attribute alone. Only on grid export, where the commitment actually binds; naming it beside a battery's own binding constraint would be a non-sequitur. The no-commitment wording is byte-identical to before.
+
+  Six new tests, including the exact regression (`solved = 12.0004` against a 12.0 commitment, which `1e-6` rejected and the install lived in), a guard on the constant itself, and a mutation check confirming the two residual tests fail when the tolerance is put back to `1e-6`. Both writer copies, per [#357](https://github.com/code-imstillalive/nimbus/issues/357).
+
 ## [0.94.325] — 2026-09-15
 
 ### Fixed
@@ -30,6 +51,28 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   Extracted to `resolve_fixed_export_charge_clamp()` as a pure function first — same precedent as `compute_binding_constraint_label()`, and for a sharper reason: this is the rare code that *silently rewrites published data* when its premise is wrong, so a wrong premise shows up as wrong numbers on a dashboard rather than as an error, and it had **no test at all**. It now has 18, including the discriminating mixed case (the home battery violating *and* a participant charging in the same period, where zeroing the aggregate throws away the legal half with the illegal one) and a mutation check confirming 7 of them fail under the old aggregate comparison.
 
   Landed in both writer copies per [#357](https://github.com/code-imstillalive/nimbus/issues/357) — the function-set drift guard caught the port being missing and was allowed to do its job rather than silenced with a bucket exception.
+
+Devhub validation: deployed and restarted, `installed_version == available_version == v0.94.325`, solve `optimal`, health report **0** errors. **This release's own fix is NOT verified live, and an earlier draft of this entry wrongly claimed it was.**
+
+The claim was that the clamp logged **126 times in the hour before** the deploy and **zero** after, with the precondition unchanged — the install's battery participant still below its floor and charging. The before/after counts are real. The attribution was not, and checking one step further is what showed it:
+
+```
+plan.batteries          -> ["home"]        (one entry)
+n_batteries             -> 1
+n_controllable_loads    -> 0
+```
+
+The solve sees **one** battery. With a single battery, `plan.batteries[0].charge_kw` **is** `plan.battery_charge_kw` — the gated array and the aggregate are the same object's values, so this release's change is a **no-op on that install as it is currently running**. It cannot be what silenced the warning.
+
+The likelier explanation is the already-tracked #757 mechanism: the running process is bound to the config entry with no `battery_participant` and no controllable loads, where the pre-restart process had the one with them. The EV leaving the plan removes the aggregate/gated divergence entirely — which silences the warning for a reason that has nothing to do with the fix.
+
+So: the fix is verified by code reading, 18 tests and a mutation check, and **not** by this install. Noted plainly because this entry was one step away from being exactly the kind of false confirmation the paragraph below it is about.
+
+What *was* established, and is worth keeping: the executing **code** is current, confirmed behaviourally rather than by HACS's version, per the rule sharpened on #594. Three independent `solver_writer.py` log-line numbers on the install (`569`, `7062`, `11102`) match the merged source exactly, and shifted from their pre-deploy values (`568`, `6958`, `10990`) by precisely what v0.94.324 and v0.94.325 added. The two releases before this one were **not** running on that install, so the stale set genuinely moves between deploys.
+
+That check is what exposed v0.94.324's own fix as not working (fixed in v0.94.326 above) — a version match would have called it verified.
+
+And the correction above adds a second, sharper lesson to the same file: current code is **not** the same as a current config entry. `solver_writer.py` is current here while the solve runs against an entry missing every `battery_participant` and controllable load. A release whose behaviour depends on a subentry type that entry lacks cannot be confirmed on this install at all, however current its code is — which is a distinct failure mode from the staleness this project already tracks, and it produced a real false positive before it was caught.
 
 ## [0.94.324] — 2026-09-15
 

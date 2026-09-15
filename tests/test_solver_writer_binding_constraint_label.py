@@ -426,3 +426,134 @@ class TestBothWriterCopiesStayInSync(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("by P2P export commitment", standalone)
         self.assertIn("fixed_export_kw_now", standalone)
+
+
+class TestThePinMatchSurvivesRealSolverResidual(unittest.TestCase):
+    """nimbus issue #921, second pass -- the first fix did not work.
+
+    v0.94.324 shipped this branch with `abs(solved - pin) <= 1e-6`, and
+    on the very install it was written for it never fired. The published
+    attribute still read
+
+        Grid export at 12.00 kW (unexpected -- neither its 0 nor
+        40.00 kW bound)
+
+    with a 12.0 kW commitment genuinely in force on that period,
+    confirmed by reading the plan's own pinned run (17:00-24:00 local,
+    period 0 inside it) and by matching the module's own log line
+    numbers against the merged source to rule out a stale deploy.
+
+    The mistake was the shape of the test, not the arithmetic. A small
+    synthetic LP returns a pinned variable at exactly its bound -- I
+    checked, and got `delta = 0.000e+00`, which is what made `1e-6` look
+    safe. That does not generalise to one variable out of a ~12,000-
+    column two-phase MIP.
+
+    The fix is a real tolerance rather than a float-equality epsilon.
+    Still two-sided: `grid_export_bounds()` returns `(pin, pin)`, so a
+    value well *below* the commitment is as impossible as one well
+    above it, and #694's price-spike override -- which relaxes the
+    bounds to `(pin, export_limit_kw)` at t=0 -- is precisely a case
+    where export legitimately rises above the commitment and must not
+    be called pinned. Both remain "unexpected", which is the point of
+    that branch.
+    """
+
+    _PIN = 12.0
+
+    def _label_with_pin(self, solved_kw, pin=None):
+        plan = _fake_plan(
+            reduced_costs={"grid_export_0": 0.05},
+            grid_export_kw=(solved_kw,),
+        )
+        return solver_writer.compute_binding_constraint_label(
+            plan,
+            _EXPORT_LIMIT_KW,
+            _IMPORT_LIMIT_KW,
+            _MAX_CHARGE_KW,
+            _MAX_DISCHARGE_KW,
+            1.0,
+            self._PIN if pin is None else pin,
+        )[0]
+
+    def test_a_solver_residual_above_the_pin_still_reads_as_pinned(self):
+        """The regression. 1e-6 rejected this; the install lived here."""
+        self.assertEqual(
+            self._label_with_pin(12.0004),
+            "Grid export pinned at 12.00 kW by P2P export commitment",
+        )
+
+    def test_a_solver_residual_below_the_pin_still_reads_as_pinned(self):
+        self.assertEqual(
+            self._label_with_pin(11.9996),
+            "Grid export pinned at 12.00 kW by P2P export commitment",
+        )
+
+    def test_an_exact_hit_still_reads_as_pinned(self):
+        self.assertEqual(
+            self._label_with_pin(12.0),
+            "Grid export pinned at 12.00 kW by P2P export commitment",
+        )
+
+    def test_the_label_reports_the_commitment_not_the_solved_value(self):
+        """12.006 would render as "12.01" if the solved value were used.
+        The household configured 12, and that is the number that means
+        something to them."""
+        self.assertIn("12.00 kW", self._label_with_pin(12.006))
+
+    def test_a_value_well_above_the_pin_is_not_called_pinned(self):
+        """#694's price-spike override lifts the ceiling to the export
+        limit at t=0, so export legitimately rises above the commitment.
+        That is not 'pinned' and must not be reported as such."""
+        label = self._label_with_pin(25.0)
+        self.assertNotIn("pinned", label)
+        self.assertIn("unexpected", label)
+
+    def test_the_tolerance_is_far_below_anything_actionable(self):
+        """A guard on the constant itself: widen it to where it could mask
+        a real dispatch difference and this fails."""
+        self.assertLessEqual(solver_writer._PIN_MATCH_TOLERANCE_KW, 0.05)
+        self.assertGreater(solver_writer._PIN_MATCH_TOLERANCE_KW, 0.0)
+
+
+class TestTheFallbackMessageCarriesTheCommitment(unittest.TestCase):
+    """The v0.94.324 miss was undiagnosable from the published attribute:
+    "no commitment this period" and "a commitment the comparison
+    rejected" produced byte-identical text. The fallback now names the
+    commitment when there is one."""
+
+    def _label(self, pin):
+        plan = _fake_plan(
+            reduced_costs={"grid_export_0": 0.05},
+            grid_export_kw=(25.0,),  # well above any pin -> falls through
+        )
+        return solver_writer.compute_binding_constraint_label(
+            plan,
+            _EXPORT_LIMIT_KW,
+            _IMPORT_LIMIT_KW,
+            _MAX_CHARGE_KW,
+            _MAX_DISCHARGE_KW,
+            1.0,
+            pin,
+        )[0]
+
+    def test_it_names_the_commitment_when_one_is_in_force(self):
+        self.assertEqual(
+            self._label(12.0),
+            "Grid export at 25.00 kW (unexpected -- neither its 0 nor "
+            "40.00 kW bound, P2P commitment 12.00 kW)",
+        )
+
+    def test_it_stays_exactly_as_before_when_there_is_no_commitment(self):
+        """Unchanged wording for the no-P2P case -- this string has been
+        published for a long time and installs read it."""
+        self.assertEqual(
+            self._label(None),
+            "Grid export at 25.00 kW (unexpected -- neither its 0 nor 40.00 kW bound)",
+        )
+
+    def test_a_nan_period_is_treated_as_no_commitment(self):
+        self.assertEqual(
+            self._label(float("nan")),
+            "Grid export at 25.00 kW (unexpected -- neither its 0 nor 40.00 kW bound)",
+        )
