@@ -210,6 +210,21 @@ CONF_CONTROLLABLE_LOAD_MIN_HOLD_MINUTES: Final = "controllable_load_min_hold_min
 CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY: Final = (
     "controllable_load_max_activations_per_day"
 )
+# nimbus issue #875, household decision 2026-09-15: how long this load's
+# real measured state may disagree with what Nimbus commanded before
+# Nimbus RE-SENDS the command. Per load, for the same "each load has its
+# own urgency" reason #769 settled -- a heat pump slow to register power
+# wants longer than a pool pump. Unset falls back to load_run_state.
+# DEFAULT_REAFFIRM_AFTER_SECONDS (15 min); 0 disables re-sending for this
+# load entirely, restoring the pre-#875 edge-triggered-only behaviour.
+#
+# A re-send NEVER counts against CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_
+# PER_DAY above -- see load_run_state.record_reaffirm(), which keeps its
+# own separate counter precisely so a reminder cannot consume one of the
+# device-side activations #534's cap exists to protect.
+CONF_CONTROLLABLE_LOAD_REAFFIRM_AFTER_MINUTES: Final = (
+    "controllable_load_reaffirm_after_minutes"
+)
 CONTROLLABLE_LOAD_KIND_SHEDDABLE: Final = "sheddable"
 CONTROLLABLE_LOAD_KIND_DEFERRABLE: Final = "deferrable"
 # Reserved for #479 (quota), #482 (price_gated) -- not yet backed by a

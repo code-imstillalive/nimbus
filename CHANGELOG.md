@@ -53,6 +53,34 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
   *(Changelog entry added retroactively — #935 merged without one, which would have left it absent from its own release notes.)*
 
+## [0.94.331] — 2026-09-15
+
+### Added
+- **Nimbus now re-sends a command a device is visibly not following -- and a re-send never counts against the activations/day cap** ([#875](https://github.com/code-imstillalive/nimbus/issues/875), household decision 2026-09-15).
+
+  This is the gap that let a real HWS sit at 5 W standby for **14+ hours** while the dashboard said it was on. Dispatch is edge-triggered by design (#484's relay-chatter guard), so once `commanded_state` went true and stayed true, nothing ever repeated the instruction.
+
+  The household's decision was two-part, and the second half is the one with teeth: *"yes, re-send, and no, it must not count against the cap."* The distinction between **re-affirming a command already given** and **a new activation** did not exist in the code at all, and its absence is precisely why never repeating oneself was the only safe behaviour. #534 caps performance activations at a real device-side limit, so a re-send that consumed one would burn a scarce physical resource on a command already issued -- and the cap would then block the very retry that was needed.
+
+  `record_reaffirm()` therefore keeps its own counter and **never touches `activations_today`**, asserted directly rather than left to reading.
+
+  **Two triggers, deliberately different:**
+
+  - **The device diverged** -- wait until the disagreement has held for the interval, then re-send, spaced by the same interval. Nimbus does not know whether repeating itself will help (something else may be asserting control), so it is deliberately unhurried. A heat pump takes minutes to show any draw at all; a shorter interval would be shouting at a device still waking up.
+  - **The dispatch itself failed** -- retry on the very next cycle, no wait. Nimbus knows its own command never went out, so there is no relay to chatter. This was a real defect in its own right: the failed attempt was still persisted as commanded, and edge-triggering then meant it was **never retried at all**, so one transient failure silently cost a load its whole window.
+
+  **Configurable per load** (`controllable_load_reaffirm_after_minutes`), defaulting to 15 minutes -- the household's own reasoning from #769 applies identically: *"each load can have its own urgency."* **0 disables re-sending for that load entirely**, restoring exactly the pre-#875 behaviour.
+
+  A **20-per-day ceiling** bounds the whole thing. If something else genuinely wins control of the device -- the reference household's own SG-Ready bridge writes to the same water heater -- the useful outcome is a bounded, legible pattern in the log rather than an endless silent argument. Separate from, and additional to, the 3/day hardware cap.
+
+### Notes
+- **Two bugs caught during implementation, both by tests, both worth recording.**
+
+  - **`0` would have meant the opposite of what it says.** Documented as "disables re-sending", it was implemented as a threshold -- and `divergence >= 0` is always true, so a household setting 0 would have got a re-send *every solve cycle*. Now checked explicitly, before everything else.
+  - **A relative-only import silently aborted every dispatch.** `_resolve_reaffirm_after_seconds()` used `from .const import ...` on the reasoning that it is reachable only from a native-only function. That reasoning is wrong: the test harness imports `solver_writer` as a **bare module** and calls that guard directly, so the import raised `ImportError`, which the guard's own whole-function handler swallows at DEBUG -- aborting every dispatch for the cycle, silently. Three existing #741/#484 tests went red, which is exactly what they are for. Restored to the dual-mode import the rest of the file uses.
+
+- **Held overnight rather than shipped same-day**, per the release-timing rule the household settled on #594 the same evening. This touches dispatch and is **not** identity on the default path -- a diverging load now genuinely behaves differently, which is the whole point -- so it does not qualify for the proof-backed carve-out and waits.
+
 ## [0.94.330] — 2026-09-15
 
 ### Added
@@ -71,6 +99,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   - **A failure of the entire guard is invisible at WARNING.** The whole-function handler logs at DEBUG, matching its own docstring (*"Best-effort and silent on any WHOLE-FUNCTION failure"*) -- so a `future.result(timeout=10)` timeout leaves no trace on a normally-configured install. Same shape as the bare-`pass` lesson one level up, and a judgement call (a persistent failure would log every cycle) rather than something to change from a test.
 
 - **Where these came from.** A behaviour-level audit of `except` guards across the integration: **25** have no test asserting their message anywhere (12 in `solver_writer.py`, 7 in `coordinator.py`, 4 in `solver_runtime.py`). The dispatch pair is the highest-consequence entry on that list. Worth recording that the first version of the audit -- checking whether every issue number cited in `main()`'s comments appears somewhere in `tests/` -- reported **39 of 39 covered**, and a later variant reported **100% uncovered** because it demanded the `"Nimbus: "` prefix verbatim. Both were artefacts of the probe, not measurements of the code; the sliding-window version that survived scrutiny says **69%** of warning sites, and 25 `except` guards specifically.
+
+Devhub validation: deployed and restarted, `installed_version == available_version == v0.94.330`, solve `optimal`, health report **0** errors. Tests only -- no production Python in the diff -- so nothing behavioural to confirm and none claimed.
 
 ## [0.94.329] — 2026-09-15
 

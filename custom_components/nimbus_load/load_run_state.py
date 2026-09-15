@@ -134,6 +134,36 @@ class LoadRunState:
     # compare against THIS field for the activations_today reset
     # decision now, never the general day_key.
     activations_today_day_key: str = ""
+    # nimbus issue #875, household decision 2026-09-15: Nimbus now
+    # RE-SENDS a command when the device visibly is not following it,
+    # and a re-send must NOT count against activations_today. That
+    # distinction -- re-affirming a command already given, versus a new
+    # activation -- did not exist in the code before, and its absence is
+    # why the only safe behaviour was to never repeat oneself at all.
+    #
+    # Deliberately counted separately, with its OWN day_key field for
+    # exactly the #782 reason activations_today_day_key exists: a state
+    # whose general day_key advanced without a corresponding reset here
+    # stays detectable and self-heals on the next cycle. Every state
+    # persisted before this field existed loads as "" (see from_dict),
+    # which can never equal a real day_key, so the first roll is correct
+    # on every existing install with no migration.
+    reaffirms_today: int = 0
+    reaffirms_today_day_key: str = ""
+    # Epoch seconds of the last re-send, so the next one waits a full
+    # interval rather than firing every solve cycle -- #484's relay-
+    # chatter guard is the whole reason dispatch is edge-triggered, and
+    # re-affirmation must not reintroduce what it prevents.
+    last_reaffirm_at: float | None = None
+    # True when the last dispatch attempt for this load RAISED. Distinct
+    # from a device that merely diverged: here Nimbus knows, at that
+    # moment, that its own command never went out, so the retry needs no
+    # divergence threshold and no caution -- there is no relay to chatter
+    # because nothing was sent. Before this existed the failed attempt
+    # was still persisted as commanded, and edge-triggering then meant it
+    # was never retried at all: one transient failure silently cost a
+    # load its whole window.
+    last_dispatch_failed: bool = False
     # nimbus issue #581 (Mark Purcell, real use the day after #578/#579
     # shipped): the LP already computes each load's own full per-period
     # plan every solve (AdequacyLoadPlan.power_kw / SheddableLoadPlan.
@@ -298,6 +328,10 @@ class LoadRunState:
             "pending_since": self.pending_since,
             "activations_today": self.activations_today,
             "activations_today_day_key": self.activations_today_day_key,
+            "reaffirms_today": self.reaffirms_today,
+            "reaffirms_today_day_key": self.reaffirms_today_day_key,
+            "last_reaffirm_at": self.last_reaffirm_at,
+            "last_dispatch_failed": self.last_dispatch_failed,
             "plan_forecast": self.plan_forecast,
             "plan_delivered_kwh_forecast": self.plan_delivered_kwh_forecast,
             "plan_target_kwh": self.plan_target_kwh,
@@ -342,6 +376,10 @@ class LoadRunState:
             pending_since=data.get("pending_since"),
             activations_today=int(data.get("activations_today", 0)),
             activations_today_day_key=str(data.get("activations_today_day_key", "")),
+            reaffirms_today=int(data.get("reaffirms_today", 0)),
+            reaffirms_today_day_key=str(data.get("reaffirms_today_day_key", "")),
+            last_reaffirm_at=data.get("last_reaffirm_at"),
+            last_dispatch_failed=bool(data.get("last_dispatch_failed", False)),
             plan_forecast=data.get("plan_forecast"),
             plan_delivered_kwh_forecast=data.get("plan_delivered_kwh_forecast"),
             plan_target_kwh=data.get("plan_target_kwh"),
@@ -793,6 +831,138 @@ def record_activation(state: LoadRunState, *, day_key: str) -> LoadRunState:
         )
     )
     return replace(base, activations_today=base.activations_today + 1)
+
+
+# nimbus issue #875, household decision 2026-09-15. Defaults for the
+# re-affirmation path; both are overridable per load, for the same "each
+# load has its own urgency" reason #769 settled.
+#
+# 15 minutes, not every solve cycle: a heat pump takes minutes to show
+# any power draw at all, so a shorter interval would have Nimbus
+# shouting at a device that is simply still waking up -- and re-sending
+# every cycle is precisely the relay chatter #484's edge-triggering
+# exists to prevent. Against a window with hours of slack, 15 minutes
+# costs nothing, while the behaviour it replaces cost a real household
+# 14 hours of a tank it believed was heating.
+DEFAULT_REAFFIRM_AFTER_SECONDS = 15.0 * 60.0
+# A backstop, not a tuning knob. If something else is genuinely winning
+# control of the device -- the reference household's own SG-Ready bridge
+# writes to the same water heater -- then Nimbus re-sending forever is an
+# endless silent argument. Giving up after 20 makes it a bounded, legible
+# pattern in the log instead. At the default interval that is 5 hours of
+# trying, comfortably longer than any single heating window, so it can
+# never quit partway through a legitimate run.
+DEFAULT_MAX_REAFFIRMS_PER_DAY = 20
+
+
+def reaffirm_allowed(
+    state: LoadRunState,
+    *,
+    now_ts: float,
+    reaffirm_after_seconds: float | None = None,
+    max_reaffirms_per_day: int | None = DEFAULT_MAX_REAFFIRMS_PER_DAY,
+    day_key: str,
+) -> bool:
+    """Whether to RE-SEND a command the device is not following.
+
+    nimbus issue #875. Dispatch is edge-triggered -- apply_commanded_
+    state_guard() only acts when commanded_state genuinely CHANGES -- so
+    once a command lands and the device later stops following it, nothing
+    ever repeats the instruction. That is how a real HWS sat at 5 W
+    standby for 14+ hours while the dashboard said it was on.
+
+    The household's decision is that Nimbus should repeat itself, and
+    that **a re-send must never count against the activations/day cap**
+    (#534). A reminder is not a new activation: counting it would burn a
+    scarce, physically-meaningful device-side budget on a command already
+    given, and the cap would then block the very retry that was needed.
+    record_reaffirm() below is therefore a completely separate counter,
+    and it deliberately never touches activations_today.
+
+    Two distinct triggers, and the difference matters:
+
+    - **The device diverged.** Wait for the divergence to hold for
+      `reaffirm_after_seconds`, and space re-sends by the same interval.
+      Nimbus does not know whether re-sending will help -- something else
+      may be asserting control -- so it is deliberately unhurried.
+    - **The dispatch itself failed** (`last_dispatch_failed`). No wait at
+      all. Nimbus knows its own command never went out, so there is no
+      relay to chatter and nothing to be cautious about. This is the case
+      that used to be invisible: the failed attempt was still persisted
+      as commanded, and edge-triggering meant it was never retried.
+
+    The daily cap applies to BOTH, as a backstop against an endless
+    argument with whatever else is writing to the device.
+
+    Pure function over existing state, like command_divergence_seconds()
+    above -- no I/O, no clock of its own.
+    """
+    # None means the caller had nothing configured for this load, so the
+    # default applies. Kept here rather than resolved by the caller so the
+    # default lives beside the behaviour it governs.
+    if reaffirm_after_seconds is None:
+        reaffirm_after_seconds = DEFAULT_REAFFIRM_AFTER_SECONDS
+
+    # 0 (or negative) disables re-sending for this load entirely --
+    # the escape hatch for a device that genuinely must never be
+    # commanded twice, restoring exactly the pre-#875 edge-triggered-only
+    # behaviour. Checked FIRST, and before the failed-dispatch branch, so
+    # 'never re-send this load' means never. Note this cannot be folded
+    # into the threshold comparison below: `divergence >= 0` is always
+    # true, so a 0 interval would re-send every single solve cycle --
+    # the precise opposite of what a household setting 0 intends.
+    if reaffirm_after_seconds <= 0:
+        return False
+
+    used_today = (
+        state.reaffirms_today if state.reaffirms_today_day_key == day_key else 0
+    )
+    if max_reaffirms_per_day is not None and used_today >= max_reaffirms_per_day:
+        return False
+
+    # Nothing was sent -- retry on the next cycle, no threshold.
+    if state.last_dispatch_failed:
+        return True
+
+    divergence = command_divergence_seconds(state, now_ts)
+    if divergence is None or divergence < reaffirm_after_seconds:
+        return False
+
+    # Space re-sends by the same interval, so a device that stays
+    # diverged is reminded periodically rather than every solve cycle.
+    return (
+        state.last_reaffirm_at is None
+        or (now_ts - state.last_reaffirm_at) >= reaffirm_after_seconds
+    )
+
+
+def record_reaffirm(
+    state: LoadRunState, *, now_ts: float, day_key: str
+) -> LoadRunState:
+    """Count one re-send, and stamp when it happened.
+
+    nimbus issue #875. **This must never touch activations_today.** That
+    is not an implementation detail, it is the household's decision: a
+    re-send is a reminder of a command already given, not a new
+    activation, so #534's device-side cap keeps governing genuine new
+    activations only. A test asserts it directly.
+
+    Rolls the counter on a new day using its OWN day-key field, never the
+    general one -- the same self-healing shape #782 established for
+    activations_today, and for the same reason: a state whose general
+    day_key advanced without a reset here stays detectable and corrects
+    itself on the next cycle rather than at the next real midnight.
+    """
+    base = (
+        state
+        if state.reaffirms_today_day_key == day_key
+        else replace(state, reaffirms_today=0, reaffirms_today_day_key=day_key)
+    )
+    return replace(
+        base,
+        reaffirms_today=base.reaffirms_today + 1,
+        last_reaffirm_at=now_ts,
+    )
 
 
 _SHORTFALL_EPSILON_KWH = 0.01

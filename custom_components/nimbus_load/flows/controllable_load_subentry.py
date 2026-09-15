@@ -41,6 +41,7 @@ from ..const import (
     CONF_CONTROLLABLE_LOAD_MAX_ACTIVATIONS_PER_DAY,
     CONF_CONTROLLABLE_LOAD_MIN_HOLD_MINUTES,
     CONF_CONTROLLABLE_LOAD_NAME,
+    CONF_CONTROLLABLE_LOAD_REAFFIRM_AFTER_MINUTES,
     CONF_DEFERRABLE_DEADLINE_HOUR,
     CONF_DEFERRABLE_DONE_WHEN,
     CONF_DEFERRABLE_EARLIEST_HOUR,
@@ -207,6 +208,20 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
         selector.NumberSelector(
             selector.NumberSelectorConfig(
                 min=1, step=1, mode=selector.NumberSelectorMode.BOX
+            )
+        ),
+    )
+    # nimbus issue #875: how long this load may visibly disagree with its
+    # own command before Nimbus re-sends it. 0 disables re-sending for this
+    # load; unset uses the 15-minute default. A re-send never counts
+    # against the activations/day cap above.
+    _optional_field(
+        schema_dict,
+        CONF_CONTROLLABLE_LOAD_REAFFIRM_AFTER_MINUTES,
+        defaults.get(CONF_CONTROLLABLE_LOAD_REAFFIRM_AFTER_MINUTES),
+        selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=0, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="min"
             )
         ),
     )
