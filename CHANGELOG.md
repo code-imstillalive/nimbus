@@ -8,6 +8,26 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.328] — 2026-09-15
+
+### Fixed
+- **`ThermalLoadConfig`'s docstring stated a design invariant that had been false for a day** ([#897](https://github.com/code-imstillalive/nimbus/issues/897)). Documentation only -- no behaviour changed.
+
+  It claimed EMHASS-style ambient-scaled decay *"needs a real outdoor/ambient temperature forecast series, which does not exist anywhere in this codebase today"*, and that the LP's hard guarantee and the dashboard projection *"share the IDENTICAL physics model, by construction -- they can never disagree"*.
+
+  Both are now wrong. #481/#864 (v0.94.293) taught `learn_thermal_rates()` a real `loss_coeff_per_h` from outdoor-temperature history, and `project_temperature_forecast()` applies Newton's-law ambient decay whenever a weather sensor is configured -- so the series exists, and the two models disagree in **two** independent ways: the projection skips decay during heating periods where the LP recursion subtracts it every period, and the projection is ambient-scaled where the LP stays flat.
+
+  The shape that paragraph warned against arrived one day after it was written, with the roles swapped: an ambient-scaled display projection against a flat LP model. Nobody erred -- #864 is correctly scoped and says so, #800's rationale was true when written. **The invariant broke because the two changes sat on different issues and nothing checked the claim**, which is the whole reason a stated invariant needs a test or an expiry rather than a sentence.
+
+### Added
+- **A test settling #769's "separate, smaller observation"**, which reported that a deferred load *"isn't finding a clean global minimum ... it's landing on *a* later point, not *the* later point"* -- a lone cheap period left unused next to the ones the plan does use.
+
+  `tests/test_adequacy_placement_vs_shadow_price.py` reproduces exactly that shape in a plain `optimal` solve, then shows that forcing the load into the cheaper-looking region costs **more** (0.9291 -> 1.0188 on the fixture). So the observation is real and is not a defect.
+
+  The comparison is invalid for a structural reason: `AdequacyLoadConfig` has no contiguity or minimum-run field, so the LP chooses a **set** of periods delivering `target_kwh`, not a start time -- about 6.15 hours' worth for #769's own load. A single period's lambda prices one more kW *there*, given everything else the plan is doing; it says nothing about the cost of the whole set. One cheap period stranded among expensive neighbours is no use to a load that needs six hours, and an optimal LP correctly declines it.
+
+  Worth having before the main #769 work rather than after: that issue's real question -- whether `adequacy_earliness_budget_kw` needs redesigning -- changes live hot-water dispatch, and should not be decided on top of a phantom second defect.
+
 ## [0.94.327] — 2026-09-15
 
 ### Added
@@ -29,6 +49,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   What made this hard to see is worth recording: the same module's **log lines** were provably current on that install (`solver_writer.py:569`, `:7117`, matching the merged source exactly) while its **published output** was thirty releases stale, at the same moment. The code-currency check this project sharpened on #594 is real and was not sufficient, because it answers "is this file current" and not "did this file produce that value".
 
   v0.94.326's tolerance change stands on its own merits — a `1e-6` equality against one variable of a ~12,000-column MIP is brittle regardless — but it was justified as fixing an observed failure, and that justification does not hold.
+
+Devhub validation: deployed and restarted, `installed_version == available_version == v0.94.327`, solve `optimal`, health report **0** errors, no new log lines. Nothing behavioural to verify and none claimed: `git diff v0.94.326 v0.94.327` touches `CHANGELOG.md`, `manifest.json` and one new test file, and **no production Python at all**. Worth stating explicitly given the retraction above -- that install's plan sensor is published by pre-v0.94.295 code, so it could not confirm a behavioural change even if this release had one. What a deploy still establishes, and all it establishes here, is that the release does not break a running install.
 
 ## [0.94.326] — 2026-09-15
 
