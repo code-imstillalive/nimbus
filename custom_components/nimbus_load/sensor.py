@@ -3121,10 +3121,45 @@ class _NimbusSolverPushSensor(SensorEntity):
 
     _attr_device_class / _attr_state_class / _attr_native_unit_of_
     measurement are set at class-attribute time (subclass overrides
-    below) so the Recorder's own "unit changed" repair (see issue #61)
-    stops firing -- the unit now comes from the SensorEntity contract,
-    not from a raw attribute the state machine happens to have been
-    handed.
+    below), so the unit comes from the SensorEntity contract rather than
+    from a raw attribute the state machine happens to have been handed
+    (issue #61).
+
+    **This paragraph used to claim that "stops" the Recorder's own "unit
+    changed" repair from firing. Corrected 2026-09-16: it does not, and
+    the difference matters to anyone reading a statistics chart.**
+    Measured on a real install running v0.94.330 -- current code, well
+    past the 2026-09-10 change that #890 was closed on:
+
+        sensor.nimbus_household_load_total_forecast   0 hourly stats / 3 days
+        sensor.nimbus_solver_battery_forecast         0 hourly stats / 3 days
+        sensor.nimbus_solver_solve_seconds           71 hourly stats, complete
+
+    with `homeassistant.components.sensor.recorder` logging "The unit of
+    <entity> (None) cannot be converted to the unit of previously
+    compiled statistics (kW)" for both of the first two, currently, not
+    historically. The third is the control: same install, same class,
+    full series -- so this is not "push sensors are broken".
+
+    A class attribute cannot help here, because the unit reads None when
+    the entity has no value yet at all -- `unknown`/`unavailable` before
+    the first push lands -- and a statistics-compilation cycle falling in
+    that window sees no unit regardless of what the class declares.
+
+    Not this class's defect, and not worth chasing from here: the same
+    warning batch names `sensor.amber_express_*` and
+    `sensor.localvolts_v2_*`, two unrelated third-party integrations, in
+    identical shape. It is an install-level condition affecting anything
+    that is empty until its first push or API fetch. Recorded so the
+    claim above is not trusted again -- see #890 for the full
+    measurement, including that the oversized-attribute mechanism in that
+    issue's title is NOT the cause (the recorded payload measures ~1.7 KB
+    against a 16 KB cap).
+
+    Scope of what was actually verified: the statistics-suppression
+    WARNING and the absent statistics. Whether HA's repairs-panel item
+    for a unit change also appears was not checked, so nothing here
+    claims either way about that surface.
     """
 
     _attr_has_entity_name = True
