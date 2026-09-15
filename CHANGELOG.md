@@ -30,6 +30,10 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
   Found by checking the age of every doc after the entity-table fix earlier today: this one had gone six days across three shipped features.
 
+Devhub validation: deployed and restarted, `installed_version == available_version == v0.94.320`, solve `optimal` in 1.09 s, `nimbus_status` "Working well", `state` and `whole_house_live_now_kw` both **1.29**, no new errors. **A documentation release cannot be verified by a solve** — what the deploy confirms is that it does not break a running install, and the corrections themselves were each checked against the code before being written.
+
+One incidental confirmation worth keeping: the install reports **six** controllable loads, its original set. The synthetic price-gated load created to verify v0.94.319 end to end was removed cleanly, leaving no residue — which is the sort of thing worth checking rather than assuming after creating a config subentry on a live install.
+
 ## [0.94.319] — 2026-09-15
 
 ### Added
