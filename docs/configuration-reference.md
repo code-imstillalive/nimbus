@@ -33,6 +33,8 @@ filled in.
 | Forecast horizon (hours) | How far ahead each load's forecast array extends. |
 | Retrain hour (local, 0-23) | The local hour Nimbus retrains every model from scratch against Recorder history. Pick a quiet hour. |
 | Training window (days) | How many days of Recorder history each retrain looks back over. |
+| Training data source | Where each retrain reads history from. **Recorder history** (default) is full-resolution but bounded by your own `purge_keep_days` — a low purge setting can leave far less than Training window asks for. **Long-term statistics** is hour-bucketed and kept indefinitely, so a 90- or 365-day retrain is always possible, at the cost of blurring a load that switches on and off within an hour. **Hybrid** takes recent days at full resolution and the rest from statistics. |
+| Hybrid mode: recent days from full-resolution history | Only used when Training data source is **Hybrid** — how many of the most recent days come from Recorder history; the remainder of Training window is filled from long-term statistics. |
 
 ### Solver settings (3-step sub-wizard)
 
