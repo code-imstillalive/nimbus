@@ -102,9 +102,20 @@ def test_battery_forecast_has_required_sensor_entity_class_attributes():
     assert cls._attr_has_entity_name is True
     assert cls._attr_name == "Solver Battery Forecast"
     assert cls._attr_suggested_display_precision == 3
-    # The whole reason the "unit changed" repair (#61) stops firing:
-    # unit now comes from the SensorEntity contract, not from an attrs
-    # dict. Same reasoning for device_class and state_class.
+    # Why these are class attributes (#61): the unit comes from the
+    # SensorEntity contract, not from an attrs dict. Same reasoning for
+    # device_class and state_class.
+    #
+    # This comment used to say that is "the whole reason the 'unit
+    # changed' repair (#61) stops firing". Corrected 2026-09-16 -- it
+    # does not stop the Recorder's unit-mismatch warning, which was
+    # measured firing on v0.94.330 for both of these entities, with no
+    # long-term statistics at all for either. A class attribute cannot
+    # help when the unit reads None because the entity has no value yet
+    # (unknown/unavailable before the first push). See the class
+    # docstring in sensor.py and #890 for the measurement. The
+    # assertions below are still exactly right; only the stated
+    # consequence was wrong.
     assert cls._attr_native_unit_of_measurement == "kW"
     # SensorDeviceClass / SensorStateClass are MagicMock in the test
     # stubs; identity comparison against the same mock attribute is the
