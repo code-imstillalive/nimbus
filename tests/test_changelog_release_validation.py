@@ -63,6 +63,33 @@ _SECTION_RE = re.compile(r"^## \[(\d+\.\d+\.\d+)\][^\n]*$", re.MULTILINE)
 # the one the directive asks for.
 _VALIDATION_RE = re.compile(r"devhub validation:", re.IGNORECASE)
 
+# ...but a CHANGELOG entry may also TALK ABOUT validation lines rather
+# than carry one, and this guard could not tell the difference. Found
+# the honest way, 2026-09-16: v0.94.332's own entry explained why a
+# never-tagged version "had no `Devhub validation:` line it could
+# honestly carry", and that sentence satisfied the search. The section
+# passed while genuinely having no such line -- the guard answering a
+# weaker question than it appears to, which is the same shape nimbus
+# issue #955 raised about the source-comment guard next door.
+#
+# Inline code spans are the tell, and a reliable one in both
+# directions: a real validation line is written as prose ("Devhub
+# validation: deployed and restarted, ..."), while a REFERENCE to the
+# concept is written as code, because it is naming the literal string
+# the guard looks for. So strip `...` spans before searching.
+#
+# Fenced blocks are stripped for the same reason -- a ``` block quoting
+# a previous entry, or the guard's own regex, should not count as
+# performing the validation it quotes.
+_CODE_SPAN_RE = re.compile(r"`[^`\n]*`")
+_FENCED_BLOCK_RE = re.compile(r"```.*?```", re.DOTALL)
+
+
+def _prose_only(body: str) -> str:
+    """The entry with code spans and fenced blocks removed, so that
+    naming the phrase cannot be mistaken for stating it."""
+    return _CODE_SPAN_RE.sub(" ", _FENCED_BLOCK_RE.sub(" ", body))
+
 
 def _in_flight_version() -> tuple[int, ...]:
     """The version currently being prepared -- bumped in manifest.json,
@@ -89,7 +116,7 @@ class TestReleasesNameTheirValidation(unittest.TestCase):
             ".".join(str(p) for p in ver)
             for ver, body in _sections().items()
             if _MIN_ENFORCED_VERSION <= ver < in_flight
-            and not _VALIDATION_RE.search(body)
+            and not _VALIDATION_RE.search(_prose_only(body))
         )
         self.assertEqual(
             missing,
