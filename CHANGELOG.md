@@ -8,6 +8,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.359] - 2026-09-17
+
+### Changed
+- **Worklog entry for 2026-09-17** ([docs/worklog/2026-09-17.md](docs/worklog/2026-09-17.md)), plus the matching `CLAUDE.md` Recent history line. Docs only; no production Python. Cut so `main` and the tag line stay aligned, not because any install needs it.
+
+  Required by this repo's own PRIME DIRECTIVE (a dated entry on any day real work happens, before the day is done) and written while the findings were first-hand rather than reconstructed later from commit messages. The load-bearing content is the part a diff does not carry: the `if`/`elif` re-parenting trap that backed [#873](https://github.com/code-imstillalive/nimbus/issues/873) out twice and directly shaped how [#1019](https://github.com/code-imstillalive/nimbus/issues/1019)'s 839-line move was verified; the harness gap that presented as a production regression; and five corrections to this session's own claims, three of them made the same night.
+
+  Devhub validation: **not applicable** — no shipped code changes.
+
 ## [0.94.358] - 2026-09-17
 
 ### Fixed
