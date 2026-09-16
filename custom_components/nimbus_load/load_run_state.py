@@ -291,6 +291,30 @@ class LoadRunState:
     # thermal-rate learner at all. nimbus issue #610: "the published
     # attributes do not say which [a learned rate from a default]."
     thermal_rates_source: str = ""
+    # nimbus issue #940: the rates the LP was ACTUALLY built with, and
+    # where each came from. Deliberately separate from the four fields
+    # above, which answer a different question.
+    #
+    # "What was learned" and "what was used" are not the same, and on
+    # every kind=thermal load today they are not even close: the learned
+    # fields are None and thermal_rates_source is "" (#873 -- the learner
+    # never runs for this kind), while the LP schedules real hot water on
+    # thermal_forecast's 8.0 C/kWh and 0.5 C/h module defaults. A
+    # household reading only the learned fields sees nothing at all for
+    # numbers that genuinely drove dispatch.
+    #
+    # Echoed off ThermalLoadPlan, which echoes the ThermalLoadConfig the
+    # LP was built with -- never re-derived here. `None` for a load whose
+    # plan carries no thermal entry (every kind=deferrable load, and any
+    # solve that produced no plan), which is honestly "no LP thermal
+    # rates applied", not a default.
+    thermal_effective_heating_rate_c_per_kwh: float | None = None
+    thermal_effective_idle_decay_c_per_hour: float | None = None
+    # "override" | "learned" | "fallback", resolved INDEPENDENTLY per
+    # rate -- an explicit heating-rate override alongside a fallback idle
+    # decay is a real, legitimate configuration.
+    thermal_heating_rate_origin: str | None = None
+    thermal_idle_decay_origin: str | None = None
     # nimbus issue #712/#713 (Mark Purcell, real live finding: two
     # consecutive nights of uncontrolled compressor cut-in, both times
     # the tank crossing its own hardware floor well before the next
@@ -353,6 +377,14 @@ class LoadRunState:
             "temperature_forecast": self.temperature_forecast,
             "last_idle_temperature": self.last_idle_temperature,
             "thermal_rates_source": self.thermal_rates_source,
+            "thermal_effective_heating_rate_c_per_kwh": (
+                self.thermal_effective_heating_rate_c_per_kwh
+            ),
+            "thermal_effective_idle_decay_c_per_hour": (
+                self.thermal_effective_idle_decay_c_per_hour
+            ),
+            "thermal_heating_rate_origin": self.thermal_heating_rate_origin,
+            "thermal_idle_decay_origin": self.thermal_idle_decay_origin,
             "floor_crossing_forecast_time": self.floor_crossing_forecast_time,
             "floor_crossing_forecast_temperature": (
                 self.floor_crossing_forecast_temperature
@@ -403,6 +435,14 @@ class LoadRunState:
             temperature_forecast=data.get("temperature_forecast"),
             last_idle_temperature=data.get("last_idle_temperature"),
             thermal_rates_source=str(data.get("thermal_rates_source", "")),
+            thermal_effective_heating_rate_c_per_kwh=data.get(
+                "thermal_effective_heating_rate_c_per_kwh"
+            ),
+            thermal_effective_idle_decay_c_per_hour=data.get(
+                "thermal_effective_idle_decay_c_per_hour"
+            ),
+            thermal_heating_rate_origin=data.get("thermal_heating_rate_origin"),
+            thermal_idle_decay_origin=data.get("thermal_idle_decay_origin"),
             floor_crossing_forecast_time=data.get("floor_crossing_forecast_time"),
             floor_crossing_forecast_temperature=data.get(
                 "floor_crossing_forecast_temperature"
