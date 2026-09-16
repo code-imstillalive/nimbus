@@ -181,3 +181,67 @@ class TestQualityHistoryCarryForward(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestFastPathSeedsTheTable(unittest.TestCase):
+    """nimbus issue #994, second half.
+
+    The carry-forward alone only builds the table when a NEW day is
+    scored. Every install that ever ran the pre-v0.94.346 publisher has
+    a wiped table, and its fast path re-pushes those same history-less
+    attributes verbatim on every cycle -- so the Regret card would keep
+    falling back to its second scorer for a full day after the fix
+    landed, which looks exactly like the fix not working.
+
+    Seeding costs nothing: the five numbers for the already-scored day
+    are sitting in the attributes being re-pushed.
+    """
+
+    def test_an_already_scored_day_seeds_itself_from_its_own_attributes(self):
+        """The real shape: `existing["attributes"]` carries the day's
+        headline numbers via the original publish's `**day_entry`, so it
+        can serve as its own day_entry with no recompute."""
+        published = {
+            "latest_date": "2026-09-15",
+            "epr": 1.0196,
+            "j_ref": 4.7899,
+            "j_ach": -15.8621,
+            "j_star": -15.4645,
+            "regret_dollars": -0.3977,
+        }
+        history = solver_writer._carry_forward_quality_history(
+            published, "2026-09-15", published
+        )
+        self.assertEqual(list(history), ["2026-09-15"])
+        self.assertAlmostEqual(history["2026-09-15"]["j_star"], -15.4645)
+        self.assertAlmostEqual(history["2026-09-15"]["regret_dollars"], -0.3977)
+
+    def test_seeding_is_idempotent_across_repeated_fast_path_hits(self):
+        """The fast path runs every solve cycle -- roughly 1440 times a
+        day. Re-seeding must converge, not grow or drift."""
+        attrs = {
+            "latest_date": "2026-09-15",
+            "epr": 1.0196,
+            "j_ref": 4.7899,
+            "j_ach": -15.8621,
+            "j_star": -15.4645,
+            "regret_dollars": -0.3977,
+        }
+        for _ in range(5):
+            attrs["history"] = solver_writer._carry_forward_quality_history(
+                attrs, "2026-09-15", attrs
+            )
+        self.assertEqual(list(attrs["history"]), ["2026-09-15"])
+        self.assertAlmostEqual(attrs["history"]["2026-09-15"]["epr"], 1.0196)
+
+    def test_seeding_never_discards_days_already_in_the_table(self):
+        attrs = {
+            "latest_date": "2026-09-15",
+            "epr": 1.0196,
+            "j_ref": 4.7899,
+            "history": {"2026-09-13": {"epr": 0.9234}},
+        }
+        history = solver_writer._carry_forward_quality_history(
+            attrs, "2026-09-15", attrs
+        )
+        self.assertEqual(sorted(history), ["2026-09-13", "2026-09-15"])
