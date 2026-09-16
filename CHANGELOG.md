@@ -8,9 +8,27 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.350] - 2026-09-16
+
+### Fixed
+- **The commanded-state guard now reports its own failure** ([#1019](https://github.com/code-imstillalive/nimbus/issues/1019)). Visibility half; no behaviour change beyond the log level and message.
+
+  Every controllable load is commanded through one coroutine with **no per-load try/except**, and the only broad handler logged at **DEBUG**. So any raise -- an unavailable entity, a sensor returning an unexpected type, a malformed subentry, a recorder hiccup mid-fetch -- abandons the cycle for **every load not yet processed**. Loads already dispatched stay dispatched; the rest are simply never commanded, and at default log levels a household sees nothing at all.
+
+  At a 5-minute cadence the next cycle usually succeeds, so the symptom is **intermittent missed dispatch** rather than an obvious outage -- the shape of [#757](https://github.com/code-imstillalive/nimbus/issues/757) (ten investigations) and of [#315](https://github.com/code-imstillalive/nimbus/issues/315), where the ABSENCE of a warning was the evidence nobody thought to check.
+
+  Now WARNING, and it says what was actually lost rather than only that something failed. The handler still swallows deliberately: dispatch failing must never take down the solve cycle it runs inside, and a test pins that.
+
+### Notes
+- **Found by accident, and that is the part worth keeping.** Attempting [#873](https://github.com/code-imstillalive/nimbus/issues/873)'s hoist made the thermal block run for every controllable load; something in it raised for climate-domain loads, and the symptom was not an error but **13 dispatch tests reporting `len(services.calls) == 0` with no message**. Failure presenting as *absence* is precisely what that log level caused.
+- **#873's hoist was attempted and backed out**, and produced two findings worth more than the change would have been: a top-level helper cannot compile because `load_run_state`/`done_condition`/`thermal_forecast`/the `CONF_*` names are deferred imports local to `apply_commanded_state_guard()`; and the inline move passes `ruff`, `mypy` and its own test file 116/116 while breaking 13 dispatch tests **only in combination**. Anyone validating that refactor the natural way would ship a live-dispatch regression and see green.
+- **Per-load isolation is deliberately not in this release.** It needs the whole ~800-line loop body re-indented -- the same class of mechanical change that just caused the #873 regression. `test_the_loop_still_has_no_per_load_isolation` pins the gap honestly and fails when it lands.
+- Tests verified to fail against the DEBUG version rather than merely pass against the new one. A first draft of the swallow-check matched the word "raise" inside the handler's own explanatory comment -- a fair reminder that a source-text check tests text, not behaviour.
+
 ## [0.94.349] - 2026-09-16
 
 ### Added
+- Devhub validation: deployed via HACS, restarted, and confirmed **behaviourally** rather than by version string -- a fresh `compute_quality_report` over a 2-hour window returned `real_p2p_settlement_status: "window_is_not_one_local_calendar_day"`, which is both the correct value and proof the new code is executing. The daily sensor still lacks the key because its fast path re-pushes cached attributes, which is the expected distinction rather than a stale deploy.
 - **`real_p2p_settlement_status` on the quality report** ([#1015](https://github.com/code-imstillalive/nimbus/issues/1015)) -- says WHY `real_p2p_dollars` is what it is. Diagnostic only, no economics change.
 
   The scorer only looks up real settled P2P when the window is exactly one local calendar day, because the settlement history is keyed by ISO local date and any other window genuinely has no entry to find. **That gate is correct.** Being silent about it was not: the report carried `real_p2p_dollars: 0` and priced export at plain spot, which is indistinguishable from a household that earns no P2P at all -- no error, no flag, an ordinary-looking number.
