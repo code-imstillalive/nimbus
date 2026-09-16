@@ -7645,7 +7645,13 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
         # See that function's own docstring for the full incident.
         existing = ha_get(resolve_real_entity_id(QUALITY_ENTITY_ID))
         existing_attrs = existing.get("attributes", {}) or {}
-        if existing_attrs.get("latest_date") == yesterday_key:
+        # Deliberately spelled out rather than reusing `existing_attrs`
+        # above: test_solver_writer_family_a_freshness_repush.py matches
+        # this exact expression as source text across every Family A
+        # publisher, to prove none of them lost the idempotency check
+        # that keeps a once-a-day score from re-solving 1440 times.
+        # Tidying this into the local costs that guard its match.
+        if existing.get("attributes", {}).get("latest_date") == yesterday_key:
             # issue #313 (Mark Purcell): this fast path used to be
             # externally indistinguishable from every silent-skip path
             # below it -- same "nothing changed, nothing logged" outcome.

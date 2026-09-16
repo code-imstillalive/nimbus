@@ -130,7 +130,10 @@ class TestQualityHistoryCarryForward(unittest.TestCase):
         )
         self.assertIn("2026-09-15", history)
         self.assertNotIn("2026-06-01", history)
-        self.assertEqual(min(history), sorted(history)[0])
+        # 84 prior days + today, trimmed to 60, so the 25 oldest go and
+        # the oldest survivor is a real, checkable date rather than
+        # whatever happened to be left.
+        self.assertEqual(min(history), "2026-06-26")
 
     def test_a_malformed_prior_table_costs_only_its_bad_entries(self):
         """This dict may have been written by another program entirely.
