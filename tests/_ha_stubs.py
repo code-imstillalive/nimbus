@@ -581,7 +581,30 @@ def install_ha_stubs() -> None:
         "homeassistant.helpers.entity_platform",
         AddEntitiesCallback=_generic_stub_class("AddEntitiesCallback"),
     )
-    module("homeassistant.helpers.entity_registry", async_get=MagicMock())
+    module(
+        "homeassistant.helpers.entity_registry",
+        async_get=MagicMock(),
+        # nimbus issue #873. Real HA has exported this since long before
+        # this project's own minimum version; the stub did not, purely
+        # because nothing reachable from a stub-based test had called it
+        # yet. #768's registry-based power-sensor auto-discovery
+        # (`_discover_power_sensor_for_device()`) does, and #873 moved
+        # that call out of the `load_kind == "adequacy"` branch so it now
+        # runs for EVERY controllable load.
+        #
+        # Without this, the dispatch tests fail with `AttributeError:
+        # module 'homeassistant.helpers.entity_registry' has no attribute
+        # 'async_entries_for_device'`, swallowed by the commanded-state
+        # guard into `len(services.calls) == 0` with no message -- which
+        # is exactly the shape nimbus #1019 is about, and exactly why
+        # the first attempt at #873 read as a production regression and
+        # was backed out. It was a harness gap the whole time.
+        #
+        # `[]` is the honest fake: these tests populate no device
+        # registry, so a device genuinely has no sibling entities, and
+        # discovery correctly returns None rather than a guessed sensor.
+        async_entries_for_device=MagicMock(return_value=[]),
+    )
     module(
         "homeassistant.helpers.device_registry",
         # Real, load-bearing constraint (nimbus issue #335): the new
