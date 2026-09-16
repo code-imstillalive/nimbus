@@ -210,11 +210,21 @@ _SLOW_LP_CALL_SECONDS: float = 5.0
 # actually answered its question.
 #
 # The 5s line found the answer in a day -- but on a real install it then
-# fires roughly once a MINUTE at WARNING, for a condition now understood
-# (an expensive root LP relaxation; mip_node_count=1, mip_gap=0.0, so
-# branch-and-bound is not involved at all). A permanent warning for a known,
+# fires roughly once a MINUTE at WARNING, for a condition understood at the
+# time as an expensive root LP relaxation (mip_node_count=1, mip_gap=0.0,
+# so branch-and-bound not involved at all). A permanent warning for a known,
 # non-actionable condition is exactly the log noise v0.94.297 had to clean up
 # for this project's own #757 diag lines, and leaving it would repeat that.
+#
+# CORRECTED 2026-09-16, and the rest of this reasoning survives it: that
+# root-only description holds for `phase1_primary`, NOT for
+# `phase2_secondary`. 16 consecutive cycles on a real install measured
+# phase2_secondary at mip_node_count 9-60 and 80k-155k simplex
+# iterations -- branch-and-bound is genuinely searching there, and the
+# condition is neither root-only nor non-actionable. The level split is
+# still right (a once-a-minute WARNING for a condition nobody can act on
+# is still noise); what changed is that "nobody can act on it" was a
+# claim about the wrong phase.
 #
 # So: still measured and still logged at every crossing of the 5s line, but
 # at DEBUG. WARNING is reserved for a call that is genuinely heading for
