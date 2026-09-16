@@ -8,6 +8,25 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.360] - 2026-09-17
+
+### Added
+- **Per-load "don't defer unless it saves more than $X"** ([#769](https://github.com/code-imstillalive/nimbus/issues/769), Mark Purcell; household decision 2026-09-15, in their own words: *"each load can have its own urgency then."*). A new optional dollar field on each Controllable Load. Hot water can demand a dollar before it is willing to wait while a pool pump happily chases two cents.
+
+  The reported morning: hot water still not started an hour past its window opening, `plan_status_reason` reading *"deferred to 07:20, saves 3.29 c/kWh"*, against a real risk of not reaching 60 degC in time — and Mark's own re-solve showed the actual dollar difference between starting now and deferring was **$0.0000**, the marginal shadow price being extrapolated across a discrete six-hour decision it cannot price. [#684](https://github.com/code-imstillalive/nimbus/issues/684) found why the existing counterweight cannot help: `adequacy_earliness_budget_kw` ([#613](https://github.com/code-imstillalive/nimbus/issues/613)) is capped at 0.01 $/kWh **and** normalised across the whole 72-96 h horizon, so its pull at a tens-of-minutes timescale is vanishingly small.
+
+  `rate = (X / target_kwh) / window_hours`, applied as `rate * (elapsed[t] - elapsed[window_start]) * hours[t]`. Whole target at the window opening costs 0; whole target at the deadline costs exactly X; between is proportional. Per **window** for [#612](https://github.com/code-imstillalive/nimbus/issues/612) multi-window loads. No new variables or binaries, and it stacks alongside #613's global tie-break rather than replacing it.
+
+  **This deliberately breaks the rule the soft-cost family has held since #613** — never override a genuine economic signal, only break ties among them. On a 4 kWh target a $1 threshold is 25 c/kWh of spread, twenty-five times the smallest difference this codebase treats as meaningful, and it will override real prices. That is what was asked for, knowingly; a test pins it so nobody restores it to a tie-break, and it is a PRIMARY cost rather than a secondary one for the same reason — a secondary-objective term is by construction forbidden from changing the primary optimum, which would make the field silently inert on exactly the installs that set it.
+
+  **The shorthand is an approximation, and the tests found it.** Computing the sweep's expected values rather than eyeballing them showed the flip sits at **$0.6875** against a $0.50 saving, not $0.50: what the LP weighs is the lateness-**proportional** share of X, since the full X is only charged when the entire target sits at the deadline. A partial deferral costing proportionally less is correct behaviour and is not what "saves more than $X" says, so it is recorded in the field's own comment and the tests rather than left for someone tuning the number to discover.
+
+  Prior-art line ([#603](https://github.com/code-imstillalive/nimbus/issues/603)), checked against both sources rather than recalled: **EMHASS `def_start_penalty` is anti-cycling and carries no early/late preference (if anything it biases against starting) / HAEO has no deferrable load element at all, its own user guide says to schedule such loads externally.** Neither has a schedule-early incentive, so this **originates** the mechanism rather than porting one.
+
+  Unset/0 is a complete no-op — a test asserts an explicit zero is byte-identical to the field being absent, so no existing install's dispatch changes until someone sets a number. 12 new tests; `strings.json` and `translations/en.json` updated together and verified identical. mypy: the strict solver+ml job is byte-identical; the advisory whole-package job goes 227 -> 228, and the one new line is the `try`/`except ImportError` dual-import redefinition that already produces 103 identical errors in that same file for every sibling const.
+
+  Devhub validation: **not claimed** — that install's solve reports `n_controllable_loads: 0`, so it has no adequacy load for this to act on. Verified by CI and the tests instead.
+
 ## [0.94.359] - 2026-09-17
 
 ### Changed
