@@ -8,9 +8,30 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.346] - 2026-09-16
+
+### Fixed
+- **The integration was destroying the scored-day table its own Regret card is built to trust** ([#994](https://github.com/code-imstillalive/nimbus/issues/994)). **This is also the root cause of a divergence that card has carried an unsolved note about since 2026-09-05.**
+
+  `publish_daily_quality_report()` builds a fresh attributes dict every time it scores a day, and `ha_post_state` replaces attributes wholesale -- so each new score silently wiped the `history` table. Nothing put it back, because nothing in this integration ever put it there: it came from the standalone retrospective writer, and `nimbus-regret-card.js` treats it as authoritative ("the bible", per the household's own 2026-09-05 instruction).
+
+  With the table gone the card falls back, per date, to **re-scoring that day live**, and says so in its own sub-header -- which is the only reason this was ever visible. There is no error, no warning, and no `unavailable` sensor.
+
+  The two paths do not agree. Measured on a real install for 2026-09-15: `j_star` **-$9.45 live against -$15.17 in the table**, so EPR read **117.8% on the card and 103.66% on the sensor**. `j_ref` differed too ($4.43 vs $4.79), and that is the diagnostic part -- `j_ref` is the battery-idle baseline, so two scorers agreeing on their inputs agree on it whatever they do with the battery. They did not.
+
+  The card's own header comment has carried the evidence since it was written: *"EPR 71.5% vs the table's 89.9% on 2026-09-04, real root cause not yet found."* This is it. The card was never comparing two scorers -- the table had been wiped, leaving only the fallback.
+
+  The integration now **maintains** the table rather than merely preserving it: carrying the prior dict forward fixes the wipe, but an install that never ran the standalone writer would still have no table and still fall back forever. 60-day retention, and only the five fields the card reads -- never the three 24-row hourly reconstructions, which at ~5 KB/day would pass the recorder's 16 KB cap ([#944](https://github.com/code-imstillalive/nimbus/issues/944)) within a week and cost the entity every attribute it has, not just this one.
+
+### Notes
+- Prior entries are preserved exactly as found, including any the standalone writer wrote, and a malformed row costs only itself -- losing the table is precisely what sends the card back to the fallback scorer.
+- **A source-inspection guard caught a real refactor hazard, and was right to.** `test_solver_writer_family_a_freshness_repush.py` matches the already-scored idempotency check as literal source text across every Family A publisher. Hoisting a local rewrote that expression's shape and the guard stopped finding it -- the check was never actually lost, so the guard was right to be suspicious and wrong about the conclusion. Spelled back out with a comment saying why the duplication is deliberate, rather than loosening a guard protecting three other publishers.
+- Also found by CI rather than locally, because that local run was backgrounded and never read -- the same class of mistake as trusting a check that was never looked at.
+
 ## [0.94.345] - 2026-09-16
 
 ### Fixed
+- Devhub validation: deployed via HACS and restarted, `installed_version == available_version == v0.94.345`. **Deliberately NOT claimed as a behavioural confirmation**: a key this release emits unconditionally (`p2p_commitment_shortfall_kwh`, one line from `j_star` in the same dict) was absent while `nimbus_version` read `0.94.345`, which is the known stale-execution fingerprint. Logged and moved on per the standing rule; the fix rests on CI, the full suite, and a local reproduction instead.
 - **v0.94.344's export band was one-sided, and the direction it left open produced regret -$4.95** ([#1001](https://github.com/code-imstillalive/nimbus/issues/1001)). **This corrects a claim made in v0.94.344's own changelog five hours earlier.**
 
   That release recorded the reason for widening upward only as: *"it has never been observed to go negative from that direction -- under-delivery makes achieved WORSE, not better."* A rescore of a real day on a v0.94.344 install found the counterexample within the hour: **regret -$0.6091, EPR 103.87%**, with `achieved_within_lp_soc_bounds: true` ruling out the SoC half entirely. Seven committed hours where the oracle was pinned to export 12 kW that the day did not export, at 7.5c export against 37c import.
