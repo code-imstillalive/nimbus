@@ -5729,9 +5729,68 @@ def resample_history_mean(
     out = []
     for gt in grid_times:
         window_end = gt + timedelta(hours=period_hours)
-        vals = [v for t, v in pts if gt <= t < window_end]
-        if vals:
-            out.append(sum(vals) / len(vals))
+        rows = [(ts, v) for ts, v in pts if gt <= ts < window_end]
+        if rows:
+            # nimbus issue #1008: TIME-WEIGHTED, not a plain average of
+            # samples.
+            #
+            # HA's recorder stores state CHANGES, so samples are
+            # irregularly spaced -- dense while a value is moving, sparse
+            # while it holds. `sum(vals) / len(vals)` therefore weights a
+            # 2-second spike exactly as heavily as a 40-minute plateau,
+            # and a battery that jumps to +-40 kW and then sits flat
+            # writes a row for every step of the spike and almost none
+            # for the plateau.
+            #
+            # Measured on the reference household, 2026-09-15:
+            #
+            #   scorer, sample mean   ->  99.675 kWh in / 107.428 out
+            #                             = -7.75 kWh net (net DISCHARGE)
+            #   inverter counters     -> 106.6   kWh in / 100.9   out
+            #                             = +5.70 kWh net (net CHARGE)
+            #   HA's own statistics   -> mean -0.2229 kW x 24 h
+            #                             = -5.35 kWh  (net CHARGE)
+            #
+            # HA's statistics mean IS time-weighted, which is why it
+            # agrees with the counters to 0.35 kWh while this function
+            # disagreed by 13.5 kWh and inverted the day's direction --
+            # the reconstructed SoC ran 16.07% -> 0.44% on a day the pack
+            # really went 17.4% -> ~20%.
+            #
+            # Each sample is weighted by how long it HELD: until the next
+            # sample, or the end of the window for the last one. The
+            # first sample's weight starts at the window boundary rather
+            # than at its own timestamp, because whatever value preceded
+            # it is carried in by the `else` branch's semantics below --
+            # a recorded state holds until the next one replaces it.
+            total = 0.0
+            weighted = 0.0
+            for i, (ts, v) in enumerate(rows):
+                next_ts = rows[i + 1][0] if i + 1 < len(rows) else window_end
+                span = (next_ts - ts).total_seconds()
+                if span <= 0:
+                    continue
+                weighted += v * span
+                total += span
+            # Time between the window start and the first recorded sample
+            # is held by the last REAL value before the window -- the same
+            # last-known-value model resample_history_nearest() applies.
+            #
+            # Only when such a sample genuinely exists. If nothing
+            # precedes the window there is no observation to carry in,
+            # and weighting the gap at `default` would INVENT data inside
+            # a period that has real samples -- biasing every scored
+            # day's first period, since the history fetch starts at the
+            # window boundary. A period with no samples at all still
+            # falls through to the `else` branch below, which is where
+            # the flow-signal "absent power reads as 0" convention
+            # belongs.
+            prior_rows = [v for ts, v in pts if ts < gt]
+            lead_span = (rows[0][0] - gt).total_seconds()
+            if lead_span > 0 and prior_rows:
+                weighted += prior_rows[-1] * lead_span
+                total += lead_span
+            out.append(weighted / total if total > 0 else rows[0][1])
         else:
             out.append(resample_history_nearest(pts, [gt], default=default)[0])
     return out
