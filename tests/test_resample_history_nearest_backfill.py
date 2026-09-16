@@ -139,9 +139,29 @@ class TestResampleHistoryMeanInheritsTheFix(unittest.TestCase):
         self.assertEqual(got, [0.0] * 4)
 
     def test_periods_with_real_samples_still_average_them(self):
+        """nimbus issue #1008: the average is TIME-WEIGHTED, so this is
+        no longer (2.0 + 4.0) / 2.
+
+        Hand-computed over the one-hour window starting at 1.0:
+
+            0.0 for  360 s   (1.0 -> 1.1, before any sample -- the
+                              flow-signal convention this class exists
+                              to pin: absent power reads as 0, never
+                              backfilled)
+            2.0 for  360 s   (1.1 -> 1.2)
+            4.0 for 2880 s   (1.2 -> window end at 2.0)
+                  ---------
+                    3600 s
+
+            (0*360 + 2*360 + 4*2880) / 3600 = 3.4
+
+        4.0 held for 48 of the 60 minutes. A plain sample average calls
+        that 3.0, weighting a six-minute reading exactly as heavily as a
+        forty-eight-minute one."""
         pts = [(_at(1.1), 2.0), (_at(1.2), 4.0)]
         got = solver_writer.resample_history_mean(pts, [_at(1.0)], period_hours=1.0)
-        self.assertAlmostEqual(got[0], 3.0)
+        self.assertAlmostEqual(got[0], (0 * 360 + 2.0 * 360 + 4.0 * 2880) / 3600)
+        self.assertAlmostEqual(got[0], 3.4)
 
 
 if __name__ == "__main__":

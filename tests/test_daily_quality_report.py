@@ -754,7 +754,32 @@ class TestResampleHistoryMean(unittest.TestCase):
         nearest = solver_writer.resample_history_nearest(pts, [anchor])[0]
         self.assertEqual(nearest, 20.939)  # confirms the bug mechanism itself
         self.assertLess(mean, 5.0)  # the mean is nowhere near the spike
-        self.assertAlmostEqual(mean, (20.939 - 2.6 - 2.7 - 2.6) / 4, places=6)
+        # nimbus issue #1008: TIME-WEIGHTED, so the expectation is no
+        # longer a plain 4-sample average. Hand-computed from how long
+        # each sample actually HELD inside the 15-minute window:
+        #
+        #   20.939 for  60 s  (t=0    -> t=1min)
+        #   -2.600 for 240 s  (t=1min -> t=5min)
+        #   -2.700 for 300 s  (t=5min -> t=10min)
+        #   -2.600 for 300 s  (t=10min-> window end)
+        #                     ---------
+        #                      900 s
+        #
+        #   (20.939*60 - 2.6*240 - 2.7*300 - 2.6*300) / 900 = -1.0641
+        #
+        # This serves THIS TEST'S OWN STATED PURPOSE better than the
+        # value it used to assert. The class docstring records the real
+        # hourly mean for this period as **-2.66 kW**; the plain average
+        # returns +3.26, which has the WRONG SIGN against the stable
+        # reading the docstring calls representative. #428 moved from
+        # `nearest` (+20.939) to a plain mean (+3.26) and got closer;
+        # weighting by duration lands at -1.06, the correct side of zero.
+        expected = (20.939 * 60 - 2.6 * 240 - 2.7 * 300 - 2.6 * 300) / 900
+        self.assertAlmostEqual(mean, expected, places=6)
+        self.assertAlmostEqual(mean, -1.0641, places=3)
+        # The point of the whole exercise: closer to the stable reading
+        # than the plain average was, not merely different from it.
+        self.assertLess(abs(mean - (-2.6)), abs(3.25975 - (-2.6)))
 
     def test_falls_back_to_nearest_when_period_has_no_real_samples(self):
         # Sparse/low-frequency history -- e.g. a sensor that only reports
