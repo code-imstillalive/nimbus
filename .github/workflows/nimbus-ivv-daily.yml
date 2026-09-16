@@ -42,14 +42,14 @@ jobs:
       actions: read
       id-token: write
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
         with:
           # Full history, not the default shallow clone -- the skill scopes
           # its review range with `git log --since`/`--until` and bisects
           # suspicious failures via `git worktree`, both of which need real
           # history to walk.
           fetch-depth: 0
-      - uses: anthropics/claude-code-action@v1
+      - uses: anthropics/claude-code-action@7b0b255830a1fab6e602658672acad11c12d841d # v1.0.226
         with:
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
           prompt: "/nimbus-ivv-review"
