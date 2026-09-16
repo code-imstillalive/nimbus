@@ -1,0 +1,59 @@
+name: Nimbus daily IV&V review
+
+# Runs the .claude/skills/nimbus-ivv-review skill once a day via the Claude
+# Code GitHub Action, so an independent verification & validation pass over
+# whatever merged to main runs as a real, inspectable GitHub Actions workflow
+# rather than only as a Claude Code Remote session trigger (which this repo
+# also has -- see the PR that added this file for that trade-off).
+#
+# Requires manual, one-time setup this workflow cannot do for itself:
+#   1. Install the Claude GitHub App: https://github.com/apps/claude
+#   2. Add a repository secret named ANTHROPIC_API_KEY (a Claude Console API
+#      key) or CLAUDE_CODE_OAUTH_TOKEN (from `claude setup-token`, ties usage
+#      to a Claude subscription instead of API billing) -- see
+#      https://code.claude.com/docs/en/github-actions#manual-setup
+# Until both are done, every scheduled run fails at authentication; nothing
+# unsafe happens, it just doesn't produce a review.
+#
+# 07:00 Australia/Brisbane (UTC+10, no daylight saving) -- after the
+# existing 06:00-local daily dispatch-report routine, before the 3-hourly
+# upstream monitor's first 09:00-local fire, so the three don't collide.
+# GitHub only runs scheduled workflows from the default branch, and (on a
+# public repo) disables the schedule after 60 days with no repository
+# activity -- a quiet stretch would need a manual workflow_dispatch run or
+# any commit to main to re-arm it.
+on:
+  schedule:
+    - cron: "0 21 * * *"
+  workflow_dispatch: {}
+
+jobs:
+  ivv-review:
+    runs-on: ubuntu-latest
+    # The skill's own worked examples (references/gotchas.md) took real
+    # minutes per step (a full pytest run, several git-worktree bisections,
+    # parallel review passes) -- generous but bounded, so a stuck run can't
+    # burn the whole day's Actions minutes silently.
+    timeout-minutes: 120
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # Full history, not the default shallow clone -- the skill scopes
+          # its review range with `git log --since`/`--until` and bisects
+          # suspicious failures via `git worktree`, both of which need real
+          # history to walk.
+          fetch-depth: 0
+      - uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          prompt: "/nimbus-ivv-review"
+          claude_args: |
+            --model claude-sonnet-5
+            --max-turns 80
+            --allowedTools "Bash,Read,Write,Edit,Glob,Grep,TodoWrite,mcp__github__list_commits,mcp__github__get_commit,mcp__github__list_issues,mcp__github__issue_read,mcp__github__issue_write,mcp__github__sub_issue_write,mcp__github__add_issue_comment,mcp__github__list_pull_requests,mcp__github__pull_request_read,mcp__github__create_pull_request,mcp__github__actions_list,mcp__github__actions_get"
