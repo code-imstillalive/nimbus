@@ -8,9 +8,23 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.347] - 2026-09-16
+
+### Fixed
+- **The `history` table now appears immediately, not tomorrow** ([#994](https://github.com/code-imstillalive/nimbus/issues/994), second half). Found by deploying v0.94.346 and looking, rather than by assuming it worked.
+
+  `_carry_forward_quality_history()` only runs when a **new** day is scored. But every install that ever ran the pre-v0.94.346 publisher has a wiped table, and the publisher's fast path (`latest_date == yesterday`) re-pushes those same history-less attributes verbatim on every cycle. So the Regret card kept falling back to its second scorer for a full day after the fix landed -- from the dashboard, indistinguishable from the fix not working. Confirmed on a real deploy: v0.94.346 installed, `latest_date` matching yesterday, `history` still absent.
+
+  Seeding costs nothing -- the five numbers for the already-scored day are sitting in the attributes being re-pushed, so the published attributes serve as their own day entry. No recompute, no LP solve.
+
+### Notes
+- Seeded by mutating the attributes dict **before** the re-push rather than by changing the re-push call, because `test_solver_writer_family_a_freshness_repush.py` matches that call's exact arguments as source text across every Family A publisher -- the same guard that had already caught a refactor on this branch once.
+- **Corrects a diagnosis recorded on [#972](https://github.com/code-imstillalive/nimbus/issues/972) and in v0.94.346's own changelog.** Two missing new keys on a v0.94.345 deploy were read as the known stale-execution fingerprint. **The fast path explains them just as well** -- it re-pushes attributes written by older code -- and that was not ruled out before the claim was made. The new-key-presence check is still a better staleness test than `nimbus_version`, but only against a publish path that genuinely rebuilds its attributes, which the fast path by design does not.
+
 ## [0.94.346] - 2026-09-16
 
 ### Fixed
+- Devhub validation: deployed via HACS and restarted, `installed_version == available_version == v0.94.346`. The `history` table was **still absent** on that deploy -- which is what found this release's own fix, and is recorded here rather than smoothed over: a validation step that only ever confirms is not a validation step.
 - **The integration was destroying the scored-day table its own Regret card is built to trust** ([#994](https://github.com/code-imstillalive/nimbus/issues/994)). **This is also the root cause of a divergence that card has carried an unsolved note about since 2026-09-05.**
 
   `publish_daily_quality_report()` builds a fresh attributes dict every time it scores a day, and `ha_post_state` replaces attributes wholesale -- so each new score silently wiped the `history` table. Nothing put it back, because nothing in this integration ever put it there: it came from the standalone retrospective writer, and `nimbus-regret-card.js` treats it as authoritative ("the bible", per the household's own 2026-09-05 instruction).
