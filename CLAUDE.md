@@ -902,7 +902,41 @@ lockstep with it.
 > 7. **State what was actually verified in the CHANGELOG entry** — "confirmed live on devhub:
 >    restart clean, solve optimal, no new log lines, entity X shows Y" — not "should work" or
 >    an inferred claim about migration behaviour that was never actually tested against an
->    upgraded install.
+>    upgraded install. **"Devhub validation: not claimed, because X" is a first-class answer**
+>    and usually the honest one — across the v0.94.350→363 run, 9 of 14 releases could not
+>    earn a live verification (a WARNING that only fires on failure; a change that is a
+>    verified no-op on this install's shape; a path the install has no load for; tests-only;
+>    artwork served by an external CDN). Writing the reason beats presenting a clean restart
+>    as a verification of something it never touched.
+>
+> 8. **A marker check confirms the code ARRIVED. It does not test the FEATURE.** Every rule
+>    above this one establishes that the new code is the code running — version strings, log
+>    line numbers, `solve_diagnostics` key counts. All necessary, none sufficient. For any
+>    change with a callable surface (a service, a config field, a wizard step), **exercise it
+>    once the way a household or an automation actually would — with a realistic PARTIAL
+>    input — and read back what was PERSISTED rather than what was returned.**
+>
+>    The "partial" is load-bearing, and #1042/#1045 are why. `set_controllable_load` replaced
+>    a load's entire config instead of merging (so changing one field silently deleted target,
+>    window and device entity — and nothing errored), and then its schema injected the
+>    wizard's form defaults (so a partial update applied `kind = "sheddable"` over a real
+>    deferrable load, leaving every deferrable field intact and dead — worse than the wipe,
+>    because the config looks fine). Neither has a marker. Both appear on the first realistic
+>    call. A COMPLETE payload would have hidden both, since each only damages what you omit.
+>
+> **Staleness is per-FILE, and which files are stale MOVES between deploys.** This directive
+> used to say a devhub verification only tests the file your change lives in. Sharpened: an
+> install can be simultaneously current and twenty releases stale, so "is this install
+> running current code?" has no single answer. Measured on one install at one moment:
+> `solver_writer.py` reported `nimbus_version 0.94.342` with 7 `solve_diagnostics` keys where
+> current code emits 10 (~20 releases behind) while `ml/model.py`/`coordinator.py`/`sensor.py`
+> were genuinely current — and the previously recorded instance had it the other way around.
+>
+> So: **identify which file your change lives in, then find a behavioural marker in THAT
+> file.** The corollary is useful rather than only depressing — a forecaster change *can* be
+> verified there today (via `nimbus_load.retrain` on an entity that install genuinely owns),
+> while a dispatch change cannot. Writing devhub off wholesale is as wrong as trusting it
+> wholesale.
 >
 > **Test the default case, not only the edge** (#582's own lesson: a regression test existed
 > for the overnight window, none for a same-day window once the clock is already inside it —
