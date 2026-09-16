@@ -10958,6 +10958,7 @@ def build_controllable_loads(
             CONF_DEFERRABLE_EARLIEST_HOUR,
             CONF_DEFERRABLE_MAX_KWH_PER_DAY,
             CONF_DEFERRABLE_MAX_POWER_KW,
+            CONF_DEFERRABLE_MIN_DEFERRAL_SAVING_DOLLARS,
             CONF_DEFERRABLE_SHORTFALL_PRICE,
             CONF_DEFERRABLE_TARGET_KWH,
             CONF_DEFERRABLE_VALUE_PER_KWH,
@@ -10994,6 +10995,7 @@ def build_controllable_loads(
             CONF_DEFERRABLE_EARLIEST_HOUR,
             CONF_DEFERRABLE_MAX_KWH_PER_DAY,
             CONF_DEFERRABLE_MAX_POWER_KW,
+            CONF_DEFERRABLE_MIN_DEFERRAL_SAVING_DOLLARS,
             CONF_DEFERRABLE_SHORTFALL_PRICE,
             CONF_DEFERRABLE_TARGET_KWH,
             CONF_DEFERRABLE_VALUE_PER_KWH,
@@ -11197,6 +11199,10 @@ def build_controllable_loads(
                     float(value_per_kwh) if value_per_kwh is not None else 0.0,
                 )
             max_kwh_per_day = data.get(CONF_DEFERRABLE_MAX_KWH_PER_DAY)
+            # nimbus issue #769 (household decision 2026-09-15):
+            # "do not defer this load unless it saves more than $X",
+            # per load. 0.0/unset is a complete no-op.
+            min_deferral_saving = data.get(CONF_DEFERRABLE_MIN_DEFERRAL_SAVING_DOLLARS)
             shortfall_price = float(
                 data.get(CONF_DEFERRABLE_SHORTFALL_PRICE)
                 or elements.DEFAULT_ADEQUACY_SHORTFALL_PRICE
@@ -11356,6 +11362,9 @@ def build_controllable_loads(
                         max_kwh_per_day=float(max_kwh_per_day)
                         if max_kwh_per_day is not None
                         else None,
+                        min_deferral_saving_dollars=float(min_deferral_saving)
+                        if min_deferral_saving is not None
+                        else 0.0,
                         subentry_id=subentry.subentry_id,
                         windows=tuple(windows),
                     )
@@ -11471,6 +11480,9 @@ def build_controllable_loads(
                     max_kwh_per_day=float(max_kwh_per_day)
                     if max_kwh_per_day is not None
                     else None,
+                    min_deferral_saving_dollars=float(min_deferral_saving)
+                    if min_deferral_saving is not None
+                    else 0.0,
                     subentry_id=subentry.subentry_id,
                 )
             )

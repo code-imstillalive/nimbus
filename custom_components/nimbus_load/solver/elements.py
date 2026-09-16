@@ -1512,6 +1512,56 @@ class AdequacyLoadConfig:
     # degenerate always-off load (better expressed by simply not
     # configuring this load at all) or nonsensical.
     max_kwh_per_day: float | None = None
+    # nimbus issue #769 (Mark Purcell, real morning on the reference
+    # household's hot water: an hour past the window opening, still not
+    # started, for about 13 cents of total reward). Household decision
+    # 2026-09-15: "do not defer this load unless it saves more than $X",
+    # set PER LOAD -- their words, "each load can have its own urgency
+    # then." Hot water can demand a dollar before it is willing to wait
+    # while a pool pump happily chases two cents.
+    #
+    # Semantics, denominated in the quantity a household actually
+    # reasons about: deferring this load's WHOLE target from the opening
+    # of its window to its deadline costs exactly $X of modelled
+    # penalty. Deliver everything at the opening -> 0. At the deadline
+    # -> exactly X. Anything between -> proportional. So the LP defers
+    # only when the genuine energy saving beats $X.
+    #
+    # **This deliberately breaks the rule the soft-cost family has held
+    # since #613**, and that is the point rather than an oversight.
+    # DEFAULT_PROXIMAL_WEIGHT_KW's docstring sets it out: never override
+    # a genuine economic signal, only break ties among them. A $1
+    # threshold on a 4 kWh load is 25 c/kWh of spread -- twenty-five
+    # times the "definitely a real economic difference" line, and it
+    # will absolutely override real price signals. The household asked
+    # for exactly that, knowingly: they would rather pay up to a dollar
+    # than watch the tank sit cold until the last safe moment. Do not
+    # "fix" it back to a tie-break.
+    #
+    # Prior-art line this repo's own directive requires (#603), checked
+    # against both sources rather than recalled: **EMHASS:
+    # `def_start_penalty` -- anti-cycling, carries no early/late
+    # preference and if anything biases AGAINST starting / HAEO: no
+    # deferrable load element at all, its own user guide says to
+    # schedule such loads externally.** Neither has a schedule-early
+    # incentive, so this ORIGINATES the mechanism rather than porting
+    # one, and the semantics are the household's own rather than
+    # adopted.
+    #
+    # **The shorthand is an approximation, stated here because the
+    # household was given the shorthand.** What the LP weighs is the
+    # LATENESS-PROPORTIONAL share of X, not X itself -- the full X is
+    # only charged when the entire target sits at the deadline. A load
+    # shifted partway down its window pays proportionally less, so the
+    # real flip point sits above a naive `saving > X` reading. Measured
+    # in tests/test_adequacy_min_deferral_saving.py: a $0.50 saving is
+    # refused only once X passes $0.6875, not $0.50. That is correct
+    # (a partial deferral should cost less than a full one) and it is
+    # not what the one-line description says.
+    #
+    # 0.0 (the default) is a complete no-op -- every install that never
+    # sets it keeps today's dispatch exactly.
+    min_deferral_saving_dollars: float = 0.0
 
     def __post_init__(self) -> None:
         if self.max_power_kw <= 0.0:
@@ -1534,6 +1584,18 @@ class AdequacyLoadConfig:
             raise ValueError(msg)
         if self.max_kwh_per_day is not None and self.max_kwh_per_day <= 0.0:
             msg = f"Adequacy load '{self.name}' max_kwh_per_day must be > 0"
+            raise ValueError(msg)
+        # nimbus issue #769: negative would PAY the load to wait, which
+        # is the opposite of what this field is for and is much easier
+        # to typo than to intend. 0.0 stays valid -- it is the default
+        # and the documented way to turn the behaviour off.
+        if self.min_deferral_saving_dollars < 0.0:
+            msg = (
+                f"Adequacy load '{self.name}' min_deferral_saving_dollars "
+                f"({self.min_deferral_saving_dollars}) must be >= 0 -- a "
+                "negative value would reward deferring rather than "
+                "discourage it"
+            )
             raise ValueError(msg)
         if self.windows is not None:
             if len(self.windows) == 0:

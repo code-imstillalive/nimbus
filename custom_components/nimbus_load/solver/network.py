@@ -2355,6 +2355,65 @@ def _build_plan_once(
                             p.set_secondary_cost(adequacy_vars[al.name][t], cost)
                         else:
                             p.set_cost(adequacy_vars[al.name][t], cost)
+    # nimbus issue #769: the per-load "do not defer unless it saves more
+    # than $X" threshold (household decision 2026-09-15). Sits ALONGSIDE
+    # #613's global tie-break above rather than replacing it -- that term
+    # still covers non-windowed loads and is negligible at this scale.
+    #
+    # Where #613 normalises across the whole solve horizon and caps
+    # itself below the smallest price difference this codebase treats as
+    # meaningful, this normalises across THE LOAD'S OWN WINDOW and is
+    # deliberately allowed to exceed that line. On a 4 kWh target a $1
+    # threshold is 25 c/kWh of spread; it will override real price
+    # signals, which is exactly what was asked for. See
+    # AdequacyLoadConfig.min_deferral_saving_dollars' own comment for
+    # why that is a decision rather than a bug.
+    #
+    # rate = (X / target_kwh) / window_hours, applied as
+    #     rate * (elapsed[t] - elapsed[window_start]) * hours[t]
+    # so delivering the whole target at the window's opening costs 0 and
+    # delivering all of it at the deadline costs exactly X.
+    #
+    # Per WINDOW, not per horizon: a #612 multi-window load gets the
+    # same "$X to defer to the end" semantics inside each of its own
+    # windows, which is the only reading that keeps the field's meaning
+    # stable as windows are added. Periods outside every window are
+    # skipped entirely -- the load cannot draw there anyway, and
+    # anchoring them to some other window's start would price a
+    # lateness that has no meaning.
+    if adequacy_loads:
+        elapsed_hours_769 = np.concatenate(
+            ([0.0], np.cumsum(hours, dtype=np.float64)[:-1])
+        )
+        for al in adequacy_loads:
+            threshold = float(getattr(al, "min_deferral_saving_dollars", 0.0) or 0.0)
+            if threshold <= 0.0 or al.target_kwh <= 0.0:
+                continue
+            if al.windows is not None:
+                spans = [(w.earliest_period, w.deadline_period) for w in al.windows]
+            else:
+                spans = [(al.earliest_period, al.deadline_period)]
+            for first_p, last_p in spans:
+                if not 0 <= first_p <= last_p < n:
+                    continue
+                window_hours = float(
+                    elapsed_hours_769[last_p] - elapsed_hours_769[first_p]
+                )
+                if window_hours <= 0.0:
+                    # A single-period window has no "later" to discourage.
+                    continue
+                rate = (threshold / al.target_kwh) / window_hours
+                for t in range(first_p, last_p + 1):
+                    lateness = float(elapsed_hours_769[t] - elapsed_hours_769[first_p])
+                    cost = rate * lateness * float(hours[t])
+                    if cost != 0.0:
+                        # Deliberately a PRIMARY cost even when secondary
+                        # costs are in play: this is meant to compete with
+                        # real prices, and a secondary-objective term is by
+                        # construction forbidden from changing the primary
+                        # optimum -- which would make the field silently
+                        # inert on exactly the installs that set it.
+                        p.set_cost(adequacy_vars[al.name][t], cost)
     # nimbus issue #616 (semi-continuous + single-block, prior art:
     # EMHASS's treat_deferrable_load_as_semi_cont + set_deferrable_load_
     # single_constant): every real Controllable Load in this project is
