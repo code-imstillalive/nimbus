@@ -8,6 +8,27 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.357] - 2026-09-17
+
+### Added
+- **Recursive validation MAE is now recorded at 4 h, 12 h and 24 h, not just 4 h** ([#937](https://github.com/code-imstillalive/nimbus/issues/937) item 3). Diagnostic only — `model_type` selection is unchanged.
+
+  #937 measured naive persistence beating the ML forecaster on 11 of 14 scored days (mean **−$0.71/day**) and asked whether the model's own validation agrees. The leading suspicion — that selection runs on one-step MAE, blind to the exposure-bias regime `predict()` operates in — turned out to be **wrong and already fixed**: [#351](https://github.com/code-imstillalive/nimbus/issues/351) made `validation_recursive_mae` the deciding metric, scored on each candidate's own self-feeding lag chain.
+
+  The real gap is one level down and is arithmetic. `RECURSIVE_VALIDATION_HORIZON_STEPS = 16` at `RESAMPLE_MINUTES = 15` is **4 hours**, while `DEFAULT_FORECAST_HORIZON_HOURS = 48` and #937's dollar figure is scored **day-ahead**. So the winner is chosen on one twelfth of the horizon it is chosen for — and `horizon_steps` is passed verbatim at the single call site with no scaling, so that holds on every install.
+
+  That matters because recursive error does not grow at the same rate for every candidate, which is the entire reason #351 exists: k-NN's prediction is a convex combination of observed `y_train` values and is structurally bounded, while GBRT is an unbounded additive sum that can drift once the lag chain walks its feature vector out of distribution. A ranking taken at 4 steps of drift need not survive to 96.
+
+  `validation_recursive_mae_by_horizon` scores the same candidates at 16/48/96 steps and publishes all three through the coordinator. If the ranking is stable, #937's item 3 is a dead end; if the **winner changes with horizon**, selection is demonstrably measuring the wrong thing. Two tests pin that it cannot influence selection — one checking the choice still reads from `recursive_mae`, one grepping for the by-horizon dict appearing in any decision. Deliberately instrumentation rather than a behaviour change, the same shape as [#919](https://github.com/code-imstillalive/nimbus/issues/919).
+
+  Cost is real and stated rather than buried: 8 origins x (48+96) = **1152 extra predict calls per retrain** against selection's own 30x16 = 480, about **3.4x** this metric's cost, once a day, bounded by its own constant and revertible by emptying one tuple. A test asserts the bound.
+
+  Deliberately **not** claimed: that widening the selection window would fix the −$0.71 (a hypothesis with no measurement behind it, and this issue's history already includes a suspicion of mine that measurement refuted), nor that 16 steps is wrong as a default — it carries its own cost reasoning.
+
+  `TRAINED_MODEL_SCHEMA_VERSION` deliberately **not** bumped: a new field with a `default_factory` is not a meaning-changing shape break, and bumping would force a full retrain on every install for a diagnostic. The `__setstate__` backfill carries the new key and the coordinator reads it `getattr`-defensively — both tested, because this is exactly the shape that broke `seasonal_lookup` once already.
+
+  Devhub validation: **not claimed** — the value only appears after a real retrain against real history, so there is nothing to observe until an install has retrained under this code, and that install is separately executing stale code. Verified by CI, 8 new tests, and the full local suite instead.
+
 ## [0.94.356] - 2026-09-17
 
 ### Fixed
