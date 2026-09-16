@@ -11054,24 +11054,35 @@ def build_controllable_loads(
             # thermal_forecast's own module-level defaults.
             heating_rate_override = data.get(CONF_THERMAL_HEATING_RATE_C_PER_KWH)
             idle_decay_override = data.get(CONF_THERMAL_IDLE_DECAY_C_PER_HOUR)
+            # nimbus issue #940: the origin is recorded on the SAME
+            # branch that picks the value, so it cannot describe a
+            # different branch than the one taken. This is the only site
+            # that resolves this precedence; everything downstream echoes
+            # what is decided here.
             if heating_rate_override is not None:
                 heating_rate_c_per_kwh = float(heating_rate_override)
+                heating_rate_origin = "override"
             elif (
                 run_state_sample is not None
                 and run_state_sample.thermal_heating_rate_c_per_kwh is not None
             ):
                 heating_rate_c_per_kwh = run_state_sample.thermal_heating_rate_c_per_kwh
+                heating_rate_origin = "learned"
             else:
                 heating_rate_c_per_kwh = thermal_forecast.DEFAULT_HEATING_RATE_C_PER_KWH
+                heating_rate_origin = "fallback"
             if idle_decay_override is not None:
                 idle_decay_c_per_hour = float(idle_decay_override)
+                idle_decay_origin = "override"
             elif (
                 run_state_sample is not None
                 and run_state_sample.thermal_idle_decay_c_per_hour is not None
             ):
                 idle_decay_c_per_hour = run_state_sample.thermal_idle_decay_c_per_hour
+                idle_decay_origin = "learned"
             else:
                 idle_decay_c_per_hour = thermal_forecast.DEFAULT_IDLE_DECAY_C_PER_HOUR
+                idle_decay_origin = "fallback"
             comfort_floor_c = data.get(CONF_THERMAL_COMFORT_FLOOR_C)
             comfort_floor_cost = data.get(CONF_THERMAL_COMFORT_FLOOR_COST)
             thermal_loads.append(
@@ -11084,6 +11095,9 @@ def build_controllable_loads(
                     deadline_period=deadline_period,
                     heating_rate_c_per_kwh=heating_rate_c_per_kwh,
                     idle_decay_c_per_hour=idle_decay_c_per_hour,
+                    # nimbus issue #940
+                    heating_rate_origin=heating_rate_origin,
+                    idle_decay_origin=idle_decay_origin,
                     comfort_floor_c=(
                         float(comfort_floor_c) if comfort_floor_c is not None else None
                     ),
@@ -13192,6 +13206,21 @@ def apply_commanded_state_guard(
                         plan_temperature_forecast=load_run_state.build_time_value_series(
                             grid_times, load_plan.temperature_c
                         ),
+                        # nimbus issue #940: the rates the LP was
+                        # actually built with, echoed off the plan rather
+                        # than re-resolved here. Until now a household
+                        # could see only the LEARNED rates, which are
+                        # None on every kind=thermal load (#873) while
+                        # the LP scheduled real hot water on the 8.0/0.5
+                        # module defaults.
+                        thermal_effective_heating_rate_c_per_kwh=(
+                            load_plan.heating_rate_c_per_kwh
+                        ),
+                        thermal_effective_idle_decay_c_per_hour=(
+                            load_plan.idle_decay_c_per_hour
+                        ),
+                        thermal_heating_rate_origin=load_plan.heating_rate_origin,
+                        thermal_idle_decay_origin=load_plan.idle_decay_origin,
                         # Not applicable to this kind -- explicitly reset
                         # rather than left stale, so a load migrated from
                         # kind=deferrable doesn't keep showing an old

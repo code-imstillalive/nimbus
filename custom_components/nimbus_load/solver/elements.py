@@ -1643,6 +1643,29 @@ class ThermalLoadConfig:
     # post-solve caller can map a plan entry back to its real
     # load_run_state.py store entry.
     subentry_id: str | None = None
+    # nimbus issue #940: which of the three sources each rate above
+    # actually came from -- `override` (an explicit config field),
+    # `learned` (this subentry's own persisted LoadRunState) or
+    # `fallback` (thermal_forecast's module-level default).
+    #
+    # Recorded at the ONE site that resolves the precedence
+    # (build_controllable_loads()) and echoed onto ThermalLoadPlan from
+    # there, so the published answer cannot drift from the value the LP
+    # was built with. Purely descriptive: __post_init__ below does not
+    # validate them and nothing in network.py's constraint or objective
+    # construction reads them.
+    #
+    # The two resolve INDEPENDENTLY -- an explicit heating-rate override
+    # alongside a fallback idle decay is a legitimate real configuration,
+    # so one shared field would be unable to describe it.
+    #
+    # `None` (the default) means the constructing caller recorded no
+    # origin, which is deliberately distinct from `"fallback"`: it is how
+    # every pre-#940 construction and every direct-construction test
+    # reads, and claiming "fallback" for those would assert a provenance
+    # nobody established.
+    heating_rate_origin: str | None = None
+    idle_decay_origin: str | None = None
 
     def __post_init__(self) -> None:
         if self.max_power_kw <= 0.0:

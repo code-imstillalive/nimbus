@@ -713,6 +713,32 @@ class ThermalLoadPlan:
     power_kw: NDArray[np.float64]
     temperature_c: NDArray[np.float64]
     subentry_id: str | None = None
+    # nimbus issue #940: the two rates the LP was actually built with,
+    # echoed straight off the ThermalLoadConfig rather than re-derived.
+    #
+    # A household could not previously see which rates drove a real
+    # dispatch decision: `sensor.nimbus_<load>_commanded_state` published
+    # the LEARNED values, which are `None` on every `kind=thermal` load
+    # (#873), while the LP was scheduling on the 8.0/0.5 module defaults.
+    # Two confident thermal calculations went wrong on #873 in one
+    # afternoon for want of exactly this number.
+    #
+    # Echoed, deliberately, NOT recomputed at the publish site. The
+    # three-way precedence (override / persisted-learned / module
+    # default) lives in build_controllable_loads(); re-deriving it for
+    # display is how solver_writer.py and apply_commanded_state_guard()
+    # ended up with a duplicated period-index resolution that #582 then
+    # had to fix twice. Same argument this class's own `temperature_c`
+    # docstring above already makes one field over.
+    heating_rate_c_per_kwh: float | None = None
+    idle_decay_c_per_hour: float | None = None
+    # Which of the three sources each rate came from -- they resolve
+    # INDEPENDENTLY, so an override on heating with a fallback decay is a
+    # legitimate combination and has to be reportable as one.
+    # `None` means the caller did not record an origin, which is distinct
+    # from "fallback": it is how every pre-#940 construction reads.
+    heating_rate_origin: str | None = None
+    idle_decay_origin: str | None = None
 
 
 @dataclass(frozen=True)
@@ -3756,6 +3782,13 @@ def _build_plan_once(
             power_kw=_get(thermal_power_vars[tl.name]),
             temperature_c=_get(thermal_temp_vars[tl.name]),
             subentry_id=tl.subentry_id,
+            # nimbus issue #940: straight off the config the LP was built
+            # with, so what is published cannot disagree with what was
+            # solved. Nothing in the LP reads these back.
+            heating_rate_c_per_kwh=tl.heating_rate_c_per_kwh,
+            idle_decay_c_per_hour=tl.idle_decay_c_per_hour,
+            heating_rate_origin=tl.heating_rate_origin,
+            idle_decay_origin=tl.idle_decay_origin,
         )
         for tl in thermal_loads
     ]

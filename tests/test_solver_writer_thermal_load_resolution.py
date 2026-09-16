@@ -247,6 +247,11 @@ class TestBuildControllableLoadsThermalBranch(unittest.TestCase):
         tl = thermal[0]
         self.assertEqual(tl.heating_rate_c_per_kwh, 12.5)
         self.assertEqual(tl.idle_decay_c_per_hour, 0.75)
+        # nimbus issue #940: the origin is recorded on the same branch
+        # that picked the value, so it cannot describe a different branch
+        # than the one taken.
+        self.assertEqual(tl.heating_rate_origin, "override")
+        self.assertEqual(tl.idle_decay_origin, "override")
 
     def test_persisted_run_state_rate_wins_over_module_default_when_no_override(self):
         # A load migrated from kind=deferrable already has a real,
@@ -295,6 +300,65 @@ class TestBuildControllableLoadsThermalBranch(unittest.TestCase):
         tl = thermal[0]
         self.assertEqual(tl.heating_rate_c_per_kwh, 9.4)
         self.assertEqual(tl.idle_decay_c_per_hour, 0.62)
+        self.assertEqual(tl.heating_rate_origin, "learned")  # nimbus issue #940
+        self.assertEqual(tl.idle_decay_origin, "learned")
+
+    def test_module_defaults_are_reported_as_fallback(self):
+        """The third branch, and the one that matters most today: every
+        real kind=thermal load lands here, because #873 means the learner
+        never runs for this kind and there is nothing persisted to read.
+
+        Before nimbus issue #940 this was invisible -- the published
+        learned rates were None and thermal_rates_source was "", while
+        the LP scheduled real hot water on exactly these two constants.
+        """
+        data = {
+            "controllable_load_name": "HWS",
+            "controllable_load_kind": "thermal",
+            "thermal_temperature_entity": "water_heater.hws",
+            "thermal_max_power_kw": 3.0,
+            "thermal_target_temperature_c": 60.0,
+        }
+        states = {
+            "water_heater.hws": _fake_water_heater_state(current_temperature=42.0)
+        }
+        _sheddable, _adequacy, thermal = self._run(data, states)
+        tl = thermal[0]
+        self.assertEqual(
+            tl.heating_rate_c_per_kwh, thermal_forecast.DEFAULT_HEATING_RATE_C_PER_KWH
+        )
+        self.assertEqual(
+            tl.idle_decay_c_per_hour, thermal_forecast.DEFAULT_IDLE_DECAY_C_PER_HOUR
+        )
+        self.assertEqual(tl.heating_rate_origin, "fallback")
+        self.assertEqual(tl.idle_decay_origin, "fallback")
+
+    def test_the_two_rates_resolve_independently(self):
+        """An explicit heating-rate override alongside a fallback idle
+        decay is a legitimate real configuration, so one shared origin
+        field would be unable to describe it. Pinned because the obvious
+        simplification -- a single `thermal_rates_origin` -- would pass
+        every other test in this file.
+        """
+        data = {
+            "controllable_load_name": "HWS",
+            "controllable_load_kind": "thermal",
+            "thermal_temperature_entity": "water_heater.hws",
+            "thermal_max_power_kw": 3.0,
+            "thermal_target_temperature_c": 60.0,
+            "thermal_heating_rate_c_per_kwh": 12.5,
+        }
+        states = {
+            "water_heater.hws": _fake_water_heater_state(current_temperature=42.0)
+        }
+        _sheddable, _adequacy, thermal = self._run(data, states)
+        tl = thermal[0]
+        self.assertEqual(tl.heating_rate_c_per_kwh, 12.5)
+        self.assertEqual(tl.heating_rate_origin, "override")
+        self.assertEqual(
+            tl.idle_decay_c_per_hour, thermal_forecast.DEFAULT_IDLE_DECAY_C_PER_HOUR
+        )
+        self.assertEqual(tl.idle_decay_origin, "fallback")
 
 
 if __name__ == "__main__":
