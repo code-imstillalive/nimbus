@@ -8,6 +8,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.343] - 2026-09-16
+
+### Changed
+- **Worklogged the afternoon and brought the CLAUDE.md index entry up to date.** Documentation only -- no runtime change.
+
+  Nine releases (v0.94.334 -> v0.94.342) and several findings that would otherwise be lost, including three premises of this session's own that did not survive checking.
+
+  The through-line is worth repeating here because it changed how several questions got settled: the morning's lesson was guards enforcing less than they appear to; the afternoon's is harder -- **a claim this project wrote down is not evidence, even when it comes back from somewhere else.** Three questions were settled only by going to a primary source (HiGHS's own option defaults, highspy's `val()`, HAEO's own element directory), and the plausible-sounding intermediate would have been wrong each time.
+
+  The [#769](https://github.com/code-imstillalive/nimbus/issues/769) case is the sharpest: the top web result for "HAEO deferrable load schedule early incentive" is **that issue itself**, reflecting this project's own description back as though it were a finding about HAEO. HAEO has no load element in its optimisation model at all.
+
 ## [0.94.342] - 2026-09-16
 
 ### Changed
@@ -22,6 +33,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   Once per entity per process: the condition is structural, so over the cap this cycle means over it every cycle, and repeating it would be exactly the noise v0.94.297 had to clean up for #757. Per entity rather than globally, because both flagship sensors are affected and a global mute would hide half the problem.
 
 ### Notes
+- Devhub validation: deployed via HACS and restarted, `installed_version == available_version == v0.94.342`, local push sensors reporting `nimbus_version = 0.94.342` against a canonical-name `ABSENT`. No solver ERROR lines at all after the restart. The #944 warning itself did **not** fire on that instance, which is the correct outcome rather than a missing one: its managed entities publish through the entity path, which carries `state_info` and therefore applies `_unrecorded_attributes` normally. The warning exists for the REST/cron path, and confirming it there needs a real standalone install.
 - **The #357 drift guard forced the right call, and it was the opposite of the last three times.** It flagged the new helper immediately; three earlier times today the correct answer was `INTENTIONAL_NATIVE_ONLY`, but here that would have been exactly backwards -- the cron deployment is the one #944 is *about*, so marking it native-only would have put the warning on every install except the one that needs it. Ported instead, and adapted to the standalone script's own `print(file=sys.stderr)` convention, since a cron script has no HA logging pipeline.
 - A second guard, `test_solver_writer_no_silent_failures`, rejected the defensive handler's `except Exception: pass`. It was right to: "a diagnostic must never break a publish" does not justify silence, and nothing about the failure mode required it. The handler now says at DEBUG that it could not measure the payload and that the publish is unaffected.
 - **#944 stays open.** Deciding what to *do* about an oversize payload -- strip the series on the REST path, split it onto its own entity, or leave it -- changes the published surface on cron installs, and every option trades something real. That trade was invisible until now, which is precisely why it could not be made on evidence.
