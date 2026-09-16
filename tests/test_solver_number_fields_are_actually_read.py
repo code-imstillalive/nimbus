@@ -1,13 +1,15 @@
 """nimbus issue #1013 -- a dashboard dial can be fully wired into the
 config surface and still be read by nothing.
 
-`number.nimbus_solver_battery_soh_percent` is created in `number.py`,
+`number.nimbus_solver_battery_soh_percent` was created in `number.py`,
 mirrored onto `sensor.nimbus_solver_config` by `sensor.py`, and consumed
 by **no solve path at all** -- native or cron. A household setting State
-of Health from the dashboard changes nothing about dispatch or scoring.
+of Health from the dashboard changed nothing about dispatch or scoring.
 On the reference household it was set to 98%, in the reasonable belief
 it derated a 122.2 kWh pack to ~119.8 kWh, while the solver planned
-against the full 122.2.
+against the full 122.2. Fixed by `resolve_effective_capacity_kwh()`;
+the behaviour itself is tested in
+`test_effective_capacity_soh_derating.py`, this file tests the class.
 
 **Why nimbus issue #538's guard did not catch it.** That one pairs every
 `number.py` field against `sensor.py`'s live-entity resolution list, and
@@ -21,9 +23,11 @@ offers must appear somewhere in `solver_writer.py`, which is where the
 real `BatteryConfig`/`GridConfig` are built.
 
 A swept check at the time of writing found **exactly one** inert field
-out of 44, so the problem is isolated rather than systemic -- worth
+out of 44, so the problem was isolated rather than systemic -- worth
 recording, because "how many others are there" was the first question
-and the answer is one.
+and the answer was one. That one is now fixed, so the sweep should find
+none; the test's value from here on is catching the next one on the day
+it is added rather than years later.
 """
 
 from __future__ import annotations
@@ -34,19 +38,17 @@ from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parent.parent / "custom_components" / "nimbus_load"
 
-# nimbus issue #1013. The single known-inert field, listed explicitly so
-# that this test passes today AND fails loudly the moment it is fixed --
-# at which point the entry must be deleted rather than the test loosened.
-# Deliberately not a blanket "ignore unknown fields": a new inert field
-# fails immediately, which is the whole point.
-KNOWN_INERT: dict[str, str] = {
-    "solver_battery_soh_percent": (
-        "nimbus issue #1013 -- created in number.py and mirrored to the "
-        "config sensor, but no solve path reads it. Fix shape: apply it "
-        "where capacity becomes a BatteryConfig. When fixed, DELETE this "
-        "entry; this test will tell you to."
-    ),
-}
+# nimbus issue #1013. The single known-inert field WAS
+# `solver_battery_soh_percent`; its entry was deleted when the fix
+# landed, exactly as the exemption's own text instructed, and
+# `resolve_effective_capacity_kwh()` now reads it on every solve path.
+#
+# The dict stays, empty, because it is the mechanism rather than the
+# finding: a new inert field fails `test_no_solver_number_is_silently_
+# inert` immediately, and the only sanctioned way past that is to add an
+# entry here with an issue number and a reason. Deliberately not a
+# blanket "ignore unknown fields".
+KNOWN_INERT: dict[str, str] = {}
 
 
 def _solver_number_fields() -> set[str]:

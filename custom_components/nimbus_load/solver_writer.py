@@ -808,6 +808,88 @@ def resolve_max_discharge_kw(cfg: dict) -> float:
     return float(cfg["solver_max_discharge_kw"])
 
 
+_SOH_RANGE_WARNED: set[float] = set()
+
+
+def resolve_effective_capacity_kwh(cfg: dict) -> float:
+    """Nameplate battery capacity derated by configured State of Health.
+
+    nimbus issue #1013. `number.nimbus_solver_battery_soh_percent` has
+    existed as a dashboard dial, been mirrored onto
+    `sensor.nimbus_solver_config`, and been read by **nothing** -- no
+    solve path, native or cron. A household setting State of Health
+    changed nothing about dispatch or scoring, silently. The reference
+    household had it at 98%, in the reasonable belief it derated a 122.2
+    kWh pack to ~119.8, while every solve planned against the full
+    122.2.
+
+    The semantics implemented here are not invented: const.py's own
+    comment beside CONF_SOLVER_BATTERY_SOH_PERCENT has documented
+    `effective_capacity = capacity_kwh * soh_percent / 100` since the
+    field was added. Only the code was missing.
+
+    **Why this derates both rails rather than only the ceiling** -- the
+    one real modelling choice here, and it was measured rather than
+    argued. Fourteen consecutive days of the reference household's own
+    daily statistics, two sensors describing one pack:
+
+        sensor.combined_battery_charge   max 119.72 kWh  min 2.39 kWh
+        sensor.logger_battery_level_soc  max 100.0 %     min 2.0 %
+        sensor.combined_battery_capacity     122.16 kWh, constant
+
+    The BMS reports 100% at **119.72 kWh, not at the 122.16 nameplate**
+    -- so SoC is a percentage of the pack's CURRENT usable capacity, and
+    the nameplate is not the scale the household's own SoC sensor speaks
+    in. The floor agrees independently: Min SoC is configured at 2.0%
+    and the daily minimum lands at 2.39 kWh, which is 2.0% of 119.72
+    (2.394) rather than of 122.16 (2.443).
+
+    So both bounds must come off the derated number, or the solver's kWh
+    and the SoC sensor are describing different batteries. Derating only
+    the ceiling would silently reserve MORE real energy at the floor
+    than the household asked for.
+
+    The configured value is also vindicated by the same reading: 122.2 x
+    0.98 = 119.756 against a measured 119.72, a difference of 0.03%. The
+    dial was right the whole time. Nothing read it. See
+    tests/test_effective_capacity_soh_derating.py for the full data.
+
+    **Deliberately still one static number, not a live sensor.** The
+    inverters do publish per-pack SoH and it drifts over years, and
+    CONF_BATTERY_TOWER_SOH_SENSOR already exists in the topology
+    subentry -- but const.py's own comment is explicit that this field
+    is "one number the owner updates occasionally... NOT an automated
+    fade-tracking model." Wiring the live sensor is a real follow-up,
+    not something to smuggle in under a bug fix.
+
+    No-op by default: DEFAULT_SOLVER_SOH_PERCENT is 100.0, so any
+    install that has never touched the dial gets a byte-identical
+    number back.
+
+    A reading outside (0, 100] returns nameplate UNCHANGED rather than
+    scaling by it. number.py clamps the entity to [1, 100], so this is
+    only reachable from hand-edited config or the cron copy's own YAML
+    -- and a nonsense value must not silently shrink a real pack, nor
+    inflate one beyond its nameplate.
+    """
+    nominal = _cfg_num(cfg, "solver_battery_capacity_kwh", 0.0)
+    soh_pct = _cfg_num(cfg, "solver_battery_soh_percent", 100.0)
+    if not 0.0 < soh_pct <= 100.0:
+        if soh_pct not in _SOH_RANGE_WARNED:
+            _SOH_RANGE_WARNED.add(soh_pct)
+            _LOGGER.warning(
+                "Nimbus Solver: configured Battery State of Health is "
+                "%.2f%%, outside the valid (0, 100] range -- ignoring it "
+                "and planning against the full %.2f kWh nameplate "
+                "capacity for this solve. Set it between 1 and 100 on the "
+                "dashboard if you meant to derate an aged pack.",
+                soh_pct,
+                nominal,
+            )
+        return nominal
+    return nominal * soh_pct / 100.0
+
+
 _MIN_SOC_FLOOR_FRACTION = 0.0005  # 0.05% of capacity -- see docstring below.
 
 
@@ -6657,7 +6739,9 @@ def _compute_report_for_window(
         )
     )
 
-    capacity_kwh = _cfg_num(cfg, "solver_battery_capacity_kwh", 0.0)
+    # nimbus issue #1013: SoH-derated, same as every other BatteryConfig
+    # construction -- see resolve_effective_capacity_kwh()'s docstring.
+    capacity_kwh = resolve_effective_capacity_kwh(cfg)
     min_pct = _cfg_num(cfg, "solver_battery_min_soc_percent", 5.0)
     max_pct = _cfg_num(cfg, "solver_battery_max_soc_percent", 100.0)
     initial_pct = (
@@ -8024,7 +8108,9 @@ def compute_efficiency_backtest_report(cfg: dict, now: datetime) -> dict | None:
         )
     )
 
-    capacity_kwh = _cfg_num(cfg, "solver_battery_capacity_kwh", 0.0)
+    # nimbus issue #1013: SoH-derated, same as every other BatteryConfig
+    # construction -- see resolve_effective_capacity_kwh()'s docstring.
+    capacity_kwh = resolve_effective_capacity_kwh(cfg)
     min_pct = _cfg_num(cfg, "solver_battery_min_soc_percent", 5.0)
     max_pct = _cfg_num(cfg, "solver_battery_max_soc_percent", 100.0)
     # Initial/final SoC don't need real history here the way the EPR
@@ -8214,7 +8300,9 @@ def compute_nimbus_only_soc_counterfactual(cfg: dict, day: datetime) -> dict | N
     if not solar_sensor or not load_sensor or not soc_sensor:
         return None
 
-    capacity_kwh = _cfg_num(cfg, "solver_battery_capacity_kwh", 0.0)
+    # nimbus issue #1013: SoH-derated, same as every other BatteryConfig
+    # construction -- see resolve_effective_capacity_kwh()'s docstring.
+    capacity_kwh = resolve_effective_capacity_kwh(cfg)
     if capacity_kwh <= 0:
         return None
 
@@ -10112,6 +10200,22 @@ def publish_plan(
                 # come up yet, which is honest rather than defaulting to
                 # "home" and implying a mode was actually in force.
                 "household_mode": cfg.get("household_mode"),
+                # nimbus issue #1013. The dial derates capacity now, so
+                # the number the solver actually planned against is no
+                # longer the number on the dashboard -- and a household
+                # that cannot see the difference cannot tell the fix
+                # landed. Both are published, not just the result: a lone
+                # "119.76" is indistinguishable from someone having
+                # retyped the nameplate.
+                "battery_soh_percent": _cfg_num(
+                    cfg, "solver_battery_soh_percent", 100.0
+                ),
+                "battery_nameplate_capacity_kwh": round(
+                    _cfg_num(cfg, "solver_battery_capacity_kwh", 0.0), 3
+                ),
+                "battery_effective_capacity_kwh": round(
+                    resolve_effective_capacity_kwh(cfg), 3
+                ),
             },
             "generated_at": now.isoformat(),
             "binding_constraint_now": binding_now,
@@ -14474,7 +14578,11 @@ def main() -> None:
     # had to be hand-created via a separate, undocumented YAML package
     # file. A fresh install now needs nothing more than filling in
     # Nimbus's own hub "Configure" -> "Solver settings" form.
-    capacity_kwh = float(cfg["solver_battery_capacity_kwh"])
+    # nimbus issue #1013: SoH-derated. This is the LIVE dispatch path --
+    # the one where a phantom ceiling actually costs something, since
+    # #1012 established this pack reaches both rails every single day.
+    # See resolve_effective_capacity_kwh()'s docstring.
+    capacity_kwh = resolve_effective_capacity_kwh(cfg)
     min_pct = _cfg_num(cfg, "solver_battery_min_soc_percent", 5.0)
     max_pct = _cfg_num(cfg, "solver_battery_max_soc_percent", 100.0)
     # The config-flow's own solver_battery_soc_sensor field replaces the
