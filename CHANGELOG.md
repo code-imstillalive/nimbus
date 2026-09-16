@@ -8,6 +8,21 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.363] - 2026-09-17
+
+### Changed
+- **[#735](https://github.com/code-imstillalive/nimbus/issues/735) stage 6: the six non-essential side-publishes extracted from `main()`** — 1124 to 1060 lines. No behaviour change; the [#363](https://github.com/code-imstillalive/nimbus/issues/363) golden-output guardrail passed unchanged, which is the real proof since it drives `main()` end to end and compares every pushed attribute byte-for-byte.
+
+  **Found by measuring rather than reading.** Stage 4 concluded its own region has no clean seam and stage 5 concluded `solver_plan.py` should not be built, both on measured grounds — so rather than accept "nothing left", every consecutive-statement window in `main()` was scanned and scored by statement-level inputs/outputs, the same measure stages 1-3 and 5 used. One window stands well clear at **5 inputs / 1 output over 47 lines**; the next best is 11/4. For comparison with what is already extracted (solar 3 outputs, load 4 in / 12 out, SoC envelope 5 in / 4 out) that is **the cleanest seam taken so far**, and nobody had proposed it.
+
+  It is a coherent cut rather than an arbitrary one: all six blocks (weather mirrors, daily quality report, daily flex report, counterfactual SoC, efficiency backtest, solar delivery ratio) share one contract stated identically in each of their own comments — a failure there must never take down the real solve — which is why every one is a `try` around a single call with a WARNING in the `except`.
+
+  A **pure move**, verified mechanically (the moved block reproduces the original bytes exactly) rather than by eye — the same check [#1019](https://github.com/code-imstillalive/nimbus/issues/1019) used, because [#873](https://github.com/code-imstillalive/nimbus/issues/873) established a mechanical move can silently change behaviour while passing `ruff` and `mypy`.
+
+  Two corrections along the way, both from making a number concrete rather than trusting it: the first scan reported **14** inputs for the best seam because it counted module-level functions and builtins as parameters — filtered to real locals it is 5, and the ranking flipped from "nothing is extractable" to "one thing clearly is" (stage 4's own comments record the mirror-image error, measuring the region instead of the statements); and the helper was annotated `-> float | None` until mypy pointed out `update_solar_delivery_ratio()` returns a dict.
+
+  Devhub validation: **not applicable** — a pure refactor with no behaviour change has nothing new for an install to show. Verified by the golden guardrail, the byte-identity check, CI and the full local suite.
+
 ## [0.94.362] - 2026-09-17
 
 ### Fixed
