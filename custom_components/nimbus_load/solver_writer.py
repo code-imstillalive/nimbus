@@ -7235,10 +7235,23 @@ def _achieved_feasibility_stats(
     codebase as structural ("the oracle can never be beaten"), and it is
     -- for two trajectories drawn from the same feasible set.
 
-    This function only MEASURES and REPORTS. It deliberately does not
-    clamp the integration used for costing: that would change `j_ach`,
-    the headline achieved-cost figure, on every install, which is a
-    household decision rather than a patch (#956 says so explicitly).
+    **The household settled that on 2026-09-16 -- "go with B".** The
+    ORACLE is now widened to contain the achieved trajectory rather than
+    the achieved integration being clamped to fit the oracle, so the two
+    sides are drawn from the same feasible set again and `regret >= 0`
+    holds by construction. See `solver/quality_report.py`'s own
+    `_soc_envelope_containing_achieved()` and
+    `_widen_export_pin_to_achieved()`.
+
+    That does NOT retire this function, and the reason is worth being
+    explicit about. `j_ach` is deliberately still priced against the
+    CONFIGURED envelope -- option B's whole point -- so these numbers
+    keep answering the question a household actually asked: how far
+    outside its own configured limits did the battery run today. What
+    changes is what a surviving `regret_reliable: False` now means. The
+    one mechanism this file verified is gone, so a negative regret from
+    here on is evidence of something else, and `epr_reason` says which
+    of the two cases it is.
     """
     soc_pcts = [
         float(row["soc_pct"]) for row in j_ach_hourly.values() if "soc_pct" in row
@@ -7270,6 +7283,14 @@ def _achieved_feasibility_stats(
         # this install's own violation, and something else does.
         reason = "oracle_beaten"
     else:
+        # Since the oracle is widened to contain the achieved trajectory
+        # (#956 option B), this branch no longer describes a comparison
+        # the widening failed to fix -- it describes one it could not:
+        # the widening is clamped to `[0, capacity]`, so a trajectory
+        # reconstructed as leaving THAT is left outside the oracle's
+        # feasible set on purpose, because it is sensor or unit trouble
+        # rather than a state the oracle should be asked to match. Kept
+        # under its original label so a history of these stays readable.
         reason = "oracle_beaten_achieved_outside_lp_soc_bounds"
 
     return {

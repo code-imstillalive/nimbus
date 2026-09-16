@@ -158,6 +158,13 @@ def grid_export_bounds(
         pinned = float(grid.fixed_export_kw[t])
         if override_p2p:
             return pinned, export_limit_kw
+        # nimbus issue #956: an optional per-period ceiling turns the
+        # exact pin into a band. Absent (None/NaN) -- which is every live
+        # forward-planning solve -- this is byte-identical to lb == ub.
+        if grid.fixed_export_max_kw is not None and not np.isnan(
+            grid.fixed_export_max_kw[t]
+        ):
+            return pinned, max(pinned, float(grid.fixed_export_max_kw[t]))
         return pinned, pinned
     return 0.0, export_limit_kw
 

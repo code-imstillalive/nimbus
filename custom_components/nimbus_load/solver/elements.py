@@ -259,6 +259,33 @@ class GridConfig:
     # configuration maps onto it).
     fixed_export_kw: NDArray[np.float64] | None = None
 
+    # fixed_export_max_kw (nimbus issue #956, 2026-09-16) -- turns the
+    # exact pin above into a per-period BAND: `fixed_export_kw` becomes
+    # the floor and this the ceiling, for any period where BOTH are
+    # non-NaN. None (the default), or NaN in a given period, leaves that
+    # period's pin exactly as it has always been (lb == ub), so every
+    # caller and test predating this field is byte-identical.
+    #
+    # Why a band exists at all: the retrospective scorer
+    # (solver/quality_report.py) re-solves a day that has already
+    # happened, and a real day does not deliver its commitment to the
+    # watt. A household committed to 12.0 kW delivered 12.39-12.77 kW,
+    # which put the achieved trajectory OUTSIDE the oracle's feasible set
+    # and let achieved price out cheaper than perfect foresight -- EPR
+    # 103.66%, regret -$0.7307. The band is exactly as wide as that day's
+    # own over-delivery, which keeps the 2026-08-20 finding this pin
+    # exists for fully intact: the oracle still cannot chase a fictional
+    # market up to export_limit_kw, only as far as the day itself
+    # demonstrably went. It widens UPWARD only -- an under-delivered
+    # commitment keeps its full regret, see the scorer's own
+    # _widen_export_pin_to_achieved() for why that asymmetry is
+    # deliberate.
+    #
+    # The LIVE forward-planning path never sets this -- a commitment
+    # about the future has no achieved deviation to widen by, and
+    # consistency of delivery is part of what earns the rate.
+    fixed_export_max_kw: NDArray[np.float64] | None = None
+
     # Price-risk hedging (2026-08-21, direct household finding: "the
     # forecasts are always wrong but they tend to be more expensive in
     # the afternoons, so waiting is not a good idea"). Mechanism 3
@@ -351,6 +378,28 @@ class GridConfig:
                 finite.min() < 0 or np.any(finite > export_limit_arr[finite_mask])
             ):
                 msg = "fixed_export_kw's non-NaN entries must be within [0, export_limit_kw]"
+                raise ValueError(msg)
+        if self.fixed_export_max_kw is not None:
+            if self.fixed_export_kw is None:
+                msg = "fixed_export_max_kw requires fixed_export_kw to be given too"
+                raise ValueError(msg)
+            if len(self.fixed_export_max_kw) != len(self.export_price):
+                msg = "fixed_export_max_kw must have the same length as export_price"
+                raise ValueError(msg)
+            # Only periods that are genuinely pinned AND genuinely
+            # widened need checking -- a NaN on either side means that
+            # period is not a band at all.
+            band = ~np.isnan(self.fixed_export_max_kw) & ~np.isnan(self.fixed_export_kw)
+            ceiling = self.fixed_export_max_kw[band]
+            export_limit_band = np.broadcast_to(
+                np.asarray(self.export_limit_kw, dtype=np.float64),
+                (len(self.export_price),),
+            )[band]
+            if ceiling.size and (
+                np.any(ceiling < self.fixed_export_kw[band])
+                or np.any(ceiling > export_limit_band)
+            ):
+                msg = "fixed_export_max_kw's banded entries must be within [fixed_export_kw, export_limit_kw]"
                 raise ValueError(msg)
         if self.import_price_upper is not None and len(self.import_price_upper) != len(
             self.import_price
