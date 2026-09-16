@@ -8,6 +8,23 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.356] - 2026-09-17
+
+### Fixed
+- **One bad controllable load no longer costs the rest of the dispatch cycle** ([#1019](https://github.com/code-imstillalive/nimbus/issues/1019), the remaining half). Every controllable load shared **one** try/except — the outermost — so a single raise abandoned the cycle for every load not yet processed. Loads already dispatched stayed dispatched; the rest were simply never commanded. At a 5-minute cadence the next cycle usually recovers, so it presented as intermittent missed dispatch rather than an outage.
+
+  v0.94.350 shipped the **visibility** half (DEBUG → WARNING, naming what was lost). This is the **survivability** half: the loop body is wrapped per load, so one bad load costs itself and nothing else. The two shipped separately on purpose and the order turned out to matter — [#873](https://github.com/code-imstillalive/nimbus/issues/873)'s hoist, attempted between them, failed with an `AttributeError` swallowed into silent absence, and that WARNING is the only reason it was diagnosable rather than backed out a third time.
+
+  **Deliberately a pure re-indent of 839 lines, verified mechanically rather than by eye** — the transform asserts that dedenting the result by 4 reproduces the original bytes exactly. That check exists because #873 established a mechanical move of a block containing `if` can silently re-parent a following `elif`: valid Python, passing `ruff` and `mypy`, wrong behaviour. A pure indent preserves every relative indentation and therefore every branch parentage, which is why this shape was chosen over extracting a helper.
+
+  The per-load handler **names the load**; the outer one cannot, because by the time it runs the frame is gone and "something failed" is all it can honestly say. That is the practical gain — a household now learns *which* load went uncommanded.
+
+  The honest gap-pin that stood in the test file is replaced by exactly the behavioural test its own docstring specified: two loads, the first made to raise **outside** the dispatch call (dispatch already had its own per-load handler, so injecting there would have proved nothing). Mutation-checked — 3 of the 9 fail against the parent commit, including *"a healthy load was left uncommanded because a DIFFERENT load raised"*.
+
+  CI then caught a real flaw in those tests that a local run could not: which in-memory `Store` stand-in is installed depends on test-module import order, and both persist across tests, so leftover state left `prev.commanded_state` already true and dispatch — which only fires on a transition — never happened. Fixed with per-invocation subentry ids rather than by clearing one of the two stores.
+
+  Devhub validation: **not claimed, and confirmed rather than assumed** — that install's solve reports `n_controllable_loads: 0`, so it has no controllable load to isolate. Verified by CI and the mutation check instead.
+
 ## [0.94.355] - 2026-09-17
 
 ### Fixed
