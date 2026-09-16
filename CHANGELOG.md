@@ -8,6 +8,21 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.358] - 2026-09-17
+
+### Fixed
+- **The recursive-validation metrics are now actually published** ([#937](https://github.com/code-imstillalive/nimbus/issues/937), [#351](https://github.com/code-imstillalive/nimbus/issues/351)). v0.94.357 computed `validation_recursive_mae_by_horizon`, stored it on `TrainedModel` and threaded it into the coordinator's training-info dict — **and stopped there**. `sensor.py`'s `extra_state_attributes()` maps a fixed set of keys, and a key absent from that map is never published, so nothing outside the process could read it.
+
+  That is the [#1013](https://github.com/code-imstillalive/nimbus/issues/1013) class exactly — wired into one layer, invisible at the next. A metric whose entire purpose is to be read back, that cannot be read back, is not a metric, and it shipped about four hours after that same class was fixed on a battery dial.
+
+  **Found by devhub's own deploy check**, which is the first time in this run that check earned its keep rather than confirming a known staleness. The sequence: devhub's ML path turns out to be **current** (the #939 lead-time scalars are live on its own `nimbus_load` entity) while its solver path still reports v0.94.342 with 7 `solve_diagnostics` keys — per-file staleness again, in the opposite direction to the last recorded instance — so a forced retrain there could genuinely have populated the new field. It did not, and the sensor's own attribute key list said why.
+
+  Also publishes `validation_recursive_mae` itself. #351 made that the metric which actually **decides** `model_type`; it has been stored on `TrainedModel` since then and surfaced nowhere, so the one number explaining why a given install runs k-NN rather than GBRT was unreadable from outside. Same defect, older, found by reading the attribute list this fix required looking at anyway.
+
+  Both read `getattr`-defensively in the coordinator, since a `.pkl` written before either existed unpickles without them. Two new tests, split deliberately: one that the coordinator **exports** both, one that `sensor.py` **publishes** both — exporting is necessary and not sufficient, and asserting only the first is what let this through.
+
+  Devhub validation: the gap itself was found there; the fix's own effect still needs a real retrain under this code before the values appear, so no live confirmation is claimed. Verified by CI, the two new tests, and the full local suite.
+
 ## [0.94.357] - 2026-09-17
 
 ### Added
