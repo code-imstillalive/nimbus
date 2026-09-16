@@ -25,6 +25,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime
+from typing import Any
 
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigSubentry
@@ -192,15 +193,52 @@ SERVICE_COMPUTE_QUALITY_REPORT_SCHEMA = vol.Schema(
 # comment for the full override/fallback behaviour.
 SERVICE_SET_CONTROLLABLE_LOAD = "set_controllable_load"
 
-SERVICE_SET_CONTROLLABLE_LOAD_SCHEMA = _controllable_load_schema({}).extend(
-    {
-        vol.Optional("subentry_id"): str,
-        vol.Optional(CONF_CONTROLLABLE_LOAD_POWER_SENSOR): str,
-        vol.Optional(CONF_THERMAL_TEMPERATURE_ENTITY): str,
-        vol.Optional(CONF_DEFERRABLE_DONE_ENTITY): str,
-        vol.Optional(CONF_DEFERRABLE_VALUE_PER_KWH_ENTITY): str,
-    }
-)
+
+def _service_schema_from_wizard() -> vol.Schema:
+    """The wizard's field set, with its FORM defaults stripped out.
+
+    nimbus issue #1045. Reusing the wizard schema verbatim keeps the two
+    surfaces from drifting, which is why it is done -- but a form default
+    and a service default are not the same thing, and voluptuous does not
+    distinguish them. `vol.Required(key, default=X)` **injects** X into
+    the validated payload whenever the caller omits the key. On a form
+    that is right: the field is rendered pre-filled and the human sees
+    what they are submitting. On a service call it means the payload
+    silently grows keys the caller never sent.
+
+    That was invisible while the handler replaced the whole subentry
+    (#1042) -- the injected values were simply part of the wipe. Once
+    the handler started MERGING, they became overrides: calling the
+    service to change one field applied
+    `controllable_load_kind = "sheddable"` over a real deferrable load,
+    because that is the wizard's first-option default. Confirmed live on
+    a real install: a hot water load came back with every deferrable
+    field intact and `kind: sheddable`, which routes it down the
+    sheddable path and makes all of them dead. Worse than the wipe it
+    replaced, because the config looks fine.
+
+    So: every key becomes Optional with no default, and "what must be
+    present" is enforced in the handler instead, where it can depend on
+    whether this is a create or an update. A create still needs a kind;
+    an update inherits the one already stored.
+    """
+    stripped: dict[Any, Any] = {}
+    for key, value in _controllable_load_schema({}).schema.items():
+        name = getattr(key, "schema", key)
+        stripped[vol.Optional(name)] = value
+    stripped.update(
+        {
+            vol.Optional("subentry_id"): str,
+            vol.Optional(CONF_CONTROLLABLE_LOAD_POWER_SENSOR): str,
+            vol.Optional(CONF_THERMAL_TEMPERATURE_ENTITY): str,
+            vol.Optional(CONF_DEFERRABLE_DONE_ENTITY): str,
+            vol.Optional(CONF_DEFERRABLE_VALUE_PER_KWH_ENTITY): str,
+        }
+    )
+    return vol.Schema(stripped)
+
+
+SERVICE_SET_CONTROLLABLE_LOAD_SCHEMA = _service_schema_from_wizard()
 
 
 def _all_coordinators(hass: HomeAssistant) -> dict[str, NimbusCoordinator]:
@@ -458,6 +496,18 @@ async def _async_handle_set_controllable_load(
     existing = _find_controllable_load_subentry(
         entry, subentry_id=subentry_id, name=name
     )
+
+    # nimbus issue #1045: the schema no longer injects a kind (see
+    # _service_schema_from_wizard()), so CREATE has to ask for one here.
+    # An UPDATE deliberately does not -- it inherits whatever is stored,
+    # which is the whole point of a partial update.
+    if existing is None and not data.get(CONF_CONTROLLABLE_LOAD_KIND):
+        raise ServiceValidationError(
+            "nimbus_load.set_controllable_load: 'controllable_load_kind' is "
+            "required when creating a new Controllable Load (one of "
+            "'sheddable', 'deferrable', 'thermal'). It is optional when "
+            "updating an existing load, which keeps the kind it already has."
+        )
 
     if existing is not None:
         # nimbus issue #1042: MERGE, never replace. This used to pass the

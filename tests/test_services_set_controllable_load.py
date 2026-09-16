@@ -254,6 +254,97 @@ def test_the_returned_data_is_what_was_actually_persisted():
     assert result["data"]["deferrable_min_deferral_saving_dollars"] == 1.0
 
 
+def test_the_service_schema_injects_no_defaults_at_all():
+    """nimbus issue #1045, at the schema.
+
+    The wizard schema this reuses declares
+    `vol.Required(controllable_load_kind, default="sheddable")`, and
+    voluptuous INJECTS a default when the key is absent. On a form
+    that is right -- the field renders pre-filled and the human sees
+    it. On a service call it silently grows keys the caller never
+    sent, which #1042's merge then applies over real stored config.
+    """
+    validated = services.SERVICE_SET_CONTROLLABLE_LOAD_SCHEMA(
+        {"controllable_load_name": "Hot Water"}
+    )
+    assert validated == {"controllable_load_name": "Hot Water"}, (
+        "the service schema injected keys the caller never sent: "
+        f"{sorted(set(validated) - {'controllable_load_name'})}"
+    )
+
+
+def test_a_partial_update_does_not_silently_change_the_kind():
+    """The live symptom, and it is worse than the wipe it replaced.
+
+    Confirmed on a real install: updating one field on a deferrable
+    hot water load returned every deferrable field intact and
+    `kind: sheddable`. That routes the load down the sheddable path
+    and makes all of those fields dead -- while the config LOOKS
+    fine, which the wipe at least did not.
+    """
+    existing = _fake_subentry(
+        "existing_id",
+        "Hot Water",
+        data={
+            "controllable_load_name": "Hot Water",
+            "controllable_load_kind": "deferrable",
+            "deferrable_target_kwh": 4.0,
+        },
+    )
+    hass, _entry = _fake_hass_with_entry({"existing_id": existing})
+    payload = services.SERVICE_SET_CONTROLLABLE_LOAD_SCHEMA(
+        {
+            "subentry_id": "existing_id",
+            "controllable_load_name": "Hot Water",
+            "deferrable_min_deferral_saving_dollars": 0.75,
+        }
+    )
+
+    asyncio.run(services._async_handle_set_controllable_load(hass, _fake_call(payload)))
+
+    _, kwargs = hass.config_entries.async_update_subentry.call_args
+    assert kwargs["data"]["controllable_load_kind"] == "deferrable", (
+        "a partial update flipped the load to a different KIND, which "
+        "silently disables every field of the kind it was "
+        f"(nimbus #1045): {kwargs['data']}"
+    )
+
+
+def test_creating_a_load_still_requires_an_explicit_kind():
+    """With the default no longer injected, CREATE has to ask -- and
+    must say so clearly rather than quietly making a sheddable load
+    out of a caller who meant hot water."""
+    hass, _entry = _fake_hass_with_entry({})
+    call = _fake_call({"controllable_load_name": "Brand New Load"})
+
+    with pytest.raises(ServiceValidationError) as excinfo:
+        asyncio.run(services._async_handle_set_controllable_load(hass, call))
+
+    assert "controllable_load_kind" in str(excinfo.value)
+    hass.config_entries.async_add_subentry.assert_not_called()
+
+
+def test_updating_does_not_require_a_kind():
+    """The other side of the same rule: an update inherits the stored
+    kind, which is the whole point of a partial update."""
+    existing = _fake_subentry(
+        "existing_id",
+        "Hot Water",
+        data={
+            "controllable_load_name": "Hot Water",
+            "controllable_load_kind": "thermal",
+        },
+    )
+    hass, _entry = _fake_hass_with_entry({"existing_id": existing})
+    call = _fake_call(
+        {"subentry_id": "existing_id", "controllable_load_name": "Hot Water"}
+    )
+
+    result = asyncio.run(services._async_handle_set_controllable_load(hass, call))
+
+    assert result["kind"] == "thermal"
+
+
 def test_set_controllable_load_raises_for_an_unknown_subentry_id():
     hass, _entry = _fake_hass_with_entry({})
     call = _fake_call(
