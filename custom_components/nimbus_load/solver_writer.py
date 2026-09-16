@@ -2185,6 +2185,77 @@ def fetch_solver_config() -> dict:
     return state["attributes"]
 
 
+# nimbus issue #944: the recorder's own per-state attribute cap
+# (homeassistant/components/recorder/db_schema.py::MAX_STATE_ATTRS_BYTES).
+# Mirrored here rather than imported because this module must keep
+# working on the standalone/cron deployment, which has no homeassistant
+# package at all.
+_MAX_STATE_ATTRS_BYTES = 16384
+
+# Warn once per entity_id per process. The condition is structural -- if
+# a payload is over the cap this cycle it will be over it every cycle --
+# so repeating it once a minute would be exactly the noise v0.94.297 had
+# to clean up for #757.
+_OVERSIZE_ATTRS_WARNED: set[str] = set()
+
+
+def _warn_if_attrs_exceed_recorder_cap(entity_id: str, attributes: dict) -> None:
+    """Say plainly when a published payload will lose ALL of its
+    attribute history (nimbus issue #944).
+
+    `_unrecorded_attributes` is what normally keeps the big per-period
+    series out of the recorder, and it CANNOT apply here. HA reads it
+    from `state.state_info`, which only the entity path populates;
+    `states.async_set()` and the REST API both leave it `None`. So on
+    these two publish paths the whole payload is measured, and once it
+    exceeds the cap the recorder drops **every attribute on the row**
+    (`return b"{}"`), not merely the oversized one.
+
+    The knock-on is what makes this worth a warning rather than a
+    comment: `unit_of_measurement` goes with the rest, the statistics
+    compiler then sees no unit where it previously compiled one, and
+    long-term statistics for that entity are suppressed. The only thing
+    in the log today is a recorder line that reads like a database
+    performance note and names neither Nimbus nor the consequence.
+
+    Best-effort throughout: a diagnostic must never be the reason a real
+    publish fails.
+    """
+    try:
+        if entity_id in _OVERSIZE_ATTRS_WARNED or not attributes:
+            return
+        encoded = json.dumps(attributes).encode("utf-8")
+        if len(encoded) <= _MAX_STATE_ATTRS_BYTES:
+            return
+        _OVERSIZE_ATTRS_WARNED.add(entity_id)
+        biggest = sorted(
+            ((len(json.dumps(v).encode("utf-8")), k) for k, v in attributes.items()),
+            reverse=True,
+        )[:3]
+        _LOGGER.warning(
+            "Nimbus #944: %s is publishing %d bytes of attributes, over the "
+            "recorder's %d byte cap, on a publish path that cannot apply "
+            "_unrecorded_attributes (no state_info: REST, or the raw "
+            "states.async_set fallback). The recorder will therefore drop "
+            "ALL attributes for this entity -- including unit_of_measurement, "
+            "which then suppresses its long-term statistics. Largest "
+            "contributors: %s. The live state is unaffected; what is lost is "
+            "history. Logged once per entity per run.",
+            entity_id,
+            len(encoded),
+            _MAX_STATE_ATTRS_BYTES,
+            ", ".join(f"{name}={size}B" for size, name in biggest),
+        )
+    except Exception:
+        _LOGGER.debug(
+            "Nimbus #944: could not measure the attribute payload for %s "
+            "(unserialisable value). Skipping the size check for this "
+            "publish -- the publish itself is unaffected.",
+            entity_id,
+            exc_info=True,
+        )
+
+
 def ha_post_state(entity_id: str, state, attributes: dict) -> None:
     if _NATIVE_HASS is not None:
         # Dispatch-table shortcut (2026-08-23, issue #55): if a real
@@ -2274,12 +2345,14 @@ def ha_post_state(entity_id: str, state, attributes: dict) -> None:
             state,
             sorted(attributes.keys()) if attributes else attributes,
         )
+        _warn_if_attrs_exceed_recorder_cap(entity_id, attributes)
         _NATIVE_HASS.add_job(
             functools.partial(
                 _NATIVE_HASS.states.async_set, entity_id, state, attributes
             )
         )
         return
+    _warn_if_attrs_exceed_recorder_cap(entity_id, attributes)
     body = json.dumps({"state": state, "attributes": attributes}).encode("utf-8")
     req = urllib.request.Request(
         f"{HA_BASE}/api/states/{entity_id}",
