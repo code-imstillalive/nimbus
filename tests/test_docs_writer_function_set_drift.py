@@ -209,6 +209,14 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # standalone/cron script computes no quality report, so there is
         # nothing for it to be missing from.
         "_history_coverage_hours",
+        # nimbus issue #1054: the per-series half of the line directly
+        # above -- _history_coverage_hours() now delegates to it so the
+        # skip line can name WHICH sensor was short instead of only the
+        # minimum. Not a separate concern from its own caller: same
+        # native-only quality report, same "the standalone/cron script
+        # computes no quality report, so there is nothing for it to be
+        # missing from" reasoning.
+        "_history_coverage_by_series",
         # nimbus issue #428: only called from compute_daily_quality_
         # report's own solar/load/battery resampling (already listed
         # above) -- same native-only reasoning, not a separate gap.

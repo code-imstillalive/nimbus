@@ -162,7 +162,7 @@ import threading
 import time
 import urllib.error
 import urllib.request
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -5301,6 +5301,26 @@ QUALITY_ENTITY_ID = "sensor.nimbus_solver_quality_report"
 # produced figures roughly HALF the real ones on a live install.
 _MIN_DAILY_COVERAGE_FRACTION = 0.9
 
+# nimbus issue #1054: how many times the SAME day may be skipped for
+# thin coverage before the skip stops being logged as routine INFO and
+# starts being a WARNING.
+#
+# The INFO level was right for what #984 expected to catch -- the
+# recorder still catching up just after midnight, which resolves itself
+# on the next cycle and should not page anyone. It was wrong for what
+# actually happened on the production install: the same day skipped
+# across 5+ consecutive solves, `sensor.nimbus_solver_quality_report`
+# sitting at `unknown` for a day and a half, and NOTHING at the default
+# log level saying why. The reason was only recoverable by raising the
+# logger to INFO by hand and re-running `solve_now`.
+#
+# Three is deliberately past "the recorder is catching up" (that clears
+# on the first or second retry) and well short of spamming a real
+# outage, and the day key means a genuinely broken day warns once per
+# cycle rather than every scored day re-arming it.
+_COVERAGE_SKIP_WARN_AFTER = 3
+_COVERAGE_SKIP_COUNTS: dict[str, int] = {}
+
 
 def _history_coverage_hours(
     histories: tuple[list[tuple[datetime, float]], ...],
@@ -5325,15 +5345,81 @@ def _history_coverage_hours(
 
     Returns 0.0 for an empty series, which fails any threshold.
     """
-    worst: float | None = None
-    for hist in histories:
+    if not histories:
+        return 0.0
+    by_series = _history_coverage_by_series(
+        {str(i): hist for i, hist in enumerate(histories)}, start, end
+    )
+    return min(cov.hours for cov in by_series.values())
+
+
+@dataclass(frozen=True)
+class _SeriesCoverage:
+    """One series' own contribution to the coverage gate (nimbus issue
+    #1054).
+
+    `hours` is the number the threshold acts on. `first`/`last` are the
+    covered span's own edges, clipped to the window and None for a series
+    with no history at all -- they are what turn "this sensor was short"
+    into "this sensor's history runs 06:24 to 23:59", which for a
+    TRUNCATED window (the only kind this gate can see -- see
+    `_history_coverage_hours()` on why an interior gap does not reduce a
+    span) is the gap boundary itself.
+    """
+
+    hours: float
+    first: datetime | None
+    last: datetime | None
+
+
+def _history_coverage_by_series(
+    histories: dict[str, list[tuple[datetime, float]]],
+    start: datetime,
+    end: datetime,
+) -> dict[str, _SeriesCoverage]:
+    """The same span measurement as `_history_coverage_hours()`, kept
+    PER SERIES instead of minimised away (nimbus issue #1054).
+
+    `_history_coverage_hours()` reports only the worst number, which is
+    the right input for the threshold test but throws away the one fact
+    a household needs once the gate actually fires: **which** sensor was
+    short. Mark Purcell hit exactly that on the real production install
+    -- the skip line said 17.37 h of 24.00 h "worst of solar/load/
+    battery" and #1054's own next step had to be "pull all three
+    sensors' raw history by hand and find out which one it was", a
+    manual recorder pull to recover a number this function had already
+    computed and discarded.
+
+    So this is the real implementation and `_history_coverage_hours()`
+    delegates to it -- one measurement, no chance of the headline number
+    and the breakdown drifting apart, and the existing tuple signature
+    (and its tests) unchanged.
+
+    An empty series maps to 0.0 here rather than short-circuiting the
+    whole dict, which is what makes an entirely-missing sensor
+    distinguishable from a merely truncated one -- though note that
+    end-to-end an entirely-absent sensor is caught UPSTREAM of this gate
+    by #314's own row-count guard, which already names it, so the 0.0
+    here is defensive rather than the path a household actually hits.
+    The minimum over the result is identical either way, so the
+    threshold behaviour is byte-for-byte what it was.
+
+    The span's own edges come back too -- #1054's stated next step was
+    finding the actual gap boundary, and for a truncated window that IS
+    the boundary, so there is no reason to make anyone pull the recorder
+    by hand for something already in scope here.
+    """
+    out: dict[str, _SeriesCoverage] = {}
+    for name, hist in histories.items():
         if not hist:
-            return 0.0
+            out[name] = _SeriesCoverage(0.0, None, None)
+            continue
         first = max(hist[0][0], start)
         last = min(hist[-1][0], end)
-        span = max(0.0, (last - first).total_seconds() / 3600.0)
-        worst = span if worst is None else min(worst, span)
-    return 0.0 if worst is None else worst
+        out[name] = _SeriesCoverage(
+            max(0.0, (last - first).total_seconds() / 3600.0), first, last
+        )
+    return out
 
 
 def fetch_entity_history_range(
@@ -6639,22 +6725,67 @@ def _compute_report_for_window(
     # the sensor alone, retry next cycle" -- and that retry is what
     # produced the correct score at 06:07 on its own.
     if not allow_partial:
-        covered = _history_coverage_hours(
-            (solar_hist, load_hist, battery_hist), day_start, day_end
+        # nimbus issue #1054 (Mark Purcell, real production install):
+        # measure per sensor, not just the minimum. The threshold test
+        # below is unchanged -- it still uses the worst number -- but
+        # the skip line now names WHICH sensor was short and by how
+        # much, alongside its entity_id. #1054's stated next step was a
+        # manual, paginated recorder pull of all three sensors to find
+        # that out, plus the gap boundary; this line answers both
+        # without one. (An entirely-absent sensor never gets here --
+        # #314's row-count guard above catches it first and already
+        # names it per sensor.)
+        coverage = _history_coverage_by_series(
+            {
+                str(solar_sensor): solar_hist,
+                str(load_sensor): load_hist,
+                str(battery_sensor): battery_hist,
+            },
+            day_start,
+            day_end,
         )
+        covered = min(cov.hours for cov in coverage.values())
         if covered < window_hours * _MIN_DAILY_COVERAGE_FRACTION:
-            _LOGGER.info(
-                "Nimbus quality: skip. Real history covers only %.2f h of the "
-                "%.2f h window (worst of solar/load/battery), under the %.0f%% "
-                "a full-day score requires -- almost always the recorder still "
-                "catching up or mid-purge. Retrying next cycle rather than "
-                "publishing a partial window as a full-day score (nimbus "
-                "issue #984).",
+            # Worst first -- the one that actually failed the gate leads.
+            # The bracketed span is the covered region's own edges in
+            # local time; for a truncated window that is the gap
+            # boundary #1054 went looking for by hand.
+            breakdown = ", ".join(
+                f"{name} {cov.hours:.2f} h"
+                + (
+                    " [no history]"
+                    if cov.first is None or cov.last is None
+                    else f" [{cov.first.astimezone(LOCAL_TZ):%H:%M}-"
+                    f"{cov.last.astimezone(LOCAL_TZ):%H:%M}]"
+                )
+                for name, cov in sorted(coverage.items(), key=lambda kv: kv[1].hours)
+            )
+            day_key = day_start.date().isoformat()
+            seen = _COVERAGE_SKIP_COUNTS.get(day_key, 0) + 1
+            _COVERAGE_SKIP_COUNTS[day_key] = seen
+            # Routine on the first retries, a real WARNING once it is
+            # clearly not the recorder catching up -- see
+            # _COVERAGE_SKIP_WARN_AFTER for why this is not one level.
+            log = _LOGGER.info if seen < _COVERAGE_SKIP_WARN_AFTER else _LOGGER.warning
+            log(
+                "Nimbus quality: skip #%d for %s. Real history covers only "
+                "%.2f h of the %.2f h window, under the %.0f%% a full-day "
+                "score requires. Per sensor, worst first: %s. Retrying next "
+                "cycle rather than publishing a partial window as a full-day "
+                "score (nimbus issue #984). The bracketed span is each "
+                "sensor's own covered region -- for a truncated window that "
+                "is the gap boundary; the one short of the rest is the one "
+                "to chase in the recorder (nimbus issue #1054).",
+                seen,
+                day_key,
                 covered,
                 window_hours,
                 _MIN_DAILY_COVERAGE_FRACTION * 100.0,
+                breakdown,
             )
             return None
+        # Scored cleanly -- let a day that recovers stop warning.
+        _COVERAGE_SKIP_COUNTS.pop(day_start.date().isoformat(), None)
 
     import_price_hist = fetch_entity_history_range(
         cfg["solver_import_price_sensor"], day_start, day_end
