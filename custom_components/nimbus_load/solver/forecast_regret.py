@@ -98,6 +98,61 @@ class ForecastRegretResult:
     j_persistence: float
     """Naive persistence forecast, plan evaluated the same way."""
 
+    j_load_level_corrected: float | None = None
+    """Nimbus's own load forecast RESCALED to the real daily total --
+    its own shape, the right level -- with the solar forecast untouched
+    (nimbus issue #937 failure mode 2). None when the split could not be
+    computed (a forecast summing to ~0 has no meaningful scale factor).
+    """
+    j_load_perfect: float | None = None
+    """Real load substituted for the load forecast entirely -- right
+    level AND right shape -- solar forecast still untouched. The step
+    between this and j_load_level_corrected is what the load forecast's
+    TIMING cost, with its level already made perfect.
+    """
+
+    @property
+    def load_level_error_dollars(self) -> float | None:
+        """What the load forecast's BIAS cost: the forecast being high
+        or low on the day's total, independent of when it put the
+        energy. J_forecast - J_load_level_corrected.
+
+        This is the half of nimbus issue #937's failure mode 2 that a
+        wider validation horizon cannot help with -- a systematically
+        biased forecaster is biased at every horizon.
+        """
+        if self.j_load_level_corrected is None:
+            return None
+        return self.j_forecast - self.j_load_level_corrected
+
+    @property
+    def load_shape_error_dollars(self) -> float | None:
+        """What the load forecast's TIMING cost, once its level is
+        already correct: right total, wrong hours, so energy is planned
+        against the wrong prices. J_load_level_corrected - J_load_perfect.
+
+        This is the half the horizon-flip mechanism (#937's own
+        circuit-level finding) would produce -- a forecast validated at
+        4 h and deployed at 48 h goes wrong in the TAIL's timing, not in
+        the day's total.
+        """
+        if self.j_load_level_corrected is None or self.j_load_perfect is None:
+            return None
+        return self.j_load_level_corrected - self.j_load_perfect
+
+    @property
+    def solar_error_dollars(self) -> float | None:
+        """Everything left once the load forecast is perfect: the SOLAR
+        forecast's own contribution. J_load_perfect - J_star.
+
+        Published deliberately, because #937 assumes the load forecaster
+        is the dominant term and nobody has checked. If this dominates,
+        the issue is chasing the wrong forecaster.
+        """
+        if self.j_load_perfect is None:
+            return None
+        return self.j_load_perfect - self.j_star
+
     @property
     def forecast_regret_dollars(self) -> float:
         """J_forecast - J_star. The loss attributable to Nimbus's own
@@ -240,8 +295,71 @@ def compute_forecast_regret(
         load_real_kw=load_real_kw,
     )
 
+    # nimbus issue #937 failure mode 2 (Mark Purcell asked for this
+    # directly): "is the forecast worse in LEVEL (biased) or in SHAPE
+    # (right total, wrong timing)?" Two extra scenarios split
+    # forecast_regret_dollars three ways, EXACTLY additively:
+    #
+    #   J_forecast - J_star  ==  load_level + load_shape + solar
+    #
+    # by correcting one thing at a time and re-solving the same LP:
+    #
+    #   J_forecast               load forecast as-is,  solar forecast
+    #   J_load_level_corrected   load rescaled to the real daily total
+    #                            (its own SHAPE, the right LEVEL)
+    #   J_load_perfect           load = real (right level AND shape)
+    #   J_star                   both perfect
+    #
+    # Done in the metric's own currency -- dollars through the LP
+    # against realised prices -- rather than as a separate MAE-style
+    # proxy, because #937's whole point is that raw accuracy and cost
+    # are different questions: an error at an expensive hour costs real
+    # money and the identical error at a cheap hour costs nothing.
+    #
+    # HONEST CAVEAT, and it is a real one: this attribution is
+    # PATH-DEPENDENT. Corrections are applied in the order level ->
+    # shape -> solar, so wherever two errors interact, the interaction
+    # lands in the later term rather than being split between them. A
+    # Shapley-style symmetric attribution would need every ordering
+    # (2^3 solves) and is not worth the retrain cost for a diagnostic.
+    # The ordering chosen is the one that matches the question being
+    # asked: level first, because a biased forecaster is biased at every
+    # horizon and that is the cheaper thing to rule out.
+    j_load_level_corrected: float | None = None
+    j_load_perfect: float | None = None
+    real_load_kwh = float(np.sum(load_real_kw * periods.hours))
+    forecast_load_kwh = float(np.sum(load_forecast_kw * periods.hours))
+    # A forecast summing to ~0 has no meaningful scale factor, and a
+    # real day summing to ~0 has no level to correct TO. Either way the
+    # split is undefined rather than zero -- report absence, not a
+    # fabricated 0.0 that would read as "no level error".
+    if abs(forecast_load_kwh) > 1e-6 and abs(real_load_kwh) > 1e-6:
+        scale = real_load_kwh / forecast_load_kwh
+        j_load_level_corrected = _evaluate_scenario(
+            periods=periods,
+            grid=grid,
+            battery=battery,
+            solar_plan_kw=solar_forecast_kw,
+            load_plan_kw=np.asarray(load_forecast_kw * scale, dtype=np.float64),
+            solar_real_kw=solar_real_kw,
+            load_real_kw=load_real_kw,
+        )
+        j_load_perfect = _evaluate_scenario(
+            periods=periods,
+            grid=grid,
+            battery=battery,
+            solar_plan_kw=solar_forecast_kw,
+            load_plan_kw=load_real_kw,
+            solar_real_kw=solar_real_kw,
+            load_real_kw=load_real_kw,
+        )
+
     return ForecastRegretResult(
-        j_star=j_star, j_forecast=j_forecast, j_persistence=j_persistence
+        j_star=j_star,
+        j_forecast=j_forecast,
+        j_persistence=j_persistence,
+        j_load_level_corrected=j_load_level_corrected,
+        j_load_perfect=j_load_perfect,
     )
 
 

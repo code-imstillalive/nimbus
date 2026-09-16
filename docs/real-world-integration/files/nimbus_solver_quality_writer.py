@@ -1083,6 +1083,37 @@ def main() -> None:
                 "persistence_regret_dollars": round(fr.persistence_regret_dollars, 4),
                 "nimbus_value_add_dollars": round(fr.nimbus_value_add_dollars, 4),
             }
+            # nimbus issue #937 failure mode 2, asked for directly by
+            # Mark Purcell: "is the forecast worse in LEVEL (biased) or
+            # in SHAPE (right total, wrong timing)?" These three split
+            # forecast_regret_dollars EXACTLY additively --
+            #
+            #   forecast_regret_dollars
+            #     == load_level_error_dollars
+            #      + load_shape_error_dollars
+            #      + solar_error_dollars
+            #
+            # -- so they can be read as a breakdown rather than three
+            # loosely-related figures. See ForecastRegretResult's own
+            # properties for what each one isolates, and
+            # compute_forecast_regret() for the path-dependence caveat.
+            #
+            # solar_error_dollars is here deliberately even though #937
+            # is about the LOAD forecaster: the issue assumes load is
+            # the dominant term and nobody has checked. If solar
+            # dominates on real days, the issue is chasing the wrong
+            # forecaster, and that is worth finding out from the data
+            # rather than from an argument.
+            #
+            # None (not 0.0) when the split is undefined -- a forecast
+            # summing to ~0 has no meaningful scale factor. An honest
+            # absence, the same convention as soc_discrepancy's own.
+            for key, value in (
+                ("load_level_error_dollars", fr.load_level_error_dollars),
+                ("load_shape_error_dollars", fr.load_shape_error_dollars),
+                ("solar_error_dollars", fr.solar_error_dollars),
+            ):
+                forecast_regret_entry[key] = None if value is None else round(value, 4)
         except Exception as e:  # noqa: BLE001 -- a best-effort secondary breakdown must never take down the primary EPR score computed above
             print(
                 f"[{now.isoformat()}] forecast-regret decomposition failed for {day_key} ({e}) -- skipping, headline EPR unaffected",

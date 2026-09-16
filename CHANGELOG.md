@@ -8,6 +8,45 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.367] - 2026-09-17
+
+### Added
+- **The forecast-regret metric now separates the load forecast's LEVEL error from its SHAPE error — in dollars, through the LP** ([#937](https://github.com/code-imstillalive/nimbus/issues/937) failure mode 2, asked for directly by Mark Purcell).
+
+  #937 measured naive persistence beating the ML load forecaster on 11 of 14 scored days (mean −$0.71/day), and its own "what would move this forward" list asked whether the forecast is worse in **level** (biased) or in **shape** (right total, wrong timing). Mark's follow-up sharpened why it matters: the circuit-level horizon-flip finding is a plausible *mechanism* for a shape error, but nothing had actually separated bias from timing on the whole-house forecast the dollar figure is scored against — so nothing connected the two.
+
+  `compute_forecast_regret()` now re-solves the same LP with one thing corrected at a time:
+
+  ```
+  J_forecast              load forecast as-is,  solar forecast
+  J_load_level_corrected  load rescaled to the real daily total
+                          (its own SHAPE, the right LEVEL)
+  J_load_perfect          load = real (right level AND shape)
+  J_star                  both perfect
+  ```
+
+  giving three new figures that split the headline **exactly additively**:
+
+  ```
+  forecast_regret_dollars == load_level_error_dollars
+                           + load_shape_error_dollars
+                           + solar_error_dollars
+  ```
+
+  Tests pin that the split is not merely consistent but genuinely *diagnostic*: a forecast that is 30% high with the right shape charges **entirely** to level and nothing to shape, and one rolled three hours with the right total charges **entirely** to shape and nothing to level. A decomposition whose parts sum correctly while attributing wrongly would pass the arithmetic check and be useless.
+
+  **Why dollars and not MAE.** #937's own point is that raw accuracy and cost are different questions — an error at an expensive hour costs real money and the identical error at a cheap hour costs nothing. The split stays in the metric's own currency for the same reason the metric exists.
+
+  **`solar_error_dollars` is published deliberately**, even though #937 is about the load forecaster: the issue assumes load is the dominant term and nobody has checked. If solar dominates on real days, the issue is chasing the wrong forecaster — better found from the data than argued. On the nowcast path (`nowcast_skill.py`), which holds solar at truth in every scenario, this is 0 by construction and the load split is the whole of the regret.
+
+  **Honest caveat, stated in the code:** the attribution is **path-dependent**. Corrections are applied level → shape → solar, so where two errors interact the interaction lands in the later term. A symmetric Shapley-style attribution would need every ordering (2^3 solves) and is not worth the retrain cost for a diagnostic. Level goes first because a biased forecaster is biased at every horizon, which is the cheaper thing to rule out.
+
+  Reports `None`, not `0.0`, when the split is undefined — a forecast summing to ~0 has no meaningful scale factor, and a confident zero would read as "measured, and there is no level error". The headline figures still compute when the split cannot, per the same "degrade, never wedge" discipline as [#366](https://github.com/code-imstillalive/nimbus/issues/366)/[#373](https://github.com/code-imstillalive/nimbus/issues/373).
+
+  Costs two extra LP solves on a path that already ran three, once daily.
+
+  Devhub validation: **not claimed** — the day-ahead decomposition runs on the standalone/cron quality writer, which devhub does not run, and the figures this is built to explain are the reference household's. Verified by 13 new tests driving the real `compute_forecast_regret()` and the full local suite.
+
 ## [0.94.366] - 2026-09-17
 
 ### Fixed
