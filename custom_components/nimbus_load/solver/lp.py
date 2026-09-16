@@ -58,6 +58,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import threading
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -222,6 +223,82 @@ _SLOW_LP_CALL_SECONDS: float = 5.0
 # the next slightly-harder instance starts timing out for real.
 _ALARMING_LP_CALL_SECONDS: float = DEFAULT_TIME_LIMIT_SECONDS / 2
 
+# nimbus issue #773: a per-solve breakdown across EVERY lex phase, not
+# just the ones slow enough to cross the 5s line on their own.
+#
+# Measured on a real install, 16 consecutive cycles: `phase2_secondary`
+# took 30.1-56.8s every single cycle against a 60s per-call limit, with
+# 80k-155k simplex iterations across 9-60 branch-and-bound nodes. Over
+# the same window `phase1_primary` never crossed the 5s threshold at all.
+#
+# That asymmetry is the whole lead, and the logging could not show it:
+# phase 1 solves the SAME model without the tie constraint, so it is the
+# natural control for what the tie constraint and the secondary
+# objective cost -- and being fast, it never logged. Only the expensive
+# phase was visible, which makes it look like a property of the model
+# rather than of one phase.
+#
+# So every phase is now recorded, and one summary line is emitted per
+# solve WHEN some phase crossed the slow line. A healthy install stays
+# silent exactly as before; a slow one gets the comparison instead of a
+# single number with nothing to compare it against.
+#
+# Thread-local rather than a module global: solves run on HA's executor
+# threads, and a summary must describe one solve rather than whatever
+# else happened to overlap it.
+_PHASE_LOG = threading.local()
+
+
+def _phase_record(entry: tuple[str, float, object, object, object, object]) -> None:
+    """Append one phase's measurements to this thread's current solve, if
+    a solve is collecting. Never raises: a diagnostic must not be the
+    reason a solve cycle dies."""
+    try:
+        log = getattr(_PHASE_LOG, "entries", None)
+        if log is not None:
+            log.append(entry)
+    except Exception:  # noqa: BLE001, S110 - diagnostics never fail a solve
+        pass
+
+
+@contextlib.contextmanager
+def _phase_breakdown():
+    """Collect every timed phase of one solve and emit a single summary.
+
+    Deliberately reports the whole sequence rather than only the slow
+    member: "phase2_secondary took 46s" is a number, while
+    "phase1_primary 0.6s / phase2_secondary 46.0s on the same model" is
+    a finding.
+    """
+    previous = getattr(_PHASE_LOG, "entries", None)
+    _PHASE_LOG.entries = []
+    try:
+        yield
+    finally:
+        try:
+            entries = _PHASE_LOG.entries
+            _PHASE_LOG.entries = previous
+            if entries and any(e[1] >= _SLOW_LP_CALL_SECONDS for e in entries):
+                alarming = any(
+                    e[1] >= _ALARMING_LP_CALL_SECONDS
+                    or (e[5] is not None and e[5] != "Optimal")
+                    for e in entries
+                )
+                rendered = " | ".join(
+                    f"{label}: {elapsed:.1f}s iters={iters} nodes={nodes} "
+                    f"gap={gap} status={status}"
+                    for label, elapsed, iters, nodes, gap, status in entries
+                )
+                log = _LOGGER.warning if alarming else _LOGGER.debug
+                log(
+                    "Nimbus #773 phase breakdown (%d phases, %.1fs total) -- %s",
+                    len(entries),
+                    sum(e[1] for e in entries),
+                    rendered,
+                )
+        except Exception:  # noqa: BLE001, S110 - diagnostics never fail a solve
+            pass
+
 
 @contextlib.contextmanager
 def _timed_lp_call(
@@ -251,13 +328,29 @@ def _timed_lp_call(
         yield
     finally:
         elapsed = time.monotonic() - started
+        # nimbus issue #773: read the info struct for EVERY call, not
+        # only the slow ones. The fast phases are the control -- see
+        # _phase_breakdown() -- and they are exactly the ones the old
+        # threshold gate discarded. getInfo() is a cheap struct read.
+        iterations: object = None
+        status: object = None
+        nodes: object = None
+        gap: object = None
+        try:
+            _info = h.getInfo()
+            iterations = int(_info.simplex_iteration_count)
+            nodes = _info.mip_node_count
+            gap = _info.mip_gap
+            status = h.modelStatusToString(h.getModelStatus())
+        except Exception:  # noqa: BLE001, S110 - diagnostics never fail a solve
+            pass
+        _phase_record((label, elapsed, iterations, nodes, gap, status))
         if elapsed >= _SLOW_LP_CALL_SECONDS:
-            iterations: object = None
-            status: object = None
-            nodes: object = None
-            gap: object = None
             try:
                 info = h.getInfo()
+                # Re-read rather than reusing the values above purely so
+                # this branch keeps working unchanged if the read above
+                # ever fails for a reason this one would not.
                 iterations = int(info.simplex_iteration_count)
                 # nimbus issue #773: these two separate the only two
                 # explanations left for a call that runs 100x longer than
@@ -1697,9 +1790,16 @@ def _solve_highs(
                 problem, ranging=ranging, keep_basis=keep_basis, options=None
             )
         try:
-            extra_row_names, objective_override = _solve_with_options(
-                h, var_array, col_indices, problem, options, binary_cols
-            )
+            # nimbus issue #773: collect every phase of this one solve so
+            # a slow phase is reported next to the fast ones it should be
+            # compared against, rather than alone. Wrapped here rather
+            # than inside _solve_with_options() so the breakdown also
+            # covers a phase that raises -- which is the case most worth
+            # seeing the rest of the sequence for.
+            with _phase_breakdown():
+                extra_row_names, objective_override = _solve_with_options(
+                    h, var_array, col_indices, problem, options, binary_cols
+                )
         except ValueError:
             _lex_calibration_failed_until = (
                 time.monotonic() + _LEX_CALIBRATION_COOLDOWN_S
