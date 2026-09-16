@@ -197,6 +197,12 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # FROM. Not a gap.
         "_achieved_feasibility_stats",
         "_epr_reliability",
+        # nimbus issue #984: same again -- a private helper of the same
+        # native-only quality report, measuring how much of a day the
+        # recorder actually returned before that day may be scored. The
+        # standalone/cron script computes no quality report, so there is
+        # nothing for it to be missing from.
+        "_history_coverage_hours",
         # nimbus issue #428: only called from compute_daily_quality_
         # report's own solar/load/battery resampling (already listed
         # above) -- same native-only reasoning, not a separate gap.
