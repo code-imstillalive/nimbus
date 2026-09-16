@@ -1703,6 +1703,15 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "model_type": getattr(self._trained, "model_type", None),
             "validation_mae": self._trained.validation_mae,
             "validation_mase": self._trained.validation_mase,
+            # nimbus issue #937. The whole point of this metric is that
+            # a human can read it back, so it has to leave the pickle.
+            # getattr-defensive for the same reason the three fields
+            # below are: a .pkl written before this field existed
+            # unpickles without it, and direct attribute access would
+            # raise on the first read after deploying.
+            "validation_recursive_mae_by_horizon": getattr(
+                self._trained, "validation_recursive_mae_by_horizon", {}
+            ),
             # getattr-defensive (not direct attribute access) -- these
             # three fields are new (nimbus issue #113); a .pkl persisted
             # by a pre-fix version unpickles with them genuinely absent,
