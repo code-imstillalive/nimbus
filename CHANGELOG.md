@@ -8,6 +8,36 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.341] - 2026-09-16
+
+### Fixed
+- **The daily scorer no longer publishes a partial window as a full-day score** ([#984](https://github.com/code-imstillalive/nimbus/issues/984)). Reported by the household as regret reading "near $9" for three days while EPR read 103-108% -- two figures that cannot both be true, since EPR above 100% implies regret below zero. Their own recorded history shows why:
+
+  ```
+  15 Sep 06:02:26   regret  9.1249   EPR -11.65     <- transient
+  15 Sep 06:07:08   regret -0.6313   EPR 103.66     <- real
+  16 Sep 06:02:31   regret  9.3404   EPR  23.77     <- transient
+  16 Sep 06:07:00   regret -0.7307   EPR 103.66     <- real
+  ```
+
+  with components `j_ref 2.34 / j_ach -0.57 / j_star -9.91` against the real `4.79 / -15.90 / -15.17`. Every figure a fraction of the settled one: a partial window scored as though it were a full day.
+
+  The `allow_partial` guard could not catch it -- it measures the window **requested** (always exactly 24 h on the daily path), while the only check on returned data was emptiness, which a single row satisfies. When the recorder returns a truncated window, overwhelmingly mid-purge (which is why it landed at the same time every morning), the report went out as a valid daily score.
+
+  **This was not a dashboard blip.** The wrong value is written to recorder history and to long-term statistics, so any chart aggregating a day by max, first or last keeps picking it up permanently. Two ApexCharts cards reading the same entity disagreed -- one showing ~$9, one -$0.73 -- purely from aggregating differently.
+
+  Now the real covered span is measured across solar/load/battery and the **worst of the three** decides, since the report is only as trustworthy as its thinnest input. A short window returns `None`, which the caller already handles as "leave the sensor alone, retry next cycle" -- and that retry is exactly what produced the correct score at 06:07 unaided. The threshold is 0.9 rather than 1.0 on purpose: real installs drop samples, and a day with a 20-minute gap is still an honest day to score.
+
+- **The four daily sensors survive a restart** ([#983](https://github.com/code-imstillalive/nimbus/issues/983)). Reported as "vanishes way too much". `_NimbusSolverPushSensor` starts every life with `_state = None` and waits for a push -- fine for the ~30 s solver sensors, but the quality report, counterfactual SoC, efficiency backtest and flex report are computed once per scored day, so a restart blanked a perfectly valid figure for **up to 24 hours**. It also punched a hole in that entity's recorded history and long-term statistics, which is what a 30-day chart reads.
+
+  Restore is **opt-in, and the asymmetry is the design**: the daily sensors restore because their value is a property of *yesterday*, while the live solver sensors deliberately do not -- a value that outlives the solver is exactly what `_STALE_AFTER_SECONDS` exists to expose, and pre-filling one at startup would hide a solver that never came back.
+
+  Three details pinned by tests because each is easy to get wrong: `_last_updated` is left unset (a restored value is genuinely old, and stamping it fresh would let it satisfy a staleness check it has not earned); HA-managed metadata is not restored, since it comes from the class and a stale copy is how a renamed sensor advertises last week's unit; and `nimbus_version` is not restored either, because [#972](https://github.com/code-imstillalive/nimbus/issues/972) exists precisely so that field describes the **running** install.
+
+### Notes
+- Both defects were found from a household dashboard question rather than from the test suite or a log sweep, and neither was visible as an error anywhere -- the scorer logged nothing wrong, and a blanked sensor looks identical to one that has simply not run yet.
+- The #357 anti-drift guard caught the new `_history_coverage_hours` helper on the first CI run, the third time in one day it has flagged a new function on the very next change to touch `solver_writer.py`.
+
 ## [0.94.340] - 2026-09-16
 
 ### Fixed
@@ -26,6 +56,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   Four tests pin it as numerical: below 1e-5 at every realistic objective magnitude, at least HiGHS's own `primal_feasibility_tolerance` (or it would be decorative), **orders of magnitude tighter than the epsilon this file already applies on the SECONDARY side** in LexOptions phase 3, and dominated by its absolute term at household scale. A future edit that turns this into an economic concession fails there.
 
 ### Notes
+- Devhub validation: deployed via HACS and restarted, `installed_version == available_version == v0.94.340`, local push sensors reporting `nimbus_version = 0.94.340` against a canonical-name `ABSENT` ([#972](https://github.com/code-imstillalive/nimbus/issues/972)'s provenance check, now routine). No new WARNING/ERROR beyond the pre-existing, deliberately-tolerated duplicate-unique-id situation on that instance.
 - **Three distinct failures now sit under this issue's one title**, and separating them is most of the progress: a `phase2_secondary` **time-limit** (no incumbent, `mip_gap=inf`, never reaches the pin); a `phase2_pin_resolve` **MIP-vs-LP tolerance mismatch** (fixed in v0.94.339); and this `phase2_secondary` **report-vs-recompute drift**. The last two are the same underlying mistake -- an exact number used as a hard bound -- in two different places.
 - The remaining, unfixed one is the genuine difficulty: `phase2_secondary` costs **30-40x** what `phase1_primary` costs on the identical model (0.6 s / 2,101 iterations against 31.0 s / 66,872 on one cycle; 0.9 s / 2,422 against 33.0 s / 96,199 on the next). That comparison is exactly what the v0.94.338 breakdown was built to expose, and it did so on its first production output.
 
