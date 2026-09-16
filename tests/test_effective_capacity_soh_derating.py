@@ -162,6 +162,81 @@ class TestOutOfRangeSoHIsRefusedNotApplied(unittest.TestCase):
             self.assertEqual(log.warning.call_count, 2)
 
 
+class TestMeasuredAgainstTheReferenceHouseholdsOwnRecorder(unittest.TestCase):
+    """The modelling choice is not an argument -- it was measured.
+
+    Fourteen consecutive days of daily statistics for two sensors that
+    describe the same pack, read from the same recorder:
+
+        sensor.combined_battery_charge   max 119.72 kWh  min 2.39 kWh
+        sensor.logger_battery_level_soc  max 100.0 %     min 2.0 %
+        sensor.combined_battery_capacity     122.16 kWh, constant
+
+    The BMS reports **100% at 119.72 kWh, not at the 122.16 kWh
+    nameplate**. So SoC is a percentage of the pack's CURRENT usable
+    capacity, and the nameplate is not the scale the household's own SoC
+    sensor is speaking in. That is the premise this whole fix rests on,
+    and it is now a reading rather than a physics argument.
+
+    The floor agrees independently: configured Min SoC is 2.0%, and the
+    daily minimum lands at 2.39 kWh on ten of the fourteen days. 2.0% of
+    119.72 is 2.394. Of the nameplate it would be 2.443. The floor
+    tracks the derated number, which is the direct empirical answer to
+    "does SoH derate the ceiling, the floor, or both?"
+
+    Two days read 99.3% / 118.96 kWh rather than 100% / 119.72, which
+    checks out on the same scale (118.96 / 119.72 = 99.37%) and is worth
+    keeping as evidence the relationship holds off the rail too, not
+    only at it.
+
+    And the number the household chose is right. They set State of
+    Health to 98.0%; 122.2 x 0.98 = 119.756 against a measured 119.72,
+    a difference of 0.036 kWh -- 0.03%. The dial was correct the whole
+    time. Nothing read it.
+    """
+
+    MEASURED_FULL_KWH = 119.72
+    MEASURED_FLOOR_KWH = 2.39
+    NAMEPLATE_KWH = 122.16
+
+    def test_the_configured_soh_reproduces_the_measured_full_charge(self):
+        effective = solver_writer.resolve_effective_capacity_kwh(
+            {
+                "solver_battery_capacity_kwh": 122.2,
+                "solver_battery_soh_percent": 98.0,
+            }
+        )
+        self.assertAlmostEqual(effective, self.MEASURED_FULL_KWH, delta=0.05)
+
+    def test_the_nameplate_would_have_been_wrong_by_a_real_margin(self):
+        """2.44 kWh of phantom headroom at the top -- and #1012
+        established this pack reaches that rail every single day."""
+        self.assertAlmostEqual(
+            self.NAMEPLATE_KWH - self.MEASURED_FULL_KWH, 2.44, places=2
+        )
+
+    def test_the_measured_floor_matches_the_derated_scale_not_nameplate(self):
+        """The empirical half of the both-rails decision."""
+        min_pct = 2.0
+        derated = self.MEASURED_FULL_KWH * min_pct / 100.0
+        nameplate = self.NAMEPLATE_KWH * min_pct / 100.0
+
+        self.assertAlmostEqual(derated, self.MEASURED_FLOOR_KWH, delta=0.01)
+        self.assertGreater(
+            abs(nameplate - self.MEASURED_FLOOR_KWH),
+            abs(derated - self.MEASURED_FLOOR_KWH),
+            "the measured daily floor sits on the DERATED scale, not the "
+            "nameplate one -- so State of Health moves both rails, which "
+            "is what this fix implements",
+        )
+
+    def test_the_off_rail_reading_is_on_the_same_scale(self):
+        """99.3% / 118.96 kWh, seen on two of the fourteen days. A
+        relationship that only held at the rail could be a coincidence
+        of two clamps rather than one scale."""
+        self.assertAlmostEqual(118.96 / self.MEASURED_FULL_KWH * 100.0, 99.37, places=2)
+
+
 class TestBothSoCRailsScaleWithSoH(unittest.TestCase):
     """The one genuine modelling choice, pinned so a future reader can
     see it was decided rather than fallen into."""

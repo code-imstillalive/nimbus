@@ -194,6 +194,16 @@ _EXPECTED_ATTRS = {
         # "no mode was in force" rather than defaulting to "home" and
         # implying one was.
         "household_mode": None,
+        # nimbus issue #1013. This fixture never sets a State of Health,
+        # so it takes DEFAULT_SOLVER_SOH_PERCENT and effective capacity
+        # equals nameplate exactly -- which is the point worth noticing
+        # here: the whole rest of this golden output is byte-identical
+        # across that change, so the derating really is a no-op for an
+        # install that has not touched the dial. Only these three new
+        # keys moved, and this guardrail is what proved it.
+        "battery_soh_percent": 100.0,
+        "battery_nameplate_capacity_kwh": 40.0,
+        "battery_effective_capacity_kwh": 40.0,
     },
     "horizon_hours": 96.0,
     "solve_seconds": 0.0,  # excluded from comparison -- see test body

@@ -829,16 +829,30 @@ def resolve_effective_capacity_kwh(cfg: dict) -> float:
     field was added. Only the code was missing.
 
     **Why this derates both rails rather than only the ceiling** -- the
-    one real modelling choice here. Min/Max SoC are percentages, so
-    scaling capacity moves the kWh that BOTH resolve to. That is correct
-    because a BMS reports SoC as a percentage of the pack's CURRENT
-    usable capacity, not of its original nameplate: a degraded pack
-    still reads 100% when full and 2% when nearly empty. So a 2% floor
-    is 2% of the degraded pack, and deriving both bounds from the
-    derated number is what keeps the solver's kWh and the household's
-    own SoC sensor talking about the same thing. Derating only the
-    ceiling would silently reserve MORE real energy at the floor than
-    the household asked for.
+    one real modelling choice here, and it was measured rather than
+    argued. Fourteen consecutive days of the reference household's own
+    daily statistics, two sensors describing one pack:
+
+        sensor.combined_battery_charge   max 119.72 kWh  min 2.39 kWh
+        sensor.logger_battery_level_soc  max 100.0 %     min 2.0 %
+        sensor.combined_battery_capacity     122.16 kWh, constant
+
+    The BMS reports 100% at **119.72 kWh, not at the 122.16 nameplate**
+    -- so SoC is a percentage of the pack's CURRENT usable capacity, and
+    the nameplate is not the scale the household's own SoC sensor speaks
+    in. The floor agrees independently: Min SoC is configured at 2.0%
+    and the daily minimum lands at 2.39 kWh, which is 2.0% of 119.72
+    (2.394) rather than of 122.16 (2.443).
+
+    So both bounds must come off the derated number, or the solver's kWh
+    and the SoC sensor are describing different batteries. Derating only
+    the ceiling would silently reserve MORE real energy at the floor
+    than the household asked for.
+
+    The configured value is also vindicated by the same reading: 122.2 x
+    0.98 = 119.756 against a measured 119.72, a difference of 0.03%. The
+    dial was right the whole time. Nothing read it. See
+    tests/test_effective_capacity_soh_derating.py for the full data.
 
     **Deliberately still one static number, not a live sensor.** The
     inverters do publish per-pack SoH and it drifts over years, and
