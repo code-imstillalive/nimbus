@@ -8,6 +8,25 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.335] - 2026-09-16
+
+### Added
+- **A household can finally see which thermal rates the LP actually used** ([#940](https://github.com/code-imstillalive/nimbus/issues/940)). On every `kind=thermal` load, `sensor.nimbus_<load>_commanded_state` published `thermal_heating_rate_c_per_kwh: None`, `thermal_idle_decay_c_per_hour: None` and `thermal_rates_source: ''` -- while the LP scheduled real hot water on **8.0 °C/kWh and 0.5 °C/h**, `thermal_forecast`'s module defaults. The sensor showed nothing for the numbers that genuinely drove dispatch.
+
+  That is the opacity behind [#873](https://github.com/code-imstillalive/nimbus/issues/873)'s two wrong thermal calculations in a single afternoon: two confident sums, each using a different physics model, neither checked against the value the LP actually consumed.
+
+  New: `thermal_effective_heating_rate_c_per_kwh`, `thermal_effective_idle_decay_c_per_hour`, and an origin per rate -- `thermal_heating_rate_origin`/`thermal_idle_decay_origin`, each `override` | `learned` | `fallback`. The existing learned fields are untouched: *"what was learned"* and *"what was used"* are different questions, and `''` vs `fallback` there already separates never-attempted from attempted-and-fell-back ([#768](https://github.com/code-imstillalive/nimbus/issues/768)).
+
+  **Two origin fields rather than one**, because the rates resolve independently -- an explicit heating-rate override alongside a fallback idle decay is a real configuration a single field could not describe. Pinned by a test, since the obvious simplification would pass every other test in the file.
+
+  **Echoed, never re-derived.** The precedence is resolved once in `build_controllable_loads()`, with each origin recorded on the same branch that picks the value, then carried `ThermalLoadConfig` -> `ThermalLoadPlan` -> publish. Re-deriving it at the publish site is how `solver_writer.py` and `apply_commanded_state_guard()` ended up with a duplicated period-index resolution that [#582](https://github.com/code-imstillalive/nimbus/issues/582) then had to fix twice.
+
+  **This is the instrument that makes #873's fix verifiable.** Every thermal load is silently on fallback today; once #873 lands you would see the origin flip `fallback` -> `learned` and the value move off 8.0, which is otherwise invisible. #873 itself stays open -- it changes real dispatch on live hot water and the household has been asked to decide the shape.
+
+### Notes
+- **#594 same-day carve-out, earned by proof rather than claimed.** This touches `solver/network.py`. `tests/test_solver_thermal_effective_rates_are_inert.py` asserts a bit-identical plan -- status, total cost, battery charge/discharge/SoC, grid import/export, thermal power and temperature -- across all three origin labels, a mixed pair, and the fields left unset. Two guards keep that honest: a premise check that the scenario genuinely exercises the thermal model and the battery, and a **control** asserting a genuinely different *rate* still does move the plan, so a bug ignoring the rates entirely could not pass by being inert.
+- One assertion in that file was wrong when first written, and the correction is worth keeping: it asserted the tank's final temperature exceeds its first. It does not -- with cheap power early the LP heats hard and lets the tank **coast down** to land exactly on target at the deadline, so the peak is mid-horizon. Asserting a rising trajectory would have been asserting a worse plan.
+
 ## [0.94.334] - 2026-09-16
 
 ### Fixed
@@ -23,6 +42,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
   **What this deliberately does NOT do:** clamp the achieved integration used for *costing*. That would change `j_ach` -- the headline achieved-cost figure -- on every install, and #956 records that as a household decision. This makes the invalid comparison visible; it does not silently re-price anyone's day. #956 stays open for that decision.
 
+- Devhub validation: deployed via HACS and restarted, `installed_version == available_version == v0.94.334`, `solve_diagnostics` carried all **7** keys current code emits. **The guard was verified on live data rather than inferred from its tests, and it immediately corrected this entry's own author.** A `compute_quality_report` over the real 2026-09-15 window published `regret_reliable false`, `epr_reliable false`, `achieved_soc_min_pct 8.9327`, `lp_soc_envelope_pct [2, 100]` and `epr_reason oracle_beaten` -- and the once-per-day WARNING fired exactly once, on the branch written for *"this mechanism does not explain this one"*. The achieved trajectory stayed **inside** the LP envelope while regret was still negative, so the sub-floor excursion verified on the published report is a real route to the bound violation but not a necessary condition. No new WARNING/ERROR attributable to the release.
+- Chasing that second cause resolved a question #956 had left explicitly open: the oracle's flat -12.0 kW export across 17:00-23:00 is the **P2P pin**, not an export cap (`solver_grid_max_export_kw` is 40; `solver_p2p_block_1_rate_kw` is 12 over hours 17-24). A pin is an *equality*, so the oracle is forced to export exactly 12 kW for seven hours while the realized evaluation prices whatever actually happened -- 12.39 to 12.77 kW. That is an asymmetry involving no SoC bound at all. A terminal-value hypothesis was also killed along the way by reading `quality_report.py`: salvage is stripped from all three trajectories, so `solver_salvage_value` never reaches the scorer.
 ### Notes
 - A negative regret with the trajectory **inside** the LP envelope gets its own `epr_reason` (`oracle_beaten`) rather than the shared label. It means the mechanism verified above does not explain that install's violation, and a reason string asserting a cause the day has no evidence for would be worse than none.
 - The #357 anti-drift guard caught this change's two new helpers on the first CI run -- the same guard [#952](https://github.com/code-imstillalive/nimbus/issues/952) extended earlier the same day, working as intended on the very next commit to touch `solver_writer.py`. Both are private helpers of the native-only quality report, registered alongside `_soc_discrepancy_stats` for the identical reason.
