@@ -5772,15 +5772,23 @@ def resample_history_mean(
                     continue
                 weighted += v * span
                 total += span
-            # Any time between the window start and the first recorded
-            # sample is held by the last value BEFORE the window -- the
-            # same last-known-value model resample_history_nearest()
-            # applies, rather than pretending the period began when the
-            # recorder happened to write.
+            # Time between the window start and the first recorded sample
+            # is held by the last REAL value before the window -- the same
+            # last-known-value model resample_history_nearest() applies.
+            #
+            # Only when such a sample genuinely exists. If nothing
+            # precedes the window there is no observation to carry in,
+            # and weighting the gap at `default` would INVENT data inside
+            # a period that has real samples -- biasing every scored
+            # day's first period, since the history fetch starts at the
+            # window boundary. A period with no samples at all still
+            # falls through to the `else` branch below, which is where
+            # the flow-signal "absent power reads as 0" convention
+            # belongs.
+            prior_rows = [v for ts, v in pts if ts < gt]
             lead_span = (rows[0][0] - gt).total_seconds()
-            if lead_span > 0:
-                prior = resample_history_nearest(pts, [gt], default=default)[0]
-                weighted += prior * lead_span
+            if lead_span > 0 and prior_rows:
+                weighted += prior_rows[-1] * lead_span
                 total += lead_span
             out.append(weighted / total if total > 0 else rows[0][1])
         else:

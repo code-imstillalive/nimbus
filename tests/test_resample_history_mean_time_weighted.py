@@ -94,9 +94,11 @@ class TestResampleHistoryMeanIsTimeWeighted(unittest.TestCase):
     def test_a_single_sample_holds_the_whole_period(self):
         pts = [(T0 + timedelta(minutes=30), 5.0)]
         mean = solver_writer.resample_history_mean(pts, [T0], period_hours=1.0)[0]
-        # Unknown (0.0, the flow convention) for the first half hour,
-        # then 5.0 for the second.
-        self.assertAlmostEqual(mean, 2.5, places=9)
+        # Nothing precedes the window, so the first half hour is
+        # genuinely unobserved and is not weighted at all -- weighting
+        # it at the default would invent a reading. The 5.0 that WAS
+        # observed holds the rest.
+        self.assertAlmostEqual(mean, 5.0, places=9)
 
     def test_a_value_carried_in_from_before_the_window_is_weighted(self):
         """A sample recorded BEFORE the window still holds into it --
