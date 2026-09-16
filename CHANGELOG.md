@@ -8,6 +8,21 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.352] - 2026-09-17
+
+### Changed
+- **[#949](https://github.com/code-imstillalive/nimbus/issues/949)'s fleet-blended SoC defect is now executable rather than argued.** No behaviour change: this release adds characterisation tests only, and ships no production Python. Cut so `main` and the tag line stay aligned, not because any install needs it.
+
+  `soc_discrepancy_*` compares two quantities that are only the same thing on a single-battery install. The measured side is **one** sensor (`cfg["solver_battery_soc_sensor"]`, the home battery); `j_ach_hourly[...]["soc_pct"]` is `total stored kWh / total capacity kWh` across **every** scored battery, as `quality_report.py`'s own comment states. Once a `battery_participant` is scored, the diagnostic measures the house battery against a number that is mostly the cars.
+
+  Deliberately **not** fixed here. All three options on the issue change a published diagnostic on live installs and one changes attribute shape, so #949's own "a decision rather than a patch" position stands. What was missing was the defect being checkable against something, so whichever option is chosen can be verified instead of asserted.
+
+  The fixture scores a day on which every battery sits perfectly still, so no efficiency, integration drift or sensor gap can contribute — whatever moves the published `soc_pct` is the blend alone. It reproduces the issue's own table (`home only` 0.00 pt, `home + 1 EV @ 80%` 21.43 pt, `home + 2 EVs @ 80%` 25.00 pt, `home + 2 EVs @ 15%` 29.17 pt) and pins two properties the table does not show: **the sign flips** (EVs arriving home empty drag the blend below the home pack, so it is not an offset that could be calibrated out), and **magnitude follows capacity share, not battery count** (three 1 kWh participants move it under 5 pt; one 75 kWh participant moves it over 30).
+
+  **A correction went with it.** #949's own third comment used a single-battery measurement of 30.46 pt to narrow the fix options. That figure is `30.9 - 0.44`, where `0.44%` is the achieved endpoint [#1008](https://github.com/code-imstillalive/nimbus/issues/1008) proved fictional. So the option ranking rests on a retracted number; the true single-battery residual is currently **unknown** and deliberately not restated as either 30.46 or zero. Cross-referenced on [#956](https://github.com/code-imstillalive/nimbus/issues/956), because one wrong endpoint fed three issues (#956 cost side, [#1001](https://github.com/code-imstillalive/nimbus/issues/1001) export band, #949 SoC side) and each read as corroboration of the others — #949 was the one never swept when the value was retracted.
+
+  Devhub validation: **not applicable and deliberately not claimed** — this release contains no production Python, so there is nothing on an install for a deploy to exercise. Verified by CI (full suite green, `ruff check`/`ruff format --check` clean, mypy at the 227-error baseline) and by the 7 new tests driving the real `compute_quality_report()` rather than a reimplementation of its arithmetic. Separately worth recording: devhub could not have validated it anyway — it is currently executing pre-v0.94.348 code while reporting v0.94.351 installed, the long-tracked staleness bug, this time confirmed against the entity registry as devhub's *own* entities rather than the mirror.
+
 ## [0.94.351] - 2026-09-17
 
 ### Fixed
