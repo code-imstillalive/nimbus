@@ -460,9 +460,31 @@ async def _async_handle_set_controllable_load(
     )
 
     if existing is not None:
+        # nimbus issue #1042: MERGE, never replace. This used to pass the
+        # caller's payload through as the subentry's entire data, so
+        # changing one field silently deleted every field the caller did
+        # not repeat -- power, target, window hours, device entity, done
+        # condition. A deferrable load left with no target and no window
+        # has nothing to schedule and simply stops being planned, with
+        # no error anywhere.
+        #
+        # Replace is correct for the WIZARD, which is where this schema
+        # comes from: that form always renders every field pre-filled, so
+        # a submit genuinely carries the complete config. A service call
+        # does not -- its whole value is being scriptable from an
+        # automation or an MCP tool, and those pass the one or two fields
+        # they mean to change. Same silently-destructive shape this
+        # project already documents for the hub options form.
+        #
+        # An explicit `None` still clears a field, so nothing becomes
+        # unreachable -- it just has to be asked for now rather than
+        # happening by omission.
+        merged = {**existing.data, **data}
+        merged = {k: v for k, v in merged.items() if v is not None}
         hass.config_entries.async_update_subentry(
-            entry, existing, title=name, data=data
+            entry, existing, title=name, data=merged
         )
+        data = merged
         result_subentry_id = existing.subentry_id
         created = False
     else:

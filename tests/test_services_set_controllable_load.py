@@ -42,12 +42,22 @@ def _fake_call(data: dict) -> MagicMock:
 
 
 def _fake_subentry(
-    subentry_id: str, title: str, subentry_type: str = SUBENTRY_TYPE_CONTROLLABLE_LOAD
+    subentry_id: str,
+    title: str,
+    subentry_type: str = SUBENTRY_TYPE_CONTROLLABLE_LOAD,
+    data: dict | None = None,
 ):
     subentry = MagicMock()
     subentry.subentry_id = subentry_id
     subentry.title = title
     subentry.subentry_type = subentry_type
+    # nimbus issue #1042: a REAL dict, not MagicMock's auto-attribute.
+    # The service now merges over this, so a mock here would make
+    # every merge test assert against something that is not a dict.
+    # Defaults to empty, which keeps every pre-#1042 test in this
+    # file asserting exactly what it asserted before (merging with
+    # {} is the identity).
+    subentry.data = dict(data or {})
     return subentry
 
 
@@ -143,6 +153,105 @@ def test_set_controllable_load_updates_by_explicit_subentry_id_even_if_title_dif
         },
     )
     assert result["subentry_id"] == "hws_id"
+
+
+def test_updating_one_field_does_not_wipe_the_others():
+    """nimbus issue #1042, the defect itself.
+
+    This used to pass the caller's payload through as the subentry's
+    ENTIRE data, so changing one field silently deleted every field
+    the caller did not repeat. Demonstrated on a real install while
+    verifying #769: a deferrable hot water load came back with no
+    target, no window and no device entity -- nothing left to
+    schedule and nothing to dispatch to, with no error anywhere.
+    """
+    existing = _fake_subentry(
+        "existing_id",
+        "Hot Water",
+        data={
+            "controllable_load_name": "Hot Water",
+            "controllable_load_kind": "deferrable",
+            "controllable_load_device_entity": "water_heater.hws",
+            "deferrable_max_power_kw": 3.7,
+            "deferrable_target_kwh": 4.0,
+            "deferrable_earliest_hour": 6.0,
+            "deferrable_deadline_hour": 16.0,
+        },
+    )
+    hass, _entry = _fake_hass_with_entry({"existing_id": existing})
+    call = _fake_call(
+        {
+            "subentry_id": "existing_id",
+            "controllable_load_name": "Hot Water",
+            "deferrable_min_deferral_saving_dollars": 1.0,
+        }
+    )
+
+    asyncio.run(services._async_handle_set_controllable_load(hass, call))
+
+    _, kwargs = hass.config_entries.async_update_subentry.call_args
+    persisted = kwargs["data"]
+    assert persisted["deferrable_min_deferral_saving_dollars"] == 1.0
+    for key, value in (
+        ("controllable_load_device_entity", "water_heater.hws"),
+        ("deferrable_max_power_kw", 3.7),
+        ("deferrable_target_kwh", 4.0),
+        ("deferrable_earliest_hour", 6.0),
+        ("deferrable_deadline_hour", 16.0),
+    ):
+        assert persisted[key] == value, (
+            f"{key} was wiped by an update that never mentioned it "
+            f"(nimbus #1042): {persisted}"
+        )
+
+
+def test_an_explicit_none_still_clears_a_field():
+    """Merging removes the accidental way to unset something, so the
+    deliberate way has to keep working -- otherwise a household that
+    configured a field once could never remove it.
+    """
+    existing = _fake_subentry(
+        "existing_id",
+        "Hot Water",
+        data={"controllable_load_name": "Hot Water", "deferrable_target_kwh": 4.0},
+    )
+    hass, _entry = _fake_hass_with_entry({"existing_id": existing})
+    call = _fake_call(
+        {
+            "subentry_id": "existing_id",
+            "controllable_load_name": "Hot Water",
+            "deferrable_target_kwh": None,
+        }
+    )
+
+    asyncio.run(services._async_handle_set_controllable_load(hass, call))
+
+    _, kwargs = hass.config_entries.async_update_subentry.call_args
+    assert "deferrable_target_kwh" not in kwargs["data"]
+
+
+def test_the_returned_data_is_what_was_actually_persisted():
+    """The service advertises "the exact data now persisted". With a
+    merge that has to mean the merged result, not the caller's own
+    payload -- otherwise the return value quietly lies."""
+    existing = _fake_subentry(
+        "existing_id",
+        "Hot Water",
+        data={"controllable_load_name": "Hot Water", "deferrable_target_kwh": 4.0},
+    )
+    hass, _entry = _fake_hass_with_entry({"existing_id": existing})
+    call = _fake_call(
+        {
+            "subentry_id": "existing_id",
+            "controllable_load_name": "Hot Water",
+            "deferrable_min_deferral_saving_dollars": 1.0,
+        }
+    )
+
+    result = asyncio.run(services._async_handle_set_controllable_load(hass, call))
+
+    assert result["data"]["deferrable_target_kwh"] == 4.0
+    assert result["data"]["deferrable_min_deferral_saving_dollars"] == 1.0
 
 
 def test_set_controllable_load_raises_for_an_unknown_subentry_id():
