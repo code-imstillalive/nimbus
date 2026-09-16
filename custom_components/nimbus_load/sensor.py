@@ -3182,6 +3182,21 @@ class _NimbusSolverPushSensor(SensorEntity):
 
     def __init__(self, entry: NimbusConfigEntry, sw_version: str | None) -> None:
         self._entry = entry
+        # nimbus issue #972: the running version, published as an
+        # ATTRIBUTE and not only inside DeviceInfo. DeviceInfo is not
+        # readable from a state read, a template, or the REST API, so it
+        # cannot answer "which install produced this reading".
+        #
+        # Found the hard way on a real install: a remote_homeassistant
+        # mirror of ANOTHER Nimbus had claimed the canonical
+        # `sensor.nimbus_household_load_total_forecast` /
+        # `sensor.nimbus_solver_battery_forecast` entity_ids, so reading
+        # them to validate a release read the OTHER install's output --
+        # which was three versions behind. The tell was an attribute
+        # missing that the local code unconditionally emits, which is a
+        # coincidence, not a method. This makes it a one-line check:
+        # compare `nimbus_version` against the version you just deployed.
+        self._sw_version = sw_version
         self._attr_unique_id = f"{entry.entry_id}_{self._UNIQUE_ID_SUFFIX}"
         # Fixed entity_id (same technique/reasoning as NimbusSolverConfigSensor
         # and NimbusForecastSensor above) -- external readers depend on
@@ -3267,7 +3282,25 @@ class _NimbusSolverPushSensor(SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict:
-        return self._attrs
+        # nimbus issue #972: added HERE rather than at the ha_post_state
+        # call sites, for two reasons. It covers every push sensor at
+        # once, including any added later; and it is contributed by the
+        # ENTITY, so it describes the install this entity belongs to
+        # even if the attribute dict came from somewhere unexpected.
+        #
+        # A mirrored copy of this sensor on another HA instance carries
+        # the ORIGIN install's value, which is exactly the point: on the
+        # instance doing the reading, `nimbus_version` disagreeing with
+        # the version just deployed is proof the entity_id resolved to
+        # somebody else's sensor.
+        #
+        # Deliberately not overwriting a `nimbus_version` already in
+        # `_attrs`: if a future publish path sets one, that is a more
+        # specific claim than this generic fallback, and silently
+        # replacing it would hide the disagreement rather than show it.
+        if "nimbus_version" in self._attrs:
+            return self._attrs
+        return {**self._attrs, "nimbus_version": self._sw_version}
 
     @callback
     def update_from_solver(self, state, attributes: dict) -> None:

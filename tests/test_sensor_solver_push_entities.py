@@ -223,8 +223,16 @@ def test_update_from_solver_calls_async_write_ha_state_when_hass_present():
     instance.async_write_ha_state = MagicMock()
     instance.update_from_solver(5.678, {"forecast": [{"time": "t", "value": 1.0}]})
     assert instance.native_value == 5.678
+    # nimbus issue #972: the entity contributes `nimbus_version` on top
+    # of whatever the solver posted, so that a reading carries the
+    # identity of the install that produced it -- a mirrored copy of this
+    # entity_id from another Nimbus otherwise reads as a perfectly valid
+    # local deployment check. `_construct` builds this instance with
+    # sw_version "0.73.0", so seeing that value here is also the proof
+    # the constructor wiring reaches the published attributes.
     assert instance.extra_state_attributes == {
-        "forecast": [{"time": "t", "value": 1.0}]
+        "forecast": [{"time": "t", "value": 1.0}],
+        "nimbus_version": "0.73.0",
     }
     instance.async_write_ha_state.assert_called_once()
 
