@@ -1166,6 +1166,19 @@ _LEX_CALIBRATION_COOLDOWN_S = 300.0  # 5 minutes
 # integrality tolerance is 1e-6; anything materially beyond that was
 # never a clean integer assignment to begin with.
 _BINARY_INTEGRALITY_TOLERANCE = 1e-6
+
+# nimbus issue #773: numerical slack on the lex phase-2 tie bound. Sized
+# to HiGHS's own primal feasibility tolerance (1e-7), which is the
+# precision the row activity is actually checked to -- not to any
+# economic quantity. In dollars this is ~1e-7, a ten-millionth of a
+# cent, so it cannot express a price signal and the "secondary never
+# overrides primary, not even by an epsilon" guarantee is untouched.
+#
+# The relative term exists because the absolute one stops being enough
+# once the primary objective is large: float error in a ~12k-term sum
+# scales with the magnitude being summed.
+_LEX_PRIMARY_TIE_ABS_SLACK = 1e-7
+_LEX_PRIMARY_TIE_REL_SLACK = 1e-9
 _lex_calibration_failed_until: float = 0.0
 
 
@@ -1623,7 +1636,42 @@ def _solve_with_options(
     primary_expr = highspy.Highs.qsum(
         float(coef) * var_array[i] for i, coef in enumerate(primary_vec)
     )
-    h.addConstr(primary_expr <= primary_value)
+    # nimbus issue #773: the bound carries a NUMERICAL slack, not an
+    # economic one.
+    #
+    # Observed live: `phase2_secondary` returned `Infeasible` on a cycle
+    # where `phase1_primary` had just returned `Optimal` (0.9s, 1906
+    # iterations). That is a contradiction -- phase 2's feasible set is
+    # phase 1's intersected with this very row, and phase 1's own
+    # optimum satisfies it by construction, so phase 2 cannot be empty.
+    #
+    # Unless the bound excludes that optimum, which is exactly what
+    # using it verbatim does. `primary_value` is the objective value
+    # HiGHS REPORTS; the row activity HiGHS then recomputes from
+    # `primary_expr` sums ~12k float terms independently. The two agree
+    # only to rounding, and if the recomputed activity lands above
+    # `primary_value` by more than the feasibility tolerance, the
+    # phase-1 point is cut off by its own bound. Classic lexicographic
+    # implementation pitfall: never use an exact optimum as a hard
+    # bound.
+    #
+    # THE ARCHITECTURE'S GUARANTEE IS UNCHANGED. This function's own
+    # docstring commits to secondary never overriding a real price
+    # signal "not even by an epsilon", and that still holds: the slack
+    # below is the solver's own primal feasibility tolerance made
+    # explicit -- on the order of 1e-7 DOLLARS, a ten-millionth of a
+    # cent. It is not a price and cannot express one. What it buys is
+    # that "equal primary cost" means equal to within the precision the
+    # solver actually computes in, rather than to a bit pattern.
+    #
+    # Same shape as the epsilon this file already applies on the
+    # SECONDARY side in LexOptions phase 3 (`max(1e-6, abs(secondary_
+    # value) * 1e-6)`), and deliberately far tighter than it.
+    tie_slack = max(
+        _LEX_PRIMARY_TIE_ABS_SLACK,
+        abs(primary_value) * _LEX_PRIMARY_TIE_REL_SLACK,
+    )
+    h.addConstr(primary_expr <= primary_value + tie_slack)
     extra_row_names = ["_lex_primary_le_optimum"]
     _set_cost_vector(h, col_indices, secondary_vec)
     secondary_value = _ensure_optimal_value(
