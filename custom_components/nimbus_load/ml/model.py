@@ -256,6 +256,45 @@ RECURSIVE_VALIDATION_HORIZON_STEPS = 16
 # validation window happens to be for a given install/load.
 RECURSIVE_VALIDATION_MAX_ORIGINS = 30
 
+# nimbus issue #937, DIAGNOSTIC ONLY -- these horizons never decide
+# model_type. Selection stays on RECURSIVE_VALIDATION_HORIZON_STEPS
+# above, unchanged.
+#
+# The gap they exist to measure: at RESAMPLE_MINUTES = 15, selection's
+# own 16 steps is FOUR HOURS, while the forecast it picks is used out to
+# DEFAULT_FORECAST_HORIZON_HOURS = 48 and #937's measured -$0.71/day is
+# scored DAY-AHEAD. So the winner is chosen on one twelfth of the
+# horizon it is chosen for.
+#
+# That matters because recursive error does not grow at the same rate
+# for every candidate -- which is the entire reason #351 exists. This
+# module's own top-of-file notes record the mechanism: k-NN's prediction
+# is a convex combination of observed y_train values and is therefore
+# structurally bounded, while GBRT is an unbounded additive sum that can
+# drift once the self-feeding lag chain walks its feature vector out of
+# distribution. A ranking taken at 4 steps of drift need not survive to
+# 96.
+#
+# So: score the same candidates at 48 and 96 steps (12 h, 24 h) and
+# record all three. If the ranking is stable, selection at 4 h is fine
+# and #937's item 3 is a dead end. If the WINNER changes with horizon,
+# selection is demonstrably choosing on the wrong one -- and that is
+# readable from a published attribute rather than arguable.
+#
+# Deliberately instrumentation rather than a behaviour change, the same
+# shape as #919: it answers the question without altering what any
+# install dispatches until there is evidence to alter it with.
+RECURSIVE_VALIDATION_DIAGNOSTIC_HORIZON_STEPS = (48, 96)
+# Fewer origins for the long walks, because cost scales with
+# origins x steps and these are 3x and 6x the selection horizon. At 8
+# origins the extra work is 8*(48+96) = 1152 predict steps against
+# selection's own 30*16 = 480 -- about 3.4x this metric's cost, once a
+# day, for a diagnostic that answers whether selection is measuring the
+# right thing at all. Stated plainly rather than buried: it is a real
+# cost, accepted deliberately and easy to revert by emptying the tuple
+# above.
+RECURSIVE_VALIDATION_DIAGNOSTIC_MAX_ORIGINS = 8
+
 # nimbus issue #366 finding 3: bumped only for a genuine, meaning-changing
 # TrainedModel shape/semantics break -- _load_model_from_disk() discards
 # and retrains fresh on any mismatch, the same self-healing fallback
@@ -302,6 +341,18 @@ class TrainedModel:
     # broken" convention as validation_mase) -- model_type selection
     # falls back to validation_mae in that case.
     validation_recursive_mae: dict[str, float] = field(default_factory=dict)
+    # nimbus issue #937: the SAME candidates scored at several
+    # recursive horizons (see RECURSIVE_VALIDATION_DIAGNOSTIC_
+    # HORIZON_STEPS), keyed by horizon in grid steps. Purely
+    # diagnostic -- model_type is decided from validation_recursive_
+    # mae above and nothing reads this. Exists to answer whether the
+    # winner CHANGES with horizon, which is what would show that
+    # selection is measuring the wrong thing. Empty dict on the same
+    # honest 'genuinely could not compute' convention as its
+    # siblings.
+    validation_recursive_mae_by_horizon: dict[str, dict[str, float]] = field(
+        default_factory=dict
+    )
     # Nimbus issue #113 (Mark Purcell, 2026-08-25): "if MASE is meant to
     # be computed, it isn't" -- validation_mase's own empty-dict-on-
     # insufficient-data behaviour (above) is correct by design, but
@@ -421,6 +472,7 @@ class TrainedModel:
                 "validation_mae": {},
                 "validation_mase": {},
                 "validation_recursive_mae": {},
+                "validation_recursive_mae_by_horizon": {},
                 "mase_scale_points": 0,
                 "resample_minutes": 0,
                 "training_span_days": 0.0,
@@ -955,6 +1007,9 @@ def train_model(
     validation_mae: dict[str, float] = {}
     validation_mase: dict[str, float] = {}
     recursive_mae: dict[str, float] = {}
+    # nimbus issue #937: horizon -> {candidate: mae}. Diagnostic
+    # only; model_type is never read from it.
+    recursive_mae_by_horizon: dict[str, dict[str, float]] = {}
     mase_scale_points = 0
     model_type = (
         "knn"  # safe default if validation set is too small to compare meaningfully
@@ -1188,6 +1243,39 @@ def train_model(
                 if mae_val is not None:
                     recursive_mae[name] = mae_val
 
+                # nimbus issue #937, diagnostic only -- see
+                # RECURSIVE_VALIDATION_DIAGNOSTIC_HORIZON_STEPS. Runs
+                # after the selection metric above and cannot influence
+                # it: model_type is decided from `recursive_mae` alone,
+                # a few lines below.
+                for extra_steps in RECURSIVE_VALIDATION_DIAGNOSTIC_HORIZON_STEPS:
+                    extra_origins = origins[
+                        :RECURSIVE_VALIDATION_DIAGNOSTIC_MAX_ORIGINS
+                    ]
+                    if not extra_origins:
+                        continue
+                    extra_mae = _recursive_multistep_mae(
+                        predict_at,
+                        grid=grid,
+                        load_vals=load_vals,
+                        load_observed=load_observed,
+                        origins=extra_origins,
+                        horizon_steps=extra_steps,
+                        default_lag=default_lag_val,
+                    )
+                    if extra_mae is not None:
+                        recursive_mae_by_horizon.setdefault(str(extra_steps), {})[
+                            name
+                        ] = extra_mae
+
+            # The selection horizon belongs in the same dict, so a reader
+            # comparing rankings across horizons is comparing like with
+            # like rather than one dict against a differently-shaped one.
+            if recursive_mae:
+                recursive_mae_by_horizon[str(RECURSIVE_VALIDATION_HORIZON_STEPS)] = (
+                    dict(recursive_mae)
+                )
+
         if len(recursive_mae) == len(candidate_mae):
             # mypy issue #384: dict.get (no default) types as
             # Callable[[K], V | None], which min()'s key= can't accept --
@@ -1341,6 +1429,7 @@ def train_model(
         validation_mae=validation_mae,
         validation_mase=validation_mase,
         validation_recursive_mae=recursive_mae,
+        validation_recursive_mae_by_horizon=recursive_mae_by_horizon,
         mase_scale_points=mase_scale_points,
         resample_minutes=resample_minutes,
         training_span_days=round(training_span_days, 2),
