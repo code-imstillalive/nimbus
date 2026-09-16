@@ -47,6 +47,7 @@ from ..const import (
     CONF_DEFERRABLE_EARLIEST_HOUR,
     CONF_DEFERRABLE_MAX_KWH_PER_DAY,
     CONF_DEFERRABLE_MAX_POWER_KW,
+    CONF_DEFERRABLE_MIN_DEFERRAL_SAVING_DOLLARS,
     CONF_DEFERRABLE_SHORTFALL_PRICE,
     CONF_DEFERRABLE_TARGET_KWH,
     CONF_DEFERRABLE_VALUE_PER_KWH,
@@ -87,6 +88,17 @@ _KWH_SELECTOR = selector.NumberSelector(
 _DOLLAR_PER_KWH_SELECTOR = selector.NumberSelector(
     selector.NumberSelectorConfig(
         min=0, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="$/kWh"
+    )
+)
+# nimbus issue #769: dollars, not $/kWh -- the household reasons in
+# "what is waiting worth to me", which a per-kWh weight cannot
+# express.
+_DOLLAR_SELECTOR = selector.NumberSelector(
+    selector.NumberSelectorConfig(
+        min=0,
+        step=0.05,
+        mode=selector.NumberSelectorMode.BOX,
+        unit_of_measurement="$",
     )
 )
 _CELSIUS_SELECTOR = selector.NumberSelector(
@@ -290,6 +302,16 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
         CONF_DEFERRABLE_MAX_KWH_PER_DAY,
         defaults.get(CONF_DEFERRABLE_MAX_KWH_PER_DAY),
         _KWH_SELECTOR,
+    )
+    # nimbus issue #769 (household decision 2026-09-15): defer this
+    # load past its window opening only if it saves more than this
+    # many dollars. Per load, so hot water can demand a dollar while
+    # a pool pump chases two cents. Unset/0 keeps today's behaviour.
+    _optional_field(
+        schema_dict,
+        CONF_DEFERRABLE_MIN_DEFERRAL_SAVING_DOLLARS,
+        defaults.get(CONF_DEFERRABLE_MIN_DEFERRAL_SAVING_DOLLARS),
+        _DOLLAR_SELECTOR,
     )
     # kind=thermal fields (nimbus issue #774) -- see solver.elements.
     # ThermalLoadConfig's own docstring for the full design.

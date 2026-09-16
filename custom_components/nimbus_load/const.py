@@ -288,6 +288,24 @@ CONF_DEFERRABLE_VALUE_PER_KWH_ENTITY: Final = "deferrable_value_per_kwh_entity"
 # use at most 20 kWh a day", needs its own explicit cap). Optional,
 # same no-op convention as every other optional deferrable field.
 CONF_DEFERRABLE_MAX_KWH_PER_DAY: Final = "deferrable_max_kwh_per_day"
+# nimbus issue #769 (Mark Purcell). Household decision 2026-09-15, in
+# their own words: "each load can have its own urgency then." Nimbus may
+# defer this load past the opening of its window only if it genuinely
+# expects to save more than this many dollars. Hot water can demand a
+# dollar before it is willing to wait; a pool pump happily chases two
+# cents.
+#
+# Denominated in dollars rather than $/kWh deliberately -- a household
+# can say what waiting is worth to them, which they cannot do with a
+# per-kWh weight. See AdequacyLoadConfig.min_deferral_saving_dollars for
+# the exact semantics and for why this one soft cost is ALLOWED to beat
+# real price signals, unlike every other member of that family.
+#
+# 0.0/unset is a complete no-op, so no existing install's dispatch
+# changes until someone sets a number.
+CONF_DEFERRABLE_MIN_DEFERRAL_SAVING_DOLLARS: Final = (
+    "deferrable_min_deferral_saving_dollars"
+)
 # nimbus issue #480 (sub-issue 4 of #476): "hot water scheduled for 3h,
 # tank reaches setpoint after 2h -- the third hour is still bought."
 # Both optional; done_entity alone is enough for a binary_sensor (its
