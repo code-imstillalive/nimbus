@@ -8,6 +8,25 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.339] - 2026-09-16
+
+### Fixed
+- **The pinned re-solve no longer fails on a solution it just accepted** ([#773](https://github.com/code-imstillalive/nimbus/issues/773)). A root cause for the `phase2_pin_resolve failed to reach optimal (status='Infeasible')` half of that issue.
+
+  That phase pins every binary to the value the previous solve returned, so by its own comment *"this reproduces the identical solution"*. If that held, the LP could not be infeasible -- the incumbent is by construction a feasible point of it.
+
+  **Both candidates the code listed are eliminated.** Unconditional rounding snapping a non-integral value: the integrality diagnostic added for exactly this shipped in v0.94.336, and across four lex failures on an install running .336 -> .337 -> .338 continuously it **never fired once**, so the worst gap is under 1e-6. And `h.val()` returning a node relaxation: it is a thin read of `getSolution().col_value`, which after a `kOptimal` MIP solve is the incumbent -- read from highspy's source rather than assumed.
+
+  **What is left is HiGHS's own defaults, which disagree across the MIP/LP boundary:** `mip_feasibility_tolerance` is `1e-06` while `primal_feasibility_tolerance` is `1e-07`. A branch-and-bound incumbent is accepted satisfying the rows to 1e-6; the pinned re-solve is a pure LP and demands 1e-7, ten times tighter. An incumbent anywhere in that band is feasible for the MIP that produced it and infeasible for the LP asked to re-certify it -- and that is also the first explanation which accounts for the **intermittency**, since the incumbent has to land in the band rather than below it. It is the only one left structurally, too: pinning changes only COLUMN bounds, so no row bound moves and the incumbent's own row activities are untouched.
+
+  Scoped to that one call. The tighter default is right for a genuine LP solve and every other phase keeps it; this is the single place asking an LP to re-certify a point a MIP already accepted. It **widens only, never narrows** (an install that deliberately set a looser LP tolerance is left alone) and restores on the way out including on failure, since a widened tolerance leaking into later phases would be worse than the bug and invisible.
+
+  **Not cosmetic:** each failure trips the 300 s cooldown and drops that cycle to a plain single-objective solve, so the calibrated/lex tie-break guarantee is skipped for five minutes. On the affected install the failures were landing every 7-9 minutes -- the cooldown plus one retry -- meaning the lex path was failing on very nearly every attempt it made.
+
+### Notes
+- One test checks the premise against the **installed solver** rather than asserting it from documentation: if HiGHS ever changes these defaults so they agree, that test says the fix needs revisiting rather than silently becoming a no-op.
+- The two failure shapes under this issue's title are now clearly separable, which is worth stating since they have been sharing it: a `phase2_secondary` **time-limit** failure never reaches the pin at all (no incumbent, `mip_gap=inf`), while a `phase2_pin_resolve` failure means phase 2 *succeeded* and the pin then broke something. Only the second is addressed here.
+
 ## [0.94.338] - 2026-09-16
 
 ### Changed
@@ -24,6 +43,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   **This also reframes the issue itself**: with the slowest observed run at 56.8 s against a 60 s limit, the failures #773 is named for are not a rare pathology but the upper tail of a distribution already centred near the ceiling. And since the solver tick is ~30 s while `phase2_secondary` alone takes 30-57 s, it quantitatively explains the overlap skips [#945](https://github.com/code-imstillalive/nimbus/issues/945) preserved evidence for -- #945 sees the symptom at the scheduler, #773 the cause in the LP.
 
 ### Notes
+- Devhub validation: deployed via HACS and restarted, `installed_version == available_version == v0.94.338`, local push sensors reporting `nimbus_version = 0.94.338`. **The new phase-breakdown line has NOT yet appeared in production**, and that is expected rather than reassuring: no phase has crossed the 5 s threshold since the deploy, so by design nothing is logged. It is confirmed by its own tests, not yet by live output -- recorded plainly rather than implied otherwise. What the same window DID produce is the evidence behind v0.94.339: four `phase2_pin_resolve` failures with the integrality diagnostic silent throughout.
 - **A justification comment on `_ALARMING_LP_CALL_SECONDS` is corrected.** It read *"an expensive root LP relaxation; mip_node_count=1, mip_gap=0.0, so branch-and-bound is not involved at all"*. That holds for `phase1_primary`; it does not hold for `phase2_secondary`, measured at 9-60 nodes. The level split is still right -- a once-a-minute WARNING for a condition nobody can act on is still noise -- but "nobody can act on it" was a claim about the wrong phase.
 - A mechanism hypothesis (the hard tie constraint `primary <= p*` making every phase-2 point degenerate) was probed with a synthetic dispatch-shaped MIP and **the probe failed**: `mip_node_count` came out 1 in every variant, so branch-and-bound never ran and the comparison tested nothing. That is the second differently-shaped synthetic attempt to hit this wall, recorded on the issue so the next person skips straight to instrumenting the real model -- which is what this release does.
 
