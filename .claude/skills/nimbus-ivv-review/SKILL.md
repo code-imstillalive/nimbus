@@ -94,11 +94,15 @@ checkouts (`git worktree add --detach <dir> <hash>`) across the commits in quest
 their common parent, rather than repeatedly `git checkout`-ing the same working tree (which
 can leave stale `__pycache__`/venv state that muddies the result). Then, regardless of what
 the bisection shows, check the **actual GitHub Actions conclusion** for the current `main`
-HEAD (`mcp__github__actions_list`, `list_workflow_runs`, `list_workflow_jobs`) — if CI is
-green on the exact commit and exact test file that fails locally, the local failure is an
-artifact of this environment, not of the code. Say so explicitly in the head issue's "ruled
-out" section, with the evidence, rather than silently dropping it or silently filing it as
-a finding either. See `references/gotchas.md` for the full worked example.
+HEAD — whatever GitHub access this session has (GitHub MCP tools, the `gh` CLI, a browser)
+works; the point is checking the real workflow run's own conclusion, not any specific
+mechanism for doing so — if CI is green on the exact commit and exact test file that fails
+locally, the local failure is an artifact of this environment, not of the code. If nothing
+available in the session can reach GitHub Actions at all, say that plainly in the head
+issue too rather than guessing, since it changes how much confidence the "ruled out" claim
+deserves. Say so explicitly in the head issue's "ruled out" section either way, with
+whatever evidence was gathered, rather than silently dropping it or silently filing it as a
+finding. See `references/gotchas.md` for the full worked example.
 
 ## 5. Decide what's genuinely worth filing
 
@@ -137,10 +141,10 @@ commits`). Body sections, in this order:
 
 Then one sub-issue per finding (never bundle — this repo's own standing rule, and it holds
 here too: a reader deciding whether to act on one finding shouldn't have to parse three).
-Use `mcp__github__issue_write` with `method: create` and `parent_issue_number` set to the
-head issue — **not** `add_issue_comment`, which posts a comment rather than creating an
-issue (an easy mistake under time pressure; if you make it, close the stray issue
-immediately as created-in-error and don't leave it lying around).
+Whatever GitHub access is available, create each as its own issue parented to the head
+issue — **not** as a comment on the head issue, which is an easy mistake to make under
+time pressure and reads very differently to someone skimming the issue list (if you make
+it, close the stray issue immediately as created-in-error and don't leave it lying around).
 
 Each sub-issue body:
 

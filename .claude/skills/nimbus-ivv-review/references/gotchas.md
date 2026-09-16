@@ -41,12 +41,14 @@ chasing further — it was already outside what this pass was scoped to review.
 A test failing on the current tip of `main`, if genuinely reproducible, would be worth its
 own issue regardless of whether the reviewed range caused it. Checked the one thing that
 actually answers this: the real GitHub Actions conclusion for that exact commit and that
-exact test file.
+exact test file — via the GitHub MCP tools this session had attached, but any working
+path to that same conclusion (the `gh` CLI, the Actions tab in a browser) answers the same
+question equally well; the mechanism isn't the point.
 
 ```
-mcp__github__actions_list(method="list_workflow_runs", branch="main", status="completed")
+list the workflow runs for the current main HEAD, filtered to completed
   -> CI run on the current HEAD: conclusion "success"
-mcp__github__actions_list(method="list_workflow_jobs", resource_id=<ci_run_id>)
+list that run's own jobs
   -> "Unit Tests (pytest)" job: conclusion "success", ran the stub-based suite that
      includes this exact test file
 ```
