@@ -1275,6 +1275,36 @@ FLATTENED_ATTRS_QUALITY: tuple[FlattenedAttrSpec, ...] = (
         unit_of_measurement=None,
         suggested_display_precision=None,
     ),
+    # nimbus issue #956: the second EPR-reliability signal #533 left
+    # room for. `epr_reliable` above now folds both in, so a household
+    # watching only that row still sees a negative-regret day go False --
+    # but "which of the two conditions fired" is the part that decides
+    # what to do about it, and that needs its own row to be readable
+    # from a dashboard or an automation rather than only from the
+    # attribute blob.
+    FlattenedAttrSpec(
+        source_key="epr_reason",
+        name="Quality EPR Reason",
+        entity_id_suffix="epr_reason",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=None,
+        state_class=None,
+        unit_of_measurement=None,
+        suggested_display_precision=None,
+    ),
+    # Energy, not percent, deliberately: a percentage below a floor is
+    # abstract, while "the achieved trajectory sold 1.9 kWh the oracle
+    # could not touch" is the sentence that explains the cost effect.
+    FlattenedAttrSpec(
+        source_key="achieved_below_floor_kwh",
+        name="Quality Achieved Below SoC Floor",
+        entity_id_suffix="achieved_below_floor_kwh",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=None,
+        state_class=None,
+        unit_of_measurement="kWh",
+        suggested_display_precision=3,
+    ),
     # --- Yield / value captured / uplift available (diagnostic, monetary) ------
     FlattenedAttrSpec(
         source_key="theoretical_maximum_yield",

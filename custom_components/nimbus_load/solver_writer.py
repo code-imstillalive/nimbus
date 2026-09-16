@@ -6807,6 +6807,24 @@ def _compute_report_for_window(
         max_threshold_pct=soc_discrepancy_max_threshold_pct,
         mean_threshold_pct=soc_discrepancy_mean_threshold_pct,
     )
+    # nimbus issue #956: the oracle is a bound by construction, so
+    # regret < 0 is not a result -- it is proof the comparison was
+    # invalid. Measured and published rather than silently passed on as
+    # though 103.66% were a score a household could act on.
+    achieved_feasibility = _achieved_feasibility_stats(
+        report.j_ach_hourly,
+        regret_dollars,
+        min_pct=min_pct,
+        max_pct=max_pct,
+        capacity_kwh=capacity_kwh,
+    )
+    # The WARNING for a negative regret is raised at the publish site,
+    # alongside the #538 SoC-discrepancy one, so it inherits the same
+    # log-once-per-scored-day guard rather than firing every cycle.
+    achieved_feasibility["lp_soc_envelope_pct"] = [
+        round(min_pct, 4),
+        round(max_pct, 4),
+    ]
     # nimbus issue #919: "is the ML load forecaster actually beating naive
     # persistence on this household's data?" -- a question no deployed
     # install could answer until now. Uses grid_oracle, not grid_residual:
@@ -6981,14 +6999,125 @@ def _compute_report_for_window(
             )
         },
         # nimbus issue #533: the EPR headline's own reliability
-        # qualifier, named for what it qualifies (today identical to
-        # soc_discrepancy_reliable -- EPR is driven directly by J_ach's
-        # own SoC-integration, so the same out-of-range condition that
-        # makes the SoC discrepancy unreliable makes EPR unreliable too
-        # -- kept as its own named field rather than asking a consumer
-        # to know that link, and so a future second EPR-reliability
-        # signal has somewhere to fold in without a rename).
-        "epr_reliable": soc_discrepancy["soc_discrepancy_reliable"],
+        # qualifier, named for what it qualifies. #533 noted that a
+        # "future second EPR-reliability signal has somewhere to fold in
+        # without a rename" -- nimbus issue #956 is that second signal,
+        # so this is no longer an alias of soc_discrepancy_reliable.
+        "epr_reliable": _epr_reliability(
+            soc_discrepancy["soc_discrepancy_reliable"],
+            achieved_feasibility["regret_reliable"],
+        ),
+        **achieved_feasibility,
+    }
+
+
+def _epr_reliability(
+    soc_discrepancy_reliable: object, regret_reliable: object
+) -> bool | None:
+    """Whether the published EPR/regret pair can be read as a
+    measurement (nimbus issues #533, #956).
+
+    Two independent signals, combined so that a definite "no" always
+    wins over an "unknown":
+
+    - `soc_discrepancy_reliable` -- #533's original test. `None` means
+      it could not be computed at all (no real SoC history), which is
+      genuinely unknown rather than fine.
+    - `regret_reliable` -- #956's. `regret_dollars < 0` means the
+      achieved dispatch priced out cheaper than perfect foresight,
+      which is not a result but proof the comparison was invalid.
+
+    A False from either is a positive finding and returns False. `None`
+    only survives when the SoC half is unknown and the regret half found
+    nothing wrong.
+
+    Typed `object` rather than `bool | None` on both parameters because
+    both arrive out of heterogeneous report dicts whose declared value
+    types are unions; narrowing here keeps the call site free of casts
+    that would assert more than those dicts actually promise.
+    """
+    if not regret_reliable:
+        return False
+    if soc_discrepancy_reliable is None:
+        return None
+    return bool(soc_discrepancy_reliable)
+
+
+def _achieved_feasibility_stats(
+    j_ach_hourly: dict[str, dict[str, float]],
+    regret_dollars: float,
+    min_pct: float,
+    max_pct: float,
+    capacity_kwh: float,
+) -> dict[str, object]:
+    """Whether the achieved trajectory respects the same SoC envelope
+    the oracle is bound by (nimbus issue #956).
+
+    **Why this is not already covered by #571's `out_of_range`.** That
+    flag tests the achieved trajectory against `[0, 100]` -- physical
+    possibility. This tests it against `[min_pct, max_pct]` -- the LP's
+    own feasible set. They are different questions, and the gap between
+    them is exactly where #956 lives.
+
+    Confirmed on the reference household's own 2026-09-15 report: with
+    Min SoC configured at 2.0%, the oracle sat precisely on 2.0% for two
+    hours while the achieved trajectory finished at **0.4429%** -- 1.90
+    kWh of energy the oracle was structurally forbidden from selling.
+    Every hour of that day reported `out_of_range` False, because 0.4429
+    is comfortably inside [0, 100]. The published EPR was 103.66% and
+    `regret_dollars` -0.7307.
+
+    That is the whole mechanism: the achieved side is priced against a
+    strictly larger feasible set than the oracle, so it can come out
+    cheaper than optimal. `regret >= 0` is documented across this
+    codebase as structural ("the oracle can never be beaten"), and it is
+    -- for two trajectories drawn from the same feasible set.
+
+    This function only MEASURES and REPORTS. It deliberately does not
+    clamp the integration used for costing: that would change `j_ach`,
+    the headline achieved-cost figure, on every install, which is a
+    household decision rather than a patch (#956 says so explicitly).
+    """
+    soc_pcts = [
+        float(row["soc_pct"]) for row in j_ach_hourly.values() if "soc_pct" in row
+    ]
+    regret_reliable = regret_dollars >= 0.0
+
+    if not soc_pcts or capacity_kwh <= 0.0:
+        return {
+            "regret_reliable": regret_reliable,
+            "achieved_within_lp_soc_bounds": None,
+            "achieved_soc_min_pct": None,
+            "achieved_soc_max_pct": None,
+            "achieved_below_floor_kwh": None,
+            "achieved_above_ceiling_kwh": None,
+            "epr_reason": None if regret_reliable else "oracle_beaten",
+        }
+
+    lo, hi = min(soc_pcts), max(soc_pcts)
+    below_pct = max(0.0, min_pct - lo)
+    above_pct = max(0.0, hi - max_pct)
+    within = below_pct == 0.0 and above_pct == 0.0
+
+    if regret_reliable:
+        reason = None
+    elif within:
+        # Negative regret WITHOUT an envelope breach. Worth naming
+        # separately rather than folding into one label: it means the
+        # mechanism verified on the reference household does not explain
+        # this install's own violation, and something else does.
+        reason = "oracle_beaten"
+    else:
+        reason = "oracle_beaten_achieved_outside_lp_soc_bounds"
+
+    return {
+        "regret_reliable": regret_reliable,
+        "achieved_within_lp_soc_bounds": within,
+        "achieved_soc_min_pct": round(lo, 4),
+        "achieved_soc_max_pct": round(hi, 4),
+        "achieved_below_floor_kwh": round(below_pct * capacity_kwh / 100.0, 4),
+        "achieved_above_ceiling_kwh": round(above_pct * capacity_kwh / 100.0, 4),
+        "epr_reason": reason,
     }
 
 
@@ -7180,6 +7309,13 @@ def _soc_discrepancy_stats(
 # gets its own warning even if a PRIOR day's was already logged.
 _QUALITY_REPORT_UNRELIABLE_WARNED: set[str] = set()
 
+# nimbus issue #956: same discipline, its own set. Deliberately NOT
+# folded into the one above -- a day can violate the regret bound while
+# the SoC discrepancy reads fine, or the reverse, and sharing a set
+# would let whichever condition was seen first silence the other for
+# that day.
+_QUALITY_REPORT_NEGATIVE_REGRET_WARNED: set[str] = set()
+
 
 def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
     """Publishes sensor.nimbus_solver_quality_report -- the exact
@@ -7260,6 +7396,51 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
             yesterday_key,
         )
         return
+    # nimbus issue #956: the oracle is a bound by construction, so a
+    # negative regret is not a result -- it is proof the comparison was
+    # invalid, and the EPR sitting above 100% beside it is not a score a
+    # household can act on. Its own warned-set, because this and the
+    # #538 condition are independent: a day can hit either, both, or
+    # neither, and silencing one must not silence the other.
+    if (
+        day_entry.get("regret_reliable") is False
+        and yesterday_key not in _QUALITY_REPORT_NEGATIVE_REGRET_WARNED
+    ):
+        _QUALITY_REPORT_NEGATIVE_REGRET_WARNED.add(yesterday_key)
+        envelope = day_entry.get("lp_soc_envelope_pct") or [None, None]
+        if day_entry.get("achieved_within_lp_soc_bounds") is False:
+            diagnosis = (
+                "the achieved SoC trajectory ranged {}-{}% against the LP's "
+                "own configured envelope of {}-{}%, so it was priced against "
+                "a strictly LARGER feasible set than the oracle -- it could "
+                "sell energy the oracle is structurally forbidden to touch, "
+                "which is exactly how 'optimal' gets beaten. Note this is NOT "
+                "what soc_discrepancy's own out_of_range flag tests: that one "
+                "asks about [0, 100], physical possibility, and reads fine "
+                "here"
+            ).format(
+                day_entry.get("achieved_soc_min_pct"),
+                day_entry.get("achieved_soc_max_pct"),
+                envelope[0],
+                envelope[1],
+            )
+        else:
+            diagnosis = (
+                "the achieved SoC trajectory stayed INSIDE the LP's own "
+                "envelope, so the mechanism verified on the reference "
+                "household (#956) does not explain this one -- please report "
+                "this day's report on nimbus issue #956, it is a second cause"
+            )
+        _LOGGER.warning(
+            "Nimbus quality: %s scored with regret_dollars=%s, which is "
+            "NEGATIVE -- the achieved dispatch priced out cheaper than "
+            "perfect foresight. EPR reads %s%% and neither figure is usable "
+            "for this day. Diagnosis: %s.",
+            yesterday_key,
+            day_entry.get("regret_dollars"),
+            day_entry.get("epr_pct"),
+            diagnosis,
+        )
     if (
         day_entry.get("soc_discrepancy_reliable") is False
         and yesterday_key not in _QUALITY_REPORT_UNRELIABLE_WARNED

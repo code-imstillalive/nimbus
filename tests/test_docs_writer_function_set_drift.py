@@ -187,6 +187,16 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # compute_daily_quality_report itself (already listed above) --
         # same native-only reasoning applies, not a separate gap.
         "_soc_discrepancy_stats",
+        # nimbus issue #956: two private helpers of the same native-only
+        # quality report -- _achieved_feasibility_stats is called only
+        # from _compute_report_for_window, and _epr_reliability only
+        # from the report dict it builds. Same reasoning as
+        # _soc_discrepancy_stats directly above, which they sit beside
+        # in the report: the standalone/cron script computes no quality
+        # report at all, so there is nothing for these to be missing
+        # FROM. Not a gap.
+        "_achieved_feasibility_stats",
+        "_epr_reliability",
         # nimbus issue #428: only called from compute_daily_quality_
         # report's own solar/load/battery resampling (already listed
         # above) -- same native-only reasoning, not a separate gap.
