@@ -8,6 +8,24 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.342] - 2026-09-16
+
+### Changed
+- **A publish path that is about to lose all of its attribute history now says so** ([#944](https://github.com/code-imstillalive/nimbus/issues/944)). No change to what is published -- this fixes the invisibility, which is the half of that issue needing no decision.
+
+  `_unrecorded_attributes` cannot apply on two of this project's publish paths, and the reason is structural rather than a bug: HA reads that set from `state.state_info`, which only the entity path populates. Both `states.async_set()` and the REST API leave it `None`. So the **whole** payload is measured against the recorder's 16 KB cap, and once over it the recorder drops **every attribute on the row** -- `return b"{}"` -- not merely the oversized one. `unit_of_measurement` goes with the rest, and long-term statistics for that entity are then suppressed.
+
+  Measured on a real install for `sensor.nimbus_household_load_total_forecast`: `forecast` 17,583 B plus ~1,540 B of everything else, against a 16,384 B cap.
+
+  The only trace of any of that was a recorder warning that reads like a database performance note and names neither Nimbus nor the consequence. `ha_post_state()` now names the entity, the size against the cap, the three largest contributing attributes, the real consequence -- and that **the live state is unaffected and only history is lost**, since a reader seeing this would otherwise reasonably conclude dispatch was broken.
+
+  Once per entity per process: the condition is structural, so over the cap this cycle means over it every cycle, and repeating it would be exactly the noise v0.94.297 had to clean up for #757. Per entity rather than globally, because both flagship sensors are affected and a global mute would hide half the problem.
+
+### Notes
+- **The #357 drift guard forced the right call, and it was the opposite of the last three times.** It flagged the new helper immediately; three earlier times today the correct answer was `INTENTIONAL_NATIVE_ONLY`, but here that would have been exactly backwards -- the cron deployment is the one #944 is *about*, so marking it native-only would have put the warning on every install except the one that needs it. Ported instead, and adapted to the standalone script's own `print(file=sys.stderr)` convention, since a cron script has no HA logging pipeline.
+- A second guard, `test_solver_writer_no_silent_failures`, rejected the defensive handler's `except Exception: pass`. It was right to: "a diagnostic must never break a publish" does not justify silence, and nothing about the failure mode required it. The handler now says at DEBUG that it could not measure the payload and that the publish is unaffected.
+- **#944 stays open.** Deciding what to *do* about an oversize payload -- strip the series on the REST path, split it onto its own entity, or leave it -- changes the published surface on cron installs, and every option trades something real. That trade was invisible until now, which is precisely why it could not be made on evidence.
+
 ## [0.94.341] - 2026-09-16
 
 ### Fixed
@@ -35,6 +53,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   Three details pinned by tests because each is easy to get wrong: `_last_updated` is left unset (a restored value is genuinely old, and stamping it fresh would let it satisfy a staleness check it has not earned); HA-managed metadata is not restored, since it comes from the class and a stale copy is how a renamed sensor advertises last week's unit; and `nimbus_version` is not restored either, because [#972](https://github.com/code-imstillalive/nimbus/issues/972) exists precisely so that field describes the **running** install.
 
 ### Notes
+- Devhub validation: deployed via HACS and restarted, `installed_version == available_version == v0.94.341`, local push sensors reporting `nimbus_version = 0.94.341` against a canonical-name `ABSENT`. `sensor.nimbus_solver_quality_report_2` carried its value immediately after the restart -- but that is **not** claimed as proof of #983's restore: the quality report re-publishes every cycle anyway, so a value appearing quickly cannot distinguish a restore from a recompute. The restore is verified by its tests; a clean live confirmation needs a sensor that does NOT re-publish every cycle. No new WARNING/ERROR beyond the pre-existing, deliberately-tolerated duplicate-unique-id situation.
 - Both defects were found from a household dashboard question rather than from the test suite or a log sweep, and neither was visible as an error anywhere -- the scorer logged nothing wrong, and a blanked sensor looks identical to one that has simply not run yet.
 - The #357 anti-drift guard caught the new `_history_coverage_hours` helper on the first CI run, the third time in one day it has flagged a new function on the very next change to touch `solver_writer.py`.
 
