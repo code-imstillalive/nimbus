@@ -8,6 +8,32 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.365] - 2026-09-17
+
+### Changed
+- **The daily-score coverage gate now names WHICH sensor was short, and stops being silent when a day keeps failing** ([#1054](https://github.com/code-imstillalive/nimbus/issues/1054), Mark Purcell, real production install).
+
+  [#984](https://github.com/code-imstillalive/nimbus/issues/984)'s gate did its job on 16 Sep — it refused to publish the day as a full-day score because real recorder history for the worst of solar/battery/load spanned only 17.37 h of 24 h. But the skip line reported nothing except that minimum, so #1054's own next step had to be *"pull each of the three sensors' raw history with real pagination and find the actual gap boundary"* — a manual recorder pull to recover a per-sensor number `_history_coverage_hours()` had **already computed internally and thrown away**.
+
+  The measurement is now kept per sensor and the skip line carries the whole breakdown, worst first, by `entity_id`:
+
+  ```
+  Nimbus quality: skip #4 for 2026-09-16. Real history covers only 17.37 h of
+  the 24.00 h window ... Per sensor, worst first: sensor.sigen_plant_battery_power
+  17.37 h [06:24-23:46], sensor.sigen_plant_pv_power 23.75 h [00:00-23:45],
+  sensor.sigen_plant_consumed_power 23.75 h [00:00-23:45].
+  ```
+
+  The bracketed span is each sensor's own covered region. #1054's next step was *"find the actual gap boundary"* — and for a truncated window that span **is** the boundary, so it is now in the line rather than something to go pull the recorder for. (The gate can only ever see truncation: a span measured end to end is blind to an interior hole by construction, which also means 17.37 h is itself proof that 16 Sep's gap is at an edge, not in the middle.)
+
+  Three figures side by side also read better than one absolute number: a perfectly healthy sensor reports 23.75 h rather than 24.00, because a first-sample-to-last-sample span is always short by one sampling interval — which is exactly why the threshold is 0.9 and not 1.0.
+
+  **Second half: the level.** INFO was right for what #984 expected to catch — the recorder still catching up just after midnight, which clears on the next cycle and should not page anyone. It was wrong for what actually happened: the same day skipped across 5+ consecutive solves, `sensor.nimbus_solver_quality_report` at `unknown` for a day and a half, and **nothing at the default log level saying why**. The reason was only recoverable by raising the logger to INFO by hand and re-running `solve_now`. The skip now counts per scored day and escalates to WARNING on the third attempt — past "the recorder is catching up", well short of spamming a real outage — and a day that recovers clears its own count.
+
+  No behaviour change to the gate itself: `_history_coverage_hours()` delegates to the new per-series measurement rather than duplicating it, so there is one implementation and the headline number cannot drift from the breakdown. The minimum over the per-series result is identical to the old short-circuit in every case, including the empty-series edge, and that equivalence is pinned by its own tests alongside #984's existing ones.
+
+  Devhub validation: **not claimed** — this path only fires when an install's own recorder history is genuinely short, which devhub's is not. The escalation and the breakdown are both driven end-to-end against the real `_compute_report_for_window()` in tests instead.
+
 ## [0.94.364] - 2026-09-17
 
 ### Changed
