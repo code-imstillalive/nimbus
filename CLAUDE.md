@@ -20,6 +20,39 @@ Dated work-in-progress notes live in `docs/worklog/`, one file per date — this
 the "CURRENT STATE" journal that used to live directly in this file now lives. Each
 file is not re-summarized here; read it directly for the full detail. Most recent 5:
 
+- [2026-09-17](docs/worklog/2026-09-17.md) — Eight releases (**v0.94.351 →
+  v0.94.358**), four issues closed (#1013, #1015, #873, #1019), and **five of
+  the session's own claims corrected by evidence**, three of them the same
+  night they were made. **#1013**: the State of Health dial was read by
+  nothing, and the modelling question it flagged ("ceiling, floor, or both?")
+  was settled by measurement rather than argument — fourteen days of daily
+  statistics show the BMS reports 100% at **119.72 kWh, not the 122.16
+  nameplate**, and the daily floor sits on the derated scale too, so both
+  rails scale. The household's own 98% was right to 0.03%. **#873** (Mark's
+  "Build it") took three attempts, and the two failures are the reusable part:
+  a module-level helper cannot compile because the guard's imports are
+  deferred *and* — the trap nothing catches — **hoisting a block that begins
+  with `if` into an `if/elif` chain silently re-parents the following `elif`
+  onto it**, passing ruff, mypy and its own tests while changing behaviour.
+  That lesson directly shaped **#1019**'s remaining half, which is a *pure*
+  re-indent of 839 lines verified mechanically (dedent it and the bytes match)
+  precisely because a pure indent cannot re-parent anything. **#1015** fixed
+  `j_ref` pricing P2P at plain spot while `j_star` got the modelled bonus —
+  hidden behind a confident docstring claiming j_ref has "zero export", which
+  confuses *battery* idle with *house* idle. **#937** produced the day's one
+  genuinely new measurement: model selection validates recursive error over
+  **4 hours** while the forecast is used to 48 and the dollar figure is scored
+  at 24, and on one of three real circuits **the winner flips to naive
+  persistence at 24 h** — #937's headline finding appearing inside the model's
+  own validation. Shipping that instrument also reproduced the #1013 class
+  four hours after fixing it (computed, threaded into the coordinator, never
+  published), caught by devhub. The corrections are worth reading as a set:
+  entity **ownership on devhub is per-entity, not per-install** (a blanket
+  rule got applied in both directions, wrongly, within an hour), a retracted
+  reconstruction endpoint had propagated into **three** issues and only two
+  were swept, and a tidy structural explanation for #773's phase-2 blowup was
+  refuted by measuring it — synthetic tops out at 3.1x against production's
+  21–60x, leaving `mip_node_count` as the real discriminator.
 - [2026-09-16](docs/worklog/2026-09-16.md) — **By morning the queue was unblocked
   and two releases shipped (v0.94.332, v0.94.333), closing all four of Mark
   Purcell's #950 IV&V findings** (#952, #953, #954, #955) — see the end of that
