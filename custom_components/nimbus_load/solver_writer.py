@@ -7054,6 +7054,12 @@ def _compute_report_for_window(
         "j_ref": round(report.j_ref, 4),
         "j_ach": round(report.j_ach, 4),
         "j_star": round(report.j_star, 4),
+        # nimbus issue #1001: the oracle no longer refuses to consider an
+        # under-delivered committed hour -- it cannot, without making the
+        # comparison impossible -- so the missed commitment is reported
+        # here instead of being implicit in a regret that had gone
+        # negative. 0.0 means nothing was owed or everything was met.
+        "p2p_commitment_shortfall_kwh": report.p2p_commitment_shortfall_kwh,
         "regret_dollars": round(regret_dollars, 4),
         "tracking_fidelity": round(report.tracking.tracking_fidelity, 4),
         "tracking_cost": round(report.tracking_cost, 4),

@@ -117,6 +117,23 @@ class QualityReport:
     note) -- single-battery installs (still the common case) see a
     byte-identical result to before this change."""
 
+    p2p_commitment_shortfall_kwh: float = 0.0
+    """Energy a committed P2P block asked for and the day did not
+    deliver (nimbus issue #1001), summed over every committed period.
+
+    Exists because the oracle stopped refusing to consider an
+    under-delivered hour. It had to: holding the oracle to a commitment
+    the day did not meet makes the comparison impossible, and on a real
+    install produced regret -$4.95 with `j_star` worse than doing
+    nothing. The missed commitment is a genuine, separate signal, so it
+    is reported directly rather than smuggled into regret as an
+    infeasible oracle -- which made it visible only by noticing regret
+    had gone impossible.
+
+    0.0 means either no P2P commitment is configured or every committed
+    hour was met. Defaulted so every existing construction site and test
+    predating this field is unaffected."""
+
 
 def _hourly_means_by_key(
     *,
@@ -295,6 +312,35 @@ def _soc_envelope_containing_achieved(
     return floor, ceiling
 
 
+def _achieved_grid_export_kw(
+    *,
+    hours: NDArray[np.float64],
+    load_kw: NDArray[np.float64],
+    solar_kw: NDArray[np.float64],
+    actual_charge_kw: list[NDArray[np.float64]],
+    actual_discharge_kw: list[NDArray[np.float64]],
+) -> NDArray[np.floating[Any]]:
+    """What the day actually exported, per period.
+
+    The same reconstruction regret.py's own evaluator uses for J_ach, so
+    "what the day exported" means one thing across the comparison rather
+    than two nearly-identical definitions that can drift. Both the
+    oracle's export band (nimbus issue #956) and the commitment
+    shortfall (#1001) read it, which is exactly why it is a function
+    rather than two inline copies.
+    """
+    # Annotated loosely on purpose: numpy widens float64 to floating[Any]
+    # across an accumulating `+`, the same long-standing friction this
+    # module already documents for `zero` elsewhere.
+    total_charge_kw: NDArray[np.floating[Any]] = np.zeros(len(hours))
+    total_discharge_kw: NDArray[np.floating[Any]] = np.zeros(len(hours))
+    for c, d in zip(actual_charge_kw, actual_discharge_kw, strict=True):
+        total_charge_kw = total_charge_kw + c
+        total_discharge_kw = total_discharge_kw + d
+    net_needed = load_kw + total_charge_kw - total_discharge_kw - solar_kw
+    return np.maximum(0.0, -net_needed)
+
+
 def _widen_export_pin_to_achieved(
     grid: GridConfig,
     *,
@@ -316,30 +362,36 @@ def _widen_export_pin_to_achieved(
     the achieved trajectory was outside the oracle's feasible set in
     seven consecutive hours on top of being outside it on SoC.
 
-    So the pin becomes a band, `[pin, max(pin, achieved)]` per period --
-    **the ceiling rises to meet an over-delivery, and the floor never
-    moves.** The 2026-08-20 finding the pin exists for survives
-    untouched: the oracle still cannot chase a fictional market up to
-    `export_limit_kw`, only as far as the day itself demonstrably went.
+    So the pin becomes a band, `[min(pin, achieved), max(pin, achieved)]`
+    per period -- **exactly as wide as that day's own deviation and no
+    wider, in whichever direction it went.**
 
-    **The one-sidedness is deliberate, and it is a real limit on what
-    this fixes.** Containing the achieved trajectory in BOTH directions
-    would mean dropping the floor to meet an UNDER-delivery too, and
-    that was tried and reverted: `test_oracle_export_never_exceeds_the_
-    real_fixed_rate_during_the_p2p_window` caught it immediately. A
-    household that committed 11.5 kW and delivered nothing would then be
-    scored against an oracle free to deliver nothing either, and the
-    missed commitment -- a real, expensive failure -- would price out as
-    no regret at all. A commitment is an obligation, not a decision the
-    oracle gets to re-make, so the floor stays where the contract put it.
+    **v0.94.344 shipped this widening upward only, and that was wrong
+    (nimbus issue #1001).** The stated reasoning was that an
+    under-delivered commitment could not produce negative regret because
+    "under-delivery makes achieved worse, not better" -- true whenever
+    exporting into a P2P window is profitable, which is what a bonus rate
+    is for. It is false when the committed export price is a fraction of
+    the import price. Then the commitment is a **loss the oracle cannot
+    decline**, and a household that quietly skipped it beats perfect
+    foresight. Measured on a real install the day v0.94.344 shipped, and
+    reduced to a minimal reproduction: a 12 kW commitment over seven
+    hours at 7.5c export against 37c import gives `j_star` **$2.43 worse
+    than doing nothing at all** and regret **-$4.95**.
 
-    The honest consequence, stated rather than glossed: an under-
-    delivering day still leaves the achieved trajectory outside the
-    oracle's feasible set, so `regret >= 0` is not proven by
-    construction for it. It has never been observed to go negative from
-    that direction -- under-delivery makes achieved WORSE, not better --
-    but "not observed" is weaker than "cannot happen", and the #956
-    reliability flag remains the backstop that says so if it ever does.
+    **The 2026-08-20 finding the pin exists for still survives**, because
+    that finding is an upper bound -- its own guard is named
+    `test_oracle_export_never_exceeds_the_real_fixed_rate_during_the_p2p_
+    window`. The oracle still cannot chase a fictional market: the
+    ceiling is the commitment, or what the day itself demonstrably
+    exported, whichever is higher, and never `export_limit_kw`.
+
+    **What dropping the floor does NOT do is lose the missed
+    commitment.** That signal moves from being implicit -- inferable only
+    by noticing regret had gone impossible -- to explicit, as
+    `p2p_commitment_shortfall_kwh` on the report. Two different questions
+    were being smuggled into one number, and separating them reports the
+    shortfall more visibly than the infeasible oracle ever did.
 
     A day that delivers its commitment exactly -- every well-behaved day
     -- produces `lo == hi == pin` and is byte-identical to before this
@@ -348,19 +400,13 @@ def _widen_export_pin_to_achieved(
     if grid.fixed_export_kw is None:
         return grid
 
-    # The same reconstruction regret.py's own evaluator uses for J_ach,
-    # so "what the day exported" means the same thing on both sides of
-    # the comparison rather than two nearly-identical definitions.
-    # Annotated loosely on purpose: numpy widens float64 to floating[Any]
-    # across an accumulating `+`, the same long-standing friction this
-    # module already documents for `zero` below.
-    total_charge_kw: NDArray[np.floating[Any]] = np.zeros(len(hours))
-    total_discharge_kw: NDArray[np.floating[Any]] = np.zeros(len(hours))
-    for c, d in zip(actual_charge_kw, actual_discharge_kw, strict=True):
-        total_charge_kw = total_charge_kw + c
-        total_discharge_kw = total_discharge_kw + d
-    net_needed = load_kw + total_charge_kw - total_discharge_kw - solar_kw
-    achieved_export_kw = np.maximum(0.0, -net_needed)
+    achieved_export_kw = _achieved_grid_export_kw(
+        hours=hours,
+        load_kw=load_kw,
+        solar_kw=solar_kw,
+        actual_charge_kw=actual_charge_kw,
+        actual_discharge_kw=actual_discharge_kw,
+    )
 
     pin = np.asarray(grid.fixed_export_kw, dtype=np.float64)
     pinned = ~np.isnan(pin)
@@ -372,20 +418,49 @@ def _widen_export_pin_to_achieved(
     export_limit_arr = np.broadcast_to(
         np.asarray(grid.export_limit_kw, dtype=np.float64), pin.shape
     )
+    lo = pin.copy()
     hi = np.full_like(pin, np.nan)
     # The physical/contracted export limit still wins over a
     # reconstruction: a measured export above it is sensor or unit
-    # trouble, not a rate the oracle should be asked to match. And the
-    # floor is the commitment itself, never the reconstruction -- see
-    # the one-sidedness note above.
+    # trouble, not a rate the oracle should be asked to match.
     hi[pinned] = np.minimum(
         np.maximum(pin[pinned], achieved_export_kw[pinned]), export_limit_arr[pinned]
     )
-    # A pin sitting above its own export limit is already rejected by
-    # GridConfig, but the clamp above could still land hi below pin on a
-    # float hair; the band must never invert.
-    hi[pinned] = np.maximum(hi[pinned], pin[pinned])
-    return replace(grid, fixed_export_max_kw=hi)
+    # Never negative: GridConfig rejects a pin below 0, and a
+    # reconstruction cannot export less than nothing.
+    lo[pinned] = np.maximum(0.0, np.minimum(pin[pinned], achieved_export_kw[pinned]))
+    # Reconstruction noise can leave hi a hair under lo once the export
+    # limit clamp lands; the band must never invert.
+    lo[pinned] = np.minimum(lo[pinned], hi[pinned])
+    return replace(grid, fixed_export_kw=lo, fixed_export_max_kw=hi)
+
+
+def _p2p_commitment_shortfall_kwh(
+    grid: GridConfig,
+    *,
+    hours: NDArray[np.float64],
+    achieved_export_kw: NDArray[np.floating[Any]],
+) -> float:
+    """Energy a committed P2P block asked for and the day did not deliver
+    (nimbus issue #1001).
+
+    The oracle no longer refuses to consider an under-delivered hour --
+    it cannot, without making the comparison impossible -- so the missed
+    commitment needs somewhere honest to live. This is it: summed over
+    every committed period, `max(0, committed - delivered) * hours`.
+
+    0.0 means either no P2P commitment is configured or every committed
+    hour was met, which are usefully the same answer to "did the day
+    honour its obligations".
+    """
+    if grid.fixed_export_kw is None:
+        return 0.0
+    pin = np.asarray(grid.fixed_export_kw, dtype=np.float64)
+    pinned = ~np.isnan(pin)
+    if not pinned.any():
+        return 0.0
+    shortfall_kw = np.maximum(0.0, pin[pinned] - achieved_export_kw[pinned])
+    return float(np.sum(shortfall_kw * hours[pinned]))
 
 
 def compute_quality_report(
@@ -572,6 +647,20 @@ def compute_quality_report(
         solar_kw=solar.forecast_kw,
         actual_charge_kw=actual_charge_kw,
         actual_discharge_kw=actual_discharge_kw,
+    )
+    # nimbus issue #1001: measured against the ORIGINAL commitment, not
+    # the widened band -- the band is what the oracle is scored under,
+    # the commitment is what the household actually owed.
+    p2p_commitment_shortfall_kwh = _p2p_commitment_shortfall_kwh(
+        grid_oracle,
+        hours=hours,
+        achieved_export_kw=_achieved_grid_export_kw(
+            hours=hours,
+            load_kw=load.forecast_kw,
+            solar_kw=solar.forecast_kw,
+            actual_charge_kw=actual_charge_kw,
+            actual_discharge_kw=actual_discharge_kw,
+        ),
     )
     oracle_plan = build_plan(
         periods=periods,
@@ -822,4 +911,5 @@ def compute_quality_report(
         j_ref_hourly=j_ref_hourly,
         j_ach_hourly=j_ach_hourly,
         j_star_hourly=j_star_hourly,
+        p2p_commitment_shortfall_kwh=round(p2p_commitment_shortfall_kwh, 4),
     )

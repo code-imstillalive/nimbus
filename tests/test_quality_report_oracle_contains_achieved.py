@@ -272,21 +272,49 @@ class TestWidenExportPinToAchieved(unittest.TestCase):
                 float(widened.fixed_export_max_kw[h]), 12.77, places=9
             )
 
-    def test_under_delivery_does_not_move_the_floor(self):
-        """The deliberate one-sidedness. Dropping the floor to meet an
-        under-delivery was tried and reverted: it would score a household
-        that committed 11.5 kW and delivered nothing against an oracle
-        free to deliver nothing either, erasing the regret of a real,
-        expensive missed commitment.
-        `test_quality_report_p2p_fixed_export.py`'s own 2026-09-01 guard
-        catches exactly that, and it is right to."""
+    def test_under_delivery_lowers_the_floor_to_what_was_delivered(self):
+        """nimbus issue #1001, correcting v0.94.344.
+
+        That release widened upward only, on the stated reasoning that
+        under-delivery "makes achieved worse, not better" so it could
+        never produce negative regret. That holds while exporting into a
+        P2P window is profitable -- which is what a bonus rate is for --
+        and fails when the committed export price is a fraction of the
+        import price. Then the commitment is a LOSS the oracle cannot
+        decline, and a household that quietly skipped it beats perfect
+        foresight. See
+        `TestUnderDeliveredCommitmentNoLongerBeatsTheOracle` below for
+        the measured case.
+
+        The ceiling stays at the commitment, so the 2026-09-01 finding
+        (the oracle must not model a fictional market) is untouched --
+        that guard lives in test_quality_report_p2p_fixed_export.py and
+        still passes."""
         grid = _grid(fixed_export_kw=_pin(12.0, range(17, 24)))
         widened = self._widen(grid, _achieved_export(9.0))
         for h in range(17, 24):
-            self.assertAlmostEqual(float(widened.fixed_export_kw[h]), 12.0, places=9)
+            self.assertAlmostEqual(float(widened.fixed_export_kw[h]), 9.0, places=9)
             self.assertAlmostEqual(
                 float(widened.fixed_export_max_kw[h]), 12.0, places=9
             )
+
+    def test_the_floor_never_goes_negative(self):
+        """`GridConfig` rejects a pin below 0, and a reconstruction
+        cannot export less than nothing -- but a noisy one can compute a
+        small negative, so the clamp is asserted rather than assumed."""
+        grid = _grid(fixed_export_kw=_pin(12.0, range(17, 24)))
+        widened = self._widen(grid, _achieved_export(0.0))
+        for h in range(17, 24):
+            self.assertGreaterEqual(float(widened.fixed_export_kw[h]), 0.0)
+        # And the result must still construct.
+        GridConfig(
+            import_price=grid.import_price,
+            export_price=grid.export_price,
+            import_limit_kw=grid.import_limit_kw,
+            export_limit_kw=grid.export_limit_kw,
+            fixed_export_kw=widened.fixed_export_kw,
+            fixed_export_max_kw=widened.fixed_export_max_kw,
+        )
 
     def test_uncommitted_periods_are_left_free(self):
         grid = _grid(fixed_export_kw=_pin(12.0, range(17, 24)))
@@ -591,3 +619,116 @@ class TestRegretIsNonNegativeOnTheReal956Shape(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestUnderDeliveredCommitmentNoLongerBeatsTheOracle(unittest.TestCase):
+    """nimbus issue #1001 -- the case v0.94.344 said could not happen.
+
+    Its changelog and code comments both recorded: "it has never been
+    observed to go negative from that direction -- under-delivery makes
+    achieved WORSE, not better". A rescore of a real day on a
+    v0.94.344 install came back at regret -$0.6091 / EPR 103.87% with
+    `achieved_within_lp_soc_bounds: true`, which ruled out the SoC half
+    and pointed here. Reduced to this fixture, pre-fix it prices out at
+    **regret -$4.95** with `j_star` **$2.43 worse than doing nothing**.
+
+    The reasoning failed because exporting into a P2P window is only
+    profitable while the committed rate beats spot import. Here export
+    is 7.5c against 37c import -- the commitment is a loss the oracle
+    cannot decline, and the household simply did not make that trade.
+    """
+
+    START = datetime(2026, 9, 15, 0, 0, tzinfo=UTC)
+
+    def _case(self):
+        import_price = np.full(N, 0.13)
+        import_price[17:24] = 0.37
+        export_price = np.full(N, 0.02)
+        export_price[17:24] = 0.075
+        pin = np.full(N, np.nan)
+        pin[17:24] = 12.0
+        grid = GridConfig(
+            import_price=import_price,
+            export_price=export_price,
+            import_limit_kw=42.0,
+            export_limit_kw=42.0,
+            fixed_export_kw=pin,
+        )
+        battery = _battery(initial_soc_kwh=CAPACITY * 0.30)
+        # The household essentially ignored the commitment: a little
+        # self-consumption, nothing exported in the committed hours.
+        discharge = np.zeros(N)
+        discharge[17:24] = 1.0
+        return battery, discharge, grid
+
+    def _report(self):
+        battery, discharge, grid = self._case()
+        final_soc = (
+            battery.initial_soc_kwh
+            - float(np.sum(discharge)) / battery.discharge_efficiency
+        )
+        zero = np.zeros(N)
+        return compute_quality_report(
+            periods=PeriodGrid(hours=HOURS, start=self.START),
+            grid_residual=grid,
+            grid_oracle=grid,
+            batteries=[battery],
+            solar=SolarConfig(forecast_kw=np.zeros(N)),
+            load=LoadConfig(name="house", forecast_kw=np.full(N, 1.0)),
+            timestamps=[self.START + timedelta(hours=i) for i in range(N)],
+            real_p2p_dollars_earned=0.0,
+            commanded_charge_kw=[zero],
+            commanded_discharge_kw=[zero],
+            actual_charge_kw=[zero],
+            actual_discharge_kw=[discharge],
+            final_soc_kwh_actual=[final_soc],
+        )
+
+    def test_regret_is_not_negative(self):
+        report = self._report()
+        self.assertGreaterEqual(report.epr.uplift_available, 0.0)
+
+    def test_the_oracle_is_not_worse_than_doing_nothing(self):
+        """The sharpest statement of the defect: a perfect-foresight
+        oracle that loses to the do-nothing baseline is not an oracle.
+        Pre-fix `j_star` was 7.2304 against `j_ref` 4.8000."""
+        report = self._report()
+        self.assertLessEqual(report.j_star, report.j_ref)
+
+    def test_the_missed_commitment_is_reported_rather_than_lost(self):
+        """Dropping the oracle's floor is only defensible because the
+        shortfall becomes visible somewhere else. 12 kW committed and
+        ~0 delivered across seven hours is ~84 kWh."""
+        report = self._report()
+        self.assertGreater(report.p2p_commitment_shortfall_kwh, 80.0)
+
+    def test_no_commitment_configured_reports_no_shortfall(self):
+        """0.0 must mean "nothing owed", not "not measured"."""
+        battery, discharge, grid = self._case()
+        grid_no_p2p = GridConfig(
+            import_price=grid.import_price,
+            export_price=grid.export_price,
+            import_limit_kw=grid.import_limit_kw,
+            export_limit_kw=grid.export_limit_kw,
+        )
+        final_soc = (
+            battery.initial_soc_kwh
+            - float(np.sum(discharge)) / battery.discharge_efficiency
+        )
+        zero = np.zeros(N)
+        report = compute_quality_report(
+            periods=PeriodGrid(hours=HOURS, start=self.START),
+            grid_residual=grid_no_p2p,
+            grid_oracle=grid_no_p2p,
+            batteries=[battery],
+            solar=SolarConfig(forecast_kw=np.zeros(N)),
+            load=LoadConfig(name="house", forecast_kw=np.full(N, 1.0)),
+            timestamps=[self.START + timedelta(hours=i) for i in range(N)],
+            real_p2p_dollars_earned=0.0,
+            commanded_charge_kw=[zero],
+            commanded_discharge_kw=[zero],
+            actual_charge_kw=[zero],
+            actual_discharge_kw=[discharge],
+            final_soc_kwh_actual=[final_soc],
+        )
+        self.assertEqual(report.p2p_commitment_shortfall_kwh, 0.0)
