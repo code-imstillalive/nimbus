@@ -90,7 +90,25 @@ file is not re-summarized here; read it directly for the full detail. Most recen
   enforcing less than they appeared to in one morning** (#594's changelog check,
   #955's source-comment check, #952's drift glob), and in two of the three *nothing
   was failing*, which is exactly why nobody had noticed — the #757 lesson restated:
-  a guard that cannot fail is indistinguishable from a guard that works. Each fix
+  a guard that cannot fail is indistinguishable from a guard that works. **The
+  afternoon then ran to v0.94.342** — nine more releases — and its lesson is
+  narrower and harder than the morning's: **a claim this project wrote down is not
+  evidence, even when it comes back from somewhere else.** Three separate questions
+  were settled only by going to a primary source, and the plausible intermediate
+  would have been wrong each time: HiGHS's own option defaults (`mip_feasibility_
+  tolerance` 1e-06 vs `primal_feasibility_tolerance` 1e-07, the root cause of
+  #773's `phase2_pin_resolve` Infeasible), highspy's `val()` (which reads the
+  incumbent, eliminating the other documented candidate), and **HAEO's own element
+  directory** — which has no load element at all, so the "HAEO schedule-early
+  incentive" #769 proposes to adopt does not exist. The top web result for that
+  mechanism is #769 itself, reflecting this project's own text back as a finding.
+  Also: **three releases had been validated against the wrong install** —
+  the canonical `sensor.nimbus_*` ids on devhub resolve to a mirror of production
+  (#972 now publishes `nimbus_version` so that is a one-line check), and **the
+  household's own dashboard question found two defects nothing else had** — a
+  partial window published as a full-day score, writing regret +$9.34 into recorder
+  history and long-term statistics every morning (#984), and the four daily sensors
+  blanking on every restart (#983). Each fix
   therefore shipped with a durable half, confirmed to fire by planting the thing it
   forbids. Devhub verification also produced real live evidence rather than a clean
   restart: **#945 confirmed** (only `consecutive skips: 2`/`3` at WARNING, single
