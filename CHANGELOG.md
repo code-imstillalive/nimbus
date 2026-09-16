@@ -8,6 +8,27 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.351] - 2026-09-17
+
+### Fixed
+- **State of Health actually derates battery capacity now** ([#1013](https://github.com/code-imstillalive/nimbus/issues/1013)). `number.nimbus_solver_battery_soh_percent` was created in `number.py`, mirrored onto `sensor.nimbus_solver_config`, and read by **nothing at all** -- no solve path, native or cron. Setting State of Health from the dashboard changed nothing about dispatch or scoring, silently.
+
+  The reference household had it at 98%, in the reasonable belief it derated a 122.2 kWh pack to ~119.8. Every solve planned against the full 122.2 -- roughly **5.7 kWh of headroom that does not physically exist**, and a wrong ceiling bites precisely when the battery is at it, which [#1012](https://github.com/code-imstillalive/nimbus/issues/1012) established this pack is every single day.
+
+  The semantics were never in doubt: `const.py`'s own comment beside `CONF_SOLVER_BATTERY_SOH_PERCENT` has read `effective_capacity = capacity_kwh * soh_percent / 100` since the field was added. Only the code was missing. `resolve_effective_capacity_kwh()` now backs all five sites that build a `BatteryConfig` from configured capacity -- four in the integration, one in the standalone/cron writer ([#357](https://github.com/code-imstillalive/nimbus/issues/357): that copy has shipped stale behaviour for weeks before, and a cron household would have kept the phantom headroom indefinitely).
+
+  **The one real modelling question -- does SoH derate the ceiling, the floor, or both? -- was measured, not argued.** Fourteen consecutive days of the reference household's own daily statistics, two sensors describing one pack: `combined_battery_charge` maxes at **119.72 kWh** while `logger_battery_level_soc` maxes at **100.0%**, against a constant 122.16 kWh nameplate. So the BMS reports 100% at 119.72, *not* at the nameplate -- SoC is a percentage of the pack's current usable capacity, and the nameplate is not the scale the household's own SoC sensor speaks in. The floor agrees independently: Min SoC is configured at 2.0% and the daily minimum lands at 2.39 kWh, which is 2.0% of 119.72 (2.394) rather than of 122.16 (2.443). **Both rails scale.** Intermediate readings sit on the same scale (99.3% <-> 118.96 kWh, 8.9% <-> 10.69 kWh), so this is one scale rather than two clamps coinciding.
+
+  The configured dial is vindicated by the same reading: 122.2 x 0.98 = 119.756 against a measured 119.72, a difference of **0.03%**. The number was right from the day it was entered; nothing read it.
+
+  **No-op by default** -- `DEFAULT_SOLVER_SOH_PERCENT` is 100.0, and the golden-output guardrail confirms every other attribute `main()` pushes is byte-identical across the change. An install that has set the dial *does* change, which is the defect being fixed. A value outside (0, 100] is refused rather than applied, announced once per distinct bad value.
+
+  `solve_diagnostics` now publishes `battery_soh_percent`, `battery_nameplate_capacity_kwh` and `battery_effective_capacity_kwh` -- both numbers, since a lone `119.756` is indistinguishable from someone having retyped the nameplate.
+
+  Still deliberately one static number rather than a live sensor read: `const.py` is explicit this field is "one number the owner updates occasionally... NOT an automated fade-tracking model," and `CONF_BATTERY_TOWER_SOH_SENSOR` remains a real follow-up rather than something to smuggle in under a bug fix.
+
+  Devhub validation: v0.94.350 deployed and verified immediately before this change (`installed_version == available_version`, `solve_now` ran, no new log class). This change rests on CI plus 24 tests, three of which pin the 14-day measurement above; #1013's own guard shipped ahead of the fix and its self-deleting exemption worked exactly as written.
+
 ## [0.94.350] - 2026-09-16
 
 ### Fixed
