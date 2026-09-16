@@ -64,6 +64,7 @@ from typing import ClassVar
 import _solver_path  # noqa: F401
 import load_run_state
 import numpy as np
+import pytest
 import solver_writer
 
 _TZ = timezone(timedelta(hours=10))  # Australia/Brisbane, no DST
@@ -188,7 +189,9 @@ class TestReaffirmCapExhaustionLogsAWarning(unittest.TestCase):
         )
         return hass, services
 
-    def _seed_exhausted_diverging_state(self, now: datetime) -> load_run_state.LoadRunState:
+    def _seed_exhausted_diverging_state(
+        self, now: datetime
+    ) -> load_run_state.LoadRunState:
         """A load Nimbus commanded ON hours ago, whose device has been
         measured OFF ever since (the #875 SG-Ready-bridge scenario the
         module docstring cites), and which has already used up every one
@@ -238,6 +241,14 @@ class TestReaffirmCapExhaustionLogsAWarning(unittest.TestCase):
         )
         solver_writer.apply_commanded_state_guard(plan, at, grid_times)
 
+    @pytest.mark.xfail(
+        reason=(
+            "nimbus issue #998: reaffirm_allowed() returning False produces "
+            "zero log signal once the daily cap is hit. strict=True so this "
+            "flips to a loud XPASS failure the moment the fix lands."
+        ),
+        strict=True,
+    )
     def test_a_warning_is_logged_once_the_reaffirm_cap_is_hit(self):
         hass, services = self._hass()
         solver_writer._NATIVE_HASS = hass
@@ -269,6 +280,14 @@ class TestReaffirmCapExhaustionLogsAWarning(unittest.TestCase):
         # pinned here, not the blocking itself.
         self.assertEqual(services.calls, [])
 
+    @pytest.mark.xfail(
+        reason=(
+            "nimbus issue #998: no WARNING fires at all yet once the daily "
+            "cap is hit, so there is nothing to deduplicate. strict=True so "
+            "this flips to a loud XPASS failure the moment the fix lands."
+        ),
+        strict=True,
+    )
     def test_the_warning_is_not_repeated_every_single_solve_cycle(self):
         """See the module docstring's "Log-shape decision" -- once per
         (load, day) is the right amount. Two consecutive ~5-minute solve

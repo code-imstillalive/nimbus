@@ -276,9 +276,7 @@ class TestPinResolveToleranceRealReproduction(unittest.TestCase):
             yield
 
         with (
-            unittest.mock.patch.object(
-                lp, "_lp_tolerance_matching_mip", _pre_fix_noop
-            ),
+            unittest.mock.patch.object(lp, "_lp_tolerance_matching_mip", _pre_fix_noop),
             _capture_solver_logs() as catcher,
         ):
             plan = _solve(*self.scenario, options=CalibratedOptions())
@@ -409,7 +407,9 @@ class TestPhase2SecondaryPathCoverage(unittest.TestCase):
         real_ensure = lp._ensure_optimal_value
 
         def _spy_ensure(h, *, phase="", problem=None, binary_cols=None):
-            value = real_ensure(h, phase=phase, problem=problem, binary_cols=binary_cols)
+            value = real_ensure(
+                h, phase=phase, problem=problem, binary_cols=binary_cols
+            )
             if phase == "phase1_primary":
                 captured_primary_value.append(value)
             return value
