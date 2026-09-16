@@ -8,6 +8,21 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.355] - 2026-09-17
+
+### Fixed
+- **The brand icons are trimmed, so they now actually meet `home-assistant/brands`' requirements** ([#987](https://github.com/code-imstillalive/nimbus/issues/987)). Preparation only — the blank white tile in update notifications is caused by `nimbus_load` never having been submitted to the brands CDN, and that submission is a PR to a major public repository under the maintainer's own identity, so it stays deliberately un-opened.
+
+  #987's own table asserted *"Both match what `home-assistant/brands` requires"*. Checked against the brands README directly rather than from memory: *"The image should be trimmed, so it contains the minimum amount of empty space on the edges. This includes things like white/black/any color borders or transparent spacing around the actual subject in the image."* Measured, `icon.png` carried 10/13/12/12 px of transparent padding and `icon@2x.png` 21/26/23/25. Format and dimensions were right; trim was not — so the assertion was half true, and the wrong half is the half that gets a brands PR sent back.
+
+  Regenerated both from the 512x512 original (the highest-resolution source, so nothing is upscaled) by cropping to the alpha bounding box and rescaling to fill the square. Residual padding is now 0/2/0/2 and 0/4/0/4; the artwork is genuinely 468x461 rather than 1:1, so a couple of pixels on one axis is the minimum achievable rather than slack. Once the brands submission lands, the icon renders about **9% larger** and edge-to-edge horizontally instead of floating inside its own tile.
+
+  6 new tests. Dimensions and format are checked **stdlib-only** (reading the PNG IHDR chunk directly) because Pillow is not a declared dependency and a guard that silently skips on a missing optional import is the [#757](https://github.com/code-imstillalive/nimbus/issues/757) class exactly; the trim and same-artwork checks do need Pillow and **skip rather than pass** without it, so an unmeasured trim never reads as a measured one. Mutation-checked: 2 of the 6 fail against the pre-fix assets.
+
+  `brand/icon_2.png` (500x484, referenced by nothing) is left in place — #987 flags deleting it as a separate question and removing artwork is the household's call — with a test pinning that it stays invalid, so it cannot quietly become ambiguous which file a brands PR should upload.
+
+  Devhub validation: **not applicable** — brand artwork is served by an external CDN this repo does not control, so no install can exercise it until the brands submission merges. Verified by CI, the full local suite, and the mutation check instead. Separately confirmed on that install rather than assumed: it reports `n_thermal_loads: 0` and `n_controllable_loads: 0`, so v0.94.354's own "devhub validation: not claimed" line for [#873](https://github.com/code-imstillalive/nimbus/issues/873) was correct.
+
 ## [0.94.354] - 2026-09-17
 
 ### Fixed
