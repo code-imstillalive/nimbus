@@ -8,6 +8,22 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.354] - 2026-09-17
+
+### Fixed
+- **`kind=thermal` loads now learn their own thermal rates** ([#873](https://github.com/code-imstillalive/nimbus/issues/873), Mark Purcell; decision 2026-09-16: *"Build it"*). The `last_idle_temperature` sampler and the heating-rate/idle-decay fitter both sat **inside** `apply_commanded_state_guard()`'s `load_kind == "adequacy"` branch. A `kind=thermal` load — the very kind named for this — reaches its own branch instead, so neither ever ran for it: `thermal_rates_source` stayed `""` (the never-learned default) and the load was scheduled forever off the generic fallback constants. On the reference household that meant the one real hot-water system planned against 8.0 degC/kWh and 0.5 degC/h rather than its own measured tank, invisible from outside until [#940](https://github.com/code-imstillalive/nimbus/issues/940) began publishing `thermal_heating_rate_origin`.
+
+  Both hoisted above the `load_kind` branch chain, inline, per Mark's own steer — a parallel `kind=thermal` copy was ruled out because the async context already exists at the call site, nothing in the block is adequacy-shaped, and a second copy would join the drift class [#357](https://github.com/code-imstillalive/nimbus/issues/357) already pays for. Deliberately a **relocation**: every precondition unchanged, including the temperature gate the fitter sits under without reading, and the genuinely adequacy-specific projection (which reads `deferrable_max_power_kw`) stays put.
+
+  **Two earlier attempts failed and both were misread, which is the part worth reading.** Attempt 1 used a module-level helper: it cannot compile, five `F821`s, because `load_run_state`/`done_condition`/`thermal_forecast`/the `CONF_*` names are deferred imports local to the guard — the same load-bearing pattern [#735](https://github.com/code-imstillalive/nimbus/issues/735)'s own staging reversal established. Attempt 2 moved it inline to just above the `elif load_kind == "adequacy"` line and was backed out when 13 dispatch tests reported `len(services.calls) == 0`, read at the time as a production regression. It was two separate things, neither of them one:
+
+  1. **A harness gap.** `tests/_ha_stubs.py` never exported `entity_registry.async_entries_for_device`. Real HA has it; the stub did not, purely because nothing reachable from a stub-based test had called it. [#768](https://github.com/code-imstillalive/nimbus/issues/768)'s registry-based power-sensor discovery does, and this change makes that call run for *every* load kind. The `AttributeError` was swallowed by the commanded-state guard into silent absence — the [#1019](https://github.com/code-imstillalive/nimbus/issues/1019) shape exactly, and only diagnosable because v0.94.350 had raised that handler from DEBUG to WARNING hours earlier. That release paid for itself here.
+  2. **The placement, wrong in a way nothing catches.** The hoisted block *begins* with `if (done_entity and power_sensor ...)`, so putting it between the chain's `if` and its `elif` silently **re-parents that `elif` onto the hoisted gate** — the adequacy branch then runs only when the hoisted condition is false. It parses; `ruff` passes; `mypy` passes; only behaviour disagrees. The block has to go above the chain **head**, not into the middle of it.
+
+  7 new tests pin both traps, including one that fails if any statement at the chain's own indent appears between its members — exactly what attempt 2 produced. Their own first run caught a real flaw in themselves: the bare phrase `if load_kind == "sheddable"` also occurs inside an earlier conditional *expression* in the same function, and anchoring on it moved every position comparison; anchors now carry full statement text. 441 dispatch/controllable/thermal tests pass, from 13 failures. No cron-copy port needed — `docs/real-world-integration/files/` has no controllable-load path at all, verified rather than assumed.
+
+  Devhub validation: **not claimed**. That install has no `kind=thermal` load configured, so there is nothing there to exercise the path this fixes — the reference household's own HWS is the real subject and this has to reach it before anything can be observed. Verified by CI, the full local suite (2942 passed), and the tests above instead.
+
 ## [0.94.353] - 2026-09-17
 
 ### Fixed
