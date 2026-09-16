@@ -8,6 +8,25 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.334] - 2026-09-16
+
+### Fixed
+- **A negative regret no longer publishes as though it were a score** ([#956](https://github.com/code-imstillalive/nimbus/issues/956)). Two live installs were publishing **EPR above 100%** with **negative `regret_dollars`** -- the achieved dispatch pricing out *cheaper than perfect foresight*, which this codebase documents in three separate places as structurally impossible.
+
+  **The cause, confirmed on the reference household's own 2026-09-15 report rather than hypothesised.** With Min SoC configured at **2.0%** on a 122.2 kWh battery, the oracle sat precisely on 2.0% for two consecutive hours -- the floor binds -- while the achieved trajectory finished at **0.4429%**. That is **1.90 kWh of energy the oracle is structurally forbidden from selling**. The achieved side is a cumulative integration of real battery-power history, bound by nothing; the oracle is an LP bound by `min_soc_kwh`/`max_soc_kwh`. Priced against a strictly larger feasible set, the achieved dispatch can come out cheaper than optimal. `regret >= 0` is genuinely structural -- for two trajectories drawn from *the same* feasible set.
+
+  **The part that decides the fix, and that was initially wrong.** [#571](https://github.com/code-imstillalive/nimbus/issues/571)'s `out_of_range` flag read `False` on all 24 hours of that day, because it tests `[0, 100]` -- physical possibility -- not the LP's `[min_pct, max_pct]`. 0.4429 is comfortably inside `[0, 100]`. **So clamping the achieved integration to `[0, 100]`, the remedy #956's own body first proposed, would not have changed that day at all.** It also reframes the link to [#949](https://github.com/code-imstillalive/nimbus/issues/949): not two symptoms of one drift, but a diagnostic that checks the wrong bound and is therefore blind to exactly the condition causing the other.
+
+  So this adds the missing signal rather than redefining `out_of_range`, whose `[0, 100]` meaning #571 chose deliberately and whose boundary-edge tolerance is built on it. New on the quality report: `regret_reliable`, `achieved_within_lp_soc_bounds`, `achieved_soc_min_pct`/`_max_pct`, `achieved_below_floor_kwh`/`achieved_above_ceiling_kwh`, `lp_soc_envelope_pct` and `epr_reason`, with `epr_reason` and `achieved_below_floor_kwh` also flattened to their own diagnostic entities -- the energy figure rather than the percentage, because "the achieved trajectory sold 1.9 kWh the oracle could not touch" is the sentence that explains the cost effect.
+
+  `epr_reliable` now folds in a second condition, which [#533](https://github.com/code-imstillalive/nimbus/issues/533) explicitly left room for (*"a future second EPR-reliability signal has somewhere to fold in without a rename"*). A definite `False` from either signal wins over an unknown, and #533's own `None`-means-unknown is not promoted to `True` just because the regret half found nothing wrong. The once-per-scored-day WARNING gets its **own** warned-set rather than sharing #538's: a day can hit either condition, both, or neither, and sharing would let whichever fired first silence the other.
+
+  **What this deliberately does NOT do:** clamp the achieved integration used for *costing*. That would change `j_ach` -- the headline achieved-cost figure -- on every install, and #956 records that as a household decision. This makes the invalid comparison visible; it does not silently re-price anyone's day. #956 stays open for that decision.
+
+### Notes
+- A negative regret with the trajectory **inside** the LP envelope gets its own `epr_reason` (`oracle_beaten`) rather than the shared label. It means the mechanism verified above does not explain that install's violation, and a reason string asserting a cause the day has no evidence for would be worse than none.
+- The #357 anti-drift guard caught this change's two new helpers on the first CI run -- the same guard [#952](https://github.com/code-imstillalive/nimbus/issues/952) extended earlier the same day, working as intended on the very next commit to touch `solver_writer.py`. Both are private helpers of the native-only quality report, registered alongside `_soc_discrepancy_stats` for the identical reason.
+
 ## [0.94.333] - 2026-09-16
 
 ### Fixed
@@ -36,6 +55,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
   Coverage was extended instead of depth: the sweep now also reads `docs/real-world-integration/files/` -- real shipped source a household runs via cron, carrying 5 references of its own with no guard on any of them. Clean today.
 
+- Devhub validation: deployed via HACS and restarted, `installed_version == available_version == v0.94.333`, `nimbus_load.solve_now` returned a real plan (`solve_seconds: 1.11`, published state `-6.506 kW`), and `solve_diagnostics` carried all **7** keys current code emits rather than the 3 a stale install reports. [#954](https://github.com/code-imstillalive/nimbus/issues/954)'s extraction verified against real entity states rather than inferred from its output: `sensor.nimbus_solver_config` publishes `region`, `postcode_prefix` and `aemo_30min_forecast_sensor` all `null`, and **both nulls are the rule working** -- all three `_geocoded_location` candidates on that install read `unavailable` so none is usable, while three AEMO `_current_30min_forecast` sensors (NSW1, QLD1, VIC1) are *all* usable, which is the refuse-rather-than-pick case the tests assert. No new WARNING/ERROR attributable to the release; nothing from `sensor_discovery` in the log at all.
 - **The #594 changelog guard no longer counts an entry that merely mentions validation** ([#594](https://github.com/code-imstillalive/nimbus/issues/594)). Found the honest way while preparing this release: v0.94.332's own entry explains why a never-tagged version *"had no Devhub-validation line it could honestly carry"*, and that sentence satisfied the search -- the section passing while genuinely having no such line. Inline code spans and fenced blocks are now stripped before the phrase is looked for, which separates the two cases reliably: a real validation line is written as prose, while a reference to the concept is written as code precisely because it is naming the literal string the guard looks for. Same shape as #955 next door -- a guard answering a weaker question than it appears to.
 
 ## [0.94.332] — 2026-09-16
