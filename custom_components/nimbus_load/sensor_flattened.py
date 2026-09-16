@@ -902,6 +902,12 @@ class _FlattenedAttributeSensor(SensorEntity):
     def __init__(self, entry, sw_version: str | None, spec: FlattenedAttrSpec) -> None:
         self._entry = entry
         self._spec = spec
+        # nimbus issue #972, gap found by Mark Purcell's IV&V of PR #973:
+        # kept as an instance field, not only folded into device_info
+        # below, because the device-registry sw_version is a human-facing
+        # field on the device page and #972 is about a MACHINE-readable
+        # check -- see extra_state_attributes().
+        self._sw_version = sw_version
         self._attr_unique_id = f"{entry.entry_id}_nimbus_solver_{spec.entity_id_suffix}"
         self.entity_id = f"sensor.nimbus_solver_{spec.entity_id_suffix}"
         self._attr_name = spec.name
@@ -955,14 +961,33 @@ class _FlattenedAttributeSensor(SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:
-        """Optional per-child attribute payload, only populated when the
-        spec's attrs_source_key is set AND the parent publish carried a
-        dict at that key. Returns None (not {}) when unset so HA renders
-        no attributes block at all for the 39 pre-existing scalar-only
-        FLATTENED_ATTRS_* children -- their behaviour is exactly
-        unchanged.
+        """Optional per-child attribute payload, plus `nimbus_version`.
+
+        The payload half is only populated when the spec's
+        attrs_source_key is set AND the parent publish carried a dict at
+        that key.
+
+        **`nimbus_version` is always present** (nimbus issue #972, gap
+        found by Mark Purcell reviewing PR #973). That PR's stated goal
+        was every push sensor, and `_NimbusSolverPushSensor` got it while
+        these ~77 flattened children did not. The version did reach the
+        HA *device registry* via `device_info.sw_version` -- which a human
+        can read off the device page -- but not the entity's own state
+        attributes, which is what `states.get(entity_id).attributes`
+        returns and therefore the only form an automation, script, or API
+        caller can act on. #972 exists specifically so "which install am I
+        reading?" is a one-line check, and a check that covers some
+        entities and not others is the failure mode that issue is about.
+
+        This is a deliberate behaviour change for the scalar-only
+        children: they used to return None so HA rendered no attributes
+        block at all, and now render one carrying a single key. That is
+        the point rather than a side effect -- a version stamp nothing can
+        read is not a version stamp.
         """
-        return self._extra_attrs
+        if self._extra_attrs is None:
+            return {"nimbus_version": self._sw_version}
+        return {**self._extra_attrs, "nimbus_version": self._sw_version}
 
     @callback
     def update_from_parent(self, attributes: dict) -> None:

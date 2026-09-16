@@ -64,7 +64,6 @@ from typing import ClassVar
 import _solver_path  # noqa: F401
 import load_run_state
 import numpy as np
-import pytest
 import solver_writer
 
 _TZ = timezone(timedelta(hours=10))  # Australia/Brisbane, no DST
@@ -118,7 +117,28 @@ sys.modules.setdefault("homeassistant", types.ModuleType("homeassistant"))
 sys.modules.setdefault(
     "homeassistant.helpers", types.ModuleType("homeassistant.helpers")
 )
-sys.modules["homeassistant.helpers.storage"] = _fake_storage_module
+# setdefault, NOT a plain assignment. test_solver_writer_controllable_loads.py
+# installs a byte-for-byte equivalent fake Store the same way, and pytest
+# imports every test module during collection before running anything -- so a
+# hard assignment here means whichever file imported LAST silently owns
+# `Store` for the whole session, and the loser's seeded state goes into a dict
+# that nothing ever reads. That produced 35 unrelated failures in the sibling
+# file when the two ran together while each passed alone, which is the worst
+# shape a test failure can have.
+sys.modules.setdefault("homeassistant.helpers.storage", _fake_storage_module)
+
+
+def _active_store_cls():
+    """Whichever fake Store is actually installed right now.
+
+    Resolved at call time rather than import time on purpose: either file
+    may legitimately be the one that installed it, and only the installed
+    class's `_shared_data` is the dict `solver_writer` will really read
+    through. Both fakes are the same keyed in-memory shape, so adopting
+    the other file's is correct rather than merely tolerable.
+    """
+    mod = sys.modules.get("homeassistant.helpers.storage")
+    return getattr(mod, "Store", _FakeRunStateStore)
 
 
 def _make_running_loop() -> tuple[asyncio.AbstractEventLoop, threading.Thread]:
@@ -157,7 +177,14 @@ class TestReaffirmCapExhaustionLogsAWarning(unittest.TestCase):
     def setUp(self):
         self._orig_native_hass = solver_writer._NATIVE_HASS
         self._loop, self._loop_thread = _make_running_loop()
-        _FakeRunStateStore._shared_data.clear()
+        _active_store_cls()._shared_data.clear()
+        # The fix introduced a module-level warned-once set (the
+        # _FLOOR_CROSSING_WARNED shape this file's own docstring predicted).
+        # It is process-global by design -- "once per load per day" has to
+        # outlive a single solve -- so it must be cleared between tests or
+        # the first test's warning silences the second's. Isolation only;
+        # the assertions below are untouched.
+        solver_writer._REAFFIRM_CAP_WARNED.clear()
 
     def tearDown(self):
         solver_writer._NATIVE_HASS = self._orig_native_hass
@@ -209,8 +236,10 @@ class TestReaffirmCapExhaustionLogsAWarning(unittest.TestCase):
         )
 
         async def _seed():
+            # Through the INSTALLED fake, so the seed lands in the same
+            # dict apply_commanded_state_guard() will read back.
             store = load_run_state.LoadRunStateStore(
-                store=_FakeRunStateStore(
+                store=_active_store_cls()(
                     None, 1, f"nimbus_load_{_HUB_ENTRY_ID}_load_run_state"
                 )
             )
@@ -241,14 +270,6 @@ class TestReaffirmCapExhaustionLogsAWarning(unittest.TestCase):
         )
         solver_writer.apply_commanded_state_guard(plan, at, grid_times)
 
-    @pytest.mark.xfail(
-        reason=(
-            "nimbus issue #998: reaffirm_allowed() returning False produces "
-            "zero log signal once the daily cap is hit. strict=True so this "
-            "flips to a loud XPASS failure the moment the fix lands."
-        ),
-        strict=True,
-    )
     def test_a_warning_is_logged_once_the_reaffirm_cap_is_hit(self):
         hass, services = self._hass()
         solver_writer._NATIVE_HASS = hass
@@ -280,14 +301,6 @@ class TestReaffirmCapExhaustionLogsAWarning(unittest.TestCase):
         # pinned here, not the blocking itself.
         self.assertEqual(services.calls, [])
 
-    @pytest.mark.xfail(
-        reason=(
-            "nimbus issue #998: no WARNING fires at all yet once the daily "
-            "cap is hit, so there is nothing to deduplicate. strict=True so "
-            "this flips to a loud XPASS failure the moment the fix lands."
-        ),
-        strict=True,
-    )
     def test_the_warning_is_not_repeated_every_single_solve_cycle(self):
         """See the module docstring's "Log-shape decision" -- once per
         (load, day) is the right amount. Two consecutive ~5-minute solve

@@ -39,8 +39,6 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
-import pytest
-
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _solver_path  # noqa: F401  -- side-effect: puts solver/ + ml/ on sys.path
 from _ha_stubs import install_ha_stubs
@@ -57,15 +55,6 @@ def _fake_entry(entry_id: str = "test-entry-flat-version-gap") -> MagicMock:
     return entry
 
 
-@pytest.mark.xfail(
-    reason=(
-        "nimbus issue #997: _FlattenedAttributeSensor.extra_state_attributes "
-        "never merges in nimbus_version, unlike _NimbusSolverPushSensor. "
-        "strict=True so this flips to a loud XPASS failure the moment the "
-        "fix lands, as a reminder to delete this marker."
-    ),
-    strict=True,
-)
 def test_flattened_entity_extra_state_attributes_should_include_nimbus_version():
     """Expected/correct behavior: every _FlattenedAttributeSensor's
     extra_state_attributes should carry `nimbus_version` matching the

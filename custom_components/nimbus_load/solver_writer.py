@@ -10135,6 +10135,15 @@ _DONE_CONDITION_WARNED: set[tuple[str, str | None, str]] = set()
 # yesterday's was already reported.
 _FLOOR_CROSSING_WARNED: set[tuple[str, str]] = set()
 
+# nimbus issue #875, gap found by Mark Purcell's IV&V of PR #930. Same
+# (subentry_id, day_key) shape and the same reasoning as the floor-crossing
+# set just above: the condition it reports holds for every remaining solve
+# of the day once it is true, and this codebase has already had to clean up
+# per-cycle log spam twice (v0.94.301/302's overlap guard, #773's
+# diagnostic quieted to two-tier DEBUG/WARNING). Keyed per load so one
+# exhausted device cannot mute another's warning.
+_REAFFIRM_CAP_WARNED: set[tuple[str, str]] = set()
+
 # nimbus issue #534 (Mark Purcell, real SG-Ready heat-pump HWS install):
 # a water_heater's/climate's own *state* is a mode string ("eco"), not a
 # number -- done_when can never be evaluated against it. Both domains
@@ -13522,6 +13531,54 @@ def apply_commanded_state_guard(
                             exc_info=True,
                         )
                         new = replace(new, last_dispatch_failed=True)
+                elif device_entity and load_run_state.reaffirm_allowed(
+                    new,
+                    now_ts=now.timestamp(),
+                    reaffirm_after_seconds=_resolve_reaffirm_after_seconds(data),
+                    # The whole point of this branch: ask the SAME question
+                    # again with the cap lifted. True here while the capped
+                    # call above returned False means the daily cap is the
+                    # only thing standing between this load and a re-send.
+                    max_reaffirms_per_day=None,
+                    day_key=day_key,
+                ):
+                    # nimbus issue #875, gap found by Mark Purcell's IV&V of
+                    # PR #930: reaffirm_allowed() correctly returns False
+                    # once the cap is spent, and then NOTHING happened --
+                    # no else, no log. The sibling activation-cap branch a
+                    # few lines above logs every time it blocks a dispatch;
+                    # a spent reaffirm cap produced no signal at all, and
+                    # the only trace left was command_divergence_seconds()
+                    # quietly growing on a sensor attribute nobody is
+                    # prompted to check. A device in a genuine argument
+                    # with something else -- the exact scenario this cap
+                    # exists to bound -- went quiet after 20 tries.
+                    #
+                    # Deliberately derived by re-asking reaffirm_allowed()
+                    # with max_reaffirms_per_day=None rather than
+                    # re-deriving the counter comparison here: the day-key
+                    # rollover semantics live in load_run_state.py and a
+                    # second copy of them in this file is precisely the
+                    # drift #357 exists to catch. It also makes the branch
+                    # exact -- the other three reasons that function
+                    # returns False (re-sends disabled with 0, divergence
+                    # below threshold, interval not yet elapsed) are all
+                    # ordinary every-cycle states and must stay silent.
+                    _cap_warn_key = (subentry_id, day_key)
+                    if _cap_warn_key not in _REAFFIRM_CAP_WARNED:
+                        _REAFFIRM_CAP_WARNED.add(_cap_warn_key)
+                        _LOGGER.warning(
+                            "Nimbus: controllable load '%s' (%s) is still not "
+                            "following its commanded state (%s), but the daily "
+                            "re-send cap of %d is spent -- Nimbus will stop "
+                            "re-sending to this load until tomorrow. Something "
+                            "else may be writing to the device. Logged once "
+                            "per load per day (nimbus issue #875).",
+                            subentry_id,
+                            device_entity,
+                            "ON" if new.commanded_state else "OFF",
+                            load_run_state.DEFAULT_MAX_REAFFIRMS_PER_DAY,
+                        )
                 if new is not prev:
                     await store.async_write(subentry_id, new)
 
