@@ -8,9 +8,38 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.348] - 2026-09-16
+
+### Fixed
+- **`resample_history_mean()` averaged SAMPLES, not TIME** ([#1008](https://github.com/code-imstillalive/nimbus/issues/1008)). **This is the root cause behind #956 and #1001, and it invalidates the premise both were built on.**
+
+  HA's recorder stores state CHANGES, so samples are irregularly spaced -- dense while a value moves, sparse while it holds. `sum(vals) / len(vals)` weighted a two-second spike exactly as heavily as a forty-minute plateau. The reference household's battery jumps to +-40 kW and then sits flat, so every step of a spike wrote a recorder row and the plateaus wrote almost none.
+
+  Three independent accounts of one battery, one day (2026-09-15):
+
+  | source | in | out | net |
+  |---|---|---|---|
+  | scorer (sample mean) | 99.675 | 107.428 | **-7.75 kWh** |
+  | inverter cumulative counters | 106.6 | 100.9 | **+5.70 kWh** |
+  | HA's own statistics | mean -0.2229 kW x 24 h | | **-5.35 kWh** |
+
+  Positive is discharge, so a negative net is net *charging*. **HA's statistics mean is time-weighted**, which is why it agrees with the inverters' counters to **0.35 kWh** while the scorer disagreed by **13.5 kWh** -- and inverted the day's direction: the reconstruction ran `16.07% -> 0.44%` on a day the real pack went `17.4% -> ~20%`.
+
+  **That fictional 0.44% is what [#956](https://github.com/code-imstillalive/nimbus/issues/956) and [#1001](https://github.com/code-imstillalive/nimbus/issues/1001) were both built on** -- *"achieved SoC finished at 0.4429% against a 2.0% floor, 1.90 kWh the oracle was forbidden to sell"*. 1.90 kWh is exactly `(2.0 - 0.4429)% x 122.2`: an artefact of the averaging, not energy. v0.94.344 and v0.94.345 shipped changes to published economics on it.
+
+  Each sample is now weighted by how long it HELD. **Evenly-spaced samples are unaffected**, so well-behaved signals score exactly as before -- asserted, not assumed.
+
+### Notes
+- **CI caught a real defect in the first draft of this fix, and the test that caught it was right.** Weighting the gap before a window's first sample at the default INVENTS data inside a period that has real samples, and would bias the first period of every scored day. `test_surviving_periods_are_rebuilt_from_real_samples_only` (#843's own sanity-bound guard) pinned exactly that. The lead-in is now weighted only when a REAL sample precedes the window.
+- **Three plausible causes were investigated and eliminated first**, recorded so nobody re-treads them: the sensor itself (its cumulative counters match the per-inverter counters to the decimal and reconcile with measured stored energy to ~1%), the sign convention (`+13.2 kW` while the inverter reported `discharging_power = 13201 W`, so positive = discharge is correct and the inversion flag is rightly unset), and per-row units ([#843](https://github.com/code-imstillalive/nimbus/issues/843) -- a real latent issue on this read path, since `fetch_entity_power_history_kw()` still has exactly one caller and the home battery is not it, but not the cause here).
+- **Two existing expectations were pinning the plain average** and are updated with hand-computed values, not with whatever the new code emits. `test_brief_spike_is_diluted_not_treated_as_representative` asserted **+3.26** on a period its own class docstring records as having a real hourly mean of **-2.66 kW** -- the wrong side of zero. [#428](https://github.com/code-imstillalive/nimbus/issues/428) moved it from `nearest` (+20.939) to a plain mean and got closer; weighting by duration lands at **-1.06**, better serving that test's own stated purpose.
+- **#956 and #1001 still need their premises corrected.** Their code may be harmless but their justifications cite a number that never existed.
+- **The household found this, not the tooling.** Every automated signal (`epr_reliable: false`, `soc_discrepancy_reason: out_of_range`, a 30.46-point SoC gap) was firing correctly for days and was read past. What localised it was three independent measurements of one physical quantity disagreeing -- and the household's own insistence that the battery power sensor was sound, which turned out to be right.
+
 ## [0.94.347] - 2026-09-16
 
 ### Fixed
+- Devhub validation: not claimed for this release. v0.94.347 was tagged from `main` after its PR sat unmerged while [#1008](https://github.com/code-imstillalive/nimbus/issues/1008) was being root-caused, and the devhub check for both it and v0.94.348 is deliberately deferred to the rescore that actually tests the fix -- a `solve_now` returning `optimal` would say nothing about whether the achieved series is right, which is the whole question.
 - **The `history` table now appears immediately, not tomorrow** ([#994](https://github.com/code-imstillalive/nimbus/issues/994), second half). Found by deploying v0.94.346 and looking, rather than by assuming it worked.
 
   `_carry_forward_quality_history()` only runs when a **new** day is scored. But every install that ever ran the pre-v0.94.346 publisher has a wiped table, and the publisher's fast path (`latest_date == yesterday`) re-pushes those same history-less attributes verbatim on every cycle. So the Regret card kept falling back to its second scorer for a full day after the fix landed -- from the dashboard, indistinguishable from the fix not working. Confirmed on a real deploy: v0.94.346 installed, `latest_date` matching yesterday, `history` still absent.
