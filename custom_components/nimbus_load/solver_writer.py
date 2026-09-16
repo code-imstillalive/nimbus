@@ -13189,6 +13189,162 @@ def apply_commanded_state_guard(
                 # nimbus issue #581: publish this cycle's own full plan
                 # series regardless of whether commanded_state itself
                 # changed -- see this function's own docstring.
+                # nimbus issue #873 (Mark Purcell, 2026-09-16: "Build it").
+                # The last_idle_temperature sampler and the heating-rate/idle-
+                # decay fitter used to sit INSIDE the `load_kind == "adequacy"`
+                # branch below, so a kind=thermal load never learned anything and
+                # ran forever on the generic fallback constants -- on the
+                # reference household, the one real hot-water system scheduled
+                # off 8.0 degC/kWh and 0.5 degC/h rather than its own measured
+                # tank. Invisible from outside until #940 (v0.94.335) began
+                # publishing thermal_heating_rate_origin, which reads `fallback`
+                # beside a null learned rate.
+                #
+                # Nothing here was ever adequacy-specific: done_entity,
+                # power_sensor, the temperature read, the settling check and the
+                # history fetch are all generic, and the weather entity comes off
+                # cfg. A parallel kind=thermal copy was ruled out on Mark's own
+                # reasoning -- the async context already exists here, and a
+                # second copy would join the exact drift class #357 already pays
+                # for.
+                #
+                # Deliberately a RELOCATION, not a loosening: every precondition
+                # is unchanged, including the temperature gate the fitter sits
+                # under without reading. Dropping that because it looks
+                # incidental would be a real behaviour change smuggled in as a
+                # refactor.
+                start_temperature = None
+                live_temperature = None
+                heating_rate = None
+                decay_rate = None
+                loss_coeff = None
+                weather_entity_id = None
+                done_entity = data.get(CONF_DEFERRABLE_DONE_ENTITY) or data.get(
+                    CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY
+                )
+                # nimbus issue #768 (Mark Purcell): unset here meant thermal
+                # rate learning silently stayed on generic fallback
+                # constants -- auto-discover from the load's own device.
+                power_sensor = resolve_controllable_load_power_sensor(data)
+                if (
+                    done_entity
+                    and power_sensor
+                    and done_entity.split(".", 1)[0]
+                    in done_condition.ATTRIBUTE_DONE_DOMAINS
+                ):
+                    live_temperature = done_condition.read_current_temperature(
+                        _NATIVE_HASS, done_entity
+                    )
+                    # nimbus issue #609 (Mark Purcell, real finding:
+                    # current_temperature reads ~10-11 degC LOW while
+                    # the compressor is actively running on the #534
+                    # SG Ready bridge -- a device-side reporting
+                    # artifact, not a real physical drop, confirmed
+                    # by every idle reading before/after a run
+                    # agreeing with itself while every in-run reading
+                    # is depressed). A live reading is only trusted
+                    # once the load is confirmed idle AND has been
+                    # off for at least thermal_forecast.SETTLING_
+                    # MINUTES -- otherwise the last known-good idle
+                    # reading anchors the projection instead.
+                    settled = not new.currently_on and (
+                        new.off_since is None
+                        or (now.timestamp() - new.off_since)
+                        >= thermal_forecast.SETTLING_MINUTES * 60.0
+                    )
+                    if settled and live_temperature is not None:
+                        new = replace(new, last_idle_temperature=live_temperature)
+                    start_temperature = (
+                        live_temperature
+                        if settled
+                        else (
+                            new.last_idle_temperature
+                            if new.last_idle_temperature is not None
+                            else live_temperature
+                        )
+                    )
+                    if start_temperature is not None:
+                        heating_rate = new.thermal_heating_rate_c_per_kwh
+                        decay_rate = new.thermal_idle_decay_c_per_hour
+                        loss_coeff = new.thermal_loss_coeff_per_h
+                        # nimbus issue #481: resolved once per load
+                        # per cycle, used by both the (day-key-gated)
+                        # ambient-history learning fetch below and
+                        # the (every-cycle) ambient-forecast
+                        # projection fetch further down.
+                        weather_entity_id = (cfg or {}).get(
+                            "solver_weather_forecast_sensor"
+                        )
+                        # Recorder history is a real DB query -- only
+                        # relearn once per calendar day (#592's own
+                        # "on each retrain" ask), not every solve.
+                        # nimbus issue #618 (Mark Purcell, real finding
+                        # the day the #609/#610/#611 learner redesign
+                        # shipped): thermal_rates_learned_day_key was
+                        # already stamped today by the OLD (#592-era)
+                        # learner before this cycle's code even landed,
+                        # so the day-key gate alone silently skipped
+                        # relearning under the NEW idle-to-idle logic
+                        # until tomorrow -- thermal_rates_source stayed
+                        # at its "never learned" "" default and the
+                        # stale 8 C/kWh figure carried forward despite
+                        # today's recorder already having everything
+                        # the new learner needs. A never-yet-labeled
+                        # thermal_rates_source ("" -- #610's own
+                        # contract is only ever "learned"/"fallback"
+                        # after a real run) also forces a relearn, so
+                        # any future learner-logic change self-heals
+                        # on its very next solve instead of waiting up
+                        # to a full day.
+                        if (
+                            new.thermal_rates_learned_day_key != day_key
+                            or not new.thermal_rates_source
+                        ):
+                            history_end = now
+                            history_start = now - timedelta(days=3)
+                            thermal_history = await _async_fetch_thermal_history(
+                                done_entity,
+                                power_sensor,
+                                history_start,
+                                history_end,
+                            )
+                            # nimbus issue #481: real outdoor-
+                            # temperature history over the SAME
+                            # window, only when the household has a
+                            # weather source configured -- graceful
+                            # no-op (ambient_history stays empty,
+                            # learn_thermal_rates() returns loss_
+                            # coeff_per_h=None, thermal_loss_coeff_
+                            # per_h below stays None) for any install
+                            # that hasn't configured one.
+                            ambient_history: list[tuple[datetime, float]] = []
+                            if weather_entity_id:
+                                ambient_history = await _async_fetch_ambient_history(
+                                    weather_entity_id,
+                                    history_start,
+                                    history_end,
+                                )
+                            learned = thermal_forecast.learn_thermal_rates(
+                                thermal_history,
+                                on_threshold_kw=load_run_state.DEFAULT_ON_THRESHOLD_KW,
+                                ambient_history=ambient_history,
+                            )
+                            heating_rate = learned.heating_rate_c_per_kwh
+                            decay_rate = learned.idle_decay_c_per_hour
+                            loss_coeff = learned.loss_coeff_per_h
+                            new = replace(
+                                new,
+                                thermal_heating_rate_c_per_kwh=heating_rate,
+                                thermal_idle_decay_c_per_hour=decay_rate,
+                                thermal_loss_coeff_per_h=loss_coeff,
+                                thermal_rates_learned_day_key=day_key,
+                                # nimbus issue #610: "the published
+                                # attributes do not say which [a
+                                # learned rate from a default]."
+                                thermal_rates_source=(
+                                    "learned" if learned.is_learned else "fallback"
+                                ),
+                            )
                 if load_kind == "sheddable" and period_hours_arr is not None:
                     nominal_kw = data.get(CONF_SHEDDABLE_NOMINAL_KW)
                     new = replace(
@@ -13341,319 +13497,196 @@ def apply_commanded_state_guard(
                     # duplicated here rather than shared, same accepted
                     # drift-risk tradeoff already flagged for this
                     # function's own duplicate of the #582 same-day fix.
-                    done_entity = data.get(CONF_DEFERRABLE_DONE_ENTITY) or data.get(
-                        CONF_CONTROLLABLE_LOAD_DEVICE_ENTITY
-                    )
-                    # nimbus issue #768 (Mark Purcell): unset here meant thermal
-                    # rate learning silently stayed on generic fallback
-                    # constants -- auto-discover from the load's own device.
-                    power_sensor = resolve_controllable_load_power_sensor(data)
+                    # nimbus issue #873: the sampler and fitter moved above the
+                    # load_kind branches; only the projection below is genuinely
+                    # adequacy-specific, so it keeps its own gates.
                     if (
                         done_entity
                         and power_sensor
                         and done_entity.split(".", 1)[0]
                         in done_condition.ATTRIBUTE_DONE_DOMAINS
+                        and start_temperature is not None
                     ):
-                        live_temperature = done_condition.read_current_temperature(
-                            _NATIVE_HASS, done_entity
+                        # nimbus issue #611 (Mark Purcell: "the
+                        # forecast is projected from plan_forecast,
+                        # so it shows [cooling] ... while [real
+                        # power] is actually going into the tank" --
+                        # #595's own guard can hold commanded_state
+                        # ON through a hold window a fresh solve's
+                        # own plan_forecast[0] doesn't yet reflect).
+                        # Only period 0 is overridden with the
+                        # load's own configured max_power_kw when
+                        # actually commanded on -- every later
+                        # period still projects from the real plan.
+                        max_power_kw = data.get(CONF_DEFERRABLE_MAX_POWER_KW)
+                        override_power = (
+                            float(max_power_kw)
+                            if new.commanded_state and max_power_kw is not None
+                            else None
                         )
-                        # nimbus issue #609 (Mark Purcell, real finding:
-                        # current_temperature reads ~10-11 degC LOW while
-                        # the compressor is actively running on the #534
-                        # SG Ready bridge -- a device-side reporting
-                        # artifact, not a real physical drop, confirmed
-                        # by every idle reading before/after a run
-                        # agreeing with itself while every in-run reading
-                        # is depressed). A live reading is only trusted
-                        # once the load is confirmed idle AND has been
-                        # off for at least thermal_forecast.SETTLING_
-                        # MINUTES -- otherwise the last known-good idle
-                        # reading anchors the projection instead.
-                        settled = not new.currently_on and (
-                            new.off_since is None
-                            or (now.timestamp() - new.off_since)
-                            >= thermal_forecast.SETTLING_MINUTES * 60.0
-                        )
-                        if settled and live_temperature is not None:
-                            new = replace(new, last_idle_temperature=live_temperature)
-                        start_temperature = (
-                            live_temperature
-                            if settled
-                            else (
-                                new.last_idle_temperature
-                                if new.last_idle_temperature is not None
-                                else live_temperature
-                            )
-                        )
-                        if start_temperature is not None:
-                            heating_rate = new.thermal_heating_rate_c_per_kwh
-                            decay_rate = new.thermal_idle_decay_c_per_hour
-                            loss_coeff = new.thermal_loss_coeff_per_h
-                            # nimbus issue #481: resolved once per load
-                            # per cycle, used by both the (day-key-gated)
-                            # ambient-history learning fetch below and
-                            # the (every-cycle) ambient-forecast
-                            # projection fetch further down.
-                            weather_entity_id = (cfg or {}).get(
-                                "solver_weather_forecast_sensor"
-                            )
-                            # Recorder history is a real DB query -- only
-                            # relearn once per calendar day (#592's own
-                            # "on each retrain" ask), not every solve.
-                            # nimbus issue #618 (Mark Purcell, real finding
-                            # the day the #609/#610/#611 learner redesign
-                            # shipped): thermal_rates_learned_day_key was
-                            # already stamped today by the OLD (#592-era)
-                            # learner before this cycle's code even landed,
-                            # so the day-key gate alone silently skipped
-                            # relearning under the NEW idle-to-idle logic
-                            # until tomorrow -- thermal_rates_source stayed
-                            # at its "never learned" "" default and the
-                            # stale 8 C/kWh figure carried forward despite
-                            # today's recorder already having everything
-                            # the new learner needs. A never-yet-labeled
-                            # thermal_rates_source ("" -- #610's own
-                            # contract is only ever "learned"/"fallback"
-                            # after a real run) also forces a relearn, so
-                            # any future learner-logic change self-heals
-                            # on its very next solve instead of waiting up
-                            # to a full day.
-                            if (
-                                new.thermal_rates_learned_day_key != day_key
-                                or not new.thermal_rates_source
-                            ):
-                                history_end = now
-                                history_start = now - timedelta(days=3)
-                                thermal_history = await _async_fetch_thermal_history(
-                                    done_entity,
-                                    power_sensor,
-                                    history_start,
-                                    history_end,
-                                )
-                                # nimbus issue #481: real outdoor-
-                                # temperature history over the SAME
-                                # window, only when the household has a
-                                # weather source configured -- graceful
-                                # no-op (ambient_history stays empty,
-                                # learn_thermal_rates() returns loss_
-                                # coeff_per_h=None, thermal_loss_coeff_
-                                # per_h below stays None) for any install
-                                # that hasn't configured one.
-                                ambient_history: list[tuple[datetime, float]] = []
-                                if weather_entity_id:
-                                    ambient_history = (
-                                        await _async_fetch_ambient_history(
-                                            weather_entity_id,
-                                            history_start,
-                                            history_end,
-                                        )
-                                    )
-                                learned = thermal_forecast.learn_thermal_rates(
-                                    thermal_history,
-                                    on_threshold_kw=load_run_state.DEFAULT_ON_THRESHOLD_KW,
-                                    ambient_history=ambient_history,
-                                )
-                                heating_rate = learned.heating_rate_c_per_kwh
-                                decay_rate = learned.idle_decay_c_per_hour
-                                loss_coeff = learned.loss_coeff_per_h
-                                new = replace(
-                                    new,
-                                    thermal_heating_rate_c_per_kwh=heating_rate,
-                                    thermal_idle_decay_c_per_hour=decay_rate,
-                                    thermal_loss_coeff_per_h=loss_coeff,
-                                    thermal_rates_learned_day_key=day_key,
-                                    # nimbus issue #610: "the published
-                                    # attributes do not say which [a
-                                    # learned rate from a default]."
-                                    thermal_rates_source=(
-                                        "learned" if learned.is_learned else "fallback"
-                                    ),
-                                )
-                            # nimbus issue #611 (Mark Purcell: "the
-                            # forecast is projected from plan_forecast,
-                            # so it shows [cooling] ... while [real
-                            # power] is actually going into the tank" --
-                            # #595's own guard can hold commanded_state
-                            # ON through a hold window a fresh solve's
-                            # own plan_forecast[0] doesn't yet reflect).
-                            # Only period 0 is overridden with the
-                            # load's own configured max_power_kw when
-                            # actually commanded on -- every later
-                            # period still projects from the real plan.
-                            max_power_kw = data.get(CONF_DEFERRABLE_MAX_POWER_KW)
-                            override_power = (
-                                float(max_power_kw)
-                                if new.commanded_state and max_power_kw is not None
-                                else None
-                            )
-                            # nimbus issue #640 (Mark Purcell, live
-                            # verification of #610: with the heat pump
-                            # idle in "eco" mode, `temperature` reads the
-                            # 45 degC eco setpoint -- the floor the unit
-                            # maintains BETWEEN runs, not the ceiling of
-                            # a run -- which clamped a genuine 2 kWh/16
-                            # degC reheat down to a flat line and made
-                            # the tank look like it could never reach its
-                            # own 60 degC done line). Clamp at the
-                            # heater's real operating ceiling instead:
-                            # "max_temp" first (the unit's own physical
-                            # maximum, e.g. 65 here, still a real,
-                            # never-invented attribute read off the
-                            # entity, never hardcoded); "temperature" as
-                            # a fallback for an entity that only
-                            # publishes the current target and has no
-                            # separate max_temp; and, when the entity
-                            # exposes neither, the load's own configured
-                            # done_when threshold (#610's own "at minimum
-                            # the done_when threshold" fallback) so a
-                            # done line the projection needs to actually
-                            # reach is never clamped below itself.
-                            ceiling_temperature = None
-                            done_state_obj = _NATIVE_HASS.states.get(done_entity)
-                            if done_state_obj is not None:
-                                for _attr in ("max_temp", "temperature"):
-                                    _raw = done_state_obj.attributes.get(_attr)
-                                    if _raw is not None:
-                                        try:
-                                            ceiling_temperature = float(_raw)
-                                        except (TypeError, ValueError):
-                                            ceiling_temperature = None
-                                        break
-                            if ceiling_temperature is None:
-                                done_when = data.get(CONF_DEFERRABLE_DONE_WHEN)
-                                if done_when is not None:
+                        # nimbus issue #640 (Mark Purcell, live
+                        # verification of #610: with the heat pump
+                        # idle in "eco" mode, `temperature` reads the
+                        # 45 degC eco setpoint -- the floor the unit
+                        # maintains BETWEEN runs, not the ceiling of
+                        # a run -- which clamped a genuine 2 kWh/16
+                        # degC reheat down to a flat line and made
+                        # the tank look like it could never reach its
+                        # own 60 degC done line). Clamp at the
+                        # heater's real operating ceiling instead:
+                        # "max_temp" first (the unit's own physical
+                        # maximum, e.g. 65 here, still a real,
+                        # never-invented attribute read off the
+                        # entity, never hardcoded); "temperature" as
+                        # a fallback for an entity that only
+                        # publishes the current target and has no
+                        # separate max_temp; and, when the entity
+                        # exposes neither, the load's own configured
+                        # done_when threshold (#610's own "at minimum
+                        # the done_when threshold" fallback) so a
+                        # done line the projection needs to actually
+                        # reach is never clamped below itself.
+                        ceiling_temperature = None
+                        done_state_obj = _NATIVE_HASS.states.get(done_entity)
+                        if done_state_obj is not None:
+                            for _attr in ("max_temp", "temperature"):
+                                _raw = done_state_obj.attributes.get(_attr)
+                                if _raw is not None:
                                     try:
-                                        _, ceiling_temperature = (
-                                            done_condition.parse_done_when(done_when)
-                                        )
-                                    except (ValueError, TypeError):
-                                        ceiling_temperature = None
-                            # nimbus issue #481: the forward ambient
-                            # forecast for the PROJECTION step -- a
-                            # separate, live weather.get_forecasts fetch
-                            # from the recorder-history one just above
-                            # (used only to LEARN loss_coeff, not to
-                            # project it forward). Same weather_entity_id
-                            # resolved above; graceful no-op (empty list)
-                            # when unconfigured or the fetch fails, same
-                            # posture as publish_weather_forecast_
-                            # mirrors()'s own use of this helper.
-                            ambient_forecast_points: list[dict[str, object]] = []
-                            if weather_entity_id:
-                                _hourly = _fetch_weather_hourly_forecast(
-                                    weather_entity_id
-                                )
-                                if _hourly:
-                                    ambient_forecast_points = [
-                                        {
-                                            "time": p["datetime"],
-                                            "value": float(p["temperature"]),
-                                        }
-                                        for p in _hourly
-                                        if isinstance(p, dict)
-                                        and p.get("datetime") is not None
-                                        and p.get("temperature") is not None
-                                    ]
-                            new = replace(
-                                new,
-                                temperature_forecast=thermal_forecast.project_temperature_forecast(
-                                    new.plan_forecast or [],
-                                    start_temperature=start_temperature,
-                                    heating_rate_c_per_kwh=(
-                                        heating_rate
-                                        if heating_rate is not None
-                                        else thermal_forecast.DEFAULT_HEATING_RATE_C_PER_KWH
-                                    ),
-                                    idle_decay_c_per_hour=(
-                                        decay_rate
-                                        if decay_rate is not None
-                                        else thermal_forecast.DEFAULT_IDLE_DECAY_C_PER_HOUR
-                                    ),
-                                    on_threshold_kw=load_run_state.DEFAULT_ON_THRESHOLD_KW,
-                                    ceiling_temperature=ceiling_temperature,
-                                    override_first_period_power_kw=override_power,
-                                    loss_coeff_per_h=loss_coeff,
-                                    ambient_forecast=ambient_forecast_points,
-                                ),
-                            )
-                            # nimbus issue #712/#713 (Mark Purcell, real
-                            # live finding): the deferrable model's own
-                            # kWh-target/deadline framing has no
-                            # representation of the device's own
-                            # PHYSICAL thermal floor at all -- confirmed
-                            # live, two consecutive nights, the tank
-                            # falling past its eco-mode floor and the
-                            # compressor self-triggering hours before
-                            # the next scheduled ON period. Not
-                            # attempting a dispatch-changing fix here
-                            # (#713's own text: worth checking whether
-                            # pulling the earliest start forward is
-                            # worth the price difference, a real,
-                            # separate economic design question) --
-                            # this is #712's own "at minimum" ask: a
-                            # WARNING + a flag a household/future
-                            # automation can act on. floor_temperature
-                            # mirrors ceiling_temperature's own read
-                            # order (min_temp first -- the unit's own
-                            # real physical/eco floor, never invented;
-                            # done_when's own threshold as a last
-                            # resort for a device with no min_temp at
-                            # all) so both bounds come from the exact
-                            # same entity/config, never a second guess.
-                            floor_temperature = None
-                            if done_state_obj is not None:
-                                _raw_floor = done_state_obj.attributes.get("min_temp")
-                                if _raw_floor is not None:
-                                    try:
-                                        floor_temperature = float(_raw_floor)
+                                        ceiling_temperature = float(_raw)
                                     except (TypeError, ValueError):
-                                        floor_temperature = None
-                            if floor_temperature is None:
-                                done_when = data.get(CONF_DEFERRABLE_DONE_WHEN)
-                                if done_when is not None:
-                                    try:
-                                        _, floor_temperature = (
-                                            done_condition.parse_done_when(done_when)
-                                        )
-                                    except (ValueError, TypeError):
-                                        floor_temperature = None
-                            floor_crossing = None
-                            if (
-                                floor_temperature is not None
-                                and new.temperature_forecast
-                            ):
-                                floor_crossing = thermal_forecast.find_floor_crossing(
-                                    new.temperature_forecast, floor_temperature
-                                )
-                            new = replace(
-                                new,
-                                floor_crossing_forecast_time=(
-                                    str(floor_crossing["time"])
-                                    if floor_crossing is not None
-                                    else None
-                                ),
-                                floor_crossing_forecast_temperature=(
-                                    float(floor_crossing["value"])  # type: ignore[arg-type]
-                                    if floor_crossing is not None
-                                    else None
-                                ),
-                            )
-                            if floor_crossing is not None:
-                                _floor_warn_key = (subentry_id, day_key)
-                                if _floor_warn_key not in _FLOOR_CROSSING_WARNED:
-                                    _FLOOR_CROSSING_WARNED.add(_floor_warn_key)
-                                    _LOGGER.warning(
-                                        "Nimbus: controllable load '%s' is "
-                                        "forecast to cross its own hardware "
-                                        "floor (%.1f) at %s, before its own "
-                                        "planned schedule reaches it -- the "
-                                        "device may self-trigger outside "
-                                        "the solved plan (nimbus issue "
-                                        "#712/#713)",
-                                        subentry_id,
-                                        floor_temperature,
-                                        floor_crossing["time"],
+                                        ceiling_temperature = None
+                                    break
+                        if ceiling_temperature is None:
+                            done_when = data.get(CONF_DEFERRABLE_DONE_WHEN)
+                            if done_when is not None:
+                                try:
+                                    _, ceiling_temperature = (
+                                        done_condition.parse_done_when(done_when)
                                     )
+                                except (ValueError, TypeError):
+                                    ceiling_temperature = None
+                        # nimbus issue #481: the forward ambient
+                        # forecast for the PROJECTION step -- a
+                        # separate, live weather.get_forecasts fetch
+                        # from the recorder-history one just above
+                        # (used only to LEARN loss_coeff, not to
+                        # project it forward). Same weather_entity_id
+                        # resolved above; graceful no-op (empty list)
+                        # when unconfigured or the fetch fails, same
+                        # posture as publish_weather_forecast_
+                        # mirrors()'s own use of this helper.
+                        ambient_forecast_points: list[dict[str, object]] = []
+                        if weather_entity_id:
+                            _hourly = _fetch_weather_hourly_forecast(weather_entity_id)
+                            if _hourly:
+                                ambient_forecast_points = [
+                                    {
+                                        "time": p["datetime"],
+                                        "value": float(p["temperature"]),
+                                    }
+                                    for p in _hourly
+                                    if isinstance(p, dict)
+                                    and p.get("datetime") is not None
+                                    and p.get("temperature") is not None
+                                ]
+                        new = replace(
+                            new,
+                            temperature_forecast=thermal_forecast.project_temperature_forecast(
+                                new.plan_forecast or [],
+                                start_temperature=start_temperature,
+                                heating_rate_c_per_kwh=(
+                                    heating_rate
+                                    if heating_rate is not None
+                                    else thermal_forecast.DEFAULT_HEATING_RATE_C_PER_KWH
+                                ),
+                                idle_decay_c_per_hour=(
+                                    decay_rate
+                                    if decay_rate is not None
+                                    else thermal_forecast.DEFAULT_IDLE_DECAY_C_PER_HOUR
+                                ),
+                                on_threshold_kw=load_run_state.DEFAULT_ON_THRESHOLD_KW,
+                                ceiling_temperature=ceiling_temperature,
+                                override_first_period_power_kw=override_power,
+                                loss_coeff_per_h=loss_coeff,
+                                ambient_forecast=ambient_forecast_points,
+                            ),
+                        )
+                        # nimbus issue #712/#713 (Mark Purcell, real
+                        # live finding): the deferrable model's own
+                        # kWh-target/deadline framing has no
+                        # representation of the device's own
+                        # PHYSICAL thermal floor at all -- confirmed
+                        # live, two consecutive nights, the tank
+                        # falling past its eco-mode floor and the
+                        # compressor self-triggering hours before
+                        # the next scheduled ON period. Not
+                        # attempting a dispatch-changing fix here
+                        # (#713's own text: worth checking whether
+                        # pulling the earliest start forward is
+                        # worth the price difference, a real,
+                        # separate economic design question) --
+                        # this is #712's own "at minimum" ask: a
+                        # WARNING + a flag a household/future
+                        # automation can act on. floor_temperature
+                        # mirrors ceiling_temperature's own read
+                        # order (min_temp first -- the unit's own
+                        # real physical/eco floor, never invented;
+                        # done_when's own threshold as a last
+                        # resort for a device with no min_temp at
+                        # all) so both bounds come from the exact
+                        # same entity/config, never a second guess.
+                        floor_temperature = None
+                        if done_state_obj is not None:
+                            _raw_floor = done_state_obj.attributes.get("min_temp")
+                            if _raw_floor is not None:
+                                try:
+                                    floor_temperature = float(_raw_floor)
+                                except (TypeError, ValueError):
+                                    floor_temperature = None
+                        if floor_temperature is None:
+                            done_when = data.get(CONF_DEFERRABLE_DONE_WHEN)
+                            if done_when is not None:
+                                try:
+                                    _, floor_temperature = (
+                                        done_condition.parse_done_when(done_when)
+                                    )
+                                except (ValueError, TypeError):
+                                    floor_temperature = None
+                        floor_crossing = None
+                        if floor_temperature is not None and new.temperature_forecast:
+                            floor_crossing = thermal_forecast.find_floor_crossing(
+                                new.temperature_forecast, floor_temperature
+                            )
+                        new = replace(
+                            new,
+                            floor_crossing_forecast_time=(
+                                str(floor_crossing["time"])
+                                if floor_crossing is not None
+                                else None
+                            ),
+                            floor_crossing_forecast_temperature=(
+                                float(floor_crossing["value"])  # type: ignore[arg-type]
+                                if floor_crossing is not None
+                                else None
+                            ),
+                        )
+                        if floor_crossing is not None:
+                            _floor_warn_key = (subentry_id, day_key)
+                            if _floor_warn_key not in _FLOOR_CROSSING_WARNED:
+                                _FLOOR_CROSSING_WARNED.add(_floor_warn_key)
+                                _LOGGER.warning(
+                                    "Nimbus: controllable load '%s' is "
+                                    "forecast to cross its own hardware "
+                                    "floor (%.1f) at %s, before its own "
+                                    "planned schedule reaches it -- the "
+                                    "device may self-trigger outside "
+                                    "the solved plan (nimbus issue "
+                                    "#712/#713)",
+                                    subentry_id,
+                                    floor_temperature,
+                                    floor_crossing["time"],
+                                )
                 elif load_kind == "thermal" and period_hours_arr is not None:
                     # nimbus issue #774: same publish shape as the
                     # adequacy branch above, but simpler -- no windowed/
