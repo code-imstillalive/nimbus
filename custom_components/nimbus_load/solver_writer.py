@@ -6894,6 +6894,18 @@ def _compute_report_for_window(
     # {date: {export_cost, export_volume}} entries works.
     real_p2p_dollars = 0.0
     real_p2p_volume_kwh = 0.0
+    # nimbus issue #1015: WHY those are zero. Without this the report
+    # carries `real_p2p_dollars: 0` and prices export at plain spot,
+    # which is indistinguishable from a household that earns no P2P at
+    # all -- no error, no flag, an ordinary-looking number.
+    #
+    # Measured: scoring 2026-09-15 as a UTC-aligned 24 h window returned
+    # 0 against $10.4032 for the same day as a local calendar day,
+    # moving `j_ach` by $9.82. The gate itself is right -- settlement
+    # history is keyed by ISO local date, so a window that is not one
+    # real local day has no entry to look up -- but being silent about
+    # it is not.
+    real_p2p_settlement_status = "no_sensor_configured"
     grid_oracle = (
         elements.GridConfig(
             import_price=import_price,
@@ -6918,6 +6930,8 @@ def _compute_report_for_window(
         and day_start.astimezone(LOCAL_TZ).time().hour == 0
         and day_start.astimezone(LOCAL_TZ).time().minute == 0
     )
+    if settlement_sensor and not is_calendar_day:
+        real_p2p_settlement_status = "window_is_not_one_local_calendar_day"
     if settlement_sensor and is_calendar_day:
         settled_date = day_start.astimezone(LOCAL_TZ).date()
         try:
@@ -6931,9 +6945,15 @@ def _compute_report_for_window(
             json.JSONDecodeError,
         ):
             day_data = None
+            real_p2p_settlement_status = "settlement_sensor_unreadable"
         if day_data:
             real_p2p_dollars = float(day_data.get("export_cost", 0.0))
             real_p2p_volume_kwh = float(day_data.get("export_volume", 0.0))
+            real_p2p_settlement_status = "applied"
+        elif real_p2p_settlement_status != "settlement_sensor_unreadable":
+            # Read fine, but this specific date is not in the table --
+            # a genuinely unsettled day, not a configuration problem.
+            real_p2p_settlement_status = "no_settlement_entry_for_this_date"
             if real_p2p_volume_kwh > 0.01:
                 # A flat bonus rate matching this project's own existing
                 # bonus-mechanic convention (elements.GridConfig's own
@@ -7123,6 +7143,12 @@ def _compute_report_for_window(
         "tracking_fidelity": round(report.tracking.tracking_fidelity, 4),
         "tracking_cost": round(report.tracking_cost, 4),
         "real_p2p_dollars": round(real_p2p_dollars, 4),
+        # nimbus issue #1015: says WHY real_p2p_dollars is what it is.
+        # "applied" | "no_sensor_configured" |
+        # "window_is_not_one_local_calendar_day" |
+        # "no_settlement_entry_for_this_date" |
+        # "settlement_sensor_unreadable"
+        "real_p2p_settlement_status": real_p2p_settlement_status,
         "real_p2p_volume_kwh": round(real_p2p_volume_kwh, 3),
         # Hourly regret breakdown (2026-08-31, sibling addition to the
         # reconstruction dicts below): the per-hour actual-minus-oracle
