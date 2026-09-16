@@ -7505,6 +7505,90 @@ _QUALITY_REPORT_UNRELIABLE_WARNED: set[str] = set()
 # that day.
 _QUALITY_REPORT_NEGATIVE_REGRET_WARNED: set[str] = set()
 
+# nimbus issue #994: how many scored days the quality report's own
+# `history` table keeps. The Regret card's longest view is 30 days, so 60
+# is real headroom without turning a table into an archive -- and the
+# ceiling matters, because this dict rides in the same attribute payload
+# #944 measures against the recorder's 16 KB cap. Five rounded floats and
+# an ISO date key is roughly 110 bytes, so 60 days is ~6.6 KB.
+_QUALITY_HISTORY_MAX_DAYS = 60
+
+# The five numbers nimbus-regret-card.js reads out of each
+# `history[dateKey]` entry -- deliberately NOT the whole day_entry, which
+# carries three 24-row hourly reconstructions and would blow the cap
+# within a week.
+_QUALITY_HISTORY_FIELDS = (
+    "epr",
+    "j_ref",
+    "j_ach",
+    "j_star",
+    "regret_dollars",
+)
+
+
+def _carry_forward_quality_history(
+    prior_attrs: dict, day_key: str, day_entry: dict
+) -> dict[str, dict[str, float]]:
+    """The scored-day table, with today's entry added and the oldest
+    trimmed (nimbus issue #994).
+
+    **The defect this fixes.** `publish_daily_quality_report()` built a
+    fresh attributes dict every time it scored a day, and `ha_post_state`
+    replaces attributes wholesale -- so each new score silently DESTROYED
+    the `history` table. Nothing wrote it back, because nothing in this
+    integration ever wrote it in the first place: it came from the
+    standalone retrospective writer, and `nimbus-regret-card.js` treats
+    it as authoritative ("the bible", per the household's own 2026-09-05
+    instruction).
+
+    With the table gone, the card falls back per date to re-scoring that
+    day live -- and says so in its own sub-header, which is the only
+    reason this was ever visible at all. The two paths do not agree:
+    measured on a real install, `j_star` **-$9.45 live against -$15.17 in
+    the table** for the same day, so EPR read **117.8% on the card and
+    103.66% on the sensor**. `j_ref` differed too (4.43 vs 4.79), and
+    `j_ref` is the battery-idle baseline -- two scorers agreeing on their
+    inputs agree on it whatever they do with the battery. They did not,
+    so the two paths were never reading the same input history.
+
+    That disagreement is not new and was never root-caused: the card's
+    own header comment records EPR 71.5% vs the table's 89.9% on
+    2026-09-04, "real root cause not yet found". This is it. The card was
+    never comparing two scorers -- the table it was built to trust had
+    been wiped, leaving only the fallback.
+
+    **Why the integration now owns the table rather than merely
+    preserving someone else's.** Carrying the prior dict forward fixes
+    the wipe, but an install that never ran the standalone writer would
+    still have no table and still fall back forever. Maintaining it here
+    makes the card work as designed on every install, which is what this
+    project's own portability rule asks for regardless.
+
+    Prior entries are preserved exactly as found, including any written
+    by the standalone writer -- this only ever adds one key and drops the
+    oldest beyond the cap.
+    """
+    prior = prior_attrs.get("history")
+    history: dict[str, dict[str, float]] = {}
+    if isinstance(prior, dict):
+        # Defensive about shape rather than trusting it: this dict may
+        # have been written by another program entirely, and one bad
+        # entry must not cost the whole table.
+        for key, value in prior.items():
+            if isinstance(key, str) and isinstance(value, dict):
+                history[key] = value
+    history[day_key] = {
+        field: day_entry[field]
+        for field in _QUALITY_HISTORY_FIELDS
+        if field in day_entry
+    }
+    if len(history) > _QUALITY_HISTORY_MAX_DAYS:
+        # ISO dates sort lexicographically, so this is a real
+        # most-recent-N without parsing anything.
+        for stale in sorted(history)[: len(history) - _QUALITY_HISTORY_MAX_DAYS]:
+            del history[stale]
+    return history
+
 
 def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
     """Publishes sensor.nimbus_solver_quality_report -- the exact
@@ -7548,6 +7632,11 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
     this native path had dropped.
     """
     yesterday_key = (now - timedelta(days=1)).date().isoformat()
+    # nimbus issue #994: read once, used twice -- the fast path's own
+    # idempotency check below, and the `history` carry-forward at publish
+    # time. Defaults to empty so a first-ever publish, or an unreachable
+    # read, still produces a valid one-entry table rather than crashing.
+    existing_attrs: dict = {}
     try:
         # resolve_real_entity_id() (2026-08-31): read back THIS entity's
         # own real state, not whatever the literal QUALITY_ENTITY_ID
@@ -7555,7 +7644,8 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
         # remote_homeassistant mirror of another install) has claimed it.
         # See that function's own docstring for the full incident.
         existing = ha_get(resolve_real_entity_id(QUALITY_ENTITY_ID))
-        if existing.get("attributes", {}).get("latest_date") == yesterday_key:
+        existing_attrs = existing.get("attributes", {}) or {}
+        if existing_attrs.get("latest_date") == yesterday_key:
             # issue #313 (Mark Purcell): this fast path used to be
             # externally indistinguishable from every silent-skip path
             # below it -- same "nothing changed, nothing logged" outcome.
@@ -7707,6 +7797,13 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
             "friendly_name": "Nimbus Solver Quality Report (EPR)",
             "latest_date": yesterday_key,
             "generated_at": now.isoformat(),
+            # nimbus issue #994: placed BEFORE **day_entry, so a future
+            # day_entry key named "history" would win rather than being
+            # silently shadowed -- the same ordering rule the keys above
+            # already rely on.
+            "history": _carry_forward_quality_history(
+                existing_attrs, yesterday_key, day_entry
+            ),
             **day_entry,
         },
     )

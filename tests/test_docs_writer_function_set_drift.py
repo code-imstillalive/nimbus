@@ -183,6 +183,12 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         "unregister_entity_handler",
         "ha_call_service_with_response",
         "compute_daily_quality_report",
+        # nimbus #994: builds the quality report's own `history` table.
+        # Native-only for the same reason its two callers directly above
+        # and below already are -- the standalone/cron copy has no
+        # quality-report publisher at all, so there is nothing there for
+        # this to carry forward.
+        "_carry_forward_quality_history",
         # nimbus issue #427: a private helper called only by
         # compute_daily_quality_report itself (already listed above) --
         # same native-only reasoning applies, not a separate gap.
