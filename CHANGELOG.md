@@ -8,6 +8,29 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.336] - 2026-09-16
+
+### Added
+- **Every push sensor now publishes `nimbus_version`, the version of the install that produced the reading** ([#972](https://github.com/code-imstillalive/nimbus/issues/972)).
+
+  A push sensor carried nothing identifying its own install. On an HA instance that also mirrors another Nimbus, the canonical entity_ids resolve to the **mirror** while the local install's own entities sit `unavailable` under `_3`-suffixed names -- so reading `sensor.nimbus_solver_battery_forecast` or `sensor.nimbus_household_load_total_forecast` to validate a deployment reads *the other install's* output.
+
+  Found live, after three wrong readings in one session. Everything about the reading looked right: fresh state, `generated_at` advancing every cycle, the current `solve_diagnostics` key shape, HACS reporting the just-deployed version. **All of it was equally true of the other install**, which was three releases behind. What finally exposed it was an attribute the local code emits unconditionally being absent -- which only worked because that release happened to add a field. A coincidence, not a method.
+
+  The information already existed and was unreachable: `__init__` receives `sw_version` and puts it in `DeviceInfo`, which is not readable from a state read, a template, or the REST API -- the three ways anyone actually checks a deploy. The entity knew the answer and could not be asked. Verification is now one line:
+
+  ```jinja
+  {{ state_attr('sensor.nimbus_solver_battery_forecast', 'nimbus_version') }}
+  ```
+
+  Contributed by the ENTITY rather than at any `ha_post_state` call site, so it covers every push sensor including future ones and describes the install the entity belongs to. A mirrored copy carries the origin install's value, which is the point. It does not overwrite a `nimbus_version` already present (a more specific claim should win, and replacing it would hide the disagreement this exists to surface), and it returns a copy so `_attrs` stays unmutated for the flattened fan-out.
+
+  Reporting only -- no dispatch, no LP, no config. It does not touch the mirror, and it does not *fix* the entity_id collision, which is tolerated by choice on that install; it makes the collision legible from the reading.
+
+### Notes
+- **This release corrects the "Devhub validation" lines on v0.94.332, v0.94.333 and v0.94.334.** Those cited `solve_diagnostics` key counts and `binding_constraint_now` read from `sensor.nimbus_solver_battery_forecast` -- which on that instance is the mirrored sensor, so those specific readings describe the *other* install, not the one the release was deployed to. What those lines reported from the HA **log** (the [#945](https://github.com/code-imstillalive/nimbus/issues/945) skip-WARNING behaviour, [#956](https://github.com/code-imstillalive/nimbus/issues/956)'s once-per-day regret WARNING) and from **service-call responses** (`compute_quality_report`) was genuinely local and stands. The distinction that matters: logs and service calls came from the deployed instance; those sensor state reads did not.
+- The first draft of #972's own test guarded its import with `skipTest`, so all five assertions silently skipped and proved nothing -- the same guard-that-cannot-fail shape found three separate times today ([#952](https://github.com/code-imstillalive/nimbus/issues/952), [#955](https://github.com/code-imstillalive/nimbus/issues/955), and the #594 changelog guard). Rewired onto the `_ha_stubs` harness so it runs against the real class.
+
 ## [0.94.335] - 2026-09-16
 
 ### Added
@@ -25,6 +48,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ### Notes
 - **#594 same-day carve-out, earned by proof rather than claimed.** This touches `solver/network.py`. `tests/test_solver_thermal_effective_rates_are_inert.py` asserts a bit-identical plan -- status, total cost, battery charge/discharge/SoC, grid import/export, thermal power and temperature -- across all three origin labels, a mixed pair, and the fields left unset. Two guards keep that honest: a premise check that the scenario genuinely exercises the thermal model and the battery, and a **control** asserting a genuinely different *rate* still does move the plan, so a bug ignoring the rates entirely could not pass by being inert.
+- Devhub validation: deployed via HACS and restarted, `installed_version == available_version == v0.94.335`, solve `optimal` in 1.18 s, no new WARNING/ERROR. The four new attributes are present in the published schema and read `null` on a `kind=deferrable` load, which is the correct answer -- that load's plan carries no thermal entry, so there are no LP thermal rates to report. **The populated path was NOT verified live**: that install has `n_thermal_loads: 0`, so an origin actually reading `fallback` with the 8.0/0.5 values is covered by tests only. Stated rather than glossed, because a `kind=thermal` load is exactly what #873 is about and the reference household's HWS is the one that will show it.
 - One assertion in that file was wrong when first written, and the correction is worth keeping: it asserted the tank's final temperature exceeds its first. It does not -- with cheap power early the LP heats hard and lets the tank **coast down** to land exactly on target at the deadline, so the peak is mid-horizon. Asserting a rising trajectory would have been asserting a worse plan.
 
 ## [0.94.334] - 2026-09-16
