@@ -53,6 +53,7 @@ what the gap-pin that used to stand here asked for by name.
 from __future__ import annotations
 
 import inspect
+import itertools
 import re
 import unittest
 from datetime import datetime
@@ -203,22 +204,36 @@ class TestOneBadLoadDoesNotCostTheRest(unittest.TestCase):
         self._loop_thread.join(timeout=5)
         self._loop.close()
 
-    def _run(self, *, poison: str | None):
+    # Which in-memory Store stand-in is actually installed depends on
+    # test-module import order (`_ha_stubs._StubStore` vs this suite's
+    # own `_FakeRunStateStore`), and both persist across tests. Clearing
+    # one is not enough -- CI caught this file passing alone and failing
+    # in a full run, because leftover state made `prev.commanded_state`
+    # already True and dispatch only fires on a TRANSITION.
+    #
+    # Unique ids per invocation sidestep the question entirely: a
+    # subentry nothing has ever seen has no persisted state to inherit,
+    # whichever store is in play.
+    _seq = itertools.count()
+
+    def _run(self, *, poison_bad: bool):
         import numpy as np
 
+        tag = next(self._seq)
+        bad_id, good_id = f"s_bad_{tag}", f"s_good_{tag}"
         bad = _controllable._fake_subentry(
-            "s_bad",
+            bad_id,
             "controllable_load",
             {"controllable_load_device_entity": "switch.bad_load"},
         )
         good = _controllable._fake_subentry(
-            "s_good",
+            good_id,
             "controllable_load",
             {"controllable_load_device_entity": "switch.good_load"},
         )
         services = _controllable._FakeServiceCalls()
         entry = SimpleNamespace(
-            entry_id="entry_1019",
+            entry_id=f"entry_1019_{tag}",
             subentries={s.subentry_id: s for s in (bad, good)},
         )
         solver_writer._NATIVE_HASS = SimpleNamespace(
@@ -231,7 +246,7 @@ class TestOneBadLoadDoesNotCostTheRest(unittest.TestCase):
         real = self._orig_tuning
 
         def _maybe_raise(data, subentry):
-            if poison is not None and subentry.subentry_id == poison:
+            if poison_bad and subentry.subentry_id == bad_id:
                 raise RuntimeError("simulated per-load failure (nimbus #1019)")
             return real(data, subentry)
 
@@ -240,8 +255,8 @@ class TestOneBadLoadDoesNotCostTheRest(unittest.TestCase):
         now = datetime(2026, 9, 17, 8, 0, tzinfo=_controllable._TZ)
         plan = _controllable._fake_plan(
             sheddable=[
-                _controllable._fake_load_plan("s_bad", np.array([1.5, 1.5])),
-                _controllable._fake_load_plan("s_good", np.array([1.5, 1.5])),
+                _controllable._fake_load_plan(bad_id, np.array([1.5, 1.5])),
+                _controllable._fake_load_plan(good_id, np.array([1.5, 1.5])),
             ]
         )
         solver_writer.apply_commanded_state_guard(
@@ -252,7 +267,7 @@ class TestOneBadLoadDoesNotCostTheRest(unittest.TestCase):
     def test_the_fixture_dispatches_both_loads_when_nothing_fails(self):
         """Guards the fixture. If this stopped dispatching two loads, the
         real test below would pass for the wrong reason."""
-        services = self._run(poison=None)
+        services = self._run(poison_bad=False)
         dispatched = {data["entity_id"] for _d, _s, data in services.calls}
         self.assertEqual(dispatched, {"switch.bad_load", "switch.good_load"})
 
@@ -261,7 +276,7 @@ class TestOneBadLoadDoesNotCostTheRest(unittest.TestCase):
         second load was never commanded -- with no error visible at
         default log levels until v0.94.350 raised the outer handler to
         WARNING."""
-        services = self._run(poison="s_bad")
+        services = self._run(poison_bad=True)
         dispatched = {data["entity_id"] for _d, _s, data in services.calls}
         self.assertIn(
             "switch.good_load",
@@ -280,13 +295,21 @@ class TestOneBadLoadDoesNotCostTheRest(unittest.TestCase):
         only half useful -- the outer handler could never say, because
         by the time it runs the frame is gone."""
         with patch.object(solver_writer, "_LOGGER") as log:
-            self._run(poison="s_bad")
+            self._run(poison_bad=True)
         messages = [c.args[0] for c in log.warning.call_args_list if c.args]
         self.assertTrue(
             any("#1019" in m and "NOT commanded" in m for m in messages),
             f"no per-load warning naming the loss: {messages}",
         )
-        named = [c for c in log.warning.call_args_list if c.args and "s_bad" in c.args]
+        # Subentry ids are per-invocation (see _run), so match the
+        # prefix rather than a literal -- an exact-match assertion here
+        # passed only while the ids were fixed, which is the same
+        # fragility the ids were made unique to remove.
+        named = [
+            call
+            for call in log.warning.call_args_list
+            if any(str(arg).startswith("s_bad_") for arg in call.args)
+        ]
         self.assertTrue(named, "the warning does not carry the failing subentry id")
 
 
