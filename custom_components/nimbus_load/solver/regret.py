@@ -90,10 +90,12 @@ plan's own numbers" evaluation would silently get regret wrong.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 
 import numpy as np
 from numpy.typing import NDArray
 
+from . import p2p_export
 from .elements import (
     AdequacyLoadConfig,
     BatteryConfig,
@@ -317,6 +319,8 @@ def evaluate_realized_cost_multi(
     charge_committed_kw: list[NDArray[np.float64]],
     discharge_committed_kw: list[NDArray[np.float64]],
     final_soc_kwh: list[float],
+    export_bonus_grid: GridConfig | None = None,
+    period_starts: list[datetime] | None = None,
 ) -> RealizedCost:
     """Same J as evaluate_realized_cost() (see this module's own
     docstring for the exact terms/units), summed across every real
@@ -363,6 +367,32 @@ def evaluate_realized_cost_multi(
     evaluate_realized_cost() called with the same battery, since the
     arithmetic below is the same formula, just summed over a
     one-element list.
+
+    **`export_bonus_grid` / `period_starts` (nimbus issue #1015).** Both
+    optional and both default None, which is a complete no-op -- every
+    caller predating them is byte-identical to before.
+
+    When given a `GridConfig` carrying the two-tier export bonus, this
+    credits whatever the evaluated trajectory actually exports at the
+    same premium the LP would have earned on it, via
+    `p2p_export.realized_export_bonus_credit()`. The reason this exists:
+    `j_ref` (the do-nothing baseline) was priced at plain spot with no
+    bonus at all, while `j_star` (the oracle) got the modelled bonus
+    through `build_plan()`. Two counterfactuals, two different prices
+    for the same program.
+
+    That asymmetry inflates `j_ref` on any day the idle trajectory
+    exports into a committed window, and `j_ref` is both the numerator
+    and the denominator of `EPR = (j_ref - j_ach) / (j_ref - j_star)` --
+    so it flatters the Solver, which is the direction that costs trust
+    rather than money.
+
+    **Deliberately NOT applied to `j_ach`.** The achieved trajectory is
+    not a counterfactual: it has a real settlement figure, and real
+    settled dollars beat any model of them. The principle is that the
+    two COUNTERFACTUALS share one model while the ACTUAL keeps its real
+    money -- which is narrower than "price all three identically", and
+    correct for a different reason than #1015 first proposed.
     """
     if not (
         len(batteries)
@@ -427,7 +457,20 @@ def evaluate_realized_cost_multi(
         - export_price_real * grid_export * hours
         + battery_cost_per_period
     )
-    cost = float(np.sum(cost_per_period) - terminal_credit_total)
+    # nimbus issue #1015. Revenue, so it SUBTRACTS from cost, the same
+    # direction as the export term above. Kept out of cost_per_period
+    # deliberately: the bonus is allocated against a per-calendar-day
+    # cap, so it is not a per-period quantity, and folding it in would
+    # silently change the hourly breakdown's own meaning.
+    export_bonus_revenue = 0.0
+    if export_bonus_grid is not None:
+        export_bonus_revenue = p2p_export.realized_export_bonus_credit(
+            grid_export_kw=grid_export,
+            hours=hours,
+            grid=export_bonus_grid,
+            period_starts=period_starts,
+        )
+    cost = float(np.sum(cost_per_period) - terminal_credit_total - export_bonus_revenue)
     return RealizedCost(
         total_cost=cost,
         cost_per_period=cost_per_period,
