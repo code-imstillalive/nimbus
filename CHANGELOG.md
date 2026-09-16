@@ -8,9 +8,29 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.338] - 2026-09-16
+
+### Changed
+- **The #773 diagnostic now reports every lex phase together, not just the slow one** ([#773](https://github.com/code-imstillalive/nimbus/issues/773)).
+
+  Measured on a real install across 16 consecutive cycles: `phase2_secondary` took **30.1-56.8 s every single cycle** against a 60 s per-call limit, with 80k-155k simplex iterations across 9-60 branch-and-bound nodes. Over that same window `phase1_primary` never crossed the 5 s logging threshold at all.
+
+  That asymmetry is the lead, and the logging could not show it. **Phase 1 solves the same model without the tie constraint**, so it is the natural control for what the tie constraint and the secondary objective actually cost -- and precisely because it is fast, the 5 s gate discarded it. Only the expensive phase was ever visible, which makes the cost look like a property of the model rather than of one phase.
+
+  `_timed_lp_call` now reads the info struct for every call and records it; a single summary line is emitted per solve **when some phase crossed the slow line**. A healthy install stays exactly as silent as before -- the 5 s gate still decides whether anything is logged, it just no longer decides what gets *measured*.
+
+  Wrapped at the call site rather than inside `_solve_with_options()`, so the breakdown also covers a phase that **raises** -- the case most worth seeing the rest of the sequence for. Thread-local, reset per solve and restored on exit, since solves run on HA executor threads and a summary must describe one solve rather than whatever overlapped it.
+
+  **This also reframes the issue itself**: with the slowest observed run at 56.8 s against a 60 s limit, the failures #773 is named for are not a rare pathology but the upper tail of a distribution already centred near the ceiling. And since the solver tick is ~30 s while `phase2_secondary` alone takes 30-57 s, it quantitatively explains the overlap skips [#945](https://github.com/code-imstillalive/nimbus/issues/945) preserved evidence for -- #945 sees the symptom at the scheduler, #773 the cause in the LP.
+
+### Notes
+- **A justification comment on `_ALARMING_LP_CALL_SECONDS` is corrected.** It read *"an expensive root LP relaxation; mip_node_count=1, mip_gap=0.0, so branch-and-bound is not involved at all"*. That holds for `phase1_primary`; it does not hold for `phase2_secondary`, measured at 9-60 nodes. The level split is still right -- a once-a-minute WARNING for a condition nobody can act on is still noise -- but "nobody can act on it" was a claim about the wrong phase.
+- A mechanism hypothesis (the hard tie constraint `primary <= p*` making every phase-2 point degenerate) was probed with a synthetic dispatch-shaped MIP and **the probe failed**: `mip_node_count` came out 1 in every variant, so branch-and-bound never ran and the comparison tested nothing. That is the second differently-shaped synthetic attempt to hit this wall, recorded on the issue so the next person skips straight to instrumenting the real model -- which is what this release does.
+
 ## [0.94.337] - 2026-09-16
 
 ### Changed
+- Devhub validation: deployed via HACS and restarted, `installed_version == available_version == v0.94.337`, local push sensors reporting `nimbus_version = 0.94.337` while the canonical entity_ids on that instance report it ABSENT -- the [#972](https://github.com/code-imstillalive/nimbus/issues/972) provenance check, now routine. Docs and test only, so there was no runtime behaviour to confirm beyond a clean restart and no new WARNING/ERROR; every ERROR in the log is the pre-existing, deliberately-tolerated duplicate-unique-id situation.
 - **Corrected a false justification comment in `sensor_flattened.py`, and pinned it** (found while gathering the evidence [#933](https://github.com/code-imstillalive/nimbus/issues/933) asks for).
 
   The exclusion list said `failed_load_entities` / `load_forecast_warnings` / `load_forecast_source_*` were *"surfaced via NimbusHealthReportSensor instead"*. They are not, and are not in current code -- that sensor returns exactly `recent_errors`, `recent_warnings`, `never_trained`, `subentry_status`, `generated_at`, verified against the source and against a real install's own published key set.
