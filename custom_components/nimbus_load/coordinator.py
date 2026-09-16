@@ -1703,12 +1703,19 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "model_type": getattr(self._trained, "model_type", None),
             "validation_mae": self._trained.validation_mae,
             "validation_mase": self._trained.validation_mase,
+            # nimbus issue #351: the metric that actually decides
+            # model_type. Stored on TrainedModel since that issue and
+            # surfaced nowhere, so the one number explaining why an
+            # install runs k-NN rather than GBRT was unreadable from
+            # outside. getattr-defensive for the same reason as the
+            # fields below.
+            "validation_recursive_mae": getattr(
+                self._trained, "validation_recursive_mae", {}
+            ),
             # nimbus issue #937. The whole point of this metric is that
-            # a human can read it back, so it has to leave the pickle.
-            # getattr-defensive for the same reason the three fields
-            # below are: a .pkl written before this field existed
-            # unpickles without it, and direct attribute access would
-            # raise on the first read after deploying.
+            # a human can read it back, so it has to leave the pickle --
+            # and reach a published attribute, which the first version
+            # of this change forgot, exactly the #1013 class.
             "validation_recursive_mae_by_horizon": getattr(
                 self._trained, "validation_recursive_mae_by_horizon", {}
             ),

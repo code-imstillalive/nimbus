@@ -187,5 +187,60 @@ class TestTheFieldSurvivesAnOldPickle(unittest.TestCase):
         )
 
 
+class TestItReachesAPublishedAttribute(unittest.TestCase):
+    """The gap devhub caught on the first version of this change.
+
+    The value was computed, stored on TrainedModel, and threaded
+    into the coordinator's own training-info dict -- and stopped
+    there. `sensor.py`'s `extra_state_attributes()` maps a fixed set
+    of keys, and a key absent from that map is simply never
+    published, so nothing outside the process could read it.
+
+    That is the nimbus #1013 class exactly: wired into one layer,
+    invisible at the next. A metric nobody can read back is not a
+    metric, and this one exists purely to be read back.
+
+    Source-text checks rather than a live HA harness, because the
+    failure is a missing dict entry rather than a behaviour -- and
+    the stub-based suite cannot build a real entity to ask.
+    """
+
+    def setUp(self):
+        root = Path(__file__).resolve().parent.parent / "custom_components"
+        self.sensor = (root / "nimbus_load" / "sensor.py").read_text(encoding="utf-8")
+        self.coordinator = (root / "nimbus_load" / "coordinator.py").read_text(
+            encoding="utf-8"
+        )
+
+    def test_the_coordinator_exports_both_metrics(self):
+        for key in (
+            "validation_recursive_mae",
+            "validation_recursive_mae_by_horizon",
+        ):
+            with self.subTest(key=key):
+                self.assertIn(
+                    f'"{key}": getattr(',
+                    self.coordinator,
+                    f"{key} is not exported by the coordinator, or is "
+                    "read non-defensively -- an older .pkl has neither",
+                )
+
+    def test_the_sensor_actually_publishes_them(self):
+        """The half that was missing. Exporting from the coordinator
+        is necessary and not sufficient."""
+        for attr in (
+            "ATTR_VALIDATION_RECURSIVE_MAE",
+            "ATTR_VALIDATION_RECURSIVE_MAE_BY_HORIZON",
+        ):
+            with self.subTest(attr=attr):
+                self.assertIn(
+                    f"{attr}: data.get(",
+                    self.sensor,
+                    f"{attr} never reaches extra_state_attributes(), so "
+                    "the value is computed and unreadable -- nimbus "
+                    "#1013 class, caught by a devhub deploy check",
+                )
+
+
 if __name__ == "__main__":
     unittest.main()
