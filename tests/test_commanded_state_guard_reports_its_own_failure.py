@@ -31,9 +31,23 @@ dispatch tests reporting `len(services.calls) == 0` with no message.
 Failure presenting as *absence* is precisely what this handler's log
 level caused.
 
-This pins the visibility half: the guard must report its own failure.
-Per-load isolation is the other half of #1019 and needs the loop body
-re-indented, so it is deliberately not bundled with this.
+**Both halves now exist, and they shipped separately on purpose.**
+
+*Visibility* (v0.94.350): the guard must report its own failure, at
+WARNING, naming what was lost. That came first because it is what made
+the second half diagnosable at all -- #873's own hoist then failed with
+an `AttributeError` swallowed into silent absence, and the WARNING is
+the only reason anyone could see which call raised.
+
+*Isolation* (this): the loop body is wrapped per load, so one bad load
+costs itself and nothing else. Deliberately a pure re-indent of 839
+lines, verified mechanically (dedent the result and it is byte-identical
+to the original) rather than by eye -- #873 established that a
+mechanical move of a block containing `if` can silently re-parent a
+following `elif` while passing ruff, mypy and its own tests.
+
+`TestOneBadLoadDoesNotCostTheRest` is the behavioural half, and it is
+what the gap-pin that used to stand here asked for by name.
 """
 
 from __future__ import annotations
@@ -41,9 +55,13 @@ from __future__ import annotations
 import inspect
 import re
 import unittest
+from datetime import datetime
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import _solver_path  # noqa: F401
 import solver_writer
+import test_solver_writer_controllable_loads as _controllable
 
 
 def _guard_source() -> str:
@@ -121,12 +139,15 @@ class TestTheGuardReportsItsOwnFailure(unittest.TestCase):
             "costs the remainder of the cycle",
         )
 
-    def test_the_loop_still_has_no_per_load_isolation(self):
-        """Pins the gap honestly rather than implying it is fixed.
+    def test_the_loop_now_isolates_each_load(self):
+        """The other half, landed. This replaces the honest gap-pin that
+        stood here while only the visibility half existed -- that test's
+        own docstring said to swap it for a behavioural one, and
+        `TestOneBadLoadDoesNotCostTheRest` below is it.
 
-        When per-load isolation lands, this fails and should be replaced
-        by a real behavioural test: seed two loads, make the first raise
-        OUTSIDE the dispatch call, assert the second is still commanded.
+        Kept as a structural check too, because the behavioural test can
+        only prove isolation works for the failure it injects, while
+        this proves the loop body is wrapped at all.
         """
         loop = re.search(
             r"for subentry_id, period0_kw, load_kind, load_plan in "
@@ -141,13 +162,132 @@ class TestTheGuardReportsItsOwnFailure(unittest.TestCase):
             for ln in body.split("\n")
             if ln.strip() and not ln.strip().startswith("#")
         )
-        self.assertNotRegex(
+        self.assertRegex(
             first_stmt,
             r"^\s*try:\s*$",
-            "per-load isolation appears to have landed -- good. Replace "
-            "this test with the behavioural one described in its "
-            "docstring and close the remaining half of #1019.",
+            "the per-load loop body is no longer wrapped, so one bad "
+            "load costs every load after it again (nimbus #1019)",
         )
+        self.assertIn(
+            "continue",
+            body,
+            "a per-load handler that does not `continue` is not isolation",
+        )
+
+
+class TestOneBadLoadDoesNotCostTheRest(unittest.TestCase):
+    """nimbus issue #1019, behaviourally.
+
+    Two controllable loads, both wanting to turn on. The FIRST is made
+    to raise at a point outside the dispatch call itself -- dispatch
+    already had its own per-load handler, so injecting there would prove
+    nothing about this fix.
+
+    `_resolve_controllable_load_tuning()` is the injection point: it is
+    module-level, called early in every iteration, and its failure is
+    exactly the shape #1019 describes (a config/entity read going wrong
+    for one load). Before this fix the raise escaped to the outermost
+    handler and the second load was never commanded at all.
+    """
+
+    def setUp(self):
+        self._orig_native_hass = solver_writer._NATIVE_HASS
+        self._orig_tuning = solver_writer._resolve_controllable_load_tuning
+        _controllable.__dict__["_FakeRunStateStore"]._shared_data.clear()
+        self._loop, self._loop_thread = _controllable._make_running_loop()
+
+    def tearDown(self):
+        solver_writer._NATIVE_HASS = self._orig_native_hass
+        solver_writer._resolve_controllable_load_tuning = self._orig_tuning
+        self._loop.call_soon_threadsafe(self._loop.stop)
+        self._loop_thread.join(timeout=5)
+        self._loop.close()
+
+    def _run(self, *, poison: str | None):
+        import numpy as np
+
+        bad = _controllable._fake_subentry(
+            "s_bad",
+            "controllable_load",
+            {"controllable_load_device_entity": "switch.bad_load"},
+        )
+        good = _controllable._fake_subentry(
+            "s_good",
+            "controllable_load",
+            {"controllable_load_device_entity": "switch.good_load"},
+        )
+        services = _controllable._FakeServiceCalls()
+        entry = SimpleNamespace(
+            entry_id="entry_1019",
+            subentries={s.subentry_id: s for s in (bad, good)},
+        )
+        solver_writer._NATIVE_HASS = SimpleNamespace(
+            config_entries=SimpleNamespace(async_entries=lambda domain: [entry]),
+            services=services,
+            loop=self._loop,
+            states=SimpleNamespace(get=lambda eid: None),
+        )
+
+        real = self._orig_tuning
+
+        def _maybe_raise(data, subentry):
+            if poison is not None and subentry.subentry_id == poison:
+                raise RuntimeError("simulated per-load failure (nimbus #1019)")
+            return real(data, subentry)
+
+        solver_writer._resolve_controllable_load_tuning = _maybe_raise
+
+        now = datetime(2026, 9, 17, 8, 0, tzinfo=_controllable._TZ)
+        plan = _controllable._fake_plan(
+            sheddable=[
+                _controllable._fake_load_plan("s_bad", np.array([1.5, 1.5])),
+                _controllable._fake_load_plan("s_good", np.array([1.5, 1.5])),
+            ]
+        )
+        solver_writer.apply_commanded_state_guard(
+            plan, now, _controllable._grid(now, 4, minutes=5)
+        )
+        return services
+
+    def test_the_fixture_dispatches_both_loads_when_nothing_fails(self):
+        """Guards the fixture. If this stopped dispatching two loads, the
+        real test below would pass for the wrong reason."""
+        services = self._run(poison=None)
+        dispatched = {data["entity_id"] for _d, _s, data in services.calls}
+        self.assertEqual(dispatched, {"switch.bad_load", "switch.good_load"})
+
+    def test_a_load_that_raises_does_not_take_the_rest_of_the_cycle(self):
+        """The defect, and the fix. Before #1019's second half, the
+        second load was never commanded -- with no error visible at
+        default log levels until v0.94.350 raised the outer handler to
+        WARNING."""
+        services = self._run(poison="s_bad")
+        dispatched = {data["entity_id"] for _d, _s, data in services.calls}
+        self.assertIn(
+            "switch.good_load",
+            dispatched,
+            "a healthy load was left uncommanded because a DIFFERENT "
+            "load raised -- that is exactly nimbus #1019",
+        )
+        self.assertNotIn(
+            "switch.bad_load",
+            dispatched,
+            "the failing load should be skipped, not dispatched anyway",
+        )
+
+    def test_the_failure_names_the_load_it_lost(self):
+        """An isolated failure that does not say WHICH load failed is
+        only half useful -- the outer handler could never say, because
+        by the time it runs the frame is gone."""
+        with patch.object(solver_writer, "_LOGGER") as log:
+            self._run(poison="s_bad")
+        messages = [c.args[0] for c in log.warning.call_args_list if c.args]
+        self.assertTrue(
+            any("#1019" in m and "NOT commanded" in m for m in messages),
+            f"no per-load warning naming the loss: {messages}",
+        )
+        named = [c for c in log.warning.call_args_list if c.args and "s_bad" in c.args]
+        self.assertTrue(named, "the warning does not carry the failing subentry id")
 
 
 if __name__ == "__main__":
