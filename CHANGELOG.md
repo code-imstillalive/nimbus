@@ -8,6 +8,31 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.345] - 2026-09-16
+
+### Fixed
+- **v0.94.344's export band was one-sided, and the direction it left open produced regret -$4.95** ([#1001](https://github.com/code-imstillalive/nimbus/issues/1001)). **This corrects a claim made in v0.94.344's own changelog five hours earlier.**
+
+  That release recorded the reason for widening upward only as: *"it has never been observed to go negative from that direction -- under-delivery makes achieved WORSE, not better."* A rescore of a real day on a v0.94.344 install found the counterexample within the hour: **regret -$0.6091, EPR 103.87%**, with `achieved_within_lp_soc_bounds: true` ruling out the SoC half entirely. Seven committed hours where the oracle was pinned to export 12 kW that the day did not export, at 7.5c export against 37c import.
+
+  The reasoning holds only while exporting into a P2P window is profitable -- which is what a bonus rate is for. When the committed rate is a fraction of the import price, the commitment is a **loss the oracle cannot decline**, and a household that quietly skipped it beats perfect foresight. Reduced to a fixture (12 kW over seven hours, 7.5c export vs 37c import, nothing exported): `j_star` **7.2304 against a `j_ref` of 4.8000** -- the perfect-foresight oracle pricing out **$2.43 worse than doing nothing at all**. Post-fix, `j_star` -0.0415 and regret +2.3215.
+
+  The pin is now banded `[min(commitment, delivered), max(commitment, delivered)]` -- never wider than the day's own deviation, in whichever direction it went, and never up to `export_limit_kw`.
+
+### Added
+- **`p2p_commitment_shortfall_kwh` on the quality report** ([#1001](https://github.com/code-imstillalive/nimbus/issues/1001)). Energy a committed P2P block asked for and the day did not deliver, summed over every committed period, measured against the **original commitment** rather than the widened band.
+
+  This is what makes dropping the oracle's floor defensible. The missed commitment moves from *implicit* -- inferable only by noticing regret had gone impossible -- to explicit and published, which is strictly more visible than an infeasible oracle ever was. 0.0 means either no commitment is configured or every committed hour was met.
+
+### Changed
+- **`nimbus_version` now reaches ~77 flattened sensors' own state attributes** ([#997](https://github.com/code-imstillalive/nimbus/issues/997), found by Mark Purcell's IV&V of PR #973). It was already reaching the HA device registry via `device_info.sw_version` -- readable by a human on the device page -- but never the entity's own attributes, which is what `states.get(entity_id).attributes` returns and therefore the only form an automation, script or API caller can act on. #972 exists so "which install am I reading?" is a one-line check, and a check covering some entities and not others is the failure mode that issue is about.
+- **A spent daily re-send cap now says so** ([#998](https://github.com/code-imstillalive/nimbus/issues/998), same IV&V pass). Once `DEFAULT_MAX_REAFFIRMS_PER_DAY` is exhausted, `reaffirm_allowed()` correctly returned False and then **nothing happened at all** -- no else branch, no log -- while the sibling activation-cap branch logs every time it blocks a dispatch. A device in a genuine argument with something else, the exact scenario the cap exists to bound, went quiet after 20 tries leaving only `command_divergence_seconds()` growing on an attribute nobody is prompted to check. Now warns once per load per day.
+
+### Notes
+- **The amended guard, recorded rather than buried.** `test_oracle_export_never_exceeds_the_real_fixed_rate_during_the_p2p_window` defends a real 2026-09-01 production finding: the oracle must not model a fictional market it could dump 40 kW into. That finding is a **ceiling**, and the test's own NAME says so. Its body asserted `== exactly -11.5`, strictly stronger than its name, and that extra strength is what made the achieved trajectory infeasible. The assertion now matches the name; the ceiling it defends is untouched and still asserted. Flagged to Mark Purcell on #1001 rather than changed quietly.
+- **A test-isolation bug came with the IV&V branch and is fixed here too.** Two test files both hard-assigned `sys.modules["homeassistant.helpers.storage"]` with their own fake `Store`. Each passed alone; together, **35 tests in the sibling file failed** -- pytest imports every module during collection, so whichever imported last silently owned `Store` and the loser's seeded state went into a dict nothing read. Fixed order-independently by resolving the installed store at call time rather than import time.
+- **#999 needed no code change and ships as written** -- a genuine end-to-end reproduction for #773's pin-resolve tolerance fix, and an honest null result for the tie-slack half after ~900 swept scenarios. Left open as the record, with the log-signature triage it describes as the first thing to check if #773 recurs.
+
 ## [0.94.344] - 2026-09-16
 
 ### Changed
@@ -24,6 +49,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   The P2P pin becomes a per-period band via a new optional `GridConfig.fixed_export_max_kw`. `None`, or `NaN` in a period, leaves that period's pin exactly as it has always been (`lb == ub`), so every existing caller and every test predating the field is byte-identical. `network.py` needed no change -- it already routes through the shared `p2p_export.grid_export_bounds()` helper.
 
 ### Notes
+- Devhub validation: deployed via HACS and restarted, `installed_version == available_version == v0.94.344`, `nimbus_load.solve_now` returned `status: optimal` across all five #773 phases with no `Infeasible` on either mechanism, and no new WARNING/ERROR beyond the already-tracked pre-existing set. A real rescore was then run against it, which is what found #1001.
+- **Superseded within hours by [#1001](https://github.com/code-imstillalive/nimbus/issues/1001) / v0.94.345 -- the note below is wrong and is kept because being wrong in public is the record.** A rescore of a real day on this very release produced exactly the negative regret it calls unobserved.
 - **The band widens upward only, and a guard forced that.** Containing the achieved trajectory in *both* directions means dropping the floor to meet an under-delivery too. That was tried, and `test_oracle_export_never_exceeds_the_real_fixed_rate_during_the_p2p_window` -- the 2026-09-01 finding's own guard -- caught it immediately: a household that committed 11.5 kW and delivered nothing would then be scored against an oracle free to deliver nothing either, erasing the regret of a real, expensive missed commitment. A commitment is an obligation, not a decision the oracle re-makes.
 - **The honest consequence, recorded rather than glossed:** an under-delivering day still leaves achieved outside the feasible set, so `regret >= 0` is **not** proven by construction for it. It has never been observed to go negative from that direction -- under-delivery makes achieved worse, not better -- but "not observed" is weaker than "cannot happen", and the reliability flag stays the backstop.
 - **Both end-to-end fixtures were verified to FAIL against pre-fix behaviour** rather than pass vacuously -- the widening helpers were stubbed back to the configured bounds and the numbers recorded: sub-floor discharge **-$0.6727 / 154.89%**, P2P over-delivery **-$0.4424 / 101.08%**. The second lands within a few cents of the real reported -$0.7307 / 103.66% from the same shape, not by tuning toward it. `j_ach` is bit-identical on both sides of the fix in both fixtures.
