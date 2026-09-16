@@ -8,6 +8,25 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.353] - 2026-09-17
+
+### Fixed
+- **`j_ref` now prices P2P the same way `j_star` does** ([#1015](https://github.com/code-imstillalive/nimbus/issues/1015)). The same P2P program reached the three trajectories EPR divides by each other through three different mechanisms: `j_ref` (idle) got **nothing** — plain spot export price; `j_ach` (what happened) got the real settled lump sum; `j_star` (oracle) got a modelled two-tier bonus via `build_plan()`.
+
+  **The fix is narrower than the issue proposed, and right for a different reason.** #1015 suggested pricing all three identically, which would replace `j_ach`'s real settled dollars with a model of them — strictly worse, since the achieved trajectory is not a counterfactual and has actual money attached. The principle applied instead: **the two counterfactuals share one model; the actual keeps its real money.** `j_star` already had the model; `j_ref` had nothing, and that omission is the whole defect.
+
+  **The false premise that hid it is corrected in place.** `quality_report.py`'s own module docstring claimed plain-spot pricing was *"already exactly correct"* for `j_ref` because it is *"fully idle -- zero export can never earn a bonus anyway"*. `j_ref` holds the BATTERY idle, not the HOUSE: its grid balance is still `load - solar`, so it exports solar surplus like any other trajectory. Same stale-claim-in-a-docstring class this repo already carries four guards for.
+
+  The reference household hid it for a season — solar finishes by ~18:00 in September against a 17:00-24:00 committed window, so `j_ref` imports through all of it. Longer days, a daytime P2P block, a larger array or a low evening load each break that coincidence. Because `j_ref` sits in **both** the numerator and the denominator of `EPR = (j_ref - j_ach) / (j_ref - j_star)`, understating it **flatters the Solver** — the direction that costs trust rather than money. A test checks that direction rather than assuming it.
+
+  New `p2p_export.realized_export_bonus_credit()`: within each real calendar day it allocates the capped bonus volume to that day's highest-premium periods first, up to each period's own actual export — what the revenue-maximising LP does with the same inputs, and how nightly settlement behaves. Per calendar day rather than per horizon, with the same `period_starts is None` fallback `add_export_bonus_cumulative_caps()` already uses, and the same latest-preferred tie-break rather than a second convention. `evaluate_realized_cost_multi()` gains `export_bonus_grid`/`period_starts`, both optional and defaulting `None`, so every existing caller is byte-identical.
+
+  Two deliberate omissions, documented at the site: the credit stays **out of `cost_per_period`** (it is allocated against a per-day cap, so it is not a per-period quantity and folding it in would silently change the hourly breakdown's meaning), and `oracle_residual` is untouched (residual-only by design for the hourly shape comparison, as it already states).
+
+  13 new tests; the two behavioural ones confirmed to **fail against the parent commit**, while the no-op test passes either way — that one is the load-bearing claim that this does not silently rescore every historical day on every install. All 234 existing regret/quality/p2p tests pass unchanged.
+
+  Devhub validation: **not claimed, and not applicable yet** — the change is a verified no-op on the reference household's current shape, so there is nothing live to observe, and that install is separately executing pre-v0.94.348 code. Verified by CI and by the mutation check instead.
+
 ## [0.94.352] - 2026-09-17
 
 ### Changed
