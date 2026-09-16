@@ -8,9 +8,28 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.349] - 2026-09-16
+
+### Added
+- **`real_p2p_settlement_status` on the quality report** ([#1015](https://github.com/code-imstillalive/nimbus/issues/1015)) -- says WHY `real_p2p_dollars` is what it is. Diagnostic only, no economics change.
+
+  The scorer only looks up real settled P2P when the window is exactly one local calendar day, because the settlement history is keyed by ISO local date and any other window genuinely has no entry to find. **That gate is correct.** Being silent about it was not: the report carried `real_p2p_dollars: 0` and priced export at plain spot, which is indistinguishable from a household that earns no P2P at all -- no error, no flag, an ordinary-looking number.
+
+  Measured: scoring 2026-09-15 as a UTC-aligned 24-hour window returned **0** against **$10.4032** for the same day as a local calendar day, moving `j_ach` by **$9.82**. A full day's P2P income disappearing on a window choice, with nothing in the output to say so.
+
+  Five values, following the existing `epr_reason`/`soc_discrepancy_reason` convention: `applied`, `no_sensor_configured`, `window_is_not_one_local_calendar_day`, `no_settlement_entry_for_this_date`, `settlement_sensor_unreadable`. **The last three are all zero-dollar outcomes that were previously indistinguishable**, despite completely different remedies -- a window choice, a day that has not settled yet, and a broken sensor.
+
+  Published rather than logged: a DEBUG line would not reach anyone reading the number, and the number is where the ambiguity lived.
+
+### Notes
+- **The larger half of #1015 is deliberately untouched.** P2P reaches `j_ref`/`j_ach`/`j_star` through three different mechanisms -- omitted, a settled lump sum, and a modelled per-kWh bonus with a volume cap. Verified **latent rather than active** on the reference household: `j_ref` holds the battery idle and never exports during the 17:00-24:00 committed window in September, so no credit is being wrongly denied. Seasonal change will expose it; unifying the three is a real economics decision.
+- A test-draft note worth keeping: the first version of these tests mocked `ha_get` to raise on *every* call, which blew up inside `_kw_scale_factor()`'s unit lookups long before the branch under test. A test that fails for the wrong reason is worse than no test.
+- Also merged this cycle (test-only, no release needed): [#1014](https://github.com/code-imstillalive/nimbus/pull/1014), a guard that every `solver_*` number field is actually READ by a solve path. #538's guard checks that a dial is *published*; this checks that something *consumes* it. A sweep found exactly one inert field of 44 -- `solver_battery_soh_percent` ([#1013](https://github.com/code-imstillalive/nimbus/issues/1013)), which means a household setting State of Health changes nothing about dispatch.
+
 ## [0.94.348] - 2026-09-16
 
 ### Fixed
+- Devhub validation: deployed via HACS, restarted, and **rescored two real past days against the inverters' own cumulative counters** -- 09-15 achieved energy 106.602 kWh in / 101.209 out against counters 106.6 / 100.9, and 09-13 108.136 in against 108.4. Regret went from -$0.73 to +$6.19, `regret_reliable` from false to true, `epr_reason` to null. Deliberately verified against an independent measurement rather than a `solve_now` returning `optimal`, which would have said nothing about whether the achieved series was right.
 - **`resample_history_mean()` averaged SAMPLES, not TIME** ([#1008](https://github.com/code-imstillalive/nimbus/issues/1008)). **This is the root cause behind #956 and #1001, and it invalidates the premise both were built on.**
 
   HA's recorder stores state CHANGES, so samples are irregularly spaced -- dense while a value moves, sparse while it holds. `sum(vals) / len(vals)` weighted a two-second spike exactly as heavily as a forty-minute plateau. The reference household's battery jumps to +-40 kW and then sits flat, so every step of a spike wrote a recorder row and the plateaus wrote almost none.
