@@ -7657,6 +7657,22 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
             # below it -- same "nothing changed, nothing logged" outcome.
             # DEBUG, not INFO: this is the expected, common case on every
             # cycle after the first of a given day, not a diagnostic event.
+            # nimbus issue #994, second half: seed the table on the fast
+            # path too. Without this, an install whose `history` was
+            # already wiped -- which is every install that ever ran the
+            # pre-v0.94.346 publisher -- keeps re-pushing the same
+            # history-less attributes until a NEW day is scored, so the
+            # Regret card goes on falling back to its second scorer for
+            # another full day after the fix lands.
+            #
+            # Costs nothing: the five numbers for the already-scored day
+            # are sitting in the attributes being re-pushed, so this
+            # needs no recompute and no LP solve. `existing_attrs` is the
+            # same dict object as `existing["attributes"]`, so seeding it
+            # here is what the verbatim re-push below then publishes.
+            existing["attributes"]["history"] = _carry_forward_quality_history(
+                existing_attrs, yesterday_key, existing_attrs
+            )
             _LOGGER.debug(
                 "Nimbus quality: fast-path hit, already scored %s -- re-"
                 "pushing cached state to keep the freshness stamp alive",
