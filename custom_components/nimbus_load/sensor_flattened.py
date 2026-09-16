@@ -178,7 +178,29 @@ class FlattenedAttrSpec:
 #     / efficiency_convention / price_blend_algorithm (string constants; better
 #     as parent attributes than as their own sensors)
 #   - failed_load_entities / load_forecast_warnings / load_forecast_source_*
-#     (surfaced via NimbusHealthReportSensor instead)
+#     Corrected 2026-09-16: this previously read "surfaced via
+#     NimbusHealthReportSensor instead", which is not true and was the
+#     stated justification for excluding them. That sensor's
+#     extra_state_attributes() returns exactly recent_errors,
+#     recent_warnings, never_trained, subentry_status and generated_at --
+#     none of these three, and verified against a real install's own
+#     published key set as well as the source.
+#
+#     The real reasons they are not flattened: failed_load_entities and
+#     load_forecast_warnings are list/dict-valued, and an entity state
+#     must be a scalar; load_forecast_source_used is a single string
+#     naming every summed circuit, which on the reference household's
+#     18-circuit install runs well past HA's own 255-character state
+#     limit.
+#
+#     Where to read them instead, which is what the old comment was
+#     reaching for: all three are dual-published onto sensor.nimbus_
+#     solver_battery_forecast (see solver_writer.py's own "same dual-
+#     publication convention" comments), and that sensor's
+#     _unrecorded_attributes excludes only `forecast` and `batteries` --
+#     so unlike the household-load sensor these ARE kept in recorder
+#     history and a real "how often did a circuit fail" question
+#     (nimbus issue #933) is answerable from there.
 #   - generated_at (already reflected in each child's own last_updated
 #     stamp)
 #   - cost_band, cost_breakdown (dict-valued; flattened here into
