@@ -8,6 +8,27 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.351] - 2026-09-17
+
+### Fixed
+- **State of Health actually derates battery capacity now** ([#1013](https://github.com/code-imstillalive/nimbus/issues/1013)). `number.nimbus_solver_battery_soh_percent` was created in `number.py`, mirrored onto `sensor.nimbus_solver_config`, and read by **nothing at all** -- no solve path, native or cron. Setting State of Health from the dashboard changed nothing about dispatch or scoring, silently.
+
+  The reference household had it at 98%, in the reasonable belief it derated a 122.2 kWh pack to ~119.8. Every solve planned against the full 122.2 -- roughly **5.7 kWh of headroom that does not physically exist**, and a wrong ceiling bites precisely when the battery is at it, which [#1012](https://github.com/code-imstillalive/nimbus/issues/1012) established this pack is every single day.
+
+  The semantics were never in doubt: `const.py`'s own comment beside `CONF_SOLVER_BATTERY_SOH_PERCENT` has read `effective_capacity = capacity_kwh * soh_percent / 100` since the field was added. Only the code was missing. `resolve_effective_capacity_kwh()` now backs all five sites that build a `BatteryConfig` from configured capacity -- four in the integration, one in the standalone/cron writer ([#357](https://github.com/code-imstillalive/nimbus/issues/357): that copy has shipped stale behaviour for weeks before, and a cron household would have kept the phantom headroom indefinitely).
+
+  **The one real modelling question -- does SoH derate the ceiling, the floor, or both? -- was measured, not argued.** Fourteen consecutive days of the reference household's own daily statistics, two sensors describing one pack: `combined_battery_charge` maxes at **119.72 kWh** while `logger_battery_level_soc` maxes at **100.0%**, against a constant 122.16 kWh nameplate. So the BMS reports 100% at 119.72, *not* at the nameplate -- SoC is a percentage of the pack's current usable capacity, and the nameplate is not the scale the household's own SoC sensor speaks in. The floor agrees independently: Min SoC is configured at 2.0% and the daily minimum lands at 2.39 kWh, which is 2.0% of 119.72 (2.394) rather than of 122.16 (2.443). **Both rails scale.** Intermediate readings sit on the same scale (99.3% <-> 118.96 kWh, 8.9% <-> 10.69 kWh), so this is one scale rather than two clamps coinciding.
+
+  The configured dial is vindicated by the same reading: 122.2 x 0.98 = 119.756 against a measured 119.72, a difference of **0.03%**. The number was right from the day it was entered; nothing read it.
+
+  **No-op by default** -- `DEFAULT_SOLVER_SOH_PERCENT` is 100.0, and the golden-output guardrail confirms every other attribute `main()` pushes is byte-identical across the change. An install that has set the dial *does* change, which is the defect being fixed. A value outside (0, 100] is refused rather than applied, announced once per distinct bad value.
+
+  `solve_diagnostics` now publishes `battery_soh_percent`, `battery_nameplate_capacity_kwh` and `battery_effective_capacity_kwh` -- both numbers, since a lone `119.756` is indistinguishable from someone having retyped the nameplate.
+
+  Still deliberately one static number rather than a live sensor read: `const.py` is explicit this field is "one number the owner updates occasionally... NOT an automated fade-tracking model," and `CONF_BATTERY_TOWER_SOH_SENSOR` remains a real follow-up rather than something to smuggle in under a bug fix.
+
+  Devhub validation: v0.94.350 deployed and verified immediately before this change (`installed_version == available_version`, `solve_now` ran, no new log class). This change rests on CI plus 24 tests, three of which pin the 14-day measurement above; #1013's own guard shipped ahead of the fix and its self-deleting exemption worked exactly as written.
+
 ## [0.94.350] - 2026-09-16
 
 ### Fixed
@@ -24,6 +45,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 - **#873's hoist was attempted and backed out**, and produced two findings worth more than the change would have been: a top-level helper cannot compile because `load_run_state`/`done_condition`/`thermal_forecast`/the `CONF_*` names are deferred imports local to `apply_commanded_state_guard()`; and the inline move passes `ruff`, `mypy` and its own test file 116/116 while breaking 13 dispatch tests **only in combination**. Anyone validating that refactor the natural way would ship a live-dispatch regression and see green.
 - **Per-load isolation is deliberately not in this release.** It needs the whole ~800-line loop body re-indented -- the same class of mechanical change that just caused the #873 regression. `test_the_loop_still_has_no_per_load_isolation` pins the gap honestly and fails when it lands.
 - Tests verified to fail against the DEBUG version rather than merely pass against the new one. A first draft of the swallow-check matched the word "raise" inside the handler's own explanatory comment -- a fair reminder that a source-text check tests text, not behaviour.
+- Devhub validation: deployed via HACS and restarted; `installed_version == available_version == v0.94.350`, `solve_now` ran, and no new WARNING/ERROR class appeared beyond the already-tracked [#773](https://github.com/code-imstillalive/nimbus/issues/773) / [#944](https://github.com/code-imstillalive/nimbus/issues/944) / [#972](https://github.com/code-imstillalive/nimbus/issues/972) conditions. **The honest limit: this release's whole content is a WARNING that fires only when the guard fails, so a healthy run cannot positively confirm it.** What a healthy run can establish -- that the deploy took and nothing new broke -- it did; the behaviour itself rests on tests confirmed to fail against the DEBUG version. This line was added retrospectively, in the release that followed, because the deploy happened after the tag was cut; the [#594](https://github.com/code-imstillalive/nimbus/issues/594) guard is what noticed it was missing.
+- The same devhub run produced a real live datapoint for #773: a `phase2_secondary` timeout at **780,105 simplex iterations** with `mip_node_count=0` and no primal point ever found, roughly 4x the worst previously recorded there, on an instance of unremarkable size. Posted to that issue rather than acted on -- one sample.
 
 ## [0.94.349] - 2026-09-16
 
