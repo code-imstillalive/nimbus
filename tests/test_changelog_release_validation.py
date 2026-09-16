@@ -61,7 +61,30 @@ _SECTION_RE = re.compile(r"^## \[(\d+\.\d+\.\d+)\][^\n]*$", re.MULTILINE)
 # actually checked on a real install -- not that it contains a hopeful
 # adjective. "Devhub validation:" is the phrase the backfill used and
 # the one the directive asks for.
-_VALIDATION_RE = re.compile(r"devhub validation:", re.IGNORECASE)
+#
+# nimbus #1057 (Mark Purcell, IV&V pass #1055): ANCHORED to the start of
+# a line, which is what stops the mirror-image defeat of the code-span
+# fix below -- ordinary prose that merely DISCUSSES some other release's
+# validation line ("see that entry's own Devhub validation: note ...")
+# satisfied an unanchored search while asserting nothing about the
+# release it was guarding. Demonstrated, not theorised; pinned by
+# test_changelog_guard_prose_defeat.py.
+#
+# The bullet is OPTIONAL, deliberately, and this is a departure from the
+# `^\s*-\s*` shape #1057 suggested. Measured against the real file
+# before changing it: 19 entries write "- Devhub validation:" as a
+# bullet and 15 write it as an indented paragraph with no bullet at all
+# (v0.94.365's own entry among them). Requiring the dash would have
+# failed 15 truthful, already-validated entries -- a guard that rejects
+# real validation lines is worse than the gap being closed.
+#
+# Residual, stated rather than papered over: prose could still wrap such
+# that the phrase lands at the start of its own line. That is much
+# narrower than matching anywhere in the body, and the suggested
+# bullet-anchored form has the identical residue.
+_VALIDATION_RE = re.compile(
+    r"^\s*(?:-\s*)?devhub validation:", re.IGNORECASE | re.MULTILINE
+)
 
 # ...but a CHANGELOG entry may also TALK ABOUT validation lines rather
 # than carry one, and this guard could not tell the difference. Found

@@ -8,6 +8,36 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.366] - 2026-09-17
+
+### Fixed
+- **P2P bonus pricing reached neither `j_star` nor `j_ref` — an `if`/`elif` re-parent, shipped as "diagnostic only"** ([#1056](https://github.com/code-imstillalive/nimbus/issues/1056), Mark Purcell, found in IV&V pass [#1055](https://github.com/code-imstillalive/nimbus/issues/1055)).
+
+  [#1016](https://github.com/code-imstillalive/nimbus/pull/1016) added `real_p2p_settlement_status` and, in the process, re-indented the bonus-rate `grid_oracle` rebuild one level deeper — into a new `elif` branch. In that branch `day_data` is falsy **by construction**, so `real_p2p_dollars`/`real_p2p_volume_kwh` were never reassigned and still held their initial `0.0`, making the `> 0.01` gate always false wherever the code could be reached.
+
+  So the bonus-priced oracle never got built on **any** install with a settlement sensor configured — the fully-successful `"applied"` case included. `j_star`, and via the same reused `grid_oracle` variable [#1026](https://github.com/code-imstillalive/nimbus/pull/1026)'s own new `j_ref` bonus pricing, both silently fell back to plain spot export. #1016's commit message said *"diagnostic only — no economics change"*. It was an economics change, and it nullified a fix from the same week.
+
+  The block is back under `if day_data:` where it belongs. Note the body's indentation is unchanged by the fix — which is exactly why the original re-parent was invisible.
+
+  **Why #1016's own tests couldn't see it:** `test_p2p_settlement_status.py` asserts the status string plus the dollars and volume, and all three are assigned *above* the broken block, so they stayed correct throughout. Mark's regression test spies on `GridConfig` construction instead — the thing that was actually broken — and confirms a real settled day (47.668 kWh) produces a bonus-priced oracle.
+
+  The general trap, now recorded in the code: hoisting or re-indenting a block whose first statement is `if` into an `if`/`elif` chain silently re-parents it, and nothing errors. This repo has now hit it twice ([#873](https://github.com/code-imstillalive/nimbus/issues/873) was the other).
+
+  Devhub validation: **not claimed** — this is on the daily quality-scoring path, and that install's `solver_writer.py` is separately executing stale code (`solve_diagnostics` reports 7 keys where current code emits 10). Verified by Mark's regression test flipping from XFAIL to pass, #1016's own suite still green, and the full local suite.
+
+### Changed
+- **The #594 CHANGELOG guard is anchored to the start of a line, so prose about a *past* release no longer satisfies it** ([#1057](https://github.com/code-imstillalive/nimbus/issues/1057), Mark Purcell, same IV&V pass).
+
+  That guard already stripped code spans and fenced blocks, added after v0.94.332's entry satisfied it by *explaining* why it had no validation line. #1057 demonstrated the mirror case still got through: plain prose discussing another release's line (*"see that entry's own Devhub validation: note"*) matched the unanchored search while asserting nothing about the release being guarded.
+
+  **One deliberate departure from the suggested fix, made after measuring the real file.** #1057 proposed `^\s*-\s*devhub validation:`, requiring a markdown bullet. CHANGELOG.md writes the line both ways — **19 entries as a `-` bullet, 15 as an indented paragraph with no bullet**, v0.94.365's own entry among them. The dash-required form would have failed 15 truthful, already-validated entries, so the bullet is optional. The anchoring is what defeats the prose case and is unaffected by that. A guard that rejects real validation lines is a worse failure than the gap it closes.
+
+  Two tests pin this so a later "simplification" back to bullet-only fails loudly rather than quietly invalidating a third of the file: both line forms must keep matching, and the real CHANGELOG must keep satisfying the anchored guard end-to-end.
+
+  Residual, stated rather than papered over: prose could still wrap such that the phrase lands at the start of its own line. That is far narrower than matching anywhere in the body, and the suggested bullet-anchored form carries the identical residue.
+
+  Devhub validation: **not applicable** — a test-only guard change, nothing shipped for an install to exercise.
+
 ## [0.94.365] - 2026-09-17
 
 ### Changed
