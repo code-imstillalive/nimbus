@@ -54,6 +54,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
@@ -214,6 +215,179 @@ def _hourly_means_by_key(
     return out
 
 
+# nimbus issue #956: BatteryConfig rejects min_soc_kwh <= 0, so a
+# reconstruction that genuinely reaches 0.0 kWh still needs a
+# representable floor. One watt-hour is far below any real dispatch
+# decision and keeps the LP well-posed.
+_MIN_POSITIVE_SOC_KWH = 1e-3
+
+
+def _soc_envelope_containing_achieved(
+    battery: BatteryConfig,
+    actual_charge_kw: NDArray[np.float64],
+    actual_discharge_kw: NDArray[np.float64],
+    hours: NDArray[np.float64],
+) -> tuple[float, float]:
+    """SoC bounds for the ORACLE that contain the achieved trajectory
+    (nimbus issue #956, household decision 2026-09-16: "go with B").
+
+    The defect: a real install published EPR 103.66% with regret
+    -$0.7307 -- the achieved dispatch pricing out CHEAPER than perfect
+    foresight, which the oracle's own construction is supposed to make
+    impossible.
+
+    It is possible because the two sides were not playing the same game.
+    The oracle is an LP bound by this battery's configured envelope; the
+    achieved side is a reconstruction from measured power, bound by
+    nothing. On the day in question the achieved trajectory finished at
+    **0.443%** against a configured 2.0% floor -- 1.90 kWh the oracle was
+    forbidden to sell and the reconstruction sold anyway. Beat an
+    opponent who is not allowed to touch what you just spent, and of
+    course you win.
+
+    **Two ways to fix that, and this is deliberately the second.**
+    Clamping the achieved integration (option A) forces regret >= 0 by
+    editing what the battery actually did, changes `j_ach` -- the
+    headline achieved-cost figure -- on every install and every rescored
+    day, and hides the very signal the anomaly carries. Widening the
+    oracle instead leaves `j_ach` untouched and fixes the COMPARISON,
+    which is what was actually broken.
+
+    **Why this restores the invariant rather than merely improving it.**
+    Once the achieved trajectory lies inside the oracle's feasible set,
+    a cost-minimising oracle can always do at least as well as it, so
+    `j_star <= j_ach` and `regret >= 0` follows by construction rather
+    than by hoping the numbers behave.
+
+    **What it means, stated plainly**: the oracle becomes "the best
+    achievable given what this system demonstrably can do", instead of
+    "the best achievable under limits the system does not actually
+    honour". That is the more useful question of the two, and it is the
+    one a household is really asking.
+
+    Physical bounds still win. `BatteryConfig.__post_init__` requires
+    `0 < min_soc <= max_soc <= capacity`, and a trajectory reconstructed
+    as leaving `[0, capacity]` is sensor nonsense rather than a real
+    state the oracle should be asked to match -- so the widening is
+    clamped there. A trajectory that escapes even that is left to the
+    #956 reliability flag, which is the honest outcome: the comparison
+    genuinely cannot be trusted and now says so.
+    """
+    delta = (
+        actual_charge_kw * battery.charge_efficiency * hours
+        - actual_discharge_kw * hours / battery.discharge_efficiency
+    )
+    achieved = battery.initial_soc_kwh + np.cumsum(delta)
+    # The initial SoC is part of the trajectory the oracle has to be able
+    # to start from, so it is included alongside the solved points.
+    lowest = float(min(achieved.min(), battery.initial_soc_kwh))
+    highest = float(max(achieved.max(), battery.initial_soc_kwh))
+
+    # Strictly positive: __post_init__ rejects min_soc_kwh <= 0, and a
+    # reconstruction reaching exactly 0.0 is real enough to want to keep
+    # representable rather than rejected.
+    floor = max(_MIN_POSITIVE_SOC_KWH, min(battery.min_soc_kwh, lowest))
+    ceiling = min(battery.capacity_kwh, max(battery.max_soc_kwh, highest))
+    # Degenerate only if capacity itself is below the configured floor,
+    # which is a misconfiguration this function must not turn into a
+    # crash.
+    floor = min(floor, ceiling)
+    return floor, ceiling
+
+
+def _widen_export_pin_to_achieved(
+    grid: GridConfig,
+    *,
+    hours: NDArray[np.float64],
+    load_kw: NDArray[np.float64],
+    solar_kw: NDArray[np.float64],
+    actual_charge_kw: list[NDArray[np.float64]],
+    actual_discharge_kw: list[NDArray[np.float64]],
+) -> GridConfig:
+    """The oracle's grid config with any P2P export pin relaxed into a
+    band that contains what the day actually exported (nimbus issue
+    #956).
+
+    The SoC envelope is only half of the asymmetry. `fixed_export_kw`
+    pins the oracle's export to **exactly** the committed rate in every
+    committed period -- and a real day does not deliver a commitment to
+    the watt. On the day this issue was filed from, the commitment was
+    12.0 kW and the meter recorded 12.39-12.77 kW across 17:00-24:00, so
+    the achieved trajectory was outside the oracle's feasible set in
+    seven consecutive hours on top of being outside it on SoC.
+
+    So the pin becomes a band, `[pin, max(pin, achieved)]` per period --
+    **the ceiling rises to meet an over-delivery, and the floor never
+    moves.** The 2026-08-20 finding the pin exists for survives
+    untouched: the oracle still cannot chase a fictional market up to
+    `export_limit_kw`, only as far as the day itself demonstrably went.
+
+    **The one-sidedness is deliberate, and it is a real limit on what
+    this fixes.** Containing the achieved trajectory in BOTH directions
+    would mean dropping the floor to meet an UNDER-delivery too, and
+    that was tried and reverted: `test_oracle_export_never_exceeds_the_
+    real_fixed_rate_during_the_p2p_window` caught it immediately. A
+    household that committed 11.5 kW and delivered nothing would then be
+    scored against an oracle free to deliver nothing either, and the
+    missed commitment -- a real, expensive failure -- would price out as
+    no regret at all. A commitment is an obligation, not a decision the
+    oracle gets to re-make, so the floor stays where the contract put it.
+
+    The honest consequence, stated rather than glossed: an under-
+    delivering day still leaves the achieved trajectory outside the
+    oracle's feasible set, so `regret >= 0` is not proven by
+    construction for it. It has never been observed to go negative from
+    that direction -- under-delivery makes achieved WORSE, not better --
+    but "not observed" is weaker than "cannot happen", and the #956
+    reliability flag remains the backstop that says so if it ever does.
+
+    A day that delivers its commitment exactly -- every well-behaved day
+    -- produces `lo == hi == pin` and is byte-identical to before this
+    existed, as is any install with no P2P commitment configured at all.
+    """
+    if grid.fixed_export_kw is None:
+        return grid
+
+    # The same reconstruction regret.py's own evaluator uses for J_ach,
+    # so "what the day exported" means the same thing on both sides of
+    # the comparison rather than two nearly-identical definitions.
+    # Annotated loosely on purpose: numpy widens float64 to floating[Any]
+    # across an accumulating `+`, the same long-standing friction this
+    # module already documents for `zero` below.
+    total_charge_kw: NDArray[np.floating[Any]] = np.zeros(len(hours))
+    total_discharge_kw: NDArray[np.floating[Any]] = np.zeros(len(hours))
+    for c, d in zip(actual_charge_kw, actual_discharge_kw, strict=True):
+        total_charge_kw = total_charge_kw + c
+        total_discharge_kw = total_discharge_kw + d
+    net_needed = load_kw + total_charge_kw - total_discharge_kw - solar_kw
+    achieved_export_kw = np.maximum(0.0, -net_needed)
+
+    pin = np.asarray(grid.fixed_export_kw, dtype=np.float64)
+    pinned = ~np.isnan(pin)
+    if not pinned.any():
+        return grid
+
+    # A band is only ever created where a pin exists; everywhere else
+    # stays NaN, which grid_export_bounds() reads as "no band".
+    export_limit_arr = np.broadcast_to(
+        np.asarray(grid.export_limit_kw, dtype=np.float64), pin.shape
+    )
+    hi = np.full_like(pin, np.nan)
+    # The physical/contracted export limit still wins over a
+    # reconstruction: a measured export above it is sensor or unit
+    # trouble, not a rate the oracle should be asked to match. And the
+    # floor is the commitment itself, never the reconstruction -- see
+    # the one-sidedness note above.
+    hi[pinned] = np.minimum(
+        np.maximum(pin[pinned], achieved_export_kw[pinned]), export_limit_arr[pinned]
+    )
+    # A pin sitting above its own export limit is already rejected by
+    # GridConfig, but the clamp above could still land hi below pin on a
+    # float hair; the band must never invert.
+    hi[pinned] = np.maximum(hi[pinned], pin[pinned])
+    return replace(grid, fixed_export_max_kw=hi)
+
+
 def compute_quality_report(
     *,
     periods: PeriodGrid,
@@ -289,6 +463,23 @@ def compute_quality_report(
             b, salvage_value=0.0, headroom_value=0.0, terminal_value_breakpoints=None
         )
         for b in batteries
+    ]
+
+    # nimbus issue #956 (household decision 2026-09-16, "go with B"): the
+    # ORACLE alone is re-bounded so the achieved trajectory lies inside
+    # its feasible set. Deliberately a separate list rather than folding
+    # this into `battery_scoring` above: J_ref and J_ach price an
+    # already-fixed trajectory and must be provably untouched by this
+    # change, which a shared list would leave resting on the evaluator's
+    # current internals instead of on construction.
+    battery_oracle = [
+        replace(b, min_soc_kwh=floor, max_soc_kwh=ceiling)
+        for b, floor, ceiling in (
+            (b, *_soc_envelope_containing_achieved(b, c, d, hours))
+            for b, c, d in zip(
+                battery_scoring, actual_charge_kw, actual_discharge_kw, strict=True
+            )
+        )
     ]
 
     # J_ref (idle -- no battery does anything): mathematically
@@ -370,10 +561,22 @@ def compute_quality_report(
     oracle_soft_soc_penalty_per_kwh = (
         0.0 if any(b.initial_soc_kwh < b.min_soc_kwh for b in battery_scoring) else None
     )
+    # nimbus issue #956, the second half of the same asymmetry: a P2P
+    # commitment pins the oracle's export to EXACTLY the committed rate,
+    # and a real day does not deliver to the watt. See
+    # `_export_band_containing_achieved()` for the full reasoning.
+    grid_oracle_scored = _widen_export_pin_to_achieved(
+        grid_oracle,
+        hours=hours,
+        load_kw=load.forecast_kw,
+        solar_kw=solar.forecast_kw,
+        actual_charge_kw=actual_charge_kw,
+        actual_discharge_kw=actual_discharge_kw,
+    )
     oracle_plan = build_plan(
         periods=periods,
-        grid=grid_oracle,
-        batteries=battery_scoring,
+        grid=grid_oracle_scored,
+        batteries=battery_oracle,
         solar=solar,
         loads=[load],
         soft_soc_penalty_per_kwh=oracle_soft_soc_penalty_per_kwh,
