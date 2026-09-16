@@ -102,7 +102,7 @@ constraints already were.
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 import numpy as np
 from numpy.typing import NDArray
@@ -177,6 +177,86 @@ def has_export_bonus(grid: GridConfig) -> bool:
     return (
         grid.export_bonus_price is not None and grid.export_bonus_volume_kwh is not None
     )
+
+
+def realized_export_bonus_credit(
+    *,
+    grid_export_kw: NDArray[np.float64],
+    hours: NDArray[np.float64],
+    grid: GridConfig,
+    period_starts: list[datetime] | None,
+) -> float:
+    """What a GIVEN export profile would earn from the two-tier bonus, in
+    dollars -- the retrospective counterpart to the LP mechanism above.
+
+    nimbus issue #1015. The LP *chooses* which periods to claim each
+    day's capped bonus volume in; a retrospective evaluator has the
+    export profile handed to it and only has to account for it. Both
+    must answer the same question the same way, or a counterfactual
+    scored here is not comparable to one the LP produced.
+
+    **Allocation rule, and why it matches.** Within each real calendar
+    day, the capped volume goes to that day's highest-premium periods
+    first, up to each period's own actual export. That is exactly what
+    the revenue-maximising LP does -- claiming bonus volume is strictly
+    free money wherever `export_bonus_price[t] > 0`, so it fills the
+    most valuable eligible periods first -- and it is also how real
+    nightly settlement behaves, since the premium applies to the day's
+    eligible volume rather than to particular periods. Ties break toward
+    the LATER period, mirroring network.py's own latest-preferred
+    tie-break rather than inventing a second convention.
+
+    **Per calendar day, not per horizon** -- the same distinction
+    `add_export_bonus_cumulative_caps()` exists to enforce, and for the
+    same reason: one whole-horizon cap lets a multi-day window spend its
+    entire allocation on the first night and behave as exhausted
+    thereafter, which is not how a nightly-resetting program works.
+    Falls back to one global allocation when `period_starts` is None,
+    matching that function's own honest fallback.
+
+    Returns 0.0 when the bonus is not configured, so callers need not
+    branch. Never negative: periods with a non-positive premium are
+    skipped rather than allowed to subtract revenue.
+    """
+    if not has_export_bonus(grid):
+        return 0.0
+    # mypy issue #384: has_export_bonus() already established both are
+    # non-None -- same assert convention as the functions above.
+    assert grid.export_bonus_price is not None
+    assert grid.export_bonus_volume_kwh is not None
+
+    price = np.asarray(grid.export_bonus_price, dtype=np.float64)
+    cap_kwh = float(grid.export_bonus_volume_kwh)
+    n = len(hours)
+    if cap_kwh <= 0.0 or n == 0:
+        return 0.0
+
+    if period_starts is None:
+        groups: list[list[int]] = [list(range(n))]
+    else:
+        by_day: dict[date, list[int]] = {}
+        for t in range(n):
+            by_day.setdefault(period_starts[t].date(), []).append(t)
+        groups = list(by_day.values())
+
+    total = 0.0
+    for day_indices in groups:
+        remaining_kwh = cap_kwh
+        for t in sorted(day_indices, key=lambda i: (-float(price[i]), -i)):
+            if remaining_kwh <= 0.0:
+                break
+            premium = float(price[t])
+            if premium <= 0.0:
+                # Sorted descending, so everything after this is also
+                # non-positive -- nothing left worth claiming today.
+                break
+            exported_kwh = float(grid_export_kw[t]) * float(hours[t])
+            if exported_kwh <= 0.0:
+                continue
+            claimed_kwh = min(exported_kwh, remaining_kwh)
+            total += claimed_kwh * premium
+            remaining_kwh -= claimed_kwh
+    return total
 
 
 def add_export_bonus_variable(p: LPProblem, name: str, export_limit_kw: float) -> str:

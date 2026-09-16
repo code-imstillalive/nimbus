@@ -19,21 +19,38 @@ as one coherent object -- not a new metric, just the assembly.
 ## The two-tier export bonus mechanic and what it means for scoring
 (2026-08-17, real, found putting this module together)
 
-`evaluate_realized_cost_multi()` (regret.py) has no concept of
-GridConfig.export_bonus_price/export_bonus_volume_kwh at all -- it
-prices a trajectory's export at one flat `export_price_real` per
-period, full stop. That's fine for J_ref (fully idle -- zero export can
-never earn a bonus anyway, so scoring it against the base/spot rate
-alone is already exactly correct, with NO special-casing needed: unlike
-this project's earlier, pre-two-tier EPR analysis, which had to
-manually exclude J_ref from a flat P2P credit by hand, the two-tier
-mechanism's own `export_bonus[t] <= grid_export[t]` constraint makes
-this correct automatically). It is NOT fine for J_ach or J_star, both
-of which genuinely earn real P2P bonus revenue that a base-rate-only
-evaluation would silently omit.
+`evaluate_realized_cost_multi()` (regret.py) prices a trajectory's
+export at one flat `export_price_real` per period unless it is handed
+the bonus terms explicitly.
 
-Two different, deliberately DIFFERENT fixes, chosen for what's actually
-the MOST ACCURATE source available for each:
+**This block used to claim that was "already exactly correct" for J_ref,
+"fully idle -- zero export can never earn a bonus anyway". That premise
+was false, and it is what kept nimbus issue #1015 invisible.** J_ref
+holds the BATTERY idle; it does not hold the HOUSE idle. Its grid
+balance is still `load - solar`, so whenever solar surplus exceeds load
+J_ref exports exactly like any other trajectory -- and if that surplus
+lands inside a committed P2P window, the household would genuinely have
+earned the premium on it.
+
+The reference household hid this for a season: in September, solar has
+finished by ~18:00 and the committed window is 17:00-24:00, so J_ref
+imports through the whole window and there is no premium to credit.
+Longer days, a daytime P2P block, a larger array, or a low evening load
+all break that coincidence. Since J_ref sits in BOTH the numerator and
+the denominator of `EPR = (J_ref - J_ach) / (J_ref - J_star)`,
+understating it flatters the Solver -- the direction that costs trust
+rather than money.
+
+As of #1015, J_ref is given the same bonus terms J_star's own
+`build_plan()` reads, via `evaluate_realized_cost_multi(
+export_bonus_grid=...)`. The governing principle is **the two
+COUNTERFACTUALS share one model; the ACTUAL keeps its real money** --
+deliberately narrower than #1015's own first suggestion of pricing all
+three identically, which would have replaced J_ach's real settled
+dollars with a model of them.
+
+So the three trajectories, chosen for the MOST ACCURATE source
+available to each:
 - J_ach (the real, ALREADY-REALIZED trajectory): the real settled P2P
   dollars for that exact day are DIRECTLY KNOWN (this project's own
   sensor.lv_v2_p2p_confirmed_history, sibling 116KAT-HA-AI repo) --
@@ -48,6 +65,12 @@ the MOST ACCURATE source available for each:
   mechanism's own cost terms are FOR) -- so J_star is read directly
   from the oracle plan's own total_cost, not re-derived via
   evaluate_realized_cost() at all.
+- J_ref (battery idle, but the HOUSE still running): also hypothetical,
+  so it gets the same modelled treatment J_star does, applied to
+  whatever it actually exports --
+  `p2p_export.realized_export_bonus_credit()` allocates each real
+  calendar day's capped volume to that day's highest-premium periods,
+  which is what the revenue-maximising LP does with the same inputs.
 """
 
 from __future__ import annotations
@@ -574,6 +597,21 @@ def compute_quality_report(
         charge_committed_kw=zero_per_battery,
         discharge_committed_kw=zero_per_battery,
         final_soc_kwh=[b.initial_soc_kwh for b in battery_scoring],
+        # nimbus issue #1015: j_ref exports solar surplus like any other
+        # trajectory, and on a day where that surplus lands inside a
+        # committed P2P window the household would genuinely have earned
+        # the premium on it. Pricing it at plain spot understates the
+        # do-nothing baseline, which inflates BOTH sides of
+        # EPR = (j_ref - j_ach) / (j_ref - j_star) and flatters the
+        # Solver.
+        #
+        # `grid_oracle` is the right source: it is the same GridConfig
+        # the oracle's own build_plan() reads the bonus from, so the two
+        # counterfactuals are now priced by one model rather than two.
+        # j_ach deliberately keeps its real settled figure instead --
+        # see evaluate_realized_cost_multi()'s own docstring.
+        export_bonus_grid=grid_oracle,
+        period_starts=periods.period_starts,
     )
     j_ref = j_ref_result.total_cost
 
