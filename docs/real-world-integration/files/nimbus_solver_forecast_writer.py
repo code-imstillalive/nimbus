@@ -588,6 +588,40 @@ def resolve_max_discharge_kw(cfg: dict) -> float:
     return float(cfg["solver_max_discharge_kw"])
 
 
+_SOH_RANGE_WARNED: set[float] = set()
+
+
+def resolve_effective_capacity_kwh(cfg: dict) -> float:
+    """Nameplate battery capacity derated by configured State of Health.
+
+    nimbus issue #1013. Ported from the integration copy -- see
+    solver_writer.py's own version for the full reasoning, including why
+    this derates BOTH SoC rails rather than only the ceiling (a BMS
+    reports SoC as a percentage of the pack's current usable capacity,
+    not its original nameplate) and why State of Health deliberately
+    stays one static number rather than a live sensor read.
+
+    No-op by default: an install that has never set the dial gets its
+    nameplate back unchanged. A reading outside (0, 100] is ignored
+    rather than applied -- a nonsense value must not silently shrink a
+    real pack, nor inflate one past its nameplate.
+    """
+    nominal = _cfg_num(cfg, "solver_battery_capacity_kwh", 0.0)
+    soh_pct = _cfg_num(cfg, "solver_battery_soh_percent", 100.0)
+    if not 0.0 < soh_pct <= 100.0:
+        if soh_pct not in _SOH_RANGE_WARNED:
+            _SOH_RANGE_WARNED.add(soh_pct)
+            print(
+                f"WARNING: configured Battery State of Health is "
+                f"{soh_pct:.2f}%, outside the valid (0, 100] range -- "
+                f"ignoring it and planning against the full "
+                f"{nominal:.2f} kWh nameplate capacity for this solve.",
+                file=sys.stderr,
+            )
+        return nominal
+    return nominal * soh_pct / 100.0
+
+
 _MIN_SOC_FLOOR_FRACTION = 0.0005  # 0.05% of capacity -- see docstring below.
 
 
@@ -4728,7 +4762,9 @@ def main() -> None:
     # had to be hand-created via a separate, undocumented YAML package
     # file. A fresh install now needs nothing more than filling in
     # Nimbus's own hub "Configure" -> "Solver settings" form.
-    capacity_kwh = float(cfg["solver_battery_capacity_kwh"])
+    # nimbus issue #1013: SoH-derated -- see
+    # resolve_effective_capacity_kwh()'s own docstring above.
+    capacity_kwh = resolve_effective_capacity_kwh(cfg)
     min_pct = _cfg_num(cfg, "solver_battery_min_soc_percent", 5.0)
     max_pct = _cfg_num(cfg, "solver_battery_max_soc_percent", 100.0)
     # The config-flow's own solver_battery_soc_sensor field replaces the
