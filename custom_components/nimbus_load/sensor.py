@@ -64,6 +64,8 @@ from .const import (
     ATTR_TRAINING_SPAN_DAYS,
     ATTR_VALIDATION_MAE,
     ATTR_VALIDATION_MASE,
+    ATTR_VALIDATION_RECURSIVE_MAE,
+    ATTR_VALIDATION_RECURSIVE_MAE_BY_HORIZON,
     CONF_BATTERY_PARTICIPANT_CAPACITY_KWH,
     CONF_BATTERY_PARTICIPANT_NAME,
     CONF_BATTERY_PARTICIPANT_POWER_SENSOR,
@@ -1494,6 +1496,15 @@ class NimbusForecastSensor(CoordinatorEntity[NimbusCoordinator], SensorEntity):
             ATTR_TRAINING_POINTS: data.get("training_points", 0),
             ATTR_VALIDATION_MAE: data.get("validation_mae", {}),
             ATTR_VALIDATION_MASE: data.get("validation_mase", {}),
+            # nimbus issues #351 / #937 -- the metric that decides
+            # model_type, and the horizon curve that says whether it
+            # is measuring the right horizon. Both were computed and
+            # published nowhere until devhub's own deploy check
+            # found the second one missing.
+            ATTR_VALIDATION_RECURSIVE_MAE: data.get("validation_recursive_mae", {}),
+            ATTR_VALIDATION_RECURSIVE_MAE_BY_HORIZON: data.get(
+                "validation_recursive_mae_by_horizon", {}
+            ),
             ATTR_MASE_SCALE_POINTS: data.get("mase_scale_points", 0),
             ATTR_RESAMPLE_MINUTES: data.get("resample_minutes", 0),
             ATTR_TRAINING_SPAN_DAYS: data.get("training_span_days", 0.0),

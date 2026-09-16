@@ -699,6 +699,24 @@ ATTR_MODE: Final = "mode"
 # nothing to show yet" from a missing attribute key.
 ATTR_VALIDATION_MAE: Final = "validation_mae"
 ATTR_VALIDATION_MASE: Final = "validation_mase"
+# Nimbus issue #351 (Mark Purcell): the metric that actually DECIDES
+# model_type -- rolling-origin recursive multi-step MAE. It had been
+# computed and stored on TrainedModel since #351 and published nowhere,
+# so the one number explaining why a given install runs k-NN rather than
+# GBRT was unreadable from outside. Found while fixing #937's own
+# version of the same gap, below.
+ATTR_VALIDATION_RECURSIVE_MAE: Final = "validation_recursive_mae"
+# Nimbus issue #937: the same candidates scored at several recursive
+# horizons (4 h / 12 h / 24 h), so "does the winner change with horizon"
+# is readable rather than arguable. Diagnostic only -- selection still
+# uses ATTR_VALIDATION_RECURSIVE_MAE above.
+#
+# This attribute exists because devhub caught the first version of #937
+# shipping the value into coordinator.data and stopping there, never
+# reaching a published attribute -- the #1013 class exactly (wired into
+# one layer, invisible at the next), and a metric nobody can read back
+# is not a metric.
+ATTR_VALIDATION_RECURSIVE_MAE_BY_HORIZON: Final = "validation_recursive_mae_by_horizon"
 # Nimbus issue #113 (Mark Purcell, 2026-08-25): makes ATTR_VALIDATION_
 # MASE's own empty-dict-when-insufficient-data behaviour diagnosable
 # instead of a bare {} -- how many real week-over-week points were
