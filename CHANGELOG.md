@@ -8,6 +8,21 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.361] - 2026-09-17
+
+### Fixed
+- **`nimbus_load.set_controllable_load` merges instead of wiping the load** ([#1042](https://github.com/code-imstillalive/nimbus/issues/1042)). The service passed the caller's payload straight through as the subentry's **entire** data, so changing one field silently deleted every field the caller did not repeat — power, target, window hours, device entity, done condition. A deferrable load left with no target and no window has nothing to schedule and nothing to dispatch to, and nothing errors.
+
+  **Demonstrated on a real install rather than theorised.** Setting only `deferrable_min_deferral_saving_dollars` on an existing hot water load returned `created: false` and persisted five keys, two of which were the schema's own defaults being re-applied rather than the household's values; reading that subentry's reconfigure schema afterwards showed `deferrable_max_power_kw`, `deferrable_target_kwh`, both window hours and `controllable_load_device_entity` all back to no default, i.e. unset.
+
+  Replace is correct for the **wizard**, which is where this schema comes from — that form always renders every field pre-filled, so a submit genuinely carries the complete config. A service call does not: its whole value is being scriptable from an automation or an MCP tool, and those pass the one or two fields they mean to change. Same silently-destructive shape this project already documents for the hub options form; second instance, different surface.
+
+  Merging removes the *accidental* way to unset a field, so an explicit `None` now clears one **deliberately** — nothing becomes unreachable, it just has to be asked for. The returned `data` is the merged result, so "the exact data now persisted" stays true rather than quietly meaning "what you sent".
+
+  3 new tests, all confirmed to fail against the parent commit. The fake subentry fixture gained a real `data` dict defaulting to empty, so every pre-existing test in that file asserts exactly what it asserted before.
+
+  Devhub validation: **the defect was found there**, by verifying [#769](https://github.com/code-imstillalive/nimbus/issues/769)'s new field end-to-end on a real install — that field works (it appears in the live reconfigure schema with the right selector and `$` unit, and the value persisted), and the wipe was the side effect, on a test load, restored immediately. The fix itself is verified by CI and the mutation check.
+
 ## [0.94.360] - 2026-09-17
 
 ### Added
