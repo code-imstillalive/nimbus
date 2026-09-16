@@ -8,6 +8,19 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.364] - 2026-09-17
+
+### Changed
+- **Release-validation directive sharpened with two rules a 14-release run showed were missing** ([#594](https://github.com/code-imstillalive/nimbus/issues/594), Mark Purcell). Docs only; no shipped code.
+
+  Of the v0.94.350-363 run, **5 of 14 releases claimed a devhub validation and 9 could not** — each stating why in its own entry. The practice's main effect over that stretch was not catching bugs; it was stopping nine releases from claiming a verification they had not earned, so "Devhub validation: not claimed, because X" is now written as a first-class answer with those reasons as worked examples.
+
+  **New step 8: a marker check confirms the code ARRIVED, not that the FEATURE works.** Every prior rule established that the new code is the code running — version strings, log line numbers, `solve_diagnostics` key counts — all necessary, none sufficient. [#1042](https://github.com/code-imstillalive/nimbus/issues/1042) and [#1045](https://github.com/code-imstillalive/nimbus/issues/1045) were invisible to every one of them and immediately visible on one realistic call, so: exercise a callable surface the way a household would, with a realistic **partial** input, and read back what was **persisted** rather than what was returned. The "partial" is load-bearing — a complete payload would have hidden both, since each only damages what you omit.
+
+  **Sharpened: staleness is per-FILE and the split MOVES.** The directive said a devhub verification only tests the file your change lives in; that understates it. An install can be simultaneously current and ~20 releases stale — measured at one moment, `solver_writer.py` at `nimbus_version 0.94.342` with 7 `solve_diagnostics` keys against current code's 10, while `ml/model.py`/`coordinator.py`/`sensor.py` were genuinely current, and the previously recorded instance had it the other way around. Identify which file your change lives in, then find a marker in **that** file. The corollary is useful rather than only depressing: a forecaster change can be verified there today via `nimbus_load.retrain`, while a dispatch change cannot.
+
+  Devhub validation: **not applicable** — docs only, nothing shipped for an install to exercise.
+
 ## [0.94.363] - 2026-09-17
 
 ### Changed
