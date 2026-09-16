@@ -134,12 +134,40 @@ class TestOracleRespectsFixedP2PExportRate(unittest.TestCase):
         self,
     ):
         """The exact real incident: a household with an 11.5kW, 17:00-
-        24:00 committed P2P block. Before this fix, the oracle's own
-        j_star_hourly reconstruction could show battery_kw (and
-        therefore grid export) far beyond 11.5kW during that window --
-        confirmed live, up to 40kW. After this fix, grid_kw during every
-        hour inside the committed block must sit at exactly the fixed
-        rate (export, i.e. grid_kw negative, magnitude == rate)."""
+        24:00 committed P2P block. Before the 2026-09-01 fix, the
+        oracle's own j_star_hourly reconstruction could show battery_kw
+        (and therefore grid export) far beyond 11.5kW during that window
+        -- confirmed live, up to 40kW.
+
+        **Assertion loosened from equality to the upper bound this
+        test's own name states, 2026-09-16 (nimbus issue #1001).** The
+        finding this guards is that the oracle must not model a
+        FICTIONAL MARKET it could dump 40kW into. That is a ceiling, and
+        the name says so: "never exceeds the real fixed rate". The body
+        asserted `== exactly -11.5`, which is strictly stronger, and
+        that extra strength turned out to be load-bearing in the wrong
+        direction.
+
+        Holding the oracle to a commitment the day did NOT deliver makes
+        the achieved trajectory infeasible for the oracle, and then
+        achieved can price out cheaper than perfect foresight. Measured
+        on a real install: regret **-$4.95** with `j_star` **$2.43 worse
+        than doing nothing at all**, because the oracle was compelled to
+        sell at 7.5c/kWh while buying at 37c/kWh to cover it, and the
+        household had simply not made that trade. EPR is not a ratio and
+        regret is not a bound once that happens.
+
+        So the oracle's export is now banded `[delivered, committed]` on
+        an under-delivering hour and `[committed, delivered]` on an
+        over-delivering one -- never wider than the day's own deviation,
+        and never up to `export_limit_kw`. **The ceiling this test exists
+        to defend is untouched**, and that is what is asserted below.
+
+        The missed commitment is not lost by this: it moved from being
+        implicit -- inferable only by noticing regret had gone impossible
+        -- to explicit, as `p2p_commitment_shortfall_kwh` on the report,
+        which `test_p2p_commitment_shortfall_is_reported` covers. That is
+        strictly more visible than the infeasible oracle ever was."""
         cfg = _cfg(
             solver_p2p_block_1_rate_kw=11.5,
             solver_p2p_block_1_start_hour=17,
@@ -150,15 +178,18 @@ class TestOracleRespectsFixedP2PExportRate(unittest.TestCase):
         for hour in range(17, 24):
             key = (DAY_START + timedelta(hours=hour)).isoformat()
             row = report["j_star_hourly"][key]
-            self.assertAlmostEqual(
+            # grid_kw is NET and negative for export, so "never exceeds
+            # 11.5 kW of export" is `grid_kw >= -11.5`. The tolerance
+            # matches the `places=1` the equality assertion used.
+            self.assertGreaterEqual(
                 row["grid_kw"],
-                -11.5,
-                places=1,
+                -11.5 - 0.05,
                 msg=(
                     f"hour {hour}: oracle's own real grid export was "
-                    f"{row['grid_kw']}kW, expected exactly the real "
-                    f"committed -11.5kW -- fixed_export_kw was not "
-                    f"applied to the oracle's LP re-solve"
+                    f"{row['grid_kw']}kW, beyond the real committed "
+                    f"11.5kW -- the oracle is modelling a fictional "
+                    f"market again (the 2026-09-01 finding), or "
+                    f"fixed_export_kw was not applied to its LP re-solve"
                 ),
             )
 
