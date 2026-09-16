@@ -1235,6 +1235,66 @@ def _ensure_optimal_value(
     return float(h.getObjectiveValue())
 
 
+@contextlib.contextmanager
+def _lp_tolerance_matching_mip(h: highspy.Highs):
+    """Run a post-pin LP under the tolerance its own solution was
+    ACCEPTED under (nimbus issue #773).
+
+    HiGHS's defaults are not the same on both sides:
+
+        mip_feasibility_tolerance      1e-06
+        primal_feasibility_tolerance   1e-07
+
+    So a branch-and-bound incumbent is accepted while satisfying the
+    rows to 1e-6, and the pinned re-solve -- a pure LP -- then demands
+    1e-7, ten times tighter. An incumbent sitting anywhere in that band
+    is simultaneously feasible for the MIP that produced it and
+    infeasible for the LP asked to reproduce it.
+
+    That is the `phase2_pin_resolve failed to reach optimal
+    (status='Infeasible')` this project has been chasing, and it
+    explains every observation: the binaries really are integral (the
+    integrality diagnostic in _pin_binaries_to_current_solution() has
+    never once fired on a failing cycle, so the worst gap is under
+    1e-6); pinning changes only COLUMN bounds, so no row bound moves and
+    the incumbent's own row activities are untouched; and the failure is
+    intermittent because it needs the incumbent to land in the 1e-7..1e-6
+    band rather than below it.
+
+    Deliberately scoped to this one call rather than set globally: the
+    tighter default is the right one for a genuine LP solve, and is what
+    every other phase should keep. This is the single place asking an LP
+    to re-certify a point a MIP already accepted, which is exactly where
+    the looser tolerance is the honest one.
+
+    Restores the previous value on the way out, including on failure --
+    a diagnostic-shaped widening must not leak into the phases after it.
+    """
+    previous: float | None = None
+    try:
+        # getOptionValue returns (status, value) and the value type is a
+        # union across every option kind (presolve is a str, for
+        # instance), so both are coerced explicitly rather than compared
+        # as whatever came back.
+        _status, raw_lp = h.getOptionValue("primal_feasibility_tolerance")
+        _status, raw_mip = h.getOptionValue("mip_feasibility_tolerance")
+        lp_tol = float(raw_lp)  # type: ignore[arg-type]
+        mip_tol = float(raw_mip)  # type: ignore[arg-type]
+        if mip_tol > lp_tol:
+            h.setOptionValue("primal_feasibility_tolerance", mip_tol)
+            previous = lp_tol
+    except Exception:  # noqa: BLE001 - never let a tolerance read kill a solve
+        previous = None
+    try:
+        yield
+    finally:
+        if previous is not None:
+            try:
+                h.setOptionValue("primal_feasibility_tolerance", float(previous))
+            except Exception:  # noqa: BLE001, S110 - restore is best-effort
+                pass
+
+
 def _pin_binaries_to_current_solution(
     h: highspy.Highs, var_array: list[Any], binary_cols: list[int]
 ) -> None:
@@ -1586,9 +1646,12 @@ def _solve_with_options(
         # reproduces the identical solution; the point is a clean solve
         # record, not a different answer.
         _set_cost_vector(h, col_indices, secondary_vec)
-        _ensure_optimal_value(
-            h, phase="phase2_pin_resolve", problem=problem, binary_cols=binary_cols
-        )
+        # nimbus issue #773: under the tolerance the pinned solution was
+        # actually accepted under -- see _lp_tolerance_matching_mip().
+        with _lp_tolerance_matching_mip(h):
+            _ensure_optimal_value(
+                h, phase="phase2_pin_resolve", problem=problem, binary_cols=binary_cols
+            )
 
     if isinstance(options, LexOptions):
         # Phase 3: re-minimize primary with a tiny relative epsilon
