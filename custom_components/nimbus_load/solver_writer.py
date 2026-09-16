@@ -5135,6 +5135,52 @@ def release_lock() -> None:
 QUALITY_ENTITY_ID = "sensor.nimbus_solver_quality_report"
 
 
+# nimbus issue #984: how much of a full-day window the recorder must
+# actually have returned before that day may be scored.
+#
+# 0.9 rather than 1.0 on purpose. Real installs drop samples -- a sensor
+# goes unavailable for a few minutes, an integration reloads -- and a
+# day with a 20-minute gap is still a perfectly honest day to score.
+# What this has to catch is the qualitatively different case: a window
+# that came back half-empty because the recorder was mid-purge, which
+# produced figures roughly HALF the real ones on a live install.
+_MIN_DAILY_COVERAGE_FRACTION = 0.9
+
+
+def _history_coverage_hours(
+    histories: tuple[list[tuple[datetime, float]], ...],
+    start: datetime,
+    end: datetime,
+) -> float:
+    """Hours of `[start, end)` actually spanned by the WORST-covered of
+    `histories` (nimbus issue #984).
+
+    Measured first-sample-to-last-sample, clipped to the window, and
+    minimised across the series -- the report is only as trustworthy as
+    its thinnest input, so one truncated sensor has to fail the whole
+    day rather than be averaged away by two healthy ones.
+
+    Deliberately a span rather than a sample count: sample rates differ
+    per sensor and per install, so "how many rows" has no fixed
+    expectation to compare against, while "how much of the day do these
+    rows reach across" does. The trade-off is that an interior gap does
+    not reduce the span -- accepted, because the failure this exists to
+    catch is a TRUNCATED window (the recorder returning only the tail of
+    the day), not a perforated one.
+
+    Returns 0.0 for an empty series, which fails any threshold.
+    """
+    worst: float | None = None
+    for hist in histories:
+        if not hist:
+            return 0.0
+        first = max(hist[0][0], start)
+        last = min(hist[-1][0], end)
+        span = max(0.0, (last - first).total_seconds() / 3600.0)
+        worst = span if worst is None else min(worst, span)
+    return 0.0 if worst is None else worst
+
+
 def fetch_entity_history_range(
     entity_id: str, start: datetime, end: datetime
 ) -> list[tuple[datetime, float]]:
@@ -6352,6 +6398,49 @@ def _compute_report_for_window(
             len(battery_hist),
         )
         return None
+
+    # nimbus issue #984: a NON-EMPTY history is not a COVERING one, and
+    # until now the emptiness check above was the only gate.
+    #
+    # Observed on a real install, every morning at ~06:02 for at least
+    # three consecutive days: the daily rescore published j_ref 2.34 /
+    # j_ach -0.57 / j_star -9.91 (regret +9.34, EPR 23.77%), then ~5
+    # minutes later the same day settled to j_ref 4.79 / j_ach -15.90 /
+    # j_star -15.17 (regret -0.73, EPR 103.66%). Every figure in the
+    # first set is a fraction of the second: a PARTIAL window scored as
+    # if it were a full day.
+    #
+    # `window_hours` above cannot catch it -- it measures the window
+    # REQUESTED (always exactly 24 h here), never what the recorder
+    # actually returned. One row per sensor satisfied the emptiness
+    # check and the report went out as a valid daily score.
+    #
+    # The cost is not a dashboard blip: the wrong value is WRITTEN TO
+    # HISTORY and to long-term statistics, so any chart aggregating a day
+    # by max/first/last keeps picking it up afterwards. A household
+    # reading "regret $9.34" on three consecutive days was reading this,
+    # not their dispatch.
+    #
+    # Refusing returns None, which the caller already treats as "leave
+    # the sensor alone, retry next cycle" -- and that retry is what
+    # produced the correct score at 06:07 on its own.
+    if not allow_partial:
+        covered = _history_coverage_hours(
+            (solar_hist, load_hist, battery_hist), day_start, day_end
+        )
+        if covered < window_hours * _MIN_DAILY_COVERAGE_FRACTION:
+            _LOGGER.info(
+                "Nimbus quality: skip. Real history covers only %.2f h of the "
+                "%.2f h window (worst of solar/load/battery), under the %.0f%% "
+                "a full-day score requires -- almost always the recorder still "
+                "catching up or mid-purge. Retrying next cycle rather than "
+                "publishing a partial window as a full-day score (nimbus "
+                "issue #984).",
+                covered,
+                window_hours,
+                _MIN_DAILY_COVERAGE_FRACTION * 100.0,
+            )
+            return None
 
     import_price_hist = fetch_entity_history_range(
         cfg["solver_import_price_sensor"], day_start, day_end

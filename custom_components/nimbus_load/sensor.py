@@ -40,6 +40,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.loader import async_get_integration
 
@@ -3090,7 +3091,7 @@ class NimbusSolverPriceResponseLatencySensor(SensorEntity):
             self.async_write_ha_state()
 
 
-class _NimbusSolverPushSensor(SensorEntity):
+class _NimbusSolverPushSensor(SensorEntity, RestoreEntity):
     """Shared base for the hub-level Solver-output sensors migrated in
     issue #55.
 
@@ -3263,6 +3264,24 @@ class _NimbusSolverPushSensor(SensorEntity):
     # a truly stopped Solver well within a user-relevant window.
     _STALE_AFTER_SECONDS = 5 * 60
 
+    # nimbus issue #983: whether this sensor's last value should survive
+    # a Home Assistant restart.
+    #
+    # OFF by default, deliberately. The solver push sensors are rewritten
+    # every ~30s cycle, so a blank one after a restart self-heals within
+    # seconds -- and restoring them would actively hurt: a value that
+    # outlives the solver is exactly what _STALE_AFTER_SECONDS exists to
+    # expose, and pre-filling one at startup would hide a solver that
+    # never came back.
+    #
+    # ON for the DAILY sensors. Their value is computed once per scored
+    # day, so a restart blanks them until the next daily run -- up to 24
+    # hours of "unknown" for a figure that was perfectly valid a moment
+    # earlier, reported from a real install as vanishing "way too much".
+    # Restoring is honest there because the value is a property of
+    # YESTERDAY, not of the last few seconds.
+    _RESTORE_ACROSS_RESTART = False
+
     @property
     def available(self) -> bool:
         """True before the first solve (a plain, honest "unknown" state
@@ -3366,6 +3385,51 @@ class _NimbusSolverPushSensor(SensorEntity):
         if self.hass is not None:
             self.async_write_ha_state()
 
+    async def _async_restore_last_value(self) -> None:
+        """Re-adopt the last state this entity published before the
+        restart (nimbus issue #983).
+
+        Restores the numeric value AND the attributes, because for these
+        sensors the attributes carry the report itself -- an EPR with no
+        `latest_date` or `regret_dollars` beside it is not much use to a
+        dashboard that was showing all three a moment earlier.
+
+        HA-managed keys are dropped rather than restored: unit,
+        device/state class and friendly name come from the entity's own
+        class definition, and restoring a stale copy of them is how a
+        renamed or re-united sensor ends up advertising last week's
+        metadata. `nimbus_version` is dropped for the same reason -- it
+        describes the running install, not the stored value, and #972
+        exists precisely so it can be trusted.
+
+        Never raises: a failed restore leaves the sensor exactly as it
+        would have been without this method, which is the pre-#983
+        behaviour rather than a new failure mode.
+        """
+        try:
+            last = await self.async_get_last_state()
+        except Exception:  # noqa: BLE001 - a restore must never block setup
+            return
+        if last is None or last.state in (None, "", "unknown", "unavailable"):
+            return
+        try:
+            self._state = float(last.state)
+        except (TypeError, ValueError):
+            return
+        self._attrs = {
+            k: v
+            for k, v in last.attributes.items()
+            if k
+            not in (
+                "unit_of_measurement",
+                "device_class",
+                "state_class",
+                "friendly_name",
+                "icon",
+                "nimbus_version",
+            )
+        }
+
     async def async_added_to_hass(self) -> None:
         """Real, easy-to-miss correctness point behind the staleness
         check above: HA's state machine is a cache -- `available`'s
@@ -3404,6 +3468,23 @@ class _NimbusSolverPushSensor(SensorEntity):
             self.entity_id,
         )
         await super().async_added_to_hass()
+        # nimbus issue #983: bring back the last published value for the
+        # daily sensors, before anything else runs.
+        #
+        # Reported from a real install as these "vanishing way too
+        # much". The cause is that a restart leaves _state None until the
+        # next push -- fine for the ~30s solver sensors, but the daily
+        # ones only recompute once per scored day, so a restart can blank
+        # a perfectly valid figure for up to 24 hours.
+        #
+        # _last_updated is deliberately NOT set here. A restored value is
+        # genuinely old, and stamping it as fresh would let it satisfy
+        # the _STALE_AFTER_SECONDS check it has not earned -- hiding a
+        # solver that never came back, which is the exact failure that
+        # check exists to expose. `available` treats a None stamp as
+        # "no push yet, show what we have", which is the honest reading.
+        if self._RESTORE_ACROSS_RESTART and self._state is None:
+            await self._async_restore_last_value()
         self.async_on_remove(
             async_track_time_interval(
                 self.hass,
@@ -3775,6 +3856,9 @@ class NimbusSolverQualityReportSensor(_NimbusSolverPushSensor):
     reasoning as NimbusSolverBatteryForecastSensor above.
     """
 
+    # nimbus issue #983: computed once per scored day, so a restart
+    # would otherwise blank the daily EPR / regret scorecard for up to 24 hours.
+    _RESTORE_ACROSS_RESTART = True
     _UNIQUE_ID_SUFFIX = "nimbus_solver_quality_report"
     _attr_name = "Solver Quality Report"
     # EPR is a percentage, not one of HA's device-classed measurement types
@@ -3957,6 +4041,9 @@ class NimbusFlexReportSensor(_NimbusSolverPushSensor):
     solver_writer.py for the full reasoning behind every field.
     """
 
+    # nimbus issue #983: computed once per scored day, so a restart
+    # would otherwise blank the daily flex report for up to 24 hours.
+    _RESTORE_ACROSS_RESTART = True
     _UNIQUE_ID_SUFFIX = "nimbus_flex_report"
     _attr_name = "Flex Report"
     # price_response_curve is a small per-price-band JSON list (typically
@@ -4027,6 +4114,9 @@ class NimbusEfficiencyBacktestSensor(_NimbusSolverPushSensor):
     etc.).
     """
 
+    # nimbus issue #983: computed once per scored day, so a restart
+    # would otherwise blank the daily efficiency backtest for up to 24 hours.
+    _RESTORE_ACROSS_RESTART = True
     _UNIQUE_ID_SUFFIX = "nimbus_efficiency_backtest"
     _attr_name = "Efficiency Backtest"
     # Configured efficiency is a percentage -- no matching HA device_class.
@@ -4098,6 +4188,9 @@ class NimbusCounterfactualSocSensor(_NimbusSolverPushSensor):
     context, not a live user-facing signal.
     """
 
+    # nimbus issue #983: computed once per scored day, so a restart
+    # would otherwise blank the daily counterfactual SoC for up to 24 hours.
+    _RESTORE_ACROSS_RESTART = True
     _UNIQUE_ID_SUFFIX = "nimbus_counterfactual_soc"
     _attr_name = "Counterfactual SoC"
     _attr_device_class = SensorDeviceClass.BATTERY
