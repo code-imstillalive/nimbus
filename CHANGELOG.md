@@ -8,9 +8,32 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.344] - 2026-09-16
+
+### Changed
+- **The oracle can now do what the battery actually did, so regret is a bound again** ([#956](https://github.com/code-imstillalive/nimbus/issues/956)). **This changes published economics on every install: `j_star` gets lower, so EPR drops and regret rises. The previous numbers were flattering.**
+
+  A real install published **EPR 103.66% with regret -$0.7307** -- the achieved dispatch pricing out cheaper than perfect foresight, which the oracle's own construction is supposed to make impossible. A dashboard card on the same install later showed **117.8%**.
+
+  The two sides were not playing the same game. The oracle is an LP bound by the configured battery envelope and by the P2P export commitment; the achieved side is a reconstruction from measured power, bound by neither. Two asymmetries, both measured: the achieved SoC trajectory finished at **0.4429%** against a configured 2.0% floor (**1.90 kWh** the oracle was forbidden to sell and the reconstruction sold anyway), and achieved export ran **12.39-12.77 kW** through 17:00-24:00 against a commitment pinned at exactly **12.0 kW**.
+
+  The household chose **option B**: widen the ORACLE to what the system demonstrably did, rather than clamp the achieved integration to fit the oracle. Option A would have forced `regret >= 0` by editing what the battery actually did -- moving `j_ach`, the headline achieved-cost figure, on every install and every rescored day, and hiding the very signal the anomaly carries. Option B leaves `j_ach` untouched and fixes the **comparison**, which is what was broken. Once the achieved trajectory lies inside the oracle's feasible set, a cost-minimising oracle can always do at least as well as it, so `j_star <= j_ach` follows by construction rather than by hoping.
+
+  The oracle's SoC envelope is widened per battery, clamped to `0 < min <= max <= capacity` -- a trajectory reconstructed as leaving `[0, capacity]` is sensor nonsense rather than a state the oracle should be asked to match, and stays with the #956 reliability flag. Built as a separate battery list rather than folded into the existing scoring one, so `j_ref`/`j_ach` are provably untouched **by construction** instead of resting on the evaluator's current internals.
+
+  The P2P pin becomes a per-period band via a new optional `GridConfig.fixed_export_max_kw`. `None`, or `NaN` in a period, leaves that period's pin exactly as it has always been (`lb == ub`), so every existing caller and every test predating the field is byte-identical. `network.py` needed no change -- it already routes through the shared `p2p_export.grid_export_bounds()` helper.
+
+### Notes
+- **The band widens upward only, and a guard forced that.** Containing the achieved trajectory in *both* directions means dropping the floor to meet an under-delivery too. That was tried, and `test_oracle_export_never_exceeds_the_real_fixed_rate_during_the_p2p_window` -- the 2026-09-01 finding's own guard -- caught it immediately: a household that committed 11.5 kW and delivered nothing would then be scored against an oracle free to deliver nothing either, erasing the regret of a real, expensive missed commitment. A commitment is an obligation, not a decision the oracle re-makes.
+- **The honest consequence, recorded rather than glossed:** an under-delivering day still leaves achieved outside the feasible set, so `regret >= 0` is **not** proven by construction for it. It has never been observed to go negative from that direction -- under-delivery makes achieved worse, not better -- but "not observed" is weaker than "cannot happen", and the reliability flag stays the backstop.
+- **Both end-to-end fixtures were verified to FAIL against pre-fix behaviour** rather than pass vacuously -- the widening helpers were stubbed back to the configured bounds and the numbers recorded: sub-floor discharge **-$0.6727 / 154.89%**, P2P over-delivery **-$0.4424 / 101.08%**. The second lands within a few cents of the real reported -$0.7307 / 103.66% from the same shape, not by tuning toward it. `j_ach` is bit-identical on both sides of the fix in both fixtures.
+- `_achieved_feasibility_stats()` is **not** retired by this. `j_ach` is still deliberately priced against the CONFIGURED envelope, so `achieved_below_floor_kwh` and friends keep answering "how far outside its own limits did the battery run today". What changes is what a surviving `regret_reliable: False` now means: the one mechanism that file verified is gone, so a negative regret from here on is evidence of something else.
+- **A separate defect was found from a household dashboard screenshot while verifying this, and filed as [#994](https://github.com/code-imstillalive/nimbus/issues/994)** rather than folded in here: the Regret card is table-first, falling back to a live re-scoring when `sensor.nimbus_solver_quality_report`'s own `history` dict has no entry for the date. On that install `history` is **empty**, so every panel falls back permanently -- and the two paths disagree by **$5.72** on `j_star` for the same day. `j_ref` differs too ($4.43 vs $4.79), which is the diagnostic part: `j_ref` is the battery-idle baseline, so two scorers agreeing on their inputs would agree on it regardless of any scoring difference. They do not, so the two paths are not reading the same input history.
+
 ## [0.94.343] - 2026-09-16
 
 ### Changed
+- Devhub validation: deployed via HACS and restarted, `installed_version == available_version == v0.94.343`, `nimbus_load.solve_now` returned `status: optimal` with `total_cost` solved. Deliberately NOT claimed beyond that: the canonical-name sensor reads on that instance resolve to a `remote_homeassistant` mirror (#972), confirmed live again here by `unique_id` carrying the mirror prefix and `nimbus_version` reading one release behind what HACS had just installed -- so no sensor-attribute claim is made from them.
 - **Worklogged the afternoon and brought the CLAUDE.md index entry up to date.** Documentation only -- no runtime change.
 
   Nine releases (v0.94.334 -> v0.94.342) and several findings that would otherwise be lost, including three premises of this session's own that did not survive checking.
