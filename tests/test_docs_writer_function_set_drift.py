@@ -507,6 +507,20 @@ KNOWN_OPEN_DRIFT_DOCS_ONLY = frozenset(
 # ever land here.
 INTENTIONAL_EXTRACTED_FROM_MAIN = frozenset(
     {
+        # #735 stage 6 -- _publish_side_reports(), the six non-essential
+        # side-publishes main() makes after the real solve (weather
+        # mirrors, daily quality report, daily flex report,
+        # counterfactual SoC, efficiency backtest, solar delivery ratio).
+        # Still inline in the docs copy's own main(), so nothing is
+        # missing from either side.
+        #
+        # Measured at STATEMENT level before moving -- 5 inputs, 1
+        # output, 47 lines -- which is the cleanest seam taken so far
+        # (solar had 3 outputs; load 4 in / 12 out; the SoC envelope
+        # 5 in / 4 out). Found by scanning every consecutive-statement
+        # window in main() rather than by reading for one, after stage
+        # 4's own region measured as having no clean seam at all.
+        "_publish_side_reports",
         # #735 stage 1 -- solver_inputs/solar.py. The three fetchers were
         # nested closures inside main() before the move (and still are in
         # the docs copy); build_solar_arrays() is the extracted block

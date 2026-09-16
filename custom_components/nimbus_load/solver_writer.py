@@ -14042,6 +14042,110 @@ def apply_commanded_state_guard(
         )
 
 
+def _publish_side_reports(
+    cfg: dict,
+    cfg_unmoded: dict,
+    now: datetime,
+    grid_times: list[datetime],
+    solar_kw: list[float],
+) -> dict | None:
+    """Every non-essential publish `main()` makes after the real
+    solve, and the one value it hands back.
+
+    nimbus issue #735 stage 6. These six blocks share one contract,
+    stated identically in each of their own comments: **a failure
+    here must never take down the real solve.** That is why every one
+    of them is a `try` around a single call with a WARNING in the
+    `except` -- and why they were worth moving together rather than
+    one at a time.
+
+    Measured before moving, the same way stages 1-3 and 5 were, and
+    at STATEMENT level rather than by line span (the error stage 4's
+    own comments record twice): **5 inputs, 1 output, 47 lines.** For
+    comparison with the seams already extracted -- solar had 3
+    outputs, load 4 in / 12 out, the SoC envelope 5 in / 4 out -- this
+    is the cleanest seam taken so far, and it was found by scanning
+    every consecutive-statement window in `main()` rather than by
+    reading for one.
+
+    The `except Exception` in each block is deliberate and stays:
+    these are best-effort reports, and #363 already established that
+    the failure mode to avoid is the bare `pass` that hid a real bug
+    for days -- hence the WARNING, not a narrower catch.
+    """
+    solar_delivery: dict | None = None
+    try:
+        publish_weather_forecast_mirrors(cfg)
+    except Exception as e:  # noqa: BLE001 -- see comment above; must never break the real solve
+        # nimbus issue #363 (Mark Purcell, codebase review): same "bare
+        # pass hid a real, diagnosable bug for days" lesson as the four
+        # sibling publishes below -- now logged instead of silently
+        # swallowed.
+        _LOGGER.warning("Nimbus: weather forecast mirror publish failed: %s", e)
+
+    # Built-in EPR/regret/tracking quality score (2026-08-25) -- own
+    # cheap idempotency check means this is safe to call every cycle;
+    # wrapped the same way as every other non-essential publish in this
+    # file, since a failure here must never take down the real solve.
+    try:
+        publish_daily_quality_report(cfg_unmoded, now)
+    except Exception as e:  # noqa: BLE001 -- see comment above; must never break the real solve
+        # 2026-08-31: previously a bare `pass` -- made the entity-id-
+        # collision incident this file's own resolve_real_entity_id()
+        # fixes completely invisible in the log for days (confirmed live
+        # on devhub: 200+ recent log lines matching "nimbus", zero
+        # exceptions, zero tracebacks, because every failure here was
+        # silently swallowed). Logging costs nothing towards "must never
+        # break the real solve" -- it's still caught and ignored either
+        # way -- but now a future failure of this specific publish is
+        # actually diagnosable instead of only visible as a stale sensor.
+        _LOGGER.warning("Nimbus: daily quality report publish failed: %s", e)
+
+    # Same "never break the real solve" wrapping -- nimbus issue #496
+    # (Signals 7/7 of #489, the compute_daily_flex_report() half Mark
+    # Purcell authorized 2026-09-09, shipped separately from the sensor
+    # half already published above via publish_flex_signals()).
+    try:
+        publish_daily_flex_report(cfg_unmoded, now)
+    except Exception as e:  # noqa: BLE001 -- see comment above; must never break the real solve
+        _LOGGER.warning("Nimbus: daily flex report publish failed: %s", e)
+
+    # Same "never break the real solve" wrapping as the two publishes
+    # above -- see publish_nimbus_only_soc_counterfactual()'s own
+    # docstring (2026-08-25, "i want u to build that into devbox
+    # package").
+    try:
+        publish_nimbus_only_soc_counterfactual(cfg_unmoded, now)
+    except Exception as e:  # noqa: BLE001 -- see comment above; must never break the real solve
+        # 2026-08-31: see publish_daily_quality_report()'s own matching
+        # comment -- same "bare pass hid a real, diagnosable bug for
+        # days" lesson, now logged instead of silently swallowed.
+        _LOGGER.warning("Nimbus: counterfactual SoC publish failed: %s", e)
+
+    # Same "never break the real solve" wrapping -- see
+    # publish_efficiency_backtest_report()'s own docstring (2026-08-25,
+    # the "outstanding, unique" backtesting-engine ask).
+    try:
+        publish_efficiency_backtest_report(cfg_unmoded, now)
+    except Exception as e:  # noqa: BLE001 -- see comment above; must never break the real solve
+        # 2026-08-31: see publish_daily_quality_report()'s own matching
+        # comment -- same "bare pass hid a real, diagnosable bug for
+        # days" lesson, now logged instead of silently swallowed.
+        _LOGGER.warning("Nimbus: efficiency backtest publish failed: %s", e)
+
+    # Same "never break the real solve" wrapping -- see
+    # update_solar_delivery_ratio()'s own docstring (nimbus issue #128).
+    try:
+        solar_delivery = update_solar_delivery_ratio(cfg, now, grid_times, solar_kw)
+    except Exception as e:  # noqa: BLE001 -- see comment above; must never break the real solve
+        # nimbus issue #363 (Mark Purcell, codebase review): same "bare
+        # pass hid a real, diagnosable bug for days" lesson as the
+        # publishes above -- now logged instead of silently swallowed.
+        _LOGGER.warning("Nimbus: solar delivery ratio update failed: %s", e)
+        solar_delivery = None
+    return solar_delivery
+
+
 def main() -> None:
     # Fail fast, with a real, actionable message, if the Solver hasn't
     # been configured yet -- see fetch_solver_config()'s own docstring
@@ -14173,75 +14277,11 @@ def main() -> None:
     # referenced below, never feeds the LP. Wrapped exactly like
     # _notify_load_forecast_error_once() above: a failed weather-mirror
     # publish must never be allowed to break the actual solve.
-    try:
-        publish_weather_forecast_mirrors(cfg)
-    except Exception as e:  # noqa: BLE001 -- see comment above; must never break the real solve
-        # nimbus issue #363 (Mark Purcell, codebase review): same "bare
-        # pass hid a real, diagnosable bug for days" lesson as the four
-        # sibling publishes below -- now logged instead of silently
-        # swallowed.
-        _LOGGER.warning("Nimbus: weather forecast mirror publish failed: %s", e)
-
-    # Built-in EPR/regret/tracking quality score (2026-08-25) -- own
-    # cheap idempotency check means this is safe to call every cycle;
-    # wrapped the same way as every other non-essential publish in this
-    # file, since a failure here must never take down the real solve.
-    try:
-        publish_daily_quality_report(cfg_unmoded, now)
-    except Exception as e:  # noqa: BLE001 -- see comment above; must never break the real solve
-        # 2026-08-31: previously a bare `pass` -- made the entity-id-
-        # collision incident this file's own resolve_real_entity_id()
-        # fixes completely invisible in the log for days (confirmed live
-        # on devhub: 200+ recent log lines matching "nimbus", zero
-        # exceptions, zero tracebacks, because every failure here was
-        # silently swallowed). Logging costs nothing towards "must never
-        # break the real solve" -- it's still caught and ignored either
-        # way -- but now a future failure of this specific publish is
-        # actually diagnosable instead of only visible as a stale sensor.
-        _LOGGER.warning("Nimbus: daily quality report publish failed: %s", e)
-
-    # Same "never break the real solve" wrapping -- nimbus issue #496
-    # (Signals 7/7 of #489, the compute_daily_flex_report() half Mark
-    # Purcell authorized 2026-09-09, shipped separately from the sensor
-    # half already published above via publish_flex_signals()).
-    try:
-        publish_daily_flex_report(cfg_unmoded, now)
-    except Exception as e:  # noqa: BLE001 -- see comment above; must never break the real solve
-        _LOGGER.warning("Nimbus: daily flex report publish failed: %s", e)
-
-    # Same "never break the real solve" wrapping as the two publishes
-    # above -- see publish_nimbus_only_soc_counterfactual()'s own
-    # docstring (2026-08-25, "i want u to build that into devbox
-    # package").
-    try:
-        publish_nimbus_only_soc_counterfactual(cfg_unmoded, now)
-    except Exception as e:  # noqa: BLE001 -- see comment above; must never break the real solve
-        # 2026-08-31: see publish_daily_quality_report()'s own matching
-        # comment -- same "bare pass hid a real, diagnosable bug for
-        # days" lesson, now logged instead of silently swallowed.
-        _LOGGER.warning("Nimbus: counterfactual SoC publish failed: %s", e)
-
-    # Same "never break the real solve" wrapping -- see
-    # publish_efficiency_backtest_report()'s own docstring (2026-08-25,
-    # the "outstanding, unique" backtesting-engine ask).
-    try:
-        publish_efficiency_backtest_report(cfg_unmoded, now)
-    except Exception as e:  # noqa: BLE001 -- see comment above; must never break the real solve
-        # 2026-08-31: see publish_daily_quality_report()'s own matching
-        # comment -- same "bare pass hid a real, diagnosable bug for
-        # days" lesson, now logged instead of silently swallowed.
-        _LOGGER.warning("Nimbus: efficiency backtest publish failed: %s", e)
-
-    # Same "never break the real solve" wrapping -- see
-    # update_solar_delivery_ratio()'s own docstring (nimbus issue #128).
-    try:
-        solar_delivery = update_solar_delivery_ratio(cfg, now, grid_times, solar_kw)
-    except Exception as e:  # noqa: BLE001 -- see comment above; must never break the real solve
-        # nimbus issue #363 (Mark Purcell, codebase review): same "bare
-        # pass hid a real, diagnosable bug for days" lesson as the
-        # publishes above -- now logged instead of silently swallowed.
-        _LOGGER.warning("Nimbus: solar delivery ratio update failed: %s", e)
-        solar_delivery = None
+    # nimbus issue #735 stage 6: the six non-essential publishes that
+    # used to sit inline here. See _publish_side_reports() for the
+    # measured seam and the shared 'must never break the real solve'
+    # contract they all carry.
+    solar_delivery = _publish_side_reports(cfg, cfg_unmoded, now, grid_times, solar_kw)
 
     # Two paths, gated on whether a rich, forecast-array-shaped price
     # sensor is actually CONFIGURED (CONF_SOLVER_PRICE_FORECAST_ARRAY_
