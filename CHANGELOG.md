@@ -8,6 +8,21 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.337] - 2026-09-16
+
+### Changed
+- **Corrected a false justification comment in `sensor_flattened.py`, and pinned it** (found while gathering the evidence [#933](https://github.com/code-imstillalive/nimbus/issues/933) asks for).
+
+  The exclusion list said `failed_load_entities` / `load_forecast_warnings` / `load_forecast_source_*` were *"surfaced via NimbusHealthReportSensor instead"*. They are not, and are not in current code -- that sensor returns exactly `recent_errors`, `recent_warnings`, `never_trained`, `subentry_status`, `generated_at`, verified against the source and against a real install's own published key set.
+
+  The comment was load-bearing: it was the entire justification for the exclusion and it sends a reader looking for data that is not there. Same class as [#955](https://github.com/code-imstillalive/nimbus/issues/955) -- a reference that resolves to nothing reads as "this does not exist" rather than "it is elsewhere".
+
+  Replaced with the real reasons (two are list/dict-valued and a state must be scalar; `load_forecast_source_used` names every summed circuit and runs past HA's 255-character state limit) and with **where the data actually is**: all three are dual-published onto `sensor.nimbus_solver_battery_forecast`, whose `_unrecorded_attributes` excludes only `forecast` and `batteries` -- so unlike the household-load sensor these are kept in recorder history, which makes #933's "how often is `failed_load_entities` non-empty" a single history query rather than an open question.
+
+  A new test pins the health sensor's key set, so the correction is durable in both directions: adding one of the three there later fails, and points whoever adds it at the comment that should change with it.
+
+  Documentation and test only -- no behaviour change.
+
 ## [0.94.336] - 2026-09-16
 
 ### Added
@@ -28,6 +43,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   Reporting only -- no dispatch, no LP, no config. It does not touch the mirror, and it does not *fix* the entity_id collision, which is tolerated by choice on that install; it makes the collision legible from the reading.
 
 ### Notes
+- Devhub validation: deployed via HACS and restarted, `installed_version == available_version == v0.94.336`. **This release validated itself**: the local install's own push sensors now publish `nimbus_version = 0.94.336`, while the canonical `sensor.nimbus_solver_battery_forecast` / `sensor.nimbus_household_load_total_forecast` on that instance report `nimbus_version` ABSENT -- they are the mirror of a production install running v0.94.330, which predates the field. That is precisely the ambiguity #972 exists to remove, demonstrated on the first deploy after the fix. With the right sensor finally identified, [#956](https://github.com/code-imstillalive/nimbus/issues/956)'s guard was also confirmed on local data for the first time: `regret_reliable false`, `epr_reliable false`, `epr_reason oracle_beaten`, `achieved_within_lp_soc_bounds true`, `lp_soc_envelope_pct [2.0, 100.0]`. No new WARNING/ERROR; every ERROR in the log is the pre-existing, deliberately-tolerated duplicate-unique-id situation on that instance.
 - **This release corrects the "Devhub validation" lines on v0.94.332, v0.94.333 and v0.94.334.** Those cited `solve_diagnostics` key counts and `binding_constraint_now` read from `sensor.nimbus_solver_battery_forecast` -- which on that instance is the mirrored sensor, so those specific readings describe the *other* install, not the one the release was deployed to. What those lines reported from the HA **log** (the [#945](https://github.com/code-imstillalive/nimbus/issues/945) skip-WARNING behaviour, [#956](https://github.com/code-imstillalive/nimbus/issues/956)'s once-per-day regret WARNING) and from **service-call responses** (`compute_quality_report`) was genuinely local and stands. The distinction that matters: logs and service calls came from the deployed instance; those sensor state reads did not.
 - The first draft of #972's own test guarded its import with `skipTest`, so all five assertions silently skipped and proved nothing -- the same guard-that-cannot-fail shape found three separate times today ([#952](https://github.com/code-imstillalive/nimbus/issues/952), [#955](https://github.com/code-imstillalive/nimbus/issues/955), and the #594 changelog guard). Rewired onto the `_ha_stubs` harness so it runs against the real class.
 
