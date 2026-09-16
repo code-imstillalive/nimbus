@@ -8,6 +8,27 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.340] - 2026-09-16
+
+### Fixed
+- **The lex phase-2 tie bound no longer excludes the optimum it was derived from** ([#773](https://github.com/code-imstillalive/nimbus/issues/773)). A second root cause, in the same class as v0.94.339's but one phase earlier, and found live within minutes of the phase-breakdown instrumentation going in:
+
+  ```
+  phase breakdown (2 phases, 26.7s total) --
+    phase1_primary:    0.9s  iters= 1,906  nodes=1  gap=0.0  Optimal
+    phase2_secondary: 25.8s  iters=43,099  nodes=1  gap=inf  Infeasible
+  ```
+
+  Phase 2's feasible set is phase 1's intersected with `primary <= p*`, and **phase 1's own optimum satisfies that by construction** -- so phase 2 cannot be empty. Unless the bound excludes the very point it was derived from, which is what using the optimum verbatim does: `primary_value` is the objective value HiGHS *reports*, while the row activity HiGHS then recomputes from `primary_expr` sums ~12k float terms independently. The two agree only to rounding, and a recomputed activity landing above `primary_value` by more than the feasibility tolerance cuts the phase-1 point off. Classic lexicographic pitfall -- never use an exact optimum as a hard bound.
+
+  **The architecture's guarantee is untouched, and the tests now enforce that rather than leaving it to prose.** `_solve_with_options()` commits to secondary never overriding a real price signal *"not even by an epsilon"*. The slack is the solver's own primal feasibility tolerance made explicit -- on the order of **1e-7 dollars, a ten-millionth of a cent**. It cannot express a price. What it buys is that "equal primary cost" means equal to the precision the solver actually computes in, rather than to a bit pattern.
+
+  Four tests pin it as numerical: below 1e-5 at every realistic objective magnitude, at least HiGHS's own `primal_feasibility_tolerance` (or it would be decorative), **orders of magnitude tighter than the epsilon this file already applies on the SECONDARY side** in LexOptions phase 3, and dominated by its absolute term at household scale. A future edit that turns this into an economic concession fails there.
+
+### Notes
+- **Three distinct failures now sit under this issue's one title**, and separating them is most of the progress: a `phase2_secondary` **time-limit** (no incumbent, `mip_gap=inf`, never reaches the pin); a `phase2_pin_resolve` **MIP-vs-LP tolerance mismatch** (fixed in v0.94.339); and this `phase2_secondary` **report-vs-recompute drift**. The last two are the same underlying mistake -- an exact number used as a hard bound -- in two different places.
+- The remaining, unfixed one is the genuine difficulty: `phase2_secondary` costs **30-40x** what `phase1_primary` costs on the identical model (0.6 s / 2,101 iterations against 31.0 s / 66,872 on one cycle; 0.9 s / 2,422 against 33.0 s / 96,199 on the next). That comparison is exactly what the v0.94.338 breakdown was built to expose, and it did so on its first production output.
+
 ## [0.94.339] - 2026-09-16
 
 ### Fixed
@@ -24,6 +45,7 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   **Not cosmetic:** each failure trips the 300 s cooldown and drops that cycle to a plain single-objective solve, so the calibrated/lex tie-break guarantee is skipped for five minutes. On the affected install the failures were landing every 7-9 minutes -- the cooldown plus one retry -- meaning the lex path was failing on very nearly every attempt it made.
 
 ### Notes
+- Devhub validation: deployed via HACS and restarted, `installed_version == available_version == v0.94.339`, local push sensors reporting `nimbus_version = 0.94.339`. **The v0.94.338 phase breakdown is confirmed producing production output** -- the open item from that release's own note is closed, and its first lines immediately delivered the phase-1-versus-phase-2 comparison it was built for. `phase2_pin_resolve` has read `Optimal` since, but that is **not** claimed as proof this release worked: one of those cycles ran on v0.94.338 without the fix, and the failure has always been intermittent. No new WARNING/ERROR beyond the pre-existing, deliberately-tolerated duplicate-unique-id situation.
 - One test checks the premise against the **installed solver** rather than asserting it from documentation: if HiGHS ever changes these defaults so they agree, that test says the fix needs revisiting rather than silently becoming a no-op.
 - The two failure shapes under this issue's title are now clearly separable, which is worth stating since they have been sharing it: a `phase2_secondary` **time-limit** failure never reaches the pin at all (no incumbent, `mip_gap=inf`), while a `phase2_pin_resolve` failure means phase 2 *succeeded* and the pin then broke something. Only the second is addressed here.
 
