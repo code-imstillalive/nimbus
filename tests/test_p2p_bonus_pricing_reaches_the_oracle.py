@@ -29,11 +29,13 @@ This test pins the wiring itself -- not the status string
 (`test_p2p_settlement_status.py` already covers that, and continues to
 pass, because the bug is invisible to it) -- by spying on
 `elements.GridConfig` construction and asserting a real, non-trivial
-settlement day actually produces a bonus-priced oracle. It is
-`xfail(strict=True)` because the regression is real and currently
-unfixed on this branch; it should XPASS (and the marker should be
-removed) the moment the misplaced `if real_p2p_volume_kwh > 0.01:`
-block is moved back under `if day_data:`.
+settlement day actually produces a bonus-priced oracle.
+
+FIXED in v0.94.366: the misplaced `if real_p2p_volume_kwh > 0.01:`
+block was moved back under `if day_data:`, and this test's original
+`xfail(strict=True)` marker removed. It now passes as an ordinary
+regression test, which is the point -- the wiring, not the status
+string, is what has to stay guarded.
 """
 
 from __future__ import annotations
@@ -43,7 +45,6 @@ from datetime import datetime, timedelta
 from unittest.mock import patch
 
 import _solver_path  # noqa: F401
-import pytest
 import solver_writer
 
 BRISBANE = solver_writer.LOCAL_TZ
@@ -109,16 +110,6 @@ def _ha_get(entity_id):
     return {"attributes": {"unit_of_measurement": "kW"}}
 
 
-@pytest.mark.xfail(
-    reason=(
-        "IV&V (since-#996 pass, 2026-09-17): #1016 (3ae1f3d) re-indented the "
-        "bonus-rate GridConfig rebuild into an elif branch where "
-        "real_p2p_volume_kwh is always 0.0, so it never fires -- see this "
-        "file's own module docstring. Fix: move the "
-        "`if real_p2p_volume_kwh > 0.01:` block back under `if day_data:`."
-    ),
-    strict=True,
-)
 class TestP2PBonusPricingReachesTheOracle(unittest.TestCase):
     def test_a_real_settled_day_rebuilds_grid_oracle_with_a_bonus_price(self):
         """The 'applied' case (real_p2p_settlement_status == 'applied',

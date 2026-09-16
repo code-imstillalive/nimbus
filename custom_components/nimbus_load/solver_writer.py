@@ -7165,10 +7165,32 @@ def _compute_report_for_window(
             real_p2p_dollars = float(day_data.get("export_cost", 0.0))
             real_p2p_volume_kwh = float(day_data.get("export_volume", 0.0))
             real_p2p_settlement_status = "applied"
-        elif real_p2p_settlement_status != "settlement_sensor_unreadable":
-            # Read fine, but this specific date is not in the table --
-            # a genuinely unsettled day, not a configuration problem.
-            real_p2p_settlement_status = "no_settlement_entry_for_this_date"
+            # nimbus #1056 (Mark Purcell, IV&V pass #1055): this block
+            # belongs HERE, under `if day_data:`, and nowhere else.
+            #
+            # #1016 re-indented it one level deeper, into the `elif`
+            # below, while adding real_p2p_settlement_status. In that
+            # branch day_data is falsy BY CONSTRUCTION, so real_p2p_
+            # dollars/real_p2p_volume_kwh were never reassigned and
+            # still held their initial 0.0 -- making `> 0.01` always
+            # False wherever the code could be reached. The bonus-priced
+            # rebuild therefore never ran on ANY install with a
+            # settlement sensor, the fully-successful "applied" case
+            # included, and j_star -- plus, via this same reused
+            # grid_oracle variable, #1026's own j_ref bonus pricing --
+            # silently fell back to plain spot export pricing.
+            #
+            # #1016's commit message said "diagnostic only -- no
+            # economics change". It was an economics change, and the
+            # tests #1016 added could not see it: they assert the three
+            # status/dollars/volume values, all of which are set
+            # correctly ABOVE this line. tests/test_p2p_bonus_pricing_
+            # reaches_the_oracle.py now spies on GridConfig
+            # construction instead, which is the thing that was broken.
+            #
+            # The general trap, recorded on #873 as well: hoisting or
+            # re-indenting a block whose first statement is `if` into an
+            # if/elif chain silently re-parents it. Nothing errors.
             if real_p2p_volume_kwh > 0.01:
                 # A flat bonus rate matching this project's own existing
                 # bonus-mechanic convention (elements.GridConfig's own
@@ -7196,6 +7218,13 @@ def _compute_report_for_window(
                     if fixed_export_kw is not None
                     else None,
                 )
+        elif real_p2p_settlement_status != "settlement_sensor_unreadable":
+            # Read fine, but this specific date is not in the table --
+            # a genuinely unsettled day, not a configuration problem.
+            # Nothing to bonus-price here: there is no settled rate for
+            # a day that was never settled, so grid_oracle keeps the
+            # plain-spot export pricing it was built with above.
+            real_p2p_settlement_status = "no_settlement_entry_for_this_date"
 
     solar_cfg = elements.SolarConfig(forecast_kw=solar_kw)
     load_cfg = elements.LoadConfig(name="whole_house", forecast_kw=load_kw)

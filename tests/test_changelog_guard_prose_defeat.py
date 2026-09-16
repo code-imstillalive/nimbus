@@ -20,18 +20,30 @@ hypothetical), and exactly the "guard that looks like it works but
 doesn't" pattern this repo has already hit twice before on this same
 file (see that file's own module docstring).
 
-xfail(strict=True): pins the gap. The fix shape suggested in the filed
-issue is requiring the phrase to open a bullet/line (e.g. anchored at
-the start of a markdown list item: `^\\s*-\\s*devhub validation:`)
-rather than matching anywhere in prose -- at which point this test
-should XPASS and the marker should come off.
+FIXED in v0.94.366 by anchoring `_VALIDATION_RE` to the start of a line
+(`re.MULTILINE`) instead of matching anywhere in the section body, and
+the original xfail(strict=True) marker removed.
+
+**One deliberate departure from the fix shape #1057 suggested**, made
+after measuring the real file rather than reasoning about it: the
+suggested `^\\s*-\\s*devhub validation:` requires a markdown bullet, but
+CHANGELOG.md writes the line BOTH ways -- 19 entries as a `-` bullet
+and 15 as an indented paragraph with no bullet (v0.94.365's own entry
+among them). The dash-required form would have failed 15 truthful,
+already-validated entries, so the bullet is optional. A guard that
+rejects real validation lines is a worse failure than the gap it
+closes, and the anchoring -- which is what actually defeats the prose
+case -- is unaffected by making the dash optional.
+
+`test_both_real_line_forms_still_match` below pins that, so a later
+"simplification" to the bullet-only form fails loudly instead of
+quietly invalidating a third of the file's entries.
 """
 
 from __future__ import annotations
 
 import unittest
 
-import pytest
 from test_changelog_release_validation import _VALIDATION_RE, _prose_only
 
 # A constructed CHANGELOG section body for some new release. No code
@@ -47,17 +59,6 @@ _PROSE_THAT_MERELY_DISCUSSES_ANOTHER_RELEASE = """
 """
 
 
-@pytest.mark.xfail(
-    reason=(
-        "IV&V (since-#996 pass, 2026-09-17): the #594 criterion-1 guard's "
-        "phrase search matches prose that discusses a PAST release's "
-        "validation line, not just prose asserting the CURRENT release's "
-        "own -- see this file's own module docstring for the constructed "
-        "repro. Fix: anchor the regex to a bullet/line start instead of "
-        "matching anywhere in the section body."
-    ),
-    strict=True,
-)
 class TestTheGuardDoesNotAcceptMerelyDiscussingAnotherRelease(unittest.TestCase):
     def test_prose_about_a_past_releases_validation_is_not_this_ones(self):
         matched = bool(
@@ -71,6 +72,42 @@ class TestTheGuardDoesNotAcceptMerelyDiscussingAnotherRelease(unittest.TestCase)
             "a different release's validation line, in plain prose with "
             "no code span -- it would pass CI while stating nothing true "
             "about the release it is nominally guarding.",
+        )
+
+    def test_both_real_line_forms_still_match(self):
+        """The other half of the fix, and the reason the bullet is
+        optional. CHANGELOG.md writes this line two ways and both are
+        truthful; a guard that only accepts one silently invalidates a
+        third of the file. Measured on the real file when #1057 was
+        fixed: 19 bulleted, 15 indented-paragraph.
+        """
+        for form in (
+            "- Devhub validation: deployed, restarted, solve_now optimal.",
+            "  Devhub validation: **not claimed** -- nothing to observe.",
+        ):
+            with self.subTest(form=form):
+                self.assertTrue(
+                    _VALIDATION_RE.search(_prose_only(f"### Changed\n{form}\n")),
+                    f"the guard stopped recognising a real form: {form!r}",
+                )
+
+    def test_the_real_changelog_still_satisfies_the_anchored_guard(self):
+        """End-to-end rather than on constructed strings: the anchoring
+        must not have broken the file it guards. This is the check that
+        caught the suggested bullet-only shape being too strict.
+        """
+        from test_changelog_release_validation import _sections
+
+        matched = [
+            v
+            for v, body in _sections().items()
+            if _VALIDATION_RE.search(_prose_only(body))
+        ]
+        self.assertGreater(
+            len(matched),
+            25,
+            "the anchored guard recognises far fewer entries than the file "
+            "actually carries -- the anchor is rejecting a real line form.",
         )
 
 
