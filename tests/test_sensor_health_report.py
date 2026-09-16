@@ -181,3 +181,34 @@ def test_recent_errors_and_warnings_are_exposed_separately():
     assert len(attrs["recent_errors"]) == 1
     assert attrs["recent_errors"][0]["level"] == "ERROR"
     assert len(attrs["recent_warnings"]) == 2  # WARNING threshold includes ERROR too
+
+
+def test_attribute_keys_are_pinned_so_a_comment_elsewhere_cannot_go_stale():
+    """nimbus issue #933 fallout, corrected 2026-09-16.
+
+    `sensor_flattened.py` excluded `failed_load_entities`,
+    `load_forecast_warnings` and `load_forecast_source_*` from flattening
+    on the stated grounds that they were "surfaced via
+    NimbusHealthReportSensor instead". They are not, and never were --
+    this sensor publishes none of the three, confirmed against a real
+    install's own key set as well as the source.
+
+    That comment was load-bearing: it was the whole justification for an
+    exclusion, and it sent a reader looking for data here that does not
+    exist. Same class as #955 (a reference that resolves to nothing reads
+    as "this does not exist" rather than "it is elsewhere").
+
+    Pinning the key set makes the correction durable in both directions:
+    if any of the three is genuinely added here later, this fails and
+    whoever adds it is pointed at the comment that should then change.
+    """
+    _reset_log_buffer()
+    entry = _fake_entry({}, {})
+    s = sensor.NimbusHealthReportSensor(entry, "1.0.0")
+    assert set(s.extra_state_attributes) == {
+        "recent_errors",
+        "recent_warnings",
+        "never_trained",
+        "subentry_status",
+        "generated_at",
+    }
