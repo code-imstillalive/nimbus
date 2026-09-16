@@ -2246,8 +2246,14 @@ def _warn_if_attrs_exceed_recorder_cap(entity_id: str, attributes: dict) -> None
             _MAX_STATE_ATTRS_BYTES,
             ", ".join(f"{name}={size}B" for size, name in biggest),
         )
-    except Exception:  # noqa: BLE001, S110 - never fail a publish for a log line
-        pass
+    except Exception:
+        _LOGGER.debug(
+            "Nimbus #944: could not measure the attribute payload for %s "
+            "(unserialisable value). Skipping the size check for this "
+            "publish -- the publish itself is unaffected.",
+            entity_id,
+            exc_info=True,
+        )
 
 
 def ha_post_state(entity_id: str, state, attributes: dict) -> None:

@@ -1312,22 +1312,29 @@ def _warn_if_attrs_exceed_recorder_cap(entity_id: str, attributes: dict) -> None
             ((len(json.dumps(v).encode("utf-8")), k) for k, v in attributes.items()),
             reverse=True,
         )[:3]
-        _LOGGER.warning(
-            "Nimbus #944: %s is publishing %d bytes of attributes, over the "
-            "recorder's %d byte cap, on a publish path that cannot apply "
-            "_unrecorded_attributes (no state_info: REST, or the raw "
-            "states.async_set fallback). The recorder will therefore drop "
-            "ALL attributes for this entity -- including unit_of_measurement, "
-            "which then suppresses its long-term statistics. Largest "
-            "contributors: %s. The live state is unaffected; what is lost is "
-            "history. Logged once per entity per run.",
-            entity_id,
-            len(encoded),
-            _MAX_STATE_ATTRS_BYTES,
-            ", ".join(f"{name}={size}B" for size, name in biggest),
+        # print(file=sys.stderr), not a logger: this file's own
+        # established convention throughout -- a standalone cron script
+        # has no HA logging pipeline to write into.
+        print(
+            f"WARN: Nimbus #944: {entity_id} is publishing {len(encoded)} bytes "
+            f"of attributes, over the recorder's {_MAX_STATE_ATTRS_BYTES} byte "
+            "cap, on a publish path that cannot apply _unrecorded_attributes "
+            "(the REST API carries no state_info). The recorder will therefore "
+            "drop ALL attributes for this entity -- including "
+            "unit_of_measurement, which then suppresses its long-term "
+            "statistics. Largest contributors: "
+            + ", ".join(f"{name}={size}B" for size, name in biggest)
+            + ". The live state is unaffected; what is lost is history. "
+            "Logged once per entity per run.",
+            file=sys.stderr,
         )
-    except Exception:  # noqa: BLE001, S110 - never fail a publish for a log line
-        pass
+    except Exception:  # noqa: BLE001 - never fail a publish for a log line
+        print(
+            f"DEBUG: Nimbus #944: could not measure the attribute payload for "
+            f"{entity_id} (unserialisable value). Skipping the size check for "
+            "this publish -- the publish itself is unaffected.",
+            file=sys.stderr,
+        )
 
 
 def ha_post_state(entity_id: str, state, attributes: dict) -> None:
