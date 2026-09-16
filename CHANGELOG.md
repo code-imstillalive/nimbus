@@ -8,6 +8,19 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.362] - 2026-09-17
+
+### Fixed
+- **`set_controllable_load`'s schema no longer injects wizard defaults** ([#1045](https://github.com/code-imstillalive/nimbus/issues/1045)). The service schema is built from the wizard's own — deliberately, so the two surfaces cannot drift — but that schema carries FORM defaults, and `_controllable_load_schema({})` resolves `controllable_load_kind` to `"sheddable"`. `vol.Required(key, default=X)` does not merely permit the key; it **injects** X when the caller omits it, so every call arrived carrying a kind the caller never sent.
+
+  **It only started biting after [#1042](https://github.com/code-imstillalive/nimbus/issues/1042).** While the handler replaced the whole subentry, the injected values were part of the wipe and invisible behind a larger problem. Once it merged, they became overrides — and confirmed live immediately after deploying that fix, updating one field on a deferrable hot water load returned every deferrable field intact and `kind: sheddable`. `build_controllable_loads()` routes on kind, so all of those fields are then dead: no target, no window, no deadline scheduling. **Worse than the wipe it replaced, because the config looks fine** — a wipe at least leaves obvious damage. `sheddable_shed_cost` and `deferrable_shortfall_price` were injected the same way, overwriting a household's own tuned values on any partial update.
+
+  The service schema now carries the wizard's **fields** and none of its **defaults**: every key Optional, nothing injected, and "what must be present" enforced in the handler where it can depend on create-vs-update. Creating a load still requires an explicit kind — with the default gone, silently making a sheddable load out of a caller who meant hot water is no longer possible — while updating inherits the stored one, which is the whole point of a partial update.
+
+  4 new tests, 3 confirmed to fail against the parent commit.
+
+  Devhub validation: **the defect was found there**, by verifying #1042's own fix on a real install one release after shipping it. The merge worked exactly as intended and `kind` in the response was the thing that did not look right. Worth recording as a pattern — that fix was correct and **exposed** the next layer rather than causing it; the injection was always there. The test load was restored immediately.
+
 ## [0.94.361] - 2026-09-17
 
 ### Fixed
