@@ -13818,8 +13818,35 @@ def apply_commanded_state_guard(
         future = _asyncio.run_coroutine_threadsafe(_update_all(), _NATIVE_HASS.loop)
         future.result(timeout=10)
     except Exception:
-        _LOGGER.debug(
-            "Nimbus: commanded-state guard failed for this solve cycle",
+        # nimbus issue #1019. This handler must stay -- it is the last
+        # thing between a controllable-load failure and the solve cycle
+        # it runs inside, and dispatch must never take the solve down.
+        #
+        # But it was DEBUG, and that made it invisible. Every controllable
+        # load is commanded through one coroutine with no per-load
+        # isolation, so ANY raise -- an unavailable entity, a sensor
+        # returning an unexpected type, a malformed subentry, a recorder
+        # hiccup mid-fetch -- abandons the cycle for EVERY REMAINING
+        # LOAD, silently. Loads already dispatched stay dispatched; the
+        # rest are simply not commanded, with nothing said about it.
+        #
+        # At a 5-minute cadence the next cycle usually succeeds, so the
+        # symptom is intermittent missed dispatch rather than an outage.
+        # That is exactly the shape of #757 (ten investigations) and of
+        # #315, where the ABSENCE of a warning was the evidence nobody
+        # thought to check. A guard that cannot report its own failure is
+        # indistinguishable from one that never runs.
+        #
+        # WARNING, not DEBUG, and it says what was lost. Per-load
+        # isolation -- so one bad load costs one load rather than the
+        # remainder of the cycle -- is the other half of #1019 and needs
+        # a re-indent of the whole loop body, so it is deliberately not
+        # bundled here.
+        _LOGGER.warning(
+            "Nimbus: commanded-state guard failed this solve cycle -- any "
+            "controllable load not yet processed was NOT commanded (see "
+            "nimbus issue #1019; loads already dispatched are unaffected, "
+            "and the next cycle retries from scratch)",
             exc_info=True,
         )
 
