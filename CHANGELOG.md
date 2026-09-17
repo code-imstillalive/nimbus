@@ -8,6 +8,29 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.390] - 2026-09-18
+
+### Changed
+- **#582's same-day-in-progress guard consolidated from four identical copies into one helper** ([#485](https://github.com/code-imstillalive/nimbus/issues/485), [#582](https://github.com/code-imstillalive/nimbus/issues/582)).
+
+  Groundwork for a question Mark Purcell raised on #485 -- whether a Controllable Load's `deadline`/`earliest` hours should ever be overridden per household mode, given #582's history. Measuring what that would walk into produced a concrete blocker rather than a general caution: the fix existed as **four identical inline copies**, two in `build_controllable_loads()` and two in `apply_commanded_state_guard()`.
+
+  The risk is not hypothetical. The 2026-09-09 worklog records it realised once:
+
+  > While rebasing onto #582, found and fixed a real inconsistency: `apply_commanded_state_guard()`'s own duplicated period-index resolution **didn't inherit #582's same-day fix** ... flagged the drift risk between the two call sites as a candidate for a future shared-helper refactor.
+
+  That correction was itself applied by duplicating, the copies reached four, and the refactor it asked for is this change. It was caught by a rebase rather than by a test -- which is the structural point, since a test can only ever exercise the copy it happens to reach.
+
+  **Checked before extracting rather than assumed: all four were identical in logic**, differing only in `ruff format` line wrapping at different indentation depths. So this fixes **no live divergence**. What it removes is the room for the next one.
+
+  A **fifth site shares the predicate and is deliberately left alone**: `_build_daily_adequacy_windows()` evaluates the same `earliest_today <= now <= deadline_today` test inside a per-day loop, as one arm of a conditional that also handles `now > deadline_today`, `today_done` and an already-met target, deriving its own `earliest_period` from a day-offset instant. A superset, not a copy. Both the helper's docstring and a test record that distinction, so nobody folds it in later on the strength of a grep -- and so that if it is ever reduced to the same shape, the test says why that would then be safe.
+
+  What it does for #485 is shrink the question rather than answer it: moding those hours multiplies the distinct hour pairs flowing through this logic, and *"is the one helper right"* is answerable in a way *"are the four copies still in agreement"* is not.
+
+  15 new tests, including Mark's own 06:01 repro from the first live morning of #534, the genuine overnight window the original fix had to avoid breaking, both inclusive boundaries (pinned deliberately after [#1104](https://github.com/code-imstillalive/nimbus/issues/1104), where a boundary comparison turned out to be the entire defect), and two guards against a fifth inline copy reappearing.
+
+  Devhub validation: **not claimed, and for a reason worth recording rather than boilerplate.** Devhub's executing code has been **seven releases behind** what HACS reports installed since v0.94.383, because every restart today was deliberately deferred to protect the first real #773 LP capture sitting in a temp directory. That is a real cost of that decision: v0.94.383 through v0.94.389 each shipped with an honest "not claimed" line, which is not the same as validated. This change is pinned by 15 deterministic tests and by 387 passing dispatch-related tests instead.
+
 ## [0.94.389] - 2026-09-18
 
 ### Fixed
