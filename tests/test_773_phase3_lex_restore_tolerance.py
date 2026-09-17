@@ -34,13 +34,24 @@ left the failure bit-identical, same 2.812066e-07 and same single
 violated row. So the secondary row is not what is violated; the pinned
 column bounds are, and the tolerance is the fix.
 
-**Scope, stated plainly.** Phase 3 runs only under `LexOptions`.
-Production (`solver_writer.py`) passes `CalibratedOptions`, which returns
-before phase 3, so **this is not the production #773 failure** and fixing
-it does not close that. It is a real latent defect in a supported mode,
-with the first deterministic end-to-end reproduction this issue has had
-that does not require disabling a fix first -- which is the gap #999
-filed.
+**Scope.** Phase 3 runs only under `LexOptions`, and production
+(`solver_writer.py`) passes `CalibratedOptions`, which returns before it.
+So the phase-3 half above is a latent defect in a supported mode rather
+than the production failure -- but chasing it led straight to the
+production path, and that half IS worse. See
+`TestTheCalibratedPathIsWorse` below: the same band makes
+`_calibrate_blend_weight()` report a **solvable model as infeasible**,
+with no #773 diagnostic and without `network.py`'s fallback ever running.
+
+An earlier version of this docstring said flatly "this is not the
+production #773 failure". That was true of the half it was written for
+and is kept here as the record of how the larger finding was reached --
+by testing whether the same mechanism existed in the mode production
+actually uses, rather than assuming it did not.
+
+Either way this gives #773 its first deterministic end-to-end
+reproduction that does not require disabling a fix first, which is the
+gap #999 filed.
 
 **Why the plan barely moves.** Before the fix the failure fell through to
 `network.py`'s fallback, which produces a valid plan by a plain
@@ -55,6 +66,7 @@ silently skipped on those cycles.
 
 from __future__ import annotations
 
+import ast
 import contextlib
 import logging
 import unittest
@@ -315,10 +327,45 @@ class TestTheCalibratedPathIsWorse(unittest.TestCase):
         three operate on pinned binaries. Wrapping only the probe left
         the FINAL blended solve infeasible -- measured -- so this pins
         that all three stay wrapped. A fourth added later needs it too.
+
+        Checked through the AST rather than as source text. The first
+        version of this test matched the one-line
+        `with A(h), B(h, "label"):` spelling and broke the moment `ruff
+        format` split it across lines into a parenthesised `with` --
+        which tested the formatting, not the guarantee. Same lesson as
+        the #773 dump-note guard: a source check has to be blind to
+        layout or it cries wolf.
         """
         source = lp.__file__.replace(".pyc", ".py")
         with open(source, encoding="utf-8") as f:
-            text = f.read()
+            tree = ast.parse(f.read())
+
+        def _labels_guarded_by_tolerance(node):
+            """Every `_timed_lp_call(h, "<label>")` whose OWN `with`
+            statement also enters `_lp_tolerance_matching_mip`."""
+            found = set()
+            for stmt in ast.walk(node):
+                if not isinstance(stmt, ast.With):
+                    continue
+                calls = [
+                    item.context_expr
+                    for item in stmt.items
+                    if isinstance(item.context_expr, ast.Call)
+                ]
+                names = {c.func.id for c in calls if isinstance(c.func, ast.Name)}
+                if "_lp_tolerance_matching_mip" not in names:
+                    continue
+                for call in calls:
+                    if (
+                        isinstance(call.func, ast.Name)
+                        and call.func.id == "_timed_lp_call"
+                        and len(call.args) >= 2
+                        and isinstance(call.args[1], ast.Constant)
+                    ):
+                        found.add(call.args[1].value)
+            return found
+
+        guarded = _labels_guarded_by_tolerance(tree)
         for label in (
             "calibrate_blend_probe",
             "primary_acceptable_probe",
@@ -326,8 +373,8 @@ class TestTheCalibratedPathIsWorse(unittest.TestCase):
         ):
             with self.subTest(call_site=label):
                 self.assertIn(
-                    f'with _lp_tolerance_matching_mip(h), _timed_lp_call(h, "{label}")',
-                    text,
+                    label,
+                    guarded,
                     f"the {label} solve runs on pinned binaries but no "
                     "longer matches the MIP tolerance they were accepted "
                     "under -- this is what made the production path report "
