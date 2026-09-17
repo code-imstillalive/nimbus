@@ -119,6 +119,28 @@ def build_load_arrays(cfg, grid_times, n_periods, now) -> LoadArrays:
             sw._cfg_num(cfg, "solver_inverter_self_consumption_kw", 0.0),
             now,
         )
+        # nimbus issue #933: #118's near-zero guard, for the summed
+        # path. sum_load_forecasts() stays a pure summer -- its own
+        # docstring makes the case for guarding each TERM rather than
+        # the outer sum, and that is right -- so the decision to refuse
+        # lives here, where load_forecast_error is already plumbed.
+        #
+        # Raising (rather than the zero-fallback below) is deliberate
+        # and follows #370's own precedent for the transient case: the
+        # failure modes this fires on are transient by nature (an HA
+        # restart, a recorder stall, an integration reload, a template
+        # chain briefly unavailable), so publishing nothing this cycle
+        # and retrying on the next tick is the self-healing shape. The
+        # alternative -- planning against a total that is missing data
+        # -- is exactly what #118 established costs real money.
+        summed_error = sw.near_zero_summed_load_error(
+            load_kw,
+            failed_load_entities,
+            sw._cfg_num(cfg, "solver_inverter_self_consumption_kw", 0.0),
+        )
+        if summed_error is not None:
+            sw._LOGGER.warning("Nimbus Solver: %s", summed_error)
+            raise RuntimeError(f"Load forecast not usable: {summed_error}")
     else:
         # Validated read (2026-08-23, real fix for nimbus repo issue
         # #66) -- the old bare sw.ha_get(...)["attributes"]["forecast"]

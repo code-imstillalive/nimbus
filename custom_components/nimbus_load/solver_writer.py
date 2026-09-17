@@ -3154,6 +3154,88 @@ def sum_load_forecasts(
     )
 
 
+def near_zero_summed_load_error(
+    total_kw: list[float],
+    failed_entities: list[str],
+    inverter_self_consumption_kw: float = 0.0,
+) -> str | None:
+    """nimbus issue #933: #118's near-zero guard, for the SUMMED
+    multi-circuit path. Returns the error to refuse on, or None.
+
+    #118 established that a structurally-valid, near-all-zero load
+    forecast produces a confident `optimal` solve telling a household
+    the battery can export ~$46/day more than it really can, because the
+    solver believes nobody is consuming anything. That guard lives in
+    read_load_forecast_sensor() and protects only the SINGLE-sensor
+    path. The summed path reaches the identical input state by a
+    different route: each per-entity fetch failure contributes 0.0 for
+    every period (correctly, individually), and enough simultaneous
+    failures accumulate silently into a near-zero total.
+
+    Not hypothetical. The reference household's own daily statistics
+    show the summed sensor reaching **exactly 0.0** on five separate
+    days -- and HA's statistics compiler skips non-numeric states, so
+    `unavailable`/`unknown` are excluded rather than stored as zero. A
+    recorded 0.0 means the sensor genuinely published 0.0, which on this
+    path requires every contributing circuit to have contributed 0.0.
+    An 18-circuit household cannot draw exactly nothing.
+
+    ## Why BOTH conditions, not either alone
+
+    The issue offered two variants and the thread converged on gating on
+    their conjunction, which is strictly safer than either:
+
+    - **`nonzero_fraction < 0.1` alone** has an onboarding trap. The
+      more likely cause of those five real days was circuits not yet
+      reporting during setup, and a circuit that has never produced a
+      forecast fails the fetch exactly like one that is transiently
+      down. A household adding circuits one at a time would see Nimbus
+      refuse to plan, with no obvious reason.
+    - **"every entity failed" alone** misses the partial case: 14 of 18
+      down still yields a badly wrong total.
+
+    Requiring `failed_entities` non-empty AND the total near-zero keeps
+    the guard for mass failure while never firing on a household whose
+    fetches all SUCCEEDED and whose load is genuinely low -- an empty
+    holiday house is a real, correct near-zero, and nothing is missing
+    from its data. The conjunction also sidesteps the question of
+    whether failures cluster, which is what previously blocked this:
+    the AND-gate is correct either way, so the clustering measurement
+    became a "how often does this fire" follow-up rather than a
+    precondition (Mark Purcell, 2026-09-17).
+
+    ## The self-consumption subtlety
+
+    `inverter_self_consumption_kw` is added to every period by
+    sum_load_forecasts() AFTER the sum, so a fully-failed total does not
+    arrive here as zeros -- it arrives as that constant, repeated. A
+    naive `v > 0.01` test would see 100% non-zero periods on any install
+    with a real self-consumption value configured and never fire at all.
+    It is subtracted back out before the comparison, which is the whole
+    reason this takes the parameter.
+    """
+    # No failure, nothing missing -- a genuinely low total is the
+    # household's real data and must never be refused.
+    if not failed_entities or not total_kw:
+        return None
+    nonzero_points = sum(
+        1 for v in total_kw if (v - inverter_self_consumption_kw) > 0.01
+    )
+    if (nonzero_points / len(total_kw)) >= 0.1:
+        return None
+    return (
+        f"the summed load forecast has only {nonzero_points}/"
+        f"{len(total_kw)} non-trivial (>0.01 kW) points while "
+        f"{len(failed_entities)} configured circuit(s) failed to fetch "
+        f"({', '.join(failed_entities)}) -- a real household load "
+        f"essentially never sits at true zero for 90%+ of a multi-day "
+        f"forecast, so this total is missing data rather than measuring "
+        f"a quiet house. Refusing to plan against it (nimbus issue "
+        f"#933); this usually clears itself once those entities are "
+        f"reporting again."
+    )
+
+
 def compute_forecast_coverage_hours(
     fc_dicts: list[dict], anchor: datetime
 ) -> float | None:
