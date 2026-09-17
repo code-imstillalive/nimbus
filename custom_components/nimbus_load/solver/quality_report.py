@@ -85,6 +85,7 @@ from numpy.typing import NDArray
 from .elements import BatteryConfig, GridConfig, LoadConfig, PeriodGrid, SolarConfig
 from .epr import EPRResult, compute_epr
 from .network import build_plan
+from .p2p_export import realized_export_bonus_credit
 from .regret import evaluate_realized_cost_multi, hourly_regret_breakdown
 from .tracking import TrackingResult, compute_tracking_fidelity, tracking_error_cost
 
@@ -156,6 +157,45 @@ class QualityReport:
     0.0 means either no P2P commitment is configured or every committed
     hour was met. Defaulted so every existing construction site and test
     predating this field is unaffected."""
+
+    j_star_evaluator: float = 0.0
+    """The ORACLE's own plan, repriced through the same path `j_ach`
+    takes (nimbus issue #1081).
+
+    `j_star` is `oracle_plan.total_cost` -- the LP's own objective.
+    `j_ach` is `evaluate_realized_cost_multi()` minus the real settled
+    P2P dollars. Two different computations, and nothing has ever
+    checked they agree.
+
+    `j_star <= j_ach` is supposed to hold by construction, because the
+    oracle's feasible set contains the achieved trajectory. But that is
+    an argument about TRAJECTORIES. It only carries over to the NUMBERS
+    if both are priced by the same arithmetic, and an LP objective
+    carries terms an evaluator does not -- the soft-SoC penalty, slack
+    penalties, and the export bonus as a variable the LP CHOOSES rather
+    than a credit allocated after the fact.
+
+    So a disagreement between the two paths can manufacture an
+    impossible result out of two individually correct answers. This
+    field is what makes that visible instead of inferred."""
+
+    j_star_path_delta: float = 0.0
+    """`j_star - j_star_evaluator` -- how far the LP objective and the
+    evaluator disagree about the identical trajectory (nimbus #1081).
+
+    Near zero means the two paths agree, so a negative regret is a real
+    modelling problem and should be chased as one. Materially nonzero
+    means the COMPARISON is the problem, and says by how much.
+
+    Built to settle a specific open question rather than as a general
+    metric: 15 Sep 2026 scored `epr_pct` 100.11 with `regret_dollars`
+    -0.0214 on a ~$15 objective, and the leading explanation was
+    "probably LP tolerance". That is exactly the kind of tidy story this
+    project has had refuted by measurement several times, so it gets
+    measured. `p2p_export.realized_export_bonus_credit()`'s own
+    docstring already names the risk: *"Both must answer the same
+    question the same way, or a counterfactual scored here is not
+    comparable to one the LP produced."*"""
 
 
 def _hourly_means_by_key(
@@ -755,6 +795,49 @@ def compute_quality_report(
         oracle_cost_per_period=oracle_residual.cost_per_period,
     )
 
+    # nimbus #1081: `j_star` and `j_ach` are produced by two DIFFERENT
+    # computation paths, and nothing has ever checked they agree.
+    #
+    #   j_ach  = evaluate_realized_cost_multi(achieved) - real settled $
+    #   j_star = oracle_plan.total_cost                  <- the LP objective
+    #
+    # `j_star <= j_ach` is supposed to hold by construction because the
+    # oracle's feasible set contains the achieved trajectory. But that
+    # argument is about TRAJECTORIES, and it only carries over to the
+    # NUMBERS if both are priced by the same arithmetic. An LP objective
+    # carries terms an evaluator does not (soft-SoC penalty, slack
+    # penalties, the bonus as a chosen variable rather than an allocated
+    # credit), so a disagreement between the paths can manufacture a
+    # violation out of two individually-correct answers.
+    #
+    # This reprices the oracle's own plan through the SAME path j_ach
+    # takes -- residual evaluator, minus its bonus credit -- so the two
+    # can be compared directly. `j_star_path_delta` near zero means the
+    # paths agree and a negative regret is a real modelling problem;
+    # materially nonzero means the comparison itself is the problem, and
+    # says by how much. Measured rather than argued, which is the whole
+    # point: the leading explanation for the $0.02 on 15 Sep 2026 was
+    # "probably LP tolerance", and this is what can actually confirm or
+    # kill that.
+    oracle_export_kw = _achieved_grid_export_kw(
+        hours=hours,
+        load_kw=load.forecast_kw,
+        solar_kw=solar.forecast_kw,
+        actual_charge_kw=oracle_charge_kw,
+        actual_discharge_kw=oracle_discharge_kw,
+    )
+    j_star_evaluator = oracle_residual.total_cost - realized_export_bonus_credit(
+        # Explicit dtype: the chained float64 +/- ops inside
+        # _achieved_grid_export_kw() widen to floating[Any] under the numpy
+        # stubs (the same note the SoC reconstructions below carry), which
+        # realized_export_bonus_credit()'s own float64 signature rejects.
+        grid_export_kw=oracle_export_kw.astype(np.float64),
+        hours=hours,
+        grid=grid_oracle_scored,
+        period_starts=timestamps,
+    )
+    j_star_path_delta = j_star - j_star_evaluator
+
     # 24-hour reconstruction dicts, one per trajectory (2026-08-31, direct
     # ask, full state reconstruction on the flattened J_ref/J_ach/J_star
     # child sensors). Prices are the same across the three trajectories
@@ -950,4 +1033,6 @@ def compute_quality_report(
         j_ach_hourly=j_ach_hourly,
         j_star_hourly=j_star_hourly,
         p2p_commitment_shortfall_kwh=round(p2p_commitment_shortfall_kwh, 4),
+        j_star_evaluator=round(j_star_evaluator, 4),
+        j_star_path_delta=round(j_star_path_delta, 4),
     )

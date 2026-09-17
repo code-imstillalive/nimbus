@@ -8,6 +8,33 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.381] - 2026-09-17
+
+### Added
+- **The quality report now measures whether `j_star` and `j_ach` are comparable at all** ([#1081](https://github.com/code-imstillalive/nimbus/issues/1081)).
+
+  `j_star <= j_ach` is supposed to hold by construction, because the oracle's feasible set contains the achieved trajectory. That is an argument about **trajectories**. It only carries over to the **numbers** if both are priced by the same arithmetic — and they are not:
+
+  ```
+  j_ach  = evaluate_realized_cost_multi(achieved) - real settled P2P $
+  j_star = oracle_plan.total_cost                  <- the LP's own objective
+  ```
+
+  An LP objective carries terms an evaluator does not: the soft-SoC penalty, slack penalties, and the export bonus as a variable the LP *chooses* rather than a credit allocated afterwards. `j_ach` pays none of them. So a disagreement between the two paths can manufacture an impossible result out of two individually correct answers, and nothing had ever checked for it.
+
+  `j_star_evaluator` reprices the oracle's own plan through `j_ach`'s path; `j_star_path_delta` is the difference. Near zero means the paths agree and a negative regret is a real modelling problem. Materially nonzero means the **comparison** is the problem, and says by how much.
+
+  **Building it immediately refuted the issue's own leading hypothesis.** With no export bonus configured at all, the two paths disagree by **$0.4560 on a ~$3 objective — 15%**. It is not the bonus allocation (no bonus present), not the charge or discharge costs (the delta is invariant to both), and not throughput (invariant across 0, 2 and 8 kW of solar). It scales with starting SoC — 0.2830 at 10 kWh, 0.4560 at 50, 0.8360 at 90 — and forcing the oracle's soft-SoC penalty to zero roughly **halves** it. So that penalty, a modelling device the achieved trajectory never pays, is a major contributor but not the whole gap.
+
+  The direction is the tell: an inflated `j_star` makes the oracle look *worse*, which shrinks regret and inflates EPR — the same direction as the 100.11% and −$0.0214 that opened the issue. The two cents on 15 Sep is a symptom of a systematic scale mismatch, not the tolerance artefact it was assumed to be.
+
+  **No fix is attempted here, deliberately.** Deciding which terms belong in a scored counterfactual is a modelling question, and both honest options — strip the penalty from `j_star`, or charge `j_ach` the same terms — would rescore every historical day on every install. That wants a second opinion, not a quiet unilateral change.
+
+  `tests/test_jstar_path_delta.py` pins the identity and carries an `xfail(strict=True)` on the control case — a test written expecting to pass, which is how this was found.
+
+  Devhub validation: the two fields are published and readable; the measurement above is from a deterministic synthetic fixture rather than devhub, because it needs the no-bonus control case a real install does not produce.
+
+
 ## [0.94.380] - 2026-09-17
 
 ### Fixed
