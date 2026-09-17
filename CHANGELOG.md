@@ -8,6 +8,50 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.389] - 2026-09-18
+
+### Fixed
+- **The scorer's oracle was given two freedoms the household never had: charging every EV on a shared charger at once, and ignoring a departure deadline** ([#1109](https://github.com/code-imstillalive/nimbus/issues/1109), [#1111](https://github.com/code-imstillalive/nimbus/issues/1111)).
+
+  Two instances of one defect: `_resolve_battery_participant_history()` -- by its own docstring *"the history-based sibling of `build_extra_batteries()`"* -- did not construct the same `BatteryConfig` its live-solve sibling does.
+
+  | field | live solve | scorer oracle |
+  |---|---|---|
+  | `unavailable_period_indices` | – | yes ([#467](https://github.com/code-imstillalive/nimbus/issues/467)) |
+  | `shared_charger_group` / `_max_kw` | yes | **no -> now yes** |
+  | `must_have_soc_by_period_index` / `_kwh` | yes | **no -> now yes** |
+
+  `network.py` consumes all of them when set, so the capability was real and only the wiring was missing on the history side.
+
+  **Both omissions ran in the unflattering direction.** The oracle's feasible set was larger than the hardware and larger than the household's own requirements, so `j_star` was better than anything achievable, `regret_dollars` was overstated and EPR understated. The scorer has been telling households they left more on the table than was ever available to them.
+
+  [#768](https://github.com/code-imstillalive/nimbus/issues/768) names the first of these as a prerequisite gating its own options -- *"an oracle free to charge both EVs on one 25 kW charger simultaneously ... would overstate achievable value"* -- and the second is a **hard** constraint in `elements.py`'s own words: *"a real EV genuinely needs a real SoC by a real time, not a priced preference."* On a day the household needed the car at 80% by 07:00, the oracle could leave it empty and bank an overnight arbitrage.
+
+  ### Both are widened rather than simply passed through
+
+  Adding a constraint **narrows** the oracle, and [#956](https://github.com/code-imstillalive/nimbus/issues/956) is the record of what that costs when the achieved trajectory falls outside the narrowed set: the achieved side prices out cheaper than optimal, regret goes negative, and the comparison becomes invalid rather than imprecise. The household settled that in #956 -- *"go with B"*, widen the oracle to contain the achieved trajectory -- and this applies that existing decision rather than making a new one, in the same shape `_widen_export_pin_to_achieved()` already uses for the P2P export pin.
+
+  So the shared-charger cap becomes `max(configured, largest simultaneous draw the group actually made)`, and the departure requirement becomes `min(configured, the SoC the day actually reached by that period)`. **Exactly as demanding as the day itself and no more.** On a well-behaved day neither moves, and both have a test class pinning that.
+
+  For the departure deadline the widening is not an edge case but the common one: a household that simply did not plug the car in, or plugged it in late, has a day that misses its own target.
+
+  ### How the second one was found
+
+  The first came from checking whether #768's stated prerequisites had actually been satisfied. The second came from then asking what *else* differed between the two siblings -- a five-line AST diff of their constructor keyword sets. It returned four differences; two were legitimate and documented (whole-horizon *"is this car away right now"* concepts, correctly superseded for an elapsed day by #467's per-period mask), which is what made the remaining pair worth reading closely.
+
+  That check is now a test: the only permitted differences are the three with written reasons, so a third instance fails rather than waiting to be noticed.
+
+  ### What is not claimed
+
+  **Neither fix has been measured on a real day.** Whether they move EPR by a rounding error or by points depends on how often a shared charger binds and how demanding a departure requirement is against the day's price shape, and there is no install available here with either configured. They ship because the oracle can only become more physically honest, not less -- but the magnitude is genuinely unknown.
+
+  The deadline index resolves through `_local()`, matching the live path, with a test pinning that 07:00 local against a UTC-stamped window is index 21 and not 7 -- the [#1076](https://github.com/code-imstillalive/nimbus/issues/1076) class, in a place where getting it wrong silently changes what the oracle is permitted to do rather than raising.
+
+  Devhub validation: **not claimed.** Both need a real battery participant with a shared-charger group or a configured departure hour, which no install available here has. Pinned by 27 deterministic tests instead, including the parity guard that found the second one.
+
+### Changed
+- `docs/worklog/2026-09-18.md` brought up to date through v0.94.389 -- five releases, four of Mark Purcell's findings, and the two self-corrections worth keeping (a CHANGELOG caveat drafted exactly backwards, and a bias direction asserted before it was checked).
+
 ## [0.94.388] - 2026-09-18
 
 ### Fixed
