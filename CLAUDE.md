@@ -25,6 +25,38 @@ Dated work-in-progress notes live in `docs/worklog/`, one file per date — this
 the "CURRENT STATE" journal that used to live directly in this file now lives. Each
 file is not re-summarized here; read it directly for the full detail. Most recent 5:
 
+- [2026-09-18](docs/worklog/2026-09-18.md) — Three releases (**v0.94.382 →
+  v0.94.384**), three issues closed (#1012, #1089, #773's
+  capture-perishability half), two filed (#1086, #1089), and **three of the
+  session's own published claims corrected by evidence.** The day's find is
+  **#1089**: a day the household did **$3.50 worse than doing nothing published
+  as EPR 242.7%**, because both the numerator (-3.4975) and the denominator
+  (-1.4411) were negative and **the signs cancelled** — the only failure mode in
+  this scorer that makes the headline read *better* than the truth. Nothing
+  caught it because neither existing reliability signal involves `j_ref`:
+  `regret_dollars` was **+2.0564**, so every regret-based check read clean, and
+  the day was flagged at all only by an *unrelated* SoC disagreement. With a
+  clean reconstruction it would have published as fully `epr_reliable`. Two of
+  the three days in that report's own history carry structurally impossible
+  arithmetic by two different routes. **The mistake is the more reusable half**:
+  the fix was built on "the oracle can always choose to do nothing, so `j_star >
+  j_ref` is impossible" — false, and `_widen_export_pin_to_achieved()`'s own
+  docstring had measured why two days earlier (a pinned P2P export is *a loss the
+  oracle cannot decline*, putting `j_star` $2.43 worse than idle). That is the
+  second time in two days a claim already written down in this repo was presented
+  as new, and the lesson is not "read more carefully" but **check whether the
+  codebase already answers the question before deciding the answer is new.** The
+  correction made the reason string load-bearing: it names the *observation* and
+  no cause, because under #1001 a household hitting it has nothing to fix in the
+  code. **#1012 closed** after 26 comments — all three candidates in its body
+  eliminated by measurement (efficiency, reference plane, capacity), plus rate,
+  solar and blend-weighting, with the surviving halves verified to have homes
+  (#949, #1086) before closing, and explicitly **not a dispatch defect**.
+  **#1086** was twice qualified by its own author's testing (cut-sensitivity 1.2
+  points; floor-anchoring makes scatter *worse*). **#937**'s own prediction about
+  the nowcast metric was tested and holds, with an unpredicted corollary: nowcast
+  wins are ~7x smaller than day-ahead losses, which sharpens the issue rather
+  than softening it.
 - [2026-09-17](docs/worklog/2026-09-17.md) — Eight releases (**v0.94.351 →
   v0.94.358**), four issues closed (#1013, #1015, #873, #1019), and **five of
   the session's own claims corrected by evidence**, three of them the same
