@@ -1,0 +1,282 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/purcell-lab/nem-flex-telemetry/blob/main/schema/telemetry.schema.json",
+  "title": "NEM Flex Telemetry Record",
+  "description": "A single 5-minute interval telemetry record from a participating household. Schema v2.0. See SCHEMA.md for full specification.",
+  "version": "2.0",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "interval_start_utc",
+    "region",
+    "postcode_prefix",
+    "net_import_kw",
+    "solar_kw",
+    "house_load_kw",
+    "deferrable_load_kw",
+    "naive_baseline_kw",
+    "naive_baseline_method",
+    "price_signal_seen",
+    "price_export_seen",
+    "envelope_import_limit_kw",
+    "envelope_export_limit_kw",
+    "flex_available_up_kw",
+    "flex_available_down_kw",
+    "shadow_energy_price",
+    "shadow_load_forecast_price",
+    "shadow_solar_forecast_price",
+    "shadow_envelope_import_price",
+    "shadow_envelope_export_price",
+    "assets",
+    "deferrable_loads"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "2.0",
+      "description": "Schema version. Must be '2.0'. Records with any other value are rejected by the validator."
+    },
+    "interval_start_utc": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Interval start timestamp in UTC. Format: ISO8601 with Z suffix. Interval covers [interval_start_utc, interval_start_utc + 5 minutes).",
+      "examples": ["2025-06-01T03:30:00Z"]
+    },
+    "region": {
+      "type": "string",
+      "enum": ["NSW1", "QLD1", "VIC1", "SA1", "TAS1"],
+      "description": "NEM dispatch region code."
+    },
+    "postcode_prefix": {
+      "type": "string",
+      "pattern": "^[0-9]{3}$",
+      "description": "First 3 digits of the household postcode. Privacy boundary.",
+      "examples": ["456", "200", "300"]
+    },
+    "net_import_kw": {
+      "type": "number",
+      "description": "Net power import at the grid connection point. Positive = importing from grid, negative = exporting to grid. Units: kW."
+    },
+    "solar_kw": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Solar generation (kW, always >= 0). Current state value from the solar forecast entity."
+    },
+    "house_load_kw": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Inflexible base load (kW, >= 0). Derived as total_load_kw minus sum of deferrable current_kw, clamped to 0."
+    },
+    "deferrable_load_kw": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Sum of deferrable load current_kw (kW, >= 0). Zero for default v0.3 install (deferrable_loads[] is empty)."
+    },
+    "naive_baseline_kw": {
+      "type": "number",
+      "description": "Estimated consumption (kW) without optimisation. Same sign convention as net_import_kw."
+    },
+    "naive_baseline_method": {
+      "type": "string",
+      "enum": ["subtraction", "haeo_counterfactual"],
+      "description": "Method used to derive naive_baseline_kw. 'subtraction' uses sensor.load_power as a proxy; 'haeo_counterfactual' uses the LP no-flex branch if HAEO exposes it."
+    },
+    "price_signal_seen": {
+      "type": "number",
+      "minimum": -2.0,
+      "maximum": 20.0,
+      "description": "Buy price signal seen by the optimiser ($/kWh). Range -2.0 to 20.0 covers extreme negative-FiT events to capacity-price spikes.",
+      "examples": [0.0875, 0.30, -0.015]
+    },
+    "price_export_seen": {
+      "type": "number",
+      "minimum": -2.0,
+      "maximum": 20.0,
+      "description": "Sell/export price seen by the optimiser ($/kWh). Positive = FiT earned; negative = negative-FiT event.",
+      "examples": [0.05, -0.005, 0.12]
+    },
+    "envelope_import_limit_kw": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Maximum import allowed at this moment (kW), as tracked by the optimiser. From number.grid_import_limit."
+    },
+    "envelope_export_limit_kw": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Maximum export allowed at this moment (kW). Positive kW magnitude. From number.grid_export_limit."
+    },
+    "flex_available_up_kw": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Upward flexibility available (kW): additional load the household could absorb right now."
+    },
+    "flex_available_down_kw": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Downward flexibility available (kW): load reduction or export increase deliverable right now."
+    },
+    "shadow_energy_price": {
+      "type": ["number", "null"],
+      "minimum": -2.0,
+      "maximum": 20.0,
+      "description": "Cross-check / aggregate shadow energy price ($/kWh). LP dual from HAEO for the energy balance constraint."
+    },
+    "shadow_load_forecast_price": {
+      "type": ["number", "null"],
+      "minimum": -2.0,
+      "maximum": 20.0,
+      "description": "HAEO LP dual for the load forecast constraint ($/kWh). From sensor.load_forecast_limit_shadow_price."
+    },
+    "shadow_solar_forecast_price": {
+      "type": ["number", "null"],
+      "minimum": -2.0,
+      "maximum": 20.0,
+      "description": "HAEO LP dual for the solar forecast constraint ($/kWh). From sensor.solar_forecast_limit_shadow_price."
+    },
+    "shadow_envelope_import_price": {
+      "type": ["number", "null"],
+      "minimum": -2.0,
+      "maximum": 20.0,
+      "description": "HAEO LP dual for the grid import envelope constraint ($/kWh). From sensor.grid_max_import_power_shadow_price. Non-zero when the import envelope is binding."
+    },
+    "shadow_envelope_export_price": {
+      "type": ["number", "null"],
+      "minimum": -2.0,
+      "maximum": 20.0,
+      "description": "HAEO LP dual for the grid export envelope constraint ($/kWh). From sensor.grid_max_export_power_shadow_price. Non-zero when the export envelope is binding."
+    },
+    "assets": {
+      "type": "array",
+      "description": "Array of asset objects (stationary batteries and EVs).",
+      "items": {
+        "type": "object",
+        "required": [
+          "asset_id",
+          "kind",
+          "bidirectional_capable",
+          "capacity_kwh",
+          "soc_pct",
+          "setpoint_kw",
+          "available_up_kw",
+          "available_down_kw",
+          "shadow_power_balance_price"
+        ],
+        "properties": {
+          "asset_id": {
+            "type": "string",
+            "description": "Slug identifier for this asset. Examples: 'home_battery', 'ev1', 'ev2'."
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["stationary_battery", "ev"],
+            "description": "Asset type."
+          },
+          "bidirectional_capable": {
+            "type": "boolean",
+            "description": "Whether the asset hardware supports bidirectional power flow."
+          },
+          "capacity_kwh": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Usable energy capacity (kWh)."
+          },
+          "soc_pct": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 100,
+            "description": "State of charge as a percentage (0-100)."
+          },
+          "setpoint_kw": {
+            "type": ["number", "null"],
+            "description": "Signed kW setpoint commanded by the optimiser. Positive = charging, negative = discharging. Null if entity unavailable."
+          },
+          "available_up_kw": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Available upward flexibility from this asset (kW)."
+          },
+          "available_down_kw": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Available downward flexibility from this asset (kW)."
+          },
+          "shadow_power_balance_price": {
+            "type": ["number", "null"],
+            "minimum": -2.0,
+            "maximum": 20.0,
+            "description": "HAEO LP dual for this asset's power balance constraint ($/kWh). Null when asset is unavailable or unplugged."
+          },
+          "connection_state": {
+            "type": "string",
+            "enum": ["unplugged", "plugged_idle", "charging", "discharging", "driving"],
+            "description": "EV only. Inferred connection state (not measured from an entity). See SCHEMA.md section on connection state inference."
+          },
+          "power_flow_capability": {
+            "type": "string",
+            "enum": ["none", "charge_only", "bidirectional"],
+            "description": "EV only. Inferred power flow capability for this interval."
+          },
+          "departure_target_pct": {
+            "type": ["integer", "null"],
+            "minimum": 0,
+            "maximum": 100,
+            "description": "EV only. Target SOC at departure (0-100). Null if not configured."
+          },
+          "departure_time_utc": {
+            "type": ["string", "null"],
+            "description": "EV only. Scheduled departure time in UTC (ISO8601). Null if not configured."
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "deferrable_loads": {
+      "type": "array",
+      "description": "Array of deferrable load objects. Empty for v0.3.0 default install. Schema slot reserved for v0.4.",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "schema_version": "2.0",
+      "interval_start_utc": "2025-06-01T08:30:00Z",
+      "region": "QLD1",
+      "postcode_prefix": "456",
+      "net_import_kw": 0.42,
+      "solar_kw": 4.8,
+      "house_load_kw": 1.2,
+      "deferrable_load_kw": 0.0,
+      "naive_baseline_kw": 2.8,
+      "naive_baseline_method": "subtraction",
+      "price_signal_seen": 0.0875,
+      "price_export_seen": 0.052,
+      "envelope_import_limit_kw": 5.0,
+      "envelope_export_limit_kw": 5.0,
+      "flex_available_up_kw": 2.1,
+      "flex_available_down_kw": 4.3,
+      "shadow_energy_price": 0.0,
+      "shadow_load_forecast_price": 0.0,
+      "shadow_solar_forecast_price": 0.0,
+      "shadow_envelope_import_price": 0.0,
+      "shadow_envelope_export_price": 0.0,
+      "assets": [
+        {
+          "asset_id": "home_battery",
+          "kind": "stationary_battery",
+          "bidirectional_capable": true,
+          "capacity_kwh": 13.5,
+          "soc_pct": 72.5,
+          "setpoint_kw": 1.5,
+          "available_up_kw": 3.5,
+          "available_down_kw": 5.0,
+          "shadow_power_balance_price": 0.0
+        }
+      ],
+      "deferrable_loads": []
+    }
+  ]
+}
