@@ -21,10 +21,39 @@ no P2P arrangement at all — worth about **5 EPR points** and almost certainly 
 mechanism behind the long-standing "my EPR records zero P2P exports" complaint.
 Confirmed live: devhub's published score for 16 Sep self-corrected from **90.6% to
 95.71%** on the first cycle after deploy.
-`main` is at **v0.94.382**, deployed to devhub. **NUC1 is still on v0.94.375 and has
+`main` is at **v0.94.383**, deployed to devhub (HACS downloaded; restart DEFERRED, see below). **NUC1 is still on v0.94.375 and has
 none of this** — the household is deploying it themselves.
 
 ---
+
+## URGENT-ISH, needs a human: a real #773 instance is sitting in /tmp
+
+The `_dump_failing_model()` apparatus produced **its first ever real capture** on
+2026-09-18 — the instance two synthetic reproduction attempts could not match, and
+the entire reason that diagnostic was built:
+
+```
+/tmp/nimbus_773_slow_lex_phase_phase2_secondary.mps
+```
+
+Written during a 37–42s `phase2_secondary` call, n_vars ~12,000, n_binary 1,312.
+
+**Copy it out.** It is in a temp directory. I have API access only and cannot fetch
+it. Setting `NIMBUS_LP_DUMP_DIR` to a persistent path stops the next one being lost
+the same way — v0.94.383 now says so in the log line, which it previously did not.
+
+**I deliberately did NOT restart devhub after deploying v0.94.383** for this reason.
+The change is log text only and cannot affect dispatch, so activating it has no
+urgency, while a restart carries some risk to that file. HACS shows v0.94.383
+downloaded; the running code is v0.94.382 until someone restarts.
+
+**What the file unlocks:** the MIP-start experiment on #999 — phase 2 begins
+branch-and-bound with no incumbent, though phase 1 has just produced a point
+guaranteed feasible for it. Load the .mps, solve phase 2 as-is, solve it again with
+`setSolution()` supplying phase 1's answer, compare simplex iterations. If the
+incumbent collapses 199k toward ~3k the mechanism is confirmed and the fix is three
+lines that cannot change any answer. `setSolution` is present in the installed
+highspy — verified, two overloads.
 
 ## If you only do three things
 
