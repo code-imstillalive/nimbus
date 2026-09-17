@@ -435,10 +435,39 @@ Measured: inv2-alone (83→67%) = **1.147**, close to capacity-weighted. inv1-al
 **1.202** but the only available stretch sits at **92–95% SoC**, inside the known
 non-linear top band, so it is contaminated and settles nothing.
 
-**So the 1.045 round-trip is NOT yet established** — it may be a pack-participation
-artefact. The measurement that settles it: an **inv1-alone discharge stretch below
-~85% SoC**, several 5-minute intervals long. Those should exist most evenings; the
-16 Sep swap ran inv1 alone for ~19 minutes but happened to start at 95%.
+### THE CONTROL LANDED — blend is capacity-weighted, round-trip stands
+
+Found the required window: 15 Sep 20:15:34–20:34:54, inv2 at **0.0** while inv1 runs
+25.8–26.0 A. Nineteen minutes, inv1 alone, at **SoC 59–63%** — clear of the top band.
+
+| window | pack | capacity | measured | cap-weighted predicts | simple-avg predicts |
+|---|---|---|---|---|---|
+| 15 Sep 20:15–20:25 | inv1 alone | 70.96 kWh | **1.148–1.160** | 1.132 | 1.315 |
+| 15 Sep 18:30–21:00 | inv2 alone | 51.20 kWh | **1.147** | 1.132 | 0.949 |
+
+**Two packs differing 39% in capacity give the same kWh per blended point, to within
+1%.** A simple average would have separated them by 39%. So the blend is
+capacity-weighted, energy-per-point is invariant to which pack works, and the
+alternating-discharge confound is eliminated.
+
+**Therefore the round-trip stands**, band-matched over SoC 67–83.5:
+
+```
+charge    (both packs)  1.0937 kWh/point
+discharge (inv2 alone)  1.1474 kWh/point
+round-trip = 1.049      <- impossible, vs configured 0.858
+```
+
+At the configured e = 0.9263: **discharge implies 123.8 kWh** (within 1.3% of the
+configured 122.2, 3.4% of #1013's 119.72); **charge implies 101.3 kWh** (17% below
+both). Discharge is consistent with everything else known; charge is the outlier.
+
+### The single remaining question on #1012
+
+Why does the charge side under-count by ~17% relative to its own discharge side —
+measured at the same DC terminals, on the same capacity-weighted SoC scale, in the
+same SoC band, at a rate that provably does not matter? Everything else on the issue
+is now settled by measurement.
 
 **Consequence for the fix: it is not an input-boundary conversion at all.**
 The counted energy and the configured efficiency are both demonstrably right. What
