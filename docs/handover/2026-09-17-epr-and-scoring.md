@@ -396,6 +396,50 @@ not resolvable from here.
 `epr_reliable` are all downstream of integrating a charge series that does not
 balance against its own discharge series.
 
+### THE PLANE HYPOTHESIS IS DEAD (2026-09-18, measured directly)
+
+The per-inverter `battery_voltage_*` / `battery_current_*` sensors give true DC pack
+power as V x I. Against `logger_battery_power`:
+
+```
+CHARGE  16 Sep, logger = -30.4 kW
+  12:10  inv1 515.2x-29.8 = -15.35   inv2 538.0x-27.8 = -14.96   total -30.31
+  12:11  inv1 517.3x-48.3 = -24.99   inv2 535.3x-10.0 =  -5.35   total -30.34
+  12:15  inv1 516.1x-29.8 = -15.38   inv2 537.2x-27.9 = -14.99   total -30.37
+
+DISCHARGE  15 Sep 19:00, logger = 13.06 kW
+  inv1 512.2x0.0 = 0.00   inv2 524.6x24.9 = 13.06   total 13.06
+```
+
+Matches to **0.3–0.5% in BOTH directions**. The sensor is pack-side DC throughout.
+**`fix/1012-battery-power-plane` should be deleted, not re-shaped** — there is no
+plane error to convert. My own "asymmetric plane" proposal was also wrong.
+
+### But a confound was found in the round-trip measurement
+
+Charge ran **both** inverters in parallel; discharge ran **one at a time**. Verified:
+the two alternate on discharge, swapping every 10–20 min (inv1→0.0 at 17:13:52,
+inv2→25.1 at 17:14:03; inv2→0.0 at 17:23:15, inv1→26.1 the same second). **No
+discharge window will ever have both active** — a "next measurement" I specified
+before checking it was constructible, and it is not.
+
+With two unequal packs (70.96 + 51.20) behind one blended SoC, the blend's weighting
+decides whether charge and discharge windows are comparable at all:
+
+| blend | kWh per point, inv1 alone | inv2 alone |
+|---|---|---|
+| capacity-weighted | 1.132 | 1.132 |
+| simple average | 1.315 | 0.949 |
+
+Measured: inv2-alone (83→67%) = **1.147**, close to capacity-weighted. inv1-alone =
+**1.202** but the only available stretch sits at **92–95% SoC**, inside the known
+non-linear top band, so it is contaminated and settles nothing.
+
+**So the 1.045 round-trip is NOT yet established** — it may be a pack-participation
+artefact. The measurement that settles it: an **inv1-alone discharge stretch below
+~85% SoC**, several 5-minute intervals long. Those should exist most evenings; the
+16 Sep swap ran inv1 alone for ~19 minutes but happened to start at 95%.
+
 **Consequence for the fix: it is not an input-boundary conversion at all.**
 The counted energy and the configured efficiency are both demonstrably right. What
 cannot be expressed by a single `capacity_kwh` constant is the SoC→kWh mapping.
