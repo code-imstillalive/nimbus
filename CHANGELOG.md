@@ -8,6 +8,25 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.375] - 2026-09-17
+
+### Changed
+- **Cron-deployment docs now state the one real thing that path gives up** ([#944](https://github.com/code-imstillalive/nimbus/issues/944)).
+
+  #944 offers three options and says of the first that a documentation line is *"worth it either way, since right now nothing tells an operator this."* That half needs no decision, so it is done while the structural half stays open.
+
+  `docs/real-world-integration/README.md` now carries it before the writer's own section: on the cron path, `sensor.nimbus_solver_battery_forecast` and `sensor.nimbus_household_load_total_forecast` get **no recorded attribute history and no long-term statistics**, because `_unrecorded_attributes` is an *entity* concept the REST API cannot express — HA applies it only to a state carrying `state_info`, and a REST-posted state never does. The full ~19 KB payload is therefore measured against the 16,384-byte cap, and HA drops the **entire** attribute row rather than the offending key, taking `unit_of_measurement` with it and suppressing statistics.
+
+  The note leads with what it does **not** mean, because a reader hitting the recorder warning would reasonably conclude dispatch was broken: the live state and every attribute on it are correct and readable in real time — dashboards, the topology card and any automation reading `attributes.forecast` all work normally. What is lost is history.
+
+  It also records why trimming the arrays before posting is not the fix: they are what live consumers read, so dropping them to save the recorded row would break the dashboard to repair the history.
+
+  Verified rather than asserted while writing it: the explicit publish-path warning #944's first half shipped is real (`solver_writer.py`, `Nimbus #944: ... publishing N bytes`), and `git tag --contains` puts it in **v0.94.342** — so the doc cites that version rather than a guess.
+
+  Docs only; no shipped code.
+
+  Devhub validation: **not applicable** — documentation, nothing for an install to exercise.
+
 ## [0.94.374] - 2026-09-17
 
 ### Added
