@@ -136,6 +136,93 @@ class TestItReproducesNumber1012sOwnShape(unittest.TestCase):
         self.assertGreater(r["residual_kwh"], 0.0)
 
 
+class TestTheDischargeSideMirror(unittest.TestCase):
+    """nimbus issue #1012: the discharge half, and why it earns its own
+    field rather than being inferable from the charge one.
+
+    Let `k` be the ratio of the capacity the scorer assumes to the pack's
+    true usable capacity, and `e` the true one-way efficiency. For an
+    AC-side power sensor:
+
+        charge:     measured / in    ==  e * k
+        discharge:  |measured| / out ==  k / e
+
+    A charge-only window yields the single product `e*k` — and every
+    (capacity, efficiency) pair on that hyperbola fits it equally well.
+    **That degeneracy is why #1012 went back and forth between "the
+    efficiency is wrong" and "the plane is wrong" without either being
+    settleable**: with one direction they are the same measurement. Two
+    one-directional windows separate them.
+    """
+
+    def test_a_pure_discharge_window_implies_a_discharge_efficiency(self):
+        """The real reference-household window that made the joint solve
+        possible: 79.468 kWh out against a measured 84.069 kWh drop."""
+        r = _bal(
+            in_kwh=0.0,
+            out_kwh=79.468,
+            initial_soc_kwh=100.0,
+            final_soc_kwh=100.0 - 84.069,
+            capacity_kwh=119.756,
+            charge_efficiency=0.9263,
+            discharge_efficiency=0.9263,
+        )
+        self.assertAlmostEqual(
+            r["implied_discharge_efficiency"], 79.468 / 84.069, places=4
+        )
+        # The charge side genuinely cannot be implied from this window.
+        self.assertIsNone(r["implied_charge_efficiency"])
+        self.assertEqual(r["implied_efficiency_reason"], "no_charge_throughput")
+
+    def test_consistent_data_recovers_the_configured_discharge_efficiency(self):
+        """Same property the charge side has: on self-consistent data the
+        implied value lands back on the configured one, so a difference
+        is genuinely informative rather than an artefact."""
+        out_kwh, eff = 50.0, 0.95
+        drop = out_kwh / eff
+        r = _bal(
+            in_kwh=0.0,
+            out_kwh=out_kwh,
+            initial_soc_kwh=100.0,
+            final_soc_kwh=100.0 - drop,
+            charge_efficiency=eff,
+            discharge_efficiency=eff,
+        )
+        self.assertAlmostEqual(r["implied_discharge_efficiency"], eff, places=4)
+
+    def test_a_pure_charge_window_has_no_discharge_efficiency_to_imply(self):
+        r = _bal(in_kwh=100.0, out_kwh=0.0, final_soc_kwh=10.0 + 95.0)
+        self.assertIsNone(r["implied_discharge_efficiency"])
+
+    def test_both_configured_efficiencies_are_reported(self):
+        """So a reader comparing implied against configured never has to
+        go and find what was configured."""
+        r = _bal(charge_efficiency=0.91, discharge_efficiency=0.93)
+        self.assertAlmostEqual(r["configured_charge_efficiency"], 0.91)
+        self.assertAlmostEqual(r["configured_discharge_efficiency"], 0.93)
+
+    def test_the_two_directions_jointly_separate_capacity_from_efficiency(self):
+        """The whole point, worked on the real measured numbers.
+
+        This is arithmetic over two windows rather than a code path —
+        deliberately, because within ONE window `measured` is a NET swing
+        and cannot be attributed to either direction. Pinned here so the
+        derivation that answered #1012 is reproducible rather than living
+        only in an issue comment.
+        """
+        rc = 99.637 / 93.396  # charge window: e*k
+        rd = 84.069 / 79.468  # discharge window: k/e
+        k = (rc * rd) ** 0.5
+        e = (rc / rd) ** 0.5
+        assumed_capacity = 119.756
+        self.assertAlmostEqual(assumed_capacity / k, 112.73, places=1)
+        self.assertAlmostEqual(e, 1.0042, places=3)
+        # Both configured values are wrong, in different directions --
+        # which no single-direction window could have shown.
+        self.assertGreater(assumed_capacity / k + 1.0, 112.0)
+        self.assertGreater(e, 0.9263)
+
+
 class TestHonestAbsence(unittest.TestCase):
     def test_no_charge_throughput_reports_none_with_a_reason(self):
         """A day the battery only discharged cannot imply a CHARGE

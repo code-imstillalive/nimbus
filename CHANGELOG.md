@@ -8,6 +8,30 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.373] - 2026-09-17
+
+### Added
+- **The discharge-side implied efficiency — which is what separates a capacity error from an efficiency error** ([#1012](https://github.com/code-imstillalive/nimbus/issues/1012)).
+
+  v0.94.369's balance check ran against the reference household's own sensors under current code and returned `implied_charge_efficiency: 1.04` — above unity, i.e. the pack gained more energy than the meter recorded entering it. Reproduced on a second, 5× larger window at **1.0668**.
+
+  Adding the discharge direction turned that from an anomaly into an answer. Let `k` be the ratio of the capacity the scorer assumes to the pack's true usable capacity, and `e` the true one-way efficiency. For an AC-side power sensor:
+
+  ```
+  charge:     measured / in    ==  e * k
+  discharge:  |measured| / out ==  k / e
+  ```
+
+  **A charge-only window is degenerate.** It yields the single product `e·k`, and every (capacity, efficiency) pair on that hyperbola fits it equally well — which is exactly why #1012 went back and forth between *"the efficiency is wrong"* and *"the reference plane is wrong"* without either being settleable. **With one direction they are the same measurement.**
+
+  Two one-directional windows separate them — `k = √(rc·rd)`, `e = √(rc/rd)` — and on the real measured numbers they solve to a usable capacity near **113 kWh against the 119.76 assumed**, and a one-way efficiency near **1.00 against the 0.9263 configured**. Both wrong, in different directions, which no single-direction window could have shown.
+
+  So `implied_discharge_efficiency` and `configured_discharge_efficiency` now sit alongside the charge pair. Reported whenever a window has real discharge throughput, `None` otherwise.
+
+  **The joint solve is deliberately not computed here.** Within one scored window `measured` is a *net* swing, and a window containing both directions cannot attribute it to either side. Deriving `k` and `e` from a net would produce a confident number out of a quantity that does not contain the answer — the exact failure this diagnostic exists to catch. Pairing two windows is the caller's job; the derivation is pinned as a test so it is reproducible rather than living only in an issue comment.
+
+  Devhub validation: **the finding came from there** — three explicit `compute_quality_report` windows against the reference household's own mirrored sensors, computed by that install's own current code. Its daily sensor still lacks the field because the daily path re-pushes cached per-day results, which is the documented distinction rather than a stale deploy.
+
 ## [0.94.372] - 2026-09-17
 
 ### Changed
