@@ -233,6 +233,66 @@ _SLOW_LP_CALL_SECONDS: float = 5.0
 # the next slightly-harder instance starts timing out for real.
 _ALARMING_LP_CALL_SECONDS: float = DEFAULT_TIME_LIMIT_SECONDS / 2
 
+# nimbus issue #773 (Mark Purcell's own proposed next step, 2026-09-17):
+# dump the REAL failing instance instead of building more synthetic ones.
+#
+# The reasoning is what makes this worth doing rather than another
+# hypothesis. Two independent synthetic reproduction attempts have now
+# failed to produce the shape that matters -- the second topped out at a
+# 3.1x slowdown and INVERTED at the largest size, against production's
+# measured 21-60x -- and a third would be the same method again. HiGHS
+# can hand over the actual model it choked on, at which point "what makes
+# the root relaxation go fractional" is answerable by reading one real
+# instance rather than by guessing at a generator.
+#
+# Gated on exactly the #945 two-tier condition that already decides
+# WARNING vs DEBUG (slow past the alarming threshold, or non-optimal), so
+# a healthy install never writes a byte.
+#
+# Named per phase and overwritten rather than timestamped: an MPS file
+# for a 12k-variable model is megabytes, and an intermittent fault that
+# fires for hours would otherwise quietly fill a household's disk. There
+# are ~4 distinct phases, so the on-disk cost is bounded by construction
+# rather than by a counter someone has to trust. Each phase is written at
+# most once per process anyway -- the first capture of a given failure is
+# the one worth having, and later ones are the same shape.
+_LP_DUMP_DIR_ENV = "NIMBUS_LP_DUMP_DIR"
+_LP_DUMPED_PHASES: set[str] = set()
+
+
+def _dump_failing_model(h: Any, label: str) -> str | None:
+    """Write the model HiGHS is currently holding to an MPS file, once
+    per label per process. Returns the path written, or None.
+
+    Returns None rather than raising on ANY failure, including a missing
+    `writeModel` on an older highspy. This is a diagnostic on a path
+    that is already going badly; it must never be the reason a solve
+    cycle dies, which is the same discipline #363 established after a
+    bare `except: pass` hid a real bug for days -- except that here the
+    swallowed failure is reported at DEBUG rather than silently, so
+    "the dump did not happen" is itself discoverable.
+    """
+    if label in _LP_DUMPED_PHASES:
+        return None
+    _LP_DUMPED_PHASES.add(label)
+    try:
+        import os
+        import re
+        import tempfile
+
+        base = os.environ.get(_LP_DUMP_DIR_ENV) or tempfile.gettempdir()
+        # The label carries a phase name that reaches this from a
+        # caller-supplied string; keep it to a filename-safe subset
+        # rather than trusting it to be one.
+        safe = re.sub(r"[^A-Za-z0-9_.-]", "_", label)[:60]
+        path = os.path.join(base, f"nimbus_773_{safe}.mps")
+        h.writeModel(path)
+    except Exception as e:  # noqa: BLE001 -- see docstring
+        _LOGGER.debug("Nimbus #773: could not dump the failing model (%s)", e)
+        return None
+    return path
+
+
 # nimbus issue #773: a per-solve breakdown across EVERY lex phase, not
 # just the ones slow enough to cross the 5s line on their own.
 #
@@ -403,6 +463,28 @@ def _timed_lp_call(
                 n_vars,
                 n_binary,
             )
+            # nimbus issue #773: the `phase2_secondary` timeout is the
+            # case Mark Purcell named specifically -- 30.1-56.8s every
+            # cycle against a 60s limit, where a synthetic model of the
+            # same shape runs in under a second. Dumping it here is what
+            # turns "what makes the root relaxation go fractional" from
+            # a hypothesis-and-test loop into something answerable by
+            # reading the constraint structure directly.
+            #
+            # Gated on `alarming`, the same two-tier condition that
+            # already decides WARNING vs DEBUG above, so a merely-slow
+            # but healthy call writes nothing.
+            if alarming:
+                dump_path = _dump_failing_model(h, f"slow_{label}")
+                if dump_path is not None:
+                    _LOGGER.warning(
+                        "Nimbus #773: wrote the slow model to %s -- this is "
+                        "the real instance two synthetic reproductions "
+                        "could not match. Attach it to nimbus issue #773. "
+                        "Set %s to choose where these land.",
+                        dump_path,
+                        _LP_DUMP_DIR_ENV,
+                    )
 
 
 # nimbus issue #490: below this, a ranging interval is treated as
@@ -1222,6 +1304,20 @@ def _ensure_optimal_value(
     status = h.getModelStatus()
     if status != highspy.HighsModelStatus.kOptimal:
         info = h.getInfo()
+        # nimbus issue #773: capture the real instance. Two synthetic
+        # reproductions have already failed to match production's shape,
+        # so the next step is reading the actual model rather than
+        # generating another approximation of it.
+        dump_path = _dump_failing_model(h, f"fail_{phase}")
+        if dump_path is not None:
+            _LOGGER.warning(
+                "Nimbus #773: wrote the failing model to %s -- this is the "
+                "real instance two synthetic reproductions could not "
+                "match. Attach it to nimbus issue #773. Set %s to choose "
+                "where these land.",
+                dump_path,
+                _LP_DUMP_DIR_ENV,
+            )
         _LOGGER.error(
             "Nimbus #773 diag: lex/calibration phase %r failed to reach "
             "optimal (status=%r, n_vars=%s, n_binary=%s, mip_node_count=%s, "

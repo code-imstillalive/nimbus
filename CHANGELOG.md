@@ -8,6 +8,27 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.370] - 2026-09-17
+
+### Added
+- **[#773](https://github.com/code-imstillalive/nimbus/issues/773): dump the real failing HiGHS instance instead of building another synthetic one** (Mark Purcell's own proposed next step).
+
+  The reasoning is what makes this worth doing rather than another hypothesis:
+
+  > "the synthetic sweep has now failed twice to reproduce the shape that matters (3.1x max vs production's 21-60x, and inverting at the largest synthetic size) — two failed synthetic reproductions is a real signal that guessing at *why* production's root relaxation goes fractional isn't going to get there analytically."
+
+  HiGHS can hand over the model it choked on. On the next live occurrence — either a lex/calibration phase failing to reach optimal, or the `phase2_secondary` slow call Mark named specifically (30.1–56.8 s every cycle against a 60 s limit, where a synthetic model of the same shape runs in under a second) — the instance is written to an `.mps` file and a WARNING names the path. That turns *"what makes the root relaxation go fractional"* from a hypothesis-and-test loop into something answerable by reading one real constraint structure.
+
+  **Gated on exactly the [#945](https://github.com/code-imstillalive/nimbus/issues/945) two-tier condition** that already decides WARNING vs DEBUG — slow past the alarming threshold, or non-optimal — so a healthy install never writes a byte. That is what makes leaving it enabled defensible rather than something an operator has to pre-arm before an intermittent fault nobody can predict.
+
+  **Bounded by construction, not by a counter.** Files are named per phase and overwritten rather than timestamped: an MPS file for a 12k-variable model is megabytes, and an intermittent fault firing for hours would otherwise quietly fill a household's disk. There are ~4 distinct phases, and each is written at most once per process — the first capture of a given failure is the one worth having. `NIMBUS_LP_DUMP_DIR` chooses where they land; the system temp directory is the default.
+
+  **It cannot take down a solve.** Any failure — a read-only filesystem, an older `highspy` with no `writeModel`, anything unexpected — returns "no dump" and logs at DEBUG rather than raising. This runs on a path that is already going badly, on real households' hardware, and an exception here would convert an intermittent slow solve into a hard failure: strictly worse than the problem being diagnosed. Three tests pin that specifically.
+
+  The caller-supplied phase label is reduced to a filename-safe subset before use, which is cheaper than reasoning about every caller now and later.
+
+  Devhub validation: **not claimed** — this writes only when the fault fires, and a healthy run cannot confirm a diagnostic that is silent by design. (That install does hit #773's fallback intermittently, so it may produce a capture on its own; nothing here waits on it.) Verified by 11 tests and the full local suite.
+
 ## [0.94.369] - 2026-09-17
 
 ### Added
