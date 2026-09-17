@@ -8,6 +8,70 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.388] - 2026-09-18
+
+### Fixed
+- **An EV that went out for the day was reported as a battery with 128.5% efficiency** ([#1098](https://github.com/code-imstillalive/nimbus/issues/1098), Mark Purcell).
+
+  `_resolve_battery_participant_history()` deliberately zeroes a participant's charge/discharge for every period it is away ([#768](https://github.com/code-imstillalive/nimbus/issues/768)/[#467](https://github.com/code-imstillalive/nimbus/issues/467)) -- correctly, since a car's propulsion discharge or a charge taken elsewhere never touches the household's grid connection and must not be priced as though it did. But `initial_soc_kwh`/`final_soc_kwh` come from the participant's own SoC telemetry, which reports **every** real state change, home or away.
+
+  So on an away-heavy day the two sides of the energy balance are answering different questions -- grid-relevant flow versus total real pack state -- and were never going to reconcile. Measured on Mark's install, `ev_my` on 17 Sep, away three times (~4h56m):
+
+  ```
+  residual_kwh                 -11.659     (19.4% of its capacity)
+  implied_charge_efficiency      1.2849    <- physically impossible
+  implied_efficiency_reason    "implied_efficiency_above_unity"
+  ```
+
+  That reason is the label for a genuine sign or reference-plane error. A household reading it had no way to tell "this pack's efficiency model is broken" from "this car went out" -- which is the common case on any install with an EV participant, not an edge case. He confirmed the sensor choice first: `battery_participant_power_sensor` on both his EVs is already the comprehensive pack-level reading (driving + AC + DC charging), so no better sensor exists to configure.
+
+  Now reported as **`participant_away_during_window`**, with a new `participant_away_fraction` published alongside (0.2083 on that day; always present, 0.0 for a home battery). The implied numbers are kept rather than nulled, matching [#1073](https://github.com/code-imstillalive/nimbus/issues/1073)'s choice -- they still bound the answer, and what changes is that the caveat is attached to them.
+
+  **The new reason is checked first, ahead of every other, and that ordering is the load-bearing part.** A participant away for most of a window has its throughput masked to ~zero while its SoC moves freely, which is precisely `soc_moved_without_throughput`'s trigger -- and that branch asserts the participant's power sensor "failed to see its dispatch". On a heavier away day it would have accused the household's hardware of a fault this code introduced deliberately.
+
+  No new plumbing was required, contrary to the filing's suggested approach: `_resolve_battery_participant_history()` already threads the same mask onto the participant's own `BatteryConfig.unavailable_period_indices`, so the call site reads it off a config it was already being handed.
+
+- **`seconds_to_settlement_capture()` in the standalone/cron copy is wrong outside whole-hour UTC offsets** ([#1102](https://github.com/code-imstillalive/nimbus/issues/1102), Mark Purcell IV&V).
+
+  [#1076](https://github.com/code-imstillalive/nimbus/issues/1076)'s AST guard only ever parsed the native integration's `solver_writer.py`. The cron copy has its own `_local()` -- ported in the same commit -- but four bare `.hour`/`.minute` reads the port missed, and no guard of its own to catch them.
+
+  Three were convention risks: every `grid_times` element happens to be Brisbane-aware because that file's own `main()` builds `now` that way, which is exactly the "already local by convention" assumption #1076's own docstring names as the thing that already failed once.
+
+  The fourth is a real latent bug. `seconds_to_settlement_capture()` computes `now.minute % 5`, and minute-of-hour is only invariant under a whole-hour UTC offset. Brisbane is UTC+10 so it is right here; **Adelaide is UTC+9:30**, a real NEM region, and it is not. The function is documented as a pure function of `now` precisely so a caller can hand it whatever it has, so it cannot rely on its current caller passing a local value forever.
+
+  All four now go through `_local()`. The durable half is Mark's own AST sweep, which now runs permanently against the cron copy -- without it the #1076 class could silently reappear in whichever copy lacked a guard, independent of the other.
+
+- **[#1089](https://github.com/code-imstillalive/nimbus/issues/1089)'s own guard had a gap at the exact boundary its docstring claimed could not exist** ([#1104](https://github.com/code-imstillalive/nimbus/issues/1104), Mark Purcell IV&V).
+
+  That guard shipped earlier the same day, claiming:
+
+  > Sharing the constant is what keeps the two from disagreeing about the same day.
+
+  Sharing the constant was not enough. `compute_epr()` tests it with `abs(x) < EPS` and `denominator_reason()` with `j_star - j_ref > EPS` -- two strict operators around one boundary leave a gap **at** that boundary:
+
+  ```
+  j_ref=0.0, j_star=1e-9  ->  theoretical_maximum_yield == -1e-9 exactly
+
+      compute_epr         abs(-1e-9) < 1e-9   -> False -> divides by it
+      denominator_reason   1e-9      > 1e-9   -> False -> stays silent
+
+      published:  epr = 4e+09,  denominator_reason = None
+  ```
+
+  A negative denominator, divided by, unflagged -- precisely the case the guard exists to catch. Narrow in practice, since it needs a computation to land on the exact float, but a real gap in a check whose whole purpose is that combination.
+
+  Fixed with `>=`, and the operator is derived rather than chosen: `compute_epr()` divides iff `abs(x) >= EPS`, so "divides AND negative" is `x <= -EPS`, i.e. `j_star - j_ref >= EPS`. Changing `compute_epr()` to `<=` would close the same gap but by altering the older function's long-standing boundary behaviour, so the change belongs in the newer one.
+
+  **Worth recording why this project's own test missed it**, since the test was written for exactly this class. Two independent reasons, and the second is the more instructive: the assertion covered only one direction of a biconditional (never "divided-by, negative, and NOT flagged"), and its fixture could not reach the boundary anyway -- `3.0 +/- delta` never lands on exactly `-1e-9` after rounding, so even a two-sided assertion would have passed. Both are now fixed.
+
+- **The P2P bonus gate's own pinning test could not see the case it was written for** ([#1103](https://github.com/code-imstillalive/nimbus/issues/1103), Mark Purcell IV&V).
+
+  Production was already correct; this was a blind guard. `fetch_p2p_fixed_export_kw()` returns `NaN` for every *ordinary* uncommitted period -- the majority case -- and every numpy comparison against NaN except `!=` is `False`, so [#1079](https://github.com/code-imstillalive/nimbus/issues/1079)'s `bonus[committed <= 0.0]` mask silently selected only the handful of explicit-`0.0` self-consume periods. Measured on a representative day: 2 periods seen, 18 invisible.
+
+  Mark's own new test covers the case and stands on its own. The old mask is now `~(committed > 0.0)` as well, so the original assertion stops being a guard that cannot cry wolf. Verified rather than assumed: reintroducing the original defect now fails **both** tests, where Mark had confirmed it previously passed that one.
+
+  Devhub validation: **not claimed for any of the four.** #1098 needs a real away-window participant, #1102's bug needs a non-whole-hour UTC offset, #1104 needs a computation landing on an exact float, and #1103 is a test-only change. All four are pinned by deterministic tests instead, two of them written by the reporter before the fix existed.
+
 ## [0.94.387] - 2026-09-18
 
 ### Changed
