@@ -3217,6 +3217,26 @@ def sum_load_forecasts(
 _MIXED_WINDOW_MIN_FRACTION = 0.01
 
 
+# nimbus issue #1098: what fraction of a window a battery participant may
+# be away for before its energy balance stops meaning anything.
+#
+# Mark Purcell suggested mirroring the 1% floor above and left the number
+# open ("tuned to whatever fraction of away time genuinely makes the
+# SoC-vs-power comparison meaningless"). 1% it is, but for a different
+# reason than the sibling constant, and the difference is the point:
+#
+# For #1072/#1073, 1% is a NEGLIGIBILITY threshold -- a hundredth of the
+# throughput genuinely cannot move the reading much. Away time has no
+# such property. **Unaccounted energy is not proportional to time away.**
+# A fifteen-minute DC fast-charge stop is well under 1% of a day and can
+# put 30 kWh into a pack, none of it visible to this household's grid
+# connection. So the floor here is not "below this it does not matter",
+# it is "below this we are choosing not to cry wolf about a car that
+# briefly left the driveway", and it is deliberately set as low as the
+# sibling rather than at some comfortable-looking 5% or 10%.
+_AWAY_WINDOW_MIN_FRACTION = 0.01
+
+
 def _is_mixed_direction_window(in_kwh: float, out_kwh: float) -> bool:
     """True when BOTH directions carry real throughput, so neither
     implied efficiency can be trusted on its own (nimbus issue #1073).
@@ -3259,6 +3279,8 @@ def battery_energy_balance(
     capacity_kwh: float,
     charge_efficiency: float,
     discharge_efficiency: float,
+    away_period_count: int = 0,
+    n_periods: int = 0,
 ) -> dict[str, float | str | None]:
     """Does this battery's measured energy actually reconcile with its
     measured SoC swing? (nimbus issue #1012.)
@@ -3326,8 +3348,53 @@ def battery_energy_balance(
     implied: float | None = None
     if in_kwh > 1e-6:
         implied = (measured + out_kwh / discharge_efficiency) / in_kwh
+    away_fraction = (
+        away_period_count / n_periods
+        if n_periods > 0 and away_period_count > 0
+        else 0.0
+    )
     reason: str | None = None
-    if implied is None and in_kwh <= 1e-6 and out_kwh <= 1e-6 and abs(measured) > 0.5:
+    if away_fraction >= _AWAY_WINDOW_MIN_FRACTION:
+        # nimbus issue #1098 (Mark Purcell), with real data from his own
+        # install: `ev_my` away three times on 17 Sep (~4h56m total)
+        # reported `implied_charge_efficiency: 1.2849` -- 128.5%,
+        # physically impossible -- under the reason
+        # `implied_efficiency_above_unity`, which is the label for a
+        # genuine sign or reference-plane error.
+        #
+        # It is not one. `_resolve_battery_participant_history()`
+        # deliberately ZEROES a participant's charge/discharge for every
+        # period it is away (#768/#467), and correctly so: a car's
+        # propulsion discharge, or a charge it took somewhere else, never
+        # touches this household's grid connection and must not be priced
+        # as though it did. But `initial_soc_kwh`/`final_soc_kwh` come
+        # from the participant's own SoC telemetry, which reports EVERY
+        # real state change, home or away.
+        #
+        # So the two sides of this balance are answering different
+        # questions -- grid-relevant flow versus total real pack state --
+        # and on an away-heavy day they were never going to reconcile.
+        # Reporting that as an efficiency finding is the confident-wrong-
+        # number failure this whole diagnostic exists to prevent.
+        #
+        # **This is checked FIRST, ahead of every other reason**, and
+        # `soc_moved_without_throughput` is why that matters rather than
+        # being a tidiness preference. A participant away for most of a
+        # window has its throughput masked to ~zero while its SoC moves
+        # freely, which is exactly that branch's trigger -- and that
+        # branch asserts the participant's power sensor "failed to see
+        # its dispatch", a reconstruction blind spot. Here the sensor saw
+        # it fine and Nimbus masked it on purpose. Letting that fire
+        # would accuse the household's hardware of a fault this code
+        # introduced deliberately.
+        #
+        # Mark verified the sensor choice before filing, which closes off
+        # the obvious alternative: `battery_participant_power_sensor` on
+        # both his EVs is already the comprehensive pack-level reading
+        # (driving + AC + DC charging), so no better sensor exists to
+        # configure and this cannot be resolved by setup.
+        reason = "participant_away_during_window"
+    elif implied is None and in_kwh <= 1e-6 and out_kwh <= 1e-6 and abs(measured) > 0.5:
         # nimbus issue #1012, observed 2026-09-17 on a real participant:
         # SoC moved 6.1 kWh (10% of its capacity) across a window in
         # which its power sensor recorded NO throughput in either
@@ -3418,6 +3485,20 @@ def battery_energy_balance(
         "configured_discharge_efficiency": round(discharge_efficiency, 4),
         "implied_charge_efficiency": None if implied is None else round(implied, 4),
         "implied_efficiency_reason": reason,
+        # nimbus issue #1098: HOW MUCH of the window the participant was
+        # away for, published rather than only used as a gate.
+        #
+        # The reason string says the comparison is void; this says by how
+        # far, which is the difference between "the car popped out for
+        # twenty minutes" and Mark's own measured day -- three trips,
+        # ~4h56m, 20.6% of the window. Without it a reader who wants to
+        # judge whether the number is merely caveated or entirely
+        # meaningless has to go back to the availability sensor's own
+        # history to find out.
+        #
+        # Always present (0.0 for a home battery, which is never away) so
+        # a consumer never has to distinguish missing from zero.
+        "participant_away_fraction": round(away_fraction, 4),
         # nimbus issue #1012: the DISCHARGE-side mirror, and the reason
         # it earns its own field rather than being inferable.
         #
@@ -8000,6 +8081,19 @@ def _compute_report_for_window(
                 capacity_kwh=b.capacity_kwh,
                 charge_efficiency=b.charge_efficiency,
                 discharge_efficiency=b.discharge_efficiency,
+                # nimbus issue #1098: no new plumbing needed to get this
+                # here. `_resolve_battery_participant_history()` already
+                # threads the same away mask onto the participant's own
+                # BatteryConfig as `unavailable_period_indices` (#467),
+                # so the balance can read it off the config it is already
+                # being handed. Mark's filing suggested threading the
+                # away fraction down from the resolver; it turned out to
+                # have arrived here on its own.
+                #
+                # `or ()` covers the home battery, which has no
+                # availability entity and carries None.
+                away_period_count=len(b.unavailable_period_indices or ()),
+                n_periods=len(period_hours_arr),
             )
             for b, chg, dis, fin in zip(
                 batteries,
