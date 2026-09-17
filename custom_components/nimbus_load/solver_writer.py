@@ -3215,6 +3215,28 @@ def _is_mixed_direction_window(in_kwh: float, out_kwh: float) -> bool:
     return smaller / larger >= _MIXED_WINDOW_MIN_FRACTION
 
 
+# How close to its starting SoC a window must finish before energy in and
+# energy out can be compared directly. 5% of throughput: on the four real
+# days this was derived from, every one closed to within 1.5%, and a
+# single-direction window misses it by two orders of magnitude (a
+# pure-discharge day scores 107%), so the threshold is nowhere near
+# anything real.
+_CLOSED_LOOP_MAX_RESIDUAL_FRACTION = 0.05
+
+
+def _is_closed_soc_loop(
+    in_kwh: float, out_kwh: float, measured_delta_kwh: float
+) -> bool:
+    """True when the window began and ended at essentially the same state
+    of charge, which is what makes energy in and energy out directly
+    comparable (nimbus issue #1086).
+    """
+    throughput = abs(in_kwh) + abs(out_kwh)
+    if throughput <= 1e-6:
+        return False
+    return abs(measured_delta_kwh) / throughput <= _CLOSED_LOOP_MAX_RESIDUAL_FRACTION
+
+
 def battery_energy_balance(
     *,
     name: str,
@@ -3310,6 +3332,31 @@ def battery_energy_balance(
         # The 0.5 kWh floor keeps genuine idleness (sensor quantisation,
         # a few tenths of self-discharge) out of it.
         reason = "soc_moved_without_throughput"
+    elif out_kwh > in_kwh and _is_closed_soc_loop(in_kwh, out_kwh, measured):
+        # nimbus issue #1086, observed 2026-09-18 on a real scored day
+        # (13 Sep): in 108.136 kWh, out 113.328 kWh, measured SoC delta
+        # -0.240 kWh. The pack returned to within 0.11% of throughput of
+        # where it started and delivered 5.2 kWh MORE than it received.
+        #
+        # That violates conservation of energy at any efficiency, so it
+        # is not a statement about the battery -- it is proof that one of
+        # the three inputs is incomplete. On that day it was the recorder:
+        # `load_nowcast_skill_coverage` read 0.958, and the achieved
+        # discharge came back 113.328 against inverter counters of ~119.3.
+        #
+        # Named separately because the existing reasons all describe
+        # reduced CONFIDENCE in a number that is otherwise sound. This one
+        # says the inputs do not add up. On 13 Sep the report published
+        # `mixed_window_not_decisive_implied_above_unity` -- true, but it
+        # reads as "this window cannot separate the two directions", not
+        # "this day's data is missing periods", and a reader acting on the
+        # former would go looking in entirely the wrong place.
+        #
+        # Deliberately gated on the loop closing. A window that legitimately
+        # starts full and ends empty has out >> in by design and is not
+        # remarkable; it is only impossible when the pack came back to
+        # where it began.
+        reason = "energy_out_exceeds_in_on_closed_loop"
     elif implied is None:
         reason = "no_charge_throughput"
     elif _is_mixed_direction_window(in_kwh, out_kwh):
