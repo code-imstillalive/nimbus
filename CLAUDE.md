@@ -16,6 +16,11 @@ Instructions for any Claude instance working on this repo. Read this before touc
 
 ## Recent history
 
+> **Travel handover, 2026-09-17:** `docs/handover/2026-09-17-epr-and-scoring.md`
+> is the authoritative account of the EPR/quality-scoring thread (#1077, #1079
+> shipped; #1081, #1082 open; four parked branches; the devhub-vs-NUC1 mirror
+> trap). Read it before touching the scorer.
+
 Dated work-in-progress notes live in `docs/worklog/`, one file per date — this is where
 the "CURRENT STATE" journal that used to live directly in this file now lives. Each
 file is not re-summarized here; read it directly for the full detail. Most recent 5:
