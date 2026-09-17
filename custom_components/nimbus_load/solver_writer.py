@@ -8345,6 +8345,88 @@ def _carry_forward_quality_history(
     return history
 
 
+# nimbus issue #1082: the two settlement statuses that mean "not settled
+# YET", as opposed to settled, or never going to be.
+#
+#   applied                              -> final, the real figures are in
+#   no_sensor_configured                 -> permanent, this install has none
+#   window_is_not_one_local_calendar_day -> permanent for that window shape
+#
+# Only the two below can change on their own with nothing but time passing,
+# so only they are worth scoring again.
+_PROVISIONAL_SETTLEMENT_STATUSES = frozenset(
+    {"no_settlement_entry_for_this_date", "settlement_sensor_unreadable"}
+)
+
+# How long to leave a provisional score alone before scoring that day again.
+#
+# The publisher runs on every solve cycle -- about once a minute -- and a
+# rescore costs a full oracle MIP. Retrying on every cycle would be a
+# straight repeat of #773, where a multi-minute solve firing repeatedly
+# starved HA's executor badly enough to fail backups. An hour bounds the
+# worst case (a day whose settlement never arrives) at ~24 extra solves,
+# and the retry window closes on its own at local midnight when
+# `yesterday_key` rolls over.
+_PROVISIONAL_RESCORE_INTERVAL = timedelta(hours=1)
+
+
+def _keep_published_quality_score(attrs: dict, now: datetime) -> bool:
+    """Whether an already-published score for this day should stand, or be
+    computed again (nimbus issue #1082).
+
+    **The defect.** `compute_daily_quality_report()` scores "yesterday",
+    and the publisher is driven from the solve cycle, so the first attempt
+    lands just after local midnight -- before that day's P2P settlement has
+    populated. `real_p2p_dollars` is then 0, which additionally makes
+    `real_p2p_volume_kwh > 0.01` false, so the bonus-priced `grid_oracle`
+    rebuild never runs either: `j_ach`, `j_star` and `j_ref` all go
+    P2P-blind together and the day is scored as though the household had no
+    P2P arrangement at all.
+
+    The idempotency fast path then re-pushes that score verbatim on every
+    later cycle, so it stands permanently. Measured on a real install:
+    v0.94.378 was still publishing 16 Sep at **EPR 90.6%** with
+    `real_p2p_dollars: 0` twenty-one hours later, where scoring the
+    identical day once the settlement had landed returned **95.71%** with
+    the real $14.5364 applied. The whole 5-point gap is the P2P revenue.
+
+    Very likely the mechanism behind a long-standing household report --
+    *"I export, and your system tells me my EPR records zero P2P exports"*
+    -- which had been read as a gating bug more than once. It is a timing
+    bug. `real_p2p_settlement_status` has reported the truth since #1016;
+    nothing was hiding it, nothing was reading it.
+
+    **Why this is the whole fix.** The status field already distinguishes
+    "not settled yet" from "settled" and from "never will be", so a
+    provisional score can be recognised without any new published state, a
+    new config field, or a notion of provisionality the sensor does not
+    have. It is self-limiting in both directions: it stops as soon as a day
+    settles, and `yesterday_key` rolls over at midnight regardless.
+
+    An unparseable or missing `generated_at` keeps the score. Rescoring
+    forever on a timestamp that cannot be read would be a worse failure
+    than the one being fixed, and it is exactly the shape of thing that
+    turns a diagnostic into an outage.
+    """
+    if attrs.get("real_p2p_settlement_status") not in _PROVISIONAL_SETTLEMENT_STATUSES:
+        return True
+    generated_at = attrs.get("generated_at")
+    if not generated_at:
+        return True
+    try:
+        age = now - parse_iso(generated_at)
+    except (TypeError, ValueError, AttributeError):
+        # `parse_iso()` anchors a genuinely naive value to UTC (#363), so
+        # the subtraction should always compute today. Catching it anyway
+        # is what keeps a future change there from turning this
+        # diagnostic into an every-cycle exception -- but deliberately
+        # around the SUBTRACTION rather than as a separate `tzinfo is
+        # None` test, which parse_iso's own contract makes unreachable.
+        # An unreachable guard is indistinguishable from one that works.
+        return True
+    return age < _PROVISIONAL_RESCORE_INTERVAL
+
+
 def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
     """Publishes sensor.nimbus_solver_quality_report -- the exact
     entity_id the devhub dashboard's own "Nimbus Solver Quality" card
@@ -8406,35 +8488,66 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
         # publisher, to prove none of them lost the idempotency check
         # that keeps a once-a-day score from re-solving 1440 times.
         # Tidying this into the local costs that guard its match.
+        #
+        # nimbus #1082: the date matching is necessary but no longer
+        # sufficient. A score taken before the day's settlement landed is
+        # provisional, and re-pushing it verbatim is what made it
+        # permanent -- see _keep_published_quality_score() for the
+        # measured 5-EPR-point case.
         if existing.get("attributes", {}).get("latest_date") == yesterday_key:
-            # issue #313 (Mark Purcell): this fast path used to be
-            # externally indistinguishable from every silent-skip path
-            # below it -- same "nothing changed, nothing logged" outcome.
-            # DEBUG, not INFO: this is the expected, common case on every
-            # cycle after the first of a given day, not a diagnostic event.
-            # nimbus issue #994, second half: seed the table on the fast
-            # path too. Without this, an install whose `history` was
-            # already wiped -- which is every install that ever ran the
-            # pre-v0.94.346 publisher -- keeps re-pushing the same
-            # history-less attributes until a NEW day is scored, so the
-            # Regret card goes on falling back to its second scorer for
-            # another full day after the fix lands.
+            # nimbus #1082: having scored this day is necessary but no
+            # longer sufficient. A score taken before the day's settlement
+            # landed is PROVISIONAL, and re-pushing it verbatim on every
+            # later cycle is exactly what made it permanent. Falling
+            # through here re-scores it with the settlement that has since
+            # arrived -- see _keep_published_quality_score() for the
+            # measured 5-EPR-point case, and for why this cannot loop.
             #
-            # Costs nothing: the five numbers for the already-scored day
-            # are sitting in the attributes being re-pushed, so this
-            # needs no recompute and no LP solve. `existing_attrs` is the
-            # same dict object as `existing["attributes"]`, so seeding it
-            # here is what the verbatim re-push below then publishes.
-            existing["attributes"]["history"] = _carry_forward_quality_history(
-                existing_attrs, yesterday_key, existing_attrs
-            )
-            _LOGGER.debug(
-                "Nimbus quality: fast-path hit, already scored %s -- re-"
-                "pushing cached state to keep the freshness stamp alive",
-                yesterday_key,
-            )
-            ha_post_state(QUALITY_ENTITY_ID, existing["state"], existing["attributes"])
-            return
+            # Deliberately nested rather than folded into the condition
+            # above: test_solver_writer_family_a_freshness_repush.py
+            # locates this fast path by the exact source text
+            # `if<check>:`, so an `and` on that line silently defeats a
+            # guard that exists to stop a once-a-day score re-solving
+            # 1440 times. Correctness of the guard beats tidiness here.
+            if not _keep_published_quality_score(existing_attrs, now):
+                _LOGGER.info(
+                    "Nimbus quality: %s was scored before its settlement "
+                    "was available (%s) -- re-scoring it now that the "
+                    "real figures may have landed",
+                    yesterday_key,
+                    existing_attrs.get("real_p2p_settlement_status"),
+                )
+            else:
+                # issue #313 (Mark Purcell): this fast path used to be
+                # externally indistinguishable from every silent-skip path
+                # below it -- same "nothing changed, nothing logged" outcome.
+                # DEBUG, not INFO: this is the expected, common case on every
+                # cycle after the first of a given day, not a diagnostic event.
+                # nimbus issue #994, second half: seed the table on the fast
+                # path too. Without this, an install whose `history` was
+                # already wiped -- which is every install that ever ran the
+                # pre-v0.94.346 publisher -- keeps re-pushing the same
+                # history-less attributes until a NEW day is scored, so the
+                # Regret card goes on falling back to its second scorer for
+                # another full day after the fix lands.
+                #
+                # Costs nothing: the five numbers for the already-scored day
+                # are sitting in the attributes being re-pushed, so this
+                # needs no recompute and no LP solve. `existing_attrs` is the
+                # same dict object as `existing["attributes"]`, so seeding it
+                # here is what the verbatim re-push below then publishes.
+                existing["attributes"]["history"] = _carry_forward_quality_history(
+                    existing_attrs, yesterday_key, existing_attrs
+                )
+                _LOGGER.debug(
+                    "Nimbus quality: fast-path hit, already scored %s -- re-"
+                    "pushing cached state to keep the freshness stamp alive",
+                    yesterday_key,
+                )
+                ha_post_state(
+                    QUALITY_ENTITY_ID, existing["state"], existing["attributes"]
+                )
+                return
     except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError):
         pass  # never seen before, or transiently unreachable -- fall through and try to compute
     day_entry = compute_daily_quality_report(cfg, now)
