@@ -8,6 +8,33 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.385] - 2026-09-18
+
+### Changed
+- **`main()` is 256 lines shorter: the price/P2P input slice now lives in `solver_inputs/prices.py`** ([#735](https://github.com/code-imstillalive/nimbus/issues/735) stage 4).
+
+  `main()` **1,077 -> 821 lines**; `solver_writer.py` 16,098 -> 15,849. No behaviour change is intended or expected -- this is a move, and the moved body is byte-identical to what stood in `main()` once re-indented.
+
+  This is the region Mark Purcell independently re-measured after stage 6 and named as the largest remaining candidate. His figures held up: he measured 263 lines / 5 in / 10 out, and the same region (now grown to 272 lines) measures **5 in / 9 out**. His tenth output was `i` -- a comprehension variable, which does not leak in Python 3; a first AST pass here reported it too, and chasing it found no bug.
+
+  **Stage 4 had been read for a seam twice and measured once, concluding "no clean seam at all"** before stage 6's own scan reversed that. Given that history, three properties were checked mechanically rather than by reading:
+
+  1. the region is **one `if`/`else` statement**, so there is no interleaving to preserve -- which is precisely why the earlier reading was wrong, since it *looks* like an interleaved run;
+  2. **every one of the nine returned names is assigned in both arms**, so the single unconditional `return` cannot `NameError` on either path;
+  3. the move is a **pure dedent**, which is the [#873](https://github.com/code-imstillalive/nimbus/issues/873) guard -- hoisting a block that begins with `if` can silently re-parent a following `elif` while passing ruff, mypy and its own tests, and a pure indent cannot.
+
+  The `sw.` prefixes were inserted at **AST node positions, never by regex**, so a matching word inside a string or comment could not be rewritten, then verified by mapping them back and comparing ASTs.
+
+  One consequence worth stating for anyone reading `solver_writer.py`: `aemo_crosscheck`'s only consumer has moved out, so its import there now has no statically visible user and is `noqa`'d with the same explanation `blend_forecast_array` already carries. That keeps `solver_writer` the single binding point for every shared helper, so a monkeypatch -- or a `custom_components.nimbus_load.solver_writer: debug` log level -- still reaches the moved code.
+
+  `has_price_forecast_array` stays a parameter rather than being computed inside, because `main()` reads it again afterwards to gate the percentile-band reuse. Two sources of truth for one question is how [#582](https://github.com/code-imstillalive/nimbus/issues/582)'s duplicated period-index resolution came not to inherit its own fix, and a test asserts the flag is still read after the call so the parameter cannot quietly become redundant.
+
+  The new tests are **seam tests and say so**: driving both arms end to end would mean twenty mocks of recorder- and AEMO-backed helpers whose shapes are themselves the most likely thing to drift. The one that can catch a real future bug asserts both arms still assign all nine fields -- adding a tenth output to the rich-sensor arm and forgetting the generic arm would pass everything else and fail only on installs *without* a forecast-array price sensor, which is the majority.
+
+  Advisory mypy **211 -> 223**, measured against a clean `main` worktree rather than a remembered number. The delta is entirely in `solver_writer.py` (116 -> 128) with **zero** findings in the new module: `PriceArrays`' fields are typed `object`, exactly as `LoadArrays`' twelve are, so the nine rebindings widen inference at the call site. That is the documented cost of this staging convention rather than a new defect, and the strict solver+ml gate is unchanged at 6 -- but it is a real accumulating cost and is named here rather than discovered at stage 8.
+
+  Devhub validation: **not claimed, and not claimable for this change** -- it is a pure code move with no observable output, so a clean restart would verify nothing it touches. Verified instead by CI on the merged commit: **3,141 passed, 15 skipped, 1 xfailed** on the stub suite and **15 passed** on the real-HA harness.
+
 ## [0.94.384] - 2026-09-18
 
 ### Fixed
