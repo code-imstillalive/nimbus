@@ -7766,6 +7766,15 @@ def _compute_report_for_window(
         # here instead of being implicit in a regret that had gone
         # negative. 0.0 means nothing was owed or everything was met.
         "p2p_commitment_shortfall_kwh": report.p2p_commitment_shortfall_kwh,
+        # nimbus issue #1081: j_star is the LP's own objective, j_ach an
+        # independent arithmetic evaluator. "j_star <= j_ach by
+        # construction" is an argument about TRAJECTORIES; it only
+        # carries to the NUMBERS if both are priced the same way. These
+        # two reprice the oracle's own plan through j_ach's path so the
+        # disagreement is measured rather than assumed -- see
+        # QualityReport's own field docs for the 15 Sep case.
+        "j_star_evaluator": report.j_star_evaluator,
+        "j_star_path_delta": report.j_star_path_delta,
         "regret_dollars": round(regret_dollars, 4),
         "tracking_fidelity": round(report.tracking.tracking_fidelity, 4),
         "tracking_cost": round(report.tracking_cost, 4),
