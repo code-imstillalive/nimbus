@@ -8,6 +8,32 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.368] - 2026-09-17
+
+### Fixed
+- **[#118](https://github.com/code-imstillalive/nimbus/issues/118)'s near-zero load guard now protects the summed multi-circuit path too** ([#933](https://github.com/code-imstillalive/nimbus/issues/933), Mark Purcell).
+
+  #118 established that a structurally-valid, near-all-zero load forecast produces a confident `optimal` solve — it told a household the battery could export **~$46/day** more than it really could, because the solver believed nobody was consuming anything. That guard lives in `read_load_forecast_sensor()` and protects only the **single-sensor** path. The summed path — the one the reference household runs, with 18 circuits — reaches the identical input state by a different route: each per-entity fetch failure contributes `0.0` for every period (correct, individually), and enough simultaneous failures accumulate silently into a near-zero total.
+
+  **Not hypothetical.** The reference household's own daily statistics show the summed sensor reaching **exactly 0.0 on five separate days**. HA's statistics compiler skips non-numeric states, so `unavailable`/`unknown` are excluded rather than stored as zero — a recorded `0.0` means the sensor genuinely published `0.0`, which on this path requires every contributing circuit to have contributed `0.0`. An 18-circuit household cannot draw exactly nothing.
+
+  The gate is the conjunction the thread converged on — `failed_entities` non-empty **and** fewer than 10% of periods non-trivially non-zero — because each half alone is wrong:
+
+  - **the fraction alone** has an onboarding trap: a circuit that has never produced a forecast fails the fetch exactly like one transiently down, so a household adding circuits one at a time would see Nimbus refuse to plan
+  - **"every entity failed" alone** misses a partial failure that still leaves the total near-zero
+
+  Requiring both keeps the guard for mass failure while never firing on a household whose fetches all **succeeded** and whose load is genuinely low — an empty holiday house is a real, correct near-zero with nothing missing from its data. The conjunction is also correct whether or not failures cluster, which is what unblocked shipping it: the clustering measurement is currently unreachable ([#944](https://github.com/code-imstillalive/nimbus/issues/944) drops the attribute that would have answered it), and the AND-gate does not depend on the answer.
+
+  On a refusal the cycle publishes nothing and retries on the next tick — the same self-healing shape [#370](https://github.com/code-imstillalive/nimbus/issues/370) established, and appropriate because every failure mode this fires on is transient by nature (an HA restart, a recorder stall, an integration reload, a template chain briefly unavailable). The message names the failed entities.
+
+  **One subtlety that would have silently disabled the guard:** `inverter_self_consumption_kw` is added to every period *after* the sum, so a fully-failed total does not arrive as zeros — it arrives as that constant, repeated. A naive `v > 0.01` test would see 100% non-zero periods on any install with a real self-consumption value configured and never fire at all. It is subtracted back out before the comparison, and a test pins why.
+
+  **One correction to the issue's own framing**, found while writing the tests and pinned rather than papered over: *"14 of 18 down still yields a badly wrong total"* is true about accuracy, but this gate's criterion is a **near-zero total**, not **many entities failed**. A partial failure whose surviving circuits carry real load leaves a total that is understated but not degenerate, and Nimbus keeps planning. That is the right scope for a guard descended from #118 — which is about the confidently-wrong near-zero plan, not about under-counting — but that case remains unguarded, with `failed_load_entities` still its only signal.
+
+  `sum_load_forecasts()` is unchanged and stays a pure summer: its own docstring makes the case for guarding each **term** rather than the outer sum, and that reasoning still holds. The decision to refuse lives at the call site, where `load_forecast_error` was already plumbed. Ported to the standalone/cron writer as well, which runs the same summed path.
+
+  Devhub validation: **not claimed** — that install reports `failed_load_entities: []` on a healthy 18-circuit summed path, so there is no failure state there to exercise, and manufacturing one would test the fixture rather than the guard. Verified by 13 tests and the full local suite.
+
 ## [0.94.367] - 2026-09-17
 
 ### Added
