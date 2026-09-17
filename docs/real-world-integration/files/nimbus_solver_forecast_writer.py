@@ -189,6 +189,30 @@ from zoneinfo import ZoneInfo
 # this is also simpler and more robust than any UTC-offset arithmetic).
 BRISBANE_TZ = ZoneInfo("Australia/Brisbane")
 
+
+def _local(ts):
+    """The same instant in the household's OWN timezone.
+
+    The counterpart of solver_writer.py's own `_local()`. Every
+    hour-of-day decision below -- the P2P block, network fee tiers, the
+    self-consume window, the 5-minute buckets -- is a statement about
+    LOCAL wall-clock time, and reading `.hour` straight off a datetime
+    makes it depend on whatever timezone the caller attached.
+
+    This file already builds its own `now` from BRISBANE_TZ (see the
+    comment above), so in practice these reads were already local and
+    this is a no-op here today. It is applied anyway because "already
+    local by convention" is exactly the assumption that failed on the
+    scoring side, where grid_times arrive UTC-stamped and the same
+    bare `gt.hour` gated a real 17:00-24:00 P2P block against
+    17:00-24:00 UTC. Making it explicit costs nothing and removes the
+    convention from the load-bearing path.
+
+    A naive datetime is returned unchanged rather than guessed at.
+    """
+    return ts.astimezone(BRISBANE_TZ) if getattr(ts, "tzinfo", None) is not None else ts
+
+
 # PORTABILITY (2026-08-21, env-var-overridable -- was hardcoded, edit-the-
 # file-yourself before this) -- every one of these three household-
 # specific values now has a real default (this NUC's own exact current
@@ -1105,7 +1129,7 @@ def midnight_boundary_period_indices(grid_times: list[datetime]) -> list[int]:
     """
     indices = []
     for t in range(len(grid_times) - 1):
-        if grid_times[t].hour != 0 and grid_times[t + 1].hour == 0:
+        if _local(grid_times[t]).hour != 0 and _local(grid_times[t + 1]).hour == 0:
             indices.append(t)
     return indices
 
@@ -2632,7 +2656,7 @@ def resample_real_p2p_rate(grid_times: list[datetime]) -> list[float]:
 
     out = []
     for gt in grid_times:
-        if not (17 <= gt.hour < 24):
+        if not (17 <= _local(gt).hour < 24):
             out.append(0.0)
         elif gt <= last_real_time:
             val = pts[0][1]
@@ -2795,13 +2819,13 @@ def fetch_p2p_fixed_export_kw(
 
     result: list[float] = []
     for gt in grid_times:
-        gt_minute = gt.hour * 60 + gt.minute
+        gt_minute = _local(gt).hour * 60 + _local(gt).minute
         matched_rate = float("nan")
         for rate_kw, start_minute, end_minute in blocks:
             if start_minute <= gt_minute < end_minute:
                 matched_rate = rate_kw
                 break
-        if runs_through_midnight and gt.hour < self_consume_hours:
+        if runs_through_midnight and _local(gt).hour < self_consume_hours:
             matched_rate = 0.0
         result.append(matched_rate)
     return result
@@ -3120,7 +3144,7 @@ def compute_5min_offset(
         aemo_v = nearest_before(aemo_history, t)
         if aemo_v is None:
             continue
-        bucket = t.hour * 12 + t.minute // 5
+        bucket = _local(t).hour * 12 + _local(t).minute // 5
         by_bucket.setdefault(bucket, []).append(real_v - aemo_v)
     return {b: sum(vals) / len(vals) for b, vals in by_bucket.items()}
 
@@ -3236,7 +3260,7 @@ def compute_price_percentile_band(
         return {}
     by_bucket: dict[int, list[float]] = {}
     for t, v in price_history:
-        bucket = t.hour * 12 + t.minute // 5
+        bucket = _local(t).hour * 12 + _local(t).minute // 5
         by_bucket.setdefault(bucket, []).append(v)
     return {b: float(np.percentile(vals, percentile)) for b, vals in by_bucket.items()}
 
@@ -3256,7 +3280,7 @@ def apply_price_band(
         return None
     out = []
     for i, gt in enumerate(grid_times):
-        bucket = gt.hour * 12 + gt.minute // 5
+        bucket = _local(gt).hour * 12 + _local(gt).minute // 5
         out.append(band_by_5min.get(bucket, point_price[i]))
     return out
 
@@ -3317,7 +3341,7 @@ def resample_price_with_extrapolation(
             continue
         aemo_v = nearest_before(aemo_pts, gt)
         if aemo_v is not None:
-            bucket = gt.hour * 12 + gt.minute // 5
+            bucket = _local(gt).hour * 12 + _local(gt).minute // 5
             out.append(float(aemo_v + offset_by_5min.get(bucket, 0.0)))
         else:
             out.append(float(last_real_value))
@@ -3338,7 +3362,7 @@ def build_tiered_grid(now: datetime) -> tuple[list[datetime], list[float]]:
     if minute_start < now:
         minute_start += timedelta(minutes=1)
     tier1_start = minute_start
-    while tier1_start.minute % 5 != 0:
+    while _local(tier1_start).minute % 5 != 0:
         tier1_start += timedelta(minutes=1)
     t = minute_start
     while t < tier1_start:
@@ -3347,7 +3371,7 @@ def build_tiered_grid(now: datetime) -> tuple[list[datetime], list[float]]:
         t += timedelta(minutes=TIER0_PERIOD_MINUTES)
     tier1_end = tier1_start.replace(second=0, microsecond=0)
     while tier1_end <= tier1_start or (
-        tier1_end.minute % TRADING_INTERVAL_MINUTES != 0
+        _local(tier1_end).minute % TRADING_INTERVAL_MINUTES != 0
     ):
         tier1_end += timedelta(minutes=1)
     tier1_end += timedelta(minutes=TRADING_INTERVAL_MINUTES)
@@ -4786,7 +4810,7 @@ def main() -> None:
         flat_fee_rate = _cfg_num(cfg, "solver_flat_fee_rate", 0.0)
         import_price = [
             spot_import_raw[i]
-            + import_fee_rate(cfg, grid_times[i].hour)
+            + import_fee_rate(cfg, _local(grid_times[i]).hour)
             + flat_fee_rate
             for i in range(n_periods)
         ]
