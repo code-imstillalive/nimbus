@@ -462,12 +462,47 @@ At the configured e = 0.9263: **discharge implies 123.8 kWh** (within 1.3% of th
 configured 122.2, 3.4% of #1013's 119.72); **charge implies 101.3 kWh** (17% below
 both). Discharge is consistent with everything else known; charge is the outlier.
 
-### The single remaining question on #1012
+### RESOLVED: the counters are sound, the SoC scale is DIRECTION-DEPENDENT
 
-Why does the charge side under-count by ~17% relative to its own discharge side —
-measured at the same DC terminals, on the same capacity-weighted SoC scale, in the
-same SoC band, at a rate that provably does not matter? Everything else on the issue
-is now settled by measurement.
+Charge does not under-count. Over a **closed SoC loop** any direction-dependent SoC
+error cancels, and solving `in*e - out/e = stored_delta` on the two scored days:
+
+| day | in | out | ΔSoC | implied one-way e |
+|---|---|---|---|---|
+| 16 Sep | 109.667 | 106.041 | −1.078 kWh | **0.9784** |
+| 15 Sep | 106.602 | 101.209 | +1.557 kWh | **0.9817** |
+
+Both under unity, both physically possible, agreeing to 0.3%. Against the
+band-restricted 1.049, which is not. Same counters, same sensor, same days — the
+only difference is whether the window closes the loop.
+
+**So the counters are sound** (a 17% one-directional scale error could not produce a
+physically possible closed loop) **and the SoC scale is direction-dependent by ~5%
+within a band**. Traversing 67→83.5 up costs less per point than 83.5→67 down
+returns; over a full cycle the halves cancel. That is SoC hysteresis — the battery's
+behaviour, not the integration's.
+
+**This is the whole of #1012.** The achieved trajectory integrates real power; the
+sensor it is compared against carries a direction-dependent offset that only cancels
+over a complete cycle. Within a day the pack charges hard midday and discharges hard
+in the evening, so the offset accumulates for hours before reversing — exactly the
+shape of the ~37-point divergence and exactly why it peaks late afternoon.
+
+**No conversion, efficiency, capacity or plane correction can fix it.** Nothing is
+wrong with the inputs; two quantities are being compared that are equal only over a
+closed cycle.
+
+Actions: **delete `fix/1012-battery-power-plane`** (premise retired twice over);
+accept that **`soc_discrepancy` cannot reach zero on this hardware** and that
+`epr_reliable: false` from this source is a false alarm (same conclusion #949 reached
+from the fleet-blend side); and note that **the configured efficiency looks
+pessimistic** — two closed loops imply one-way 0.978–0.982 (round-trip 0.957–0.964)
+against the configured 0.9263 (0.858). That last one feeds the live dispatch LP, not
+just scoring, and is worth checking separately.
+
+Caveats: two days, one install; the arithmetic assumes `e_c = e_d` (one equation per
+day cannot separate them); and the top-band recalibration sits inside both days, so
+it is folded into the 0.978/0.982 rather than excluded.
 
 **Consequence for the fix: it is not an input-boundary conversion at all.**
 The counted energy and the configured efficiency are both demonstrably right. What
