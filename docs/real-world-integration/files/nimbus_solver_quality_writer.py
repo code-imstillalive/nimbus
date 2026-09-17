@@ -1004,8 +1004,13 @@ def main() -> None:
         final_soc_kwh_actual=[final_soc_kwh_actual],
     )
 
+    # nimbus issue #1081 (Mark Purcell's decision, 2026-09-18): measured
+    # against j_star_evaluator, not the raw LP objective -- the LP is
+    # unchanged and j_star is still published beside it. See
+    # compute_quality_report()'s own comment at its compute_epr() call
+    # for the reasoning. Ported here rather than left to drift (#357).
     regret_dollars = (
-        report.j_ach - report.j_star
+        report.j_ach - report.j_star_evaluator
     )  # positive = actual cost MORE than perfect foresight, i.e. real $ left on the table
 
     # Real forecast-quality decomposition (2026-08-29, issue #273, direct

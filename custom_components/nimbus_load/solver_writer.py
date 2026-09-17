@@ -7708,7 +7708,13 @@ def _compute_report_for_window(
         )
         return None
 
-    regret_dollars = report.j_ach - report.j_star
+    # nimbus issue #1081 (Mark Purcell's decision, 2026-09-18): regret is
+    # measured against `j_star_evaluator`, not the raw LP objective. The
+    # LP is unchanged and `j_star` is still published beside this -- see
+    # compute_quality_report()'s own comment at the compute_epr() call
+    # for the full reasoning. Both numbers were already on the report;
+    # only which one the headline derives from has changed.
+    regret_dollars = report.j_ach - report.j_star_evaluator
     # nimbus issue #538 (Mark Purcell, real household finding): these two
     # dashboard-editable thresholds are the "agreement" half of the
     # reliability test -- see _soc_discrepancy_stats()'s own docstring.

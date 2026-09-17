@@ -982,7 +982,39 @@ def compute_quality_report(
         day_start=day_start,
     )
 
-    epr_result = compute_epr(j_ref=j_ref, j_ach=j_ach, j_star=j_star)
+    # nimbus issue #1081, decided by Mark Purcell 2026-09-18: EPR is
+    # computed from `j_star_evaluator`, NOT the raw LP objective.
+    #
+    # **The LP has not changed.** `j_star` is still computed, still
+    # published, and is still the correct thing to optimise -- it is what
+    # CHOOSES the plan. What changes is only which of two numbers the
+    # scorer reads, and both were already on the report.
+    #
+    # Why the evaluator one is the honest choice, in Mark's words: the
+    # soft-SoC penalty, the slack penalties and the bonus-as-a-chosen-
+    # variable "exist to shape what the LP searches for, not to describe
+    # a cost the household could ever actually pay. They're search
+    # machinery." There is no day on which a household paid a soft-SoC
+    # penalty, so pricing an already-fixed trajectory against one
+    # produces an arbitrary number. `j_star_evaluator` reprices the SAME
+    # chosen trajectory through the SAME real-cost arithmetic `j_ach`
+    # already uses, which is the symmetric comparison EPR is supposed to
+    # be -- the principle #956 and #1089 already established for the rest
+    # of the scorer.
+    #
+    # #586 is the local precedent: zeroing the recovery penalty for one
+    # oracle solve was already an admission that it does not belong in a
+    # comparison, just never generalised.
+    #
+    # **And this makes the headline consistent with the detail beneath
+    # it rather than choosing between two arbitrary options.**
+    # `hourly_regret` above has ALWAYS been evaluator-priced -- it is
+    # computed from `oracle_residual`, which is the very object
+    # `j_star_evaluator` is derived from. Only the headline reached for
+    # the LP objective. So this narrows the documented
+    # sum-of-hours-vs-headline gap rather than widening it: what remains
+    # is the bonus-credit term alone, not the whole path mismatch.
+    epr_result = compute_epr(j_ref=j_ref, j_ach=j_ach, j_star=j_star_evaluator)
 
     # mypy issue #384: same numpy-stub dtype-widening note as above.
     # Fleet-aggregate tracking too -- summed across every battery, same
