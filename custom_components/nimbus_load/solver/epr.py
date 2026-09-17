@@ -120,6 +120,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+# Below this, `j_ref - j_star` is treated as "no opportunity existed"
+# rather than as a real quantity with a sign. compute_epr() has reported
+# 1.0 inside this band since the file was written; nimbus #1089's
+# denominator_reason() reuses the SAME band so the two cannot disagree
+# about the same day -- a denominator of -1e-12 is float noise on a flat
+# day, and flagging it would make `epr_reliable` False for a day that is
+# simply uneventful.
+#
+# Deliberately shared rather than duplicated: the failure mode if these
+# drift apart is a day reported as a perfect 1.0 AND unreliable at the
+# same time, which is unactionable.
+_DEGENERATE_YIELD_ABS = 1e-9
+
 
 @dataclass(frozen=True)
 class EPRResult:
@@ -133,6 +146,19 @@ class EPRResult:
     )
     value_captured: float  # $, j_ref - j_ach -- what was actually captured
     uplift_available: float  # $, j_ach - j_star -- same quantity regret.py calls R; kept as supporting detail, never the headline
+    # nimbus issue #1089: None when `theoretical_maximum_yield` is a
+    # positive quantity (the normal case, and what reading `epr` as a
+    # percentage assumes). A reason string when it is not, in which case
+    # `epr` is a ratio of two signed dollar amounts rather than a
+    # fraction of anything available -- see compute_epr()'s own
+    # docstring for the real 242.7% this was measured on.
+    #
+    # Carried on the result rather than computed by each caller so that
+    # every consumer of an EPR gets the check for free: the native
+    # integration, the standalone cron writer, and anything built later.
+    # Defaulted so an EPRResult constructed positionally in an existing
+    # test keeps working.
+    denominator_reason: str | None = None
 
 
 def compute_epr(*, j_ref: float, j_ach: float, j_star: float) -> EPRResult:
@@ -158,11 +184,48 @@ def compute_epr(*, j_ref: float, j_ach: float, j_star: float) -> EPRResult:
     A value outside [0, 1] is informative, not an error: epr < 0 means
     the scored trajectory did WORSE than the reference baseline (a real
     possibility -- e.g. a genuinely bad forecast driving a worse-than-
-    doing-nothing decision); epr > 1 would mean j_ach beat j_star, which
-    should not happen for a correctly-computed oracle over the identical
-    window and real data, and would itself be worth investigating as a
-    likely bug (mismatched windows, non-comparable inputs) rather than
-    reported as a real result.
+    doing-nothing decision).
+
+    **epr > 1 has TWO mechanisms, and this docstring named only one
+    until 2026-09-18.** It used to say epr > 1 "would mean j_ach beat
+    j_star" -- i.e. look for a negative regret. That is one route, and
+    it is the route #956 investigated. The other is a NEGATIVE
+    DENOMINATOR, and it is the more dangerous of the two because the
+    sign cancels:
+
+        EPR = (j_ref - j_ach) / (j_ref - j_star)
+
+    If the scored trajectory did worse than the baseline (numerator
+    negative) AND j_star is no better than j_ref (denominator negative),
+    the quotient is POSITIVE. A bad day then publishes as a high score.
+
+    Measured on a real install, 2026-09-17:
+
+        j_ref   5.4897      numerator    j_ref - j_ach = -3.4975
+        j_ach   8.9872      denominator  j_ref - j_star = -1.4411
+        j_star  6.9308      EPR = 2.427  ->  published as 242.7%
+
+    Regret on that day was +2.0564 -- POSITIVE, so every
+    regret-based reliability signal read clean. A reader following this
+    docstring's old advice would check regret, find nothing wrong, and
+    accept 242.7% on a day the household spent $3.50 MORE than leaving
+    the battery alone.
+
+    `j_star > j_ref` means the oracle priced out worse than doing
+    nothing. That has two documented causes -- a binding loss-making
+    P2P export commitment the oracle cannot decline (#1001), and a
+    pricing-path mismatch between the LP objective and the evaluator
+    (#1081) -- and the 2026-09-17 report carries evidence of both. See
+    `denominator_reason()` below for the full account; it is NOT the
+    structural impossibility an earlier version of this docstring
+    claimed. Re-pricing that day's oracle plan through the evaluator
+    gave 4.4419 against the LP's 6.9308, which alone would restore a
+    positive denominator (+1.0478) and an EPR of -3.34.
+
+    So: epr > 1 always needs the sign of `theoretical_maximum_yield`
+    checked before the number is quoted, and that is the FIRST thing to
+    check rather than the sign of regret. `denominator_reason()` below
+    performs the check and is carried on every result.
 
     Degenerate case: if j_ref == j_star (no real opportunity existed in
     this window -- e.g. genuinely flat prices, nothing to arbitrage),
@@ -171,7 +234,7 @@ def compute_epr(*, j_ref: float, j_ach: float, j_star: float) -> EPRResult:
     """
     theoretical_maximum_yield = j_ref - j_star
     value_captured = j_ref - j_ach
-    if abs(theoretical_maximum_yield) < 1e-9:
+    if abs(theoretical_maximum_yield) < _DEGENERATE_YIELD_ABS:
         epr = 1.0
     else:
         epr = value_captured / theoretical_maximum_yield
@@ -180,4 +243,69 @@ def compute_epr(*, j_ref: float, j_ach: float, j_star: float) -> EPRResult:
         theoretical_maximum_yield=theoretical_maximum_yield,
         value_captured=value_captured,
         uplift_available=j_ach - j_star,
+        denominator_reason=denominator_reason(j_ref=j_ref, j_star=j_star),
     )
+
+
+def denominator_reason(*, j_ref: float, j_star: float) -> str | None:
+    """Whether EPR's denominator is a positive quantity, which every
+    reading of `epr` as a percentage silently assumes (nimbus #1089).
+
+    `j_star <= j_ref` holds only while the idle trajectory is inside the
+    oracle's feasible set AND both sides are priced by the same model.
+    **Both of those can fail, and an earlier draft of this docstring
+    wrongly called the condition structurally impossible.** There are
+    two documented mechanisms, and they are different in kind:
+
+    1. **A binding, loss-making P2P export commitment -- nimbus #1001,
+       measured on a real install 2026-09-16.** `fixed_export_kw` pins
+       the oracle's export in every committed period, so when the
+       committed export price is a fraction of the import price the
+       commitment is *a loss the oracle cannot decline* and idle is
+       simply not available to it. #1001's own minimal reproduction: a
+       12 kW commitment over seven hours at 7.5c export against 37c
+       import puts `j_star` **$2.43 worse than doing nothing at all**.
+       That is a REAL STATE, not a defect -- see
+       `quality_report.py`'s `_widen_export_pin_to_achieved()`, which
+       documents it in full.
+    2. **A pricing-path mismatch -- nimbus #1081.** `j_star` is the LP's
+       own objective and carries soft-SoC and slack penalties that the
+       independent evaluator producing `j_ref` does not, so the two
+       sides are not comparable even when the feasible sets are.
+
+    On the 2026-09-17 report **both were present**: the day carried a
+    committed pin (`p2p_commitment_shortfall_kwh` 2.0036) and a measured
+    path delta (`j_star_path_delta` 2.4889), against a denominator of
+    -1.4411. Either is individually large enough to account for it, and
+    that report cannot apportion between them. So this function names
+    what was OBSERVED and does not claim a cause.
+
+    **Why flag it either way.** Under mechanism 1 the arithmetic is
+    sound and the *interpretation* is what breaks: EPR measures value
+    captured against an idle baseline the oracle was never free to
+    choose, so the ratio is not a capture fraction of anything
+    achievable. Under mechanism 2 the inputs are genuinely
+    non-comparable. In both cases the published percentage is not a
+    score, and in both cases the fix is a decision rather than a patch
+    -- which side should move (#1081), or how a committed loss should be
+    priced into a baseline (#1001) -- so this reports and leaves the
+    number alone.
+
+    Deliberately a SIGN test, with no tolerance of its own. A
+    denominator that is merely SMALL also makes `epr` volatile, but
+    choosing where "small" begins needs a measured basis that does not
+    exist yet, and inventing a threshold would be the guess this check
+    exists to replace. The magnitude is already published as
+    `theoretical_maximum_yield` for a reader who wants it.
+
+    The one band it does respect is `_DEGENERATE_YIELD_ABS`, and that is
+    reuse rather than a new judgement: `compute_epr()` has always
+    reported 1.0 inside it, so firing here would label a genuinely flat,
+    uneventful day both perfect AND unreliable off a -1e-12 denominator
+    that is float noise. Sharing the constant is what keeps the two from
+    disagreeing about the same day. On the real 2026-09-17 day the
+    denominator was -1.4411, nine orders of magnitude outside it.
+    """
+    if j_star - j_ref > _DEGENERATE_YIELD_ABS:
+        return "oracle_not_better_than_idle"
+    return None

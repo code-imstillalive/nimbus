@@ -1126,6 +1126,18 @@ def main() -> None:
         "theoretical_maximum_yield": round(report.epr.theoretical_maximum_yield, 4),
         "value_captured": round(report.epr.value_captured, 4),
         "uplift_available": round(report.epr.uplift_available, 4),
+        # nimbus issue #1089: this deployment publishes `epr` and has
+        # never carried ANY of the three reliability signals the native
+        # integration has (#533's SoC test, #956's regret test, #1089's
+        # denominator test) -- a structural gap of the same family #944
+        # documents, not an oversight of this one field.
+        #
+        # This one rides along for free because compute_epr() computes
+        # it, so the cheapest honest thing is to publish it rather than
+        # leave the one available signal unpublished. The other two
+        # remain absent here; that is tracked on #1089 itself, not
+        # silently closed by this line.
+        "epr_denominator_reason": report.epr.denominator_reason,
         "j_ref": round(report.j_ref, 4),
         "j_ach": round(report.j_ach, 4),
         "j_star": round(report.j_star, 4),

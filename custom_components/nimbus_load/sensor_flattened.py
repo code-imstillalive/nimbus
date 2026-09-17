@@ -1339,6 +1339,22 @@ FLATTENED_ATTRS_QUALITY: tuple[FlattenedAttrSpec, ...] = (
         unit_of_measurement=None,
         suggested_display_precision=None,
     ),
+    # nimbus issue #1089: the third signal, and the one a household most
+    # needs surfaced, because it is the only one whose failure mode makes
+    # the headline look BETTER than the truth. `epr_reason` above answers
+    # "was the oracle beaten"; this answers "was there any value
+    # available to capture at all", and a day that publishes 242.7%
+    # answers the first cleanly and the second not at all.
+    FlattenedAttrSpec(
+        source_key="epr_denominator_reason",
+        name="Quality EPR Denominator Reason",
+        entity_id_suffix="epr_denominator_reason",
+        entity_category=EntityCategory.DIAGNOSTIC,
+        device_class=None,
+        state_class=None,
+        unit_of_measurement=None,
+        suggested_display_precision=None,
+    ),
     # Energy, not percent, deliberately: a percentage below a floor is
     # abstract, while "the achieved trajectory sold 1.9 kWh the oracle
     # could not touch" is the sentence that explains the cost effect.

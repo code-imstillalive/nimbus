@@ -7740,6 +7740,20 @@ def _compute_report_for_window(
         round(min_pct, 4),
         round(max_pct, 4),
     ]
+
+    # nimbus issue #1089: EPR's DENOMINATOR, checked for the first time.
+    # Computed by compute_epr() itself rather than here, so the
+    # standalone cron writer -- which publishes `epr` and
+    # `theoretical_maximum_yield` and has never had ANY of the three
+    # reliability signals -- gets the same check from the same code
+    # instead of a second copy that can drift (#357).
+    #
+    # Folded into achieved_feasibility only to ride its existing spread
+    # into the report dict. It is NOT a statement about the achieved
+    # trajectory: j_ach does not enter it at all.
+    epr_denominator_reason = report.epr.denominator_reason
+    achieved_feasibility["epr_denominator_reason"] = epr_denominator_reason
+
     # nimbus issue #919: "is the ML load forecaster actually beating naive
     # persistence on this household's data?" -- a question no deployed
     # install could answer until now. Uses grid_oracle, not grid_residual:
@@ -7981,22 +7995,26 @@ def _compute_report_for_window(
         # qualifier, named for what it qualifies. #533 noted that a
         # "future second EPR-reliability signal has somewhere to fold in
         # without a rename" -- nimbus issue #956 is that second signal,
-        # so this is no longer an alias of soc_discrepancy_reliable.
+        # and nimbus issue #1089 the third, so this is no longer an
+        # alias of soc_discrepancy_reliable.
         "epr_reliable": _epr_reliability(
             soc_discrepancy["soc_discrepancy_reliable"],
             achieved_feasibility["regret_reliable"],
+            epr_denominator_reason,
         ),
         **achieved_feasibility,
     }
 
 
 def _epr_reliability(
-    soc_discrepancy_reliable: object, regret_reliable: object
+    soc_discrepancy_reliable: object,
+    regret_reliable: object,
+    epr_denominator_reason: object = None,
 ) -> bool | None:
     """Whether the published EPR/regret pair can be read as a
-    measurement (nimbus issues #533, #956).
+    measurement (nimbus issues #533, #956, #1089).
 
-    Two independent signals, combined so that a definite "no" always
+    Three independent signals, combined so that a definite "no" always
     wins over an "unknown":
 
     - `soc_discrepancy_reliable` -- #533's original test. `None` means
@@ -8005,17 +8023,31 @@ def _epr_reliability(
     - `regret_reliable` -- #956's. `regret_dollars < 0` means the
       achieved dispatch priced out cheaper than perfect foresight,
       which is not a result but proof the comparison was invalid.
+    - `epr_denominator_reason` -- #1089's. A non-None reason means
+      EPR's own denominator is not a positive quantity, so the ratio
+      is not a percentage of anything. See
+      `_epr_denominator_reason()`.
 
-    A False from either is a positive finding and returns False. `None`
-    only survives when the SoC half is unknown and the regret half found
-    nothing wrong.
+    #533 anticipated exactly this shape -- "a future second
+    EPR-reliability signal has somewhere to fold in without a rename" --
+    and #956 was that second signal. This is the third, and it is kept
+    as its OWN published field rather than overwriting `epr_reason`
+    because the two describe different halves of the same ratio: a
+    reader needs to know that BOTH the oracle was beaten and the
+    denominator inverted, on a day where both happen.
 
-    Typed `object` rather than `bool | None` on both parameters because
-    both arrive out of heterogeneous report dicts whose declared value
+    A False from any of the three is a positive finding and returns
+    False. `None` only survives when the SoC half is unknown and the
+    other two found nothing wrong.
+
+    Typed `object` rather than `bool | None` / `str | None` because
+    these arrive out of heterogeneous report dicts whose declared value
     types are unions; narrowing here keeps the call site free of casts
     that would assert more than those dicts actually promise.
     """
     if not regret_reliable:
+        return False
+    if epr_denominator_reason is not None:
         return False
     if soc_discrepancy_reliable is None:
         return None
@@ -8315,6 +8347,13 @@ _QUALITY_REPORT_UNRELIABLE_WARNED: set[str] = set()
 # would let whichever condition was seen first silence the other for
 # that day.
 _QUALITY_REPORT_NEGATIVE_REGRET_WARNED: set[str] = set()
+
+# nimbus issue #1089: a third set, for the same reason the second one
+# exists. The denominator condition is independent of both others -- on
+# the real 2026-09-17 day it fired while `regret_reliable` was True, so
+# sharing the set above would have meant no warning at all on the one
+# condition that makes the headline read BETTER than the truth.
+_QUALITY_REPORT_EPR_DENOMINATOR_WARNED: set[str] = set()
 
 # nimbus issue #994: how many scored days the quality report's own
 # `history` table keeps. The Regret card's longest view is 30 days, so 60
@@ -8665,6 +8704,44 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
             day_entry.get("regret_dollars"),
             day_entry.get("epr_pct"),
             diagnosis,
+        )
+    # nimbus issue #1089: EPR's own denominator went non-positive, so
+    # the published percentage is not a fraction of anything available.
+    # Warned separately and unconditionally on its own set because this
+    # is the ONLY condition in this scorer whose failure mode makes the
+    # headline look better than the truth -- the real 2026-09-17 day
+    # published 242.7% on a day the household spent $3.50 more than
+    # idling, with regret_dollars POSITIVE and every other flag clean.
+    if (
+        day_entry.get("epr_denominator_reason") is not None
+        and yesterday_key not in _QUALITY_REPORT_EPR_DENOMINATOR_WARNED
+    ):
+        _QUALITY_REPORT_EPR_DENOMINATOR_WARNED.add(yesterday_key)
+        _LOGGER.warning(
+            "Nimbus quality: %s published EPR %s%% but its DENOMINATOR "
+            "(theoretical_maximum_yield = j_ref - j_star) is %s, which is "
+            "not positive -- reason %r. j_star=%s priced out WORSE than the "
+            "do-nothing baseline j_ref=%s, so EPR measured value captured "
+            "against a baseline the oracle was not free to choose. Two "
+            "documented causes, and this day's own figures say which to "
+            "look at: a binding loss-making P2P export commitment the "
+            "oracle cannot decline (nimbus #1001 -- this day's "
+            "p2p_commitment_shortfall_kwh=%s), and a pricing-path mismatch "
+            "between the LP objective and the evaluator (nimbus #1081 -- "
+            "this day's j_star_evaluator=%s, j_star_path_delta=%s). Treat "
+            "the EPR for this day as uninterpretable REGARDLESS of its "
+            "sign: when value_captured=%s is also negative the two signs "
+            "cancel and a bad day publishes as a high score.",
+            yesterday_key,
+            day_entry.get("epr_pct"),
+            day_entry.get("theoretical_maximum_yield"),
+            day_entry.get("epr_denominator_reason"),
+            day_entry.get("j_star"),
+            day_entry.get("j_ref"),
+            day_entry.get("p2p_commitment_shortfall_kwh"),
+            day_entry.get("j_star_evaluator"),
+            day_entry.get("j_star_path_delta"),
+            day_entry.get("value_captured"),
         )
     if (
         day_entry.get("soc_discrepancy_reliable") is False

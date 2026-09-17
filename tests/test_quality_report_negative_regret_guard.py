@@ -218,5 +218,67 @@ class TestEprReliabilityCombination(unittest.TestCase):
         self.assertIs(solver_writer._epr_reliability(True, True), True)
 
 
+class TestEprDenominatorIsTheThirdSignal(unittest.TestCase):
+    """nimbus #1089. The two signals above share a blind spot: neither
+    involves `j_ref`, so neither can see EPR's own denominator.
+
+    Measured on the reference install, 2026-09-17: j_ref 5.4897 /
+    j_ach 8.9872 / j_star 6.9308 published **242.7%** on a day the
+    household spent $3.50 more than leaving the battery alone, because
+    numerator (-3.4975) and denominator (-1.4411) were both negative and
+    the signs cancelled. `regret_dollars` was **+2.0564** that day, so
+    both pre-existing signals read clean.
+
+    See `tests/test_epr_denominator_reason.py` for the arithmetic and
+    `solver/epr.py`'s `denominator_reason()` for why the condition is
+    always a computation fault rather than a property of the day.
+    """
+
+    def test_a_denominator_reason_overrides_two_clean_signals(self):
+        """The exact 2026-09-17 combination: SoC fine, regret fine,
+        denominator inverted. Before #1089 this published as reliable."""
+        self.assertIs(
+            solver_writer._epr_reliability(True, True, "oracle_not_better_than_idle"),
+            False,
+        )
+
+    def test_it_overrides_an_unknown_soc_verdict_too(self):
+        self.assertIs(
+            solver_writer._epr_reliability(None, True, "oracle_not_better_than_idle"),
+            False,
+        )
+
+    def test_none_means_nothing_wrong_and_changes_no_verdict(self):
+        """Passing the signal explicitly as None must reproduce the
+        pre-#1089 answers exactly, for every combination of the other
+        two -- otherwise this change moved a published field on days it
+        has nothing to say about."""
+        for soc, regret, expected in (
+            (True, True, True),
+            (False, True, False),
+            (None, True, None),
+            (True, False, False),
+            (None, False, False),
+        ):
+            with self.subTest(soc=soc, regret=regret):
+                self.assertIs(
+                    solver_writer._epr_reliability(soc, regret, None),
+                    expected,
+                )
+
+    def test_omitting_the_argument_matches_passing_none(self):
+        """The default exists so the standalone/cron caller and every
+        pre-existing test keep working unchanged. If the default ever
+        drifted to something truthy, every two-argument caller would
+        silently start publishing False."""
+        for soc in (True, False, None):
+            for regret in (True, False):
+                with self.subTest(soc=soc, regret=regret):
+                    self.assertIs(
+                        solver_writer._epr_reliability(soc, regret),
+                        solver_writer._epr_reliability(soc, regret, None),
+                    )
+
+
 if __name__ == "__main__":
     unittest.main()
