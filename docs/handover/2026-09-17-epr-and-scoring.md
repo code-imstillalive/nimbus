@@ -302,7 +302,40 @@ time. Consistent with the pure-discharge window being correct to 0.8% despite
 covering the same band (charging up through it is wrong; discharging down is fine),
 and with #1013's BMS-reports-100%-at-119.72-kWh finding.
 
-**Consequence for the fix: it is probably not an input-boundary conversion at all.**
+**MECHANISM FOUND 2026-09-18, at 5-minute resolution, on the RAW SENSORS with no
+scorer involved — and it is a discrete event, not a gradual compression.**
+
+Charge power sits pinned at a constant −30.4 kW for over two hours on 16 Sep. SoC
+gain per 5-minute interval is rock-steady at 2.15–2.37 points… then ONE interval
+near 88% gains **4.81 points** at the same power. 15 Sep reproduces it: SoC jumps
+**6.39 points** in one interval at 14:25 while power was *falling* from −40 to
+−26.7 kW. Both days then pin SoC at **99.3** while 3–12 kW keeps flowing in.
+
+| condition | kWh per SoC point |
+|---|---|
+| 16 Sep, −30.4 kW | 1.10 |
+| 15 Sep, −30 kW | 1.092 |
+| 15 Sep, −40 kW | 1.100 |
+| **the jump interval** | **0.435 – 0.503** |
+
+1.092 at −30 kW vs 1.100 at −40 kW **refutes rate from the raw sensors** — a 33%
+current change moves it 0.7%. And the high-excess windows are exactly the ones
+containing the jump; the 3.70% and 4.68% windows both end before it.
+
+**This is not a scorer defect at all.** The power series, the configured efficiency
+and the plane are all measured correct. The BMS takes a step no integration of power
+can reproduce, because no energy corresponding to it ever flowed. So
+`soc_discrepancy` on this hardware is partly measuring a **real BMS recalibration**,
+an unclamped integration must diverge across one by construction, and
+`epr_reliable: false` driven by it is a false alarm of the same family as #949's
+fleet-blend artefact.
+
+Cause of the step is inferred, not confirmed (voltage-based re-estimation during CV
+absorption fits, but the voltage series is confounded by IR drop at 30–40 kW). The
+signature for a third-day check is very specific: **one 5-minute interval above ~88%
+SoC gaining more than 4 points.**
+
+**Consequence for the fix: it is not an input-boundary conversion at all.**
 The counted energy and the configured efficiency are both demonstrably right. What
 cannot be expressed by a single `capacity_kwh` constant is the SoC→kWh mapping.
 Mechanism (BMS advancing SoC on voltage during CV absorption) is hypothesis, not
