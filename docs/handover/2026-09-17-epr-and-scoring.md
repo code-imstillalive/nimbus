@@ -496,9 +496,34 @@ Actions: **delete `fix/1012-battery-power-plane`** (premise retired twice over);
 accept that **`soc_discrepancy` cannot reach zero on this hardware** and that
 `epr_reliable: false` from this source is a false alarm (same conclusion #949 reached
 from the fleet-blend side); and note that **the configured efficiency looks
-pessimistic** — two closed loops imply one-way 0.978–0.982 (round-trip 0.957–0.964)
-against the configured 0.9263 (0.858). That last one feeds the live dispatch LP, not
-just scoring, and is worth checking separately.
+pessimistic** — now filed separately as **#1086** with a third day added:
+
+| day | in | out | ΔSoC | implied one-way e |
+|---|---|---|---|---|
+| 14 Sep | 107.364 | 103.682 | +0.719 | **0.9861** |
+| 15 Sep | 106.602 | 101.209 | +1.557 | **0.9817** |
+| 16 Sep | 109.667 | 106.041 | −1.078 | **0.9784** |
+
+Three days clustered within 0.8%, mean 0.982 one-way (0.965 round-trip) against a
+configured 0.9263 (0.858) — **pessimistic by ~6 points one-way, ~11 round-trip.**
+
+This matters because `solver_efficiency_percent` prices the **live dispatch LP**, not
+just the scorer: too low makes every stored kWh look dearer to acquire and cheaper to
+release, so genuinely profitable arbitrage gets declined, export is taxed twice by a
+modelled loss, and the P2P commitment economics shift. It shows up as a plan quietly
+more conservative than the hardware warrants, never as an error.
+
+**Deliberately NOT changed** — re-pricing every future dispatch decision on a live
+install is a household call. #1086 recommends re-running the same three-number
+arithmetic over a fortnight including a cloudy stretch first, to separate the pack
+from the season.
+
+**Method note worth keeping:** the closed-loop calculation is insensitive to the SoC
+hysteresis above, because a direction-dependent error cancels over a complete cycle —
+which is exactly why it works where the band-restricted measurement did not. It must
+be done on the quality report's own time-weighted figures; an attempt using hourly
+statistic means gave 1.026 (impossible) on the same day that properly measures
+0.9861.
 
 Caveats: two days, one install; the arithmetic assumes `e_c = e_d` (one equation per
 day cannot separate them); and the top-band recalibration sits inside both days, so
