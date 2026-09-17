@@ -279,7 +279,37 @@ a helper cannot be a drift gap in a copy lacking the function it serves.
 
 ### Still open and untouched tonight
 
-`#1012` (reference plane / SoC divergence, 14 comments — the deepest open thread),
+`#1012` — **substantially narrowed 2026-09-18 by measurement, and the fix direction
+has changed.** Four pure-direction charge windows on 16 Sep show the charge-side
+excess is a function of **SoC band**, not rate, not solar, not a plane constant:
+
+| window | counted | excess | excess % | avg rate | SoC band |
+|---|---|---|---|---|---|
+| 10:00–12:00 | 25.521 | 0.945 | 3.70% | 12.8 kW | low |
+| 08:00–12:00 | 32.489 | 1.522 | 4.68% | 8.1 kW | low |
+| 11:00–15:00 | 92.971 | 7.983 | 8.59% | 23.2 kW | 20→99 |
+| 13:00–15:00 | 42.624 | 5.159 | **12.10%** | 21.3 kW | 59→87 |
+
+The last runs at a *lower* rate than the third and shows a *higher* excess, which
+eliminates rate. A constant capacity or plane factor would give a constant
+multiplier; it ranges 1.0370→1.1210 on one day. Un-metered DC solar was refuted
+separately (near-identical solar, 5× different excess).
+
+What survives: **the SoC sensor's scale is non-linear in energy in the upper band.**
+The reconstruction integrates power (linear in energy) while the sensor does not, so
+they separate most near full — which is where `soc_discrepancy_max_pct` lands every
+time. Consistent with the pure-discharge window being correct to 0.8% despite
+covering the same band (charging up through it is wrong; discharging down is fine),
+and with #1013's BMS-reports-100%-at-119.72-kWh finding.
+
+**Consequence for the fix: it is probably not an input-boundary conversion at all.**
+The counted energy and the configured efficiency are both demonstrably right. What
+cannot be expressed by a single `capacity_kwh` constant is the SoC→kWh mapping.
+Mechanism (BMS advancing SoC on voltage during CV absorption) is hypothesis, not
+established. Next cheap step: repeat on a second day to confirm the dependence is
+not specific to 16 Sep.
+
+Also still open:
 `#949` (fleet-blended SoC artefact), `#768` (fleet oracle + controllable-load
 timing), `#944`, `#987`. 21 open issues total.
 
