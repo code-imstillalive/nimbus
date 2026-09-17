@@ -367,14 +367,22 @@ class TestDepartureDeadlineWiring(unittest.TestCase):
         solver_writer._NATIVE_HASS = self._orig_native_hass
 
     def _periods(self, start_hour: int, n: int):
-        from datetime import UTC, datetime
+        from datetime import datetime
 
         import numpy as np
         from solver.elements import PeriodGrid
 
+        # LOCAL, not UTC. nimbus #1012/timezone fix: departure_hour is a
+        # LOCAL wall-clock hour -- "I leave at 08:00" means 08:00 where
+        # the household lives. These fixtures were UTC-stamped, which
+        # meant they only passed because the resolver read the raw
+        # .hour and was therefore comparing against UTC too. Both halves
+        # were wrong in the same direction, so the test agreed with the
+        # bug. Building the grid in LOCAL_TZ is what the real daily path
+        # means, and it is now what this asserts.
         return PeriodGrid(
             hours=np.array([1.0] * n),
-            start=datetime(2026, 9, 8, start_hour, 0, tzinfo=UTC),
+            start=datetime(2026, 9, 8, start_hour, 0, tzinfo=solver_writer.LOCAL_TZ),
         )
 
     def test_both_fields_set_resolves_to_a_real_period_index(self):

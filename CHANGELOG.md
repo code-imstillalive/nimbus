@@ -8,6 +8,37 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.376] - 2026-09-17
+
+### Fixed
+- **Every hour-of-day decision now uses the household's own timezone. The scorer was gating a real 17:00–24:00 P2P block against 17:00–24:00 UTC.**
+
+  On the reference household that is **03:00–10:00 local** — their solar *charging* window, where grid export is genuinely zero. So the scorer recorded a 12 kW × 7 h commitment as entirely undelivered:
+
+  ```
+  p2p_commitment_shortfall_kwh   76.9        (real value: ~0)
+  ```
+
+  That shortfall lands directly on `j_ach`, which is why EPR read far below what the household's own dispatch earned.
+
+  **The mechanism.** `grid_times` on the daily scoring path carry UTC — visible in the report's own `j_ref_hourly` keys, stamped `+00:00`. Every hour-of-day decision read `.hour` straight off them, so each one silently inherited whatever timezone the caller attached rather than the one the household lives in.
+
+  This file's own comment at line 249 records the *same fault* being found and fixed once before, at one site. The pattern that allowed it was left everywhere else. Twenty-two sites now convert explicitly via `_local()`; zero did before.
+
+  **It was not only the P2P window.** Also affected: network fee tiers (4 sites), scheduled discharge cost, salvage value at horizon end, the post-window self-consume block, midnight rollover detection, the P2P checkpoint hour, the EV departure hour, and the 5-minute bucket indices. The fee tiers and salvage value feed the dispatch LP, not only scoring.
+
+  **`.minute` matters too**, which is why four minute reads are converted as well: Brisbane is UTC+10 so minute-of-hour happens to be invariant there, but **Adelaide is UTC+9:30** — a real NEM region where an unconverted minute is also wrong.
+
+  `_local()` is an exact no-op on a datetime already in local time, and returns a *naive* datetime unchanged rather than guessing — `.astimezone()` on a naive value would silently assume the machine's timezone, a second different wrong answer.
+
+  An AST guard (`test_local_hour_is_used_everywhere.py`) now fails the build on any bare `.hour`/`.minute` read. It found six sites a `grep` for `.hour` had missed, and its own first run flagged two already-correct sites through a `.time()` chain — fixed, because a guard that cries wolf gets switched off.
+
+  Ported to the standalone/cron writer as well. That file builds its own `now` from `BRISBANE_TZ`, so its reads were already local in practice and this is a no-op there today — applied anyway, because "already local by convention" is precisely the assumption that failed on the scoring side.
+
+  One test fixture changed with it: the EV departure-hour tests built their period grid in UTC, so the fixture and the resolver were wrong in the same direction and the test agreed with the bug. It now builds in local time, which is what the real daily path means.
+
+  Devhub validation: **to be confirmed by rescoring the affected day** — the pass condition is `p2p_commitment_shortfall_kwh` collapsing from 76.9 toward zero.
+
 ## [0.94.375] - 2026-09-17
 
 ### Changed

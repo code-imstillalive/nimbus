@@ -290,6 +290,44 @@ except ImportError:
 # resolution fix.
 LOCAL_TZ = ZoneInfo(os.environ.get("NIMBUS_SOLVER_TIMEZONE", "Australia/Brisbane"))
 
+
+def _local(ts):
+    """The same instant, expressed in the household's OWN timezone.
+
+    Every hour-of-day decision in this file -- the P2P window, network
+    fee tiers, scheduled discharge cost, salvage value, the self-consume
+    block, EV departure -- is a statement about LOCAL wall-clock time. A
+    household's 17:00 P2P block is 17:00 where they live, not 17:00 UTC.
+
+    Reading `.hour` straight off a datetime silently makes that decision
+    depend on whatever timezone the CALLER attached, which is not a
+    property this file controls: the same functions are reached from the
+    native integration, from the cron writer, and from a service call
+    whose `start` a user types. On the daily path `grid_times` carry
+    UTC -- visible in the report's own j_ref_hourly keys, which are
+    stamped +00:00 -- so a bare `gt.hour` gated the reference
+    household's real 17:00-24:00 P2P block against 17:00-24:00 UTC,
+    i.e. 03:00-10:00 Brisbane. That is their solar CHARGING window,
+    where grid export is genuinely ~0, so the scorer recorded a 12 kW x
+    7 h commitment as entirely undelivered: p2p_commitment_shortfall_kwh
+    76.9 against a real value near zero, which then lands straight on
+    j_ach and depresses EPR.
+
+    This file's own line 249 records the same fault being found and
+    fixed at ONE site; the pattern that allowed it was left everywhere
+    else.
+
+    So: convert explicitly, never trust the input. On a datetime already
+    in LOCAL_TZ this is an exact no-op.
+
+    A NAIVE datetime is returned unchanged rather than guessed at.
+    `.astimezone()` on a naive value silently assumes the machine's own
+    timezone -- a second, different wrong answer. Unchanged is exactly
+    the previous behaviour, so this can never make a naive caller worse.
+    """
+    return ts.astimezone(LOCAL_TZ) if getattr(ts, "tzinfo", None) is not None else ts
+
+
 import numpy as np
 from numpy.typing import NDArray
 
@@ -1836,7 +1874,7 @@ def midnight_boundary_period_indices(grid_times: list[datetime]) -> list[int]:
     """
     indices = []
     for t in range(len(grid_times) - 1):
-        if grid_times[t].hour != 0 and grid_times[t + 1].hour == 0:
+        if _local(grid_times[t]).hour != 0 and _local(grid_times[t + 1]).hour == 0:
             indices.append(t)
     return indices
 
@@ -4154,7 +4192,7 @@ def resample_real_p2p_rate(
 
     out = []
     for gt in grid_times:
-        if not (17 <= gt.hour < 24):
+        if not (17 <= _local(gt).hour < 24):
             out.append(0.0)
         elif gt <= last_real_time:
             val = pts[0][1]
@@ -4320,13 +4358,13 @@ def fetch_p2p_fixed_export_kw(
 
     result: list[float] = []
     for gt in grid_times:
-        gt_minute = gt.hour * 60 + gt.minute
+        gt_minute = _local(gt).hour * 60 + _local(gt).minute
         matched_rate = float("nan")
         for rate_kw, start_minute, end_minute in blocks:
             if start_minute <= gt_minute < end_minute:
                 matched_rate = rate_kw
                 break
-        if runs_through_midnight and gt.hour < self_consume_hours:
+        if runs_through_midnight and _local(gt).hour < self_consume_hours:
             matched_rate = 0.0
         result.append(matched_rate)
     return result
@@ -4826,7 +4864,7 @@ def compute_5min_offset(
         aemo_v = nearest_before(aemo_history, t)
         if aemo_v is None:
             continue
-        bucket = t.hour * 12 + t.minute // 5
+        bucket = _local(t).hour * 12 + _local(t).minute // 5
         by_bucket.setdefault(bucket, []).append(real_v - aemo_v)
     return {b: sum(vals) / len(vals) for b, vals in by_bucket.items()}
 
@@ -4990,7 +5028,7 @@ def compute_price_percentile_band(
         return {}
     by_bucket: dict[int, list[float]] = {}
     for t, v in price_history:
-        bucket = t.hour * 12 + t.minute // 5
+        bucket = _local(t).hour * 12 + _local(t).minute // 5
         by_bucket.setdefault(bucket, []).append(v)
     return {b: float(np.percentile(vals, percentile)) for b, vals in by_bucket.items()}
 
@@ -5010,7 +5048,7 @@ def apply_price_band(
         return None
     out = []
     for i, gt in enumerate(grid_times):
-        bucket = gt.hour * 12 + gt.minute // 5
+        bucket = _local(gt).hour * 12 + _local(gt).minute // 5
         out.append(band_by_5min.get(bucket, point_price[i]))
     return out
 
@@ -5083,7 +5121,7 @@ def resample_price_with_extrapolation(
             continue
         aemo_v = nearest_before(aemo_pts, gt)
         if aemo_v is not None:
-            bucket = gt.hour * 12 + gt.minute // 5
+            bucket = _local(gt).hour * 12 + _local(gt).minute // 5
             out.append(float(aemo_v + offset_by_5min.get(bucket, 0.0)))
         else:
             out.append(float(last_real_value))
@@ -5150,7 +5188,7 @@ def build_tiered_grid(now: datetime) -> tuple[list[datetime], list[float]]:
     if minute_start < now:
         minute_start += timedelta(minutes=1)
     tier1_start = minute_start
-    while tier1_start.minute % 5 != 0:
+    while _local(tier1_start).minute % 5 != 0:
         tier1_start += timedelta(minutes=1)
     t = minute_start
     while t < tier1_start:
@@ -5165,7 +5203,7 @@ def build_tiered_grid(now: datetime) -> tuple[list[datetime], list[float]]:
     # before the same one-interval extension applies uniformly either way.
     tier1_end = tier1_start.replace(second=0, microsecond=0)
     while tier1_end <= tier1_start or (
-        tier1_end.minute % TRADING_INTERVAL_MINUTES != 0
+        _local(tier1_end).minute % TRADING_INTERVAL_MINUTES != 0
     ):
         tier1_end += timedelta(minutes=1)
     tier1_end += timedelta(minutes=TRADING_INTERVAL_MINUTES)
@@ -7096,7 +7134,7 @@ def _compute_report_for_window(
 
     import_price = np.array(
         [
-            v + import_fee_rate(cfg, grid_times[i].hour)
+            v + import_fee_rate(cfg, _local(grid_times[i]).hour)
             for i, v in enumerate(
                 resample_history_nearest(
                     import_price_hist, grid_times, default=0.20, backfill_first=True
@@ -8537,7 +8575,7 @@ def compute_efficiency_backtest_report(cfg: dict, now: datetime) -> dict | None:
     )
     import_price = np.array(
         [
-            v + import_fee_rate(cfg, grid_times[i].hour)
+            v + import_fee_rate(cfg, _local(grid_times[i]).hour)
             for i, v in enumerate(
                 resample_history_nearest(
                     import_price_hist, grid_times, default=0.20, backfill_first=True
@@ -8858,7 +8896,7 @@ def compute_nimbus_only_soc_counterfactual(cfg: dict, day: datetime) -> dict | N
         )
         import_price = np.array(
             [
-                v + import_fee_rate(cfg, gt.hour) + flat_fee_rate
+                v + import_fee_rate(cfg, _local(gt).hour) + flat_fee_rate
                 for v, gt in zip(
                     resample_history_nearest(
                         import_price_hist,
@@ -8888,7 +8926,7 @@ def compute_nimbus_only_soc_counterfactual(cfg: dict, day: datetime) -> dict | N
         # the LP to import/charge purely to bank it). A no-op for any
         # household with no P2P window configured -- t.hour is never
         # "inside" a window that doesn't exist.
-        in_p2p_window = checkpoint_hour >= 0 and t.hour >= checkpoint_hour
+        in_p2p_window = checkpoint_hour >= 0 and _local(t).hour >= checkpoint_hour
         salvage_value = 0.0 if in_p2p_window else salvage_value_flat
 
         periods = elements.PeriodGrid(hours=hours_arr, start=t)
@@ -8994,8 +9032,8 @@ def compute_nimbus_only_soc_counterfactual(cfg: dict, day: datetime) -> dict | N
 
         if (
             checkpoint_hour >= 0
-            and t.hour == checkpoint_hour
-            and t.minute < step.total_seconds() / 60.0
+            and _local(t).hour == checkpoint_hour
+            and _local(t).minute < step.total_seconds() / 60.0
             and sim_soc_checkpoint_pct is None
         ):
             sim_soc_checkpoint_pct = sim_soc_kwh / capacity_kwh * 100.0
@@ -12564,7 +12602,7 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
             period_starts = periods.period_starts
             if period_starts is not None:
                 for idx, start in enumerate(period_starts):
-                    if start.hour == int(departure_hour):
+                    if _local(start).hour == int(departure_hour):
                         must_have_soc_by_period_index = idx
                         must_have_soc_kwh = (
                             capacity_kwh * float(must_have_soc_pct) / 100.0
@@ -14858,7 +14896,7 @@ def main() -> None:
             aemo_p5min_check = check_aemo_p5min_disagreement(
                 cfg.get("solver_regional_spot_current_price_sensor"),
                 float(spot_import_raw[0]),
-                grid_times[0].hour * 12 + grid_times[0].minute // 5,
+                _local(grid_times[0]).hour * 12 + _local(grid_times[0]).minute // 5,
                 import_offset_by_5min,
                 _cfg_num(cfg, "solver_aemo_p5min_disagreement_threshold_dollars", 0.10),
             )
@@ -15059,7 +15097,7 @@ def main() -> None:
     # period 0's own 5-minute bucket is exactly equivalent and needs no
     # change to that function's own signature.
     _block_start = grid_times[0].replace(
-        minute=(grid_times[0].minute // 5) * 5, second=0, microsecond=0
+        minute=(_local(grid_times[0]).minute // 5) * 5, second=0, microsecond=0
     )
     _block_end = _block_start + timedelta(minutes=5)
     n_settled_periods = sum(1 for t in grid_times if _block_start <= t < _block_end)
@@ -15155,7 +15193,9 @@ def main() -> None:
     # isn't configured.
     flat_fee_rate = _cfg_num(cfg, "solver_flat_fee_rate", 0.0)
     import_price = [
-        spot_import_raw[i] + import_fee_rate(cfg, grid_times[i].hour) + flat_fee_rate
+        spot_import_raw[i]
+        + import_fee_rate(cfg, _local(grid_times[i]).hour)
+        + flat_fee_rate
         for i in range(n_periods)
     ]
 
@@ -15203,9 +15243,9 @@ def main() -> None:
     # never asked for one would be a real, unrequested behaviour change.
     if has_price_forecast_array:
         discharge_cost_arr = np.array(
-            [scheduled_discharge_cost_rate(cfg, t.hour) for t in grid_times]
+            [scheduled_discharge_cost_rate(cfg, _local(t).hour) for t in grid_times]
         )
-        salvage_value = scheduled_salvage_value_rate(cfg, grid_times[-1].hour)
+        salvage_value = scheduled_salvage_value_rate(cfg, _local(grid_times[-1]).hour)
     else:
         # FALLBACK (2026-08-20, for anyone else): flat values straight
         # from the config-flow's own Economic Policy step -- no day/night
