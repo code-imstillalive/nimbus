@@ -52,8 +52,6 @@ import ast
 import pathlib
 import unittest
 
-import pytest
-
 _SRC = (
     pathlib.Path(__file__).resolve().parent.parent
     / "docs"
@@ -84,19 +82,23 @@ def _is_local_call(node: ast.AST) -> bool:
 
 
 class TestTheCronCopyIsGuardedTheSameWay(unittest.TestCase):
-    @pytest.mark.xfail(
-        reason=(
-            "nimbus IV&V (since 4812f93, 2026-09-18): the #1076 AST guard "
-            "only parses custom_components/nimbus_load/solver_writer.py -- "
-            "the standalone/cron copy has its own _local() but 5 bare "
-            ".hour/.minute reads the port missed, one of them (line 3702, "
-            "seconds_to_settlement_capture's now.minute % 5) a real latent "
-            "bug for any non-whole-hour-UTC-offset NEM region (e.g. "
-            "Adelaide, UTC+9:30). See the module docstring above for the "
-            "full site list and reasoning."
-        ),
-        strict=True,
-    )
+    # FIXED 2026-09-18. All four sites this pin found now go through
+    # `_local()`, so the `xfail(strict=True)` marker that stood here has
+    # been removed -- with the fix in place it XPASSes, which is what the
+    # strict marker is for.
+    #
+    # The one that mattered is `seconds_to_settlement_capture()`'s
+    # `now.minute % 5`. The other three were convention risks -- every
+    # `grid_times` element happens to be BRISBANE_TZ-aware because this
+    # file's own `main()` builds `now` that way -- but that one is a real
+    # latent bug for any NEM region without a whole-hour UTC offset,
+    # because the function is documented as a pure function of `now`
+    # precisely so a caller can hand it whatever it has. Adelaide is
+    # UTC+9:30.
+    #
+    # This guard now runs permanently against the cron copy, so the
+    # #1076 class cannot silently reappear in it independently of the
+    # native guard -- which is the durable half of the finding.
     def test_no_bare_dot_hour_or_dot_minute_read_in_the_cron_copy(self):
         tree = ast.parse(_SRC.read_text(encoding="utf-8"))
         offenders: list[str] = []

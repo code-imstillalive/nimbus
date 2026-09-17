@@ -3699,7 +3699,14 @@ def seconds_to_settlement_capture(now: datetime) -> float:
     specifically so this is testable without any real sleep/network
     dependency -- see tests/test_settlement_capture_timing.py.
     """
-    seconds_since_boundary = (now.minute % 5) * 60 + now.second
+    # nimbus issue #1102 (Mark Purcell IV&V): _local(), because this is
+    # the one site here that is a REAL latent bug rather than a
+    # convention risk. This function is documented as a pure function of
+    # `now` precisely so any caller can hand it whatever it has, and
+    # minute-of-hour is only invariant under a whole-hour UTC offset.
+    # Brisbane is UTC+10 so it happens to be right here; Adelaide is
+    # UTC+9:30, a real NEM region, where an unconverted minute is wrong.
+    seconds_since_boundary = (_local(now).minute % 5) * 60 + now.second
     if seconds_since_boundary >= _SETTLEMENT_CAPTURE_WINDOW_SECONDS:
         return 0.0
     return max(0.0, float(_SETTLEMENT_CAPTURE_TARGET_SECOND - seconds_since_boundary))
@@ -4804,7 +4811,7 @@ def main() -> None:
             aemo_p5min_check = check_aemo_p5min_disagreement(
                 "sensor.aemo_nem_qld1_current_5min_period_price",
                 float(spot_import_raw[0]),
-                grid_times[0].hour * 12 + grid_times[0].minute // 5,
+                _local(grid_times[0]).hour * 12 + _local(grid_times[0]).minute // 5,
                 import_offset_by_5min,
                 _cfg_num(cfg, "solver_aemo_p5min_disagreement_threshold_dollars", 0.10),
             )
@@ -4952,9 +4959,9 @@ def main() -> None:
         # to money this household actually earns, not a genuine
         # improvement for anyone.
         discharge_cost_arr = np.array(
-            [battery_discharge_cost_rate(t.hour) for t in grid_times]
+            [battery_discharge_cost_rate(_local(t).hour) for t in grid_times]
         )
-        salvage_value = battery_salvage_value_rate(grid_times[-1].hour)
+        salvage_value = battery_salvage_value_rate(_local(grid_times[-1]).hour)
     else:
         # FALLBACK (2026-08-20, for anyone else): flat values straight
         # from the config-flow's own Economic Policy step -- no day/night
