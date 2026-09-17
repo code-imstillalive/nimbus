@@ -3154,6 +3154,107 @@ def sum_load_forecasts(
     )
 
 
+def battery_energy_balance(
+    *,
+    name: str,
+    in_kwh: float,
+    out_kwh: float,
+    initial_soc_kwh: float,
+    final_soc_kwh: float,
+    capacity_kwh: float,
+    charge_efficiency: float,
+    discharge_efficiency: float,
+) -> dict[str, float | str | None]:
+    """Does this battery's measured energy actually reconcile with its
+    measured SoC swing? (nimbus issue #1012.)
+
+    Every kWh-based reconstruction in the scorer rests on one unstated
+    assumption: that the configured efficiency, applied to the power
+    sensor's readings, converts to the same energy the SoC sensor
+    reports. Nothing has ever checked it. #1012 is what happens when it
+    is wrong -- a ~37 point SoC-trajectory divergence that survived
+    #1008's energy-total fix, and which traces to either a wrong
+    `solver_efficiency_percent` or an AC/DC reference-plane mismatch in
+    how the counters are interpreted.
+
+    The check closes the loop per battery:
+
+        modelled delta = in * charge_eff - out / discharge_eff
+        measured delta = final_soc - initial_soc
+        residual       = modelled - measured
+
+    ## Why the implied efficiency is the number worth reporting
+
+    A residual says "something is off" without saying what. The
+    efficiency that WOULD close the balance says which:
+
+    - implied ~= configured  -> the plane is consistent and the
+      configured number is right; look elsewhere.
+    - implied systematically HIGHER than configured -> the efficiency is
+      being applied to readings that already have the loss baked in
+      (a pack-side sensor read as if it were AC-side), so the loss is
+      counted twice. This is #1012's leading hypothesis, and on the
+      reference household the gap is 85.8% configured against ~95%
+      implied.
+    - implied > 1.0 -> not an efficiency at all. No real battery stores
+      more than it is given; this is proof of a sign or plane error
+      rather than a mis-tuned dial.
+
+    So the implied value is a DIAGNOSIS, not just a discrepancy, and it
+    is the specific figure #1012's thread has been arguing about from
+    two directions without either side being able to measure it.
+
+    ## Deliberately per-battery
+
+    nimbus issue #949 established that fleet-blending produces a false
+    signal from perfect data once more than one battery is scored. This
+    is computed per battery and never blended, so it is immune to that
+    by construction -- and on a fleet install it says WHICH battery
+    fails to reconcile, which a blended figure structurally cannot.
+
+    Returns None for the implied efficiency (never a fabricated number)
+    when it is not computable -- no throughput to imply it from, or a
+    battery that only discharged, where the charge efficiency genuinely
+    does not appear in the balance.
+    """
+    modelled = in_kwh * charge_efficiency - out_kwh / discharge_efficiency
+    measured = final_soc_kwh - initial_soc_kwh
+    residual = modelled - measured
+    # The single efficiency e that would satisfy
+    #     in*e - out/e = measured
+    # has no clean closed form when both terms are live, and inventing
+    # one would hide the asymmetry rather than report it. The honest,
+    # decisive case is a window with real charging: solve the charge
+    # side alone, holding the measured discharge at its configured
+    # value, which is exactly the "charge phase" comparison #1012 has
+    # been making by hand.
+    implied: float | None = None
+    if in_kwh > 1e-6:
+        implied = (measured + out_kwh / discharge_efficiency) / in_kwh
+    reason: str | None = None
+    if implied is None:
+        reason = "no_charge_throughput"
+    elif implied > 1.0:
+        # Physically impossible rather than merely surprising -- worth
+        # naming separately so it is never read as "very efficient".
+        reason = "implied_efficiency_above_unity"
+    return {
+        "name": name,
+        "modelled_soc_delta_kwh": round(modelled, 3),
+        "measured_soc_delta_kwh": round(measured, 3),
+        "residual_kwh": round(residual, 3),
+        # Scale-free, so one threshold reads the same on a 10 kWh home
+        # pack and a 120 kWh fleet -- a 5 kWh residual means very
+        # different things on those two.
+        "residual_pct_of_capacity": (
+            round(100.0 * residual / capacity_kwh, 2) if capacity_kwh > 0 else None
+        ),
+        "configured_charge_efficiency": round(charge_efficiency, 4),
+        "implied_charge_efficiency": None if implied is None else round(implied, 4),
+        "implied_efficiency_reason": reason,
+    }
+
+
 def near_zero_summed_load_error(
     total_kw: list[float],
     failed_entities: list[str],
@@ -7577,6 +7678,49 @@ def _compute_report_for_window(
                 strict=True,
             )
         },
+        # nimbus issue #1012: does each battery's measured energy
+        # actually reconcile with its measured SoC swing? Every
+        # kWh-based reconstruction in this scorer assumes the configured
+        # efficiency, applied to the power sensor's readings, converts
+        # to the same energy the SoC sensor reports -- and nothing has
+        # ever checked that assumption. #1012 is what it looks like when
+        # it is wrong.
+        #
+        # The published `implied_charge_efficiency` is the point: a bare
+        # residual says "something is off", while the efficiency that
+        # WOULD close the balance says which thing. It is also the exact
+        # figure #1012's thread has been arguing about from two
+        # directions (85.8% configured vs ~95% implied) without either
+        # side being able to measure it directly.
+        #
+        # Per battery and never blended, so #949's fleet-blend artefact
+        # cannot contaminate it -- and on a fleet install it says WHICH
+        # battery fails to reconcile, which a blended figure cannot.
+        #
+        # Mark Purcell's #768 sequencing note is why this is worth
+        # having before more reconstruction gets built: the efficiency /
+        # reference-plane question is upstream of every kWh-based
+        # reconstruction, so anything built on top of it inherits the
+        # error until this is settled.
+        "achieved_energy_balance_by_battery": [
+            battery_energy_balance(
+                name=b.name,
+                in_kwh=float(np.sum(chg * period_hours_arr)),
+                out_kwh=float(np.sum(dis * period_hours_arr)),
+                initial_soc_kwh=b.initial_soc_kwh,
+                final_soc_kwh=fin,
+                capacity_kwh=b.capacity_kwh,
+                charge_efficiency=b.charge_efficiency,
+                discharge_efficiency=b.discharge_efficiency,
+            )
+            for b, chg, dis, fin in zip(
+                batteries,
+                actual_charge_kw_list,
+                actual_discharge_kw_list,
+                final_soc_kwh_actual_list,
+                strict=True,
+            )
+        ],
         # nimbus issue #533: the EPR headline's own reliability
         # qualifier, named for what it qualifies. #533 noted that a
         # "future second EPR-reliability signal has somewhere to fold in

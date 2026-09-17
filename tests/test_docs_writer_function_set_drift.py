@@ -217,6 +217,17 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # computes no quality report, so there is nothing for it to be
         # missing from" reasoning.
         "_history_coverage_by_series",
+        # nimbus issue #1012: a per-battery energy-balance check --
+        # does each battery's measured throughput reconcile with its
+        # measured SoC swing, and what efficiency would close the gap.
+        # Called only from _compute_report_for_window() (already listed
+        # above), so the same native-only reasoning as every other
+        # quality-report helper here: the standalone/cron FORECAST
+        # script computes no quality report, so there is nothing for it
+        # to be missing from. (The separate cron QUALITY writer does
+        # compute one and is not covered by this test's comparison --
+        # wiring this there is tracked on #1012 itself.)
+        "battery_energy_balance",
         # nimbus issue #428: only called from compute_daily_quality_
         # report's own solar/load/battery resampling (already listed
         # above) -- same native-only reasoning, not a separate gap.
