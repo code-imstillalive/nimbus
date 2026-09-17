@@ -76,7 +76,12 @@ class TestAConsistentBatteryReconciles(unittest.TestCase):
             final_soc_kwh=10.0 + delta,
         )
         self.assertAlmostEqual(r["implied_charge_efficiency"], eff, places=4)
-        self.assertIsNone(r["implied_efficiency_reason"])
+        # nimbus issue #1073: this fixture charges AND discharges, so the
+        # window is genuinely two-directional and the reason now says so.
+        # The implied value is still exactly right -- the caveat is about
+        # confidence, not correctness, and on self-consistent data like
+        # this it recovers the configured efficiency regardless.
+        self.assertEqual(r["implied_efficiency_reason"], "mixed_window_not_decisive")
 
 
 class TestItReproducesNumber1012sOwnShape(unittest.TestCase):

@@ -228,6 +228,12 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # compute one and is not covered by this test's comparison --
         # wiring this there is tracked on #1012 itself.)
         "battery_energy_balance",
+        # nimbus issue #1073 (Mark Purcell): battery_energy_balance()'s
+        # own "is this window genuinely two-directional" test, called
+        # from nowhere else. Inherits that function's native-only
+        # reasoning exactly -- a helper cannot be a drift gap in a copy
+        # that does not have the function it serves.
+        "_is_mixed_direction_window",
         # nimbus issue #428: only called from compute_daily_quality_
         # report's own solar/load/battery resampling (already listed
         # above) -- same native-only reasoning, not a separate gap.

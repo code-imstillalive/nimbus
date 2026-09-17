@@ -57,7 +57,6 @@ from __future__ import annotations
 import unittest
 
 import _solver_path  # noqa: F401
-import pytest
 import solver_writer
 
 
@@ -77,17 +76,6 @@ def _bal(**over):
 
 
 class TestAMixedWindowFlagsReducedConfidence(unittest.TestCase):
-    @pytest.mark.xfail(
-        reason=(
-            "nimbus IV&V (since #1058, 2026-09-17): battery_energy_balance() "
-            "computes implied_charge_efficiency/implied_discharge_efficiency "
-            "with reason=None on a genuinely mixed (charge+discharge) window, "
-            "silently assuming the OTHER direction's configured efficiency is "
-            "correct -- which is exactly the unknown #1012 exists to measure. "
-            "See the module docstring above for the full reasoning."
-        ),
-        strict=True,
-    )
     def test_mixed_direction_window_does_not_read_as_fully_decisive(self):
         in_kwh, out_kwh = 100.0, 50.0
         # TRUE one-way efficiencies, both genuinely different from the

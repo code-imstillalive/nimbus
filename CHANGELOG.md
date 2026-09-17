@@ -8,6 +8,29 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.379] - 2026-09-17
+
+### Fixed
+- **A charge/discharge efficiency measured on a mixed window is no longer published as if it were decisive** ([#1073](https://github.com/code-imstillalive/nimbus/issues/1073), Mark Purcell, IV&V since [#1058](https://github.com/code-imstillalive/nimbus/issues/1058)).
+
+  `battery_energy_balance()` computes `implied_charge_efficiency` whenever there is charge throughput, netting out the discharge side using the **configured** discharge efficiency — and symmetrically for the discharge side. Neither check that the *other* direction's throughput is negligible.
+
+  On a window with real throughput in both directions, each implied value therefore assumes the other direction's configured efficiency is correct — which is precisely the unknown [#1012](https://github.com/code-imstillalive/nimbus/issues/1012) exists to measure. When both configured values are wrong, and #1012 measured exactly that on the reference household, each figure is contaminated by the other's error.
+
+  `implied_efficiency_reason` stayed `None` throughout, so a confounded pair was published with the same "nothing to flag" confidence as a genuinely one-directional window — the only shape that can actually separate capacity from efficiency.
+
+  **This is the common case, not an edge one.** Every daily quality report scores a calendar day, and a real day both charges and discharges. Worth noting alongside it: the three same-day capacity estimates in v0.94.36x's own changelog table (113.08 / 112.73 / 114.17 kWh) all came from hand-picked **pure-direction** sub-windows, not the full-day mixed window the production sensor actually publishes.
+
+  Reproduced on Mark's own figures: true one-way efficiencies of 0.90 charge / 0.80 discharge against 0.95/0.95 configured, on a 100 kWh-in / 50 kWh-out window, returns **0.8013 and 0.7407** — far from either the true or the configured numbers — with `reason: None`.
+
+  A window now reports `mixed_window_not_decisive` (his own suggested name) when the smaller direction carries at least **1% of the larger**, or `mixed_window_not_decisive_implied_above_unity` when it is also above 1.0. The numbers are **kept, not nulled** — they still bound the answer and a reader who understands the caveat can use them. What changes is that the caveat is now attached.
+
+  The threshold is relative rather than the absolute `1e-6` floor the issue suggested mirroring: 100 kWh in against 0.01 kWh out is effectively one-directional, and calling that "mixed" would suppress a decisive reading the caller genuinely has. 1% is the same floor [#1072](https://github.com/code-imstillalive/nimbus/issues/1072) settled on the day before, kept deliberately identical so this file carries one notion of "negligible throughput" rather than two.
+
+  Mark's `xfail(strict=True)` pinning test flipped to passing and its marker is removed. Verified to still bite by disabling the branch and confirming it fails with the exact confounded pair above.
+
+  Devhub validation: **not claimed** — this changes a diagnostic *reason string* on a report the install already publishes, and the install's own windows are full calendar days, so the observable change is the new reason appearing where `None` used to be. Verified by the pinning test and the full suite instead.
+
 ## [0.94.378] - 2026-09-17
 
 ### Fixed
