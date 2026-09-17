@@ -4370,6 +4370,54 @@ def fetch_p2p_fixed_export_kw(
     return result
 
 
+def p2p_bonus_price_by_period(
+    bonus_rate: float, fixed_export_kw: list[float] | None, n_periods: int
+) -> np.ndarray:
+    """The settled P2P rate, offered ONLY in the periods where the
+    household actually has a P2P commitment -- and zero everywhere else.
+
+    A P2P premium is not a property of the day, it is a property of the
+    BLOCK. The household's scheme settles inside their committed window
+    (17:00-24:00 local here); an hour outside it earns plain spot and
+    nothing more. Spreading the day's settled $/kWh flat across all 24
+    hours hands the oracle money it could not have earned, and the
+    oracle -- being an oracle -- spends the day arranging to collect it.
+
+    Confirmed on real devhub data, 2026-09-17, scoring 15 Sep: with a
+    flat bonus of $0.2183/kWh (the day's real $10.4032 / 47.668 kWh)
+    `j_star` charged the battery at 01:00-02:00 local paying $0.215/kWh
+    and dumped 20 kW to grid at 05:00 local into a spot price of
+    $0.088/kWh. That is a 13c/kWh loss on its face and no optimiser
+    takes it voluntarily -- it only clears because the phantom premium
+    turns $0.088 into $0.306. Every dollar of that trade inflates
+    `j_star`, and regret is measured against `j_star`.
+
+    The same `grid_oracle` is reused for `j_ref` pricing (#1026), so the
+    reference plane was being credited the premium too -- on 15 Sep for
+    ~41 kWh of MIDDAY SOLAR export, none of it inside the window. That
+    lifts `j_ref` toward `j_ach` and shrinks the numerator. Both ends of
+    the EPR fraction moved, both in the direction that depresses it.
+
+    `fixed_export_kw` is the honest window signal and it is already
+    built from the household's own configured blocks by
+    fetch_p2p_fixed_export_kw() -- non-zero exactly where a commitment
+    exists, and explicitly 0.0 through the post-midnight self-consume
+    hours where export is pinned off entirely. Reusing it means this
+    gate cannot drift away from the window the LP is actually pinned to,
+    which a second reading of the block hours here certainly would.
+
+    `fixed_export_kw is None` means no block is configured at all. There
+    is then no window information to gate on, so the flat rate is kept:
+    that is the pre-existing behaviour and this must not make an install
+    with no configured P2P block worse on the strength of a guess.
+    """
+    if fixed_export_kw is None:
+        return np.full(n_periods, bonus_rate)
+    return np.where(
+        np.asarray(fixed_export_kw, dtype=np.float64) > 0.0, bonus_rate, 0.0
+    )
+
+
 def resolve_price_spike_override(
     cfg: dict, import_price_now: float
 ) -> tuple[float | None, bool]:
@@ -7481,7 +7529,13 @@ def _compute_report_for_window(
                     export_price=export_price,
                     import_limit_kw=grid_residual.import_limit_kw,
                     export_limit_kw=grid_residual.export_limit_kw,
-                    export_bonus_price=np.full(n_periods, bonus_rate),
+                    # nimbus #1079: gated to the committed periods, not
+                    # spread flat over the day -- see
+                    # p2p_bonus_price_by_period()'s own docstring for the
+                    # real 15 Sep trade this was funding at 05:00 local.
+                    export_bonus_price=p2p_bonus_price_by_period(
+                        bonus_rate, fixed_export_kw, n_periods
+                    ),
                     export_bonus_volume_kwh=real_p2p_volume_kwh,
                     # Preserves the fixed-rate constraint set above --
                     # this branch must never silently drop it just
@@ -8935,7 +8989,13 @@ def compute_nimbus_only_soc_counterfactual(cfg: dict, day: datetime) -> dict | N
             export_price=export_price,
             import_limit_kw=import_limit_kw,
             export_limit_kw=export_limit_kw,
-            export_bonus_price=np.full(n, p2p_bonus_price_flat),
+            # nimbus #1079: gated to the committed blocks. This replay is
+            # the "what would Nimbus alone have done" counterfactual, so
+            # an ungated premium here makes the counterfactual look good
+            # for trades a real household could not have been paid for.
+            export_bonus_price=p2p_bonus_price_by_period(
+                p2p_bonus_price_flat, fixed_export_kw, n
+            ),
             export_bonus_volume_kwh=remaining_bonus_kwh,
             fixed_export_kw=np.array(fixed_export_kw)
             if fixed_export_kw is not None
@@ -15051,7 +15111,20 @@ def main() -> None:
         # doesn't have any P2P/community-trading scheme at all).
         p2p_recent_volume_kwh = _cfg_num(cfg, "solver_p2p_bonus_volume_kwh", 0.0)
         bonus_price_flat = _cfg_num(cfg, "solver_p2p_bonus_price", 0.0)
-        export_bonus_price = [bonus_price_flat] * n_periods
+        # nimbus #1079: gated to the household's own committed blocks,
+        # for the same reason the LocalVolts branch above zeroes it
+        # outside a real block (2026-09-05). A static configured bonus
+        # is no more earnable at 05:00 than a settled one is, and this
+        # branch prices a LIVE dispatch LP -- an ungated premium here
+        # buys real energy at a real cost to chase revenue that will
+        # not arrive.
+        export_bonus_price = list(
+            p2p_bonus_price_by_period(
+                bonus_price_flat,
+                fetch_p2p_fixed_export_kw(cfg, grid_times),
+                n_periods,
+            )
+        )
         # No real multi-day recorded history to build an empirical band
         # from for a generic install -- price_risk_aversion (if a household
         # sets it > 0 anyway) is then a genuine no-op, same as every other
