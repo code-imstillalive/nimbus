@@ -133,6 +133,19 @@ class EPRResult:
     )
     value_captured: float  # $, j_ref - j_ach -- what was actually captured
     uplift_available: float  # $, j_ach - j_star -- same quantity regret.py calls R; kept as supporting detail, never the headline
+    # nimbus issue #1089: None when `theoretical_maximum_yield` is a
+    # positive quantity (the normal case, and what reading `epr` as a
+    # percentage assumes). A reason string when it is not, in which case
+    # `epr` is a ratio of two signed dollar amounts rather than a
+    # fraction of anything available -- see compute_epr()'s own
+    # docstring for the real 242.7% this was measured on.
+    #
+    # Carried on the result rather than computed by each caller so that
+    # every consumer of an EPR gets the check for free: the native
+    # integration, the standalone cron writer, and anything built later.
+    # Defaulted so an EPRResult constructed positionally in an existing
+    # test keeps working.
+    denominator_reason: str | None = None
 
 
 def compute_epr(*, j_ref: float, j_ach: float, j_star: float) -> EPRResult:
@@ -158,11 +171,49 @@ def compute_epr(*, j_ref: float, j_ach: float, j_star: float) -> EPRResult:
     A value outside [0, 1] is informative, not an error: epr < 0 means
     the scored trajectory did WORSE than the reference baseline (a real
     possibility -- e.g. a genuinely bad forecast driving a worse-than-
-    doing-nothing decision); epr > 1 would mean j_ach beat j_star, which
-    should not happen for a correctly-computed oracle over the identical
-    window and real data, and would itself be worth investigating as a
-    likely bug (mismatched windows, non-comparable inputs) rather than
-    reported as a real result.
+    doing-nothing decision).
+
+    **epr > 1 has TWO mechanisms, and this docstring named only one
+    until 2026-09-18.** It used to say epr > 1 "would mean j_ach beat
+    j_star" -- i.e. look for a negative regret. That is one route, and
+    it is the route #956 investigated. The other is a NEGATIVE
+    DENOMINATOR, and it is the more dangerous of the two because the
+    sign cancels:
+
+        EPR = (j_ref - j_ach) / (j_ref - j_star)
+
+    If the scored trajectory did worse than the baseline (numerator
+    negative) AND j_star is no better than j_ref (denominator negative),
+    the quotient is POSITIVE. A bad day then publishes as a high score.
+
+    Measured on a real install, 2026-09-17:
+
+        j_ref   5.4897      numerator    j_ref - j_ach = -3.4975
+        j_ach   8.9872      denominator  j_ref - j_star = -1.4411
+        j_star  6.9308      EPR = 2.427  ->  published as 242.7%
+
+    Regret on that day was +2.0564 -- POSITIVE, so every
+    regret-based reliability signal read clean. A reader following this
+    docstring's old advice would check regret, find nothing wrong, and
+    accept 242.7% on a day the household spent $3.50 MORE than leaving
+    the battery alone.
+
+    `j_star > j_ref` is itself structurally impossible when both are
+    priced by the same model -- the oracle may always choose to do
+    nothing, so it can never be beaten by doing nothing. It is therefore
+    always evidence about the COMPUTATION rather than about the day, and
+    on this install it is #1081's finding: j_star is the LP's own
+    objective (carrying soft-SoC and slack penalties) while j_ref comes
+    from the independent evaluator, so the two sides are not priced
+    alike. Re-pricing the same oracle plan through the evaluator gave
+    4.4419 against the LP's 6.9308, restoring a positive denominator
+    (+1.0478) and an honest EPR of -3.34.
+
+    So: epr > 1 is worth investigating as a likely bug rather than
+    reported as a real result, and the FIRST thing to check is the sign
+    of `theoretical_maximum_yield`, not the sign of regret.
+    `solver_writer.py`'s own `_epr_denominator_reason()` performs that
+    check on every published report.
 
     Degenerate case: if j_ref == j_star (no real opportunity existed in
     this window -- e.g. genuinely flat prices, nothing to arbitrage),
@@ -180,4 +231,37 @@ def compute_epr(*, j_ref: float, j_ach: float, j_star: float) -> EPRResult:
         theoretical_maximum_yield=theoretical_maximum_yield,
         value_captured=value_captured,
         uplift_available=j_ach - j_star,
+        denominator_reason=denominator_reason(j_ref=j_ref, j_star=j_star),
     )
+
+
+def denominator_reason(*, j_ref: float, j_star: float) -> str | None:
+    """Whether EPR's denominator is a positive quantity, which every
+    reading of `epr` as a percentage silently assumes (nimbus #1089).
+
+    `j_star <= j_ref` holds BY CONSTRUCTION when both are priced by the
+    same model: the oracle may always choose to do nothing, so the idle
+    baseline is inside its feasible set and it can never be beaten by
+    doing nothing. A violation is therefore never a property of the day
+    -- it is always evidence that the two sides were not priced alike.
+
+    On the reference install that cause is nimbus #1081: `j_star` is the
+    LP's own objective and carries soft-SoC and slack penalties that the
+    independent evaluator producing `j_ref` does not. Re-pricing the
+    same oracle plan through the evaluator turned a -1.4411 denominator
+    into +1.0478. This function deliberately does not try to repair the
+    number: which side should move rescores every historical day, and
+    that is #1081's decision to make.
+
+    Deliberately a SIGN test with no tolerance. A denominator that is
+    merely SMALL also makes `epr` volatile, but choosing where "small"
+    begins needs a measured basis that does not exist yet, and inventing
+    a threshold would be the guess this check exists to replace. The
+    magnitude is already published as `theoretical_maximum_yield` for a
+    reader who wants it, and `compute_epr()` special-cases
+    `abs(denominator) < 1e-9` to 1.0 so the exact-zero case never
+    reaches a division.
+    """
+    if j_star > j_ref:
+        return "oracle_not_better_than_idle"
+    return None
