@@ -507,6 +507,36 @@ pessimistic** — now filed separately as **#1086** with a third day added:
 Three days clustered within 0.8%, mean 0.982 one-way (0.965 round-trip) against a
 configured 0.9263 (0.858) — **pessimistic by ~6 points one-way, ~11 round-trip.**
 
+**QUALIFIED 2026-09-18: the estimate is CUT-sensitive by more than the day-to-day
+spread.** Same day, different window boundary:
+
+```
+15 Sep  00:00 -> 00:00   in 106.602  out 101.209  delta +1.557   e = 0.9817
+15 Sep  06:00 -> 06:00   in 106.602  out 105.967  delta -0.719   e = 0.9937
+```
+
+`energy_in` is **identical**; the whole difference is in `out`, because the midday
+charge sits inside both windows while the evening discharge is split differently.
+**1.2 points from the cut alone**, against the 0.8-point three-day spread I was
+quoting as the error bar.
+
+Why: a small `measured_soc_delta_kwh` says the pack returned to the same *reading*,
+not to the same *place on the hysteresis loop*. A window cut at 06:00 enters and
+leaves that loop at a different phase from one cut at midnight. "Closed loop" was a
+necessary condition, not a sufficient one.
+
+**Survives:** direction and rough magnitude — every cut and clean day lands between
+**0.978 and 0.994** against a configured 0.9263. A 1.2-point sensitivity does not
+erase a 5–7 point gap. **Does not survive:** the precision. Honest statement is
+"roughly 0.98–0.99, with at least ±0.6 points of systematic uncertainty from window
+placement", on three days of one install.
+
+**Averaging more days at the same cut will NOT reduce this** — it is systematic, and
+every midnight window shares the phase bias. #1086 now recommends scoring each day at
+several cuts and reporting the spread, and preferring windows that begin and end at a
+SoC extreme (a genuinely full pack is a defined point on the loop; a mid-range
+reading is not). **Do not set the config value from the current evidence.**
+
 This matters because `solver_efficiency_percent` prices the **live dispatch LP**, not
 just the scorer: too low makes every stored kWh look dearer to acquire and cheaper to
 release, so genuinely profitable arbitrage gets declined, export is taxed twice by a
