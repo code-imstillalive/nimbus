@@ -331,9 +331,30 @@ an unclamped integration must diverge across one by construction, and
 fleet-blend artefact.
 
 Cause of the step is inferred, not confirmed (voltage-based re-estimation during CV
-absorption fits, but the voltage series is confounded by IR drop at 30–40 kW). The
-signature for a third-day check is very specific: **one 5-minute interval above ~88%
-SoC gaining more than 4 points.**
+absorption fits, but the voltage series is confounded by IR drop at 30–40 kW).
+
+**Third day (14 Sep) QUALIFIES this.** The dramatic step is NOT a daily certainty —
+14 Sep's largest interval is 3.33 points (~24% above expectation) against 2.2× and
+2.5× on 15/16 Sep. Top-band compression appears on all three days; the discrete step
+does not. Something conditions it that three days cannot resolve.
+
+What IS settled, five measurements across three days and a 33% current spread,
+clustered within 2.2%: **kWh per SoC point in the linear region is 1.080 / 1.092 /
+1.10 / 1.104 / 1.100.** Rate-independence is no longer in question. All three days
+also pin SoC at 99.3 while 3–12 kW keeps flowing.
+
+**The larger, unresolved discrepancy.** In the linear region a SoC point costs ~1.09
+kWh counted. At the configured 122.2 kWh and 0.9263 efficiency it should cost
+`1.222 / 0.9263 = 1.319`. The SoC scale moves ~**21% faster** than the configured
+capacity/efficiency pair predicts, in the well-behaved middle of the range, with no
+recalibration involved. #1013's 119.72 kWh moves this by 2%, nowhere near 21%. This
+is upstream of everything else on the issue and is NOT explained by the top-band
+step. Flagged, not concluded — extrapolating a capacity from a scale that compresses
+at the top and pins at 99.3 is the kind of inference this thread has retracted twice.
+
+**Correction recorded:** the earlier "counted energy, efficiency and plane are all
+measured correct" holds for DISCHARGE only. The 21% above means it was overstated
+for charge.
 
 **Consequence for the fix: it is not an input-boundary conversion at all.**
 The counted energy and the configured efficiency are both demonstrably right. What
