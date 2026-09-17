@@ -8,6 +8,52 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.384] - 2026-09-18
+
+### Fixed
+- **A day the household did $3.50 worse than doing nothing published as EPR 242.7%, because the ratio's denominator has never been checked** ([#1089](https://github.com/code-imstillalive/nimbus/issues/1089)).
+
+  Measured on a real install for 2026-09-17:
+
+  ```
+  EPR = (j_ref - j_ach) / (j_ref - j_star)
+
+  j_ref   5.4897      numerator    j_ref - j_ach  =  -3.4975
+  j_ach   8.9872      denominator  j_ref - j_star =  -1.4411
+  j_star  6.9308      EPR = +2.427   ->   published 242.7%
+  ```
+
+  **Both terms are negative and the signs cancel.** A negative numerator alone is honest — the household did worse than idle, EPR goes negative, and the dashboard says so. A negative denominator inverts that, which makes this **the only failure mode in the scorer that makes the headline read better than the truth**. The same report also published `theoretical_maximum_yield: -1.4411` — "the best available outcome was worse than nothing" — and nobody had noticed.
+
+  **Why no existing guard caught it.** Neither reliability signal involves `j_ref`: `soc_discrepancy_reliable` ([#533](https://github.com/code-imstillalive/nimbus/issues/533)) tests the SoC reconstruction, and `regret_reliable` ([#956](https://github.com/code-imstillalive/nimbus/issues/956)) tests `j_ach - j_star`. `regret_dollars` that day was **+2.0564** — positive — so `regret_reliable` was `true` and `epr_reason` was `null`. Regret ≥ 0 asks "did the oracle beat the achieved dispatch?", never "did the oracle beat *idle*?". The day was flagged at all only by an **unrelated** SoC disagreement; **with a clean reconstruction, 242.7% would have published as fully `epr_reliable`.** It escaped by coincidence.
+
+  Of the three days in that report's own history, **two carry impossible arithmetic by two different routes** — 15 Sep with `regret_dollars` -0.3977, 17 Sep with the negative denominator. Only 16 Sep is sound, so this is not a rare edge case on that install.
+
+  Now published as `epr_denominator_reason` (`oracle_not_better_than_idle` or `null`), folded into `epr_reliable` as its third independent signal, surfaced as its own flattened diagnostic entity, and logged once per scored day with its own dedup set — sharing #956's would have meant **no warning at all** on 17 Sep, since `regret_reliable` was True.
+
+  The check lives in `solver/epr.py` and is computed inside `compute_epr()`, so it rides on `EPRResult` and every consumer gets it without opting in. That is also what lets the **standalone/cron writer** publish it: that deployment emits `epr` and `theoretical_maximum_yield` and has never carried any of the three reliability signals, and putting the check next to the arithmetic makes it free there rather than a second copy that can drift ([#357](https://github.com/code-imstillalive/nimbus/issues/357)). The other two remain absent there — a [#944](https://github.com/code-imstillalive/nimbus/issues/944)-family structural gap, tracked on #1089 rather than quietly closed.
+
+  **The mechanism, after a correction worth reading.** This fix was first written on the claim that `j_star <= j_ref` holds *by construction* — the oracle may always choose to do nothing, so it cannot be beaten by doing nothing — making any violation proof of a computation fault. **That claim is wrong, and this repo had already measured why on 2026-09-16.** `quality_report.py`'s own `_widen_export_pin_to_achieved()` docstring, written for [#1001](https://github.com/code-imstillalive/nimbus/issues/1001):
+
+  > Then the commitment is a **loss the oracle cannot decline** ... a 12 kW commitment over seven hours at 7.5c export against 37c import gives **`j_star` $2.43 worse than doing nothing at all** and regret -$4.95.
+
+  `fixed_export_kw` pins the oracle's export in every committed P2P period, so idle is **not in its feasible set** and it can be beaten by idle with no pricing mismatch involved. So there are two mechanisms, and the 17 Sep report carries evidence of both against its -1.4411 denominator:
+
+  ```
+  p2p_commitment_shortfall_kwh   2.0036     -> #1001, a committed export pin was active
+  j_star_path_delta              2.4889     -> #1081, the LP objective and evaluator price differently
+  ```
+
+  Either alone accounts for the sign and the report cannot apportion between them, so the reason string names the **observation** and asserts no cause. That wording started as incidental and is now load-bearing: under #1001 a household hitting this has **nothing to fix in the code**, so a reason blaming a pricing bug would be wrong roughly half the time. A test fails if anyone renames it to something diagnostic.
+
+  The guard is right under either mechanism, for different reasons — under #1001 the arithmetic is sound and the *interpretation* breaks (EPR measures capture against an idle baseline the oracle was never free to choose); under #1081 the two inputs are non-comparable. Both times the published percentage is not a score, and both times the remedy is a decision rather than a patch, so this reports and leaves the number alone.
+
+  **Deliberately a sign test with no tolerance of its own.** A merely small denominator also makes EPR volatile, but choosing where "small" begins needs a measured basis that does not exist yet, and inventing a threshold would be exactly the guess this check replaces. The one band it respects is `compute_epr()`'s own pre-existing `abs(...) < 1e-9` degenerate case, now a shared constant — without that, a -1e-12 denominator on a genuinely flat, uneventful day would be reported as a perfect 1.0 **and** as unreliable at the same time. The real denominator is -1.4411, nine orders of magnitude outside it.
+
+  `solver/epr.py`'s own docstring was part of the defect and is corrected in the same change. It named only one mechanism for `epr > 1` — "j_ach beat j_star" — so a reader diagnosing 242.7% follows that advice, checks regret, finds +2.06, and concludes the number is sound. It now names both and says the sign of `theoretical_maximum_yield` is the first thing to check.
+
+  Devhub validation: **the defect itself was found on a live install** rather than reasoned about — 242.7% is a real published figure and every number above is read off that report. The fix's own output is **not claimed live**: it changes what a *future* scored day publishes, and the day that would exercise it has already been scored and cached. 37 unit tests pin the arithmetic, the three-way signal combination, #1001's own $2.43 scenario, that no day is ever both degenerate and flagged, and that the three warning dedup sets are distinct objects.
+
 ## [0.94.383] - 2026-09-18
 
 ### Fixed
