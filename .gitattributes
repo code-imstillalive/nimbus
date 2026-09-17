@@ -1,0 +1,13 @@
+# Vendored third-party files must keep their upstream bytes EXACTLY.
+#
+# nimbus issue #495: schema/telemetry.schema.json is a pinned copy of a
+# file this repo does not own, and tests/test_vendored_telemetry_schema.py
+# asserts its sha256 against the upstream bytes. Without this line, git's
+# own eol conversion rewrites LF to CRLF in a Windows working tree, the
+# hash stops matching, and the drift check fails on a fresh clone while
+# passing in Linux CI -- a break that would look like the schema had
+# drifted when nothing had.
+#
+# `-text` disables eol conversion entirely for these paths, which is what
+# byte-fidelity to an upstream source requires.
+schema/** -text
