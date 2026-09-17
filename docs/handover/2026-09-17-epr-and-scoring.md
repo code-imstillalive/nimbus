@@ -294,7 +294,7 @@ work described.**
 |---|---|---|
 | `feat/1082-rescore-quality-history` | ~80% | **no tests written.** Adds `nimbus_load.rescore_quality_history` (`days`, `clear_history`), a `force` + `history_seed` kwarg on `publish_daily_quality_report()`, and a `services.yaml` entry |
 | `wip/1081-jstar-path-delta` | ~40%, **do not merge** | computes `j_star_evaluator` / `j_star_path_delta` but does **not** publish them on the `QualityReport` dataclass or the returned dict. No tests |
-| `fix/1012-battery-power-plane` | parked, older | plane conversion + config field + wizard dropdown; needs bridge-sensor key, translations, drift exemption, and a 46→47 wizard budget decision |
+| `fix/1012-battery-power-plane` | parked — **do not merge as shaped** | plane conversion + config field + wizard dropdown. Measured 2026-09-17: it converts BOTH directions, but on pure-direction windows the **discharge side is already correct** (implied 0.9336 vs 0.9263 configured) while the charge side is impossible at either plane (1.0859 — the pack gains ~8 kWh MORE than counted). Converting both would break the half that works. See #1012 |
 
 Two **pre-existing, unrelated** stashes exist (`stash@{0}` from
 `fix/1012-battery-power-plane`, `stash@{1}` "ContinuousBlockLoadConfig"). They are
