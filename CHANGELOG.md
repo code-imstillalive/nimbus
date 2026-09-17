@@ -8,6 +8,33 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.374] - 2026-09-17
+
+### Added
+- **`soc_moved_without_throughput` — a battery whose SoC moves while its power sensor sees nothing** ([#1012](https://github.com/code-imstillalive/nimbus/issues/1012)).
+
+  Found while gathering more windows for #1012's capacity/efficiency measurement. A scored participant's SoC fell **6.096 kWh — 10% of its capacity** — across a window in which its own power sensor recorded **no throughput in either direction**.
+
+  Energy cannot appear or leave without flowing, so that is the participant's power sensor failing to see its dispatch: a reconstruction blind spot, not a quiet battery. The balance check already caught the residual; what it lacked was a way to say so. It was labelled `no_charge_throughput` — the same label an ordinary discharge-only window carries — so a real instrumentation gap read as "nothing to report". That is the absence-is-the-only-signal failure this diagnostic exists to catch, reproduced inside the diagnostic itself.
+
+  A 0.5 kWh floor keeps genuine idleness (sensor quantisation, a little self-discharge) out of it, and an ordinary discharge window keeps its own label.
+
+  Devhub validation: **the case came from there** — a real participant on a real scored window, via explicit `compute_quality_report`.
+
+### Changed
+- **#1012's capacity finding confirmed across three independent pairings, two of them same-day.** Using v0.94.373's discharge-side implied efficiency:
+
+  | pairing | implied usable capacity | implied one-way efficiency |
+  |---|---|---|
+  | 09-15 (same day) | 113.08 kWh | 1.0245 |
+  | 09-16 (same day) | 112.73 kWh | 1.0042 |
+  | 09-17 charge × 09-16 discharge | 114.17 kWh | 0.9915 |
+  | **configured / assumed** | **119.76 kWh** | **0.9263** |
+
+  Capacity lands at **113.3 kWh mean with a 1.3% spread**, which is tight enough to act on; the efficiency straddles 1.00, consistent with a pack-side sensor. The two same-day pairings remove the cross-day confound the first estimate carried. Implied SoH against the 122.2 kWh nameplate is **92.7%**, against the 98% configured.
+
+  No configured value changed — both feed the dispatch LP, not only scoring, and the two corrections push the plan in opposite directions, so the net effect wants modelling first. Recorded on the issue.
+
 ## [0.94.373] - 2026-09-17
 
 ### Added
