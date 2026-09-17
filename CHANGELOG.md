@@ -8,6 +8,32 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.382] - 2026-09-18
+
+### Added
+- **A day that returns to its starting SoC and still delivers more than it received is now named as incomplete data, not as a low-confidence efficiency** ([#1086](https://github.com/code-imstillalive/nimbus/issues/1086)).
+
+  Observed on a real scored day, 13 Sep, on the reference install:
+
+  ```
+  energy in            108.136 kWh
+  energy out           113.328 kWh
+  measured SoC delta    -0.240 kWh
+  ```
+
+  The pack finished within **0.11% of throughput** of where it started and delivered **5.2 kWh more than it took in**. That violates conservation of energy at any efficiency, so it is not a statement about the battery — it is proof that one of the three inputs is incomplete. On that day it was the recorder: `load_nowcast_skill_coverage` read 0.958, and the achieved discharge came back 113.328 against inverter counters of ~119.3.
+
+  The report did flag that day, as `mixed_window_not_decisive_implied_above_unity`. That is true and it is the wrong signal — it says "this window cannot separate the two directions" where the finding is "this day's data is missing periods". A reader acting on the first would examine the battery; the second sends them to the recorder.
+
+  Every other value of `implied_efficiency_reason` describes reduced **confidence** in a number that is otherwise sound. `energy_out_exceeds_in_on_closed_loop` says the inputs do not add up, which is a different claim.
+
+  **Gated on the loop actually closing.** A window that legitimately starts full and ends empty has `out >> in` by design — the reference install's own evening block runs 79 kWh out against zero in — and is not remarkable. The threshold is 5% of throughput: on the four real days this was derived from every one closed to within 1.5%, while a single-direction window misses it by two orders of magnitude (a pure-discharge day scores 107%).
+
+  This makes mechanical a screen that [#1086](https://github.com/code-imstillalive/nimbus/issues/1086) otherwise has to apply by hand. That issue measures round-trip efficiency from closed-loop days, and without this check a longer run silently absorbs impossible days and drags the result toward unity — the direction that would make a real finding look like nothing.
+
+  Devhub validation: **not claimed on the default path** — it fires only on a day with incomplete recorder history, which cannot be produced on demand. Verified against 13 Sep's real figures in a unit test, confirmed to fail with the check disabled, plus the neighbouring-reason precedence cases and the full suite.
+
+
 ## [0.94.381] - 2026-09-17
 
 ### Added

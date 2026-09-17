@@ -241,6 +241,12 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # reasoning exactly -- a helper cannot be a drift gap in a copy
         # that does not have the function it serves.
         "_is_mixed_direction_window",
+        # nimbus #1086: battery_energy_balance()'s own "did this window
+        # return to its starting SoC" test, which is what makes energy in
+        # and energy out directly comparable. Same native-only reasoning
+        # as its two neighbours above -- the cron FORECAST copy has no
+        # quality-report publisher for it to serve.
+        "_is_closed_soc_loop",
         # nimbus issue #428: only called from compute_daily_quality_
         # report's own solar/load/battery resampling (already listed
         # above) -- same native-only reasoning, not a separate gap.
