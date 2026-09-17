@@ -257,13 +257,56 @@ class TestTheWarningHasItsOwnDedupSet(unittest.TestCase):
 
 
 class TestTheDegenerateCaseStillWorks(unittest.TestCase):
+    """`compute_epr()`'s pre-existing "no opportunity existed" branch
+    reports 1.0, and the reason must stay silent across the whole of
+    that band -- otherwise a genuinely flat day is labelled both perfect
+    AND unreliable, off a denominator that is float noise."""
+
     def test_exact_zero_denominator_reports_one_and_no_reason(self):
-        """compute_epr()'s pre-existing `abs(...) < 1e-9 -> 1.0` branch
-        is untouched by this change, and must not start emitting a
-        reason: no value available means nothing was missed."""
         r = compute_epr(j_ref=3.0, j_ach=2.0, j_star=3.0)
         self.assertEqual(r.epr, 1.0)
         self.assertIsNone(r.denominator_reason)
+
+    def test_float_noise_inside_the_degenerate_band_is_not_flagged(self):
+        """j_star above j_ref by a hair. `epr` is already 1.0 here, so a
+        reason would contradict it. This is the case a bare `j_star >
+        j_ref` test got wrong."""
+        r = compute_epr(j_ref=3.0, j_ach=2.0, j_star=3.0 + 1e-12)
+        self.assertEqual(r.epr, 1.0)
+        self.assertIsNone(
+            r.denominator_reason,
+            "a -1e-12 denominator on a flat day is float noise, and "
+            "flagging it makes epr_reliable False for a day that is "
+            "simply uneventful -- while epr itself still reads 1.0",
+        )
+
+    def test_the_two_checks_never_disagree_across_the_band(self):
+        """The property that matters, asserted directly: a day can be
+        degenerate (epr forced to 1.0) or flagged, never both."""
+        for delta in (0.0, 1e-12, 1e-10, 5e-10, 1e-9, 1e-8, 1e-6, 1.4411):
+            for sign in (1.0, -1.0):
+                with self.subTest(delta=delta, sign=sign):
+                    r = compute_epr(j_ref=3.0, j_ach=2.0, j_star=3.0 + sign * delta)
+                    degenerate = (
+                        r.epr == 1.0 and abs(r.theoretical_maximum_yield) < 1e-9
+                    )
+                    self.assertFalse(
+                        degenerate and r.denominator_reason is not None,
+                        "the same day was reported as a perfect 1.0 and as "
+                        "having an unusable denominator",
+                    )
+
+    def test_the_real_day_is_far_outside_the_band(self):
+        """Guards against anyone widening _DEGENERATE_YIELD_ABS far
+        enough to swallow the defect this check exists for."""
+        from solver import epr as epr_mod
+
+        self.assertLess(
+            epr_mod._DEGENERATE_YIELD_ABS,
+            abs(REAL_J_REF - REAL_J_STAR) / 1e3,
+            "the degenerate band has grown close enough to the real "
+            "-1.4411 denominator to risk swallowing it",
+        )
 
 
 if __name__ == "__main__":

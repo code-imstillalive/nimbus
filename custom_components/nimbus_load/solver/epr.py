@@ -120,6 +120,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+# Below this, `j_ref - j_star` is treated as "no opportunity existed"
+# rather than as a real quantity with a sign. compute_epr() has reported
+# 1.0 inside this band since the file was written; nimbus #1089's
+# denominator_reason() reuses the SAME band so the two cannot disagree
+# about the same day -- a denominator of -1e-12 is float noise on a flat
+# day, and flagging it would make `epr_reliable` False for a day that is
+# simply uneventful.
+#
+# Deliberately shared rather than duplicated: the failure mode if these
+# drift apart is a day reported as a perfect 1.0 AND unreliable at the
+# same time, which is unactionable.
+_DEGENERATE_YIELD_ABS = 1e-9
+
 
 @dataclass(frozen=True)
 class EPRResult:
@@ -209,11 +222,10 @@ def compute_epr(*, j_ref: float, j_ach: float, j_star: float) -> EPRResult:
     gave 4.4419 against the LP's 6.9308, which alone would restore a
     positive denominator (+1.0478) and an EPR of -3.34.
 
-    So: epr > 1 is worth investigating as a likely bug rather than
-    reported as a real result, and the FIRST thing to check is the sign
-    of `theoretical_maximum_yield`, not the sign of regret.
-    `solver_writer.py`'s own `_epr_denominator_reason()` performs that
-    check on every published report.
+    So: epr > 1 always needs the sign of `theoretical_maximum_yield`
+    checked before the number is quoted, and that is the FIRST thing to
+    check rather than the sign of regret. `denominator_reason()` below
+    performs the check and is carried on every result.
 
     Degenerate case: if j_ref == j_star (no real opportunity existed in
     this window -- e.g. genuinely flat prices, nothing to arbitrage),
@@ -222,7 +234,7 @@ def compute_epr(*, j_ref: float, j_ach: float, j_star: float) -> EPRResult:
     """
     theoretical_maximum_yield = j_ref - j_star
     value_captured = j_ref - j_ach
-    if abs(theoretical_maximum_yield) < 1e-9:
+    if abs(theoretical_maximum_yield) < _DEGENERATE_YIELD_ABS:
         epr = 1.0
     else:
         epr = value_captured / theoretical_maximum_yield
@@ -279,15 +291,21 @@ def denominator_reason(*, j_ref: float, j_star: float) -> str | None:
     priced into a baseline (#1001) -- so this reports and leaves the
     number alone.
 
-    Deliberately a SIGN test with no tolerance. A denominator that is
-    merely SMALL also makes `epr` volatile, but choosing where "small"
-    begins needs a measured basis that does not exist yet, and inventing
-    a threshold would be the guess this check exists to replace. The
-    magnitude is already published as `theoretical_maximum_yield` for a
-    reader who wants it, and `compute_epr()` special-cases
-    `abs(denominator) < 1e-9` to 1.0 so the exact-zero case never
-    reaches a division.
+    Deliberately a SIGN test, with no tolerance of its own. A
+    denominator that is merely SMALL also makes `epr` volatile, but
+    choosing where "small" begins needs a measured basis that does not
+    exist yet, and inventing a threshold would be the guess this check
+    exists to replace. The magnitude is already published as
+    `theoretical_maximum_yield` for a reader who wants it.
+
+    The one band it does respect is `_DEGENERATE_YIELD_ABS`, and that is
+    reuse rather than a new judgement: `compute_epr()` has always
+    reported 1.0 inside it, so firing here would label a genuinely flat,
+    uneventful day both perfect AND unreliable off a -1e-12 denominator
+    that is float noise. Sharing the constant is what keeps the two from
+    disagreeing about the same day. On the real 2026-09-17 day the
+    denominator was -1.4411, nine orders of magnitude outside it.
     """
-    if j_star > j_ref:
+    if j_star - j_ref > _DEGENERATE_YIELD_ABS:
         return "oracle_not_better_than_idle"
     return None
