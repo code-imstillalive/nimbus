@@ -52,25 +52,22 @@ from __future__ import annotations
 import unittest
 
 import _solver_path  # noqa: F401
-import pytest
 from solver.epr import _DEGENERATE_YIELD_ABS, compute_epr, denominator_reason
 
 
 class TestTheSharedBoundaryIsConsistent(unittest.TestCase):
-    @pytest.mark.xfail(
-        reason=(
-            "nimbus IV&V (since 4812f93, 2026-09-18): compute_epr()'s "
-            "degenerate check uses strict '<' and denominator_reason()'s "
-            "negative-denominator check uses strict '>' around the SAME "
-            "_DEGENERATE_YIELD_ABS constant. At theoretical_maximum_yield "
-            "== exactly -_DEGENERATE_YIELD_ABS, compute_epr() computes a "
-            "real (wild) ratio instead of treating it as degenerate, "
-            "while denominator_reason() does not flag it as a negative "
-            "denominator -- the exact combination #1089 exists to catch. "
-            "See the module docstring above for the full derivation."
-        ),
-        strict=True,
-    )
+    # FIXED 2026-09-18. `denominator_reason()` now compares `>=` rather
+    # than `>`, so the boundary value this file pins is flagged and the
+    # `xfail(strict=True)` marker that stood here has been removed --
+    # with the fix in place it XPASSes, which is the point of the strict
+    # marker.
+    #
+    # The operator was derived rather than picked: `compute_epr()` treats
+    # a value as degenerate iff `abs(x) < EPS`, so it divides iff
+    # `abs(x) >= EPS`, and "divides AND negative" is `x <= -EPS`, i.e.
+    # `j_star - j_ref >= EPS`. Changing `compute_epr()` to `<=` would
+    # close the same gap but by altering the older function's
+    # long-standing behaviour at the boundary, so the change went here.
     def test_a_denominator_exactly_at_the_band_edge_is_flagged_if_not_degenerate(
         self,
     ):

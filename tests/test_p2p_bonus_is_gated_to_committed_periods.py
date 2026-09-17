@@ -204,9 +204,26 @@ class TestTheOracleIsNotPaidOutsideTheWindow(unittest.TestCase):
                 "fixed_export_kw -- without it there is no window to gate on.",
             )
             committed = np.asarray(committed, dtype=float)
+            # nimbus issue #1103 (Mark Purcell IV&V): `committed <= 0.0`
+            # was the mask here, and it could not see the case this test
+            # exists for. fetch_p2p_fixed_export_kw() returns NaN for
+            # every ORDINARY uncommitted period -- the ~52-against-16
+            # majority on a real config -- and every numpy comparison
+            # against NaN except `!=` is False, so the mask silently
+            # selected only the handful of explicit-0.0 self-consume
+            # periods. Measured on a representative day: 2 periods seen,
+            # 18 invisible.
+            #
+            # `~(committed > 0.0)` is the complement of the committed
+            # mask, so NaN lands on the uncommitted side where it belongs
+            # rather than falling out of both. Production was already
+            # correct -- p2p_bonus_price_by_period()'s own
+            # `np.where(arr > 0.0, ...)` also reads NaN as not-committed
+            # -- so this closes a blind assertion, not a live defect.
+            uncommitted = ~(committed > 0.0)
 
             self.assertTrue(
-                (bonus[committed <= 0.0] == 0.0).all(),
+                (bonus[uncommitted] == 0.0).all(),
                 "the oracle is being offered the P2P premium in periods "
                 "with no commitment. That is what funded j_star charging "
                 "at $0.215/kWh overnight and dumping 20 kW at 05:00 into "
@@ -214,7 +231,7 @@ class TestTheOracleIsNotPaidOutsideTheWindow(unittest.TestCase):
                 "because of a premium the household could not have earned "
                 "at that hour.\n"
                 f"  bonus at uncommitted periods: "
-                f"{sorted(set(bonus[committed <= 0.0].tolist()))}",
+                f"{sorted(set(bonus[uncommitted].tolist()))}",
             )
             np.testing.assert_allclose(
                 bonus[committed > 0.0],

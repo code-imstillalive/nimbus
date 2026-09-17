@@ -281,8 +281,25 @@ class TestTheDegenerateCaseStillWorks(unittest.TestCase):
         )
 
     def test_the_two_checks_never_disagree_across_the_band(self):
-        """The property that matters, asserted directly: a day can be
-        degenerate (epr forced to 1.0) or flagged, never both."""
+        """The property that matters, asserted in BOTH directions.
+
+        **This test was one-sided until #1104, and that is how Mark
+        Purcell's IV&V pass found a real gap in code this file was
+        supposed to be guarding.** It asserted only that a day is never
+        *both* degenerate and flagged. The dangerous direction is the
+        other one -- a denominator `compute_epr()` considers real enough
+        to divide by, negative, and NOT flagged -- and nothing here
+        looked for it.
+
+        There were two independent reasons it slipped through, and the
+        second is the more instructive:
+
+        1. the assertion covered one direction of a biconditional;
+        2. the fixture could not reach the boundary anyway. `3.0 +/-
+           delta` never lands on exactly `-1e-9` after float rounding, so
+           even a two-sided assertion would have passed. `j_ref=0.0`
+           below makes the subtraction exact, which is what it takes.
+        """
         for delta in (0.0, 1e-12, 1e-10, 5e-10, 1e-9, 1e-8, 1e-6, 1.4411):
             for sign in (1.0, -1.0):
                 with self.subTest(delta=delta, sign=sign):
@@ -295,6 +312,28 @@ class TestTheDegenerateCaseStillWorks(unittest.TestCase):
                         "the same day was reported as a perfect 1.0 and as "
                         "having an unusable denominator",
                     )
+
+    def test_a_divided_by_negative_denominator_is_always_flagged(self):
+        """The direction the test above was missing, on a fixture that
+        can actually reach the boundary: `j_ref=0.0` makes `j_ref -
+        j_star` exact, so the `== -EPS` case is genuinely tested rather
+        than approached."""
+        from solver import epr as epr_mod
+
+        eps = epr_mod._DEGENERATE_YIELD_ABS
+        for j_star in (eps, 2 * eps, 10 * eps, 1e-6, 1.4411):
+            with self.subTest(j_star=j_star):
+                r = compute_epr(j_ref=0.0, j_ach=4.0, j_star=j_star)
+                if abs(r.theoretical_maximum_yield) < eps:
+                    continue  # degenerate: compute_epr() reports 1.0, correctly
+                self.assertIsNotNone(
+                    r.denominator_reason,
+                    f"j_star={j_star!r} gives a NEGATIVE denominator "
+                    f"({r.theoretical_maximum_yield!r}) that compute_epr() "
+                    f"divided by -- publishing epr={r.epr!r} -- with no "
+                    "reason attached. This is #1104: two strict operators "
+                    "around one shared boundary leave exactly this gap",
+                )
 
     def test_the_real_day_is_far_outside_the_band(self):
         """Guards against anyone widening _DEGENERATE_YIELD_ABS far

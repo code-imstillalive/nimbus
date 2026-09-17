@@ -302,10 +302,33 @@ def denominator_reason(*, j_ref: float, j_star: float) -> str | None:
     reuse rather than a new judgement: `compute_epr()` has always
     reported 1.0 inside it, so firing here would label a genuinely flat,
     uneventful day both perfect AND unreliable off a -1e-12 denominator
-    that is float noise. Sharing the constant is what keeps the two from
-    disagreeing about the same day. On the real 2026-09-17 day the
-    denominator was -1.4411, nine orders of magnitude outside it.
+    that is float noise. On the real 2026-09-17 day the denominator was
+    -1.4411, nine orders of magnitude outside it.
+
+    **The comparison is `>=`, not `>`, and sharing a constant was not
+    enough on its own (nimbus #1104, Mark Purcell).** This function used
+    `>` while `compute_epr()` uses `abs(...) < `, and two strict
+    operators around one boundary leave a gap at exactly that boundary:
+
+        theoretical_maximum_yield == -_DEGENERATE_YIELD_ABS  (exactly)
+            compute_epr        abs(-1e-9) < 1e-9   -> False -> divides
+            denominator_reason  1e-9      > 1e-9   -> False -> silent
+
+    i.e. precisely the case this guard exists for -- a negative
+    denominator that `compute_epr()` considered real enough to divide by
+    -- went unflagged. Reproduced exactly with `j_ref=0.0, j_star=1e-9`,
+    where the subtraction is exact: **EPR published 4e+09 with
+    `denominator_reason` None.**
+
+    The operator is derived rather than picked. `compute_epr()` treats a
+    value as degenerate iff `abs(x) < EPS`, so it divides iff
+    `abs(x) >= EPS`; "divides AND negative" is therefore `x <= -EPS`,
+    which is `j_star - j_ref >= EPS`. Changing `compute_epr()` to `<=`
+    instead would close the same gap, but by altering long-standing
+    behaviour of the older function -- a value exactly at the boundary
+    would newly report 1.0 rather than a real ratio -- so the change
+    belongs here.
     """
-    if j_star - j_ref > _DEGENERATE_YIELD_ABS:
+    if j_star - j_ref >= _DEGENERATE_YIELD_ABS:
         return "oracle_not_better_than_idle"
     return None
