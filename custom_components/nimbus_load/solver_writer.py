@@ -13264,11 +13264,13 @@ def _resolve_battery_participant_history(
             CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY,
             CONF_BATTERY_PARTICIPANT_CAPACITY_KWH,
             CONF_BATTERY_PARTICIPANT_DEGRADATION_COST_PER_KWH,
+            CONF_BATTERY_PARTICIPANT_DEPARTURE_HOUR,
             CONF_BATTERY_PARTICIPANT_EFFICIENCY_PERCENT,
             CONF_BATTERY_PARTICIPANT_MAX_CHARGE_KW,
             CONF_BATTERY_PARTICIPANT_MAX_DISCHARGE_KW,
             CONF_BATTERY_PARTICIPANT_MAX_SOC_PERCENT,
             CONF_BATTERY_PARTICIPANT_MIN_SOC_PERCENT,
+            CONF_BATTERY_PARTICIPANT_MUST_HAVE_SOC_BY_DEPARTURE_PERCENT,
             CONF_BATTERY_PARTICIPANT_NAME,
             CONF_BATTERY_PARTICIPANT_POWER_POSITIVE_IS_CHARGE,
             CONF_BATTERY_PARTICIPANT_POWER_SENSOR,
@@ -13283,11 +13285,13 @@ def _resolve_battery_participant_history(
             CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY,
             CONF_BATTERY_PARTICIPANT_CAPACITY_KWH,
             CONF_BATTERY_PARTICIPANT_DEGRADATION_COST_PER_KWH,
+            CONF_BATTERY_PARTICIPANT_DEPARTURE_HOUR,
             CONF_BATTERY_PARTICIPANT_EFFICIENCY_PERCENT,
             CONF_BATTERY_PARTICIPANT_MAX_CHARGE_KW,
             CONF_BATTERY_PARTICIPANT_MAX_DISCHARGE_KW,
             CONF_BATTERY_PARTICIPANT_MAX_SOC_PERCENT,
             CONF_BATTERY_PARTICIPANT_MIN_SOC_PERCENT,
+            CONF_BATTERY_PARTICIPANT_MUST_HAVE_SOC_BY_DEPARTURE_PERCENT,
             CONF_BATTERY_PARTICIPANT_NAME,
             CONF_BATTERY_PARTICIPANT_POWER_POSITIVE_IS_CHARGE,
             CONF_BATTERY_PARTICIPANT_POWER_SENSOR,
@@ -13498,6 +13502,23 @@ def _resolve_battery_participant_history(
                 )
                 ** 0.5
             )
+            # nimbus issue #1111: computed here rather than inline in the
+            # constructor because it needs the achieved trajectory (to
+            # widen against) as well as the config, and the widening rule
+            # is the substance rather than a detail.
+            _must_have_idx, _must_have_kwh = _participant_departure_deadline(
+                grid_times=grid_times,
+                period_hours=period_hours,
+                departure_hour=data.get(CONF_BATTERY_PARTICIPANT_DEPARTURE_HOUR),
+                must_have_soc_pct=data.get(
+                    CONF_BATTERY_PARTICIPANT_MUST_HAVE_SOC_BY_DEPARTURE_PERCENT
+                ),
+                capacity_kwh=capacity_kwh,
+                initial_soc_kwh=initial_soc_kwh,
+                actual_charge_kw=actual_charge_kw,
+                actual_discharge_kw=actual_discharge_kw,
+                efficiency=efficiency,
+            )
             battery_cfg = elements.BatteryConfig(
                 name=str(name),
                 capacity_kwh=capacity_kwh,
@@ -13512,6 +13533,12 @@ def _resolve_battery_participant_history(
                 ),
                 charge_efficiency=efficiency,
                 discharge_efficiency=efficiency,
+                # nimbus issue #1111: the departure deadline, the second
+                # field this function did not carry while its live-solve
+                # sibling did. Widened to what the day actually reached --
+                # see _participant_departure_deadline().
+                must_have_soc_by_period_index=_must_have_idx,
+                must_have_soc_kwh=_must_have_kwh,
                 # nimbus issue #1109: the shared-charger cap, which this
                 # function did NOT carry while its live-solve sibling
                 # build_extra_batteries() did. #768 lists exactly this as
@@ -13583,6 +13610,76 @@ def _resolve_battery_participant_history(
             (battery_cfg, actual_charge_kw, actual_discharge_kw, final_soc_kwh_actual)
         )
     return _widen_shared_charger_cap_to_achieved(results)
+
+
+def _participant_departure_deadline(
+    *,
+    grid_times: list,
+    period_hours: list,
+    departure_hour: object,
+    must_have_soc_pct: object,
+    capacity_kwh: float,
+    initial_soc_kwh: float,
+    actual_charge_kw: np.ndarray,
+    actual_discharge_kw: np.ndarray,
+    efficiency: float,
+) -> tuple[int | None, float | None]:
+    """A participant's departure deadline for the SCORED window, widened
+    to what the day actually reached (nimbus issue #1111).
+
+    `build_extra_batteries()` sets `must_have_soc_by_period_index` /
+    `must_have_soc_kwh` for the live solve; its history-based sibling
+    never did. `elements.py` is explicit that this is a **hard**
+    constraint -- *"a real EV genuinely needs a real SoC by a real time,
+    not a priced preference"* -- so an oracle without it is free to leave
+    the car empty at departure and arbitrage overnight instead, banking a
+    trade the household could never have accepted. That makes `j_star`
+    better than achievable, `regret_dollars` overstated and EPR
+    understated, exactly as #1109 did through the shared-charger cap.
+
+    **Widened, for the same reason and by the same rule as #1109.** A
+    constraint narrows the oracle, and #956 is the record of what that
+    costs when the achieved trajectory falls outside the narrowed set.
+    Here the failure is ordinary rather than exotic: a household that
+    simply did not plug the car in, or plugged it in late, has a day that
+    misses its own departure target. Binding the oracle to a target the
+    real day missed would put the achieved trajectory outside the
+    oracle's feasible set on precisely those days.
+
+    So the returned requirement is `min(configured, the SoC the day
+    actually reached by that period)` -- as demanding as the day itself
+    and no more. On a day that met its target this is the configured
+    value and nothing changes.
+
+    Returns `(None, None)` when the pair is not configured, when only one
+    half is set (matching the live path's own "treat as neither"), or
+    when the departure hour does not occur in this window -- all real,
+    expected cases rather than errors.
+    """
+    if departure_hour is None or must_have_soc_pct is None:
+        return None, None
+    idx: int | None = None
+    for i, start in enumerate(grid_times):
+        if _local(start).hour == int(departure_hour):
+            idx = i
+            break
+    if idx is None:
+        # The hour does not occur in this scored window. Same posture the
+        # live path takes for a short horizon: a no-op, not an error.
+        return None, None
+
+    configured_kwh = capacity_kwh * float(must_have_soc_pct) / 100.0
+
+    # The achieved trajectory's own SoC at that period, integrated the
+    # same way the reconstruction elsewhere does: charge credited at
+    # efficiency, discharge debited by it.
+    soc = float(initial_soc_kwh)
+    for t in range(min(idx, len(actual_charge_kw))):
+        hours = float(period_hours[t]) if t < len(period_hours) else 0.0
+        soc += float(actual_charge_kw[t]) * efficiency * hours
+        soc -= float(actual_discharge_kw[t]) / efficiency * hours
+
+    return idx, min(configured_kwh, max(0.0, soc))
 
 
 def _widen_shared_charger_cap_to_achieved(
