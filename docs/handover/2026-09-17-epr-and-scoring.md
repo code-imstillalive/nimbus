@@ -21,7 +21,7 @@ no P2P arrangement at all — worth about **5 EPR points** and almost certainly 
 mechanism behind the long-standing "my EPR records zero P2P exports" complaint.
 Confirmed live: devhub's published score for 16 Sep self-corrected from **90.6% to
 95.71%** on the first cycle after deploy.
-`main` is at **v0.94.381**, deployed to devhub. **NUC1 is still on v0.94.375 and has
+`main` is at **v0.94.382**, deployed to devhub. **NUC1 is still on v0.94.375 and has
 none of this** — the household is deploying it themselves.
 
 ---
@@ -533,6 +533,25 @@ by #1012's own note that this specific day has missing mirrored recorder history
 
 Without (1), a fortnight average silently absorbs impossible days and drags the result
 toward unity — the direction that would make the finding look like nothing.
+
+**Screen (1) is now automatic — v0.94.382.** `battery_energy_balance()` emits
+`energy_out_exceeds_in_on_closed_loop` when a window returns to within 5% of
+throughput of its starting SoC and still delivers more than it received. Gated on the
+loop closing so a legitimate start-full-end-empty window (79 kWh out against zero in)
+is never flagged. Verified live on devhub against the motivating day.
+
+**And the live verification corrected my own framing.** The changelog and my #1086
+comment attributed the violation to missing recorder data. Scoring 12 Sep 18:00 →
+13 Sep 18:00 fires the check with `load_nowcast_skill_coverage: 1.0` — 48 of 48
+periods, nothing missing — and still shows out 110.367 against in 108.136 (`e =
+1.027`). **Missing data can cause it; it is not necessary for it.**
+
+The reason string is neutral and survives: it states the observation, not a cause. The
+likelier cause given #1012 is the direction-dependent SoC scale — a window cut at
+18:00 samples the hysteresis loop differently from midnight-to-midnight (same day:
+1.0226 vs 1.0270). So the check flags **windows whose endpoints are not comparable**,
+whatever the reason, which makes it more useful rather than less. Screen (2),
+coverage, is therefore NOT redundant with (1).
 
 **Method note worth keeping:** the closed-loop calculation is insensitive to the SoC
 hysteresis above, because a direction-dependent error cancels over a complete cycle —
