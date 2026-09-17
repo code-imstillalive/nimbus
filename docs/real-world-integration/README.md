@@ -62,6 +62,59 @@ the real, live wiring, not a sanitized toy example.
    solver_config`/your Power Signal entities directly before assuming
    the chart itself is wrong.
 
+## Know before you deploy the cron path: the two big sensors get no attribute history
+
+This is the one real, structural thing a cron deployment gives up that
+the native HACS integration does not, and nothing in the system tells
+you about it (nimbus issue
+[#944](https://github.com/code-imstillalive/nimbus/issues/944)).
+
+**What happens.** `sensor.nimbus_solver_battery_forecast` and
+`sensor.nimbus_household_load_total_forecast` carry large per-period
+arrays (`forecast`, and `batteries` on a fleet install). On the native
+integration those are excluded from the recorder via HA's
+`_unrecorded_attributes`, which keeps the recorded row small. **The
+cron path cannot use that mechanism at all** — it publishes over the
+REST API, `_unrecorded_attributes` is an *entity* concept the REST API
+has no way to express, and HA applies it only when a state carries
+`state_info`, which a REST-posted state never does.
+
+So on a cron install the whole payload is measured against HA's
+16,384-byte per-state attribute cap, and for those two sensors it is
+over it. Measured on a real install:
+
+```
+forecast                    17,583 B
+source_entities                778 B
+load_forecast_source_used      762 B
+-----------------------------------
+total                      ~19,295 B   ->  over the cap
+```
+
+**The consequence is worse than losing the big array**, because HA
+drops the entire attribute row rather than the offending key:
+
+1. every attribute is dropped, not just the large one
+2. `unit_of_measurement` goes with them
+3. the statistics compiler then sees no unit where it previously had
+   `kW`, and **suppresses long-term statistics** for that entity
+
+**Your live dispatch is unaffected.** The current state and all its
+attributes are correct and readable in real time — dashboards, the
+topology card and any automation reading `attributes.forecast` all work
+normally. What is lost is *history*: those two sensors have no recorded
+attribute trail and no long-term statistics on a cron install.
+
+Since v0.94.342 the writer logs this explicitly when it happens, naming
+the entity, the payload size, the three largest contributing attributes
+and the real consequence — previously the only clue was a recorder
+warning that reads like a generic database-performance note.
+
+**Nothing here is worth working around by trimming the arrays before
+posting.** They are what the live consumers read; dropping them to save
+the recorded row would break the dashboard to fix the history. #944
+tracks the options that are actually on the table.
+
 ## `files/nimbus_solver_forecast_writer.py` — the whole Solver setup
 
 This is the actual glue: a plain host cron script (runs every minute,
