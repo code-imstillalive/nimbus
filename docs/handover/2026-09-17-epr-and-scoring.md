@@ -14,12 +14,14 @@ the section **What is NOT verified** lists what wasn't.
 
 The household's EPR score was reading **51.47%** on 16 Sep and they said, correctly,
 that they "used to get 95". Two real defects were found and fixed and the same day
-now scores **95.71%**. A third, **larger** defect was found afterwards and is **not
-fixed**: the daily scorer runs at midnight and scores the day *before* that day's
-P2P settlement exists, so the published number is computed as if the household had
+now scores **95.71%**. A third, **larger** defect was found afterwards and is **also now fixed**
+(v0.94.380): the daily scorer ran at midnight and scored the day *before* that day's
+P2P settlement existed, so the published number was computed as if the household had
 no P2P arrangement at all — worth about **5 EPR points** and almost certainly the
 mechanism behind the long-standing "my EPR records zero P2P exports" complaint.
-`main` is at **v0.94.379**, deployed to devhub. **NUC1 is still on v0.94.375 and has
+Confirmed live: devhub's published score for 16 Sep self-corrected from **90.6% to
+95.71%** on the first cycle after deploy.
+`main` is at **v0.94.380**, deployed to devhub. **NUC1 is still on v0.94.375 and has
 none of this** — the household is deploying it themselves.
 
 ---
@@ -36,8 +38,10 @@ none of this** — the household is deploying it themselves.
    ```
    NUC1 currently has **neither** the timezone fix nor the P2P premium fix.
 
-2. **Work #1082** (the midnight/settlement timing bug). It is worth ~5 EPR points.
-   #1081 is worth 0.1. Do not do them in filing order.
+2. **#1082 is done** (v0.94.380) and #1073 is done (v0.94.379). The largest thing
+   still open on this thread is **#1081**, worth $0.02 — genuinely small. The bigger
+   remaining work is elsewhere: **#1012** (reference plane / SoC divergence) and
+   **#949** (fleet-blended SoC).
 
 3. **Do not trust `sensor.nimbus_solver_quality_report` on devhub.** It is a
    *mirror of NUC1*. Devhub's own is `..._quality_report_2`. This has burned this
@@ -139,7 +143,7 @@ single most important sentence in this document when explaining the work to them
 
 ## Open issues, in the order they should be worked
 
-### #1082 — daily scorer runs before the settlement exists (BIGGEST, not started)
+### #1082 — daily scorer ran before the settlement existed — SHIPPED v0.94.380
 
 Same install, same code (v0.94.378), same day (16 Sep), two scores:
 
@@ -161,9 +165,27 @@ This is very likely the answer to the household's repeated
 *"I export and your system says zero P2P exports"*. It was read as a gating bug
 more than once. It is a **timing** bug.
 
-Three candidate fixes are written up on the issue. 1 (rescore when settlement
-arrives) and 3 (a rescore service) are complementary; 2 (delay the first score) is
-a guess about someone else's settlement timing.
+**Fixed 2026-09-17 via candidate 1** — a score carrying a transient settlement
+status (`no_settlement_entry_for_this_date`, `settlement_sensor_unreadable`) is no
+longer treated as final; the publisher falls through and scores the day again once
+the settlement has landed. `applied` is final and `no_sensor_configured` /
+`window_is_not_one_local_calendar_day` are permanent, so an install with no
+settlement sensor never re-scores.
+
+Retries are spaced an hour apart using the published `generated_at` — no new state,
+survives a restart, worst case ~24 extra solves on a day that never settles, and the
+window closes when the scored date rolls over. Retrying per cycle would have
+repeated #773.
+
+**Confirmed live**: devhub's published sensor for 16 Sep went **90.6% → 95.71%** on
+the first cycle after deploy, `real_p2p_dollars` 0 → 14.5364, `status`
+`no_settlement_entry_for_this_date` → `applied`, `generated_at` moving from midnight
+to 23:01. That is the default path healing itself, not an ad-hoc rescore.
+
+Candidate 3 (a rescore service) is still unbuilt and still useful — it is what makes
+a *future* scoring fix reach days already scored. WIP on
+`feat/1082-rescore-quality-history`, local only. The household flagged it as
+over-built for the immediate symptom; confirm before finishing it.
 
 **A WIP branch already exists for candidate 3** — see branches below.
 
