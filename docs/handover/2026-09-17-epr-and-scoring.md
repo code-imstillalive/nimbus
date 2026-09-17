@@ -532,10 +532,39 @@ erase a 5–7 point gap. **Does not survive:** the precision. Honest statement i
 placement", on three days of one install.
 
 **Averaging more days at the same cut will NOT reduce this** — it is systematic, and
-every midnight window shares the phase bias. #1086 now recommends scoring each day at
-several cuts and reporting the spread, and preferring windows that begin and end at a
-SoC extreme (a genuinely full pack is a defined point on the loop; a mid-range
-reading is not). **Do not set the config value from the current evidence.**
+every midnight window shares the phase bias.
+
+**AND THE FIX I PROPOSED DOES NOT WORK.** I suggested anchoring windows at a SoC
+extreme (this pack bottoms at ~2% around 06:00 daily). Tested, and it makes the
+scatter worse:
+
+| window | in | out | ΔSoC | e |
+|---|---|---|---|---|
+| 14 Sep 00:00 | 107.364 | 103.682 | +0.719 | 0.9861 |
+| 15 Sep 00:00 | 106.602 | 101.209 | +1.557 | 0.9817 |
+| 16 Sep 00:00 | 109.667 | 106.041 | −1.078 | 0.9784 |
+| **15 Sep 06:00** | 106.602 | 105.967 | −0.719 | **0.9937** |
+| **16 Sep 06:00** | 109.667 | 102.941 | **0.000** | **0.9689** |
+
+The 16 Sep floor-anchored window closes **perfectly** (ΔSoC exactly 0.000 — the ideal
+case) and is the furthest from the rest. **2.5 points apart across the two anchored
+windows, against 0.8 across three midnight cuts.** A perfectly closed loop is not
+more trustworthy than an imperfectly closed one, so the scatter is not about closure.
+
+Likelier: each 24 h contains one deep charge and one deep discharge, and #1012's
+top-band recalibration step lands differently relative to the boundary depending on
+the cut. A step adding apparent SoC without matching energy biases `e` up or down
+according to whether it falls inside or is straddled. Both anchors still contain it.
+
+**Honest state: measured one-way e is 0.9689–0.9937 across five windows; configured
+is 0.9263.** The ~5.6-point gap exceeds the ~2.5-point scatter and every window lands
+above the configured value, so the finding survives — but the number cannot be pinned
+closer than ~0.97–0.99 and **I have no remaining proposal for tightening it.**
+
+**Do not set the config value from this.** The useful next step is confirming the
+DIRECTION on a second install — one closed-loop day on Mark's hardware says whether
+~0.98 against 0.9263 is this pack or the calculation. If it reproduces, pursue it; if
+not, close #1086 as an artefact of one install.
 
 This matters because `solver_efficiency_percent` prices the **live dispatch LP**, not
 just the scorer: too low makes every stored kWh look dearer to acquire and cheaper to
