@@ -3250,8 +3250,48 @@ def battery_energy_balance(
             round(100.0 * residual / capacity_kwh, 2) if capacity_kwh > 0 else None
         ),
         "configured_charge_efficiency": round(charge_efficiency, 4),
+        "configured_discharge_efficiency": round(discharge_efficiency, 4),
         "implied_charge_efficiency": None if implied is None else round(implied, 4),
         "implied_efficiency_reason": reason,
+        # nimbus issue #1012: the DISCHARGE-side mirror, and the reason
+        # it earns its own field rather than being inferable.
+        #
+        # Measured on the reference household's own sensors 2026-09-17,
+        # which is what motivated adding it. Let `k` be the ratio of the
+        # capacity the scorer assumes to the pack's true usable
+        # capacity, and `e` the true one-way efficiency. For an AC-side
+        # power sensor:
+        #
+        #     charge:     measured / in    ==  e * k
+        #     discharge:  |measured| / out ==  k / e
+        #
+        # A charge-only window yields the single product `e*k`, and
+        # every (capacity, efficiency) pair on that hyperbola fits it
+        # equally well. That degeneracy is exactly why #1012 went back
+        # and forth between "the efficiency is wrong" and "the reference
+        # plane is wrong" without either being settleable -- with one
+        # direction they are the same measurement.
+        #
+        # Two one-directional windows separate them:
+        #
+        #     k = sqrt(rc * rd)        e = sqrt(rc / rd)
+        #
+        # On that install those solve to a usable capacity near 113 kWh
+        # against the 119.76 assumed, and a one-way efficiency near 1.00
+        # against the 0.9263 configured. Both wrong, not either.
+        #
+        # The joint solve deliberately is NOT done here: within one
+        # scored window `measured` is a NET swing, and a window with
+        # both directions cannot attribute it to either side. Computing
+        # k and e from a net would produce a confident number out of a
+        # quantity that does not contain the answer -- the exact failure
+        # this diagnostic exists to catch. Pairing two windows is the
+        # caller's job, and the issue records how.
+        "implied_discharge_efficiency": (
+            round(out_kwh / (in_kwh * charge_efficiency - measured), 4)
+            if out_kwh > 1e-6 and (in_kwh * charge_efficiency - measured) > 1e-6
+            else None
+        ),
     }
 
 
