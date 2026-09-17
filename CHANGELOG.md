@@ -8,6 +8,37 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.371] - 2026-09-17
+
+### Added
+- **The `nem-flex-telemetry` v2.0 schema is vendored, pinned to an upstream commit, with a two-layer drift check** ([#495](https://github.com/code-imstillalive/nimbus/issues/495), unblocking [#496](https://github.com/code-imstillalive/nimbus/issues/496) too).
+
+  #495 had been blocked for days on one concrete thing: getting the real `telemetry.schema.json` v2.0 into this repo so Nimbus's emitter can be validated against the actual spec rather than against a guess reconstructed from the issue's own field table. #496's diagnostics criterion was transitively blocked on the same file. **One file unblocks both.**
+
+  Mark Purcell also named the condition for doing it honestly:
+
+  > "a one-time vendored copy will drift the moment your `nem-flex-telemetry` schema moves, so a recorded upstream commit ref + a periodic drift check is the honest version"
+
+  So the copy is pinned to `024f45c6` (2026-05-05, *"v0.3.0: schema v2.0"*), with the upstream repo, path, raw URL, fetch date and sha256 all recorded in a new `schema/PROVENANCE.md`. A copy with no recorded origin is worse than no copy — it looks authoritative and silently stops being true.
+
+  **Two deliberately separate check layers:**
+
+  - **always-on, offline** — the file's sha256 and its identity (draft 2020-12, `version: 2.0`, `additionalProperties: false`, every required field #495's source table maps, and the specific enums the emitter depends on). These catch a **local edit**, which is precisely the failure a vendored file invites, and never touch the network, so this repo's CI cannot be broken by another repo's outage or a rate limit.
+  - **opt-in, online** — `NIMBUS_SCHEMA_DRIFT_CHECK=1` fetches upstream `main` and compares. Skipped by default. A difference means the pinned ref needs re-reviewing and re-pinning, which should be a deliberate act rather than something that happens silently on a CI run.
+
+  Neither layer alone is honest: an always-on network test makes Nimbus's CI depend on `nem-flex-telemetry`'s availability and the failure reads as a Nimbus problem; an entirely offline check never notices real drift.
+
+  **Two facts measured while vendoring, both bearing on #495's own open questions:**
+
+  - It asked whether *"v2.0 is stable enough to build against now rather than chasing a moving target"*. The schema file's last upstream change was **2026-05-05 — four months earlier** — while the repo's own HEAD had moved that same morning. It is the settled part of an actively-developed project.
+  - The online drift check was run once on vendoring: upstream `main` **currently equals** the pinned May commit, so nothing has drifted between the two.
+
+  The settled decisions this pins rather than re-litigates: `naive_baseline_method: "subtraction"` (Mark's call on 2026-09-13, after the originally-proposed `nimbus_counterfactual` turned out not to be in the enum), and the `region`/`postcode_prefix` shapes that were genuinely new config shipped in v0.94.299/300 *because* the schema requires them — now pinned so the config surface and the schema cannot drift apart.
+
+  No emitter yet — this removes the blocker, it does not implement #495.
+
+  Devhub validation: **not applicable** — a vendored schema and its tests ship nothing an install executes.
+
 ## [0.94.370] - 2026-09-17
 
 ### Added
