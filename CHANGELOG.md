@@ -8,6 +8,39 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.369] - 2026-09-17
+
+### Added
+- **Per-battery energy balance: does the measured throughput reconcile with the measured SoC swing, and what efficiency would close the gap?** ([#1012](https://github.com/code-imstillalive/nimbus/issues/1012)).
+
+  Every kWh-based reconstruction in the scorer rests on one unstated assumption — that the configured efficiency, applied to the power sensor's readings, converts to the same energy the SoC sensor reports. Nothing had ever checked it, and #1012 is what it looks like when it is wrong: a ~37 point SoC-trajectory divergence that survived [#1008](https://github.com/code-imstillalive/nimbus/issues/1008)'s energy-total fix, tracing to either a wrong `solver_efficiency_percent` or an AC/DC reference-plane mismatch in how the counters are interpreted.
+
+  New `achieved_energy_balance_by_battery` on the quality report closes the loop per battery:
+
+  ```
+  modelled delta = in * charge_eff - out / discharge_eff
+  measured delta = final_soc - initial_soc
+  residual       = modelled - measured
+  ```
+
+  **The headline is `implied_charge_efficiency`, not the residual.** A residual says "something is off"; the efficiency that *would* close the balance says which thing:
+
+  - **implied ≈ configured** — the plane is consistent, the configured number is right, look elsewhere
+  - **implied systematically higher** — the efficiency is being applied to readings that already have the loss baked in (a pack-side sensor read as AC-side), so the loss is counted twice. This is #1012's leading hypothesis, and on the reference household the gap is 85.8% configured against ~95% implied
+  - **implied > 1.0** — not an efficiency at all. No battery stores more than it is given, so this is proof of a sign or plane error rather than a mis-tuned dial, and it is named (`implied_efficiency_above_unity`) so it can never read as "very efficient"
+
+  That makes it a diagnosis rather than an alarm, and it is the exact figure #1012's thread has been arguing about from two directions without either side being able to measure it.
+
+  **Per battery, never blended.** [#949](https://github.com/code-imstillalive/nimbus/issues/949) established that fleet-blending produces a false signal from perfect data once more than one battery is scored, so this is immune to that by construction — and on a fleet install it says *which* battery fails to reconcile, which a blended figure structurally cannot.
+
+  Reports `None` with a named reason rather than a fabricated number when the implied value is not computable — a day the battery only discharged cannot imply a *charge* efficiency, since that term is not in the balance. The residual is still reported in that case; an absent diagnosis must not suppress the discrepancy itself.
+
+  **Why now:** Mark Purcell's sequencing note on [#768](https://github.com/code-imstillalive/nimbus/issues/768) — the efficiency/reference-plane question is upstream of every kWh-based reconstruction, so anything built on top of it inherits the error until this is settled. This makes it answerable from an install's own published data instead of from a manual inspection of what the power sensor measures.
+
+  **Scope, stated plainly:** wired into the native quality-report path. The separate standalone/cron *quality* writer computes its own report and would need the same wiring; tracked on #1012 rather than silently assumed.
+
+  Devhub validation: **not claimed** — that install's `solver_writer.py` is separately executing stale code (`nimbus_version` reads 0.94.342 against 10 current `solve_diagnostics` keys), so the new attribute cannot appear there regardless of correctness. Verified by 10 tests, including one reproducing #1012's own 85.8%-vs-95% shape.
+
 ## [0.94.368] - 2026-09-17
 
 ### Fixed
