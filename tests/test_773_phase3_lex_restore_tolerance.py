@@ -61,7 +61,7 @@ import unittest
 
 import _solver_path  # noqa: F401
 from solver import lp
-from solver.lp import LexOptions
+from solver.lp import CalibratedOptions, LexOptions
 from test_773_tolerance_and_tie_slack_end_to_end import (
     _many_binaries_tied_price_scenario,
     _solve,
@@ -242,3 +242,127 @@ class TestBothPinnedResolvesAreCovered(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheCalibratedPathIsWorse(unittest.TestCase):
+    """**The production path.** `solver_writer.py` passes
+    `CalibratedOptions`, and the same pinned-LP band bites it harder than
+    it bites phase 3 -- with none of the safety net.
+
+    `_calibrate_blend_weight()` runs its probes and its final solve with
+    the binaries still pinned, through raw `h.run()` rather than
+    `_ensure_optimal_value()`. `_primary_acceptable()` then treats a
+    non-optimal status as *"this weight is unacceptable"* and returns
+    False. So a probe that goes Infeasible inside the tolerance band does
+    not raise, does not log a #773 diagnostic, and does not reach
+    `network.py`'s fallback. It reads as evidence that no blend weight
+    works.
+
+    Measured on `main` at v0.94.385, n_loads=16/n_periods=24/seed=0:
+
+        3 of 6 HiGHS runs returned kInfeasible
+        WARNING  "no blend weight preserves primary cost within
+                  tolerance (2.45e-03); using minimum weight 1.00e-12"
+        Plan.status  "infeasible"        <- dispatch goes unavailable
+        total_cost   None
+
+    against `LexOptions` returning `optimal` on the identical model. A
+    model that solves under one tie-break mode and is reported infeasible
+    under another is the strongest available evidence that the mode, not
+    the model, is at fault.
+
+    This is the part that matters for #757's symptom class: the
+    documented promise is *"falling back to a plain single-objective
+    solve so dispatch doesn't go unavailable"*, and here dispatch goes
+    unavailable **without that fallback ever running**, because nothing
+    raised.
+    """
+
+    def test_the_calibrated_path_solves_the_model_it_used_to_call_infeasible(self):
+        for n_loads, n_periods, seed in FAILING:
+            with self.subTest(n_loads=n_loads, n_periods=n_periods, seed=seed):
+                lp._lex_calibration_failed_until = 0.0
+                scenario = _many_binaries_tied_price_scenario(
+                    n_loads=n_loads, n_periods=n_periods, seed=seed
+                )
+                plan = _solve(*scenario, options=CalibratedOptions())
+                self.assertEqual(
+                    plan.status,
+                    "optimal",
+                    "the CalibratedOptions path reports this model infeasible "
+                    "again. It is not: LexOptions solves it. Dispatch goes "
+                    "unavailable here with NO #773 diagnostic and without "
+                    "network.py's fallback firing, because "
+                    "_calibrate_blend_weight() swallows a non-optimal probe "
+                    "as 'this weight is unacceptable' rather than raising",
+                )
+                self.assertIsNotNone(plan.total_cost)
+
+    def test_both_tie_break_modes_now_agree_on_the_same_model(self):
+        """The sharpest assertion available: one model, two modes, one
+        answer. Before the fix these differed by `optimal` vs
+        `infeasible`."""
+        lp._lex_calibration_failed_until = 0.0
+        scenario = _many_binaries_tied_price_scenario(n_loads=16, n_periods=24, seed=0)
+        lex = _solve(*scenario, options=LexOptions())
+        lp._lex_calibration_failed_until = 0.0
+        cal = _solve(*scenario, options=CalibratedOptions())
+        self.assertEqual(lex.status, cal.status)
+        self.assertAlmostEqual(float(lex.total_cost), float(cal.total_cost), places=9)
+
+    def test_every_pinned_run_in_the_calibration_search_is_covered(self):
+        """`_calibrate_blend_weight` has three `h.run()` sites and all
+        three operate on pinned binaries. Wrapping only the probe left
+        the FINAL blended solve infeasible -- measured -- so this pins
+        that all three stay wrapped. A fourth added later needs it too.
+        """
+        source = lp.__file__.replace(".pyc", ".py")
+        with open(source, encoding="utf-8") as f:
+            text = f.read()
+        for label in (
+            "calibrate_blend_probe",
+            "primary_acceptable_probe",
+            "calibrate_blend_final",
+        ):
+            with self.subTest(call_site=label):
+                self.assertIn(
+                    f'with _lp_tolerance_matching_mip(h), _timed_lp_call(h, "{label}")',
+                    text,
+                    f"the {label} solve runs on pinned binaries but no "
+                    "longer matches the MIP tolerance they were accepted "
+                    "under -- this is what made the production path report "
+                    "a solvable model as infeasible",
+                )
+
+
+class TestWhatThisDoesNotFix(unittest.TestCase):
+    """Scope, pinned so it is not overstated later.
+
+    Matching the LP tolerance to the MIP tolerance can only rescue a
+    violation INSIDE the 1e-7..1e-6 band. A larger one is still a genuine
+    infeasibility for both.
+
+    Measured, with this fix applied, n_loads=20/n_periods=32/seed=3:
+
+        phase3_lex_restore  max_primal_infeasibility  1.919759e-06
+
+    which is ABOVE `mip_feasibility_tolerance` itself, so widening the
+    primal tolerance to match cannot help by construction. That scenario
+    still reports `infeasible` on the calibrated path and still falls
+    back on the lex path. It is a real, separate, still-open case and it
+    is recorded here rather than left for someone to rediscover as a
+    regression in this fix.
+    """
+
+    def test_the_above_band_scenario_is_still_unresolved(self):
+        lp._lex_calibration_failed_until = 0.0
+        scenario = _many_binaries_tied_price_scenario(n_loads=20, n_periods=32, seed=3)
+        plan = _solve(*scenario, options=CalibratedOptions())
+        self.assertEqual(
+            plan.status,
+            "infeasible",
+            "the above-band scenario (1.92e-06, outside the tolerance gap) "
+            "now solves. That is good news and this test is the wrong "
+            "shape for it -- find out WHAT fixed it, then update this "
+            "file's scope section rather than only flipping the assertion",
+        )

@@ -1593,7 +1593,7 @@ def _calibrate_blend_weight(
         weight = 1e-3  # safe default -- no primary cost to distort
         blended = primary_vec + weight * secondary_vec
         _set_cost_vector(h, col_indices, blended)
-        with _timed_lp_call(h, "calibrate_blend_probe"):
+        with _lp_tolerance_matching_mip(h), _timed_lp_call(h, "calibrate_blend_probe"):
             h.run()
         bl_vals = np.asarray(h.getSolution().col_value)
         return weight, float(primary_vec @ bl_vals)
@@ -1604,7 +1604,10 @@ def _calibrate_blend_weight(
         w = 10.0**log_w
         blended = primary_vec + w * secondary_vec
         _set_cost_vector(h, col_indices, blended)
-        with _timed_lp_call(h, "primary_acceptable_probe"):
+        with (
+            _lp_tolerance_matching_mip(h),
+            _timed_lp_call(h, "primary_acceptable_probe"),
+        ):
             h.run()
         if h.getModelStatus() != highspy.HighsModelStatus.kOptimal:
             return False
@@ -1637,7 +1640,7 @@ def _calibrate_blend_weight(
 
     blended = primary_vec + weight * secondary_vec
     _set_cost_vector(h, col_indices, blended)
-    with _timed_lp_call(h, "calibrate_blend_final"):
+    with _lp_tolerance_matching_mip(h), _timed_lp_call(h, "calibrate_blend_final"):
         h.run()
     bl_vals = np.asarray(h.getSolution().col_value)
     return weight, float(primary_vec @ bl_vals)
