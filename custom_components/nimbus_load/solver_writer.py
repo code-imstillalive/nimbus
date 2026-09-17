@@ -3232,7 +3232,24 @@ def battery_energy_balance(
     if in_kwh > 1e-6:
         implied = (measured + out_kwh / discharge_efficiency) / in_kwh
     reason: str | None = None
-    if implied is None:
+    if implied is None and in_kwh <= 1e-6 and out_kwh <= 1e-6 and abs(measured) > 0.5:
+        # nimbus issue #1012, observed 2026-09-17 on a real participant:
+        # SoC moved 6.1 kWh (10% of its capacity) across a window in
+        # which its power sensor recorded NO throughput in either
+        # direction. Energy cannot appear or leave without flowing, so
+        # this is the participant's own power sensor failing to see its
+        # dispatch -- a reconstruction blind spot, not a quiet battery.
+        #
+        # Named separately because "no_charge_throughput" is the label
+        # for a perfectly ordinary discharge-only window, and letting
+        # this share it means a real instrumentation gap reads as
+        # "nothing to report". That is the same absence-is-the-only-
+        # signal failure this whole diagnostic exists to catch.
+        #
+        # The 0.5 kWh floor keeps genuine idleness (sensor quantisation,
+        # a few tenths of self-discharge) out of it.
+        reason = "soc_moved_without_throughput"
+    elif implied is None:
         reason = "no_charge_throughput"
     elif implied > 1.0:
         # Physically impossible rather than merely surprising -- worth

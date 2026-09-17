@@ -223,6 +223,51 @@ class TestTheDischargeSideMirror(unittest.TestCase):
         self.assertGreater(e, 0.9263)
 
 
+class TestSoCMovingWithoutThroughput(unittest.TestCase):
+    """nimbus issue #1012, observed on a real participant 2026-09-17:
+    `Test EV`'s SoC fell 6.096 kWh — 10% of its capacity — across a
+    window where its power sensor recorded NO throughput either way.
+
+    Energy cannot appear or leave without flowing, so that is the
+    participant's own power sensor failing to see its dispatch: a
+    reconstruction blind spot, not a quiet battery. It needs its own
+    label, because `no_charge_throughput` is the ordinary
+    discharge-only case and sharing it makes a real instrumentation gap
+    read as "nothing to report".
+    """
+
+    def test_the_real_observed_case_is_named(self):
+        r = _bal(
+            name="Test EV",
+            in_kwh=0.0,
+            out_kwh=0.0,
+            initial_soc_kwh=30.0,
+            final_soc_kwh=30.0 - 6.096,
+            capacity_kwh=60.0,
+        )
+        self.assertEqual(r["implied_efficiency_reason"], "soc_moved_without_throughput")
+        self.assertAlmostEqual(r["residual_kwh"], 6.096, places=3)
+
+    def test_a_genuinely_idle_battery_is_not_flagged(self):
+        """The distinction that makes the label worth having: zero
+        throughput AND no real SoC movement is an ordinary idle window."""
+        r = _bal(in_kwh=0.0, out_kwh=0.0, initial_soc_kwh=30.0, final_soc_kwh=30.0)
+        self.assertEqual(r["implied_efficiency_reason"], "no_charge_throughput")
+
+    def test_sensor_noise_does_not_trip_it(self):
+        """A few tenths of a kWh is quantisation or self-discharge, not
+        a missing dispatch — the floor exists so this stays a real
+        signal rather than a permanent warning on every idle battery."""
+        r = _bal(in_kwh=0.0, out_kwh=0.0, initial_soc_kwh=30.0, final_soc_kwh=29.7)
+        self.assertEqual(r["implied_efficiency_reason"], "no_charge_throughput")
+
+    def test_an_ordinary_discharge_window_keeps_its_own_label(self):
+        """Real throughput with real movement is the normal case and
+        must not be swept into the new label."""
+        r = _bal(in_kwh=0.0, out_kwh=50.0, initial_soc_kwh=100.0, final_soc_kwh=46.0)
+        self.assertEqual(r["implied_efficiency_reason"], "no_charge_throughput")
+
+
 class TestHonestAbsence(unittest.TestCase):
     def test_no_charge_throughput_reports_none_with_a_reason(self):
         """A day the battery only discharged cannot imply a CHARGE
