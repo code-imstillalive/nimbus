@@ -8,6 +8,54 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.386] - 2026-09-18
+
+### Fixed
+- **The `CalibratedOptions` path -- the one production runs -- reported a solvable model as `infeasible`, with no diagnostic and without the documented fallback ever firing** ([#773](https://github.com/code-imstillalive/nimbus/issues/773)).
+
+  Two unguarded places, one mechanism, found by following [#979](https://github.com/code-imstillalive/nimbus/issues/979)'s own reasoning into the code it did not cover.
+
+  `_lp_tolerance_matching_mip()`'s docstring claimed `phase2_pin_resolve` was *"the single place asking an LP to re-certify a point a MIP already accepted"*. It was not. HiGHS accepts a branch-and-bound incumbent at `mip_feasibility_tolerance` (1e-06) and then demands `primal_feasibility_tolerance` (1e-07) of a pinned LP asked to reproduce it -- ten times tighter. Any incumbent landing in that band is simultaneously feasible for the MIP that produced it and infeasible for the LP re-certifying it.
+
+  **`phase3_lex_restore`** runs after the same `_pin_binaries_to_current_solution()` and was unwrapped. Reproduced deterministically on unmodified code, with both previously-shipped #773 fixes in place and **without disabling anything** -- the gap [#999](https://github.com/code-imstillalive/nimbus/issues/999) filed:
+
+  ```
+  n_loads=16, n_periods=24, seed=0, LexOptions()
+      phase3_lex_restore   Infeasible
+      max_primal_infeasibility  2.812066e-07     <- inside 1e-7..1e-6
+  n_loads=24, n_periods=48, seed=0
+      same failure, 2.812066e-07
+  ```
+
+  Two problem sizes (768 and 2,304 binaries) agreeing to seven significant figures is one mechanism, not two coincidences.
+
+  **`_calibrate_blend_weight()` is the serious one, because production uses it.** Its probes and its final blended solve also run on pinned binaries, but through raw `h.run()` rather than `_ensure_optimal_value()` -- and `_primary_acceptable()` treats a non-optimal status as *"this weight is unacceptable"* and returns `False`. So a probe going `Infeasible` inside the band does not raise, logs no #773 diagnostic, and **never reaches `network.py`'s fallback**. It reads as evidence that no blend weight works. Measured on v0.94.385:
+
+  ```
+  3 of 6 HiGHS runs returned kInfeasible
+  WARNING  "no blend weight preserves primary cost within tolerance
+            (2.45e-03); using minimum weight 1.00e-12"
+  Plan.status   "infeasible"      <- dispatch goes unavailable
+  total_cost    None
+  ```
+
+  against `LexOptions` returning `optimal` on the **identical model**. A model that solves under one tie-break mode and is reported infeasible under another is the mode's fault, not the model's. This is [#757](https://github.com/code-imstillalive/nimbus/issues/757)'s symptom class, and the sharpest part is that the documented promise -- *"falling back to a plain single-objective solve so dispatch doesn't go unavailable"* -- did not apply, because nothing raised.
+
+  All five pinned re-solves now run under the MIP-matched tolerance. **Wrapping only the probe was measured and is not enough**: non-optimal runs went 3 -> 1 and the final blended solve still came back infeasible.
+
+  | | before | after |
+  |---|---|---|
+  | `CalibratedOptions` | **`infeasible`**, cost `None` | `optimal`, 24.49971667190163 |
+  | `LexOptions` | `optimal`, 24.4997162907 | `optimal`, 24.49971667190163 |
+
+  The two modes now agree to full precision on the same model, and four healthy scenarios are **bit-identical** to before, so this is a strict no-op where the condition does not arise.
+
+  **The mechanism was established by elimination.** Phase 3 also adds a `secondary_expr <= secondary_value + epsilon` row, which is [#981](https://github.com/code-imstillalive/nimbus/issues/981)'s hazard class and was the competing explanation. Widening that epsilon **one hundred fold** left the failure bit-identical -- same value, same single violated row -- so the secondary row is not what is violated and the pinned column bounds are.
+
+  **What this does not fix, pinned by its own test.** Matching the LP tolerance to the MIP tolerance can only rescue a violation *inside* the band. `n_loads=20, n_periods=32, seed=3` violates by **1.919759e-06** -- above `mip_feasibility_tolerance` itself -- so matching cannot help it by construction. It still reports `infeasible`, and a test asserts it stays unresolved with a message saying to find out what fixed it rather than just flipping the assertion.
+
+  Devhub validation: **not claimed.** The condition needs an incumbent to land in a band a real install reaches only intermittently, and cannot be produced on demand there. Verified instead by a deterministic synthetic reproduction driven through `build_plan()` in both directions, plus CI on the merged commit: **3,151 passed, 15 skipped, 1 xfailed** on the stub suite and **15 passed** on the real-HA harness.
+
 ## [0.94.385] - 2026-09-18
 
 ### Changed
