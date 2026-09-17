@@ -12202,6 +12202,24 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
     must be configured together to do anything -- either one alone is
     treated as neither set (logged once, not every solve).
 
+    **The deadline is ONE-SHOT, not daily** (nimbus issue #467, stated
+    because the field name suggests otherwise). On the real 96-hour
+    horizon a departure hour occurs four times and the loop below breaks
+    on the first, so the constraint guarantees SoC for the NEXT
+    departure and says nothing about the three after it.
+
+    That is acceptable rather than a defect because Nimbus is
+    receding-horizon (rolling.py): every cycle re-solves and re-resolves,
+    so the near deadline is always the one being enforced, and the
+    unconstrained far end of the plan is never committed -- the next
+    solve replaces it. It stops being acceptable the moment a real
+    calendar event is expressible ("next Tuesday 07:15", #467 stage 3),
+    at which point recurring-vs-one-shot becomes a genuine modelling
+    choice rather than an artefact of hour-of-day being the only
+    vocabulary available. Pinned by test_the_deadline_is_ONE_SHOT_
+    across_a_real_multi_day_horizon so that decision gets made rather
+    than inherited.
+
     Shared-charger group (item 3): shared_charger_group/shared_charger_
     max_kw pass straight through to BatteryConfig -- the actual LP
     constraint (grouping participants by name, taking the minimum

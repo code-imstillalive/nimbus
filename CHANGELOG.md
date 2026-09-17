@@ -8,6 +8,25 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.372] - 2026-09-17
+
+### Changed
+- **The EV departure deadline is one-shot, not daily — now stated in the code and pinned by a test** ([#467](https://github.com/code-imstillalive/nimbus/issues/467)).
+
+  Found while acting on Mark Purcell's verification pass, which flagged that `CONF_BATTERY_PARTICIPANT_DEPARTURE_HOUR` still resolves only to *"first period whose `start.hour` matches"*.
+
+  `must_have_soc_by_departure_percent` reads like a daily guarantee. It isn't. On Nimbus's real 96-hour horizon a departure hour occurs **four times**, and the resolver breaks on the first — so the constraint guarantees SoC for the next departure and says nothing about the three after it.
+
+  **Every existing test used a horizon shorter than a day**, so none of them could see this. The new one runs a real 96-period horizon, asserts the fixture genuinely contains four 07:00 boundaries, and pins that the deadline binds to the first.
+
+  **This is not a defect, and the reasoning is the point.** Nimbus is receding-horizon (`rolling.py`): every cycle re-solves and re-resolves, so the near deadline is always the one being enforced, and the unconstrained far end of the plan is never committed — the next solve replaces it.
+
+  Where it stops being acceptable is recorded with it: the moment a real calendar event is expressible (*"next Tuesday 07:15"*, #467's stage 3), recurring-vs-one-shot becomes a genuine modelling choice rather than an artefact of hour-of-day being the only vocabulary available. Pinned so that decision gets made deliberately instead of inherited.
+
+  No behaviour change — this release states and guards existing semantics rather than altering them.
+
+  Devhub validation: **not applicable** — no behaviour change, and that install's solve reports no battery participant with a departure hour configured.
+
 ## [0.94.371] - 2026-09-17
 
 ### Added
