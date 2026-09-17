@@ -8,6 +8,26 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.383] - 2026-09-18
+
+### Fixed
+- **A captured #773 instance no longer announces itself without saying it is about to disappear** ([#773](https://github.com/code-imstillalive/nimbus/issues/773)).
+
+  `_dump_failing_model()` writes to `tempfile.gettempdir()` unless `NIMBUS_LP_DUMP_DIR` says otherwise. On a container deployment that directory is cleared on restart. Both log lines announcing a capture ended with:
+
+  > Set NIMBUS_LP_DUMP_DIR to choose where these land.
+
+  which frames a persistent location as a **preference**. A reader who does not already know the default is volatile has no reason to hurry.
+
+  **Observed 2026-09-18, on the first real capture this apparatus has ever produced.** The instance two synthetic reproduction attempts could not match — the reason the whole diagnostic was built — was written to a temp path on an install that restarts several times an evening during ordinary release verification. Nothing in the message said it was perishable, so the default outcome is: capture the artefact, announce it, lose it, and wait for the next occurrence to repeat the cycle.
+
+  Both sites now say which case they are in — that a default-location file **will not survive a restart or a tmpfiles sweep and should be copied out now**, or that `NIMBUS_LP_DUMP_DIR` is set and the path persists. Same shape as [#944](https://github.com/code-imstillalive/nimbus/issues/944)'s own fix: the code was doing the right thing and saying so only in a form nobody would act on in time.
+
+  Worth recording from building it: the first version of the wiring guard asserted the old wording was **absent from the file**, and failed — because the new helper's docstring quotes that wording to explain what changed. A guard that cannot tell prose from code cries wolf, and this repo has already had to switch off tests that did. It now checks the argument shape instead, which prose cannot imitate.
+
+  Devhub validation: **not claimed** — the message only appears when a solver phase crosses the alarming threshold, which cannot be produced on demand. Both branches are pinned by unit tests, and the warning branch was confirmed to fail when the text is weakened.
+
+
 ## [0.94.382] - 2026-09-18
 
 ### Added

@@ -310,6 +310,42 @@ def _dump_failing_model(h: Any, label: str) -> str | None:
     return path
 
 
+def _dump_location_note() -> str:
+    """Whether a dump just written will still be there later, as a
+    sentence for the log line (nimbus issue #773).
+
+    **Why this is worth a function.** Both call sites used to end with
+    "Set NIMBUS_LP_DUMP_DIR to choose where these land" -- which frames a
+    persistent location as a *preference*. It is not. Unset, the dump
+    goes to `tempfile.gettempdir()`, and on a container deployment that
+    is cleared on restart.
+
+    Observed 2026-09-18: the first real capture this apparatus ever
+    produced -- the instance two synthetic reproductions could not match,
+    and the reason the whole diagnostic was built -- was written to a
+    temp path on an install that restarts several times an evening
+    during normal release verification. Nothing in the message said it
+    was perishable, so the default outcome is: capture the artefact,
+    announce it, lose it, and repeat on the next occurrence.
+
+    That is the same shape as #944 -- the code did the right thing and
+    said so only in a way nobody would act on in time.
+    """
+    # Local import, matching _dump_failing_model() directly above: this
+    # module keeps `os`/`tempfile` off the import surface because neither
+    # is needed on the solve path, only on this diagnostic one.
+    import os
+
+    if os.environ.get(_LP_DUMP_DIR_ENV):
+        return f"{_LP_DUMP_DIR_ENV} is set, so this path is yours and persists."
+    return (
+        "This is a TEMPORARY directory: it will not survive a restart or a "
+        "tmpfiles sweep, so copy the file out NOW if you want it. Set "
+        f"{_LP_DUMP_DIR_ENV} to a persistent path so the next capture is not "
+        "lost the same way."
+    )
+
+
 # nimbus issue #773: a per-solve breakdown across EVERY lex phase, not
 # just the ones slow enough to cross the 5s line on their own.
 #
@@ -497,10 +533,9 @@ def _timed_lp_call(
                     _LOGGER.warning(
                         "Nimbus #773: wrote the slow model to %s -- this is "
                         "the real instance two synthetic reproductions "
-                        "could not match. Attach it to nimbus issue #773. "
-                        "Set %s to choose where these land.",
+                        "could not match. Attach it to nimbus issue #773. %s",
                         dump_path,
-                        _LP_DUMP_DIR_ENV,
+                        _dump_location_note(),
                     )
 
 
@@ -1330,10 +1365,9 @@ def _ensure_optimal_value(
             _LOGGER.warning(
                 "Nimbus #773: wrote the failing model to %s -- this is the "
                 "real instance two synthetic reproductions could not "
-                "match. Attach it to nimbus issue #773. Set %s to choose "
-                "where these land.",
+                "match. Attach it to nimbus issue #773. %s",
                 dump_path,
-                _LP_DUMP_DIR_ENV,
+                _dump_location_note(),
             )
         _LOGGER.error(
             "Nimbus #773 diag: lex/calibration phase %r failed to reach "
