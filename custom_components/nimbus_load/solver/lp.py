@@ -274,7 +274,6 @@ def _dump_failing_model(h: Any, label: str) -> str | None:
     """
     if label in _LP_DUMPED_PHASES:
         return None
-    _LP_DUMPED_PHASES.add(label)
     try:
         import os
         import re
@@ -290,6 +289,24 @@ def _dump_failing_model(h: Any, label: str) -> str | None:
     except Exception as e:  # noqa: BLE001 -- see docstring
         _LOGGER.debug("Nimbus #773: could not dump the failing model (%s)", e)
         return None
+    # nimbus issue #1074 (Mark Purcell, IV&V since #1058): marked AFTER
+    # the write succeeds, never before.
+    #
+    # This used to sit above the `try`, so a transient failure -- a
+    # momentarily read-only /tmp, a backup holding a lock, a
+    # tmpfiles-cleanup race -- left the label recorded anyway. Every
+    # later occurrence of that same phase then returned at the first
+    # line without attempting `writeModel()` again, for the rest of the
+    # process. #773 is an intermittent fault that can recur for hours
+    # between restarts, so one unlucky moment during the FIRST
+    # occurrence permanently defeated the diagnostic for all of them --
+    # the exact opposite of "capture the next live occurrence".
+    #
+    # Worth recording why the original test missed it: it asserted that
+    # a write failure returns None, which was true, and never that a
+    # RETRY was still possible. The defect was one line above the thing
+    # being tested.
+    _LP_DUMPED_PHASES.add(label)
     return path
 
 

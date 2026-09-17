@@ -8,6 +8,29 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.377] - 2026-09-17
+
+### Fixed
+- **A failed model dump no longer permanently disables itself** ([#1074](https://github.com/code-imstillalive/nimbus/issues/1074), Mark Purcell, IV&V since [#1058](https://github.com/code-imstillalive/nimbus/issues/1058)).
+
+  `_LP_DUMPED_PHASES.add(label)` ran *above* the `try` that performs the write. So one transient failure — a momentarily read-only `/tmp`, a backup holding a lock, a tmpfiles-cleanup race — left the phase marked as dumped anyway, and every later occurrence returned at the first line without attempting `writeModel()` again for the rest of the process.
+
+  [#773](https://github.com/code-imstillalive/nimbus/issues/773) is an intermittent fault that can recur for hours between restarts, so a single unlucky moment during the **first** occurrence permanently defeated the diagnostic for all of them — the exact opposite of "capture the next live occurrence". Now marked only after the write succeeds.
+
+  Worth recording why the original test missed it: it asserted that a write failure returns `None`, which was true, and never that a **retry** was still possible. The defect sat one line above the thing being tested.
+
+- **The forecast-regret zero-load guard is now relative to the real day, not an absolute epsilon** ([#1072](https://github.com/code-imstillalive/nimbus/issues/1072), same pass).
+
+  `> 1e-6` kWh is a sound test for "did this read as literally all zeros" and nothing more — it is seven-plus orders of magnitude below a real household's daily total. A forecast that is near-all-zero but not *exactly* zero sails through it.
+
+  Reproduced: one lone period carrying `2e-6` kWh — the partial-read shape [#370](https://github.com/code-imstillalive/nimbus/issues/370)/[#374](https://github.com/code-imstillalive/nimbus/issues/374) already document — against a ~46 kWh day clears the floor and produces a scale factor of about **23,000,000×**. The LP does not crash ([#390](https://github.com/code-imstillalive/nimbus/issues/390)'s `grid_import_excess` slack absorbs the impossible spike), and `load_level_error_dollars` comes back as a real, finite, **negative** number — "correcting the level made the plan cost more". Additivity still holds, so nothing downstream could notice. A confident wrong number, which is precisely what that guard's own comment says it exists to prevent.
+
+  The floor is now 1% of the real day's total. Deliberately generous: a forecast under a hundredth of reality has no usable *shape* left to rescale, which is what the level correction actually needs, and it bounds the scale factor at 100× rather than leaving it unbounded.
+
+  Both of Mark's pinning tests flipped from `xfail(strict=True)` to passing, and their markers are removed.
+
+  Devhub validation: **not applicable to either** — one fires only when a disk write fails during an intermittent solver fault, the other only on a degenerate forecast. Neither has a healthy-run surface. Verified by the pinning tests and the full suite.
+
 ## [0.94.376] - 2026-09-17
 
 ### Fixed

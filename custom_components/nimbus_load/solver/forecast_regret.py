@@ -83,6 +83,13 @@ from .elements import BatteryConfig, GridConfig, LoadConfig, PeriodGrid, SolarCo
 from .network import build_plan
 from .regret import evaluate_realized_cost
 
+# nimbus issue #1072: the smallest fraction of a real day's load total
+# that a forecast can be and still carry a rescalable SHAPE. Below it,
+# the level/shape split is reported as absent rather than computed from
+# a scale factor in the thousands -- see compute_forecast_regret()'s own
+# comment at the guard for the measured failure this prevents.
+_MIN_FORECAST_FRACTION_OF_REAL = 0.01
+
 
 @dataclass(frozen=True)
 class ForecastRegretResult:
@@ -333,7 +340,33 @@ def compute_forecast_regret(
     # real day summing to ~0 has no level to correct TO. Either way the
     # split is undefined rather than zero -- report absence, not a
     # fabricated 0.0 that would read as "no level error".
-    if abs(forecast_load_kwh) > 1e-6 and abs(real_load_kwh) > 1e-6:
+    #
+    # nimbus issue #1072 (Mark Purcell, IV&V since #1058): this floor
+    # has to be RELATIVE to the real day, not an absolute epsilon. The
+    # original `> 1e-6` kWh was a sound test for "did this read as
+    # literally all zeros" and nothing else -- it is seven-plus orders
+    # of magnitude below a real household's daily total, so a forecast
+    # that is near-all-zero but not EXACTLY zero sails through it.
+    #
+    # Reproduced: one lone period carrying 2e-6 kWh (the partial-read
+    # shape #370/#374 document) against a ~46 kWh day clears the
+    # absolute floor and produces `scale` of about 23,000,000x. The LP
+    # does not crash -- #390's grid_import_excess slack absorbs the
+    # impossible spike -- and `load_level_error_dollars` comes back as a
+    # real, finite, NEGATIVE number, i.e. "correcting the level made the
+    # plan cost more". Additivity still holds, so nothing downstream can
+    # notice. A confident wrong number, which is the failure this
+    # function's own comment above says it exists to prevent.
+    #
+    # 1% is deliberately generous: a forecast under a hundredth of the
+    # real day has no usable SHAPE left to rescale, which is what the
+    # level correction actually needs. It also bounds `scale` at 100x
+    # rather than leaving it unbounded.
+    if (
+        abs(real_load_kwh) > 1e-6
+        and abs(forecast_load_kwh)
+        >= abs(real_load_kwh) * _MIN_FORECAST_FRACTION_OF_REAL
+    ):
         scale = real_load_kwh / forecast_load_kwh
         j_load_level_corrected = _evaluate_scenario(
             periods=periods,

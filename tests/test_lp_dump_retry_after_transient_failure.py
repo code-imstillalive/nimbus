@@ -40,7 +40,6 @@ from __future__ import annotations
 import unittest
 
 import _solver_path  # noqa: F401
-import pytest
 from solver import lp
 
 
@@ -63,17 +62,6 @@ class TestDedupDoesNotPermanentlyBlockAfterATransientFailure(unittest.TestCase):
         lp._LP_DUMPED_PHASES.clear()
         self.addCleanup(lp._LP_DUMPED_PHASES.clear)
 
-    @pytest.mark.xfail(
-        reason=(
-            "nimbus IV&V (since #1058, 2026-09-17): _LP_DUMPED_PHASES.add(label) "
-            "runs before writeModel() is attempted, so a transient write failure "
-            "(e.g. a momentarily read-only /tmp) permanently disables the dump "
-            "for that phase for the rest of the process, even though the very "
-            "next occurrence of the same fault could have been captured fine. "
-            "See the module docstring above for the full #773 reasoning."
-        ),
-        strict=True,
-    )
     def test_a_second_occurrence_can_still_be_dumped_after_a_transient_first_failure(
         self,
     ):
