@@ -11279,6 +11279,83 @@ def _resolve_hour_to_period_index(
     return _period_index_for_instant(grid_times, target, is_deadline=is_deadline)
 
 
+def _earliest_period_for_same_day_window(
+    *,
+    now: datetime,
+    earliest_hour: float | None,
+    deadline_hour: float | None,
+    earliest_period: int,
+    deadline_period: int,
+) -> int:
+    """`earliest_period`, corrected for a same-day window that is already
+    in progress (nimbus issue #582, Mark Purcell).
+
+    `_resolve_hour_to_period_index()` resolves "the next occurrence from
+    now" for each hour INDEPENDENTLY. Once `now` is past today's
+    `earliest_hour`, earliest rolls forward to TOMORROW even though
+    today's window is still open -- correct for a genuine overnight
+    window (earliest=22, deadline=6, `now` between midnight and 6am),
+    wrong for a same-day window once the day has started (earliest=6,
+    deadline=16, `now`=06:01 -- Mark's real repro on the first live
+    morning of #534). The load was then dropped for its ENTIRE active
+    window, the opposite of intended.
+
+    **Extracted 2026-09-18 from four identical copies** (nimbus #485).
+    Two sat in `build_controllable_loads()` and two in
+    `apply_commanded_state_guard()`, and the 09-09 worklog already
+    recorded the risk as realised once:
+
+        While rebasing onto #582, found and fixed a real inconsistency:
+        apply_commanded_state_guard()'s own duplicated period-index
+        resolution didn't inherit #582's same-day fix ... flagged the
+        drift risk between the two call sites as a candidate for a
+        future shared-helper refactor.
+
+    That fix was itself applied by duplicating, and the copies grew to
+    four. **Checked before extracting rather than assumed: all four were
+    byte-identical in logic**, differing only in `ruff format` line
+    wrapping at different indentation depths. So this consolidation is
+    prophylactic -- it fixes no live divergence, it removes the room for
+    the next one, which has already happened once and was caught by a
+    rebase rather than by any test.
+
+    It also makes the question #485 asks -- whether deadline/earliest
+    hours should be moded per household mode -- a much smaller one:
+    moding multiplies the distinct hour pairs flowing through this
+    logic, and "is the one helper right" is answerable in a way "are the
+    five copies still in agreement" is not.
+
+    Returns `earliest_period` unchanged whenever either hour is unset, or
+    the periods are already correctly ordered, or the window is a genuine
+    overnight one.
+
+    **A fifth site shares the predicate and is deliberately NOT folded in
+    here.** `_build_daily_adequacy_windows()` evaluates the same
+    `earliest_today <= now <= deadline_today` test, but inside a
+    per-day loop and as one arm of a conditional that also handles
+    `now > deadline_today` (skip today entirely), `today_done`, and an
+    already-met target. It is a superset rather than a copy: its
+    `earliest_period` comes from `_period_index_for_instant()` on a
+    day-offset instant, not from a pre-resolved value, so calling this
+    would mean reshaping it rather than substituting it. Noted here
+    because "four copies became one" is only true of the four that were
+    genuinely identical, and someone grepping the predicate will find a
+    fifth.
+    """
+    if earliest_hour is None or deadline_hour is None:
+        return earliest_period
+    if deadline_period >= earliest_period:
+        return earliest_period
+    midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    earliest_today = midnight + timedelta(hours=float(earliest_hour))
+    deadline_today = midnight + timedelta(hours=float(deadline_hour))
+    if earliest_today <= now <= deadline_today:
+        # The window opened earlier today and is still active, so the
+        # load may draw RIGHT NOW -- period 0, not tomorrow.
+        return 0
+    return earliest_period
+
+
 # nimbus issue #535: log the W->kW scaling hint once per power_sensor
 # entity_id, not every solve tick -- same #313/#314 discipline as every
 # other log-once dedup this session (_DONE_CONDITION_WARNED,
@@ -12365,16 +12442,15 @@ def build_controllable_loads(
             # instants both fall on today, and `now` sits between them --
             # if so the window opened earlier today and is still active,
             # so earliest_period is simply "right now" (0), not tomorrow.
-            if (
-                earliest_hour is not None
-                and deadline_hour is not None
-                and deadline_period < earliest_period
-            ):
-                midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
-                earliest_today = midnight + timedelta(hours=float(earliest_hour))
-                deadline_today = midnight + timedelta(hours=float(deadline_hour))
-                if earliest_today <= now <= deadline_today:
-                    earliest_period = 0
+            # nimbus issue #582, extracted to one helper by #485 --
+            # this logic previously existed as four identical copies.
+            earliest_period = _earliest_period_for_same_day_window(
+                now=now,
+                earliest_hour=earliest_hour,
+                deadline_hour=deadline_hour,
+                earliest_period=earliest_period,
+                deadline_period=deadline_period,
+            )
             if deadline_period < earliest_period:
                 # A real, live-possible edge: e.g. earliest=22.0 (10pm),
                 # deadline=6.0 (6am) both resolve relative to `now` (see
@@ -12494,16 +12570,15 @@ def build_controllable_loads(
             # here rather than shared -- same accepted drift-risk tradeoff
             # already flagged for apply_commanded_state_guard()'s own
             # duplicate of this exact block (2026-09-09 worklog).
-            if (
-                earliest_hour is not None
-                and deadline_hour is not None
-                and deadline_period < earliest_period
-            ):
-                midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
-                earliest_today = midnight + timedelta(hours=float(earliest_hour))
-                deadline_today = midnight + timedelta(hours=float(deadline_hour))
-                if earliest_today <= now <= deadline_today:
-                    earliest_period = 0
+            # nimbus issue #582, extracted to one helper by #485 --
+            # this logic previously existed as four identical copies.
+            earliest_period = _earliest_period_for_same_day_window(
+                now=now,
+                earliest_hour=earliest_hour,
+                deadline_hour=deadline_hour,
+                earliest_period=earliest_period,
+                deadline_period=deadline_period,
+            )
             if deadline_period < earliest_period:
                 _LOGGER.warning(
                     "Nimbus: controllable load '%s' (thermal) resolved "
@@ -14602,22 +14677,15 @@ def apply_commanded_state_guard(
                         # a future change to #582's own logic needs to be
                         # ported here too, or better, both call sites should
                         # be refactored onto one shared helper.
-                        if (
-                            earliest_hour is not None
-                            and deadline_hour is not None
-                            and deadline_period < earliest_period
-                        ):
-                            midnight = now.replace(
-                                hour=0, minute=0, second=0, microsecond=0
-                            )
-                            earliest_today = midnight + timedelta(
-                                hours=float(earliest_hour)
-                            )
-                            deadline_today = midnight + timedelta(
-                                hours=float(deadline_hour)
-                            )
-                            if earliest_today <= now <= deadline_today:
-                                earliest_period = 0
+                        # nimbus issue #582, extracted to one helper by #485 --
+                        # this logic previously existed as four identical copies.
+                        earliest_period = _earliest_period_for_same_day_window(
+                            now=now,
+                            earliest_hour=earliest_hour,
+                            deadline_hour=deadline_hour,
+                            earliest_period=earliest_period,
+                            deadline_period=deadline_period,
+                        )
                         target_kwh = data.get(CONF_DEFERRABLE_TARGET_KWH)
                         delivered_kwh_cumulative = np.cumsum(
                             np.asarray(load_plan.power_kw, dtype=np.float64)
@@ -14930,22 +14998,15 @@ def apply_commanded_state_guard(
                         # duplicated here too -- same accepted drift-risk
                         # tradeoff already flagged on the adequacy branch
                         # above and in build_controllable_loads() itself.
-                        if (
-                            earliest_hour is not None
-                            and deadline_hour is not None
-                            and deadline_period < earliest_period
-                        ):
-                            midnight = now.replace(
-                                hour=0, minute=0, second=0, microsecond=0
-                            )
-                            earliest_today = midnight + timedelta(
-                                hours=float(earliest_hour)
-                            )
-                            deadline_today = midnight + timedelta(
-                                hours=float(deadline_hour)
-                            )
-                            if earliest_today <= now <= deadline_today:
-                                earliest_period = 0
+                        # nimbus issue #582, extracted to one helper by #485 --
+                        # this logic previously existed as four identical copies.
+                        earliest_period = _earliest_period_for_same_day_window(
+                            now=now,
+                            earliest_hour=earliest_hour,
+                            deadline_hour=deadline_hour,
+                            earliest_period=earliest_period,
+                            deadline_period=deadline_period,
+                        )
                         new = replace(
                             new,
                             plan_forecast=load_run_state.build_time_value_series(

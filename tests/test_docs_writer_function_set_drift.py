@@ -371,6 +371,14 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # way rather than assumed: the standalone/cron forecast writer has
         # ZERO references to battery participants or shared chargers, so
         # there is no code path there for this to protect.
+        # nimbus issue #485/#582 (2026-09-18): the same-day-in-progress
+        # correction, extracted from four identical inline copies. A pure
+        # function (datetimes and ints in, int out, no HA imports) whose
+        # callers are build_controllable_loads() and
+        # apply_commanded_state_guard() -- both controllable-load
+        # machinery, which the standalone/cron copy does not have at all
+        # (build_controllable_loads is itself already listed here).
+        "_earliest_period_for_same_day_window",
         "_widen_shared_charger_cap_to_achieved",
         # nimbus issue #1111 (2026-09-18): the second field-parity fix in
         # the same pass, same reasoning as the helper immediately above --
