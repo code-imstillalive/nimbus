@@ -361,6 +361,17 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # [] unconditionally in standalone mode already (_NATIVE_HASS is
         # None there), so there is nothing behavioural to port.
         "_resolve_battery_participant_history",
+        # nimbus issue #1109 (2026-09-18): a pure helper (list of
+        # (BatteryConfig, ndarray, ndarray, float) in, same out -- no HA
+        # imports at all) whose ONLY caller is
+        # _resolve_battery_participant_history() immediately above, itself
+        # already INTENTIONAL_NATIVE_ONLY. Same reasoning as
+        # _drop_implausible_power_samples() and
+        # fetch_entity_state_history_range() below, and verified the same
+        # way rather than assumed: the standalone/cron forecast writer has
+        # ZERO references to battery participants or shared chargers, so
+        # there is no code path there for this to protect.
+        "_widen_shared_charger_cap_to_achieved",
         # nimbus issue #768 (2026-09-13): a genuinely dual-mode function
         # (it has its own REST branch, same shape as fetch_entity_
         # history_range()) but its ONLY caller is _resolve_battery_

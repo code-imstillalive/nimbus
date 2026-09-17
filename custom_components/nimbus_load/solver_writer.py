@@ -13272,6 +13272,8 @@ def _resolve_battery_participant_history(
             CONF_BATTERY_PARTICIPANT_NAME,
             CONF_BATTERY_PARTICIPANT_POWER_POSITIVE_IS_CHARGE,
             CONF_BATTERY_PARTICIPANT_POWER_SENSOR,
+            CONF_BATTERY_PARTICIPANT_SHARED_CHARGER_GROUP,
+            CONF_BATTERY_PARTICIPANT_SHARED_CHARGER_MAX_KW,
             CONF_BATTERY_PARTICIPANT_SOC_SENSOR,
             DOMAIN,
             SUBENTRY_TYPE_BATTERY_PARTICIPANT,
@@ -13289,6 +13291,8 @@ def _resolve_battery_participant_history(
             CONF_BATTERY_PARTICIPANT_NAME,
             CONF_BATTERY_PARTICIPANT_POWER_POSITIVE_IS_CHARGE,
             CONF_BATTERY_PARTICIPANT_POWER_SENSOR,
+            CONF_BATTERY_PARTICIPANT_SHARED_CHARGER_GROUP,
+            CONF_BATTERY_PARTICIPANT_SHARED_CHARGER_MAX_KW,
             CONF_BATTERY_PARTICIPANT_SOC_SENSOR,
             DOMAIN,
             SUBENTRY_TYPE_BATTERY_PARTICIPANT,
@@ -13508,6 +13512,31 @@ def _resolve_battery_participant_history(
                 ),
                 charge_efficiency=efficiency,
                 discharge_efficiency=efficiency,
+                # nimbus issue #1109: the shared-charger cap, which this
+                # function did NOT carry while its live-solve sibling
+                # build_extra_batteries() did. #768 lists exactly this as
+                # a prerequisite -- "an oracle free to charge both EVs on
+                # one 25 kW charger simultaneously ... would overstate
+                # achievable value" -- and the availability half (#467,
+                # just below) made the trip while this half did not.
+                #
+                # Left at the CONFIGURED value here and widened after the
+                # loop, once every participant's achieved charge array
+                # exists: the widening is a property of the group, not of
+                # any one member, so it cannot be computed yet.
+                shared_charger_group=(
+                    data.get(CONF_BATTERY_PARTICIPANT_SHARED_CHARGER_GROUP) or None
+                ),
+                shared_charger_max_kw=(
+                    float(shared_charger_max_kw_raw)
+                    if (
+                        shared_charger_max_kw_raw := data.get(
+                            CONF_BATTERY_PARTICIPANT_SHARED_CHARGER_MAX_KW
+                        )
+                    )
+                    is not None
+                    else None
+                ),
                 # nimbus issue #467: the real per-period away-window mask
                 # built above, so the oracle re-solve is gated by exactly
                 # the same windows the reconstruction arrays were masked
@@ -13553,7 +13582,94 @@ def _resolve_battery_participant_history(
         results.append(
             (battery_cfg, actual_charge_kw, actual_discharge_kw, final_soc_kwh_actual)
         )
-    return results
+    return _widen_shared_charger_cap_to_achieved(results)
+
+
+def _widen_shared_charger_cap_to_achieved(
+    results: list[tuple[elements.BatteryConfig, np.ndarray, np.ndarray, float]],
+) -> list[tuple[elements.BatteryConfig, np.ndarray, np.ndarray, float]]:
+    """Each shared-charger group's cap, relaxed to contain what that group
+    demonstrably drew (nimbus issue #1109).
+
+    **Why the cap is not simply passed through.** Adding it at all is the
+    fix -- the scorer's oracle could charge every member of a group at its
+    own `max_charge_kw` simultaneously, which the hardware cannot do, so
+    `j_star` was better than achievable and regret was overstated. But a
+    constraint NARROWS the oracle's feasible set, and #956 is the record of
+    what that costs when the achieved trajectory falls outside it: the
+    achieved side prices out cheaper than optimal, regret goes negative,
+    and the comparison is invalid rather than merely imprecise.
+
+    The household settled that in #956 -- "go with B", widen the oracle to
+    contain the achieved trajectory rather than clamp the achieved
+    integration to fit the oracle -- and this applies the same decision to
+    the same class of problem rather than making a new one. Same shape as
+    `quality_report.py`'s own `_widen_export_pin_to_achieved()` does for
+    the P2P export pin.
+
+    **Exactly as wide as the day itself, and no wider.** The widened cap is
+    `max(configured, the largest simultaneous draw the group actually
+    made)`. On a well-behaved day nothing changes: real draw stays under
+    the cap, the max is the configured value, and the result is
+    byte-identical to passing it straight through. It only moves when the
+    real day already exceeded the configured number -- a cap set to
+    nameplate while the charger briefly ran above it, a meter
+    disagreement, or simply a misconfiguration -- which is precisely the
+    case that would otherwise reintroduce #956.
+
+    A group of one is left alone: `shared_charger_max_kw` on a single
+    participant is just a second `max_charge_kw`, and widening it would
+    quietly relax a real per-battery limit.
+    """
+    groups: dict[str, float] = {}
+    for cfg, charge_kw, _discharge_kw, _final in results:
+        group = cfg.shared_charger_group
+        if not group or cfg.shared_charger_max_kw is None:
+            continue
+        arr = np.asarray(charge_kw, dtype=np.float64)
+        if group in groups:
+            groups[group] = groups[group] + arr  # type: ignore[assignment]
+        else:
+            groups[group] = arr  # type: ignore[assignment]
+
+    members: dict[str, int] = {}
+    for cfg, _c, _d, _f in results:
+        if cfg.shared_charger_group:
+            members[cfg.shared_charger_group] = (
+                members.get(cfg.shared_charger_group, 0) + 1
+            )
+
+    widened: list[tuple[elements.BatteryConfig, np.ndarray, np.ndarray, float]] = []
+    for cfg, charge_kw, discharge_kw, final in results:
+        group = cfg.shared_charger_group
+        if (
+            not group
+            or cfg.shared_charger_max_kw is None
+            or members.get(group, 0) < 2  # a group of one is a per-battery limit
+        ):
+            widened.append((cfg, charge_kw, discharge_kw, final))
+            continue
+        achieved_peak = float(np.max(np.asarray(groups[group], dtype=np.float64)))
+        relaxed = max(float(cfg.shared_charger_max_kw), achieved_peak)
+        if relaxed > float(cfg.shared_charger_max_kw):
+            _LOGGER.debug(
+                "Nimbus quality (#1109): shared charger group %r drew %.3f kW "
+                "at peak against a configured cap of %.3f kW -- widening the "
+                "oracle's cap to the achieved peak so the achieved trajectory "
+                "stays inside the oracle's feasible set (#956)",
+                group,
+                achieved_peak,
+                float(cfg.shared_charger_max_kw),
+            )
+        widened.append(
+            (
+                replace(cfg, shared_charger_max_kw=relaxed),
+                charge_kw,
+                discharge_kw,
+                final,
+            )
+        )
+    return widened
 
 
 async def dispatch_commanded_state(
