@@ -198,16 +198,16 @@ def compute_epr(*, j_ref: float, j_ach: float, j_star: float) -> EPRResult:
     accept 242.7% on a day the household spent $3.50 MORE than leaving
     the battery alone.
 
-    `j_star > j_ref` is itself structurally impossible when both are
-    priced by the same model -- the oracle may always choose to do
-    nothing, so it can never be beaten by doing nothing. It is therefore
-    always evidence about the COMPUTATION rather than about the day, and
-    on this install it is #1081's finding: j_star is the LP's own
-    objective (carrying soft-SoC and slack penalties) while j_ref comes
-    from the independent evaluator, so the two sides are not priced
-    alike. Re-pricing the same oracle plan through the evaluator gave
-    4.4419 against the LP's 6.9308, restoring a positive denominator
-    (+1.0478) and an honest EPR of -3.34.
+    `j_star > j_ref` means the oracle priced out worse than doing
+    nothing. That has two documented causes -- a binding loss-making
+    P2P export commitment the oracle cannot decline (#1001), and a
+    pricing-path mismatch between the LP objective and the evaluator
+    (#1081) -- and the 2026-09-17 report carries evidence of both. See
+    `denominator_reason()` below for the full account; it is NOT the
+    structural impossibility an earlier version of this docstring
+    claimed. Re-pricing that day's oracle plan through the evaluator
+    gave 4.4419 against the LP's 6.9308, which alone would restore a
+    positive denominator (+1.0478) and an EPR of -3.34.
 
     So: epr > 1 is worth investigating as a likely bug rather than
     reported as a real result, and the FIRST thing to check is the sign
@@ -239,19 +239,45 @@ def denominator_reason(*, j_ref: float, j_star: float) -> str | None:
     """Whether EPR's denominator is a positive quantity, which every
     reading of `epr` as a percentage silently assumes (nimbus #1089).
 
-    `j_star <= j_ref` holds BY CONSTRUCTION when both are priced by the
-    same model: the oracle may always choose to do nothing, so the idle
-    baseline is inside its feasible set and it can never be beaten by
-    doing nothing. A violation is therefore never a property of the day
-    -- it is always evidence that the two sides were not priced alike.
+    `j_star <= j_ref` holds only while the idle trajectory is inside the
+    oracle's feasible set AND both sides are priced by the same model.
+    **Both of those can fail, and an earlier draft of this docstring
+    wrongly called the condition structurally impossible.** There are
+    two documented mechanisms, and they are different in kind:
 
-    On the reference install that cause is nimbus #1081: `j_star` is the
-    LP's own objective and carries soft-SoC and slack penalties that the
-    independent evaluator producing `j_ref` does not. Re-pricing the
-    same oracle plan through the evaluator turned a -1.4411 denominator
-    into +1.0478. This function deliberately does not try to repair the
-    number: which side should move rescores every historical day, and
-    that is #1081's decision to make.
+    1. **A binding, loss-making P2P export commitment -- nimbus #1001,
+       measured on a real install 2026-09-16.** `fixed_export_kw` pins
+       the oracle's export in every committed period, so when the
+       committed export price is a fraction of the import price the
+       commitment is *a loss the oracle cannot decline* and idle is
+       simply not available to it. #1001's own minimal reproduction: a
+       12 kW commitment over seven hours at 7.5c export against 37c
+       import puts `j_star` **$2.43 worse than doing nothing at all**.
+       That is a REAL STATE, not a defect -- see
+       `quality_report.py`'s `_widen_export_pin_to_achieved()`, which
+       documents it in full.
+    2. **A pricing-path mismatch -- nimbus #1081.** `j_star` is the LP's
+       own objective and carries soft-SoC and slack penalties that the
+       independent evaluator producing `j_ref` does not, so the two
+       sides are not comparable even when the feasible sets are.
+
+    On the 2026-09-17 report **both were present**: the day carried a
+    committed pin (`p2p_commitment_shortfall_kwh` 2.0036) and a measured
+    path delta (`j_star_path_delta` 2.4889), against a denominator of
+    -1.4411. Either is individually large enough to account for it, and
+    that report cannot apportion between them. So this function names
+    what was OBSERVED and does not claim a cause.
+
+    **Why flag it either way.** Under mechanism 1 the arithmetic is
+    sound and the *interpretation* is what breaks: EPR measures value
+    captured against an idle baseline the oracle was never free to
+    choose, so the ratio is not a capture fraction of anything
+    achievable. Under mechanism 2 the inputs are genuinely
+    non-comparable. In both cases the published percentage is not a
+    score, and in both cases the fix is a decision rather than a patch
+    -- which side should move (#1081), or how a committed loss should be
+    priced into a baseline (#1001) -- so this reports and leaves the
+    number alone.
 
     Deliberately a SIGN test with no tolerance. A denominator that is
     merely SMALL also makes `epr` volatile, but choosing where "small"

@@ -28,18 +28,35 @@ of them existed in a form that could see this, and it did not:
 flagged at all only by an unrelated SoC disagreement. With a clean
 reconstruction, 242.7% would have published as fully reliable.
 
-**Why the condition is always a computation fault.** `j_star <= j_ref`
-holds by construction when both are priced by the same model: the oracle
-may always choose to do nothing, so the idle baseline is inside its
-feasible set. A violation is never a property of the day. On this
-install the cause is #1081 -- `j_star` is the LP objective (carrying
-soft-SoC and slack penalties) while `j_ref` comes from the independent
-evaluator. Re-pricing the same oracle plan through the evaluator gave
-4.4419 against the LP's 6.9308, restoring a **+1.0478** denominator and
-an honest EPR of **-3.34**.
+**What causes it -- and what does NOT.** A first version of this file
+called the condition structurally impossible, on the reasoning that the
+oracle may always choose to do nothing. **That reasoning is wrong**, and
+this repo had already measured why on 2026-09-16: `fixed_export_kw` pins
+the oracle's export in every committed P2P period, so when the committed
+export price is a fraction of the import price the commitment is *a loss
+the oracle cannot decline* and idle is not in its feasible set at all.
+#1001's own minimal reproduction -- a 12 kW commitment over seven hours
+at 7.5c export against 37c import -- puts `j_star` **$2.43 worse than
+doing nothing**. See `quality_report.py`'s
+`_widen_export_pin_to_achieved()`, which documents it in full.
 
-So the fix reports rather than repairs: which side should move rescores
-every historical day, and that is #1081's decision.
+So there are two mechanisms, and the 17 Sep report carries evidence of
+BOTH against a -1.4411 denominator:
+
+    p2p_commitment_shortfall_kwh  2.0036   -> #1001, a committed pin was active
+    j_star_path_delta             2.4889   -> #1081, the paths price differently
+
+Either alone is large enough to account for the sign, and that report
+cannot apportion between them. The reason string therefore names the
+OBSERVATION (`oracle_not_better_than_idle`) and asserts no cause.
+
+**Why flag it either way.** Under #1001 the arithmetic is sound and the
+interpretation breaks: EPR measures capture against an idle baseline the
+oracle was never free to choose, so it is not a fraction of anything
+achievable. Under #1081 the two inputs are non-comparable. Both times
+the published percentage is not a score, and both times the remedy is a
+decision rather than a patch -- so this reports and leaves the number
+alone.
 """
 
 from __future__ import annotations
@@ -136,6 +153,48 @@ class TestItRidesOnTheResult(unittest.TestCase):
         self.assertGreater(r.theoretical_maximum_yield, 0.0)
         self.assertAlmostEqual(r.theoretical_maximum_yield, 1.0478, places=4)
         self.assertLess(r.epr, -3.0)
+
+
+class TestTheLegitimateCommitmentCase(unittest.TestCase):
+    """#1001's own measured scenario, which is a REAL state rather than
+    a computation fault, and must still be flagged.
+
+    A 12 kW commitment over seven hours at 7.5c export against 37c
+    import puts `j_star` $2.43 worse than doing nothing, because
+    `fixed_export_kw` pins the export and the oracle cannot decline the
+    loss. The arithmetic there is sound; what breaks is reading EPR as a
+    capture fraction against a baseline the oracle was never free to
+    choose.
+
+    This is the case that makes the reason string's WORDING matter: it
+    reports what was observed, not a diagnosis, because a household
+    hitting this has nothing to fix in the code.
+    """
+
+    def test_a_committed_loss_still_gets_flagged(self):
+        """j_star $2.43 worse than idle, #1001's figure."""
+        self.assertEqual(
+            denominator_reason(j_ref=0.0, j_star=2.43),
+            "oracle_not_better_than_idle",
+        )
+
+    def test_the_reason_does_not_name_a_cause(self):
+        """Two mechanisms can produce this and one of them is not a
+        defect, so a reason that blamed either would be wrong half the
+        time. If someone renames it to something diagnostic, this fails.
+        """
+        reason = denominator_reason(j_ref=REAL_J_REF, j_star=REAL_J_STAR)
+        self.assertNotIn("1081", reason)
+        self.assertNotIn("1001", reason)
+        for blamed in ("mismatch", "path", "commitment", "bug", "invalid"):
+            self.assertNotIn(
+                blamed,
+                reason,
+                f"the reason string names a cause ({blamed!r}); both #1001 "
+                "and #1081 can produce this condition and #1001 is a real "
+                "state rather than a defect, so naming either is wrong "
+                "roughly half the time",
+            )
 
 
 class TestTheWarningHasItsOwnDedupSet(unittest.TestCase):

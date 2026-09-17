@@ -8721,22 +8721,26 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
             "Nimbus quality: %s published EPR %s%% but its DENOMINATOR "
             "(theoretical_maximum_yield = j_ref - j_star) is %s, which is "
             "not positive -- reason %r. j_star=%s priced out WORSE than the "
-            "do-nothing baseline j_ref=%s, and the oracle can always choose "
-            "to do nothing, so this is never a property of the day: the two "
-            "sides were not priced by the same model (nimbus #1081 -- "
-            "j_star is the LP objective and carries soft-SoC/slack "
-            "penalties the evaluator producing j_ref does not; compare this "
-            "report's own j_star_evaluator=%s). Treat the EPR for this day "
-            "as unusable REGARDLESS of its sign: when value_captured=%s is "
-            "also negative the two signs cancel and a bad day publishes as "
-            "a high score.",
+            "do-nothing baseline j_ref=%s, so EPR measured value captured "
+            "against a baseline the oracle was not free to choose. Two "
+            "documented causes, and this day's own figures say which to "
+            "look at: a binding loss-making P2P export commitment the "
+            "oracle cannot decline (nimbus #1001 -- this day's "
+            "p2p_commitment_shortfall_kwh=%s), and a pricing-path mismatch "
+            "between the LP objective and the evaluator (nimbus #1081 -- "
+            "this day's j_star_evaluator=%s, j_star_path_delta=%s). Treat "
+            "the EPR for this day as uninterpretable REGARDLESS of its "
+            "sign: when value_captured=%s is also negative the two signs "
+            "cancel and a bad day publishes as a high score.",
             yesterday_key,
             day_entry.get("epr_pct"),
             day_entry.get("theoretical_maximum_yield"),
             day_entry.get("epr_denominator_reason"),
             day_entry.get("j_star"),
             day_entry.get("j_ref"),
+            day_entry.get("p2p_commitment_shortfall_kwh"),
             day_entry.get("j_star_evaluator"),
+            day_entry.get("j_star_path_delta"),
             day_entry.get("value_captured"),
         )
     if (
