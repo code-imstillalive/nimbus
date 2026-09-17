@@ -8,6 +8,50 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.387] - 2026-09-18
+
+### Changed
+- **EPR and `regret_dollars` are now computed from `j_star_evaluator` instead of the raw LP objective. This rescores every historical day on every install** ([#1081](https://github.com/code-imstillalive/nimbus/issues/1081)).
+
+  **THE LP DID NOT CHANGE.** `j_star` -- the LP's own objective -- is still computed, still published on the report, and is still the correct thing to optimise: it is what CHOOSES the plan. Both numbers were already being published. What changed is only **which of the two the headline derives from**. Anyone reading this as "the solver changed" has it wrong.
+
+  Decided by Mark Purcell after this issue's diagnostic groundwork measured the two pricing paths apart. His reasoning is the part measurement could not supply:
+
+  > The soft-SoC penalty, slack penalties, and the bonus-as-a-chosen-variable all exist to shape what the LP searches for, not to describe a cost the household could ever actually pay. They're search machinery.
+
+  There is no day on which a household paid a soft-SoC penalty, so pricing an already-fixed trajectory against one produces an arbitrary number. `j_star_evaluator` reprices the **same chosen trajectory** through the **same real-cost arithmetic** `j_ach` already uses -- the symmetric comparison EPR is supposed to be, and the principle [#956](https://github.com/code-imstillalive/nimbus/issues/956) and [#1089](https://github.com/code-imstillalive/nimbus/issues/1089) already established for the rest of the scorer. [#586](https://github.com/code-imstillalive/nimbus/issues/586) was the local precedent: zeroing the recovery penalty for one oracle solve was already an admission the penalty does not belong in a comparison, just never generalised.
+
+  ### It makes the headline consistent with the detail beneath it
+
+  Worth stating because it inverts what this change looks like from outside. **`hourly_regret` has always been evaluator-priced** -- `quality_report.py` computes the oracle's per-period cost through `evaluate_realized_cost_multi()` precisely so the hourly shapes are comparable, and `j_star_evaluator` is derived from that very object. Only the headline reached for the LP objective.
+
+  So this **narrows** the long-documented gap between the hourly dict's own sum and the headline, rather than widening it: what remains is the bonus-credit term alone, not the whole path mismatch. An earlier draft of this entry claimed the opposite and would have shipped a caveat that was exactly backwards.
+
+  ### What it does to a real day
+
+  2026-09-17 on the reference install, every figure read off the published report:
+
+  | | before (LP objective) | after (evaluator) |
+  |---|---|---|
+  | `j_star` used | 6.9308 | 4.4419 |
+  | denominator | **-1.4411** | **+1.0478** |
+  | `regret_dollars` | +2.0564 | +4.5453 |
+  | **EPR** | **+242.70%** | **-333.79%** |
+
+  The published figure and the honest one were **opposite in sign**. #1089 established that the +242.7% was a sign-cancellation artefact on a day the household spent $3.50 more than leaving the battery idle, so a strongly negative EPR is the correct reading of that day rather than a regression.
+
+  ### For anyone comparing scores across this release
+
+  - Historical EPR and regret series will visibly change, **including changes of sign**.
+  - Any *"EPR improved from X to Y"* comparison spanning this release is **not valid**.
+  - #1089's `epr_denominator_reason` should now fire far less often, but it stays -- it is still what catches the two sides disagreeing for some *other* reason.
+
+  Ported to the standalone/cron writer, which computes `regret_dollars` itself rather than reading it off the report ([#357](https://github.com/code-imstillalive/nimbus/issues/357)).
+
+  One thing found while building this and worth recording rather than glossing: the full quality/EPR/regret test selection -- **282 tests** -- passed unchanged both before and after the change. **Nothing in the suite pinned the distinction at all.** That is not evidence the change is safe; it is a gap, and the 12 new tests close it. They drive a real `compute_quality_report()` with a bonus-priced oracle (the fixture that actually separates the two paths), and one of them guards the guard -- if that fixture ever stops producing a path delta, every other assertion would pass whichever number was used, so it fails loudly instead.
+
+  Devhub validation: **not claimed for the rescore itself.** The change alters what a future scored day publishes, and the days that would demonstrate it are already scored and cached. Verified by CI on the merged commit: **3,163 passed, 15 skipped, 1 xfailed** on the stub suite and **15 passed** on the real-HA harness.
+
 ## [0.94.386] - 2026-09-18
 
 ### Fixed
