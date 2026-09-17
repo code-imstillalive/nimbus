@@ -8,6 +8,29 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.378] - 2026-09-17
+
+### Fixed
+- **The oracle was paid the P2P premium at hours the household could never earn it, inflating regret and depressing EPR** ([#1079](https://github.com/code-imstillalive/nimbus/issues/1079)).
+
+  The quality report reads the day's real settled P2P figures and rebuilds `grid_oracle` so the oracle prices export the way the settlement actually paid ([#1015](https://github.com/code-imstillalive/nimbus/issues/1015)/[#1056](https://github.com/code-imstillalive/nimbus/issues/1056)). It computed the rate correctly — `real_p2p_dollars / real_p2p_volume_kwh` — and then handed it to the LP as `np.full(n_periods, bonus_rate)`: **flat across all twenty-four hours**, including every hour outside the household's committed window, where a P2P scheme pays exactly nothing.
+
+  A P2P premium is a property of the *block*, not of the day.
+
+  What that funded, on the reference household's real 15 Sep data at a real settled rate of $10.4032 / 47.668 kWh = **$0.2183/kWh**: `j_star` charged the battery at 01:00–02:00 local paying **$0.215/kWh** to import, then dumped **20 kW** to grid at **05:00 local** into a spot export price of **$0.088/kWh**. That is a 13c/kWh loss on its face and no optimiser takes it voluntarily — it clears only because the phantom premium turns $0.088 into $0.306. Every dollar of it inflates `j_star`, and regret is measured against `j_star`.
+
+  The same `grid_oracle` object is reused for `j_ref` pricing ([#1026](https://github.com/code-imstillalive/nimbus/issues/1026)), so the reference plane was credited the premium too — on that same day for ~41 kWh of **midday solar export**, none of it inside the window. That lifts `j_ref` toward `j_ach` and shrinks EPR's numerator. Both ends of the fraction moved, both in the direction that depresses EPR.
+
+  Two further copies of the same shape are fixed with it: the "what would Nimbus alone have done" counterfactual replay, and the static-config **fallback** pricing branch. The fallback matters most of the three — it prices a **live dispatch LP**, so an ungated premium there buys real energy at a real cost to chase revenue that never arrives. Its LocalVolts sibling had already been fixed this way on 2026-09-05, after a live household catch of gold "P2P active" colouring at genuine midday hours; the fallback branch never got the equivalent gate. Same defect, same file, found once and not swept — which is the part worth remembering.
+
+  The gate reuses `fetch_p2p_fixed_export_kw()`, the array the LP is genuinely pinned by, rather than reading the block hours a second time — so it cannot drift away from the window the LP is actually pinned to. An install with no configured block keeps the flat rate: there is then no window to gate on, and this must not make such an install worse on the strength of a guess.
+
+  Found immediately after [#1077](https://github.com/code-imstillalive/nimbus/issues/1077)'s UTC-vs-local sweep, and visible only because of it — with the P2P gate finally landing on the real evening block, the oracle's out-of-window dumping stood out as the remaining anomaly.
+
+  Ported to the standalone/cron writer copy, which carried the fallback-branch defect verbatim.
+
+  Devhub validation: see below.
+
 ## [0.94.377] - 2026-09-17
 
 ### Fixed

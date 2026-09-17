@@ -2831,6 +2831,33 @@ def fetch_p2p_fixed_export_kw(
     return result
 
 
+def p2p_bonus_price_by_period(
+    bonus_rate: float, fixed_export_kw: list[float] | None, n_periods: int
+) -> np.ndarray:
+    """The P2P premium, offered ONLY in the periods where the household
+    actually has a P2P commitment -- and zero everywhere else.
+
+    Ported from the integration copy (nimbus #1079). A P2P premium is a
+    property of the BLOCK, not of the day: an hour outside the committed
+    window earns plain spot and nothing more. Spreading the bonus flat
+    across all 24 hours feeds this LP a premium it cannot collect, and
+    the LP will buy real energy at a real cost to chase it.
+
+    This is the same defect the LocalVolts branch already fixed on
+    2026-09-05 by zeroing the bonus wherever p2p_export[i] is 0; the
+    static-config fallback branch never got the equivalent gate.
+
+    `fixed_export_kw is None` means no block is configured at all, so
+    there is no window to gate on and the flat rate is kept -- the
+    pre-existing behaviour, unchanged.
+    """
+    if fixed_export_kw is None:
+        return np.full(n_periods, bonus_rate)
+    return np.where(
+        np.asarray(fixed_export_kw, dtype=np.float64) > 0.0, bonus_rate, 0.0
+    )
+
+
 def resolve_price_spike_override(
     cfg: dict, import_price_now: float, grid_times: list[datetime]
 ) -> tuple[float | None, bool]:
@@ -4873,7 +4900,16 @@ def main() -> None:
         # doesn't have any P2P/community-trading scheme at all).
         p2p_recent_volume_kwh = _cfg_num(cfg, "solver_p2p_bonus_volume_kwh", 0.0)
         bonus_price_flat = _cfg_num(cfg, "solver_p2p_bonus_price", 0.0)
-        export_bonus_price = [bonus_price_flat] * n_periods
+        # nimbus #1079: gated to the household's own committed blocks,
+        # for the same reason the LocalVolts branch above zeroes it
+        # outside a real block (2026-09-05).
+        export_bonus_price = list(
+            p2p_bonus_price_by_period(
+                bonus_price_flat,
+                fetch_p2p_fixed_export_kw(cfg, grid_times),
+                n_periods,
+            )
+        )
         # No real multi-day recorded history to build an empirical band
         # from for a generic install -- price_risk_aversion (if a household
         # sets it > 0 anyway) is then a genuine no-op, same as every other
