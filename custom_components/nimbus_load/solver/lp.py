@@ -1421,11 +1421,29 @@ def _lp_tolerance_matching_mip(h: highspy.Highs):
     intermittent because it needs the incumbent to land in the 1e-7..1e-6
     band rather than below it.
 
-    Deliberately scoped to this one call rather than set globally: the
+    Deliberately scoped to its call sites rather than set globally: the
     tighter default is the right one for a genuine LP solve, and is what
-    every other phase should keep. This is the single place asking an LP
-    to re-certify a point a MIP already accepted, which is exactly where
-    the looser tolerance is the honest one.
+    every other phase should keep. These are the places asking an LP to
+    re-certify a point a MIP already accepted, which is exactly where the
+    looser tolerance is the honest one.
+
+    **This docstring used to say "the single place", and that was wrong
+    (2026-09-18).** `phase3_lex_restore` is a second one: it runs after
+    the same `_pin_binaries_to_current_solution()`, so its binaries are
+    equally MIP-accepted, and it was re-certifying them at the tighter
+    tolerance. Reproduced deterministically through `build_plan()` --
+    16 loads x 24 periods, seed 0, `LexOptions` -- at
+    `max_primal_infeasibility=2.812066e-07`, squarely inside the band
+    described above, and cleared by wrapping that phase too.
+
+    The mechanism was confirmed by ELIMINATION rather than assumed.
+    Phase 3 also adds a `secondary_expr <= secondary_value + epsilon`
+    row, which is the #981 hazard class (a bound derived from a
+    solver-reported value), so that was the competing explanation.
+    Widening that epsilon **one hundred fold** left the failure
+    bit-identical -- same 2.812066e-07, same single violated row -- so
+    the secondary row is not what is being violated, and the pinned
+    column bounds are.
 
     Restores the previous value on the way out, including on failure --
     a diagnostic-shaped widening must not leak into the phases after it.
@@ -1860,9 +1878,16 @@ def _solve_with_options(
         h.addConstr(secondary_expr <= secondary_value + epsilon)
         extra_row_names.append("_lex_secondary_le_optimum")
         _set_cost_vector(h, col_indices, primary_vec)
-        _ensure_optimal_value(
-            h, phase="phase3_lex_restore", problem=problem, binary_cols=binary_cols
-        )
+        # nimbus issue #773: phase 3 is the SECOND pinned LP re-solve, not
+        # a fresh one -- _pin_binaries_to_current_solution() above fixed
+        # every binary to a value branch-and-bound accepted under
+        # mip_feasibility_tolerance, and this asks a pure LP to reproduce
+        # it under the ten-times-tighter primal_feasibility_tolerance.
+        # Same band, same failure. See _lp_tolerance_matching_mip().
+        with _lp_tolerance_matching_mip(h):
+            _ensure_optimal_value(
+                h, phase="phase3_lex_restore", problem=problem, binary_cols=binary_cols
+            )
         return extra_row_names, None
 
     # CalibratedOptions: h's own live basis already sits at the phase-2
