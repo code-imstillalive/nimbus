@@ -390,6 +390,56 @@ class TestDepartureDeadlineWiring(unittest.TestCase):
         self.assertEqual(b.must_have_soc_by_period_index, 2)
         self.assertAlmostEqual(b.must_have_soc_kwh, 60.0 * 0.90)
 
+    def test_the_deadline_is_ONE_SHOT_across_a_real_multi_day_horizon(self):
+        """nimbus issue #467: the semantics nothing pinned, and the one
+        a reader of `must_have_soc_by_departure_percent` is most likely
+        to get wrong.
+
+        Every other test in this class uses a horizon shorter than a
+        day, so none of them can see this: on Nimbus's real 96-hour
+        horizon a departure hour occurs FOUR times, and the resolver
+        `break`s on the first. The constraint therefore guarantees SoC
+        for tomorrow morning's departure and says nothing about the
+        three after it -- it is a one-shot deadline, not the daily
+        recurring one the field name suggests.
+
+        **Why that is acceptable rather than a defect**, which is the
+        part worth recording: Nimbus is receding-horizon (`rolling.py`),
+        re-solving every cycle, so the NEAR deadline is always the one
+        being enforced and is re-resolved before it arrives. Only the
+        far end of the plan is unconstrained, and the far end is never
+        committed -- it is replaced by the next solve.
+
+        **Where it would stop being acceptable**: the moment a real
+        calendar event is expressible ("next Tuesday 07:15", #467 stage
+        3), a recurring-vs-one-shot distinction becomes a genuine
+        modelling choice rather than an artefact of hour-of-day being
+        the only vocabulary available. Pinned here so that decision is
+        made deliberately instead of inherited.
+        """
+        data = dict(_TESLA_DATA)
+        data["battery_participant_departure_hour"] = 7
+        data["battery_participant_must_have_soc_by_departure_percent"] = 90.0
+        solver_writer._NATIVE_HASS = _fake_native_hass(
+            [_fake_subentry("s1", "battery_participant", data)],
+            states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
+        )
+        # 96 hourly periods from 18:00 -> four separate 07:00 boundaries
+        # at indices 13, 37, 61, 85.
+        periods = self._periods(start_hour=18, n=96)
+        starts = periods.period_starts
+        matches = [i for i, s in enumerate(starts) if s.hour == 7]
+        self.assertEqual(
+            len(matches), 4, "fixture must contain several departures to be a test"
+        )
+        b = solver_writer.build_extra_batteries(periods)[0]
+        self.assertEqual(
+            b.must_have_soc_by_period_index,
+            matches[0],
+            "the deadline binds to the FIRST departure in the horizon; the "
+            "later three carry no SoC guarantee",
+        )
+
     def test_no_matching_hour_in_horizon_is_a_silent_no_op(self):
         data = dict(_TESLA_DATA)
         data["battery_participant_departure_hour"] = 20
