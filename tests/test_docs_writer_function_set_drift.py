@@ -558,6 +558,13 @@ INTENTIONAL_EXTRACTED_FROM_MAIN = frozenset(
         # 5 in / 4 out). Found by scanning every consecutive-statement
         # window in main() rather than by reading for one, after stage
         # 4's own region measured as having no clean seam at all.
+        #
+        # That last clause is now out of date, and is kept rather than
+        # rewritten because the sequence is the point: the same scan that
+        # found stage 6 also reversed the "no clean seam" verdict on
+        # stage 4, which has since landed as build_price_arrays below.
+        # That region had been read for a seam twice and measured once
+        # before scanning found it was a single `if` statement.
         "_publish_side_reports",
         # #735 stage 1 -- solver_inputs/solar.py. The three fetchers were
         # nested closures inside main() before the move (and still are in
@@ -604,6 +611,25 @@ INTENTIONAL_EXTRACTED_FROM_MAIN = frozenset(
         # failed_load_entities list. So the logic is present in both
         # copies; only the integration has given it a name.
         "publish_household_load_total_forecast",
+        # #735 stage 4 -- solver_inputs/prices.py. build_price_arrays()
+        # is the extracted block; the docs copy still has the identical
+        # two-path price/P2P branch inline in its own main(), so nothing
+        # is missing from either side. PriceArrays is a dataclass, not a
+        # def, so it does not appear here.
+        #
+        # Measured at STATEMENT level before moving, and the measurement
+        # is what made it safe: the region is ONE `if`/`else` statement
+        # (5 in / 9 out, 272 lines), every returned name is assigned in
+        # BOTH arms, and the move is a pure dedent whose re-indent is
+        # byte-identical to what stood in main(). That last property is
+        # the #873 guard -- hoisting a block that begins with `if` can
+        # silently re-parent a following `elif`, and a pure indent
+        # cannot.
+        #
+        # Mark Purcell independently re-measured the ledger after stage 6
+        # and named this region as the largest remaining candidate, which
+        # is what took it off the deferred list.
+        "build_price_arrays",
     }
 )
 
