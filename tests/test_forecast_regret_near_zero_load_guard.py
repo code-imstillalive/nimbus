@@ -49,7 +49,6 @@ from datetime import UTC, datetime
 
 import _solver_path  # noqa: F401
 import numpy as np
-import pytest
 from solver.elements import BatteryConfig, GridConfig, PeriodGrid
 from solver.forecast_regret import compute_forecast_regret
 
@@ -96,19 +95,6 @@ def _periods():
 
 
 class TestNearZeroButNotExactlyZeroForecastDegradesToNone(unittest.TestCase):
-    @pytest.mark.xfail(
-        reason=(
-            "nimbus IV&V (since #1058, 2026-09-17): the zero-load guard in "
-            "compute_forecast_regret() uses an absolute 1e-6 kWh epsilon, "
-            "seven-plus orders of magnitude smaller than a real day's total "
-            "load -- a forecast that is near-all-zero but not exactly zero "
-            "(a realistic partial-read/startup-race shape) clears it and "
-            "produces a meaningless scale factor instead of degrading to "
-            "None as the function's own comment says it should. "
-            "See the module docstring above for the full reasoning."
-        ),
-        strict=True,
-    )
     def test_a_near_all_zero_forecast_reports_absence_not_a_wild_number(self):
         # A realistic near-all-zero forecast: one lone period carries a
         # tiny non-zero reading (a glitchy/partial read), the other 23
