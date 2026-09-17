@@ -47,10 +47,9 @@ from __future__ import annotations
 import unittest
 from datetime import UTC, datetime
 
+import _solver_path  # noqa: F401
 import numpy as np
 import pytest
-
-import _solver_path  # noqa: F401
 from solver.elements import BatteryConfig, GridConfig, PeriodGrid
 from solver.forecast_regret import compute_forecast_regret
 

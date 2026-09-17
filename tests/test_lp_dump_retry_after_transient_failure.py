@@ -39,9 +39,8 @@ from __future__ import annotations
 
 import unittest
 
-import pytest
-
 import _solver_path  # noqa: F401
+import pytest
 from solver import lp
 
 
