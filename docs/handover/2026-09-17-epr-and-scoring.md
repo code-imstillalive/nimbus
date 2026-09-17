@@ -19,7 +19,7 @@ fixed**: the daily scorer runs at midnight and scores the day *before* that day'
 P2P settlement exists, so the published number is computed as if the household had
 no P2P arrangement at all — worth about **5 EPR points** and almost certainly the
 mechanism behind the long-standing "my EPR records zero P2P exports" complaint.
-`main` is at **v0.94.378**, deployed to devhub. **NUC1 is still on v0.94.375 and has
+`main` is at **v0.94.379**, deployed to devhub. **NUC1 is still on v0.94.375 and has
 none of this** — the household is deploying it themselves.
 
 ---
@@ -197,12 +197,28 @@ Progress made tonight:
 *"Both must answer the same question the same way, or a counterfactual scored here
 is not comparable to one the LP produced."*
 
-### #1073 — Mark Purcell, mixed-window implied efficiency (~90% done, parked)
+### #1073 — Mark Purcell, mixed-window implied efficiency — SHIPPED v0.94.379
 
-His pinning test already goes `XPASS(strict)`, which proves the fix works. What
-remains is removing his `xfail` marker and updating
-`test_the_implied_efficiency_recovers_the_configured_one`, which uses in=100/out=50
-— a mixed window — and asserts `implied_efficiency_reason is None`.
+**Done and closed 2026-09-17.** A window where the smaller direction carries >=1%
+of the larger now reports `mixed_window_not_decisive` (Mark's own suggested name),
+or `mixed_window_not_decisive_implied_above_unity` when also above 1.0. The numbers
+are kept, not nulled — the caveat is attached to them.
+
+Deliberate departure from the issue: a **relative** 1% threshold rather than the
+absolute `1e-6` floor it suggested mirroring, because 100 kWh in against 0.01 kWh
+out is effectively one-directional and flagging it would suppress a decisive reading
+the caller genuinely has. Same floor #1072 settled on. Flagged to Mark in the PR as
+his call to reverse.
+
+Verified live on devhub: `home` (75.216 kWh in / 40.183 kWh out) now reports
+`mixed_window_not_decisive_implied_above_unity` where it previously said only
+`implied_efficiency_above_unity`; `Test EV` (0 in / 0 out) still correctly reports
+`no_charge_throughput`, so the gate does not over-fire.
+
+**CI caught what the targeted local run missed**: `_is_mixed_direction_window` is a
+new top-level function and the #357 drift guard failed until it was accounted for as
+`INTENTIONAL_NATIVE_ONLY` — the cron forecast script computes no quality report, so
+a helper cannot be a drift gap in a copy lacking the function it serves.
 
 ### Still open and untouched tonight
 
@@ -219,7 +235,6 @@ work described.**
 
 | branch | state | what remains |
 |---|---|---|
-| `fix/1073-mixed-window-confound` | ~90% | remove Mark's `xfail`, fix the one test that asserts `reason is None` on a mixed window, lint/mypy/suite, PR |
 | `feat/1082-rescore-quality-history` | ~80% | **no tests written.** Adds `nimbus_load.rescore_quality_history` (`days`, `clear_history`), a `force` + `history_seed` kwarg on `publish_daily_quality_report()`, and a `services.yaml` entry |
 | `wip/1081-jstar-path-delta` | ~40%, **do not merge** | computes `j_star_evaluator` / `j_star_path_delta` but does **not** publish them on the `QualityReport` dataclass or the returned dict. No tests |
 | `fix/1012-battery-power-plane` | parked, older | plane conversion + config field + wizard dropdown; needs bridge-sensor key, translations, drift exemption, and a 46→47 wizard budget decision |
