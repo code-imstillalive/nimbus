@@ -356,6 +356,46 @@ at the top and pins at 99.3 is the kind of inference this thread has retracted t
 measured correct" holds for DISCHARGE only. The 21% above means it was overstated
 for charge.
 
+### THE HEADLINE RESULT (2026-09-18): measured round-trip efficiency is **1.045**
+
+The 21% is now pinned to a quantity that involves **no capacity assumption at all**:
+
+```
+charge:     counted_in  per SoC point = (C/100) / e_c
+discharge:  counted_out per SoC point = (C/100) * e_d
+ratio       = e_c * e_d = ROUND-TRIP EFFICIENCY     <- C cancels
+```
+
+Discharge, 15 Sep 18:30–21:00, steady 13.1 kW, SoC 83.4→67.3 (linear region):
+0.9515 points per 5-min interval → **1.1473 kWh delivered per SoC point**.
+Charge, three days: 1.092 / 1.100 / 1.101 → **~1.098 kWh counted per point**.
+
+```
+measured round-trip   = 1.1473 / 1.098 = 1.045      <- ABOVE UNITY, impossible
+configured round-trip = 0.9263^2       = 0.858
+```
+
+Assuming the configured e = 0.9263, the two directions imply different capacities:
+**discharge → 123.2 kWh** (within 1% of configured 122.2, 3% of #1013's 119.72);
+**charge → 101.7 kWh** (18% below both). Capacity is a constant, so discharge is
+consistent with everything else known about the pack and charge is not.
+
+**Rules out** a uniform sensor scale factor (cancels in the ratio), a capacity error
+(cancels), the SoC calibration (cancels), and the top-band step (both windows avoid
+it). What survives is an **asymmetry between directions** in the counted energy:
+charge is under-counted ~22% relative to discharge, per unit of SoC.
+
+**Likely — flagged, not confirmed:** an inverter register reporting DC pack power on
+discharge but AC-side power on charge, or any equivalent asymmetric reference. That
+is this issue's original plane hypothesis but **asymmetric**, which is exactly why
+the symmetric conversion on `fix/1012-battery-power-plane` cannot fix it. Confirming
+it needs the inverter's documentation or a second meter on the battery DC bus —
+not resolvable from here.
+
+**This is the thing to fix first.** `soc_discrepancy`, the 37-point divergence and
+`epr_reliable` are all downstream of integrating a charge series that does not
+balance against its own discharge series.
+
 **Consequence for the fix: it is not an input-boundary conversion at all.**
 The counted energy and the configured efficiency are both demonstrably right. What
 cannot be expressed by a single `capacity_kwh` constant is the SoC→kWh mapping.
