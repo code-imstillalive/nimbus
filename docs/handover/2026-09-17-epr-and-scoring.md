@@ -21,7 +21,7 @@ no P2P arrangement at all — worth about **5 EPR points** and almost certainly 
 mechanism behind the long-standing "my EPR records zero P2P exports" complaint.
 Confirmed live: devhub's published score for 16 Sep self-corrected from **90.6% to
 95.71%** on the first cycle after deploy.
-`main` is at **v0.94.380**, deployed to devhub. **NUC1 is still on v0.94.375 and has
+`main` is at **v0.94.381**, deployed to devhub. **NUC1 is still on v0.94.375 and has
 none of this** — the household is deploying it themselves.
 
 ---
@@ -189,7 +189,7 @@ over-built for the immediate symptom; confirm before finishing it.
 
 **A WIP branch already exists for candidate 3** — see branches below.
 
-### #1081 — residual `oracle_beaten`, $0.02 (small, investigation half-done)
+### #1081 — `oracle_beaten` — ROOT-CAUSED, fix is a modelling decision (still open)
 
 After #1079, 15 Sep scores EPR **100.11%** with `regret_dollars: −0.0214` and
 `epr_reason: "oracle_beaten"`. Above 100% is structurally impossible. It is 0.14%
@@ -218,6 +218,41 @@ Progress made tonight:
 `p2p_export.realized_export_bonus_credit()`'s own docstring already names the risk:
 *"Both must answer the same question the same way, or a counterfactual scored here
 is not comparable to one the LP produced."*
+
+**SETTLED 2026-09-17 by measurement (v0.94.381 ships the instrument).** Scoring the
+15 Sep evening window on the real install:
+
+```
+j_ach             = -5.0798
+j_star            = -4.3148     <- LP objective
+j_star_evaluator  = -5.0898     <- identical plan, priced j_ach's way
+j_star_path_delta =  0.7750
+regret_dollars    = -0.7649     <- impossible
+epr_pct           =  110.98
+```
+
+`j_ach - j_star` = **-0.7650** (impossible). `j_ach - j_star_evaluator` = **+0.0100**
+(correct sign). The delta minus the true regret is exactly the impossible regret.
+EPR repriced through the evaluator is **99.87%**, under the ceiling where it belongs.
+
+That window has **no P2P at all**, so the bonus model is excluded as an explanation.
+
+It was never a $0.02 rounding oddity. `j_star` is charged for terms `j_ach` never
+pays — the soft-SoC penalty being the largest identified, with at least one more
+unaccounted for — which inflates `j_star`, shrinks regret and pushes EPR up.
+
+**The remaining work is a modelling decision, not a bug fix**, which is why the issue
+is still open and no fix was made unilaterally:
+
+1. Take `j_star` from the evaluator, keeping the LP purely as the thing that *chooses*
+   the oracle's plan. Restores the invariant by construction. **Probably correct** —
+   the soft-SoC penalty is explicitly a modelling device, and #586 already zeroes it
+   for the oracle in one special case, which is itself an admission that it distorts
+   the comparison.
+2. Charge `j_ach` the same terms. Defensible for real costs, indefensible for a
+   penalty that exists only to steer the LP.
+
+Either rescores every historical day on every install. Mark has been asked for a view.
 
 ### #1073 — Mark Purcell, mixed-window implied efficiency — SHIPPED v0.94.379
 
