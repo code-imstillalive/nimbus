@@ -518,6 +518,22 @@ install is a household call. #1086 recommends re-running the same three-number
 arithmetic over a fortnight including a cloudy stretch first, to separate the pack
 from the season.
 
+**A fourth day (13 Sep) was added and had to be EXCLUDED**, which supplies the filter
+any longer run needs. It computes 1.0226 — impossible — and fails a screen needing no
+efficiency model at all: on a near-closed loop its `energy_out` (113.328) **exceeds**
+its `energy_in` (108.136). Corroborated by `load_nowcast_skill_coverage: 0.958` and
+by #1012's own note that this specific day has missing mirrored recorder history.
+
+**Screen to apply mechanically before including a day:**
+1. `energy_out` must not exceed `energy_in` when `|measured_soc_delta_kwh|` is small —
+   catches 13 Sep using only the three numbers already in hand
+2. `load_nowcast_skill_coverage` at or near 1.0 (clean days 0.979–1.000; the failure 0.958)
+3. the loop must close — all four qualify here (0.2–1.6 kWh against ~105 kWh throughput),
+   so this is not what separates them
+
+Without (1), a fortnight average silently absorbs impossible days and drags the result
+toward unity — the direction that would make the finding look like nothing.
+
 **Method note worth keeping:** the closed-loop calculation is insensitive to the SoC
 hysteresis above, because a direction-dependent error cancels over a complete cycle —
 which is exactly why it works where the band-restricted measurement did not. It must
