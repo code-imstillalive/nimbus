@@ -8,6 +8,27 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.380] - 2026-09-17
+
+### Fixed
+- **A day scored before its P2P settlement existed no longer stands as that day's permanent score** ([#1082](https://github.com/code-imstillalive/nimbus/issues/1082)).
+
+  `compute_daily_quality_report()` scores "yesterday", and the publisher runs off the solve cycle, so the first attempt lands just after local midnight — **before that day's settlement has populated**. `real_p2p_dollars` is then 0, which additionally makes `real_p2p_volume_kwh > 0.01` false, so the bonus-priced `grid_oracle` rebuild never runs either: `j_ach`, `j_star` and `j_ref` all go P2P-blind together and the whole day is scored as though the household had no P2P arrangement at all.
+
+  The idempotency fast path then re-pushed that score verbatim on every later cycle, so it stood permanently — no matter how many releases landed afterwards.
+
+  Measured on a real install: v0.94.378 was still publishing 16 Sep at **EPR 90.6%** with `real_p2p_dollars: 0` twenty-one hours later, where scoring the identical day once the settlement had landed returned **95.71%** with the real **$14.5364** applied. `−6.3493 − 14.5364 = −20.8857` — the entire five-point gap is the P2P revenue, to the cent.
+
+  This is very likely the mechanism behind a long-standing household report — *"I export, and your system tells me my EPR records zero P2P exports"* — which had been read as a gating bug more than once. It is a **timing** bug. `real_p2p_settlement_status` has reported the truth (`no_settlement_entry_for_this_date`) since [#1016](https://github.com/code-imstillalive/nimbus/issues/1016); nothing was hiding it, nothing was reading it.
+
+  The fix uses that existing field, so it needs no new published state, no config, and no notion of provisionality the sensor does not already have. Only the two genuinely transient statuses re-score (`no_settlement_entry_for_this_date`, `settlement_sensor_unreadable`); `applied` is final and `no_sensor_configured` / `window_is_not_one_local_calendar_day` are permanent — re-scoring those would burn an oracle MIP every cycle forever on every install without a settlement sensor, which is strictly worse than the bug being fixed.
+
+  **It cannot loop.** Retries are spaced an hour apart using the published `generated_at`, so the worst case (a day whose settlement never arrives) is bounded at ~24 extra solves and the window closes on its own when the scored date rolls over at midnight. Retrying every cycle would have been a straight repeat of [#773](https://github.com/code-imstillalive/nimbus/issues/773), where a multi-minute solve firing repeatedly starved HA's executor badly enough to fail backups.
+
+  Two things worth recording about how this was built. The provisional check is **deliberately nested** rather than folded into the fast-path condition with an `and`: `test_solver_writer_family_a_freshness_repush.py` locates that fast path by its exact source text, and an `and` on that line silently defeats a guard that exists to stop a once-a-day score re-solving 1440 times. And the first version of the naive-timestamp test asserted the **opposite** of the truth — it assumed the datetime subtraction would raise, where `parse_iso()` in fact anchors a naive value to UTC ([#363](https://github.com/code-imstillalive/nimbus/issues/363)). Asserting a guess about a helper instead of reading it is how a test ends up documenting something that was never true.
+
+  Devhub validation: **not claimed on the default path** — it only fires when a day is scored before its settlement lands, which cannot be produced on demand. Verified by the end-to-end publisher tests (confirmed to fail with the fix disabled) and the full suite.
+
 ## [0.94.379] - 2026-09-17
 
 ### Fixed

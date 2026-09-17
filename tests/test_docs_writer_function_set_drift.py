@@ -189,6 +189,13 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # quality-report publisher at all, so there is nothing there for
         # this to carry forward.
         "_carry_forward_quality_history",
+        # nimbus #1082: decides whether an already-published score for a
+        # day still stands, or was taken before that day's settlement
+        # landed and should be scored again. Native-only for the identical
+        # reason as the helper directly above -- the standalone/cron copy
+        # has no quality-report publisher, so it has no published score to
+        # reconsider.
+        "_keep_published_quality_score",
         # nimbus issue #427: a private helper called only by
         # compute_daily_quality_report itself (already listed above) --
         # same native-only reasoning applies, not a separate gap.
