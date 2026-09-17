@@ -3192,6 +3192,29 @@ def sum_load_forecasts(
     )
 
 
+# nimbus issue #1073: how much throughput the SMALLER direction needs,
+# as a fraction of the larger, before a window counts as genuinely
+# two-directional.
+#
+# Relative rather than absolute for the same reason #1072 needed the
+# same change: a window with 100 kWh in and 0.01 kWh out is effectively
+# one-directional, and calling it "mixed" would suppress the decisive
+# reading the caller actually has. 1% is the same floor #1072 settled
+# on, kept deliberately identical so there is one notion of
+# "negligible throughput" in this file rather than two.
+_MIXED_WINDOW_MIN_FRACTION = 0.01
+
+
+def _is_mixed_direction_window(in_kwh: float, out_kwh: float) -> bool:
+    """True when BOTH directions carry real throughput, so neither
+    implied efficiency can be trusted on its own (nimbus issue #1073).
+    """
+    smaller, larger = sorted((abs(in_kwh), abs(out_kwh)))
+    if larger <= 1e-6:
+        return False
+    return smaller / larger >= _MIXED_WINDOW_MIN_FRACTION
+
+
 def battery_energy_balance(
     *,
     name: str,
@@ -3289,6 +3312,34 @@ def battery_energy_balance(
         reason = "soc_moved_without_throughput"
     elif implied is None:
         reason = "no_charge_throughput"
+    elif _is_mixed_direction_window(in_kwh, out_kwh):
+        # nimbus issue #1073 (Mark Purcell, IV&V since #1058): on a
+        # window with real throughput in BOTH directions, neither
+        # implied value is decisive and the report must say so.
+        #
+        # Each one nets out the OTHER direction using that direction's
+        # CONFIGURED efficiency -- which is exactly the unknown this
+        # diagnostic exists to measure. When both configured values are
+        # wrong, and #1012 measured precisely that on the reference
+        # household (wrong in different directions at once), each implied
+        # figure is contaminated by the other's error.
+        #
+        # This is the COMMON case, not an edge one: every ordinary daily
+        # quality report scores a calendar day, and a real day charges
+        # and discharges. Before this, those reports published two
+        # confounded numbers with reason=None -- the same confidence
+        # level as a genuinely one-directional window, which is the only
+        # shape that can actually separate capacity from efficiency
+        # (see e926a10's own commit message).
+        #
+        # The numbers are KEPT rather than nulled: they still bound the
+        # answer and a reader who understands the caveat can use them.
+        # What changes is that the caveat is now attached to them.
+        reason = (
+            "mixed_window_not_decisive_implied_above_unity"
+            if implied > 1.0
+            else "mixed_window_not_decisive"
+        )
     elif implied > 1.0:
         # Physically impossible rather than merely surprising -- worth
         # naming separately so it is never read as "very efficient".
