@@ -6,12 +6,45 @@ HiGHS's own status reporting.
 On 2026-09-18 the shipped `CalibratedOptions` path was measured returning a
 `phase2_secondary` solution **1.89% worse on the secondary objective** than a
 different integer assignment that is feasible for the same tie row -- while
-reporting `status=Optimal`. Forcing `mip_rel_gap` and `mip_abs_gap` to 0 does
-not change it: the answer is then reported with `gap = 0.0` and
-`mip_dual_bound == primal`, so the dual bound is not a valid lower bound.
+reporting `status=Optimal`.
 
-That is not something a status field or a `mip_gap` can tell you, because both
-come from the same solve that is wrong. This script settles it from outside:
+**CORRECTED the same day, and the correction is the point of reading this
+docstring rather than only running the script.** The first framing was "the
+dual bound is not valid, the optimality claim is wrong." Two follow-up
+experiments do not support that:
+
+1. **Take the warm start out entirely.** Dump the phase-2 model, reload it in a
+   FRESH Highs instance with `mip_rel_gap = mip_abs_gap = 0`, solve from
+   scratch. **Five of six scenarios agree with the in-process run**, including
+   the one used as the headline example. An independent method reaches the same
+   answer, so "the proof is invalid" is not supported.
+2. **Measure where the better point actually sits.** Against the tie row's real
+   bound, with the LP's primal tolerance tightened to 1e-9:
+
+       tie row:  primary_expr <= 38.388375263643
+       in-process assignment   activity 38.388375163643   headroom 1.0e-07
+       the better assignment   activity 38.388375263643   headroom 1.4e-14
+
+So the better solution is feasible and sits **exactly on the tie-row boundary**,
+at machine precision. Branch-and-bound works inward from the relaxation and
+prunes on bounds computed to ~1e-7; a point lying ON a constraint the algorithm
+derived itself is below the resolution the search operates at. Handing it over
+works; finding it does not.
+
+**The supportable claim:** phase 2's true optimum can lie exactly on the
+tie-row boundary, where the search cannot reach it. The reported answer is
+optimal to the resolution the search uses; the better point exists below that
+resolution. That makes `_LEX_PRIMARY_TIE_ABS_SLACK = 1e-7` structural rather
+than incidental -- it defines a band whose optimum is at its own edge.
+
+**One scenario points the other way and is deliberately not explained away.**
+16x24 s2's in-process run reports a value BETTER than both the fresh re-solve
+and the warm run, and its own assignment returns `Solve error` when pinned and
+re-solved at a 1e-9 primal tolerance. There the production answer is the one
+that fails scrutiny. One case in six is not a distribution; it is recorded
+because it is the half most easily lost.
+
+This script settles the comparison from outside the solve that produced it:
 
 1. dump the phase-2 model to `.mps` at the instant phase 2 is about to run --
    the tie row and the secondary cost vector are both already in place by then
@@ -28,12 +61,12 @@ wrong, whatever its own gap said.
 
 ## What is NOT established
 
-The mechanism. One measurement points somewhere without diagnosing anything: the
-two assignments' tie-row activities differ by exactly
-`_LEX_PRIMARY_TIE_ABS_SLACK` (1e-7), with the better solution sitting at the top
-of the band, while `mip_feasibility_tolerance` is 1e-6 -- ten times wider than
-the band. That is the same tolerance-mismatch family #979 fixed at
-`phase2_pin_resolve`, but it is a coincidence of scale until something tests it.
+The mechanism, still. The boundary measurement above says WHERE the unreachable
+optimum sits, not why the band is posed at a width whose edge matters:
+`mip_feasibility_tolerance` is 1e-6, ten times wider than the 1e-7 band, and
+`primal_feasibility_tolerance` is 1e-7, the same order as the band itself. Same
+tolerance-mismatch family as the one #979 fixed at `phase2_pin_resolve` -- and
+still a coincidence of scale until something discriminates it.
 
 **The obvious remedy is confounded.** Widening `_LEX_PRIMARY_TIE_ABS_SLACK`
 lowers the secondary objective at every step, but a wider band is a strictly
