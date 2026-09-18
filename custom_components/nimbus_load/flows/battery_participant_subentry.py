@@ -117,6 +117,37 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
             CONF_BATTERY_PARTICIPANT_POWER_SENSOR,
             default=defaults.get(CONF_BATTERY_PARTICIPANT_POWER_SENSOR),
         ): selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
+        # nimbus issue #1131: this default is the OPPOSITE of the home
+        # battery's, and why is not established.
+        #
+        # `CONF_SOLVER_BATTERY_POWER_POSITIVE_IS_CHARGE` in
+        # flows/hub_options.py is `vol.Optional` with no default, so it
+        # resolves falsy -- positive means DISCHARGE -- and it carries a
+        # five-line comment naming #299, the vendor, and the
+        # backward-compatibility reasoning. This one is `vol.Required`
+        # with `default=True` -- positive means CHARGE -- and carried
+        # nothing at all until this comment.
+        #
+        # So a household accepting what both forms offer ends up with
+        # opposite conventions for its home battery and its EV.
+        #
+        # **That may well be correct**: an EV charger sensor plausibly
+        # reports positive while power flows INTO the car, where an
+        # inverter reports positive while discharging. If so, differing
+        # defaults is a good decision. No claim either way is made here,
+        # deliberately -- inventing a justification for a choice nobody
+        # recorded would be worse than the silence it replaces, and this
+        # comment exists to stop the next reader re-deriving the
+        # asymmetry rather than to explain it away.
+        #
+        # What IS established is the cost of getting it wrong. It does
+        # not error; it inverts the charge/discharge split in the
+        # scorer's own history reconstruction (see solver_writer.py's
+        # `sign = -1.0 if ... else 1.0`), which is the #535/#843 class --
+        # convention errors that produce plausible-looking numbers rather
+        # than failures. Worse, the resulting energy balance trips
+        # #1073/#1098's guards, so the symptom looks like one of the
+        # known confounds rather than a configuration error.
         vol.Required(
             CONF_BATTERY_PARTICIPANT_POWER_POSITIVE_IS_CHARGE,
             default=defaults.get(
