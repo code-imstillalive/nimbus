@@ -109,15 +109,37 @@ QUALITY_TREND_CHART_CARD = {
     "yaxis": [
         {
             "id": "epr",
-            "min": 0,
-            "max": 100,
+            # nimbus issue #1120: deliberately NO hard min/max.
+            #
+            # These were 0 and 100, which silently clips the only days
+            # worth looking at. EPR is not bounded to [0, 100]: it goes
+            # ABOVE 100 whenever the scored day beats the oracle (the
+            # `oracle_beaten` shape -- 106.4% on the reference household's
+            # 2026-09-16, and 115.87 in that install's own recorded
+            # statistics), and BELOW 0 whenever the day did worse than
+            # doing nothing at all (-5.76% on 2026-09-06, recorded in this
+            # repo's own worklog).
+            #
+            # Both are exactly the days a household needs to see, and a
+            # fixed axis renders them flush against the boundary -- which
+            # reads as "a perfect day" for the first case and "a zero day"
+            # for the second, rather than as an anomaly. Letting the axis
+            # scale to the real data is the honest default; a household
+            # that prefers a fixed frame can add min/max back knowingly.
             "decimals": 0,
             "apex_config": {"title": {"text": "EPR %"}},
         },
         {
             "id": "regret",
             "opposite": True,
-            "decimals": 0,
+            # nimbus issue #1120: 2dp, not 0. Regret lives in the +-$5
+            # range on a real install -- $1.67 and -$0.79 are both real
+            # readings from the reference household -- so whole-dollar
+            # labels round almost every day to "0" or "-1" and the axis
+            # stops distinguishing a good day from a bad one. The series
+            # itself is already rounded to 2dp in its data generator; this
+            # only makes the axis agree with it.
+            "decimals": 2,
             "apex_config": {"title": {"text": "Regret $"}},
         },
     ],
