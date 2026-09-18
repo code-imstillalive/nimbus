@@ -1294,9 +1294,49 @@ def train_model(
             )
         else:
             model_type = min(candidate_mae, key=candidate_mae.__getitem__)
+            # nimbus issue #937: this message used to say "Too few
+            # origins" for BOTH ways the recursive metric can come back
+            # empty, and only one of them is about origins.
+            #
+            # Measured on the reference household, 2026-09-18: nine of
+            # eighteen circuits publish an empty `validation_recursive_
+            # mae` and therefore select on one-step error. Several of
+            # them carry 4,100-4,300 training points, so "too few
+            # origins" sent a reader looking for more history -- which
+            # cannot help, because the real gate is
+            # `_recursive_multistep_mae()` finding no OBSERVED forward
+            # point in any origin's window:
+            #
+            #     if (actual is not None and math.isfinite(actual)
+            #             and i < len(load_observed) and load_observed[i]):
+            #         errors.append(abs(pred - actual))
+            #     ...
+            #     if not errors:
+            #         return None
+            #
+            # That is observation DENSITY, not history length, and on a
+            # circuit whose sensor idles and reports on change it does
+            # not improve with time -- the load selects on one-step error
+            # permanently. Saying so is the difference between "wait" and
+            # "this will never happen", which is the whole point of
+            # naming a cause.
+            if not origins:
+                reason = (
+                    "no validation origins (the validation region is too "
+                    "short to fit a single recursive window)"
+                )
+            else:
+                reason = (
+                    f"{len(origins)} origin(s) available but no OBSERVED "
+                    f"actual fell inside any {RECURSIVE_VALIDATION_HORIZON_STEPS}"
+                    "-step forward window -- this load's sensor reports too "
+                    "sparsely for recursive validation, which more history "
+                    "will not change"
+                )
             _LOGGER.info(
-                "Too few origins for recursive validation -- falling back "
-                "to one-step selection -> using %s",
+                "Recursive validation unavailable (%s) -- falling back to "
+                "one-step selection -> using %s",
+                reason,
                 model_type,
             )
 
