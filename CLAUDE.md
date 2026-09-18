@@ -20,12 +20,51 @@ Instructions for any Claude instance working on this repo. Read this before touc
 > is the authoritative account of the EPR/quality-scoring thread (#1077, #1079
 > shipped; #1081, #1082 open; four parked branches; the devhub-vs-NUC1 mirror
 > trap). Read it before touching the scorer.
+>
+> **Travel handover, 2026-09-18 — READ THIS FIRST if you are picking up cold:**
+> `docs/handover/2026-09-18-travel-handover.md`. The household left overseas that
+> night with their laptop powered off, so nothing ran while they were away. It
+> records the departure state (NUC1/NUC2/devhub all on **v0.94.391**, failover
+> verified, EPR fixed at 94.81%), the **controlled experiment that settled the
+> sixteen-occurrence "devhub deploy not taking effect" bug** (devhub's canonical
+> `sensor.nimbus_*` ids carry NUC1's data — `platform` does not tell you who
+> WRITES a state), an explicitly unverified #773 hypothesis that should not be
+> published as a finding, and the decisions owed. It is newer than the
+> 2026-09-17 handover above; where they disagree, it wins.
 
 Dated work-in-progress notes live in `docs/worklog/`, one file per date — this is where
 the "CURRENT STATE" journal that used to live directly in this file now lives. Each
 file is not re-summarized here; read it directly for the full detail. Most recent 5:
 
-- [2026-09-18](docs/worklog/2026-09-18.md) — Three releases (**v0.94.382 →
+- [2026-09-18](docs/worklog/2026-09-18.md) — **Ten releases (v0.94.382 →
+  v0.94.391), and by the afternoon the day's largest result was a negative one
+  about this project's own instrumentation.** The household upgraded NUC1
+  v0.94.375 → v0.94.391 and, while **devhub was not touched at all**, every
+  canonical `sensor.nimbus_*` reading on devhub flipped 0.94.375 → 0.94.391
+  within a minute. Intervention on one side only: **those entity ids carry
+  NUC1's install**, and all sixteen recorded occurrences of "devhub deploy not
+  taking effect" were reading NUC1's release lag off devhub's screen. The rule
+  that failed matters more than the bug — `ha_get_entity(<id>).platform` says
+  `nimbus_load` with devhub's own config-entry id, and the day before that was
+  used to overturn the *correct* belief. **Registry ownership is not
+  authorship.** The replacement check is "does an entity only the new release
+  can create exist", because a foreign writer can post to an entity_id but
+  cannot register one. Two side mysteries (the duplicate-unique-ID refusals, the
+  oversize-attribute drops) fall out of the same mechanism, and a third was
+  dismissed before it became an issue when the stock `cast` integration was
+  found logging the same duplicate-ID error in the same boot. **EPR is fixed**:
+  17 Sep rescored itself on restart to **94.81%** with `regret $1.6716` and a
+  clean `epr_denominator_reason`, the only remaining flag being #949's
+  fleet-blend SoC disagreement. **#773/#999**: the warm-start proposal was
+  measured properly for the first time — the premise that synthetic phase 2
+  never branches is false (up to 372 nodes), and with real power the warm start
+  **changes phase 2's answer** deterministically, so it must not ship; the
+  tie-row hypothesis that would explain it was deliberately *not* published,
+  because this issue's history is tidy explanations that did not survive
+  measurement. Also **#1096 closed**, **#485 answered** (the consolidation Mark
+  approved had already merged two hours earlier; his second question was already
+  answered in `household_modes.py`'s own docstring), and a full travel handover
+  written. Earlier the same day: three releases (**v0.94.382 →
   v0.94.384**), three issues closed (#1012, #1089, #773's
   capture-perishability half), two filed (#1086, #1089), and **three of the
   session's own published claims corrected by evidence.** The day's find is
