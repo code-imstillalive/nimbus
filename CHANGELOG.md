@@ -8,6 +8,30 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.394] - 2026-09-18
+
+### Changed
+- **The battery participant's power-sign default is now documented as the opposite of the home battery's** ([#1131](https://github.com/code-imstillalive/nimbus/issues/1131)). Comment and tests only — no schema change, no default changed, no behaviour change.
+
+  The same semantic field — *"does a positive reading on this power sensor mean charging?"* — is declared two different ways:
+
+  ```
+  home battery   vol.Optional, no default -> resolves falsy -> positive means DISCHARGE
+                 five-line comment naming #299, the vendor, the compatibility reasoning
+  participant    vol.Required, default=True -> positive means CHARGE
+                 nothing at all
+  ```
+
+  So a household accepting what both forms offer ends up with opposite conventions for its home battery and its EV.
+
+  **No claim is made that either default is wrong**, deliberately. An EV charger sensor plausibly reports positive while power flows *into* the car, where an inverter reports positive while discharging — if so, differing defaults is a good decision. Inventing a justification for a choice nobody recorded would be worse than the silence it replaces, because it would read as evidence. The comment records the asymmetry, that the reason is not established, and the cost of getting it wrong.
+
+  That cost is why it earns a comment rather than a shrug: it does not error, it **inverts the charge/discharge split in the scorer's own history reconstruction** — the [#535](https://github.com/code-imstillalive/nimbus/issues/535) and [#843](https://github.com/code-imstillalive/nimbus/issues/843) class, convention errors producing plausible-looking numbers rather than failures, both of which cost real investigations. Worse, the resulting energy balance trips [#1073](https://github.com/code-imstillalive/nimbus/issues/1073) and [#1098](https://github.com/code-imstillalive/nimbus/issues/1098)'s guards, so the symptom presents as one of the *known confounds* rather than as a configuration error.
+
+  Seven tests pin both that the asymmetry is still real — if someone aligns the two sides these fail, and get retired deliberately rather than left asserting a difference that no longer exists — and that the comment keeps naming its counterpart, keeps saying the reason is unestablished, and keeps naming the failure class.
+
+  Devhub validation: **not claimed, because this release ships no behaviour.** It is a source comment plus source-inspection tests; there is nothing on a running install to look at.
+
 ## [0.94.393] - 2026-09-18
 
 ### Changed
