@@ -8487,10 +8487,58 @@ _QUALITY_HISTORY_FIELDS = (
     "regret_dollars",
 )
 
+# nimbus issue #1120: which release scored this day.
+#
+# A day is scored ONCE, the morning after, and frozen into the table
+# above -- nothing ever recomputes an entry. So every scoring-formula
+# change splits the table in two, and the two halves sit next to each
+# other on the same card with nothing saying they are not comparable.
+# Measured on the reference household hours after v0.94.391 landed: the
+# freshly-rescored day read EPR 94.8% / regret $1.67 while the row beside
+# it read **106.4% / -$0.79** -- the `oracle_beaten` signature #1081
+# fixed, still sitting in a row written before the fix existed.
+#
+# This does not make the stale row right; nothing here can, short of a
+# rescore path that persists (#1120's own second half). It makes it
+# VISIBLE, which is the difference between a household reading a wrong
+# number and reading a qualified one.
+#
+# **The key is one character on purpose.** This dict rides in the same
+# attribute payload #944 measures against the recorder's 16 KB cap, and
+# that payload was measured at 20,738 bytes on a real install -- already
+# 27% over. At 60 days a `"v":"0.94.392"` pair costs ~960 bytes; the
+# same field spelled `scored_by_nimbus_version` would cost ~2.4 KB.
+_QUALITY_HISTORY_VERSION_FIELD = "v"
+
+
+@functools.cache
+def _nimbus_version() -> str | None:
+    """This package's own `manifest.json` version, or None.
+
+    Read from disk rather than taken from the config entry, because this
+    module runs in BOTH deployment shapes: natively inside HA, where the
+    entity layer supplies `sw_version`, and in the standalone/cron writer,
+    where there is no entity layer and no `hass` at all (see this module's
+    own header for the dual-import boundary). `manifest.json` sits beside
+    this file in both, so it is the one source available to each.
+
+    Returns None rather than raising on any failure -- a missing or
+    malformed manifest must never cost a day's score. An unstamped row
+    then reads exactly as every row written before this change did, which
+    is the correct fallback: "scored by something that did not say".
+    """
+    try:
+        path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "manifest.json")
+        with open(path, encoding="utf-8") as handle:
+            version = json.load(handle).get("version")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return version if isinstance(version, str) and version else None
+
 
 def _carry_forward_quality_history(
     prior_attrs: dict, day_key: str, day_entry: dict
-) -> dict[str, dict[str, float]]:
+) -> dict[str, dict[str, float | str]]:
     """The scored-day table, with today's entry added and the oldest
     trimmed (nimbus issue #994).
 
@@ -8531,7 +8579,7 @@ def _carry_forward_quality_history(
     oldest beyond the cap.
     """
     prior = prior_attrs.get("history")
-    history: dict[str, dict[str, float]] = {}
+    history: dict[str, dict[str, float | str]] = {}
     if isinstance(prior, dict):
         # Defensive about shape rather than trusting it: this dict may
         # have been written by another program entirely, and one bad
@@ -8544,6 +8592,15 @@ def _carry_forward_quality_history(
         for field in _QUALITY_HISTORY_FIELDS
         if field in day_entry
     }
+    # nimbus issue #1120: stamp the release that produced this row, so a
+    # table mixing scoring formulas says so. Only the row being written
+    # now -- prior entries are preserved exactly as found (including ones
+    # written by the standalone writer, and ones written before this
+    # change, which correctly stay unstamped rather than being back-dated
+    # to a version that did not score them).
+    version = _nimbus_version()
+    if version is not None:
+        history[day_key][_QUALITY_HISTORY_VERSION_FIELD] = version
     if len(history) > _QUALITY_HISTORY_MAX_DAYS:
         # ISO dates sort lexicographically, so this is a real
         # most-recent-N without parsing anything.

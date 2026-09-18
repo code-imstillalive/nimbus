@@ -189,6 +189,17 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # quality-report publisher at all, so there is nothing there for
         # this to carry forward.
         "_carry_forward_quality_history",
+        # nimbus #1120: reads this package's own manifest.json so a
+        # frozen history row can say which release scored it. Called
+        # only from _carry_forward_quality_history() directly above, so
+        # it is native-only for exactly that helper's reason -- this
+        # drift check compares against the standalone/cron FORECAST
+        # writer, which has no quality-report publisher. The cron QUALITY
+        # writer, which does, carries its own copy of this helper and the
+        # same _QUALITY_HISTORY_VERSION_FIELD; see
+        # tests/test_1120_quality_history_version_stamp.py's own
+        # TestTheCronCopyStampsToo, which pins that port.
+        "_nimbus_version",
         # nimbus #1082: decides whether an already-published score for a
         # day still stands, or was taken before that day's settlement
         # landed and should be scored again. Native-only for the identical
