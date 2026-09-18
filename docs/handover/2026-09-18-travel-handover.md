@@ -22,8 +22,12 @@ file is newer.
 |---|---|---|
 | **NUC1** (production, holds the VIP) | **v0.94.391** | `status: optimal`, 1.17 s solves, 202 periods, dispatching |
 | **NUC2** (standby) | **v0.94.391** (`ce8efb0`) | all 11 containers present and stopped — the intended standby posture |
-| **devhub** (dev/test) | **v0.94.391** | installed == available, new code confirmed loaded |
-| **repo** | tag **v0.94.391** | zero open PRs, nothing half-landed |
+| **devhub** (dev/test) | **v0.94.392** | installed == available, new code confirmed loaded |
+| **repo** | tag **v0.94.392** | zero open PRs, nothing half-landed |
+
+**NUC1 and NUC2 are deliberately one release behind the repo.** v0.94.392 shipped after
+the household's upgrade, and they deploy by hand — so nothing moves on production while
+they are away. Do not treat the gap as drift.
 
 NUC1 was upgraded by the household from v0.94.375 (`4812f93..ce8efb0`) and
 verified afterwards: `nimbus_status: Working well`, `lp_status: optimal`,
@@ -209,6 +213,40 @@ One practical note: `/tmp/nimbus_773_slow_lex_phase_phase2_secondary.mps` is
 **not** meaningfully perishable. It was rewritten eight minutes after a restart
 that was expected to destroy it, because a slow `phase2_secondary` recurs within
 minutes. Do not treat preserving it as a reason to defer a restart.
+
+---
+
+## 3b. Shipped after the handover was first written (v0.94.392)
+
+Two issues landed late on departure day, both verified live on devhub.
+
+**#1120 — each `history` row now carries the release that scored it.** A day is scored
+once and frozen, so a scoring-formula change splits the table into two incomparable halves.
+Measured live: 94.8% and 106.4% on adjacent cards from the same sensor, the second carrying
+the `oracle_beaten` signature #1081 had already fixed. Devhub confirmed both load-bearing
+properties — the rewritten row carries `v: 0.94.392`, and the two prior rows correctly stay
+unstamped rather than being back-dated.
+
+**#1120 is NOT finished — two parts remain, and the priority order was corrected by
+measurement.** The `history` table holds 2–3 rows, not a 60-day mixed run, and the 30-day
+trend card does not read it at all: it reads recorder **long-term statistics**, where the
+bucket for day D holds the score for day **D-1** and today's bucket blends across any
+mid-day change. So "one source of truth for the trend" is now the second priority, not the
+third, because it is the one that fixes what the household actually looks at. A persisting
+rescore path is the third. Note the #944 constraint: on a cron install the `history`
+attribute is not in the database, because the payload measured **20,738 bytes — 27% over
+the 16 KB cap** and the whole attribute row is dropped.
+
+**#496 — the flex family and the offer curve reach the diagnostics dump.** Its remaining
+criterion (the emitted telemetry record) stays blocked on #495's emitter, which does not
+exist: the vendored `schema/telemetry.schema.json` is referenced only by its own drift test.
+
+**A process failure worth carrying forward.** Both PRs auto-closed their issues on merge,
+because the bodies read *"Closes #1120's first of three parts"* and *"Closes #496's
+unblocked criterion"* — GitHub's scanner stops at the number and discards the qualifier.
+Both were reopened. This is the **fifth** recurrence of that trap and the first two of the
+*qualifier* shape rather than the negation shape. Put the scope first: *"Part 1 of 3 for
+#1120"*.
 
 ---
 
