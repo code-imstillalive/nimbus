@@ -8,6 +8,39 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.393] - 2026-09-18
+
+### Changed
+- **The model-selection log now says whether the fallback criterion would have chosen differently** ([#937](https://github.com/code-imstillalive/nimbus/issues/937)).
+
+  v0.94.391 made the recursive-validation fallback say *which* of its two causes fired. It did not say whether the fallback's answer is any **different** — and half the reference household's circuits use that fallback permanently, because the gate is observation density rather than warm-up.
+
+  The recursive branch now also reports what one-step selection would have chosen for the same load, and whether it agrees. Measured by hand across the nine circuits carrying both metrics, which is what motivated making it standing rather than one-off:
+
+  ```
+  circuit      one-step pick   recursive pick   agree
+  pw_pool1     naive           naive            YES
+  pw_pool_2    naive           naive            YES
+  pw_comms     gbrt            knn              NO
+  pw_ldry      gbrt            gbrt             YES
+  pw_l1        gbrt            knn              NO
+  lt_l1        gbrt            gbrt             YES
+  pw_l2        knn             knn              YES
+  pw_ac_l2     gbrt            gbrt             YES
+  pw_ac_b1     gbrt            gbrt             YES
+                                                7 of 9
+  ```
+
+  **Both disagreements are one-step preferring `gbrt` where recursive prefers `knn`. Neither goes the other way.** That direction is predicted by `ml/model.py`'s own module docstring, from the 2026-08-17 root-cause of Grid's GBRT blow-up: k-NN's prediction is a weighted average of observed `y_train` values — a convex combination, structurally bounded — while GBRT is an unbounded additive sum with no clipping. Recursive validation is the only one of the two criteria that feeds predictions back as inputs, so it is the only one that can see the difference.
+
+  So one-step selection does not fail randomly — **it systematically over-picks the model class most exposed to recursive drift.** That reframes #937's open decision from *"half the fleet may have the wrong model"* to *"half the fleet may be over-selecting GBRT, and on that half we cannot tell which"*, which is smaller and better posed.
+
+  **Logged rather than published as an attribute, deliberately.** This is evidence for a decision that has not been taken, not a signal anything consumes, and publishing it would invite something to depend on it first. A line per retrain per load is also how the agreement *rate* becomes observable over time, which one hand-run query at one moment cannot be.
+
+  **Selection itself is unchanged**, and five tests pin that — including an AST walk proving no assignment to `model_type` anywhere in the module reads the comparison value, since a diagnostic that fed the decision could no longer measure it. Two more pin that v0.94.391's own fix in the adjacent branch is undisturbed.
+
+  Devhub validation: the line fires during a retrain, so the check is a `nimbus_load.retrain` on an entity that install genuinely owns — which per the 2026-09-17 finding is the half of the codebase devhub *can* verify.
+
 ## [0.94.392] - 2026-09-18
 
 ### Fixed
