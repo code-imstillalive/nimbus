@@ -11876,6 +11876,13 @@ def _resolve_controllable_load_tuning(data: dict, subentry) -> dict:
 _POWER_SENSOR_DISCOVERY_LOGGED: set[str] = set()
 
 
+# nimbus issue #1067: participants configured with no power limits at all.
+# Log-once per subentry, same discipline as the two sets above -- this
+# fires from build_extra_batteries(), which runs every solve, and a
+# condition that is true once is true every cycle until reconfigured.
+_IMMOBILE_PARTICIPANT_WARNED: set[str] = set()
+
+
 def _discover_power_sensor_for_device(device_entity: str) -> str | None:
     """The single `device_class: power` sensor on the same physical
     device as `device_entity`, or None when there isn't exactly one.
@@ -13063,6 +13070,43 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
                 name,
             )
             continue
+        # nimbus issue #1067: a participant that can neither charge nor
+        # discharge passes every check above -- capacity is positive,
+        # the SoC sensor is present -- and joins the fleet as a battery
+        # the LP can never move. Nothing said so.
+        #
+        # Reachable without touching the schema: the wizard requires
+        # both fields, but `0` is a valid entry for a kW selector, and
+        # both read sites fall back to `0.0` when absent.
+        #
+        # It is not inert, which is why it is worth a line. `battery_
+        # oracle` still hands this participant its full SoC envelope, so
+        # the scorer's oracle models a fleet member it can never
+        # dispatch -- moving `j_star`, and therefore EPR and regret. Same
+        # shape as the phantom recorded on #768, reached by a different
+        # route.
+        #
+        # Deliberately a WARNING and NOT a `continue`. Excluding it is
+        # probably the right end state, but that changes what a live
+        # install solves, and the honest first step is to make the
+        # silent case loud so a household can see it and decide. #1067
+        # carries the argument for the stronger version.
+        if (
+            max_charge_kw <= 0.0
+            and max_discharge_kw <= 0.0
+            and subentry.subentry_id not in _IMMOBILE_PARTICIPANT_WARNED
+        ):
+            _IMMOBILE_PARTICIPANT_WARNED.add(subentry.subentry_id)
+            _LOGGER.warning(
+                "Nimbus #1067: battery participant %r has both "
+                "max_charge_kw and max_discharge_kw at 0 -- it is in "
+                "the fleet but the solver can never move it, and the "
+                "scorer's oracle still receives its full SoC "
+                "envelope, which shifts j_star/EPR/regret. Set real "
+                "power limits, or remove the participant if it is "
+                "not meant to be dispatched.",
+                name,
+            )
         min_soc_pct = float(data.get(CONF_BATTERY_PARTICIPANT_MIN_SOC_PERCENT) or 0.0)
         max_soc_pct = float(data.get(CONF_BATTERY_PARTICIPANT_MAX_SOC_PERCENT) or 100.0)
         # #563 item 4: a live number entity's CURRENT value, when
