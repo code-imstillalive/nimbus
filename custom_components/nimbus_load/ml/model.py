@@ -1282,15 +1282,51 @@ def train_model(
             # __getitem__ never returns None (KeyError instead), and is
             # always safe here since we're iterating the dict's own keys.
             model_type = min(recursive_mae, key=recursive_mae.__getitem__)
+            # nimbus issue #937: also report what the FALLBACK criterion
+            # would have chosen for this same load, and whether it agrees.
+            #
+            # Half the reference household's circuits cannot compute the
+            # recursive metric at all and therefore select on one-step
+            # error permanently (observation density, not warm-up -- see
+            # the fallback branch below). Nothing said whether that
+            # changes the answer, so the question had to be measured by
+            # hand across the fleet. Measured 2026-09-18 on the nine
+            # circuits carrying both metrics: the two criteria agree on
+            # **seven**, and both disagreements are one-step preferring
+            # `gbrt` where recursive prefers `knn` -- neither goes the
+            # other way.
+            #
+            # That direction is not a coincidence and this package's own
+            # docstring predicts it: k-NN's prediction is a weighted
+            # average of observed `y_train` values, structurally bounded
+            # by a convex combination, while GBRT is an unbounded
+            # additive sum with no clipping. Recursive validation is the
+            # only one of the two that feeds predictions back as inputs,
+            # so it is the only one that can see the difference. One-step
+            # selection therefore does not fail randomly -- it
+            # systematically over-picks the model class most exposed to
+            # recursive drift.
+            #
+            # Logged rather than published as an attribute deliberately:
+            # this is evidence for a decision #937 has not taken, not a
+            # signal anything consumes. A line per retrain per load is
+            # also how the agreement RATE becomes observable over time,
+            # which one hand-run query across one moment cannot be.
+            one_step_choice = min(candidate_mae, key=candidate_mae.__getitem__)
             _LOGGER.info(
                 "Model validation (recursive, %d origins x %d steps): "
-                "knn_mae=%.4f gbrt_mae=%.4f naive_mae=%.4f -> using %s",
+                "knn_mae=%.4f gbrt_mae=%.4f naive_mae=%.4f -> using %s "
+                "(one-step would have chosen %s -- %s)",
                 len(origins),
                 RECURSIVE_VALIDATION_HORIZON_STEPS,
                 recursive_mae["knn"],
                 recursive_mae["gbrt"],
                 recursive_mae["naive"],
                 model_type,
+                one_step_choice,
+                "agrees"
+                if one_step_choice == model_type
+                else "DIFFERS, so this load is one the fallback would get wrong",
             )
         else:
             model_type = min(candidate_mae, key=candidate_mae.__getitem__)
