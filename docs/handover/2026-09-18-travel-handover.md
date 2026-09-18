@@ -156,19 +156,47 @@ model, same phase 1, same tie row, same `primary_value`. They cannot both be
 right, and it is the cold run that is wrong in one scenario and the warm run in
 the other.
 
-**Working hypothesis, explicitly NOT verified:** the tie row itself. A
-near-equality bound roughly 1e-7 wide across a ~12k-term float sum is
-numerically ill-posed, so which optimum HiGHS "proves" depends on the search
-path. If that holds, #773's `Infeasible`, its time-limit overruns, and this
-wrong-but-confident optimum are one phenomenon rather than three — the row
-sometimes cuts off everything, sometimes prunes the true optimum, sometimes
-explodes the tree.
+### Adjudicated after the above was first written — one half is now proven
 
-**Do not post that hypothesis as a finding without more work.** This issue has a
-long, documented history of tidy explanations that did not survive measurement,
-including several from this project's own sessions. What is postable today is
-only the narrow part: the warm start changes phase 2's answer, so it should not
-ship.
+The disagreement was settled independently of HiGHS's own status reporting: dump
+the phase-2 model to `.mps` at the moment phase 2 is about to run (tie row and
+secondary cost vector both already in place), reload it **fresh**, pin the
+binaries to each assignment, and solve the resulting pure LP.
+
+```
+24x24 seed 1   cold's assignment -> Optimal   secondary 1.1885267807
+               warm's assignment -> Optimal   secondary 1.1664605846
+```
+
+Both feasible for the same tie row. So **the unmodified production path returns a
+solution 1.89 % worse on secondary while reporting `Optimal`, and its
+`mip_dual_bound` is not a valid lower bound.** That is proven, deterministic, and
+posted on #773 and #999.
+
+One measurement points somewhere without diagnosing anything: the two
+assignments' tie-row activities differ by **exactly 1.000e-07**, the tie slack's
+own width, with the better solution sitting at the very top of the band. On this
+install `mip_feasibility_tolerance` is `1e-06` — ten times wider than the band —
+and `primal_feasibility_tolerance` is `1e-07`, the same order as the band itself.
+Same tolerance-mismatch family as the one #979 fixed at `phase2_pin_resolve`.
+
+**The obvious remedy is confounded and must not be shipped on this evidence.**
+Widening `_LEX_PRIMARY_TIE_ABS_SLACK` does lower the secondary objective at every
+step (1e-7 -> 1e-6 -> 1e-5), but that is guaranteed regardless of mechanism,
+since a wider band is a strictly larger feasible set — and by 1e-5 it is giving
+away real primary cost, which is exactly what the tie row exists to prevent. The
+test cannot separate "stopped mis-pruning" from "was handed more freedom".
+
+**Still NOT claimed:** the mechanism, and that any of this reproduces on
+production-shaped instances. This issue has a long documented history of tidy
+explanations that did not survive measurement, several of them from this
+project's own sessions. Do not name a cause without a test that discriminates.
+
+Impact worth keeping in proportion: the secondary objective is the **tie-break**
+term, and primary cost stays pinned by the tie row to within 1e-7 dollars either
+way. This does not move money — it changes which of several near-equal-cost
+dispatches is chosen. The reason to care is that an unreliable optimality proof
+is the same raw material as the spurious `Infeasible` this issue is named after.
 
 The reproduction scripts were left in the session scratchpad, not committed. They
 are cheap to rebuild: the scenario builder is already in

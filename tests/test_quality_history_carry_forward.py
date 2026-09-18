@@ -85,17 +85,26 @@ class TestQualityHistoryCarryForward(unittest.TestCase):
         # writer must not be reshaped by this function.
         self.assertEqual(history["2026-09-13"], {"epr": 0.9234, "j_star": -10.0})
 
-    def test_only_the_five_card_fields_are_stored(self):
+    def test_only_the_five_card_fields_and_the_version_stamp_are_stored(self):
         """The three 24-row hourly reconstructions must never enter the
         table -- at ~5 KB per day they would pass the recorder's 16 KB
         cap (#944) within a week and cost the entity every attribute it
-        has, not just this one."""
+        has, not just this one.
+
+        `v` joined them under nimbus #1120 and does not weaken that: it is
+        a short version string, ~16 bytes, ~960 bytes across the whole
+        60-day window. It is here because a day is scored ONCE and frozen,
+        so a table spanning a scoring-formula change mixes two
+        incomparable regimes with nothing marking the seam -- measured
+        live as 94.8% and 106.4% rendering side by side. The size guard
+        this test exists for is unchanged: bulk stays out.
+        """
         history = solver_writer._carry_forward_quality_history(
             {}, "2026-09-15", _entry(1.0196)
         )
         self.assertEqual(
             sorted(history["2026-09-15"]),
-            ["epr", "j_ach", "j_ref", "j_star", "regret_dollars"],
+            ["epr", "j_ach", "j_ref", "j_star", "regret_dollars", "v"],
         )
 
     def test_the_table_is_trimmed_to_the_retention_window(self):
@@ -176,7 +185,9 @@ class TestQualityHistoryCarryForward(unittest.TestCase):
         history = solver_writer._carry_forward_quality_history(
             {}, "2026-09-15", {"epr": 0.5, "j_ref": 1.0}
         )
-        self.assertEqual(sorted(history["2026-09-15"]), ["epr", "j_ref"])
+        # `v` (nimbus #1120) is stamped by this function itself rather
+        # than copied from day_entry, so a partial entry still carries it.
+        self.assertEqual(sorted(history["2026-09-15"]), ["epr", "j_ref", "v"])
 
 
 if __name__ == "__main__":

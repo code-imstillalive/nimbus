@@ -91,6 +91,7 @@ that script hasn't captured yet.
 from __future__ import annotations
 
 import json
+import os
 import sys
 import urllib.error
 import urllib.request
@@ -110,6 +111,38 @@ from solver import elements
 from solver.forecast_regret import compute_forecast_regret
 from solver.quality_report import compute_quality_report
 from solver.tracking import compute_tracking_fidelity, tracking_error_cost
+
+# nimbus issue #1120: which release scored this day. Mirrors
+# solver_writer._nimbus_version() -- a day is scored ONCE and frozen into
+# the rolling table below, so a scoring-formula change silently splits
+# the table into two incomparable halves. Stamping the row makes the mix
+# visible; it cannot make a stale row right.
+#
+# The key is one character on purpose: this dict rides in the same
+# attribute payload nimbus #944 measures against the recorder's 16 KB
+# cap, measured at 20,738 bytes on a real install -- already 27% over.
+_QUALITY_HISTORY_VERSION_FIELD = "v"
+
+
+def _nimbus_version() -> str | None:
+    """This deployment's `manifest.json` version, or None on any failure.
+
+    Derived from the already-imported `solver` package rather than from
+    the sys.path constant above, so it stays correct if that path ever
+    moves. Never raises: a missing manifest must not cost a day's score,
+    and an unstamped row reads exactly as every row written before this
+    change did.
+    """
+    try:
+        package_dir = os.path.dirname(
+            os.path.dirname(os.path.abspath(elements.__file__))
+        )
+        with open(os.path.join(package_dir, "manifest.json"), encoding="utf-8") as f:
+            version = json.load(f).get("version")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return version if isinstance(version, str) and version else None
+
 
 HA_BASE = "http://localhost:8123"
 TOKEN_PATH = "/home/homehub/.ha_token"
@@ -1170,6 +1203,14 @@ def main() -> None:
     }
     if forecast_regret_entry is not None:
         day_entry["forecast_regret"] = forecast_regret_entry
+    # nimbus issue #1120: stamp the release that scored this row before
+    # it is frozen. Only this row -- prior entries stay exactly as found,
+    # including ones written before this change, which correctly remain
+    # unstamped rather than being back-dated to a version that did not
+    # score them.
+    _version = _nimbus_version()
+    if _version is not None:
+        day_entry[_QUALITY_HISTORY_VERSION_FIELD] = _version
     quality_history[day_key] = day_entry
     save_quality_history(quality_history)
 
