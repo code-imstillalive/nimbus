@@ -8,6 +8,54 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.392] - 2026-09-18
+
+### Fixed
+- **A scored day is frozen forever, so the quality report's `history` table now says which release froze it** ([#1120](https://github.com/code-imstillalive/nimbus/issues/1120)).
+
+  A day is scored **once**, the morning after, and written into that table. Nothing ever recomputes an entry. So every scoring-formula change splits the table into two incomparable halves — and they render side by side on the same dashboard with nothing marking the seam.
+
+  Measured on the reference household hours after v0.94.391 landed, both cards rendered from the same sensor at the same moment:
+
+  ```
+  Yesterday    2026-09-17   EPR  94.8%   j_ach -24.28   j_star -24.10   regret  $1.67
+  2 days ago   2026-09-16   EPR 106.4%   j_ach  -7.62   j_star  -6.84   regret -$0.79
+  ```
+
+  The second row carries `j_ach` beating `j_star` — the `oracle_beaten` signature [#1081](https://github.com/code-imstillalive/nimbus/issues/1081) fixed by pricing EPR and regret through `j_star_evaluator`. That fix was live on the install. The row predated it, and nothing rescores.
+
+  Each row written from now on carries the release that produced it. **This cannot make a stale row right** — only a rescore path that persists could, and that is #1120's own second part. It makes the row *visible*, which is the difference between a household reading a wrong number and reading a qualified one.
+
+  Two properties are load-bearing and both are pinned by tests. **Only the row being written now is stamped**: back-dating prior rows to the running version asserts something false about who scored them and is *worse* than no stamp, because it reads as evidence. **A missing or malformed manifest costs nothing**: the read returns `None` rather than raising, and an unstamped row then reads exactly as every pre-#1120 row does. A day's score must never be lost to a metadata read.
+
+  The field is named `v`, one character, deliberately. This dict rides in the same attribute payload [#944](https://github.com/code-imstillalive/nimbus/issues/944) measures against the recorder's 16 KB cap, and that payload measured **20,738 bytes on a real install — already 27% over**. Across the 60-day window `v` costs ~960 bytes where a descriptive name would cost ~2.4 KB.
+
+  Applied to **both** deployment shapes per [#357](https://github.com/code-imstillalive/nimbus/issues/357)'s drift rule: the native integration and the standalone/cron quality writer, which keeps its own rolling table in its own JSON file and posts it as the same attribute. A stamp that existed only natively would have left unmarked the exact deployment shape the measurement above came from.
+
+  Devhub validation: the stamp appears on the next scored day, so the check is that a freshly written `history` row carries `v` matching the installed version.
+
+### Added
+- **The flex family and the offer curve now reach the diagnostics dump** ([#496](https://github.com/code-imstillalive/nimbus/issues/496)).
+
+  `async_get_config_entry_diagnostics()` returned exactly four blocks — `entry`, `subentries`, `solver`, `solver_config`. A household debugging flexibility had nothing to attach to a report, and this issue's *"ranging validity/degeneracy flags, and sweep timings"* criterion had nowhere to land. Additive only; no existing block changes shape.
+
+  Three decisions, each one a lesson this project has already paid for. The flex report is **spread whole, never allowlisted** — [#116](https://github.com/code-imstillalive/nimbus/issues/116) is the bug where a curated list in this very file stopped tracking `solver_writer.py`'s real output, and two shipped fields read `null` here while live on the entity. Flex signal children are **resolved through the entity registry by unique_id**, never by building `sensor.nimbus_flex_<suffix>` as a string — Mark Purcell's instruction on [#768](https://github.com/code-imstillalive/nimbus/issues/768), because a name-built id breaks wherever HA has suffixed an entity_id after a collision. And the suffix list is **read from `FLATTENED_ATTRS_FLEX` itself** rather than retyped, so a new flex signal appears with no maintenance.
+
+  The two flex sensors are handled differently on purpose, and that came from measuring rather than assuming: `sensor.nimbus_flex_signals`' parent carries **no payload attributes at all** on a real install — every per-signal value lives on a flattened child. Spreading that parent the way the report is spread would have captured nothing *and looked like it worked*.
+
+  `sweep_seconds` was already published on `sensor.nimbus_offer_curve`, so the timings half needed no new computation — only surfacing. The curves come along in the same spread, which is what makes a degenerate or empty curve visible in a dump rather than only on a dashboard. A missing offer curve resolves to `enabled: false` rather than an empty block, since the curve is opt-in ([#494](https://github.com/code-imstillalive/nimbus/issues/494)) and "switched off" is a different answer from "switched on and producing nothing".
+
+  **#496 stays open.** Its other diagnostics criterion — *"the last emitted record ... validates against schema v2.0"* — is still blocked: `schema/telemetry.schema.json` is vendored, but its only Python reference anywhere in the repo is its own drift test, so [#495](https://github.com/code-imstillalive/nimbus/issues/495)'s emitter was never built and there is no record to dump. The dispatch-report-skill panel is also untouched.
+
+  Devhub validation: download the diagnostics file and confirm the `flex` and `offer_curve` blocks are present and populated.
+
+### Changed
+- **A research harness for [#773](https://github.com/code-imstillalive/nimbus/issues/773) is now committed rather than rebuilt each time** (`docs/real-world-integration/files/research/nimbus_773_phase2_adjudicate.py`). Documentation only; no runtime effect.
+
+  It establishes, independently of HiGHS's own status reporting, that `phase2_secondary` can return a solution **1.89% worse on the secondary objective than a demonstrably feasible alternative** while reporting `Optimal` with a zero gap and an invalid dual bound. It dumps the phase-2 model, reloads it fresh, pins the binaries to each candidate assignment and re-solves — so the verdict does not come from the same solve that is wrong.
+
+  Its docstring records what is **not** established, including that the obvious remedy (widening the tie slack) is confounded: a wider band is a strictly larger feasible set, so the secondary objective falls regardless of mechanism. Full detail on #773 and [#999](https://github.com/code-imstillalive/nimbus/issues/999), where the warm-start proposal that surfaced this is also recorded as **not safe to ship** — it changes phase 2's answer.
+
 ## [0.94.391] - 2026-09-18
 
 ### Fixed
