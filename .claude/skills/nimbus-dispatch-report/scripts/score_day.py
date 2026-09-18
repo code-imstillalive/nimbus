@@ -109,14 +109,25 @@ def main() -> int:
 
     thr_ach, thr_star = thr(ach), thr(star)
     disc = [abs(r[3] - r[4]) for r in rows if r[3] is not None]
+    # nimbus #1081: epr_pct/regret_dollars/theoretical_maximum_yield/value_captured are all
+    # computed server-side from j_star_evaluator (the oracle's chosen trajectory repriced
+    # through the same real-cost arithmetic j_ach uses), NOT from the raw LP objective
+    # j_star (which still carries soft-SoC/slack/bonus-as-variable search-machinery terms).
+    # Displaying raw j_star next to those derived figures is internally inconsistent -- a
+    # reader doing (j_ref-j_ach)/(j_ref-j_star) by hand with the displayed j_star gets a
+    # different number than the displayed epr_pct. Show both, clearly separated, and base
+    # any further derived math (the repricing upper bound) on the evaluator figure.
+    j_star_eval = a.get("j_star_evaluator", a.get("j_star"))
     kpis = {
-        "epr_pct": a.get("epr_pct"), "j_ref": a.get("j_ref"), "j_ach": a.get("j_ach"), "j_star": a.get("j_star"),
+        "epr_pct": a.get("epr_pct"), "j_ref": a.get("j_ref"), "j_ach": a.get("j_ach"),
+        "j_star_raw_lp_objective": a.get("j_star"), "j_star_evaluator": j_star_eval,
+        "j_star_path_delta": a.get("j_star_path_delta"),
         "regret": a.get("regret_dollars"), "theoretical_maximum_yield": a.get("theoretical_maximum_yield"),
         "value_captured": a.get("value_captured"), "tracking_fidelity": a.get("tracking_fidelity"), "tracking_cost": a.get("tracking_cost"),
         "latest_date": a.get("latest_date"), "generated_at": a.get("generated_at"),
         "throughput_ach_kwh": round(thr_ach, 1), "throughput_star_kwh": round(thr_star, 1), "degradation_rate": deg,
         "degradation_ach": round(deg * thr_ach, 2), "degradation_star": round(deg * thr_star, 2),
-        "j_ach_repriced": round(a["j_ach"] + deg * thr_ach, 2), "j_star_repriced_upper_bound": round(a["j_star"] + deg * thr_star, 2),
+        "j_ach_repriced": round(a["j_ach"] + deg * thr_ach, 2), "j_star_repriced_upper_bound": round(j_star_eval + deg * thr_star, 2),
         "soc_discrepancy_max": round(max(disc), 1) if disc else None, "soc_discrepancy_mean": round(sum(disc) / len(disc), 1) if disc else None,
         "real_close": rows[-1][3], "scored_close": rows[-1][4], "oracle_close": rows[-1][5],
     }
@@ -127,8 +138,10 @@ def main() -> int:
     if args.cqr and os.path.exists(args.cqr):
         c = json.load(open(args.cqr))
         c = c.get("service_response") or c
-        cross = {k: c.get(k) for k in ("epr_pct", "j_ref", "j_ach", "j_star", "regret_dollars", "window_start", "window_end")}
-        cross["matches_sensor"] = all(abs(float(c.get(k, 0)) - float(a.get(k, 0))) < 1e-3 for k in ("j_ref", "j_ach", "j_star"))
+        cross = {k: c.get(k) for k in ("epr_pct", "j_ref", "j_ach", "j_star", "j_star_evaluator", "regret_dollars", "window_start", "window_end")}
+        cross["matches_sensor"] = all(
+            abs(float(c.get(k, 0)) - float(a.get(k, 0))) < 1e-3 for k in ("j_ref", "j_ach", "j_star", "j_star_evaluator")
+        )
     json.dump({"rows": rows, "kpis": kpis, "cross_check": cross, "sensors": sensors}, open(os.path.join(args.out, "yesterday.json"), "w"), separators=(",", ":"))
 
     print(f'{"hr":>5s} {"imp¢":>5s} {"exp¢":>5s} {"load":>5s} {"pv":>5s} | {"real":>5s} {"ach":>5s} {"orc":>5s} | {"achBat":>7s} {"orcBat":>7s} | {"achGrd":>7s} {"mtrGrd":>7s} | {"regret":>7s}')
