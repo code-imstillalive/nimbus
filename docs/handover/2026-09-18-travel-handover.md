@@ -22,8 +22,8 @@ file is newer.
 |---|---|---|
 | **NUC1** (production, holds the VIP) | **v0.94.391** | `status: optimal`, 1.17 s solves, 202 periods, dispatching |
 | **NUC2** (standby) | **v0.94.391** (`ce8efb0`) | all 11 containers present and stopped — the intended standby posture |
-| **devhub** (dev/test) | **v0.94.392** | installed == available, new code confirmed loaded |
-| **repo** | tag **v0.94.392** | zero open PRs, nothing half-landed |
+| **devhub** (dev/test) | **v0.94.393** | installed == available, new code confirmed loaded |
+| **repo** | tag **v0.94.393** | zero open PRs, nothing half-landed |
 
 **NUC1 and NUC2 are deliberately one release behind the repo.** v0.94.392 shipped after
 the household's upgrade, and they deploy by hand — so nothing moves on production while
@@ -267,6 +267,23 @@ the 16 KB cap** and the whole attribute row is dropped.
 **#496 — the flex family and the offer curve reach the diagnostics dump.** Its remaining
 criterion (the emitted telemetry record) stays blocked on #495's emitter, which does not
 exist: the vendored `schema/telemetry.schema.json` is referenced only by its own drift test.
+
+**#1120's trend-card half** — the shipped quality-card installer pinned its EPR axis
+`min 0, max 100`, which renders a 106.4% day as a perfect 100 and a -5.76% day as a zero.
+Both are real readings. Unclamped, with the first tests that script has ever had. Note the
+shipped card was **already correct** on the data-source question (it reads `history`, not
+recorder statistics) — the drift was in a hand-edited copy downstream.
+
+**#937 (v0.94.393)** — the model-selection log now reports what the fallback criterion
+would have chosen and whether it agrees. Measured across two independent installs: **11 of
+14 agree, and all three disagreements are one-step preferring `gbrt` where recursive
+prefers `knn`, none the other way.** The *circuits* that disagree differ between installs,
+so it is not a property of particular loads — what survives is the direction, which is the
+one this package's docstring predicts (bounded convex combination versus unbounded additive
+sum, and only recursive validation feeds predictions back as inputs). That reframes #937's
+decision from "half the fleet may have the wrong model" to "half the fleet may be
+over-selecting GBRT", which has cheap mitigations needing no recursive data. Selection
+itself is unchanged and an AST walk pins that.
 
 **A process failure worth carrying forward.** Both PRs auto-closed their issues on merge,
 because the bodies read *"Closes #1120's first of three parts"* and *"Closes #496's
