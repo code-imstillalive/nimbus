@@ -22,8 +22,8 @@ file is newer.
 |---|---|---|
 | **NUC1** (production, holds the VIP) | **v0.94.391** | `status: optimal`, 1.17 s solves, 202 periods, dispatching |
 | **NUC2** (standby) | **v0.94.391** (`ce8efb0`) | all 11 containers present and stopped — the intended standby posture |
-| **devhub** (dev/test) | **v0.94.393** | installed == available, new code confirmed loaded |
-| **repo** | tag **v0.94.393** | zero open PRs, nothing half-landed |
+| **devhub** (dev/test) | **v0.94.395** | installed == available, new code confirmed loaded |
+| **repo** | tag **v0.94.395** | zero open PRs, nothing half-landed |
 
 **NUC1 and NUC2 are deliberately one release behind the repo.** v0.94.392 shipped after
 the household's upgrade, and they deploy by hand — so nothing moves on production while
@@ -294,14 +294,88 @@ Both were reopened. This is the **fifth** recurrence of that trap and the first 
 
 ---
 
+## 3c. The rest of departure day (v0.94.394, v0.94.395) and what it changed
+
+**v0.94.394 — the battery-participant power-sign default is documented** (#1131, filed the
+same day). The same semantic field is declared `vol.Optional` with a falsy default for the
+home battery (positive = DISCHARGE, with a five-line comment naming #299) and
+`vol.Required` with `default=True` for a participant (positive = CHARGE, with nothing). So
+a household accepting both forms' defaults gets **opposite conventions for its home battery
+and its EV**. The comment deliberately does *not* invent a reason — it records the
+asymmetry, that the reason is unestablished, and the cost, because a comment asserting a
+justification nobody recorded would read as evidence.
+
+**A trap inside that issue's own cheapest remedy, worth knowing before anyone acts on it.**
+"Just make it `vol.Optional` like its counterpart" is not free: the single functional read
+site is `data.get(...)` with **no default**, so an absent key resolves falsy. Flipping the
+schema without also writing `data.get(..., True)` at the read site would silently invert
+the default for new installs — the exact failure class the issue is about. That reorders
+the resolutions: detect the sign from history (#1131's option 3) *answers* the question
+that option 2 would otherwise presuppose.
+
+**v0.94.395 — an immobile battery participant now warns** (#1067). A participant with
+`max_charge_kw` and `max_discharge_kw` both at zero passed every guard — capacity positive,
+SoC sensor present — and joined the fleet as a battery the LP can never move, with no log
+line. Reachable without touching the schema, since `0` is a valid kW entry. Not inert
+either: `battery_oracle` still hands it a full SoC envelope, so the oracle models a fleet
+member it cannot dispatch, shifting `j_star`/EPR/regret — the #768 phantom shape reached by
+a different route.
+
+**Shipped as a WARNING and NOT a `continue`, and two of its nine tests exist to keep it
+that way.** Excluding the participant is probably right, but it changes what a live install
+solves and the effect could not be inspected — devhub has exactly one participant and its
+stored config is not readable through the available tooling, so "this only affects an
+already-broken setup" would have been an assumption. If that branch ever grows a
+`continue`, those tests fail and force it to be a decision.
+
+**#1067 also got its config-surface question answered concretely: the participant form
+needs six required fields, not ten.** Four (`NAME`, `MIN_SOC_PERCENT`, `MAX_SOC_PERCENT`,
+`EFFICIENCY_PERCENT`) already have sensible code-side fallbacks (`subentry_id`, `0.0`,
+`100.0`, `95.0`) and could be `vol.Optional` today with zero behaviour change. Not built —
+it touches the wizard and belongs with whatever is decided about collapsible sections.
+
+**#937 gained a second independent install.** Devhub agrees 4 of 5; combined **11 of 14**,
+and **all three disagreements are one-step preferring `gbrt` where recursive prefers `knn`,
+none the other way**. The circuits that disagree differ between installs, so it is not a
+property of particular loads — what survives is the direction, which is the one this
+package's docstring predicts. v0.94.393 makes the comparison a standing log line so the
+rate accumulates rather than needing a query.
+
+**A measurement that will save someone a dead end:** devhub is a second install for things
+*its own code computes* (model selection, solver behaviour, whether an entity registers) and
+**not** for anything whose measurand is the hardware. Its battery sensors are NUC1's through
+the mirror — proven by its own quality report publishing `achieved_energy_in_kwh 107.355 /
+out 103.278`, identical to NUC1's, not merely close. So #1086 can never get a fifth day
+from devhub.
+
+---
+
 ## 4. Decisions owed — nobody should start these unasked
 
 **Household** (and the household is away, so these simply wait):
 
-- **#485** — the SoC floor while `away`. Deliberately absent from
-  `household_modes.py`'s preset table, because how much reserve a house keeps
-  while empty is a safety-and-money judgement, and a table default would be
-  exactly the invented number the no-hardcoding rule exists to prevent.
+- **#485 — ANSWERED IN PART, and the answer inverts the work.** Mark replied on departure
+  day: *"When folks are home you want to maintain a higher SOC floor for energy security
+  purposes. When folks are away you can lower the SOC floor as the impact of running out
+  doesn't impact comfort."* That settles the direction. But the reference household's
+  `solver_battery_min_soc_percent` is **2.0** — 2.44 kWh of a 122.2 kWh pack — so there is
+  nothing to lower, and every preset in the table is a *relative* multiplier. Read the other
+  way, that install is already running the `away` posture full-time: in `home` mode, with
+  people in the house, the solver may take the pack to 2 %.
+
+  So the mechanism his reasoning implies is the inverse of the one this issue discussed:
+  **`away` is the baseline (identity transform) and `home` should RAISE the floor** — which
+  is also the safer ordering, since an unset or unrecognised mode then leaves the floor
+  where the household put it. The open question is now one number, not two: *how much of
+  the pack is worth holding back as insurance while you are home, given it stops earning?*
+  At 122.2 kWh a 10 % floor is 12.2 kWh and 20 % is 24.4 kWh, withdrawn from arbitrage and
+  P2P daily, in a house whose P2P window needs ~61.6 kWh to settle. Not built — it costs
+  real money in either direction.
+- **#1131** — what the battery-participant power-sign default *should* be, or whether to
+  detect it from history instead. Blocks that issue's option 2, which is not the free
+  alignment it looks like (see 3c above).
+- **#1067** — whether to relax the four safely-defaultable participant fields, and the
+  shape of the collapsible-section change. Both touch the wizard every household walks.
 - **#949** — three options for the fleet-blend SoC comparison.
 - **#944** — the structural half (moving the big arrays to a companion entity is
   an entity-contract change, since dashboard cards read `attributes.forecast`).
