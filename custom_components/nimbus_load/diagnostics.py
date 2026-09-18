@@ -61,6 +61,12 @@ TO_REDACT: tuple[str, ...] = ()
 _SOLVER_ENTITY_ID = "sensor.nimbus_solver_battery_forecast"
 _HOUSEHOLD_LOAD_ENTITY_ID = "sensor.nimbus_household_load_total_forecast"
 _SOLVER_CONFIG_ENTITY_ID = "sensor.nimbus_solver_config"
+# nimbus issue #496: the flex family and the offer curve. The two
+# parents are read by fixed id (they are hub-level singletons, like the
+# three above); the flex SIGNAL children are not -- see
+# _flex_diagnostics() for why those go through the entity registry.
+_FLEX_REPORT_ENTITY_ID = "sensor.nimbus_flex_report"
+_OFFER_CURVE_ENTITY_ID = "sensor.nimbus_offer_curve"
 
 
 async def _controllable_load_diagnostics(
@@ -215,6 +221,90 @@ def _solver_diagnostics(hass: HomeAssistant) -> dict[str, Any]:
     }
 
 
+def _flex_diagnostics(hass: HomeAssistant, entry: NimbusConfigEntry) -> dict[str, Any]:
+    """The flex family, for nimbus issue #496's diagnostics criterion.
+
+    Two different shapes, because the two sensors are built differently
+    and a single approach captures nothing for one of them:
+
+    - **`sensor.nimbus_flex_report`** carries its whole payload as
+      attributes (`offered_*`, `realised_*`, `envelope_curtailment_kwh`,
+      `price_response_curve`), so its entire dict is spread in the same
+      way `_solver_diagnostics()` does. Deliberately a spread and not an
+      allowlist: nimbus issue #116 is exactly the bug where a curated
+      list here stopped tracking `solver_writer.py`'s real output and two
+      shipped fields read `null` in diagnostics while live on the entity,
+      which reads as "the fix didn't land".
+    - **`sensor.nimbus_flex_signals`** carries **no payload attributes at
+      all** -- measured live, its parent holds only entity metadata, and
+      every per-signal value lives on a flattened child. Spreading the
+      parent would silently capture nothing, so the children are read
+      individually.
+
+    The children are resolved through the **entity registry by
+    unique_id**, never by building `sensor.nimbus_flex_<suffix>` as a
+    string. Same reasoning Mark Purcell gave on #768 for the controllable
+    load's power sensor: a name-built id works on the install it was
+    written on and breaks wherever HA has suffixed the entity_id after a
+    collision -- which is precisely the situation on any install carrying
+    duplicate Nimbus entities. The suffix list comes from
+    `sensor_flattened.FLATTENED_ATTRS_FLEX` itself rather than being
+    retyped here, so a new flex signal appears in diagnostics with no
+    maintenance.
+    """
+    from homeassistant.helpers import entity_registry as er
+
+    from . import sensor_flattened
+
+    report_state = hass.states.get(_FLEX_REPORT_ENTITY_ID)
+    registry = er.async_get(hass)
+
+    signals: dict[str, Any] = {}
+    for spec in sensor_flattened.FLATTENED_ATTRS_FLEX:
+        unique_id = f"{entry.entry_id}_nimbus_flex_{spec.entity_id_suffix}"
+        entity_id = registry.async_get_entity_id("sensor", DOMAIN, unique_id)
+        if entity_id is None:
+            signals[spec.entity_id_suffix] = None
+            continue
+        state = hass.states.get(entity_id)
+        signals[spec.entity_id_suffix] = {
+            "entity_id": entity_id,
+            "state": state.state if state is not None else None,
+        }
+
+    return {
+        "report_entity_found": report_state is not None,
+        "report_state": report_state.state if report_state is not None else None,
+        # Full spread, see docstring -- never an allowlist.
+        "report": dict(report_state.attributes) if report_state is not None else None,
+        "signals": signals,
+    }
+
+
+def _offer_curve_diagnostics(hass: HomeAssistant) -> dict[str, Any]:
+    """The offer curve, for the same #496 criterion -- this is where the
+    sweep timings and the ranging output actually live.
+
+    `sweep_seconds` is already published on this entity, so the "sweep
+    timings" half of that criterion needs no new computation, only
+    surfacing. `import_curve`/`export_curve`/`price_limits` come along in
+    the same spread, which is what makes a degenerate or empty curve
+    visible in a dump rather than only on a dashboard.
+
+    Absent when the offer curve is switched off (it is opt-in, #494), so
+    a missing entity resolves to `enabled: False` rather than a crash or
+    a silently empty block.
+    """
+    state = hass.states.get(_OFFER_CURVE_ENTITY_ID)
+    if state is None:
+        return {"enabled": False}
+    return {
+        "enabled": True,
+        "state": state.state,
+        **dict(state.attributes),
+    }
+
+
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: NimbusConfigEntry
 ) -> dict[str, Any]:
@@ -282,4 +372,11 @@ async def async_get_config_entry_diagnostics(
         "subentries": subentries,
         "solver": _solver_diagnostics(hass),
         "solver_config": _solver_config_diagnostics(hass),
+        # nimbus issue #496's diagnostics criterion, the half that is not
+        # blocked. The other half ("the last emitted telemetry record")
+        # waits on #495's emitter, which does not exist yet -- the
+        # vendored schema/telemetry.schema.json is referenced only by its
+        # own drift test, so there is no record to dump.
+        "flex": _flex_diagnostics(hass, entry),
+        "offer_curve": _offer_curve_diagnostics(hass),
     }
