@@ -172,10 +172,37 @@ binaries to each assignment, and solve the resulting pure LP.
                warm's assignment -> Optimal   secondary 1.1664605846
 ```
 
-Both feasible for the same tie row. So **the unmodified production path returns a
-solution 1.89 % worse on secondary while reporting `Optimal`, and its
-`mip_dual_bound` is not a valid lower bound.** That is proven, deterministic, and
-posted on #773 and #999.
+Both feasible for the same tie row.
+
+**CORRECTED later the same day — the first framing was too strong, and the
+correction is the part to read.** "The production path returns a provably
+sub-optimal answer with an invalid dual bound" is NOT supported. Two follow-up
+experiments:
+
+1. Reload the dumped phase-2 model in a **fresh** Highs instance with
+   `mip_rel_gap = mip_abs_gap = 0` and solve from scratch, no warm start
+   anywhere: **five of six scenarios agree with the in-process run**, including
+   the headline one. An independent method reaches the same answer.
+2. Measure where the better point sits against the tie row's real bound:
+   the in-process assignment has **1.0e-07** of headroom, the better one
+   **1.4e-14** — it lies *exactly on the boundary*, at machine precision.
+
+**The supportable claim:** phase 2's true optimum can lie exactly on the
+tie-row boundary, where branch-and-bound cannot reach it — the search works
+inward from the relaxation and prunes on bounds computed to ~1e-7, so a point
+on a constraint the algorithm derived itself is below its own resolution. The
+reported answer is optimal to the resolution actually used. The gap that opens
+is 1.89 % of the secondary objective.
+
+That **strengthens** the tie-row thread rather than weakening it:
+`_LEX_PRIMARY_TIE_ABS_SLACK = 1e-7` defines a band whose optimum is at its own
+edge. Posted on #773 and #999, with the harness docstring corrected to match.
+
+**One scenario points the other way and is not explained away.** 16x24 s2's
+in-process run reports a value better than both the fresh re-solve and the warm
+run, and its assignment returns `Solve error` when pinned at a 1e-9 tolerance —
+there the production answer is the one that fails scrutiny. One case in six is
+not a distribution; it is recorded because it is the half most easily dropped.
 
 One measurement points somewhere without diagnosing anything: the two
 assignments' tie-row activities differ by **exactly 1.000e-07**, the tie slack's
