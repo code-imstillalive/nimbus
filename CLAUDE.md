@@ -1000,6 +1000,36 @@ lockstep with it.
 >    because the config looks fine). Neither has a marker. Both appear on the first realistic
 >    call. A COMPLETE payload would have hidden both, since each only damages what you omit.
 >
+> 9. **The release is not done until the ISSUES it touched are in the state you intended.**
+>    Two mechanical checks, seconds each, both of which have now failed as remembered rules
+>    and worked as run commands.
+>
+>    **Before submitting** any PR body or commit message, grep it:
+>
+>    ```
+>    grep -iE "(close[sd]?|fix(e[sd])?|resolve[sd]?)[[:space:]]+#[0-9]+"
+>    ```
+>
+>    If it matches an issue you intend to keep open, rephrase — **do not** reason about
+>    whether a human would read it as non-closing. nimbus #1120 and #496 were both
+>    auto-closed by v0.94.392's own PRs, whose bodies opened with the word "Closes"
+>    immediately followed by the issue number and then a narrowing clause. GitHub's scanner
+>    stops at the number. That is the **fifth** recurrence in this repo, and the first two of
+>    the *qualifier* shape rather than the negation shape the earlier three took.
+>
+>    **The failure mode is produced by trying to be accurate about partial scope** — the more
+>    carefully a PR describes what it does and does not do, the more likely it contains the
+>    exact token sequence that closes the issue. Put the scope FIRST so no keyword ever
+>    precedes the number: *"Part 1 of 3 for issue 1120"*, *"Addresses the unblocked half of
+>    issue 496"*. The grep caught a second occurrence the same day: the post-mortem PR
+>    explaining this bug quoted the offending phrases verbatim and would have re-closed both
+>    issues, because the scanner does not care that a string sits inside quotation marks.
+>
+>    **After merging**, confirm each referenced issue is where you left it —
+>    `gh issue view <n> --json state` — and reopen with a correcting comment if not. A
+>    silently closed issue is worse than an unfixed one: it stops being worked and nobody is
+>    told.
+>
 > **Staleness is per-FILE, and which files are stale MOVES between deploys.** This directive
 > used to say a devhub verification only tests the file your change lives in. Sharpened: an
 > install can be simultaneously current and twenty releases stale, so "is this install
