@@ -8,6 +8,23 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.395] - 2026-09-18
+
+### Fixed
+- **A battery participant configured with no power limits joined the fleet silently** ([#1067](https://github.com/code-imstillalive/nimbus/issues/1067)).
+
+  `build_extra_batteries()` guards capacity and the SoC sensor, and logs well about both. `max_charge_kw` and `max_discharge_kw` were not among them: both read sites fall back to `0.0`, so a participant with zero of each passed every check — capacity positive, SoC sensor present — and joined the fleet as **a battery the LP can never move**, with no log line anywhere.
+
+  Reachable without touching the schema: the wizard requires both fields, but `0` is a valid entry for a kW selector.
+
+  And not inert, which is why it earns a line. `battery_oracle` still hands that participant its full SoC envelope, so the scorer's oracle models a fleet member it can never dispatch — moving `j_star`, and therefore EPR and regret. The same shape as the phantom recorded on [#768](https://github.com/code-imstillalive/nimbus/issues/768), reached by a different route.
+
+  **A WARNING, deliberately, and not a `continue`.** Excluding an immobile participant is probably the right end state, but that changes what a live install *solves*, and the effect could not be inspected — the dev install has exactly one participant and its stored config is not readable through the available tooling, so "this would only affect an already-broken setup" would have been an assumption rather than a measurement. Making the silent case loud is the half that is safe to decide alone; #1067 carries the argument for the stronger version. **Two of the nine tests exist to stop that stronger version arriving by accident** — if the branch ever grows a `continue`, they fail and force it to be a decision.
+
+  Both limits must be zero for the warning to fire: a participant that can only discharge — an EV that never exports, or a pack whose charger is on another circuit — is a legitimate configuration. Logged once per `subentry_id`, matching this module's two existing log-once sets, because `build_extra_batteries()` runs every solve and [#945](https://github.com/code-imstillalive/nimbus/issues/945) is the precedent for a WARNING that buried its own signal at 99 an hour.
+
+  Devhub validation: **not claimed.** The warning fires only for a participant configured with both power limits at zero, and the dev install's own participant config could not be read to establish whether it qualifies. The condition is pinned by tests instead.
+
 ## [0.94.394] - 2026-09-18
 
 ### Changed
