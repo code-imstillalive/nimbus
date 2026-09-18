@@ -8,6 +8,34 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.391] - 2026-09-18
+
+### Fixed
+- **The recursive-validation fallback named the wrong cause on half the reference household's circuits** ([#937](https://github.com/code-imstillalive/nimbus/issues/937)).
+
+  `model_type` is decided from `validation_recursive_mae`, falling back to one-step `validation_mae` when that cannot be computed. The fallback is logged rather than silent -- but the message said *"Too few origins for recursive validation"* for **both** ways the metric can come back empty, and only one of them is about origins.
+
+  Measuring #937's own horizon diagnostic across all 18 circuits showed how often that matters: **nine of eighteen publish an empty `validation_recursive_mae`** and therefore select on one-step error.
+
+  ```
+  empty:      hws_l1(4296) hws_l3(4290) ac_l1(4194) oven(4194)
+              b1(4194) ctp(4194) lounge(4271) heater(4194) lt_l2(521)
+  populated:  lt_l1(4167) pool1(1097) pool_2(1040) comms(4167)
+              ldry(1285) pw_l1(4166) pw_l2(4167) ac_l2(2740) ac_b1(505)
+  ```
+
+  Several of the empty ones carry 4,100-4,300 training points, so *"too few origins"* sent a reader looking for more history. **More history cannot help.** The gate is `_recursive_multistep_mae()` counting an error only for a genuinely OBSERVED forward point -- observation **density**, not history length. Training volume does not separate the two groups at all: the empty side holds most of the *largest* sets, and the two smallest circuits land on opposite sides (521 empty, 505 populated).
+
+  On a circuit whose sensor idles and reports on change, the validation window stays sparse **forever**. Those loads select on one-step error permanently rather than waiting to reach the recursive criterion.
+
+  The message now distinguishes the two cases and says which fired, with the origin count. The difference it carries is *"wait"* versus *"this will never happen"* -- which is the whole reason a diagnostic names a cause, and the same lesson `mixed_window_not_decisive` ([#1073](https://github.com/code-imstillalive/nimbus/issues/1073)) and `participant_away_during_window` ([#1098](https://github.com/code-imstillalive/nimbus/issues/1098)) each cost an investigation to learn.
+
+  **Log message only.** The selection rule is untouched, and three tests pin that deliberately -- recursive still wins when all three candidates compute, the fallback still selects on one-step, and the gate is still all three rather than whichever happened to succeed. A fourth pins that #937's own by-horizon diagnostic still cannot feed selection, since a diagnostic that influenced the decision could not measure whether that decision's horizon is wrong.
+
+  **It does not fix the split**, and that is the point of stating it plainly: half this household's circuits still select on single-step error, and the sparse ones are disproportionately the *deferrable* loads -- hot water, oven, heater -- exactly the ones a dispatch optimiser most wants a forward view of. That is the substance of #937 and a decision rather than a log line. Making it legible is the prerequisite: nothing previously surfaced which tier a load was in.
+
+  Devhub validation: **not claimed, same hold as the previous eight releases.** Devhub's executing code remains v0.94.382 because every restart today was deferred to protect the first real #773 LP capture. This change is also not observable there in any case -- the message fires during a retrain, and the measurement behind it came from the reference household's own mirrored sensors rather than from devhub's synthetic ones.
+
 ## [0.94.390] - 2026-09-18
 
 ### Changed
