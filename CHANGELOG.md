@@ -8,6 +8,22 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.399] - 2026-09-20
+
+### Fixed
+- **A rescore moved the headline figures but left `energy_decomposition` describing the previous computation** ([#1149](https://github.com/code-imstillalive/nimbus/issues/1149) follow-up).
+
+  `rescore_quality_history()` keeps the headline in sync with the rescored row by copying `_QUALITY_HISTORY_FIELDS` — `epr`, `j_ref`, `j_ach`, `j_star`, `regret_dollars`. `energy_decomposition` is deliberately **not** in that tuple: it belongs on top of the sensor rather than inside every history row, which has to stay small enough that a year of rows fits in one attribute payload.
+
+  So it was computed on every rescore and then silently dropped. The state and the five fields moved to the rescored day's figures while the decomposition still described the previous one — **exactly the defect [#1120](https://github.com/code-imstillalive/nimbus/issues/1120) exists to fix** (*"correcting one and not the other would leave them disagreeing"*), reappearing on a field that postdates the rescore path and so was never part of its sync.
+
+  Fixed with a separate `_QUALITY_HEADLINE_ONLY_FIELDS` tuple rather than appending to the existing one, so the distinction stays visible in the code: that set goes into every row, this set goes only on top.
+
+  Five tests. The two that matter were **mutation-checked** — emptying the new tuple fails exactly those two and restoring turns them green. The other three pin symmetry that already holds for #1120 and would be easy to break later: rescoring an *older* day must not promote its decomposition to the headline, a report computed before this field existed must not blank an existing value, and an install that never had the field must not gain an empty one.
+
+  Devhub validation: **this release exists because of one.** v0.94.398's own entry said validation would follow rather than precede it. Doing it — calling `rescore_history` against the dev install's real quality sensor — surfaced this within minutes, which is the argument for that ordering rather than against it. What that run did confirm, separately: the service returned `rescored_count: 1`, `latest_date_rescored: true`, and a row stamped `v: "0.94.398"`, with the recomputed figures replacing the carried-forward ones.
+
+
 ## [0.94.398] - 2026-09-20
 
 ### Added
