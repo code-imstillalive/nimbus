@@ -7003,6 +7003,17 @@ _NOWCAST_SKILL_KEYS = (
     "load_nowcast_skill_value_add_dollars",
     "load_nowcast_skill_coverage",
     "load_nowcast_skill_periods_measured",
+    # nimbus issue #1176: WHY every other key is None, when they are.
+    #
+    # Same shape as #1162's `epr_reason`, and the same defect it fixes: a
+    # diagnostic that goes silent without saying which gate closed. Every
+    # one of the three blank paths below was DEBUG-only, and the third
+    # line covered two genuinely different causes at once ("Only %d of %d
+    # periods ... or a scenario solve failed"), so even with DEBUG on a
+    # reader could not separate them.
+    #
+    # null when the skill computed.
+    "load_nowcast_skill_reason",
 )
 
 
@@ -7047,7 +7058,7 @@ def _load_nowcast_skill_attributes(
             day_start.isoformat(),
             day_end.isoformat(),
         )
-        return blank
+        return {**blank, "load_nowcast_skill_reason": "no_forecast_trail"}
 
     # No _kw_scale_factor() on the trail: it is Nimbus's own published
     # sensor and always declares kW. The REAL load sensor is a household
@@ -7064,7 +7075,7 @@ def _load_nowcast_skill_attributes(
             "the preceding 24 h, so there is no persistence baseline to "
             "compare against"
         )
-        return blank
+        return {**blank, "load_nowcast_skill_reason": "no_persistence_baseline"}
 
     measured, _total = nowcast_skill.period_sample_coverage(
         [t for t, _v in trail_hist], grid_times, period_hours
@@ -7091,13 +7102,42 @@ def _load_nowcast_skill_attributes(
         n_periods_measured=measured,
     )
     if result is None:
+        # nimbus issue #1176: separate the two causes this branch used to
+        # conflate, and publish the coverage that failed rather than
+        # nulling a number already in hand.
+        #
+        # No solver-package change is needed for the split. `measured`
+        # and `len(grid_times)` are the two figures the old debug line
+        # already printed, and `DEFAULT_MIN_COVERAGE` is exported, so
+        # "coverage below the bar" is decidable right here. Anything else
+        # returning None is the scenario solve, which
+        # compute_load_nowcast_skill() swallows on purpose (#366/#373's
+        # "degrade, never wedge").
+        n_periods = len(grid_times)
+        coverage = (measured / n_periods) if n_periods else 0.0
+        below = coverage < nowcast_skill.DEFAULT_MIN_COVERAGE
         _LOGGER.debug(
-            "Nimbus quality: no load-nowcast skill. Only %d of %d periods "
-            "carried a real recorded sample, or a scenario solve failed",
+            "Nimbus quality: no load-nowcast skill (%s). %d of %d periods "
+            "carried a real recorded sample (coverage %.3f against a %.2f "
+            "minimum)",
+            "coverage below threshold" if below else "a scenario solve failed",
             measured,
-            len(grid_times),
+            n_periods,
+            coverage,
+            nowcast_skill.DEFAULT_MIN_COVERAGE,
         )
-        return blank
+        return {
+            **blank,
+            "load_nowcast_skill_reason": (
+                "coverage_below_threshold" if below else "scenario_solve_failed"
+            ),
+            # Known in this branch and previously discarded. Telling a
+            # household the check did not run, without telling them it
+            # missed the bar by 0.31, is the absence-as-the-only-signal
+            # shape this repo keeps recording.
+            "load_nowcast_skill_coverage": round(coverage, 3),
+            "load_nowcast_skill_periods_measured": measured,
+        }
 
     return {
         "load_nowcast_skill_j_star": round(result.j_star, 4),
@@ -7106,6 +7146,12 @@ def _load_nowcast_skill_attributes(
         "load_nowcast_skill_value_add_dollars": round(result.value_add_dollars, 4),
         "load_nowcast_skill_coverage": round(result.coverage, 3),
         "load_nowcast_skill_periods_measured": result.n_periods_measured,
+        # Explicitly None rather than omitted: this function's contract
+        # is that every key in _NOWCAST_SKILL_KEYS is always present, so
+        # a consumer never sees one appear and vanish between windows
+        # (#589). Leaving it out here was caught by this change's own
+        # test rather than in review.
+        "load_nowcast_skill_reason": None,
     }
 
 
