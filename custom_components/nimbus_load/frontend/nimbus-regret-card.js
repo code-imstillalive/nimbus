@@ -358,6 +358,36 @@ class NimbusRegretCard extends HTMLElement {
       }
       parts.push(`<b>This day's EPR is not a reliable measurement:</b> ${this._escape(why)}.`);
     }
+    // nimbus issue #1172: when the SoC reconstruction is what made this
+    // day unreliable, say whether the configured capacity would explain
+    // it. "disagreement" cannot distinguish a mis-set capacity from a
+    // fleet blend comparing different things (#949), and a household
+    // reading the caveat has no way to tell which it is looking at.
+    //
+    // Deliberately states the comparison and its arithmetic effect
+    // rather than asserting a cause. On the reference household the two
+    // account for each other almost exactly, but that is one install and
+    // "would account for about N points" is what the numbers support.
+    const measured = Number(attrs.measured_usable_capacity_kwh);
+    const configured = Number(attrs.configured_usable_capacity_kwh);
+    if (
+      attrs.epr_reliable === false &&
+      String(attrs.epr_reason || "").startsWith("achieved_soc") &&
+      Number.isFinite(measured) && Number.isFinite(configured) &&
+      measured > 0 && configured > 0
+    ) {
+      const offPct = (configured - measured) / measured * 100;
+      if (Math.abs(offPct) >= 5) {
+        const dir = offPct > 0 ? "above" : "below";
+        parts.push(
+          `Configured usable capacity is <b>${configured.toFixed(1)} kWh</b>, `
+          + `${Math.abs(offPct).toFixed(0)}% ${dir} the <b>${measured.toFixed(1)} kWh</b> `
+          + `this day's own charge measures. A gap that size moves the reconstructed `
+          + `SoC by roughly ${Math.abs(offPct).toFixed(0)} points over a full charge, `
+          + `which would account for much of the disagreement above.`
+        );
+      }
+    }
     // nimbus issue #1162 ask 3: a regret dominated by the pricing-path
     // delta is not a dispatch finding, and reads as one.
     const share = Number(attrs.regret_path_delta_share);

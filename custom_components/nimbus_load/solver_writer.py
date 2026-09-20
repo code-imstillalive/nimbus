@@ -8052,6 +8052,28 @@ def _compute_report_for_window(
         "measured_usable_capacity_kwh": _measured_usable_capacity_kwh(
             soc_discrepancy.get("soc_discrepancy_hourly"), report.j_ach_hourly
         ),
+        # nimbus issue #1172: the figure the measured one should be read
+        # AGAINST, published beside it so the comparison needs no outside
+        # knowledge.
+        #
+        # This is the EFFECTIVE capacity -- nameplate already derated by
+        # `solver_battery_soh_percent` -- because that is what the solver
+        # and the reconstruction both actually use. Publishing the
+        # nameplate instead would make a household comparing the pair
+        # reach for the wrong number and conclude the gap is larger or
+        # smaller than it is: on the reference household nameplate is
+        # 122.2 and effective is 119.8, and the measured figure is ~110.
+        #
+        # Why the pair matters rather than the measurement alone:
+        # `soc_discrepancy_reason` says "disagreement" and cannot say
+        # WHICH disagreement. A reconstruction drifting because the
+        # configured capacity is wrong and one drifting because a fleet
+        # blend compares different things (#949) produce the same word.
+        # These two numbers side by side separate them without anyone
+        # having to derive the derate by hand.
+        "configured_usable_capacity_kwh": round(capacity_kwh, 1)
+        if capacity_kwh > 0
+        else None,
         # nimbus issue #532 (Mark Purcell, real household data, 7 Sep):
         # the real energy that moved through actual_charge_kw/
         # actual_discharge_kw over the whole scored window -- exposed
