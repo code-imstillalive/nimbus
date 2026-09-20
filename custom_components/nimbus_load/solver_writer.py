@@ -8040,6 +8040,18 @@ def _compute_report_for_window(
         "j_ach_hourly": report.j_ach_hourly,
         "j_star_hourly": report.j_star_hourly,
         **soc_discrepancy,
+        # nimbus issue #1172: the pack's usable capacity as this day's
+        # own data measures it, next to the figure the solver is using.
+        # `solver_battery_capacity_kwh` prices the live LP as well as
+        # this reconstruction, so a pack believed larger than it is
+        # plans charge that cannot fit -- measured at 110 kWh against
+        # 122.2 configured on the reference household.
+        #
+        # None on any day without a large enough monotonic rise, which
+        # on a shallow-cycling install is most of them.
+        "measured_usable_capacity_kwh": _measured_usable_capacity_kwh(
+            soc_discrepancy.get("soc_discrepancy_hourly"), report.j_ach_hourly
+        ),
         # nimbus issue #532 (Mark Purcell, real household data, 7 Sep):
         # the real energy that moved through actual_charge_kw/
         # actual_discharge_kw over the whole scored window -- exposed
@@ -8196,6 +8208,99 @@ def _compute_report_for_window(
         ),
         **achieved_feasibility,
     }
+
+
+# nimbus issue #1172: how large a real-SoC rise has to be before
+# dividing energy by it says anything about capacity.
+#
+# The division is `charged_kwh / (rise_pct/100)`, so the rise sits in the
+# denominator and a small one amplifies every error in it -- sensor
+# quantisation, the hourly resampling, a period boundary landing mid-ramp.
+# At 50 points a 0.5-point reading error moves the answer by 1%; at 5
+# points it moves it by 10%, which is larger than the effect being
+# measured.
+#
+# Set where the real measurements are rather than at a comfortable round
+# number: four consecutive days on the reference household rose 97.3-98.0
+# points, so 50 accepts every genuine full sweep with margin while
+# refusing the shallow-cycling days that carry no signal. Those days
+# report None, which is an honest absence, not a gap.
+_MIN_CAPACITY_RISE_PCT = 50.0
+
+
+def _measured_usable_capacity_kwh(
+    soc_hourly: list[dict] | None,
+    j_ach_hourly: dict | None,
+) -> float | None:
+    """This pack's usable capacity, measured from the day's own largest
+    monotonic real-SoC rise (nimbus issue #1172).
+
+    **Why a monotonic rise and not the energy balance.**
+    `battery_energy_balance()` deliberately does not solve for capacity,
+    and its own comment says why: within one scored window `measured` is
+    a NET swing, and a window carrying both directions cannot attribute
+    it to either side. That is correct. A monotonic charge phase has no
+    discharge to confound it, so the division is clean -- and that same
+    comment notes "pairing two windows is the caller's job". This is the
+    caller doing it, on the one shape that is unambiguous.
+
+    **Needs no new data.** Both inputs are already computed for the
+    report: the REAL SoC series from `soc_discrepancy_hourly`, and the
+    achieved battery power from `j_ach_hourly`. Measured on the
+    reference household's 19 Sep report, this returns 109.4 kWh against
+    the 107.7 a raw-sample integration gives for the same day -- 1.6%
+    apart at hourly resolution, for zero extra recorder reads.
+
+    Four consecutive days there measured 112.6 / 109.9 / 109.7 / 107.7
+    kWh, against 122.2 configured (119.8 after the 98% SoH derate).
+
+    Returns None when no qualifying rise exists, which on a
+    shallow-cycling install is most days. That is an honest absence
+    rather than a number computed from a denominator too small to carry
+    one.
+    """
+    if not soc_hourly or not j_ach_hourly:
+        return None
+    rows = [
+        r
+        for r in soc_hourly
+        if isinstance(r, dict) and r.get("hour") and r.get("real_pct") is not None
+    ]
+    if len(rows) < 2:
+        return None
+    rows.sort(key=lambda r: str(r["hour"]))
+    power = {str(k): v for k, v in j_ach_hourly.items()}
+    power_keys = sorted(power)
+
+    best: tuple[float, int, int] | None = None
+    start = 0
+    for i in range(1, len(rows)):
+        # A small dip does not end a rise -- the real sensor quantises and
+        # wobbles. A real turn-around does.
+        if float(rows[i]["real_pct"]) < float(rows[i - 1]["real_pct"]) - 0.5:
+            start = i
+            continue
+        rise = float(rows[i]["real_pct"]) - float(rows[start]["real_pct"])
+        if rise >= _MIN_CAPACITY_RISE_PCT and (best is None or rise > best[0]):
+            best = (rise, start, i)
+    if best is None:
+        return None
+
+    rise, i0, i1 = best
+    h0, h1 = str(rows[i0]["hour"]), str(rows[i1]["hour"])
+    charged = 0.0
+    for k in power_keys:
+        if h0 <= k < h1:
+            row = power[k]
+            if isinstance(row, dict):
+                kw = float(row.get("battery_kw") or 0.0)
+                # Positive is charge, the same convention j_ach_hourly's
+                # own reconstruction uses.
+                if kw > 0.0:
+                    charged += kw
+    if charged <= 0.0:
+        return None
+    return round(charged / (rise / 100.0), 1)
 
 
 def _regret_path_delta_share(

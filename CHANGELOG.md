@@ -8,6 +8,33 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.407] - 2026-09-20
+
+### Added
+- **`measured_usable_capacity_kwh` — this pack's usable capacity as the day's own data measures it, next to the figure the solver is using** ([#1172](https://github.com/code-imstillalive/nimbus/issues/1172)).
+
+  On the reference household that is **110 kWh against 122.2 configured** (119.8 after the 98% SoH derate), measured across four consecutive near-full sweeps:
+
+  ```
+  16 Sep   2.0 -> 100.0%   110.33 kWh charged   ->  112.6 kWh
+  17 Sep   2.0 -> 100.0%   107.70 kWh           ->  109.9 kWh
+  18 Sep   2.0 -> 100.0%   107.52 kWh           ->  109.7 kWh
+  19 Sep   2.0 ->  99.3%   104.80 kWh           ->  107.7 kWh
+  ```
+
+  **Why a monotonic rise rather than the energy balance.** `battery_energy_balance()` deliberately does not solve for capacity, and its own comment says why: within one scored window `measured` is a NET swing, and a window carrying both directions cannot attribute it to either side. That is right, and it is exactly why this splits the day first — a monotonic charge phase has no discharge to confound it. The same comment notes *"pairing two windows is the caller's job"*; this is the caller doing it, on the one shape that is unambiguous.
+
+  **It needs no new data.** Both inputs are already on the report: the real SoC series from `soc_discrepancy_hourly`, and achieved battery power from `j_ach_hourly`. Driven against the reference household's own 19 Sep report it returns 109.4 kWh, against the 107.7 a raw-sample integration gives for the same day — **1.6% apart at hourly resolution, for zero extra recorder reads.**
+
+  **`null` on any day without a large enough rise**, which on a shallow-cycling install is most days. The rise sits in the denominator, so a small one amplifies every error in it: at 50 points a 0.5-point reading error moves the answer by 1%, at 5 points by 10% — larger than the effect being measured. The threshold is set where the real measurements are (four days rose 97.3–98.0 points), not at a comfortable round number.
+
+### Notes
+- **Why this matters beyond the scorecard.** `solver_battery_capacity_kwh` prices the live LP, not only the reconstruction. A solver planning against a pack 11% larger than it is will plan to put in roughly 12 kWh that cannot fit — and on 19 Sep the household bought 25.06 kWh more than the oracle across the flat-price midday window, which is essentially that day's entire `regret_dollars`.
+- **Deliberately does not change the configured value.** That re-prices every future dispatch decision on a live install and stays a household call, the same posture [#1086](https://github.com/code-imstillalive/nimbus/issues/1086) takes. What was missing was not the decision, it was the number.
+- Devhub validation: **not claimed.** The dev install's own scored day is the same one the helper was derived from, so deploying would confirm the arithmetic against the inputs it was fitted to — which is not evidence the unit tests do not already give. The measurement's real check was four independent days of raw recorder history, done before the code was written.
+- Consumer check: **a new attribute, no card change yet.** `measured_usable_capacity_kwh` appears on `sensor.nimbus_solver_quality_report` and its flattened child, readable today but not yet placed on the dispatch or regret cards. A household comparing it against `number.nimbus_solver_battery_capacity_kwh` is the intended first use, and surfacing the pair side by side is the obvious follow-up rather than something this release claims to have done.
+
+
 ## [0.94.406] - 2026-09-20
 
 ### Added
