@@ -231,6 +231,13 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # one. Another private helper of the same native-only quality
         # report, called only from _compute_report_for_window.
         "_regret_path_delta_share",
+        # nimbus issue #1172: this pack's usable capacity, measured
+        # from the day's own monotonic SoC rise. Reads two attributes
+        # the quality report already computes and is called only from
+        # _compute_report_for_window -- same native-only reasoning as
+        # its neighbours, since the standalone/cron writer computes no
+        # quality report to measure anything from.
+        "_measured_usable_capacity_kwh",
         # nimbus issue #984: same again -- a private helper of the same
         # native-only quality report, measuring how much of a day the
         # recorder actually returned before that day may be scored. The
