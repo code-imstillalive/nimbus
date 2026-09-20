@@ -8,6 +8,33 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.410] - 2026-09-20
+
+### Fixed
+- **Every `load_nowcast_skill_*` field read `null` with nothing saying why, and two different causes shared one debug line** ([#1176](https://github.com/code-imstillalive/nimbus/issues/1176)).
+
+  On the reference household's scored report every one of these reads `null`. The metric that answers *"is the ML load forecaster earning its keep?"* is silent on the install with the most history, and the only signal was a `DEBUG` line nobody has enabled — one of which covered two causes at once:
+
+  > "Only %d of %d periods carried a real recorded sample, **or** a scenario solve failed"
+
+  So even with `DEBUG` on, coverage-below-threshold and a failed scenario solve were indistinguishable — and they call for completely different responses (record more trail samples, versus a solver problem).
+
+  This matters because [#937](https://github.com/code-imstillalive/nimbus/issues/937) measured naive persistence beating Nimbus's own forecast on **11 of 14 days, mean −$0.71/day**. These fields are the live per-day version of that question, and answering it with `null` leaves a household unable to tell *"the forecaster has no skill"* from *"the check could not run"* from *"something is unconfigured"* — only the last being actionable.
+
+  New `load_nowcast_skill_reason`: `null` when the skill computed, otherwise `no_forecast_trail`, `no_persistence_baseline`, `coverage_below_threshold` or `scenario_solve_failed`. Same shape as [#1162](https://github.com/code-imstillalive/nimbus/issues/1162)'s `epr_reason`, and the same defect it fixes.
+
+  **The split needed no solver-package change.** `measured` and `len(grid_times)` are the two figures that debug line already printed, and `nowcast_skill.DEFAULT_MIN_COVERAGE` is exported — so coverage below the bar is decidable at the call site, and anything else returning `None` is the solve.
+
+  **The coverage is now published even when it is the failure.** It was known in that branch and discarded. Telling a household the check did not run, without telling them it missed the bar by 0.31, is the absence-as-the-only-signal shape this repo keeps recording. The two earlier gates still report `null` there, because no coverage was ever computed and publishing `0.0` would assert a measurement never made.
+
+### Notes
+- Ruled out before filing, so the remaining gate is identified rather than guessed: the trail entity has **185 usable recorder rows** for the scored day and the configured cross-check sensor has **5,162** for the preceding one — so neither of the first two gates is what closes on that install.
+- Also found while investigating: `forecast_regret`, the sub-dict #937's own figures came from, is **no longer published on the quality report at all**. Recorded on #1176 rather than fixed here.
+- Devhub validation: **not claimed.** The dev install computes this metric successfully, so it exercises the one path this change leaves untouched — the success return. The four failure paths are covered by 11 unit tests driving the real attribute builder, both directions mutation-checked.
+- Consumer check: **a new attribute, no card change.** A household whose forecaster-skill fields read `null` can now see which gate closed, on `sensor.nimbus_solver_quality_report` and its flattened child. Surfacing it on a card is not claimed — the fields it qualifies are not on one today either.
+- One omission in this change was caught by its own test rather than in review: the success path enumerates its keys explicitly and did not include the new one, which would have made the key appear and vanish between windows — exactly the [#589](https://github.com/code-imstillalive/nimbus/issues/589) failure the stable key set exists to prevent.
+
+
 ## [0.94.409] - 2026-09-20
 
 ### Added
