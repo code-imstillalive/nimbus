@@ -109,6 +109,28 @@ class TestAStaleRowIsReplacedAndStamped(unittest.TestCase):
         self.assertEqual(posted["attributes"]["history"]["2026-08-01"], untouched)
 
 
+class TestAnInstallThatHasNeverBeenScored(unittest.TestCase):
+    """A fresh install has no `history` key on the sensor at all -- not an
+    empty dict, absent. Rescoring there must build the table rather than
+    fail on a missing key, because "I just set this up and my table is
+    empty" is exactly when someone reaches for a backfill."""
+
+    def test_a_missing_history_key_is_built_rather_than_crashing(self):
+        bare = {"state": "unknown", "attributes": {"latest_date": None}}
+        result, posted = _run(2, bare, lambda *a, **k: _entry(0.9))
+
+        self.assertEqual(result["rescored_count"], 2)
+        self.assertEqual(
+            sorted(posted["attributes"]["history"]),
+            ["2026-09-18", "2026-09-19"],
+        )
+
+    def test_a_sensor_with_no_attributes_at_all_is_survivable(self):
+        result, posted = _run(1, {"state": None}, lambda *a, **k: _entry(0.9))
+        self.assertEqual(result["rescored_count"], 1)
+        self.assertIn("2026-09-19", posted["attributes"]["history"])
+
+
 class TestOneBadDayDoesNotCostTheRest(unittest.TestCase):
     def test_an_unscoreable_day_is_skipped_with_a_reason(self):
         def _side(cfg, start, end, allow_partial):
