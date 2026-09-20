@@ -8,6 +8,40 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.398] - 2026-09-20
+
+### Added
+- **`energy_decomposition` on the quality report — what the controller did differently, not just which hour cost money** ([#1149](https://github.com/code-imstillalive/nimbus/issues/1149)).
+
+  `hourly_regret` answers *which hour cost money*. It cannot answer *what did the controller do differently*, and when the difference is one decision spread across several hours it actively obscures it. That limitation is not new — `hourly_regret_breakdown()`'s own docstring already warns the buckets can be large in both directions and cancel. What was missing is the companion that says what the cancelling hours were **doing**.
+
+  Measured on the reference household, 19 Sep 2026 scored (v0.94.391). Hourly regret ran **-$6.17 at 11:00** against **+$11.46 across 12:00-15:00** — gross positive **3.14x** the $3.65 net, and the single largest-magnitude hour of the day was a *negative* one. Ranking the hours points at 14:00. Summing the same rows instead says it in one line:
+
+  ```
+                     achieved   oracle    delta
+  charge_kwh          108.12     83.14   +24.98
+  grid_import_kwh      60.01     39.83   +20.18
+  evening discharge    92.22     88.75    +3.47
+  ```
+
+  One midday over-charge at a flat 20.5c — achieved bought ~25 kWh more than the oracle inside the cheap window and returned only ~3.5 kWh of it to the evening, the rest leaving at the 5c export rate. Not five hourly findings.
+
+  **None of that was readable from the sensor.** `fleet_achieved_energy_in_kwh`/`_out_kwh` publish the achieved half, but there has never been an oracle counterpart, and no grid import/export figure for any trajectory — so the delta that explains a day could not be computed from the quality report at all. Every number above came from hand-summing 24 `j_ach_hourly`/`j_star_hourly` rows.
+
+  Four rows (`reference`, `achieved`, `oracle`, `achieved_minus_oracle`), each with `charge_kwh`, `discharge_kwh`, `grid_import_kwh`, `grid_export_kwh`. Built from arrays already in hand where the hourly rows are assembled, so it costs **no extra solve**.
+
+  Three properties that each earned a test:
+
+  - **The achieved row reconciles with the two existing `fleet_achieved_energy_*` fields by construction** — same arrays, same hours. Two independently-derived answers to one question is drift waiting to happen, so the reconciliation is asserted rather than assumed.
+  - **Charge and discharge are summed per battery as magnitudes, not from the fleet net.** A fleet where one battery charges while another discharges nets those against each other — correct for a grid identity, wrong for "how much energy moved". Grid genuinely is one flow, so import/export split a single signed array.
+  - **The delta row is checked against its own two source rows**, not against an expected constant, because a delta that drifts from the rows it is derived from is worse than absent.
+
+  Found while writing the tests and fixed in the source rather than worked around in the test: `sum()` over an empty generator returns `int` `0`, so the `reference` row — which passes empty battery lists by construction — published ints where every sibling row published floats.
+
+  The two reconciliation tests and the delta test were **mutation-checked**: pointing the achieved row at the oracle's arrays fails exactly those three and restoring turns them green. A test that passes first try has not yet been shown to discriminate.
+
+  Devhub validation: not claimed here, and the reason is specific rather than a shrug. This publishes a new attribute on a sensor the dev install already writes each scored day, so the check that would matter is whether a real day's `achieved_minus_oracle` reads sensibly — which needs a scored day under this release, not a release that merely registers. That follows this release rather than preceding it.
+
 ## [0.94.397] - 2026-09-20
 
 ### Added
