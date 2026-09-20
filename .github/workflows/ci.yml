@@ -61,6 +61,44 @@ jobs:
   # regression is a genuine bug and should block merge.
   # ---------------------------------------------------------------------------
 
+  # ---------------------------------------------------------------------------
+  # STRICT: PR-body hygiene (nimbus issue #594, step 9 of the definition of done).
+  #
+  # GitHub auto-closes an issue when a PR body says a closing keyword followed
+  # by its number -- the scanner stops at the number and never reads a clause
+  # that narrows the scope afterwards. That has closed issues nobody meant to
+  # close twice, both needing a manual reopen.
+  #
+  # CLAUDE.md already tells a session to grep for this before submitting. It has
+  # failed more often as a remembered rule than it has worked, which is the whole
+  # argument for running it somewhere it cannot be forgotten.
+  #
+  # Deliberately NARROW -- see the script's own docstring for the measurement.
+  # 27 of the last 120 merged PRs close an issue with a plain closing keyword,
+  # correctly; this rejects only the possessive form that narrows the number it
+  # just closed. 2 of 2 real incidents caught, 0 of 27 legitimate closes
+  # rejected. A guard that rejects real compliance is worse than the gap it
+  # closes (#1057's own lesson).
+  #
+  # pull_request only: there is no PR body on a push or a manual dispatch, and
+  # a check that silently passes when it cannot see its input is not a check.
+  # ---------------------------------------------------------------------------
+
+  pr-body-hygiene:
+    name: PR Body Hygiene
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out code
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+      - name: Reject a closing keyword that narrows the issue it closes
+        env:
+          # Via the environment, never interpolated into the shell: a PR
+          # body is untrusted input and `${{ }}` inside a run block is a
+          # script-injection surface.
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          printf '%s' "$PR_BODY" | python .github/scripts/check_pr_closing_keywords.py -
   hassfest:
     name: HA Manifest / Strings / Translations
     runs-on: ubuntu-latest
