@@ -8,6 +8,42 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.404] - 2026-09-20
+
+### Added
+- **`regret_path_delta_share` — how much of the published regret is the two pricing paths disagreeing about the oracle's own plan, rather than the household having dispatched differently** ([#1162](https://github.com/code-imstillalive/nimbus/issues/1162), ask 3).
+
+  `j_star_path_delta` is not merely *related* to the regret — it is exactly the portion of it that comes from which oracle price is used:
+
+  ```
+  regret_evaluator - regret_raw
+    = (j_ach - j_star_evaluator) - (j_ach - j_star)
+    = j_star - j_star_evaluator
+    = j_star_path_delta
+  ```
+
+  Measured on the reference household, 19 Sep:
+
+  ```
+  j_ach              -2.3078
+  j_star             -3.3304     (the LP's own objective)
+  j_star_evaluator   -5.9563     (the same plan, repriced)
+  j_star_path_delta   2.6259
+  regret_dollars      3.6485
+  ```
+
+  Regret against the raw objective is $1.02. Published regret is $3.65. **72% of that headline is the two paths disagreeing about the oracle's own plan** — a household reading "$3.65 of regret" would go looking for a dispatch mistake that was mostly not there. And the delta grows: `0.0000 → 1.8524 → 2.0438 → 2.6259` across 16–19 Sep.
+
+  Same choice [#1073](https://github.com/code-imstillalive/nimbus/issues/1073) made on the energy-balance side: **keep the figure, attach the caveat.** `regret_dollars` is unchanged — it still bounds the answer, and a reader who understands the caveat can use it.
+
+  Published as a share so one threshold reads the same on a $3 day and a $30 one, and always present (`0.0` when the paths agree, which was true on 16 Sep) so a consumer never has to distinguish missing from zero. Magnitudes on both sides deliberately: regret can be negative (#956's `regret_reliable` False case), and a signed share would invert for a reason unrelated to the pricing paths.
+
+### Notes
+- **No figure changes.** `regret_dollars`, `epr` and every reliability flag are untouched. This publishes a measurement that was previously derivable only by hand from three other attributes.
+- Deliberately **no threshold** above which the regret is declared untrustworthy. Picking that number needs more than one install's worth of days, and a guard calibrated on a single day is exactly what [#1057](https://github.com/code-imstillalive/nimbus/issues/1057) warned about. The share is reported; what counts as too much stays a judgement.
+- Devhub validation: **not claimed.** The field is pure arithmetic over three figures already on the report, covered by 11 unit tests including the identity it rests on and a mutation check. The dev install would only confirm the same arithmetic against the same inputs, which is not evidence the tests do not already give.
+
+
 ## [0.94.403] - 2026-09-20
 
 ### Fixed
