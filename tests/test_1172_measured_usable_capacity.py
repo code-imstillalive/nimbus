@@ -177,6 +177,61 @@ class TestOnlyChargeCounts(unittest.TestCase):
         )
 
 
+class TestThePairIsPublishedTogether(unittest.TestCase):
+    """The measurement alone leaves a household deriving the SoH derate by
+    hand to know what to compare it against. `soc_discrepancy_reason`
+    says "disagreement" and cannot say WHICH disagreement -- a
+    mis-configured capacity and a fleet blend comparing different things
+    (#949) produce the same word. The pair separates them."""
+
+    @staticmethod
+    def _src():
+        from pathlib import Path as _P
+
+        return _P(solver_writer.__file__.replace(".pyc", ".py")).read_text(
+            encoding="utf-8"
+        )
+
+    def test_the_configured_figure_is_published_too(self):
+        self.assertIn('"configured_usable_capacity_kwh"', self._src())
+
+    def test_it_is_the_effective_capacity_not_the_nameplate(self):
+        """Publishing the nameplate would make a household comparing the
+        pair reach for the wrong number: on the reference household
+        nameplate is 122.2, effective 119.8, measured ~110.
+
+        Asserted on the EXACT value expression, not on a substring near
+        the key. The first version of this test looked for "capacity_kwh"
+        within 200 characters and passed against a mutation that
+        published `_cfg_num(cfg, "solver_battery_capacity_kwh", 0.0)` --
+        which contains that substring and is the nameplate. A guard that
+        answers a weaker question than it appears to, caught by its own
+        mutation check.
+        """
+        src = self._src()
+        self.assertIn(
+            '"configured_usable_capacity_kwh": round(capacity_kwh, 1)',
+            src,
+            "the published value is no longer the effective capacity bound "
+            "from resolve_effective_capacity_kwh() -- if it is now the raw "
+            "nameplate, a household comparing the pair is reading the "
+            "derate as part of the error",
+        )
+        self.assertIn("capacity_kwh = resolve_effective_capacity_kwh(cfg)", src)
+
+    def test_the_effective_helper_applies_soh(self):
+        self.assertAlmostEqual(
+            solver_writer.resolve_effective_capacity_kwh(
+                {
+                    "solver_battery_capacity_kwh": 122.2,
+                    "solver_battery_soh_percent": 98.0,
+                }
+            ),
+            119.756,
+            places=2,
+        )
+
+
 class TestItReachesThePublishedReport(unittest.TestCase):
     def test_the_report_publishes_the_field(self):
         import ast

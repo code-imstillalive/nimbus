@@ -8,6 +8,29 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.409] - 2026-09-20
+
+### Added
+- **`configured_usable_capacity_kwh`, published beside the measured one — and the Regret card now says when the pair explains the day's SoC disagreement** ([#1172](https://github.com/code-imstillalive/nimbus/issues/1172)).
+
+  v0.94.407 measured the pack. It did not publish the figure that measurement should be read *against*, so a household had to derive the SoH derate by hand to know whether 109.4 kWh was good or bad. The effective capacity — nameplate already derated by `solver_battery_soh_percent`, because that is what the solver and the reconstruction both actually use — now sits next to it.
+
+  **Why the pair rather than the measurement alone.** `soc_discrepancy_reason` says `"disagreement"` and cannot say *which* disagreement. A reconstruction drifting because the configured capacity is wrong and one drifting because a fleet blend compares different things ([#949](https://github.com/code-imstillalive/nimbus/issues/949)) produce the identical word. These two numbers side by side separate them.
+
+  That distinction is not theoretical. Measured today on a genuinely single-battery install — no `battery_participant` subentries, so blending is structurally impossible — the evening discharge window shows **18.33 pt mean / 19.11 pt max**, against **8.20 / 14.25** on the reference fleet where blending *is* happening. The zero-blend install has the larger discrepancy, so the blend is not the dominant term; posted in full on #949.
+
+  On the card, when the SoC half is what made a day unreliable, the caveat now reads:
+
+  > Configured usable capacity is **119.8 kWh**, 10% above the **109.4 kWh** this day's own charge measures. A gap that size moves the reconstructed SoC by roughly 10 points over a full charge, which would account for much of the disagreement above.
+
+  It states the comparison and its arithmetic effect rather than asserting a cause — on the reference household the two account for each other almost exactly, but that is one install, and *"would account for about N points"* is what the numbers support. It stays quiet below a 5% difference (measurement resolution, not a finding), when no measurement exists for the day, and when the day was flagged for a non-SoC reason.
+
+### Notes
+- Devhub validation: **not claimed.** The report half is one published field read from a value already in scope; the card half is frontend rendering the MCP surface cannot inspect. What was done instead: the real `_caveatFor()` executed under Node across six scenarios — the real reference-household numbers, capacity agreeing, a null measurement, configured *below* measured, a non-SoC reason, and a healthy day — each producing the intended output.
+- Consumer check: **this is the consumer-facing half of #1172.** A household whose EPR is flagged now sees the likely reason in a sentence, with both numbers named, instead of the word "disagreement". What it still does not do is offer to change the configured value — that re-prices live dispatch and stays a decision.
+- One of this release's own tests was **vacuous on first writing** and its mutation check caught it: it looked for `"capacity_kwh"` within 200 characters of the key, which a mutation publishing the raw nameplate also satisfies. Now asserted on the exact value expression. Recorded because a guard answering a weaker question than it appears to is this repo's most-repeated test failure, and it happened again here.
+
+
 ## [0.94.408] - 2026-09-20
 
 ### Fixed
