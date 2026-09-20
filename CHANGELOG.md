@@ -8,6 +8,33 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.411] - 2026-09-20
+
+### Added
+- **A guard so a config-flow `section` cannot be added while the save paths still assume flat `user_input`** ([#1067](https://github.com/code-imstillalive/nimbus/issues/1067)).
+
+  #1067 proposes surfacing the wizard's existing required/optional split with Home Assistant's collapsible sections, and frames it as *"no schema change and no change to what is stored"*. That is true of the schema and **false of the save path**.
+
+  Verified against the installed Home Assistant rather than recalled — `data_entry_flow.section.__call__` validates its value against the **inner** schema, so the section key holds a dict and `user_input` arrives nested. Two save patterns break on that, differently, and neither raises:
+
+  | pattern | where | effect |
+  |---|---|---|
+  | `merged[key] = user_input.get(key)` | `hub_options.py`, both steps | writes `None` for every field inside the section — **41 of 46** across the wizard; Forecaster and Switchboard have no required fields, so both save entirely blank |
+  | `data=user_input` wholesale | six subentry flows | stores the nested dict, so every later `data["..."]` lookup reads through a level that is not there |
+
+  The flow completes either way and the install comes back configured with nulls or an unreadable shape — the confident-wrong-outcome shape rather than a crash, on the setup surface, where a household has the least ability to diagnose it.
+
+  The guard does **not** forbid sections. It makes adding one fail loudly in CI, naming the prerequisite and the work order (flatten the save paths first, as their own change with tests; then section, updating this guard in the same commit) instead of failing silently on someone's install.
+
+  Detection is AST-based, not a substring search: "section" is an ordinary English word appearing throughout these files, and a guard that fires on a comment gets retired the first time it does. Three tests cover the detector itself, including that prose and attribute names do not trip it.
+
+### Notes
+- **Nothing shipped changes.** This is a test-only release — `custom_components/` is untouched, so an install upgrading to it behaves identically to v0.94.410 in every respect.
+- The sectioning work itself was **measured and deliberately not attempted** this session. The verification it specifically needs — an actual HA render plus a round-trip of real options through a section-nested schema — is not available here, and the household is travelling and cannot recover a broken setup surface remotely. Recorded on #1067 with the code evidence.
+- Devhub validation: **not applicable.** No runtime code changed; there is nothing to deploy and nothing an install could demonstrate about a test guard.
+- Consumer check: **nothing user-visible changed.** No entity, attribute, card or config form is affected. The audience is whoever next opens #1067 — what they will see is CI refusing the change until its prerequisite is done.
+
+
 ## [0.94.410] - 2026-09-20
 
 ### Fixed
