@@ -848,6 +848,26 @@ class BatteryConfig:
     # rather than an error.
     unavailable_period_indices: frozenset[int] | None = None
 
+    # nimbus issue #1161: which periods this battery's achieved
+    # reconstruction had NO trustworthy power sample for -- periods where
+    # the resample held a stale reading forward rather than observing
+    # anything real.
+    #
+    # **Deliberately not an LP gate**, unlike `unavailable_period_indices`
+    # directly above, and that distinction is the entire reason this is a
+    # separate field rather than a reuse of that one. "The car was away"
+    # is a real physical fact the oracle must respect. "We did not record
+    # it" is a statement about telemetry, not about the world -- the car
+    # may well have been home and dispatching the whole time. Folding the
+    # two together would tell the oracle a car had left every time its
+    # sensor went quiet, which is #467's own bug pointed the other way.
+    #
+    # `network.py` never reads this. It exists so the quality report can
+    # publish HOW MUCH of a participant's window was unobserved, the same
+    # way #1098 publishes `participant_away_fraction` -- a caveat the
+    # reader can see rather than a silent adjustment.
+    stale_history_period_indices: frozenset[int] | None = None
+
     # nimbus issue #563 item 2, the departure-deadline half: pushes the
     # LP to reach must_have_soc_kwh BY must_have_soc_by_period_index, the
     # same "cumulative energy... plus target" mechanism adequacy loads
@@ -943,6 +963,14 @@ class BatteryConfig:
                 self,
                 "unavailable_period_indices",
                 frozenset(int(i) for i in self.unavailable_period_indices),
+            )
+        if self.stale_history_period_indices is not None and not isinstance(
+            self.stale_history_period_indices, frozenset
+        ):
+            object.__setattr__(
+                self,
+                "stale_history_period_indices",
+                frozenset(int(i) for i in self.stale_history_period_indices),
             )
         if self.unavailable_period_indices is not None and any(
             i < 0 for i in self.unavailable_period_indices

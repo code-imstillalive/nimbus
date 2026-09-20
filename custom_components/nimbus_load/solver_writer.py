@@ -3280,6 +3280,7 @@ def battery_energy_balance(
     charge_efficiency: float,
     discharge_efficiency: float,
     away_period_count: int = 0,
+    stale_period_count: int = 0,
     n_periods: int = 0,
 ) -> dict[str, float | str | None]:
     """Does this battery's measured energy actually reconcile with its
@@ -3351,6 +3352,11 @@ def battery_energy_balance(
     away_fraction = (
         away_period_count / n_periods
         if n_periods > 0 and away_period_count > 0
+        else 0.0
+    )
+    stale_fraction = (
+        stale_period_count / n_periods
+        if n_periods > 0 and stale_period_count > 0
         else 0.0
     )
     reason: str | None = None
@@ -3499,6 +3505,19 @@ def battery_energy_balance(
         # Always present (0.0 for a home battery, which is never away) so
         # a consumer never has to distinguish missing from zero.
         "participant_away_fraction": round(away_fraction, 4),
+        # nimbus issue #1161: how much of the window had NO recorded
+        # power behind it at all.
+        #
+        # Distinct from `participant_away_fraction` directly above and
+        # the two must not be read as interchangeable: away means the
+        # energy really did flow somewhere this household's grid never
+        # saw, while stale means nobody knows whether it flowed. Away
+        # explains a residual; stale says the residual is unexplainable
+        # from this data.
+        #
+        # Always present (0.0 when every period had a real sample) so a
+        # consumer never has to distinguish missing from zero.
+        "unobserved_power_fraction": round(stale_fraction, 4),
         # nimbus issue #1012: the DISCHARGE-side mirror, and the reason
         # it earns its own field rather than being inferable.
         #
@@ -8153,6 +8172,7 @@ def _compute_report_for_window(
                 # `or ()` covers the home battery, which has no
                 # availability entity and carries None.
                 away_period_count=len(b.unavailable_period_indices or ()),
+                stale_period_count=len(b.stale_history_period_indices or ()),
                 n_periods=len(period_hours_arr),
             )
             for b, chg, dis, fin in zip(
@@ -13698,6 +13718,86 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
     return batteries
 
 
+def _stale_power_period_indices(
+    pts: list[tuple[datetime, float]],
+    grid_times: list[datetime],
+    period_hours: float,
+    max_gap_hours: float | None = None,
+) -> frozenset[int]:
+    """Which grid periods have no trustworthy power observation behind
+    them (nimbus issue #1161).
+
+    `resample_history_mean()` falls back to nearest-at-or-before for a
+    period with no samples of its own, and documents that as deliberate:
+    *"never fabricates a gap."* For a **state** (SoC, price) that is the
+    physically correct model. For **power** it is not sample-and-hold at
+    all -- it integrates a stale instantaneous reading across time nobody
+    observed.
+
+    Measured on this repo's own resample, 24 one-hour periods with
+    samples present only 00:00-02:00 at 5.0 kW: every one of the
+    remaining 21 periods came back 5.0 kW. A participant whose pack
+    sensor stops writing rows after an early-morning discharge is
+    credited 5 kW x 21 h = 105 kWh that never flowed -- 175% of a 60 kWh
+    pack, every kWh of it then priced against real tariffs by
+    `evaluate_realized_cost_multi()`.
+
+    `load_run_state.py` already refuses exactly this for the live
+    counter::
+
+        if 0.0 < dt_hours <= MAX_SAMPLE_GAP_HOURS:
+            delivered += power_kw * dt_hours
+
+    so this reuses that constant rather than introducing a second
+    number. One hour is the repo's existing answer to "how long may a
+    power reading speak for", and having the retrospective scorer
+    disagree with the live counter about it would be worse than either
+    value.
+
+    A period is trustworthy when EITHER it contains a real sample of its
+    own, OR the most recent preceding sample is no older than
+    `max_gap_hours` before the period starts -- a brief hold is what the
+    resample is for and is not what this guards against.
+
+    Returns the STALE indices (the complement), because that is what both
+    callers want: one to zero, one to count.
+    """
+    if max_gap_hours is None:
+        try:
+            from . import load_run_state
+        except ImportError:
+            import load_run_state
+        max_gap_hours = load_run_state.MAX_SAMPLE_GAP_HOURS
+
+    if not grid_times:
+        return frozenset()
+    if not pts:
+        # Every period unobserved. The participant path never reaches
+        # here (an empty history excludes the participant outright), but
+        # returning "all stale" rather than "none stale" keeps the
+        # honest-absence posture if another caller ever does.
+        return frozenset(range(len(grid_times)))
+
+    ordered = sorted(pts, key=lambda row: row[0])
+    times = [ts for ts, _ in ordered]
+    stale: list[int] = []
+    for i, gt in enumerate(grid_times):
+        window_end = gt + timedelta(hours=period_hours)
+        if any(gt <= ts < window_end for ts in times):
+            continue
+        preceding = [ts for ts in times if ts <= gt]
+        if not preceding:
+            # Before the first sample. Nothing was held forward here, so
+            # the resample already returned its 0.0 default rather than
+            # inventing energy -- but it is still unobserved, and a
+            # reader judging the reconstruction deserves to see it.
+            stale.append(i)
+            continue
+        if (gt - preceding[-1]).total_seconds() / 3600.0 > max_gap_hours:
+            stale.append(i)
+    return frozenset(stale)
+
+
 def _resolve_battery_participant_history(
     *,
     day_start: datetime,
@@ -13927,6 +14027,41 @@ def _resolve_battery_participant_history(
                     for v in resample_history_mean(power_hist, grid_times, period_hours)
                 ]
             )
+            # nimbus issue #1161: refuse to credit throughput across a
+            # recorder gap the resample merely held a stale reading over.
+            #
+            # `resample_history_mean()` carries the last sample forward
+            # indefinitely -- correct for a STATE, and energy-fabricating
+            # for POWER. A participant whose pack sensor stops writing
+            # rows mid-window was otherwise credited its last reading
+            # multiplied by every remaining hour of the day, then priced
+            # against real tariffs. `load_run_state.py`'s live counter
+            # has refused exactly this since it was written; the
+            # retrospective scorer never inherited the guard.
+            #
+            # Zeroing (rather than holding) is the conservative
+            # direction, and it is the one this repo already chose for
+            # the live counter -- crediting nothing for time nobody
+            # observed. The cost is that a real, unrecorded dispatch goes
+            # uncounted, which is why the fraction is published rather
+            # than adjusted silently (see `stale_history_period_indices`
+            # on BatteryConfig).
+            stale_period_indices = _stale_power_period_indices(
+                power_hist, grid_times, period_hours
+            )
+            if stale_period_indices:
+                stale_mask = np.zeros(len(net_kw), dtype=bool)
+                stale_mask[list(stale_period_indices)] = True
+                net_kw = np.where(stale_mask, 0.0, net_kw)
+                _LOGGER.info(
+                    "Nimbus quality: battery participant '%s' has no recorded "
+                    "power for %d of %d periods (gaps longer than the "
+                    "one-hour sample guard) -- those periods contribute no "
+                    "throughput rather than holding the last reading",
+                    name,
+                    len(stale_period_indices),
+                    len(grid_times),
+                )
             actual_charge_kw = np.array([max(0.0, -v) for v in net_kw])
             actual_discharge_kw = np.array([max(0.0, v) for v in net_kw])
 
@@ -14104,6 +14239,13 @@ def _resolve_battery_participant_history(
                 # for an already-elapsed day, not a whole-horizon "this
                 # car is away right now" statement.
                 unavailable_period_indices=away_period_indices,
+                # nimbus issue #1161: diagnostic only -- network.py
+                # never reads this. Carried on the config for the same
+                # reason #1098's away mask is: the quality report is
+                # handed these configs already, so the fraction of the
+                # window that was unobserved arrives without new
+                # plumbing.
+                stale_history_period_indices=(stale_period_indices or None),
                 # Same reference constants build_extra_batteries() uses
                 # for the live forward solve -- no wizard field for a
                 # real per-participant $/kWh cost exists yet (see that
