@@ -1,12 +1,15 @@
 """nimbus issue #1164: a rescore must move the reliability fields too,
 not only the figures they qualify.
 
-`rescore_quality_history()` syncs the headline to the rescored day
-through two explicit lists -- `_QUALITY_HISTORY_FIELDS` (the five each
-history row carries) and `_QUALITY_HEADLINE_ONLY_FIELDS`. Every
-reliability field was in neither, so a rescore recomputed all of them
-and then dropped them, leaving the caveat and the figure it qualifies
-describing **different days**.
+`rescore_quality_history()` used to sync the headline by copying two
+explicit lists of field names. Every reliability field was in neither,
+so a rescore recomputed all of them and then dropped them, leaving the
+caveat and the figure it qualifies describing **different days**.
+
+#1167 later replaced that enumeration with the wholesale spread the
+daily publish path always used, which subsumes this fix. These tests
+stay as the behavioural pin: they assert the fields ARRIVE, by whatever
+mechanism, which is what a consumer actually depends on.
 
 Same defect class as #1149, found the same way -- by running a real
 rescore on a dev install rather than by review.
@@ -160,21 +163,15 @@ def _run(days, existing, side_effect, version="0.94.401"):
     return result, posted
 
 
-class TestTheListItself(unittest.TestCase):
-    def test_every_reliability_field_is_declared(self):
-        for f in RELIABILITY_FIELDS:
-            with self.subTest(field=f):
-                self.assertIn(
-                    f,
-                    solver_writer._QUALITY_HEADLINE_ONLY_FIELDS,
-                    f"{f!r} is recomputed by a rescore and then dropped, so the "
-                    "headline keeps the previous computation's answer",
-                )
+class TestTheyAreNotInThePerRowTuple(unittest.TestCase):
+    """#1167 removed the second hand-maintained tuple this file used to
+    assert membership in -- a rescore now spreads the recomputed report
+    wholesale, so there is no list to be absent from. What still matters
+    is the other direction: these must NOT be pushed into every history
+    row, which is size-constrained for the reason the recorder-cap guard
+    exists."""
 
     def test_they_are_not_in_the_per_row_tuple(self):
-        """A history row is carried for a year inside one attribute
-        payload -- see the recorder-cap guard. These belong on top of the
-        sensor once, not in every row."""
         for f in RELIABILITY_FIELDS:
             with self.subTest(field=f):
                 self.assertNotIn(f, solver_writer._QUALITY_HISTORY_FIELDS)
@@ -220,7 +217,7 @@ class TestRescoringThePublishedDay(unittest.TestCase):
         the stamp makes the sensor misreport its own provenance.
 
         This one cannot come from the sync loop. `nimbus_version` is the
-        single field in `_QUALITY_HEADLINE_ONLY_FIELDS` that the
+        single published field that the
         recomputed report never carries -- `_compute_report_for_window()`
         does not set it, the sensor adds it as a fallback only when the
         publish did not -- so the loop had nothing to copy and the

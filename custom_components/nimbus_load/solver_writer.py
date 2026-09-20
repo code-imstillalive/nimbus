@@ -8593,41 +8593,6 @@ _QUALITY_HISTORY_FIELDS = (
 # Kept as its own tuple rather than appended to the one above so the
 # distinction stays visible: that set goes into every row, this set
 # goes only on top.
-_QUALITY_HEADLINE_ONLY_FIELDS = (
-    "energy_decomposition",
-    # nimbus issue #1164: every field that QUALIFIES the headline has to
-    # move with it, for the identical reason #1149 added the line above.
-    #
-    # Found the same way, too -- by running a real rescore on a dev
-    # install rather than by review. v0.94.400 made `epr_reason` name the
-    # SoC cause, and on a rescored day it kept reading `null` because the
-    # rescore never synced it: the state and the five history fields moved
-    # to the new day's figures while every reliability field still
-    # described the PREVIOUS computation.
-    #
-    # That is worse than the bug v0.94.400 fixed. A stale `epr_reliable`
-    # can say a number is trustworthy when the recomputation decided it is
-    # not -- the caveat and the figure it qualifies would be describing
-    # different days, which is exactly the disagreement #1120 exists to
-    # prevent.
-    #
-    # These are deliberately NOT in `_QUALITY_HISTORY_FIELDS`: that tuple
-    # is the narrow set every history ROW carries, and a year of rows has
-    # to fit in one attribute payload (see the recorder-cap guard in
-    # tests/test_quality_report_attribute_size_budget.py).
-    "epr_reliable",
-    "epr_reason",
-    "epr_denominator_reason",
-    "regret_reliable",
-    "soc_discrepancy_reliable",
-    "soc_discrepancy_reason",
-    "soc_discrepancy_max_pct",
-    "soc_discrepancy_mean_pct",
-    # #1120's own stamp: which release produced the figures now on top of
-    # the sensor. A rescore that moves the figures and leaves the stamp
-    # makes the sensor misreport its own provenance.
-    "nimbus_version",
-)
 
 # nimbus issue #1120: which release scored this day.
 #
@@ -8868,44 +8833,49 @@ def rescore_quality_history(cfg: dict, now: datetime, days: int) -> dict:
 
     if rescored:
         if latest_entry is not None:
-            # Keep the headline attributes and the history row telling the
-            # same story -- see the docstring.
-            for field in _QUALITY_HISTORY_FIELDS:
-                if field in latest_entry:
-                    attrs[field] = latest_entry[field]
+            # nimbus issue #1167: publish what the DAILY scorer would
+            # have published for this day, rather than copying a
+            # hand-maintained list of field names onto the previous
+            # computation's payload.
+            #
+            # This is the fourth instance of one defect class in two days
+            # (#1149's energy_decomposition, #1164's reliability fields,
+            # v0.94.402's version stamp, and then the whole hourly
+            # payload). Each earlier fix added names to a tuple. The
+            # names were never the problem -- enumerating was.
+            #
+            # Measured on the dev install under v0.94.402, after a
+            # rescore that reported success and wrote a correctly
+            # stamped row:
+            #
+            #     regret_dollars       2.0674   <- the rescored day
+            #     sum(hourly_regret)   3.6485   <- the previous one
+            #
+            # Those are the same quantity computed two ways, disagreeing
+            # by 76%, because one moved and the other did not.
+            # `hourly_regret` is what nimbus-regret-card.js reads, so the
+            # card rendered one day's hours under another day's total.
+            #
+            # `publish_daily_quality_report()` has always done this
+            # correctly -- it spreads `**day_entry` wholesale. The
+            # rescore was the only path that enumerated, and the only
+            # one that drifted. Both now state the same rule: the
+            # headline describes the day that was just scored, entirely.
+            history = attrs.get("history")
+            attrs.update(latest_entry)
+            if history is not None:
+                # Merged separately above, across every rescored day --
+                # `latest_entry` is one day and must not replace it.
+                # Mirrors #994's own ordering note on the daily path.
+                attrs["history"] = history
             if "epr_pct" in latest_entry:
                 state = latest_entry["epr_pct"]
-            # nimbus issue #1149: the headline-only fields have to move
-            # too, and they are NOT in _QUALITY_HISTORY_FIELDS -- that
-            # tuple is deliberately the narrow set each history ROW
-            # carries, and energy_decomposition is far too bulky to put
-            # in every row.
-            #
-            # Found by actually running a rescore on a dev install
-            # rather than by review: the state and the five history
-            # fields moved to the rescored day's figures while
-            # energy_decomposition still described the PREVIOUS
-            # computation. That is exactly the defect #1120 is about --
-            # "correcting one and not the other would leave them
-            # disagreeing" -- reappearing on a field that postdates the
-            # rescore path and so was never part of its sync.
-            for field in _QUALITY_HEADLINE_ONLY_FIELDS:
-                if field in latest_entry:
-                    attrs[field] = latest_entry[field]
-            # nimbus issue #1164 follow-up: `nimbus_version` is the one
-            # field in that tuple the recomputed report never carries --
-            # `_compute_report_for_window()` does not set it, and the
-            # sensor adds it as a fallback only when the publish did not.
-            # So the loop above could never copy it, and the rescore
-            # silently republished whatever the PREVIOUS publish left in
-            # `attrs` (observed on the dev install: a row stamped
-            # 0.94.401 sitting under a headline still claiming 0.94.391).
-            #
-            # Set from the running code, because that is the truthful
-            # claim: this rescore was produced by THIS release. Not
-            # copied from the history row's own `v` either -- that is the
-            # row's provenance, and on a multi-day rescore the row and
-            # the headline can legitimately be different days.
+            # The one field the recomputed report never carries, so an
+            # update() cannot supply it: `_compute_report_for_window()`
+            # does not set it and the sensor adds it as a fallback only
+            # when the publish did not. Set from the running code,
+            # because that is the truthful claim -- this rescore was
+            # produced by THIS release.
             attrs["nimbus_version"] = _nimbus_version()
         ha_post_state(QUALITY_ENTITY_ID, state, attrs)
         _LOGGER.info(
