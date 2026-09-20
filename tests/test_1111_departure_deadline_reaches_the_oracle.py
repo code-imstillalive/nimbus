@@ -233,10 +233,12 @@ class TestTheScorerActuallyWiresItUp(unittest.TestCase):
                 )
 
     def test_both_siblings_now_agree_except_where_documented(self):
-        """The systematic check that found this. The only remaining
-        differences must be the three with written reasons: two
-        whole-horizon availability concepts the history path replaces
-        with a per-period mask, and that mask itself.
+        """The systematic check that found this. Every remaining
+        difference must have a written reason: two whole-horizon
+        availability concepts the history path replaces with a per-period
+        mask, that mask itself, and #1161's unobserved-period record --
+        which cannot have a live-path equivalent, since a live solve reads
+        current state rather than reconstructing it.
         """
         import ast
 
@@ -273,7 +275,20 @@ class TestTheScorerActuallyWiresItUp(unittest.TestCase):
             "freedom the household did not have. That is #1109 and #1111, "
             "twice, both in the same direction.",
         )
-        self.assertEqual(history - live, {"unavailable_period_indices"})
+        self.assertEqual(
+            history - live,
+            {"unavailable_period_indices", "stale_history_period_indices"},
+            "a BatteryConfig field is set by the scorer's participant "
+            "builder and not by its live-solve sibling. Both current "
+            "entries are reconstruction-only concepts and that is the bar: "
+            "`unavailable_period_indices` is the per-period form of an "
+            "availability question the live path asks about right now, and "
+            "`stale_history_period_indices` (#1161) records which periods "
+            "had no recorded power behind them -- a live solve reads "
+            "current state and has no history that could be stale. "
+            "Anything else appearing here means the oracle is being handed "
+            "a constraint the real solve never had.",
+        )
 
 
 if __name__ == "__main__":

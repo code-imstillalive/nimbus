@@ -8,6 +8,31 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.405] - 2026-09-20
+
+### Fixed
+- **A battery participant's achieved reconstruction credited throughput across recorder gaps it never observed** ([#1161](https://github.com/code-imstillalive/nimbus/issues/1161)).
+
+  `resample_history_mean()` carries the last sample forward for any period with no samples of its own, and documents that as deliberate — *"never fabricates a gap."* That is the physically correct model for a **state** (SoC, price). For **power** it is not sample-and-hold at all: it integrates a stale instantaneous reading across time nobody observed.
+
+  Measured on this repo's own resample, 24 one-hour periods with samples present only 00:00–02:00 at 5.0 kW: **all 24 periods came back 5.0 kW.** A participant whose pack sensor stopped writing rows after an early-morning discharge was credited `5 kW × 21 h = 105 kWh` that never flowed — 175% of a 60 kWh pack — and every kWh of it then priced against real tariffs by `evaluate_realized_cost_multi()`.
+
+  `load_run_state.py`'s live counter has refused exactly this since it was written (`if 0.0 < dt_hours <= MAX_SAMPLE_GAP_HOURS`). The retrospective scorer never inherited the guard, so the live counter and the scorer disagreed about how long a power reading may speak for. They now agree, by **reading the same constant rather than restating it** — retyping `1.0` would let them drift apart again, which is the failure being fixed.
+
+  Periods whose backing sample is staler than that guard contribute **no** throughput instead of holding the last reading. Crediting nothing for time nobody observed is the conservative direction and the one this repo already chose for the live counter.
+
+  An EV participant is the real exposure and the home pack mostly is not, which is why this is scoped to the participant reconstruction: a mains-connected inverter reports continuously, so a recorder gap there means HA itself was down and the whole day is suspect. An EV's pack sensor goes absent as ordinary behaviour — the car drives off, sleeps, loses wifi.
+
+### Added
+- **`BatteryConfig.stale_history_period_indices`** ([#1161](https://github.com/code-imstillalive/nimbus/issues/1161)) — which periods had no trustworthy power sample, published rather than silently adjusted, and **deliberately not an LP gate**.
+
+  That distinction is the whole reason it is a separate field rather than a reuse of `unavailable_period_indices`. "The car was away" is a real physical fact the oracle must respect. "We did not record it" is a statement about telemetry, not about the world — the car may well have been home and dispatching. Folding the two together would tell the oracle a car had left every time its sensor went quiet, which is [#467](https://github.com/code-imstillalive/nimbus/issues/467)'s own bug pointed the other way. `network.py` never reads it.
+
+### Notes
+- Two things ruled out rather than assumed, since both were standing guesses on [#768](https://github.com/code-imstillalive/nimbus/issues/768): a participant with no power history at all is **excluded** outright (`if not power_hist or not soc_hist: continue`, logged, and already pinned by an existing test), and both fetch paths include the state at the window start, so there is no leading-gap artefact. The "absent sensor reads as zero" hypothesis was wrong, and in the opposite direction from the real defect.
+- Devhub validation: **not claimed, and the reason is specific.** The dev install scores `["home"]` only — its battery participant is excluded for want of history — so there is no scored participant there for this guard to act on, and no amount of deploying changes that. What *was* confirmed is the absence of a regression: the home-only path's figures are identical before and after (`epr 0.9175`, `j_ach -17.6635`, `regret_dollars 2.0674`, `achieved_energy_in_kwh 108.12`), which is what a participant-scoped change should do to a fleet that has none. The first install to exercise the fix will be one with a real EV participant.
+
+
 ## [0.94.404] - 2026-09-20
 
 ### Added

@@ -394,6 +394,13 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # [] unconditionally in standalone mode already (_NATIVE_HASS is
         # None there), so there is nothing behavioural to port.
         "_resolve_battery_participant_history",
+        # nimbus issue #1161: which grid periods a participant's power
+        # history had no trustworthy sample behind them. Called from
+        # exactly one place -- _resolve_battery_participant_history()
+        # directly above -- which returns [] unconditionally in
+        # standalone mode, so this is never reached there and there is
+        # nothing behavioural to port.
+        "_stale_power_period_indices",
         # nimbus issue #1109 (2026-09-18): a pure helper (list of
         # (BatteryConfig, ndarray, ndarray, float) in, same out -- no HA
         # imports at all) whose ONLY caller is
