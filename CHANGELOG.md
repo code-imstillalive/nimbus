@@ -8,6 +8,35 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.396] - 2026-09-20
+
+### Fixed
+- **A shared charger's widened cap ignored discharge, while the LP constraint it widens against sums charge and discharge together** ([#1140](https://github.com/code-imstillalive/nimbus/issues/1140), found by Mark Purcell).
+
+  `_widen_shared_charger_cap_to_achieved()` exists because of [#956](https://github.com/code-imstillalive/nimbus/issues/956): narrowing the scorer's oracle below the trajectory that genuinely happened sends regret negative and makes the comparison invalid, so a group's cap is relaxed to `max(configured, the largest simultaneous draw the group actually made)`. It computed that draw from `charge_kw` alone and discarded `discharge_kw`.
+
+  The live constraint it is widening against does not. `shared_charger_{group}_t{t}` adds `charge_vars[m][t] + discharge_vars[m][t]` for every member into one ceiling — which is the physically correct shape, since one connector's throughput is bounded regardless of direction, and a V2H participant discharging draws on the same shared capacity as one charging.
+
+  So a group member that genuinely discharged through the shared charger was invisible to the widening. The real combined draw could exceed what the charge-only measurement saw, leaving the cap narrower than what actually happened and reintroducing #956's failure mode for the discharge case specifically. Not a crash — the same silent, plausible-looking wrong number as [#535](https://github.com/code-imstillalive/nimbus/issues/535)/[#843](https://github.com/code-imstillalive/nimbus/issues/843)/[#1073](https://github.com/code-imstillalive/nimbus/issues/1073), and untested because the existing pinning test only ever passed zero for discharge.
+
+  The docstring was not self-disclosing either: it claimed the function measured "the largest simultaneous draw the group actually made", which is what it should do and not what it did. Corrected alongside the fix rather than left for the next reader to re-derive.
+
+  Devhub validation: not claimed. The widening only moves when a shared-charger group member genuinely discharges through the connector during a scored day, and the dev install has no such configuration to exercise it. Mark's own `xfail(strict=True)` pinning test, merged ahead of this fix, is the check — it now passes with the marker removed, so it guards the fix instead of documenting the defect.
+
+- **The flex signals parent's own payload never reached the diagnostics dump** ([#1141](https://github.com/code-imstillalive/nimbus/issues/1141), found by Mark Purcell).
+
+  [#496](https://github.com/code-imstillalive/nimbus/issues/496)'s diagnostics block spreads `sensor.nimbus_flex_report` whole, but resolved `sensor.nimbus_flex_signals` only through its flattened children — on the strength of a docstring stating that entity "carries no payload attributes at all".
+
+  It does. `publish_flex_signals()` posts ten scalars (all of which do have flattened children) **plus** `battery_signals`, `load_signals` and `generated_at`, none of which are flattened anywhere. `_flex_diagnostics()` never called `hass.states.get()` on that entity at all, so all three were silently absent from every diagnostics download — the per-battery and per-load breakdown, and the timestamp saying when the snapshot was taken, which is most of what someone downloading diagnostics to debug flexibility would want.
+
+  This is #116's failure class again — a diagnostics block quietly ceasing to reflect real published output — relocated to the seam between the two mechanisms rather than living inside either one.
+
+  Fixed by reading the parent and spreading its attributes minus those that already have a flattened child. **The exclusion is derived from `FLATTENED_ATTRS_FLEX` rather than hand-listed**, which is the whole point: a curated allowlist here is exactly what drifted in #116. Add a flattened row and it drops out for free; add a new parent-only field and it appears for free. The payload is spread before the structural keys so a future colliding attribute name can never shadow them.
+
+  The wrong docstring claim is worth recording, because it was not careless. Measured on the dev install it is true — that entity is `unknown` there with only metadata attributes, because flex never populates on that install. The error was generalising one install's state into a claim about the code.
+
+  Devhub validation: not claimed, and the reason is the finding above — the dev install's flex signals entity carries no payload to spread, so a clean dump there would demonstrate nothing. Pinned by Mark's `xfail(strict=True)` test instead, now passing with the marker removed.
+
 ## [0.94.395] - 2026-09-18
 
 ### Fixed
