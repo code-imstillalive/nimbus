@@ -226,6 +226,11 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # none. Called only from _compute_report_for_window, beside the
         # two directly above, and native-only for the identical reason.
         "_epr_soc_reason",
+        # nimbus issue #1162 (ask 3): what share of the published
+        # regret is a pricing-path disagreement rather than a dispatch
+        # one. Another private helper of the same native-only quality
+        # report, called only from _compute_report_for_window.
+        "_regret_path_delta_share",
         # nimbus issue #984: same again -- a private helper of the same
         # native-only quality report, measuring how much of a day the
         # recorder actually returned before that day may be scored. The

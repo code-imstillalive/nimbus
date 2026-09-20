@@ -7950,6 +7950,37 @@ def _compute_report_for_window(
         "j_star_evaluator": report.j_star_evaluator,
         "j_star_path_delta": report.j_star_path_delta,
         "regret_dollars": round(regret_dollars, 4),
+        # nimbus issue #1162 (ask 3): how much of the published regret is
+        # the two pricing paths disagreeing about the ORACLE'S OWN PLAN,
+        # rather than the household having dispatched differently.
+        #
+        # `j_star_path_delta` is exactly that amount, and the identity is
+        # worth stating because it is not obvious from the field names::
+        #
+        #     regret_evaluator - regret_raw
+        #       = (j_ach - j_star_evaluator) - (j_ach - j_star)
+        #       = j_star - j_star_evaluator
+        #       = j_star_path_delta
+        #
+        # So the delta IS the amount the regret moved by repricing the
+        # oracle's plan. Published as a share so one threshold reads the
+        # same on a $3 day and a $30 one.
+        #
+        # Measured on the reference household, 19 Sep 2026: regret
+        # $3.6485, of which $2.6259 -- **72%** -- was path delta. A
+        # household reading "$3.65 of regret" would go looking for a
+        # dispatch mistake that was mostly not there. That is the
+        # confident-wrong-number failure this project keeps paying for,
+        # and #1073 already fixed its twin on the energy-balance side by
+        # attaching the caveat to the figure rather than nulling it.
+        #
+        # Always present (0.0 when the paths agree, which is the healthy
+        # case and was true on 16 Sep) so a consumer never has to
+        # distinguish missing from zero. The regret itself is KEPT, not
+        # qualified away -- same choice #1073 made.
+        "regret_path_delta_share": _regret_path_delta_share(
+            regret_dollars, report.j_star_path_delta
+        ),
         "tracking_fidelity": round(report.tracking.tracking_fidelity, 4),
         "tracking_cost": round(report.tracking_cost, 4),
         "real_p2p_dollars": round(real_p2p_dollars, 4),
@@ -8145,6 +8176,38 @@ def _compute_report_for_window(
         ),
         **achieved_feasibility,
     }
+
+
+def _regret_path_delta_share(
+    regret_dollars: float, j_star_path_delta: float | None
+) -> float:
+    """What fraction of the published regret is a pricing-path
+    disagreement rather than a dispatch difference (nimbus issue #1162).
+
+    `j_star_path_delta` is precisely the amount the regret moved by
+    repricing the oracle's own plan through the evaluator instead of
+    reading the LP's objective (see the call site for the identity). So
+    dividing it by the regret says how much of the headline is about the
+    comparison rather than about the household.
+
+    Returns 0.0 rather than None when the regret is ~zero: a share of
+    nothing is not a finding, and a null here would make every consumer
+    branch for a case that carries no information. Clamped to [0, 1]
+    because a delta larger than the regret says the same thing as a
+    delta equal to it -- the number is a share, not a ratio to be read
+    past its own scale.
+
+    Uses magnitudes on both sides deliberately. Regret can be negative
+    (`regret_reliable` False, the #956 case), and a signed share there
+    would flip meaning for a reason that has nothing to do with the
+    pricing paths.
+    """
+    if not j_star_path_delta:
+        return 0.0
+    denom = abs(float(regret_dollars))
+    if denom < 1e-9:
+        return 0.0
+    return round(min(1.0, abs(float(j_star_path_delta)) / denom), 4)
 
 
 def _epr_soc_reason(
