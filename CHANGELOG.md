@@ -8,6 +8,24 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.402] - 2026-09-20
+
+### Fixed
+- **A rescore still republished the previous publish's version stamp** ([#1164](https://github.com/code-imstillalive/nimbus/issues/1164) follow-up).
+
+  v0.94.401 added `nimbus_version` to `_QUALITY_HEADLINE_ONLY_FIELDS` and that could never have worked: it is the one field in that tuple the recomputed report does not carry. `_compute_report_for_window()` never sets it, and the sensor adds it as a fallback only when the publish did not — so the sync loop, which is `if field in latest_entry`, had nothing to copy and left whatever the previous publish put there.
+
+  Caught by validating v0.94.401 on the dev install rather than trusting its own release note: the rescore wrote a history row stamped `v 0.94.401` and the headline underneath still claimed `nimbus_version "0.94.391"`, eight releases behind the code that produced it. **v0.94.401's changelog asserted this field was synced. It was not, and this corrects the claim as well as the code.**
+
+  Now set explicitly from the running code, because that is the truthful claim — this rescore was produced by this release. Deliberately not copied from the history row's own `v` either: that is the row's provenance, and on a multi-day rescore the row and the headline can legitimately be different days.
+
+  The eight reliability fields v0.94.401 added **did** work, and were confirmed on the same install: `epr_reason` moved from `null` to `achieved_soc_unreliable:disagreement`, and `soc_discrepancy_max_pct` from the stale `19.11` to the recomputed `19.12` — the second of those being the useful one, since a value that changes proves the sync ran rather than merely agreeing by chance.
+
+### Notes
+- Devhub validation: **this release exists because of one.** Three releases in a row today have now been corrected by running the validation instead of claiming it — v0.94.399, v0.94.401, and this. The pattern each time is a field added to the report whose publish path was not updated with it.
+- The test that pins this deliberately uses an entry carrying **no** version at all, which is the real case. The pre-existing test passed under mutation because its fixture happened to include the field — a fixture more generous than production, which is its own lesson.
+
+
 ## [0.94.401] - 2026-09-20
 
 ### Fixed
