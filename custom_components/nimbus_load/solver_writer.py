@@ -8609,6 +8609,143 @@ def _carry_forward_quality_history(
     return history
 
 
+# nimbus issue #1120, part 3: the ceiling on a single rescore call.
+#
+# Each day costs a full oracle MILP -- the same solve the daily scorer
+# runs once a night -- so a rescore is explicit, bounded, and never
+# automatic on upgrade. Thirty is the practical cap rather than
+# _QUALITY_HISTORY_MAX_DAYS (60): a caller who genuinely wants the whole
+# table can call twice, and the smaller number makes an accidental
+# "rescore everything" cost minutes rather than an hour.
+_RESCORE_MAX_DAYS = 30
+
+
+def rescore_quality_history(cfg: dict, now: datetime, days: int) -> dict:
+    """Re-score the last `days` complete local days and write the results
+    back into the quality report's `history` table (nimbus issue #1120).
+
+    **The gap this closes.** A day is scored ONCE, the morning after, and
+    frozen. Nothing ever recomputes an entry, so every scoring-formula
+    change splits the table in two: days scored before the change keep
+    whatever formula was live then, days after are right, and the two sit
+    on the same card with nothing reconciling them. `compute_quality_
+    report()` already scores an arbitrary window correctly -- it just
+    RETURNS the answer and writes nothing back, so an operator who knows
+    exactly which row is stale still has no way to fix it.
+
+    **Why a separate service rather than a `persist: true` flag on
+    `compute_quality_report`.** That service scores an ARBITRARY window;
+    this table is keyed by calendar DAY. Persisting a 6-hour or 3-day
+    window would mean either silently rounding it to a day key (wrong, and
+    invisibly so) or rejecting most calls (confusing). Whole days are the
+    only unit the table can actually hold, so the service that writes to
+    it takes days.
+
+    **Day boundaries are derived exactly as the daily scorer derives
+    them** -- local midnight to local midnight, `allow_partial=False` --
+    so a rescored row is directly comparable to one written the ordinary
+    way rather than subtly different in its window.
+
+    **A failed day is skipped, never fatal.** Real history thins out as
+    it ages and any single day may be unscoreable; aborting the run would
+    throw away every day already computed, each of which cost a MILP.
+    Skips are returned with their reason so the caller sees what did not
+    happen rather than inferring it from a short list.
+
+    **Rows are written through `_carry_forward_quality_history()`**, the
+    same merge the daily scorer uses, so a rescored row is stamped with
+    the release that produced it exactly like a fresh one -- a table
+    rescored halfway still says which half is which.
+
+    **If the rescored day IS the currently-published day, the headline
+    numbers move too.** The "Yesterday" card reads the sensor's top-level
+    attributes while the trend card reads `history`; correcting one and
+    not the other would leave them disagreeing, which is the very defect
+    this issue is about rather than a fix for it.
+
+    Returns a summary dict (`rescored`, `skipped`, counts) rather than
+    None, so the caller can see each day's before/after and judge whether
+    the rescore actually changed anything.
+    """
+    if days < 1:
+        raise ValueError(f"days must be >= 1, got {days}")
+    if days > _RESCORE_MAX_DAYS:
+        raise ValueError(
+            f"days must be <= {_RESCORE_MAX_DAYS} (each day is a full oracle "
+            f"MILP solve), got {days}"
+        )
+
+    existing = ha_get(QUALITY_ENTITY_ID)
+    attrs = dict(existing.get("attributes") or {})
+    state = existing.get("state")
+    latest_date = attrs.get("latest_date")
+
+    rescored: list[dict] = []
+    skipped: list[dict] = []
+    latest_entry: dict | None = None
+
+    for back in range(1, days + 1):
+        target = (now - timedelta(days=back)).date()
+        key = target.isoformat()
+        day_start = datetime(target.year, target.month, target.day, tzinfo=LOCAL_TZ)
+        day_end = day_start + timedelta(days=1)
+        try:
+            entry = _compute_report_for_window(
+                cfg, day_start, day_end, allow_partial=False
+            )
+        except Exception as e:  # noqa: BLE001 -- one bad day must not
+            # cost every day already scored in this run; the reason is
+            # returned to the caller rather than swallowed.
+            skipped.append({"date": key, "reason": f"{type(e).__name__}: {e}"})
+            continue
+        if entry is None:
+            skipped.append(
+                {"date": key, "reason": "no usable real history for this day"}
+            )
+            continue
+        before = dict((attrs.get("history") or {}).get(key) or {}) or None
+        attrs["history"] = _carry_forward_quality_history(attrs, key, entry)
+        rescored.append(
+            {"date": key, "before": before, "after": dict(attrs["history"][key])}
+        )
+        if key == latest_date:
+            latest_entry = entry
+
+    if rescored:
+        if latest_entry is not None:
+            # Keep the headline attributes and the history row telling the
+            # same story -- see the docstring.
+            for field in _QUALITY_HISTORY_FIELDS:
+                if field in latest_entry:
+                    attrs[field] = latest_entry[field]
+            if "epr_pct" in latest_entry:
+                state = latest_entry["epr_pct"]
+        ha_post_state(QUALITY_ENTITY_ID, state, attrs)
+        _LOGGER.info(
+            "Nimbus quality (#1120): rescored %d day(s) %s, skipped %d",
+            len(rescored),
+            ", ".join(r["date"] for r in rescored),
+            len(skipped),
+        )
+    else:
+        _LOGGER.warning(
+            "Nimbus quality (#1120): rescore over the last %d day(s) wrote "
+            "nothing -- every day was unscoreable (%s)",
+            days,
+            "; ".join(f"{s['date']}: {s['reason']}" for s in skipped) or "no days",
+        )
+
+    return {
+        "days_requested": days,
+        "rescored_count": len(rescored),
+        "skipped_count": len(skipped),
+        "published": bool(rescored),
+        "latest_date_rescored": latest_entry is not None,
+        "rescored": rescored,
+        "skipped": skipped,
+    }
+
+
 # nimbus issue #1082: the two settlement statuses that mean "not settled
 # YET", as opposed to settled, or never going to be.
 #
