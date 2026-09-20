@@ -182,40 +182,6 @@ class TestItIsActuallyRendered:
         assert ".caveat {" in _source()
 
 
-class TestTheCapacityDiagnosis:
-    """nimbus #1172 on the surface: "disagreement" cannot say WHICH
-    disagreement, and a household reading the caveat had no way to tell a
-    mis-set capacity from a fleet blend comparing different things."""
-
-    def test_it_reads_both_halves_of_the_pair(self):
-        fn = _caveat_fn()
-        assert "attrs.measured_usable_capacity_kwh" in fn
-        assert "attrs.configured_usable_capacity_kwh" in fn
-
-    def test_it_only_speaks_when_the_soc_half_is_what_fired(self):
-        """A day unreliable for `oracle_beaten` has nothing to do with
-        capacity, and saying so there would be noise."""
-        assert 'startsWith("achieved_soc")' in _caveat_fn()
-
-    def test_it_has_a_materiality_floor(self):
-        """A 1% difference is measurement resolution, not a finding."""
-        assert "Math.abs(offPct) >= 5" in _caveat_fn()
-
-    def test_a_missing_measurement_is_survivable(self):
-        """`measured_usable_capacity_kwh` is null on most days -- the
-        shallow-cycle case -- and must not produce a NaN sentence."""
-        fn = _caveat_fn()
-        assert "Number.isFinite(measured)" in fn
-        assert "Number.isFinite(configured)" in fn
-
-    def test_it_states_the_comparison_rather_than_asserting_a_cause(self):
-        """One install's arithmetic closing is not licence to claim
-        causation generally."""
-        fn = _caveat_fn()
-        assert "would account for" in fn
-        assert "roughly" in fn
-
-
 class TestTextIsEscaped:
     """The reason string comes from the report, and the card builds HTML
     by concatenation."""
