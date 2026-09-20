@@ -67,7 +67,10 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ### Notes
 - **This does not change any EPR, regret or reliability figure.** It only fills in a reason that was missing. The underlying measurement problem it points at — the achieved SoC reconstruction disagreeing with the real sensor by ~20 kWh, and implied pack capacity varying 99.9 / 123.2 / 67.7 kWh across three phases of a single day — is [#1012](https://github.com/code-imstillalive/nimbus/issues/1012), which was closed on diagnostics while the mapping itself was left uncorrected. #1162 argues it should be reopened.
 - Also unchanged, and worth stating because it is the obvious next question: the sensor's `state` is still the EPR even when `epr_reliable` is false. Deciding what a trend chart should show for an untrustworthy day is a product call for the household, not something to change unilaterally — it is ask 2 on #1162.
-- Native-only, like the two helpers it sits beside: the standalone/cron writer computes no quality report, so there is nothing there for this to be missing from. Recorded in `test_docs_writer_function_set_drift.py`'s own exemption list with that reason rather than left to trip the #357 drift guard.
+- Native-only, like the two helpers it sits beside: the standalone/cron writer computes no quality report, so there is nothing there for this to be missing from.
+- Devhub validation: **performed, and it immediately found a second defect.** The dev install reproduces this signature independently (`epr_reliable false`, `epr_reason null`, `soc_discrepancy_reason "disagreement"`), so it can genuinely demonstrate the fix. Updated to v0.94.400 and restarted, `nimbus_load.compute_quality_report` for 19 Sep returned `epr_reason: "achieved_soc_unreliable:disagreement"` — the fix working end to end on real data.
+
+  What the **sensor** showed afterwards was still `null`, because a rescore does not sync the reliability fields at all. That is a separate defect, filed as [#1164](https://github.com/code-imstillalive/nimbus/issues/1164) and fixed in v0.94.401. So: the computation is validated on a real install; the published surface only becomes correct with the next release. Recorded in `test_docs_writer_function_set_drift.py`'s own exemption list with that reason rather than left to trip the #357 drift guard.
 
 
 ## [0.94.399] - 2026-09-20
