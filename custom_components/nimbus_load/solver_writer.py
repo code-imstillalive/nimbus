@@ -7853,6 +7853,20 @@ def _compute_report_for_window(
     epr_denominator_reason = report.epr.denominator_reason
     achieved_feasibility["epr_denominator_reason"] = epr_denominator_reason
 
+    # nimbus issue #1162: `epr_reliable` could be False while every field
+    # naming EPR read None, because the SoC half of `_epr_reliability()`
+    # had no reason of its own. Filled here rather than inside
+    # `_achieved_feasibility_stats()` because that function is scoped to
+    # the achieved trajectory and never sees the SoC comparison.
+    #
+    # Fallback only -- a regret finding already in the field wins, since
+    # it is the stronger statement and its labels have history.
+    if achieved_feasibility.get("epr_reason") is None:
+        achieved_feasibility["epr_reason"] = _epr_soc_reason(
+            soc_discrepancy["soc_discrepancy_reliable"],
+            soc_discrepancy.get("soc_discrepancy_reason"),
+        )
+
     # nimbus issue #919: "is the ML load forecaster actually beating naive
     # persistence on this household's data?" -- a question no deployed
     # install could answer until now. Uses grid_oracle, not grid_residual:
@@ -8131,6 +8145,71 @@ def _compute_report_for_window(
         ),
         **achieved_feasibility,
     }
+
+
+def _epr_soc_reason(
+    soc_discrepancy_reliable: object,
+    soc_discrepancy_reason: object = None,
+) -> str | None:
+    """The `epr_reason` value for the one reliability signal that had
+    none (nimbus issue #1162).
+
+    `_epr_reliability()` above combines three signals, and until this
+    function existed only two of them could be traced back from the
+    published report:
+
+    ========================== ===================== ==========================
+    signal                     makes epr_reliable    reason a reader can find
+    ========================== ===================== ==========================
+    `regret_reliable`          False                 `epr_reason`
+    `epr_denominator_reason`   False                 its own field
+    `soc_discrepancy_reliable` False / None          **nothing**
+    ========================== ===================== ==========================
+
+    Measured on the reference household, 2026-09-20, scoring 19 Sep::
+
+        epr_reliable              false
+        epr_reason                null
+        epr_denominator_reason    null
+        regret_reliable           true
+        soc_discrepancy_reliable  false
+        soc_discrepancy_reason    "disagreement"
+
+    Three fields naming EPR all say nothing is wrong, and the flag says
+    the EPR cannot be read as a measurement. The cause was real -- the
+    achieved reconstruction had drifted 19.11 points from the real SoC
+    sensor -- and `soc_discrepancy_reason` did record it, but nothing
+    connects that field to the EPR flag, so a reader looking at the EPR
+    has no thread to pull.
+
+    **Only fills a gap; never overwrites.** `regret_reliable`'s own
+    labels (`oracle_beaten`, `oracle_beaten_achieved_outside_lp_soc_bounds`)
+    are left exactly as they are, so a history of them stays readable and
+    the more serious finding keeps the field when both fire at once.
+
+    **The denominator cause is deliberately NOT mirrored here.**
+    `_epr_reliability()`'s own docstring records that decision -- the two
+    describe different halves of the same ratio, and a reader needs to be
+    able to see both on a day where both happen. Folding it in would undo
+    that.
+
+    Returns None when the SoC half is fine, so the caller can use it as a
+    plain fallback.
+    """
+    if soc_discrepancy_reliable is None:
+        # Genuinely unknown rather than wrong -- no real SoC history to
+        # compare against. `_epr_reliability()` propagates this as None
+        # (unknown) rather than False, and the reason has to make the
+        # same distinction or a reader cannot tell "we checked and it
+        # disagrees" from "we could not check".
+        return "achieved_soc_unverifiable"
+    if not soc_discrepancy_reliable:
+        reason = str(soc_discrepancy_reason) if soc_discrepancy_reason else "unknown"
+        # Carries the SoC half's own verdict rather than restating it, so
+        # the two fields cannot drift into disagreeing about the same
+        # finding, and so a reader lands on the right attribute.
+        return f"achieved_soc_unreliable:{reason}"
+    return None
 
 
 def _epr_reliability(
