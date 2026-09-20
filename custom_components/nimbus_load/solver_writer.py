@@ -8593,7 +8593,41 @@ _QUALITY_HISTORY_FIELDS = (
 # Kept as its own tuple rather than appended to the one above so the
 # distinction stays visible: that set goes into every row, this set
 # goes only on top.
-_QUALITY_HEADLINE_ONLY_FIELDS = ("energy_decomposition",)
+_QUALITY_HEADLINE_ONLY_FIELDS = (
+    "energy_decomposition",
+    # nimbus issue #1164: every field that QUALIFIES the headline has to
+    # move with it, for the identical reason #1149 added the line above.
+    #
+    # Found the same way, too -- by running a real rescore on a dev
+    # install rather than by review. v0.94.400 made `epr_reason` name the
+    # SoC cause, and on a rescored day it kept reading `null` because the
+    # rescore never synced it: the state and the five history fields moved
+    # to the new day's figures while every reliability field still
+    # described the PREVIOUS computation.
+    #
+    # That is worse than the bug v0.94.400 fixed. A stale `epr_reliable`
+    # can say a number is trustworthy when the recomputation decided it is
+    # not -- the caveat and the figure it qualifies would be describing
+    # different days, which is exactly the disagreement #1120 exists to
+    # prevent.
+    #
+    # These are deliberately NOT in `_QUALITY_HISTORY_FIELDS`: that tuple
+    # is the narrow set every history ROW carries, and a year of rows has
+    # to fit in one attribute payload (see the recorder-cap guard in
+    # tests/test_quality_report_attribute_size_budget.py).
+    "epr_reliable",
+    "epr_reason",
+    "epr_denominator_reason",
+    "regret_reliable",
+    "soc_discrepancy_reliable",
+    "soc_discrepancy_reason",
+    "soc_discrepancy_max_pct",
+    "soc_discrepancy_mean_pct",
+    # #1120's own stamp: which release produced the figures now on top of
+    # the sensor. A rescore that moves the figures and leaves the stamp
+    # makes the sensor misreport its own provenance.
+    "nimbus_version",
+)
 
 # nimbus issue #1120: which release scored this day.
 #

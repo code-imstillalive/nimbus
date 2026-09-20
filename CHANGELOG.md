@@ -8,6 +8,30 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.401] - 2026-09-20
+
+### Fixed
+- **A rescore moved the headline figures and left every reliability field describing the previous computation** ([#1164](https://github.com/code-imstillalive/nimbus/issues/1164)).
+
+  `rescore_quality_history()` syncs the headline through two explicit lists — `_QUALITY_HISTORY_FIELDS` (the five each history row carries) and `_QUALITY_HEADLINE_ONLY_FIELDS`. Every reliability field was in neither, so a rescore recomputed all of them and then dropped them, leaving the caveat and the figure it qualifies describing **different days**.
+
+  Found by running a real rescore on a dev install immediately after releasing v0.94.400 — the same way [#1149](https://github.com/code-imstillalive/nimbus/issues/1149) was found, and the same defect class.
+
+  **The field that matters is `epr_reliable`.** A stale `true` asserts a recomputed figure is trustworthy when the recomputation concluded it is not. A reliability flag that can be wrong in the *reassuring* direction is worse than no flag, and that is the case the new tests are built around.
+
+  It also made v0.94.400 invisible on exactly the path an install uses to bring its history onto one definition: `epr_reason` kept reading `null` on any rescored day.
+
+  Observed on the dev install, v0.94.400, rescoring 19 Sep. The rescore reported success and wrote the row (`rescored_count 1`, `published true`, `after.v "0.94.400"`), and `compute_quality_report` for the same window computed `epr_reason = "achieved_soc_unreliable:disagreement"` — while the sensor afterwards still read `epr_reason null`, `soc_discrepancy_max_pct 19.11` against the recomputation's 19.12, and `nimbus_version "0.94.391"`. Three independent tells that the headline was not the rescored day's.
+
+  Now synced: `epr_reliable`, `epr_reason`, `epr_denominator_reason`, `regret_reliable`, `soc_discrepancy_reliable`, `soc_discrepancy_reason`, `soc_discrepancy_max_pct`, `soc_discrepancy_mean_pct`, and `nimbus_version` — #1120's own stamp, which a rescore that moves the figures and leaves it makes misreport its own provenance.
+
+  Deliberately **not** added to `_QUALITY_HISTORY_FIELDS`: that tuple is the narrow set every history row carries for up to `_QUALITY_HISTORY_MAX_DAYS` inside one attribute payload, and the recorder-cap guard already projects that payload to its retention limit.
+
+### Notes
+- Devhub validation: the defect itself was **found** there rather than reviewed into existence, which is the second time in two days that running the validation rather than promising it has paid for the release ([#1149](https://github.com/code-imstillalive/nimbus/issues/1149) was the first).
+- Worth recording as a pattern rather than two incidents: a field is added to the report, and the rescore path is not updated. That is now twice. #1164 proposes a structural guard — assert the rescued headline matches the recomputed report on every published field minus an explicit allowlist — so the third instance is caught without anyone remembering to.
+
+
 ## [0.94.400] - 2026-09-20
 
 ### Fixed
@@ -43,7 +67,10 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ### Notes
 - **This does not change any EPR, regret or reliability figure.** It only fills in a reason that was missing. The underlying measurement problem it points at — the achieved SoC reconstruction disagreeing with the real sensor by ~20 kWh, and implied pack capacity varying 99.9 / 123.2 / 67.7 kWh across three phases of a single day — is [#1012](https://github.com/code-imstillalive/nimbus/issues/1012), which was closed on diagnostics while the mapping itself was left uncorrected. #1162 argues it should be reopened.
 - Also unchanged, and worth stating because it is the obvious next question: the sensor's `state` is still the EPR even when `epr_reliable` is false. Deciding what a trend chart should show for an untrustworthy day is a product call for the household, not something to change unilaterally — it is ask 2 on #1162.
-- Native-only, like the two helpers it sits beside: the standalone/cron writer computes no quality report, so there is nothing there for this to be missing from. Recorded in `test_docs_writer_function_set_drift.py`'s own exemption list with that reason rather than left to trip the #357 drift guard.
+- Native-only, like the two helpers it sits beside: the standalone/cron writer computes no quality report, so there is nothing there for this to be missing from.
+- Devhub validation: **performed, and it immediately found a second defect.** The dev install reproduces this signature independently (`epr_reliable false`, `epr_reason null`, `soc_discrepancy_reason "disagreement"`), so it can genuinely demonstrate the fix. Updated to v0.94.400 and restarted, `nimbus_load.compute_quality_report` for 19 Sep returned `epr_reason: "achieved_soc_unreliable:disagreement"` — the fix working end to end on real data.
+
+  What the **sensor** showed afterwards was still `null`, because a rescore does not sync the reliability fields at all. That is a separate defect, filed as [#1164](https://github.com/code-imstillalive/nimbus/issues/1164) and fixed in v0.94.401. So: the computation is validated on a real install; the published surface only becomes correct with the next release. Recorded in `test_docs_writer_function_set_drift.py`'s own exemption list with that reason rather than left to trip the #357 drift guard.
 
 
 ## [0.94.399] - 2026-09-20
