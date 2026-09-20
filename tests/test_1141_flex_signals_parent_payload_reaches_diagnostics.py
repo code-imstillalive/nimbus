@@ -38,8 +38,6 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ha_stubs import install_ha_stubs
 
@@ -82,19 +80,11 @@ def _flex(hass, registry):
         return diagnostics._flex_diagnostics(hass, _fake_entry())
 
 
-@pytest.mark.xfail(
-    reason=(
-        "nimbus IV&V (5035f90..c881b52, 2026-09-19): _flex_diagnostics() "
-        "(diagnostics.py:296-321) never reads hass.states.get("
-        "'sensor.nimbus_flex_signals') -- its own docstring's claim that "
-        "this entity 'carries no payload attributes at all' is wrong for "
-        "the real publish_flex_signals() shape (solver_writer.py:2877-"
-        "2953), which posts battery_signals/load_signals/generated_at as "
-        "real parent attributes. All three are silently absent from the "
-        "diagnostics dump. See nimbus issue #1141."
-    ),
-    strict=True,
-)
+# Was xfail(strict=True) pinning nimbus issue #1141 while the bug was live:
+# _flex_diagnostics() never read sensor.nimbus_flex_signals at all, so the
+# parent-only battery_signals/load_signals/generated_at were absent from
+# every diagnostics dump while its docstring claimed the parent carried no
+# payload. Fixed -- this now guards the fix instead of documenting the defect.
 def test_the_flex_signals_parents_own_payload_reaches_diagnostics():
     real_attrs = {
         "unit_of_measurement": "kW",

@@ -32,7 +32,6 @@ import unittest
 
 import _solver_path  # noqa: F401
 import numpy as np
-import pytest
 import solver_writer
 from solver import elements
 
@@ -61,20 +60,12 @@ def _widen(rows):
 
 
 class TestDischargeIsInvisibleToTheWidening(unittest.TestCase):
-    @pytest.mark.xfail(
-        reason=(
-            "nimbus IV&V (5035f90..c881b52, 2026-09-19): "
-            "_widen_shared_charger_cap_to_achieved() (solver_writer.py:13861) "
-            "sums only charge_kw per group member, discarding discharge_kw "
-            "(line 13897's _discharge_kw), while the LP constraint it widens "
-            "against (network.py:3365-3372) sums charge+discharge together. "
-            "A group member that genuinely discharged through the shared "
-            "charger is invisible to the widening, so the cap can stay "
-            "narrower than the real combined draw -- reintroducing #956's "
-            "failure mode for the discharge case. See nimbus issue #1140."
-        ),
-        strict=True,
-    )
+    # Was xfail(strict=True) pinning nimbus issue #1140 while the bug was
+    # live: _widen_shared_charger_cap_to_achieved() summed only charge_kw
+    # per group member and discarded discharge_kw, while the LP constraint
+    # it widens against (network.py, shared_charger_{group}_t{t}) sums
+    # charge+discharge together. Fixed -- the marker is gone so this now
+    # guards the fix instead of documenting the defect.
     def test_the_cap_widens_to_the_combined_charge_and_discharge_peak(self):
         # Configured cap 25.0. In period 0: ev1 charges 10.0 (well under
         # the cap alone), ev2 DISCHARGES 20.0 through the same shared

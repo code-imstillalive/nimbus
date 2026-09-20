@@ -66,6 +66,7 @@ _SOLVER_CONFIG_ENTITY_ID = "sensor.nimbus_solver_config"
 # three above); the flex SIGNAL children are not -- see
 # _flex_diagnostics() for why those go through the entity registry.
 _FLEX_REPORT_ENTITY_ID = "sensor.nimbus_flex_report"
+_FLEX_SIGNALS_ENTITY_ID = "sensor.nimbus_flex_signals"
 _OFFER_CURVE_ENTITY_ID = "sensor.nimbus_offer_curve"
 
 
@@ -235,11 +236,18 @@ def _flex_diagnostics(hass: HomeAssistant, entry: NimbusConfigEntry) -> dict[str
       list here stopped tracking `solver_writer.py`'s real output and two
       shipped fields read `null` in diagnostics while live on the entity,
       which reads as "the fix didn't land".
-    - **`sensor.nimbus_flex_signals`** carries **no payload attributes at
-      all** -- measured live, its parent holds only entity metadata, and
-      every per-signal value lives on a flattened child. Spreading the
-      parent would silently capture nothing, so the children are read
-      individually.
+    - **`sensor.nimbus_flex_signals`** carries **both**: a real parent
+      payload AND flattened children, so it needs both mechanisms.
+      `publish_flex_signals()` posts ten scalars (all covered by
+      `FLATTENED_ATTRS_FLEX`) plus `battery_signals`, `load_signals` and
+      `generated_at`, which are NOT flattened anywhere. This docstring
+      previously claimed the parent held "no payload attributes at all";
+      that was measured wrong, and for as long as it stood those three
+      fields were silently absent from every dump (nimbus issue #1141 --
+      the #116 failure class again, relocated to the seam between the two
+      mechanisms rather than living inside either). So the parent's own
+      attributes are spread here, minus the keys already flattened, and
+      the children are still resolved individually below.
 
     The children are resolved through the **entity registry by
     unique_id**, never by building `sensor.nimbus_flex_<suffix>` as a
@@ -257,7 +265,27 @@ def _flex_diagnostics(hass: HomeAssistant, entry: NimbusConfigEntry) -> dict[str
     from . import sensor_flattened
 
     report_state = hass.states.get(_FLEX_REPORT_ENTITY_ID)
+    signals_state = hass.states.get(_FLEX_SIGNALS_ENTITY_ID)
     registry = er.async_get(hass)
+
+    # The signals parent's own payload, minus whatever already has a
+    # flattened child of its own (nimbus issue #1141). The exclusion is
+    # DERIVED from FLATTENED_ATTRS_FLEX rather than hand-listed, so it
+    # cannot drift out of step with the flattening the way #116's curated
+    # allowlist did -- add a flattened row and it drops out of here for
+    # free; add a new parent-only field and it appears here for free.
+    _flattened_keys = {
+        spec.source_key for spec in sensor_flattened.FLATTENED_ATTRS_FLEX
+    }
+    signals_payload: dict[str, Any] = (
+        {
+            key: value
+            for key, value in signals_state.attributes.items()
+            if key not in _flattened_keys
+        }
+        if signals_state is not None
+        else {}
+    )
 
     signals: dict[str, Any] = {}
     for spec in sensor_flattened.FLATTENED_ATTRS_FLEX:
@@ -273,10 +301,15 @@ def _flex_diagnostics(hass: HomeAssistant, entry: NimbusConfigEntry) -> dict[str
         }
 
     return {
+        # Spread first, so a payload key can never shadow a structural one
+        # below even if publish_flex_signals() ever posts a colliding name.
+        **signals_payload,
         "report_entity_found": report_state is not None,
         "report_state": report_state.state if report_state is not None else None,
         # Full spread, see docstring -- never an allowlist.
         "report": dict(report_state.attributes) if report_state is not None else None,
+        "signals_entity_found": signals_state is not None,
+        "signals_state": signals_state.state if signals_state is not None else None,
         "signals": signals,
     }
 

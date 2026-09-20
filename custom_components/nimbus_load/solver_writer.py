@@ -13882,7 +13882,9 @@ def _widen_shared_charger_cap_to_achieved(
 
     **Exactly as wide as the day itself, and no wider.** The widened cap is
     `max(configured, the largest simultaneous draw the group actually
-    made)`. On a well-behaved day nothing changes: real draw stays under
+    made)` -- where "draw" is charge **plus** discharge, matching the LP
+    constraint's own shape exactly (nimbus issue #1140; a shared
+    connector's capacity is directional-agnostic). On a well-behaved day nothing changes: real draw stays under
     the cap, the max is the configured value, and the result is
     byte-identical to passing it straight through. It only moves when the
     real day already exceeded the configured number -- a cap set to
@@ -13895,11 +13897,23 @@ def _widen_shared_charger_cap_to_achieved(
     quietly relax a real per-battery limit.
     """
     groups: dict[str, float] = {}
-    for cfg, charge_kw, _discharge_kw, _final in results:
+    for cfg, charge_kw, discharge_kw, _final in results:
         group = cfg.shared_charger_group
         if not group or cfg.shared_charger_max_kw is None:
             continue
-        arr = np.asarray(charge_kw, dtype=np.float64)
+        # Charge AND discharge, because the LP constraint this widens
+        # against sums both into one ceiling (nimbus issue #1140):
+        # `shared_charger_{group}_t{t}` in network.py adds
+        # charge_vars[m][t] + discharge_vars[m][t] for every member, which
+        # is physically right -- one connector's throughput is bounded
+        # regardless of direction, so a V2H participant discharging draws
+        # from the same shared capacity as one charging. Summing charge
+        # alone made a discharging member invisible to the widening, so
+        # the cap could stay narrower than the real combined draw and
+        # reintroduce #956's negative-regret failure for that case.
+        arr = np.asarray(charge_kw, dtype=np.float64) + np.asarray(
+            discharge_kw, dtype=np.float64
+        )
         if group in groups:
             groups[group] = groups[group] + arr  # type: ignore[assignment]
         else:
