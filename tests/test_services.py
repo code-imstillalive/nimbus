@@ -244,15 +244,16 @@ def test_handle_retrain_raises_for_partial_match_and_retrains_nothing():
 def test_async_register_services_registers_both_load_and_signal():
     """Every service gets registered on a fresh setup: retrain (issue
     #195), solve_now (issue #232), compute_quality_report (issue #316),
-    and set_controllable_load (issue #809). The idempotency guard is
-    exercised by the sibling _is_idempotent_on_reload test.
+    set_controllable_load (issue #809) and rescore_history (issue
+    #1120). The idempotency guard is exercised by the sibling
+    _is_idempotent_on_reload test.
     """
     hass = MagicMock()
     hass.services.has_service.return_value = False
 
     services.async_register_services(hass)
 
-    assert hass.services.async_register.call_count == 4
+    assert hass.services.async_register.call_count == 5
     registered_names = {
         call.args[1] for call in hass.services.async_register.call_args_list
     }
@@ -261,6 +262,7 @@ def test_async_register_services_registers_both_load_and_signal():
         services.SERVICE_SOLVE_NOW,
         services.SERVICE_COMPUTE_QUALITY_REPORT,
         services.SERVICE_SET_CONTROLLABLE_LOAD,
+        services.SERVICE_RESCORE_HISTORY,
     }
     for call in hass.services.async_register.call_args_list:
         assert call.args[0] == services.DOMAIN

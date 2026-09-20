@@ -480,6 +480,16 @@
           "description": "If the window's history is incomplete, score whatever real data is available rather than refusing to score at all."
         }
       }
+    },
+    "rescore_history": {
+      "name": "Rescore history",
+      "description": "Re-score the last N complete days and write the corrected figures back into the quality report's history table. Use this after a scoring-formula change, when already-scored days are frozen on the old formula and sit next to newer ones with nothing reconciling them. Each day costs a full oracle solve, so this is deliberately explicit and never runs automatically.",
+      "fields": {
+        "days": {
+          "name": "Days",
+          "description": "How many complete days back from today to re-score, starting with yesterday. Each one is a full oracle solve, so start small."
+        }
+      }
     }
   }
 }

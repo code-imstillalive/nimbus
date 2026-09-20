@@ -20,3 +20,13 @@ compute_quality_report:
       default: true
       selector:
         boolean:
+
+rescore_history:
+  fields:
+    days:
+      default: 1
+      selector:
+        number:
+          min: 1
+          max: 30
+          mode: box

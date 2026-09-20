@@ -95,6 +95,16 @@ SERVICE_SOLVE_NOW = "solve_now"
 # own semantics or timing.
 SERVICE_COMPUTE_QUALITY_REPORT = "compute_quality_report"
 
+# nimbus issue #1120: compute_quality_report() scores a window correctly
+# and RETURNS it, writing nothing back -- so a day frozen under a
+# superseded scoring formula cannot be corrected by anyone. This is the
+# write-back half. Kept as its own service rather than a `persist` flag
+# on that one because the history table is keyed by calendar DAY while
+# that service scores arbitrary windows; see rescore_quality_history()'s
+# own docstring for why rounding a window to a day key would be worse
+# than not offering it.
+SERVICE_RESCORE_HISTORY = "rescore_history"
+
 # unique_id is built as f"{subentry_id}{suffix}" -- see __init__.py's own
 # _async_rename_stale_forecast_entities(), which constructs it the other
 # direction. Kept as a plain tuple here rather than importing a shared
@@ -155,6 +165,17 @@ SERVICE_COMPUTE_QUALITY_REPORT_SCHEMA = vol.Schema(
         vol.Required("start"): _coerce_datetime,
         vol.Required("end"): _coerce_datetime,
         vol.Optional("allow_partial", default=True): bool,
+    }
+)
+
+SERVICE_RESCORE_HISTORY_SCHEMA = vol.Schema(
+    {
+        # Defaults to 1 -- the narrowest useful call (just yesterday),
+        # so an operator experimenting in Developer Tools pays one MILP
+        # rather than a month of them by omission.
+        vol.Optional("days", default=1): vol.All(
+            vol.Coerce(int), vol.Range(min=1, max=30)
+        ),
     }
 )
 
@@ -457,6 +478,44 @@ def _find_controllable_load_subentry(
     return matches[0] if matches else None
 
 
+async def _async_handle_rescore_history(hass: HomeAssistant, call: ServiceCall) -> dict:
+    """Re-score the last N complete local days and write them back into
+    the quality report's history table (nimbus issue #1120).
+
+    The counterpart to compute_quality_report(), which scores a window
+    correctly but returns it without persisting -- so a row frozen under
+    a superseded scoring formula stays wrong forever. Deliberately
+    explicit and bounded: each day is a full oracle MILP, so this is
+    never automatic and never runs on upgrade.
+
+    Blocking for the same reason compute_quality_report() is (real
+    recorder reads over urllib, a HiGHS MILP per day), so it runs in a
+    worker via hass.async_add_executor_job() rather than on the event
+    loop.
+    """
+    from homeassistant.exceptions import HomeAssistantError
+
+    from . import solver_writer
+
+    days: int = call.data.get("days", 1)
+
+    def _blocking() -> dict:
+        cfg = solver_writer.fetch_solver_config()
+        return solver_writer.rescore_quality_history(cfg, dt_util.now(), days)
+
+    try:
+        return await hass.async_add_executor_job(_blocking)
+    except ValueError as e:
+        # Shape errors (days out of range) are the caller's, not a failure
+        # of the scorer -- surfaced as a validation error so the UI says
+        # what to change rather than reporting an internal fault.
+        raise ServiceValidationError(f"nimbus_load.rescore_history: {e}") from e
+    except Exception as e:
+        raise HomeAssistantError(
+            f"nimbus_load.rescore_history: rescoring the last {days} day(s) failed: {e}"
+        ) from e
+
+
 async def _async_handle_set_controllable_load(
     hass: HomeAssistant, call: ServiceCall
 ) -> dict:
@@ -591,6 +650,19 @@ def async_register_services(hass: HomeAssistant) -> None:
             SERVICE_COMPUTE_QUALITY_REPORT,
             _handle_compute_quality_report,
             schema=SERVICE_COMPUTE_QUALITY_REPORT_SCHEMA,
+            supports_response=True,
+        )
+
+    if not hass.services.has_service(DOMAIN, SERVICE_RESCORE_HISTORY):
+
+        async def _handle_rescore_history(call: ServiceCall):
+            return await _async_handle_rescore_history(hass, call)
+
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_RESCORE_HISTORY,
+            _handle_rescore_history,
+            schema=SERVICE_RESCORE_HISTORY_SCHEMA,
             supports_response=True,
         )
 

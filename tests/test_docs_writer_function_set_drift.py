@@ -272,6 +272,18 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         "compute_efficiency_backtest_report",
         "compute_nimbus_only_soc_counterfactual",
         "publish_daily_quality_report",
+        # nimbus issue #1120 part 3: the write-back half of the quality
+        # scorer, driven by the nimbus_load.rescore_history service.
+        # Native-only for the same reason every other quality function
+        # above is -- the docs/cron copy compared against here is the
+        # FORECAST writer, which carries no quality machinery at all
+        # (no _compute_report_for_window, no _carry_forward_quality_
+        # history, nothing this builds on). Quality has its own separate
+        # cron script. Deliberately NOT claimed to be native-only in
+        # principle: the function body is portable, and if the quality
+        # cron script ever becomes the comparison target this should be
+        # re-examined rather than left sitting here.
+        "rescore_quality_history",
         "publish_efficiency_backtest_report",
         "publish_nimbus_only_soc_counterfactual",
         "publish_weather_forecast_mirrors",
