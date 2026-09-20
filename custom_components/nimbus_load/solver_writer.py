@@ -8694,8 +8694,21 @@ def rescore_quality_history(cfg: dict, now: datetime, days: int) -> dict:
                 cfg, day_start, day_end, allow_partial=False
             )
         except Exception as e:  # noqa: BLE001 -- one bad day must not
-            # cost every day already scored in this run; the reason is
-            # returned to the caller rather than swallowed.
+            # cost every day already scored in this run, each of which
+            # already paid for its own oracle MILP. The reason is both
+            # LOGGED and returned: returning it alone would satisfy the
+            # caller but leave nothing in the log for anyone reading the
+            # install afterwards, which is the silent-failure shape
+            # tests/test_solver_writer_no_silent_failures.py exists to
+            # stop (and did stop -- this handler shipped without the log
+            # line and that guard caught it in CI).
+            _LOGGER.warning(
+                "Nimbus quality (#1120): rescoring %s failed (%s: %s) -- "
+                "skipping this day and continuing with the rest",
+                key,
+                type(e).__name__,
+                e,
+            )
             skipped.append({"date": key, "reason": f"{type(e).__name__}: {e}"})
             continue
         if entry is None:

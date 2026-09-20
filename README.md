@@ -398,6 +398,16 @@ Edit inline on the dashboard without touching the wizard:
   days head-to-head. A window shorter than 24h needs `allow_partial: true`
   to run at all; `allow_partial: false` restricts scoring to full real
   calendar days, matching the daily report's own behaviour exactly.
+- `nimbus_load.rescore_history` (optional `days`, default `1`, max `30`).
+  The write-back counterpart to the above. A day is scored once, the
+  morning after, and frozen into the quality report's `history` table — so
+  a scoring-formula change leaves every earlier day on the old formula,
+  sitting beside newer ones with nothing saying they are not comparable.
+  This re-scores the last N complete days and writes the corrected figures
+  back, stamping each row with the release that produced it. Each day costs
+  a full oracle solve, so it is deliberately explicit, capped, and never
+  runs automatically or on upgrade. A day whose real history is too thin to
+  score is skipped with its reason rather than failing the whole run.
 - `nimbus_load.retrain` (optional `entity_id`). Forces an immediate retrain
   of one Load/Power Signal, or every configured one if `entity_id` is
   omitted, without waiting for the next scheduled retrain window.
