@@ -8295,11 +8295,27 @@ def _compute_report_for_window(
 #     configured (122.16 nameplate x 0.98 SoH)         = 119.72 kWh
 #
 # The configured value was right to within 0.04 kWh. The power sensor
-# under-reads by 5.3%, so the removed function returned 113.3 kWh on
-# that window and 109.4 kWh on a charge window -- telling a household
-# with a correctly configured pack that it was ~9% too large. The four
-# consecutive days that appeared to corroborate it were four runs of the
-# same method over the same sensor, which is not corroboration.
+# accounted for 82.59 kWh across that same window -- a disagreement the
+# retracted function booked entirely as "capacity", returning 113.3 kWh
+# there and 109.4 kWh on a charge window, telling a household whose pack
+# is configured correctly that it was ~9% too large.
+#
+# **The SIZE and DIRECTION of that sensor/counter disagreement are NOT
+# established, and an earlier version of this comment claimed a "5.3%
+# sensor under-read" that the evidence does not support.** The counter is
+# not a clean reference: it re-estimates in discrete steps, dropping
+# 9.13 kWh in 12 minutes near the pack floor on 2026-09-20 while both
+# power sensors saw a 1.79 kW mean. Exclude those steps and the counter
+# and the sensors agree to 1.4% on that window. See nimbus #1172's own
+# thread for the measurement.
+#
+# That makes the case for removal STRONGER, not weaker: the disagreement
+# is not even a stable fraction, so it could never have been calibrated
+# out of the quotient.
+#
+# The four consecutive days that appeared to corroborate the retracted
+# figure were four runs of the same method over the same sensor, which
+# is not corroboration.
 #
 # **Do not reintroduce this from a power sensor.** Measuring capacity
 # needs an instrument reporting pack ENERGY directly (a BMS charge

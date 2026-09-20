@@ -122,10 +122,17 @@ usable capacity from the BMS counter   87.25 / 0.729 = 119.7 kWh
 configured (122.16 nameplate × 0.98 SoH)            = 119.72 kWh
 ```
 
-The configured value was right to within **0.04 kWh**; the power sensor under-reads
-by **5.3%**. So the retracted field read 113.3 kWh on that window and 109.4 kWh on a
-charge window, and the card told a household with a correctly configured pack that
-it was ~9% too large. The four consecutive days that appeared to corroborate it were
+The configured value was right to within **0.04 kWh**, while the power sensor accounted
+for 82.59 kWh over the same window — a disagreement the retracted field booked entirely as
+capacity, reading 113.3 kWh there and 109.4 kWh on a charge window, so the card told a
+household with a correctly configured pack that it was ~9% too large.
+
+**Corrected in v0.94.413:** this section previously called that a "5.3% sensor under-read".
+The size and direction of the sensor/counter disagreement are **not established** — the BMS
+counter re-estimates in discrete steps (9.13 kWh in 12 minutes near the pack floor, while
+both power sensors saw a 1.79 kW mean), and excluding those steps the two agree to 1.4%.
+This makes the retraction stronger, not weaker: a disagreement that is not a stable fraction
+could never have been calibrated out. The four consecutive days that appeared to corroborate it were
 four runs of the same method over the same sensor — which is not corroboration.
 
 Measuring capacity needs an input reporting pack **energy** directly (a BMS charge

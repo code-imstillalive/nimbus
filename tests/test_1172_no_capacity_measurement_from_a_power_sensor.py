@@ -37,11 +37,21 @@ the same sensor::
     configured (122.16 nameplate x 0.98 SoH)         = 119.72 kWh
 
 The configured value was right to within **0.04 kWh**. The power sensor
-under-reads by **5.3%**, so the removed function returned 113.3 kWh on
-that window and 109.4 kWh on a charge window -- and told a household
-whose pack is configured correctly that it was ~9% too large. Acting on
-that would have derated a healthy 122.2 kWh pack, which re-prices live
-dispatch.
+accounted for 82.59 kWh over that same window, and the retracted function
+booked the whole disagreement as "capacity" -- returning 113.3 kWh there
+and 109.4 kWh on a charge window, telling a household whose pack is
+configured correctly that it was ~9% too large. Acting on that would have
+derated a healthy 122.2 kWh pack, which re-prices live dispatch.
+
+**Corrected in v0.94.413:** an earlier version of this docstring called
+that a "5.3% sensor under-read". The evidence does not support it. The
+counter is not a clean reference either -- it re-estimates in discrete
+steps, dropping 9.13 kWh in 12 minutes near the pack floor while both
+power sensors saw a 1.79 kW mean; exclude those steps and counter and
+sensors agree to 1.4%. The size and direction of the disagreement are
+both **unestablished**. That strengthens this retraction rather than
+weakening it: a disagreement that is not a stable fraction could never
+have been calibrated out of the quotient.
 
 ## How it passed review, which is the part worth remembering
 

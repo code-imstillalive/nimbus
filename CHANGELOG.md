@@ -8,6 +8,34 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.413] - 2026-09-20
+
+### Fixed
+- **Corrected a supporting figure in v0.94.412's retraction: the "5.3% power-sensor under-read" is not established** ([#1172](https://github.com/code-imstillalive/nimbus/issues/1172)).
+
+  v0.94.412 removed `measured_usable_capacity_kwh`, and argued it partly by stating that the battery power sensor "under-reads by 5.3%" against the BMS energy counter. That number treated the counter as a clean reference. **It is not one.**
+
+  The counter re-estimates its own state in discrete steps. Measured on the reference household overnight, near the pack floor:
+
+  ```
+  04:03   charge 15.95 kWh   soc 13.30%
+  04:12   charge 14.56 kWh   soc 11.80%
+  04:23   charge  6.57 kWh   soc  5.40%     <- 9.13 kWh in 12 min = ~45 kW sustained
+  ```
+
+  Both battery power sensors saw a time-weighted mean of **1.79 kW** across that window. That discharge did not happen — SoC and charge fall together, which is a BMS correcting its own bookkeeping, not energy through the terminals. Excluding only steps implying more than 40 kW, the counter reads −10.59 kWh against the sensors' −10.74: **agreement to 1.4%**.
+
+  So the **size and direction** of the sensor/counter disagreement are both unestablished, and the power sensors — which agree with each other to **0.03 kWh** across two windows, one with 67% of its span in recorder gaps and one with none — look like the better-behaved instrument.
+
+  **This strengthens the retraction rather than weakening it.** A disagreement that is not even a stable fraction could never have been calibrated out of `energy_at_the_power_sensor / SoC_points`. And the capacity conclusion is untouched: it is `counter_delta / SoC_delta` across four windows (119.7 / 119.8 / 119.8 / 119.7 against a configured 119.72), and it survives the stepping because SoC and charge step *together* — implied capacity reads 119.9 before the event above and 120.6–122.3 after, i.e. within ~2% across a step moving 9 kWh.
+
+  Corrected in `solver_writer.py`'s comment block, the #1172 guard test's docstring, `docs/entities.md`, and flagged in place on the v0.94.412 entry below.
+
+- Devhub validation: **not applicable.** Nothing executable changed — this release edits a source comment, a test docstring, `docs/entities.md` and the CHANGELOG. There is no behaviour an install could demonstrate. The measurement the correction rests on was itself taken from the reference household's own recorder history via the read-only API, and is quoted in full above and on #1172.
+- Consumer check: **nothing user-visible changed.** No entity, attribute, card, service or config form is affected — this release corrects prose in the source, the docs and a test docstring, plus the CHANGELOG. The audience is whoever next reads v0.94.412's reasoning and would otherwise inherit a number the evidence does not support. Shipped as its own release rather than folded into a later change because the wrong figure is already published in the v0.94.412 release notes and in two issue threads.
+
+
+
 ## [0.94.412] - 2026-09-20
 
 ### Removed
@@ -28,12 +56,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
   configured (122.16 nameplate × 0.98 SoH)            = 119.72 kWh
   ```
 
-  The configured value is right to within **0.04 kWh**; the power sensor under-reads by **5.3%**. So the retracted field read 113.3 kWh on that window and 109.4 kWh on a charge window, and the card told a household whose pack is configured correctly that it was ~9% too large.
+  The configured value is right to within **0.04 kWh**; the power sensor under-reads by **5.3%**. *(**Corrected in v0.94.413** — the 5.3% figure is not supported; see that entry. The retraction itself is unaffected.)* So the retracted field read 113.3 kWh on that window and 109.4 kWh on a charge window, and the card told a household whose pack is configured correctly that it was ~9% too large.
 
   **How it shipped:** it was validated against its own arithmetic, against a raw-sample integration of the *same power sensor*, and against four consecutive days of the *same method* — all three sharing the defect. It was never compared against the BMS counter sitting on the same install, which answers the question in one subtraction. Agreement among several views of one instrument is not corroboration.
 
   `tests/test_1172_no_capacity_measurement_from_a_power_sensor.py` pins the absence and records why, including what a sound version would need: an input reporting pack **energy** directly. Nimbus takes no such sensor in config, so it now publishes no measurement rather than a wrong one.
 
+- Devhub validation: **performed, and it confirmed the retraction end to end.** HACS metadata refresh → download v0.94.412 → full restart, then a **freshly computed** report (not the cached daily one) over 2026-09-20: `configured_usable_capacity_kwh = 119.8` present and correct, `measured_usable_capacity_kwh` **absent**, and the reliability caveat still firing (`epr_reliable: false`, `epr_reason: achieved_soc_unreliable:disagreement`). The sensor's cached attributes still carried the retracted field until the next daily score, which is the cache rather than the code — worth knowing before reading a live install straight after an upgrade. HA error log read after the deploy: **0 ERROR lines**; the warnings present were the known attribute-cap ones and a synthetic participant that cannot be scored. *(This line was added in v0.94.413 — the validation was done at release time but not written up, which is what the #594 guard is for and it caught it one release later, as designed.)*
 - Consumer check: **a wrong number is off the dashboard and the sensor.** A household on a correctly configured pack stops being told it is ~9% too large; `measured_usable_capacity_kwh` disappears from `sensor.nimbus_solver_quality_report` and its flattened child, and the capacity sentence disappears from the Regret card. `configured_usable_capacity_kwh` stays — that one is correct, independently confirmed at 119.7 vs 119.72 above, and it is the only way to see the SoH derate the solver actually plans against. The reliability caveat added in v0.94.408 is untouched.
 - No configured value was changed on any install, and none should be on the strength of the retracted figure. The efficiency question ([#1086](https://github.com/code-imstillalive/nimbus/issues/1086)) is explicitly **not** answered here: one clean discharge leg measures 0.947 one-way against 0.926 configured, which is not a round trip and not yet a number worth acting on.
 
