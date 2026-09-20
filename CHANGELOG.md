@@ -8,6 +8,44 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.400] - 2026-09-20
+
+### Fixed
+- **`epr_reliable` could be `false` while every field naming EPR read `null`, so a household was told not to trust the number and given nothing to act on** ([#1162](https://github.com/code-imstillalive/nimbus/issues/1162)).
+
+  `_epr_reliability()` combines three signals. Only two of them could be traced back from the published report:
+
+  | signal | makes `epr_reliable` false | reason a reader can find |
+  |---|---|---|
+  | `regret_reliable` | yes | `epr_reason` |
+  | `epr_denominator_reason` | yes | its own field |
+  | `soc_discrepancy_reliable` | yes | **nothing** |
+
+  Measured on the reference household, 2026-09-20, scoring 19 Sep — and reproduced independently on the dev install:
+
+  ```
+  epr_reliable              false
+  epr_reason                null
+  epr_denominator_reason    null
+  regret_reliable           true
+  soc_discrepancy_reliable  false
+  soc_discrepancy_reason    "disagreement"
+  ```
+
+  Three fields naming EPR all said nothing was wrong while the flag said the number could not be read as a measurement. The cause was real — the achieved reconstruction had drifted 19.11 points (~20 kWh) from the real SoC sensor — and `soc_discrepancy_reason` did record it, but nothing connected that field to the EPR flag, so a reader looking at the EPR had no thread to pull.
+
+  `epr_reason` now names the SoC cause when that is what fired: `achieved_soc_unreliable:<the SoC half's own verdict>`, or `achieved_soc_unverifiable` when the comparison could not be made at all. It **carries** the SoC half's verdict rather than restating it, so the two fields cannot drift into disagreeing about one finding.
+
+  Two things deliberately unchanged. `regret_reliable`'s own labels (`oracle_beaten`, `oracle_beaten_achieved_outside_lp_soc_bounds`) still win when both fire — the stronger finding keeps the field and a history of those labels stays readable. And the denominator cause is **not** mirrored into `epr_reason`: `_epr_reliability()`'s own docstring records why (the two describe different halves of the same ratio and a reader needs to see both on a day where both happen), and a test now pins that, so folding it in later is a deliberate choice rather than a drift.
+
+  The invariant this restores — **`epr_reliable` is not `true` implies at least one reason field is non-null** — is asserted across all 12 signal combinations rather than on the one day that exposed it, because the gap lived in a cell nothing had visited. `test_quality_report_negative_regret_guard.py` already pinned `_epr_reliability(False, True) is False`, the exact live combination: the flag was covered, the reason never was.
+
+### Notes
+- **This does not change any EPR, regret or reliability figure.** It only fills in a reason that was missing. The underlying measurement problem it points at — the achieved SoC reconstruction disagreeing with the real sensor by ~20 kWh, and implied pack capacity varying 99.9 / 123.2 / 67.7 kWh across three phases of a single day — is [#1012](https://github.com/code-imstillalive/nimbus/issues/1012), which was closed on diagnostics while the mapping itself was left uncorrected. #1162 argues it should be reopened.
+- Also unchanged, and worth stating because it is the obvious next question: the sensor's `state` is still the EPR even when `epr_reliable` is false. Deciding what a trend chart should show for an untrustworthy day is a product call for the household, not something to change unilaterally — it is ask 2 on #1162.
+- Native-only, like the two helpers it sits beside: the standalone/cron writer computes no quality report, so there is nothing there for this to be missing from. Recorded in `test_docs_writer_function_set_drift.py`'s own exemption list with that reason rather than left to trip the #357 drift guard.
+
+
 ## [0.94.399] - 2026-09-20
 
 ### Fixed

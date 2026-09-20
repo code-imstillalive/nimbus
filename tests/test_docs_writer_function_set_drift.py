@@ -221,6 +221,11 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # FROM. Not a gap.
         "_achieved_feasibility_stats",
         "_epr_reliability",
+        # nimbus issue #1162: the third helper of that same trio --
+        # supplies `epr_reason` for the one reliability signal that had
+        # none. Called only from _compute_report_for_window, beside the
+        # two directly above, and native-only for the identical reason.
+        "_epr_soc_reason",
         # nimbus issue #984: same again -- a private helper of the same
         # native-only quality report, measuring how much of a day the
         # recorder actually returned before that day may be scored. The
