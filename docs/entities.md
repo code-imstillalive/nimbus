@@ -54,6 +54,60 @@ value_captured + uplift_available = theoretical_maximum_yield
 J_ref - J_ach + J_ach - J_star   = J_ref - J_star
 ```
 
+**Reliability: when the report does not stand behind its own EPR** (nimbus issues [#533](https://github.com/code-imstillalive/nimbus/issues/533), [#956](https://github.com/code-imstillalive/nimbus/issues/956), [#1089](https://github.com/code-imstillalive/nimbus/issues/1089), [#1162](https://github.com/code-imstillalive/nimbus/issues/1162)):
+
+EPR is a ratio of reconstructed quantities, and the reconstruction can be wrong. Three independent signals gate it, and **a definite "no" from any one wins**:
+
+| attribute | meaning |
+| --- | --- |
+| `epr_reliable` | `true` / `false` / `null`. `null` means the SoC half could not be computed at all — genuinely unknown, not fine. |
+| `epr_reason` | Why, when it is not `true`. See values below. |
+| `epr_denominator_reason` | #1089's: EPR's denominator is not a positive quantity, so the ratio is not a percentage of anything. Kept as its own field rather than folded into `epr_reason`, because a day can hit both and a reader needs to see both. |
+| `soc_discrepancy_reliable` / `soc_discrepancy_reason` | Whether the reconstructed SoC trajectory agrees with the real SoC sensor, and why not. `disagreement` means it exceeded `number.nimbus_solver_soc_discrepancy_max_threshold_pct` or the mean equivalent; `out_of_range` means the reconstruction left `[0, 100]`. |
+| `regret_reliable` | `false` when `regret_dollars < 0` — achieved priced out cheaper than perfect foresight, which is not a result but proof the comparison was invalid. |
+
+`epr_reason` values:
+
+| value | meaning |
+| --- | --- |
+| `null` | Nothing wrong (when `epr_reliable` is `true`). |
+| `achieved_soc_unreliable:<verdict>` | The SoC comparison failed; `<verdict>` carries `soc_discrepancy_reason`'s own word so the two fields cannot disagree about one finding. |
+| `achieved_soc_unverifiable` | The SoC comparison could not be made — no real SoC history. Distinct from the above on purpose: "we checked and it disagrees" is not "we could not check". |
+| `oracle_beaten` | Negative regret with the achieved trajectory inside the LP's SoC envelope. |
+| `oracle_beaten_achieved_outside_lp_soc_bounds` | Negative regret with the trajectory outside it — sensor or unit trouble rather than a modelling gap. |
+
+**The invariant**: `epr_reliable` not being `true` implies at least one of `epr_reason` / `epr_denominator_reason` is non-null. Before #1162 the SoC half could fire with every one of them reading `null`, so a household was told not to trust the number and given nothing to act on.
+
+**`j_star_path_delta` and `regret_path_delta_share` — how much of the regret is a pricing disagreement** (nimbus issues [#1081](https://github.com/code-imstillalive/nimbus/issues/1081), [#1162](https://github.com/code-imstillalive/nimbus/issues/1162)):
+
+`j_star` is the oracle LP's own objective; `j_star_evaluator` is that same plan repriced through the path `j_ach` takes. They differ because an LP objective carries terms an evaluator does not (soft-SoC penalties, slack, the bonus as a chosen variable). EPR and regret are computed from the **evaluator** figure, so the two are comparable.
+
+`j_star_path_delta` is their difference, and it is exactly the amount the regret moved by that choice:
+
+```
+regret_evaluator - regret_raw
+  = (j_ach - j_star_evaluator) - (j_ach - j_star)
+  = j_star - j_star_evaluator
+  = j_star_path_delta
+```
+
+`regret_path_delta_share` publishes that as a fraction of the published regret, clamped to `[0, 1]`, magnitudes on both sides (regret can be negative for an unrelated reason), and `0.0` when the paths agree. It is scale-free so one threshold reads the same on a $3 day and a $30 one.
+
+Why it matters: on the reference household's 19 Sep, regret against the raw objective is $1.02 and the published regret is $3.65 — **72% of the headline is the two paths disagreeing about the oracle's own plan**, not the household having dispatched differently. On the dev install the same day reads 90%. A household reading "$3.65 of regret" without this would go looking for a dispatch mistake that is mostly not there.
+
+**`measured_usable_capacity_kwh` and `configured_usable_capacity_kwh` — is the configured pack size right?** (nimbus issue [#1172](https://github.com/code-imstillalive/nimbus/issues/1172)):
+
+| attribute | meaning |
+| --- | --- |
+| `measured_usable_capacity_kwh` | This pack's usable capacity as the day's own data measures it: energy charged over the day's largest monotonic real-SoC rise, divided by that rise. `null` when no rise is large enough for the division to mean anything, which on a shallow-cycling install is most days. |
+| `configured_usable_capacity_kwh` | What the solver is using — `solver_battery_capacity_kwh` **already derated** by `solver_battery_soh_percent`. The derate is applied here so the pair is directly comparable without deriving it. |
+
+Measured from a monotonic rise rather than the energy balance, deliberately: within one scored window the balance's `measured` is a **net** swing and cannot be attributed to either direction, which is why `battery_energy_balance()` does not solve for capacity. A monotonic charge phase has no discharge to confound it.
+
+Why the pair rather than the measurement alone: `soc_discrepancy_reason` says `disagreement` and cannot say **which** disagreement. A reconstruction drifting because the configured capacity is wrong, and one drifting because a fleet blend compares different things ([#949](https://github.com/code-imstillalive/nimbus/issues/949)), produce the identical word.
+
+On the reference household the configured figure reads 119.8 kWh (122.2 nameplate × 98% SoH) against ~110 kWh measured across four consecutive near-full sweeps — 112.6 / 109.9 / 109.7 / 107.7. An overstated capacity makes the same energy move the modelled SoC **less**, so the reconstruction under-rises through the charge phase and carries that deficit into the evening as a near-constant offset. Neither figure changes the configured value: that re-prices every future dispatch decision and stays a household decision.
+
 ## Attribute history: the parent sensors store none
 
 **`state_attr()` works live, but returns nothing for any past timestamp** on the large parent sensors (`sensor.nimbus_solver_battery_forecast`, `sensor.nimbus_health_report`). If you are writing a template, automation, or chart that looks back in time, read the flattened child sensors instead — they are ordinary sensors with ordinary history and long-term statistics.
