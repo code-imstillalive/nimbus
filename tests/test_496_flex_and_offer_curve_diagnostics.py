@@ -26,12 +26,30 @@ project has already paid for:
    retyped here, so a new flex signal appears in diagnostics with no
    maintenance. Same class of fix as (1), applied before it can bite.
 
-Measured before writing any of it: `sensor.nimbus_flex_signals`' parent
-carries **no payload attributes at all** on a real install -- only entity
-metadata -- because every per-signal value lives on a flattened child.
-Spreading that parent the way the report is spread would have captured
-nothing and looked like it worked, which is why the two are handled
-differently rather than uniformly.
+Measured before writing any of it -- and **wrong**, corrected by nimbus
+#1141 in v0.94.396. The claim was that `sensor.nimbus_flex_signals`'
+parent carries no payload attributes at all, only entity metadata,
+because every per-signal value lives on a flattened child; and that
+spreading it the way the report is spread would have captured nothing
+while looking like it worked.
+
+That measurement was real but install-specific. It was taken where flex
+never populates, so the entity sat at `unknown` carrying only metadata
+-- one install's state generalised into a claim about the code.
+`publish_flex_signals()` posts ten scalars (all flattened, so those do
+reach diagnostics through the registry lookup) **plus**
+`battery_signals`, `load_signals` and `generated_at`, none of which are
+flattened anywhere. All three were silently absent from every
+diagnostics download until #1141.
+
+Decision (2) above still stands, and so does handling the two sensors
+differently: the report is spread whole, and the signals' flattened
+children are still resolved through the registry by unique_id. What
+changed is that the parent is now spread as well, minus whatever already
+has a flattened child -- the exclusion derived from
+`FLATTENED_ATTRS_FLEX` rather than hand-listed, for the same reason as
+(3). See `tests/test_1141_flex_signals_parent_payload_reaches_diagnostics.py`,
+which pins that behaviour and quotes the original docstring in full.
 
 Not covered, deliberately: this issue's other diagnostics criterion, "the
 last emitted record ... validates against schema v2.0". The vendored
