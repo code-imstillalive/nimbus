@@ -8892,6 +8892,21 @@ def rescore_quality_history(cfg: dict, now: datetime, days: int) -> dict:
             for field in _QUALITY_HEADLINE_ONLY_FIELDS:
                 if field in latest_entry:
                     attrs[field] = latest_entry[field]
+            # nimbus issue #1164 follow-up: `nimbus_version` is the one
+            # field in that tuple the recomputed report never carries --
+            # `_compute_report_for_window()` does not set it, and the
+            # sensor adds it as a fallback only when the publish did not.
+            # So the loop above could never copy it, and the rescore
+            # silently republished whatever the PREVIOUS publish left in
+            # `attrs` (observed on the dev install: a row stamped
+            # 0.94.401 sitting under a headline still claiming 0.94.391).
+            #
+            # Set from the running code, because that is the truthful
+            # claim: this rescore was produced by THIS release. Not
+            # copied from the history row's own `v` either -- that is the
+            # row's provenance, and on a multi-day rescore the row and
+            # the headline can legitimately be different days.
+            attrs["nimbus_version"] = _nimbus_version()
         ha_post_state(QUALITY_ENTITY_ID, state, attrs)
         _LOGGER.info(
             "Nimbus quality (#1120): rescored %d day(s) %s, skipped %d",

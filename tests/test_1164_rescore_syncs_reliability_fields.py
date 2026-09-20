@@ -217,8 +217,36 @@ class TestRescoringThePublishedDay(unittest.TestCase):
 
     def test_the_version_stamp_names_the_release_that_recomputed(self):
         """#1120's own point: a rescore that moves the figures and leaves
-        the stamp makes the sensor misreport its own provenance."""
+        the stamp makes the sensor misreport its own provenance.
+
+        This one cannot come from the sync loop. `nimbus_version` is the
+        single field in `_QUALITY_HEADLINE_ONLY_FIELDS` that the
+        recomputed report never carries -- `_compute_report_for_window()`
+        does not set it, the sensor adds it as a fallback only when the
+        publish did not -- so the loop had nothing to copy and the
+        rescore republished the PREVIOUS publish's value. Observed on the
+        dev install under v0.94.401: a history row stamped 0.94.401
+        sitting under a headline still claiming 0.94.391. It is now set
+        from the running code explicitly.
+        """
         self.assertEqual(self.attrs["nimbus_version"], "0.94.401")
+
+    def test_the_stamp_comes_from_the_running_code_not_the_entry(self):
+        """Pins the mechanism, not just the value: an entry carrying no
+        version at all must still produce a correct stamp, which is the
+        real case -- the report never carries one."""
+        _result, posted = _run(
+            1,
+            _stale_attrs(),
+            lambda cfg, s, e, allow_partial: _entry(0.9175),
+            version="0.94.402",
+        )
+        self.assertEqual(
+            posted["attributes"]["nimbus_version"],
+            "0.94.402",
+            "the rescue republished the previous publish's stamp -- the "
+            "sensor now misreports which release produced its figures",
+        )
 
     def test_the_figures_moved_too(self):
         """Guards the fixture: if the headline figures did not move
@@ -275,6 +303,11 @@ class TestAMissingFieldIsSurvivable(unittest.TestCase):
             1, existing, lambda cfg, s, e, allow_partial: _entry(0.9175)
         )
         for f in RELIABILITY_FIELDS:
+            if f == "nimbus_version":
+                # Always set from the running code now, so it is the one
+                # field an install legitimately GAINS -- see
+                # test_the_stamp_comes_from_the_running_code_not_the_entry.
+                continue
             with self.subTest(field=f):
                 self.assertNotIn(f, posted["attributes"])
 
