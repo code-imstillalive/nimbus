@@ -8,6 +8,30 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.397] - 2026-09-20
+
+### Added
+- **`nimbus_load.rescore_history` — a rescore path that actually writes back** ([#1120](https://github.com/code-imstillalive/nimbus/issues/1120), part 3 of 3).
+
+  A day is scored **once**, the morning after, and frozen into the quality report's `history` table. Nothing ever recomputes an entry, so every scoring-formula change silently splits the table into two incomparable halves that sit on the same card with nothing saying so. Parts 1 and 2 of this issue made that mix *visible* — the per-row version stamp in v0.94.392, and the trend card's axis clipping — but neither made it *fixable*.
+
+  `compute_quality_report()` already scores an arbitrary window correctly. It **returns** the answer and writes nothing back, so an operator who knows exactly which row is stale still has no way to correct it. This is the missing half.
+
+  **A separate service rather than a `persist: true` flag on that one**, which is the choice the issue left open. `compute_quality_report` scores an **arbitrary window**; this table is keyed by **calendar day**. Persisting a 6-hour or 3-day window would mean either silently rounding it to a day key — wrong, and invisibly so — or rejecting most calls as invalid. Whole days are the only unit the table can hold, so the service that writes to it takes days.
+
+  `days` defaults to **1** and caps at **30**, because each day costs a full oracle MILP. Explicit, bounded, never automatic and never on upgrade.
+
+  Four properties that each earned their own test:
+
+  - **Day boundaries are derived exactly as the daily scorer derives them** — local midnight to local midnight, `allow_partial=False` — so a rescored row is directly comparable to one written the ordinary way rather than subtly different in its window.
+  - **A failed day is skipped with its reason, never fatal.** Real history thins as it ages and any single day may be unscoreable; aborting would discard every day already computed, each of which had already paid for its own MILP. The reason is both logged and returned — returning it alone would satisfy the caller while leaving nothing in the log for whoever reads the install afterwards.
+  - **Rows are written through `_carry_forward_quality_history()`**, the same merge the daily scorer uses, so a rescored row carries the release that produced it exactly like a fresh one. A table rescored halfway still says which half is which, preserving part 1 rather than defeating it.
+  - **If the rescored day IS the currently-published day, the headline attributes and the state channel move too.** The "Yesterday" card reads the sensor's top-level attributes while the trend card reads `history`; correcting one and not the other would leave them disagreeing, which is the defect this issue describes rather than a fix for it.
+
+  An install that has never been scored — `history` absent rather than empty — builds the table rather than failing on a missing key, because "I just set this up and my table is empty" is exactly when someone reaches for a backfill.
+
+  Devhub validation: not claimed at time of writing, because a release has to exist before it can reach the dev install at all. Unlike v0.94.396's two fixes — neither of which that install can exercise — this one genuinely can be verified there: the service either registers or it does not, and it can be called against a real quality sensor. That check follows this release rather than preceding it, and issue 1120 stays open until it has actually been done.
+
 ## [0.94.396] - 2026-09-20
 
 ### Fixed
