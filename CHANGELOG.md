@@ -8,6 +8,36 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.403] - 2026-09-20
+
+### Fixed
+- **A rescore published the recomputed headline figures on top of the previous computation's entire hourly payload, so the Dispatch Regret card rendered hours that did not sum to the regret above them** ([#1167](https://github.com/code-imstillalive/nimbus/issues/1167)).
+
+  Observed on the dev install under v0.94.402, after a rescore that reported success and wrote a correctly stamped row:
+
+  ```
+  regret_dollars       2.0674     <- the rescored day
+  sum(hourly_regret)   3.6485     <- the previous computation
+  ```
+
+  Those are the same quantity computed two ways, disagreeing by 76%, because one moved and the other did not. `hourly_regret` is what `nimbus-regret-card.js` reads. The same applied to `j_ach_hourly`, `j_ref_hourly`, `j_star_hourly`, `soc_discrepancy_hourly`, `achieved_energy_*`, `real_p2p_*`, `tracking_*` and `load_nowcast_skill_*`.
+
+  **This is the fourth instance of one defect class in two days** — [#1149](https://github.com/code-imstillalive/nimbus/issues/1149)'s `energy_decomposition`, [#1164](https://github.com/code-imstillalive/nimbus/issues/1164)'s eight reliability fields, v0.94.402's version stamp, and now the whole payload. Each earlier fix added names to a hand-maintained tuple. **The names were never the problem; enumerating was.**
+
+  `publish_daily_quality_report()` has always spread the recomputed report wholesale (`**day_entry`). The rescore was the only path that enumerated, and the only one that drifted. It now does the same thing, so both paths make the same promise: **the headline describes the day that was just scored, entirely.** `_QUALITY_HEADLINE_ONLY_FIELDS` is gone — it existed only to be forgotten.
+
+  `_QUALITY_HISTORY_FIELDS` stays: it has a second, real job defining what each history *row* carries, which is size-constrained for the reason the recorder-cap guard exists.
+
+  Two things deliberately still do not come from the rescored day, each pinned by a test: `history` (merged across every rescored day — one day must not replace the table) and `nimbus_version` (never carried by the recomputed report, set from the running code instead).
+
+### Added
+- **A structural guard so there is no fifth instance** ([#1167](https://github.com/code-imstillalive/nimbus/issues/1167)). The new sweep drives a rescore whose recomputed report carries a deliberately different value for every key and asserts each one reaches the published attributes — **discovering the report's fields rather than listing them**, so a field added tomorrow is covered without anyone remembering. Anything genuinely exempt has to be named with a reason, which makes it a decision rather than a drift. It carries its own not-passing-vacuously check: every asserted field must actually differ from what was published before.
+
+### Notes
+- Devhub validation: the defect was **found** there, by checking `sum(hourly_regret)` against the published `regret_dollars` after v0.94.402's own rescore — the fourth release in a row today corrected by running the validation rather than claiming it.
+- Mutation-checked in the way that matters: reverting to the enumerated sync fails the new sweep **and** both earlier generations of tests (#1149's and #1164's), which is the evidence that this genuinely subsumes them rather than sitting beside them.
+
+
 ## [0.94.402] - 2026-09-20
 
 ### Fixed
