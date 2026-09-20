@@ -75,7 +75,7 @@ available to each:
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -196,6 +196,86 @@ class QualityReport:
     docstring already names the risk: *"Both must answer the same
     question the same way, or a counterfactual scored here is not
     comparable to one the LP produced."*"""
+
+    energy_decomposition: dict[str, dict[str, float]] = field(default_factory=dict)
+    """Whole-day energy in kWh for each trajectory, plus the achieved-
+    minus-oracle delta -- four rows (`reference`, `achieved`, `oracle`,
+    `achieved_minus_oracle`), each with `charge_kwh`, `discharge_kwh`,
+    `grid_import_kwh`, `grid_export_kwh`.
+
+    **Why this exists when `hourly_regret` already breaks the day down.**
+    The hourly buckets answer "which hour cost money"; they cannot answer
+    "what did the controller do differently", and when the difference is
+    one decision spread across several hours they actively obscure it.
+    `hourly_regret_breakdown()`'s own docstring already says the buckets
+    can be large in both directions and cancel -- this is the companion
+    that says what the cancelling hours were doing.
+
+    Measured on a real install (2026-09-20, reference household, 19 Sep
+    scored): the day's `hourly_regret` ran -$6.17 at 11:00 against
+    +$11.46 across 12:00-15:00, a gross positive 3.1x the $3.65 net, and
+    ranking the hours points at 14:00. The decomposition says it in one
+    line instead: achieved charged 108.1 kWh against the oracle's 83.1
+    and imported 60.0 against 39.8, while the evening discharge differed
+    by only ~3.5 kWh. One over-charge, not five hourly findings.
+
+    Only the achieved side was previously derivable, and only partly:
+    `fleet_achieved_energy_in_kwh`/`_out_kwh` publish achieved charge and
+    discharge, but there has never been an oracle counterpart or a grid
+    figure for either, so the delta that explains a day could not be
+    computed from this sensor at all. The achieved row reconciles with
+    those two fields by construction (same arrays, same hours) rather
+    than being a second, independently-derived answer to the same
+    question.
+
+    Defaulted empty so every construction site and test predating this
+    field is unaffected."""
+
+
+def _energy_totals(
+    *,
+    hours: NDArray[np.float64],
+    charge_kw_by_battery: list[NDArray[np.float64]],
+    discharge_kw_by_battery: list[NDArray[np.float64]],
+    grid_kw: NDArray[np.float64],
+) -> dict[str, float]:
+    """One trajectory's whole-day energy in kWh -- how much the fleet put
+    in, took out, bought and sold.
+
+    Charge and discharge are summed per battery as MAGNITUDES, not taken
+    from the fleet's net kW. A fleet where one battery charges while
+    another discharges nets those against each other, which is the right
+    number for a grid identity and the wrong one for "how much energy
+    actually moved". Summing magnitudes matches
+    `fleet_achieved_energy_in_kwh`/`_out_kwh`'s own definition exactly,
+    so the achieved row reconciles with those two already-published
+    figures instead of quietly disagreeing by the cancelled amount.
+
+    Grid, by contrast, genuinely IS a single flow, so import and export
+    split one signed array: `grid_kw` + = import, - = export, the same
+    convention the hourly rows already use.
+
+    Pass empty battery lists for the idle/reference trajectory -- it has
+    no battery activity by construction, and 0.0 is the honest answer
+    there rather than an absent key.
+    """
+    # Explicit 0.0 start rather than sum()'s own implicit int 0: the
+    # reference trajectory passes empty battery lists, and a row that
+    # published int 0 where every sibling row published a float is
+    # exactly the kind of quiet type inconsistency a consumer trips over
+    # later. Caught by this field's own shape test, not by review.
+    charge_kwh = sum(
+        (float(np.sum(np.abs(c) * hours)) for c in charge_kw_by_battery), 0.0
+    )
+    discharge_kwh = sum(
+        (float(np.sum(np.abs(d) * hours)) for d in discharge_kw_by_battery), 0.0
+    )
+    return {
+        "charge_kwh": round(charge_kwh, 3),
+        "discharge_kwh": round(discharge_kwh, 3),
+        "grid_import_kwh": round(float(np.sum(np.maximum(grid_kw, 0.0) * hours)), 3),
+        "grid_export_kwh": round(float(np.sum(np.maximum(-grid_kw, 0.0) * hours)), 3),
+    }
 
 
 def _hourly_means_by_key(
@@ -936,6 +1016,38 @@ def compute_quality_report(
     j_star_grid_kw = (
         load.forecast_kw - solar.forecast_kw + j_star_battery_net_kw
     ).astype(np.float64)
+    # Whole-day energy per trajectory, plus the achieved-minus-oracle
+    # delta -- the "what did the controller do differently" companion to
+    # `hourly_regret`'s "which hour cost money". Built from the arrays
+    # already in hand, so it costs no extra solve. See the
+    # `energy_decomposition` field's own docstring for the real measured
+    # day that motivated it.
+    energy_decomposition: dict[str, dict[str, float]] = {
+        "reference": _energy_totals(
+            hours=hours,
+            charge_kw_by_battery=[],
+            discharge_kw_by_battery=[],
+            grid_kw=j_ref_grid_kw,
+        ),
+        "achieved": _energy_totals(
+            hours=hours,
+            charge_kw_by_battery=list(actual_charge_kw),
+            discharge_kw_by_battery=list(actual_discharge_kw),
+            grid_kw=j_ach_grid_kw,
+        ),
+        "oracle": _energy_totals(
+            hours=hours,
+            charge_kw_by_battery=list(oracle_charge_kw),
+            discharge_kw_by_battery=list(oracle_discharge_kw),
+            grid_kw=j_star_grid_kw,
+        ),
+    }
+    energy_decomposition["achieved_minus_oracle"] = {
+        k: round(
+            energy_decomposition["achieved"][k] - energy_decomposition["oracle"][k], 3
+        )
+        for k in energy_decomposition["achieved"]
+    }
     # `timestamps[0]` is period 0's tz-aware datetime, always the
     # day-start anchor for the daily-quality run (see
     # compute_daily_quality_report()). Passed through to
@@ -1064,6 +1176,7 @@ def compute_quality_report(
         j_ref_hourly=j_ref_hourly,
         j_ach_hourly=j_ach_hourly,
         j_star_hourly=j_star_hourly,
+        energy_decomposition=energy_decomposition,
         p2p_commitment_shortfall_kwh=round(p2p_commitment_shortfall_kwh, 4),
         j_star_evaluator=round(j_star_evaluator, 4),
         j_star_path_delta=round(j_star_path_delta, 4),
