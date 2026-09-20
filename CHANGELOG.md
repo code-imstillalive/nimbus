@@ -8,6 +8,34 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.406] - 2026-09-20
+
+### Added
+- **CI now enforces the second half of [#594](https://github.com/code-imstillalive/nimbus/issues/594)'s ask: every release entry must say what a household SEES, not only what was checked on an install.**
+
+  #594 asks two things of each release — validate it on a real install, and look at the feature the way the household will. Only the first was ever mechanised, and the result is a clean natural experiment rather than an opinion:
+
+  ```
+  entries at or after 0.94.340 .......... 66
+    carrying "Devhub validation:" ....... 66   (CI enforces it)
+    saying anything consumer-facing ..... 17   (nothing enforces it)
+  ```
+
+  Same author, same period, same entries. **The criterion CI enforces sits at 100%; the one nothing enforces sits at 26%.** That is why #594 has been half-met for two weeks, and it is the whole argument for this guard.
+
+  Measured before writing it, per [#1057](https://github.com/code-imstillalive/nimbus/issues/1057)'s lesson: a retrofit would have rejected **49 truthful entries**, so it is enforced from v0.94.406 forward rather than backwards. A guard that rejects real compliance is worse than the gap it closes.
+
+  The required phrase is `Consumer check:`, mirroring `Devhub validation:` — anchored to a line start so prose *about* another entry's line does not satisfy it, bullet optional because the file genuinely writes both shapes, and searched against `_prose_only()` so naming the phrase in a code span cannot be mistaken for stating it. Each of those three is inherited from a real defeat the sibling guard already suffered.
+
+  A fixed phrase rather than sniffing for "card"/"dashboard": those words appear in entries that never ask the consumer question and are absent from entries that do, so keyword matching would be wrong in both directions.
+
+  **"Nothing user-visible changed" is a real answer**, not an exemption. Most releases are internal, and saying so explicitly is the point — it is the difference between having asked and having not thought about it.
+
+### Notes
+- Devhub validation: **not claimed, and not applicable.** This release changes no runtime code at all — it is a CHANGELOG guard living in the test suite. There is nothing to deploy and nothing an install could demonstrate. The guard's own behaviour is covered by four tests including the two defeats #1057 found on its sibling.
+- Consumer check: **nothing user-visible changed.** No entity, attribute, card or device page is affected. The audience for this release is whoever writes the next CHANGELOG entry, and what they will see is CI failing until they answer the question.
+
+
 ## [0.94.405] - 2026-09-20
 
 ### Fixed

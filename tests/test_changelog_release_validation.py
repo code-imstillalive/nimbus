@@ -57,6 +57,22 @@ _MIN_ENFORCED_VERSION = (0, 94, 289)
 
 _SECTION_RE = re.compile(r"^## \[(\d+\.\d+\.\d+)\][^\n]*$", re.MULTILINE)
 
+# nimbus issue #594 criterion 2: the entry must also say what a HOUSEHOLD
+# sees, not only what was checked on an install.
+#
+# Set at the first release that can comply rather than retrofitted, for
+# the reason #1057 exists. Measured against the real file before writing
+# this: of the 66 entries at or after 0.94.340, **66 carry a "Devhub
+# validation:" line and 17 say anything consumer-facing at all**. A
+# retrofit would have rejected 49 truthful entries.
+#
+# That 66-vs-17 split is also the argument FOR the guard, and it is a
+# clean natural experiment rather than an opinion: the criterion CI
+# enforces sits at 100%, the criterion nothing enforces sits at 26%,
+# across the same entries written by the same author in the same period.
+# #594's own ask has been half-met for two weeks for exactly that reason.
+_MIN_CONSUMER_VERSION = (0, 94, 406)
+
 # Deliberately narrow. The point is that the entry states what was
 # actually checked on a real install -- not that it contains a hopeful
 # adjective. "Devhub validation:" is the phrase the backfill used and
@@ -85,6 +101,18 @@ _SECTION_RE = re.compile(r"^## \[(\d+\.\d+\.\d+)\][^\n]*$", re.MULTILINE)
 _VALIDATION_RE = re.compile(
     r"^\s*(?:-\s*)?devhub validation:", re.IGNORECASE | re.MULTILINE
 )
+
+# Same shape as _VALIDATION_RE above, and the same reasoning applies to
+# every part of it: anchored (so prose ABOUT another entry's line does
+# not satisfy it), bullet optional (because the real file writes both
+# forms), and searched against _prose_only() so naming the phrase in a
+# code span cannot be mistaken for stating it.
+#
+# A fixed phrase rather than keyword-sniffing for "card"/"dashboard".
+# Those words appear in entries that never ask the consumer question and
+# are absent from entries that do -- matching them would give a guard
+# wrong in both directions, which is worse than none.
+_CONSUMER_RE = re.compile(r"^\s*(?:-\s*)?consumer check:", re.IGNORECASE | re.MULTILINE)
 
 # ...but a CHANGELOG entry may also TALK ABOUT validation lines rather
 # than carry one, and this guard could not tell the difference. Found
@@ -130,6 +158,84 @@ def _sections() -> dict[tuple[int, ...], str]:
         key = tuple(int(p) for p in m.group(1).split("."))
         out[key] = text[m.end() : end]
     return out
+
+
+class TestReleasesNameTheirConsumerCheck(unittest.TestCase):
+    """nimbus issue #594 criterion 2: say what a household SEES.
+
+    The ask has two halves -- validate on a real install, and look at the
+    feature the way the household will. Only the first was ever
+    mechanised, and the outcome is a clean natural experiment rather than
+    an opinion:
+
+        entries at or after 0.94.340 .......... 66
+          carrying "Devhub validation:" ....... 66   (CI enforces it)
+          saying anything consumer-facing ..... 17   (nothing enforces it)
+
+    Same author, same period, same entries. The enforced criterion sits
+    at 100% and the unenforced one at 26%, which is the argument for this
+    guard and also why #594 has been half-met for two weeks.
+
+    Enforced from `_MIN_CONSUMER_VERSION` forward rather than
+    retrofitted: a retrofit would reject 49 truthful entries, and a guard
+    that rejects real compliance is worse than the gap it closes (#1057).
+    """
+
+    def test_every_enforced_release_states_what_a_household_sees(self):
+        in_flight = _in_flight_version()
+        missing = sorted(
+            ".".join(str(p) for p in ver)
+            for ver, body in _sections().items()
+            if _MIN_CONSUMER_VERSION <= ver < in_flight
+            and not _CONSUMER_RE.search(_prose_only(body))
+        )
+        self.assertEqual(
+            missing,
+            [],
+            f"these releases have no 'Consumer check:' line in their "
+            f"CHANGELOG entry: {missing}. nimbus issue #594 criterion 2 "
+            f"asks what an engaged consumer would want to see, and whether "
+            f"that actually shipped. Answer it in the entry -- including "
+            f"'nothing user-visible changed' where that is the honest "
+            f"answer, which is a real answer and not an exemption.",
+        )
+
+    def test_the_threshold_does_not_reject_history(self):
+        """The measurement this guard's own scope rests on. If the
+        threshold is ever lowered, it must be lowered deliberately and
+        with the entries below it brought into compliance first."""
+        below = [
+            ver
+            for ver, body in _sections().items()
+            if ver < _MIN_CONSUMER_VERSION
+            and not _CONSUMER_RE.search(_prose_only(body))
+        ]
+        self.assertTrue(
+            below,
+            "no pre-threshold entry lacks a consumer line, so the "
+            "threshold is now pointless and the guard should simply be "
+            "extended backwards",
+        )
+
+    def test_the_guard_is_not_satisfied_by_talking_about_it(self):
+        """The mirror-image defeat #1057 found on the sibling guard: an
+        entry that merely names the phrase in a code span must not pass."""
+        self.assertIsNone(
+            _CONSUMER_RE.search(
+                _prose_only("see that entry's own `Consumer check:` note")
+            )
+        )
+
+    def test_the_guard_matches_both_real_shapes(self):
+        """Bullet and bare paragraph, because the file genuinely writes
+        both -- the measurement that stopped the sibling guard requiring
+        a dash."""
+        self.assertIsNotNone(
+            _CONSUMER_RE.search("- Consumer check: nothing visible changed.")
+        )
+        self.assertIsNotNone(
+            _CONSUMER_RE.search("  Consumer check: the card now reads ...")
+        )
 
 
 class TestReleasesNameTheirValidation(unittest.TestCase):
