@@ -8086,37 +8086,27 @@ def _compute_report_for_window(
         "j_ach_hourly": report.j_ach_hourly,
         "j_star_hourly": report.j_star_hourly,
         **soc_discrepancy,
-        # nimbus issue #1172: the pack's usable capacity as this day's
-        # own data measures it, next to the figure the solver is using.
-        # `solver_battery_capacity_kwh` prices the live LP as well as
-        # this reconstruction, so a pack believed larger than it is
-        # plans charge that cannot fit -- measured at 110 kWh against
-        # 122.2 configured on the reference household.
+        # nimbus issue #1172: the capacity the solver and this
+        # reconstruction actually plan against.
         #
-        # None on any day without a large enough monotonic rise, which
-        # on a shallow-cycling install is most of them.
-        "measured_usable_capacity_kwh": _measured_usable_capacity_kwh(
-            soc_discrepancy.get("soc_discrepancy_hourly"), report.j_ach_hourly
-        ),
-        # nimbus issue #1172: the figure the measured one should be read
-        # AGAINST, published beside it so the comparison needs no outside
-        # knowledge.
+        # Published ALONE. A `measured_usable_capacity_kwh` sat beside it
+        # from v0.94.407 until it was retracted in v0.94.412 -- see the
+        # block above `_regret_path_delta_share()` for why a power sensor
+        # cannot measure capacity, and do not add one back.
         #
         # This is the EFFECTIVE capacity -- nameplate already derated by
         # `solver_battery_soh_percent` -- because that is what the solver
         # and the reconstruction both actually use. Publishing the
-        # nameplate instead would make a household comparing the pair
-        # reach for the wrong number and conclude the gap is larger or
-        # smaller than it is: on the reference household nameplate is
-        # 122.2 and effective is 119.8, and the measured figure is ~110.
+        # nameplate instead would send a household reaching for the wrong
+        # number: on the reference household nameplate is 122.2 and
+        # effective is 119.8, and it is 119.8 that prices the LP.
         #
-        # Why the pair matters rather than the measurement alone:
-        # `soc_discrepancy_reason` says "disagreement" and cannot say
-        # WHICH disagreement. A reconstruction drifting because the
-        # configured capacity is wrong and one drifting because a fleet
-        # blend compares different things (#949) produce the same word.
-        # These two numbers side by side separate them without anyone
-        # having to derive the derate by hand.
+        # Worth stating on its own (nimbus issue #1013): SoH was a
+        # dashboard dial read by nothing until v0.94.3xx, so a household
+        # could not otherwise tell what capacity the solver believed in.
+        # Verified correct on the reference household 2026-09-20 -- the
+        # BMS's own energy counter puts usable at 119.7 kWh against this
+        # 119.72.
         "configured_usable_capacity_kwh": round(capacity_kwh, 1)
         if capacity_kwh > 0
         else None,
@@ -8278,97 +8268,49 @@ def _compute_report_for_window(
     }
 
 
-# nimbus issue #1172: how large a real-SoC rise has to be before
-# dividing energy by it says anything about capacity.
+# nimbus issue #1172: there is deliberately NO capacity measurement here.
 #
-# The division is `charged_kwh / (rise_pct/100)`, so the rise sits in the
-# denominator and a small one amplifies every error in it -- sensor
-# quantisation, the hourly resampling, a period boundary landing mid-ramp.
-# At 50 points a 0.5-point reading error moves the answer by 1%; at 5
-# points it moves it by 10%, which is larger than the effect being
-# measured.
+# v0.94.407 shipped `_measured_usable_capacity_kwh()`, which divided the
+# energy seen at the battery POWER sensor by the real-SoC points gained
+# and published the quotient as this pack's usable capacity. It was
+# retracted in v0.94.412 because that quotient is not capacity, and
+# cannot be made into capacity from these inputs.
 #
-# Set where the real measurements are rather than at a comfortable round
-# number: four consecutive days on the reference household rose 97.3-98.0
-# points, so 50 accepts every genuine full sweep with margin while
-# refusing the shallow-cycling days that carry no signal. Those days
-# report None, which is an honest absence, not a gap.
-_MIN_CAPACITY_RISE_PCT = 50.0
-
-
-def _measured_usable_capacity_kwh(
-    soc_hourly: list[dict] | None,
-    j_ach_hourly: dict | None,
-) -> float | None:
-    """This pack's usable capacity, measured from the day's own largest
-    monotonic real-SoC rise (nimbus issue #1172).
-
-    **Why a monotonic rise and not the energy balance.**
-    `battery_energy_balance()` deliberately does not solve for capacity,
-    and its own comment says why: within one scored window `measured` is
-    a NET swing, and a window carrying both directions cannot attribute
-    it to either side. That is correct. A monotonic charge phase has no
-    discharge to confound it, so the division is clean -- and that same
-    comment notes "pairing two windows is the caller's job". This is the
-    caller doing it, on the one shape that is unambiguous.
-
-    **Needs no new data.** Both inputs are already computed for the
-    report: the REAL SoC series from `soc_discrepancy_hourly`, and the
-    achieved battery power from `j_ach_hourly`. Measured on the
-    reference household's 19 Sep report, this returns 109.4 kWh against
-    the 107.7 a raw-sample integration gives for the same day -- 1.6%
-    apart at hourly resolution, for zero extra recorder reads.
-
-    Four consecutive days there measured 112.6 / 109.9 / 109.7 / 107.7
-    kWh, against 122.2 configured (119.8 after the 98% SoH derate).
-
-    Returns None when no qualifying rise exists, which on a
-    shallow-cycling install is most days. That is an honest absence
-    rather than a number computed from a denominator too small to carry
-    one.
-    """
-    if not soc_hourly or not j_ach_hourly:
-        return None
-    rows = [
-        r
-        for r in soc_hourly
-        if isinstance(r, dict) and r.get("hour") and r.get("real_pct") is not None
-    ]
-    if len(rows) < 2:
-        return None
-    rows.sort(key=lambda r: str(r["hour"]))
-    power = {str(k): v for k, v in j_ach_hourly.items()}
-    power_keys = sorted(power)
-
-    best: tuple[float, int, int] | None = None
-    start = 0
-    for i in range(1, len(rows)):
-        # A small dip does not end a rise -- the real sensor quantises and
-        # wobbles. A real turn-around does.
-        if float(rows[i]["real_pct"]) < float(rows[i - 1]["real_pct"]) - 0.5:
-            start = i
-            continue
-        rise = float(rows[i]["real_pct"]) - float(rows[start]["real_pct"])
-        if rise >= _MIN_CAPACITY_RISE_PCT and (best is None or rise > best[0]):
-            best = (rise, start, i)
-    if best is None:
-        return None
-
-    rise, i0, i1 = best
-    h0, h1 = str(rows[i0]["hour"]), str(rows[i1]["hour"])
-    charged = 0.0
-    for k in power_keys:
-        if h0 <= k < h1:
-            row = power[k]
-            if isinstance(row, dict):
-                kw = float(row.get("battery_kw") or 0.0)
-                # Positive is charge, the same convention j_ach_hourly's
-                # own reconstruction uses.
-                if kw > 0.0:
-                    charged += kw
-    if charged <= 0.0:
-        return None
-    return round(charged / (rise / 100.0), 1)
+# **Why it is unsound in principle.** `energy_at_the_power_sensor /
+# SoC_points` equals capacity only if the power sensor integrates to
+# exactly the energy the pack actually moved. Any scale error in that
+# sensor, and any conversion loss between it and the cells, lands
+# entirely in the answer -- so the function returned
+# `capacity x sensor_error`, with no term able to separate the two.
+#
+# **What it did in practice**, measured on the reference household on
+# 2026-09-20 against the BMS's own energy counter -- an independent
+# instrument, rather than another view of the same sensor:
+#
+#     combined_battery_charge   109.11 -> 21.86 kWh  = -87.25 kWh
+#     logger_battery_level_soc   91.10 -> 18.20 %    = -72.90 points
+#     battery power, integrated                      = -82.59 kWh
+#
+#     usable capacity from the BMS counter   87.25 / 0.729 = 119.7 kWh
+#     configured (122.16 nameplate x 0.98 SoH)         = 119.72 kWh
+#
+# The configured value was right to within 0.04 kWh. The power sensor
+# under-reads by 5.3%, so the removed function returned 113.3 kWh on
+# that window and 109.4 kWh on a charge window -- telling a household
+# with a correctly configured pack that it was ~9% too large. The four
+# consecutive days that appeared to corroborate it were four runs of the
+# same method over the same sensor, which is not corroboration.
+#
+# **Do not reintroduce this from a power sensor.** Measuring capacity
+# needs an instrument reporting pack ENERGY directly (a BMS charge
+# counter). Nimbus takes no such sensor as config today, so the honest
+# position is to publish no measurement rather than one that is wrong on
+# a correctly configured install.
+# `configured_usable_capacity_kwh` is still published, because what the
+# solver plans against is a fact worth stating (nimbus issue #1013).
+#
+# tests/test_1172_no_capacity_measurement_from_a_power_sensor.py pins
+# this absence.
 
 
 def _regret_path_delta_share(

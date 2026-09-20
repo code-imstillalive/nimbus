@@ -8,6 +8,37 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.412] - 2026-09-20
+
+### Removed
+- **Retracted `measured_usable_capacity_kwh` and the Regret card's capacity sentence — a power sensor cannot measure pack capacity** ([#1172](https://github.com/code-imstillalive/nimbus/issues/1172)).
+
+  v0.94.407 published a "measured" usable capacity: energy at the battery **power** sensor over the day's largest monotonic real-SoC rise, divided by that rise. v0.94.408 rendered it on the Regret card as *"configured usable capacity is N kWh, X% above the M kWh this day's own charge measures."* Both are removed.
+
+  **The quotient is not capacity.** `energy_at_the_power_sensor / SoC_points` equals capacity only if that sensor integrates to exactly the energy the pack moved. Any scale error in the sensor, and any conversion loss between it and the cells, lands wholly in the answer — the function returned `capacity × sensor_error` with no term able to separate the two. That is the wrong quantity, not a noisy estimate of the right one, so no threshold or window choice repairs it.
+
+  Checked against the reference household's BMS energy counter — an independent instrument, rather than another view of the same sensor:
+
+  ```
+  combined_battery_charge   109.11 → 21.86 kWh  = −87.25 kWh
+  logger_battery_level_soc   91.10 → 18.20 %    = −72.90 points
+  battery power, integrated                     = −82.59 kWh
+
+  usable capacity from the BMS counter   87.25 / 0.729 = 119.7 kWh
+  configured (122.16 nameplate × 0.98 SoH)            = 119.72 kWh
+  ```
+
+  The configured value is right to within **0.04 kWh**; the power sensor under-reads by **5.3%**. So the retracted field read 113.3 kWh on that window and 109.4 kWh on a charge window, and the card told a household whose pack is configured correctly that it was ~9% too large.
+
+  **How it shipped:** it was validated against its own arithmetic, against a raw-sample integration of the *same power sensor*, and against four consecutive days of the *same method* — all three sharing the defect. It was never compared against the BMS counter sitting on the same install, which answers the question in one subtraction. Agreement among several views of one instrument is not corroboration.
+
+  `tests/test_1172_no_capacity_measurement_from_a_power_sensor.py` pins the absence and records why, including what a sound version would need: an input reporting pack **energy** directly. Nimbus takes no such sensor in config, so it now publishes no measurement rather than a wrong one.
+
+- Consumer check: **a wrong number is off the dashboard and the sensor.** A household on a correctly configured pack stops being told it is ~9% too large; `measured_usable_capacity_kwh` disappears from `sensor.nimbus_solver_quality_report` and its flattened child, and the capacity sentence disappears from the Regret card. `configured_usable_capacity_kwh` stays — that one is correct, independently confirmed at 119.7 vs 119.72 above, and it is the only way to see the SoH derate the solver actually plans against. The reliability caveat added in v0.94.408 is untouched.
+- No configured value was changed on any install, and none should be on the strength of the retracted figure. The efficiency question ([#1086](https://github.com/code-imstillalive/nimbus/issues/1086)) is explicitly **not** answered here: one clean discharge leg measures 0.947 one-way against 0.926 configured, which is not a round trip and not yet a number worth acting on.
+
+
+
 ## [0.94.411] - 2026-09-20
 
 ### Added

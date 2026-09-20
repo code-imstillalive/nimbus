@@ -95,18 +95,43 @@ regret_evaluator - regret_raw
 
 Why it matters: on the reference household's 19 Sep, regret against the raw objective is $1.02 and the published regret is $3.65 — **72% of the headline is the two paths disagreeing about the oracle's own plan**, not the household having dispatched differently. On the dev install the same day reads 90%. A household reading "$3.65 of regret" without this would go looking for a dispatch mistake that is mostly not there.
 
-**`measured_usable_capacity_kwh` and `configured_usable_capacity_kwh` — is the configured pack size right?** (nimbus issue [#1172](https://github.com/code-imstillalive/nimbus/issues/1172)):
+**`configured_usable_capacity_kwh` — what the solver actually plans against** (nimbus issue [#1172](https://github.com/code-imstillalive/nimbus/issues/1172), [#1013](https://github.com/code-imstillalive/nimbus/issues/1013)):
 
 | attribute | meaning |
 | --- | --- |
-| `measured_usable_capacity_kwh` | This pack's usable capacity as the day's own data measures it: energy charged over the day's largest monotonic real-SoC rise, divided by that rise. `null` when no rise is large enough for the division to mean anything, which on a shallow-cycling install is most days. |
-| `configured_usable_capacity_kwh` | What the solver is using — `solver_battery_capacity_kwh` **already derated** by `solver_battery_soh_percent`. The derate is applied here so the pair is directly comparable without deriving it. |
+| `configured_usable_capacity_kwh` | `solver_battery_capacity_kwh` **already derated** by `solver_battery_soh_percent`. Published because SoH was a dashboard dial read by nothing until it was wired up, so a household otherwise had no way to see what capacity the solver believed in. |
 
-Measured from a monotonic rise rather than the energy balance, deliberately: within one scored window the balance's `measured` is a **net** swing and cannot be attributed to either direction, which is why `battery_energy_balance()` does not solve for capacity. A monotonic charge phase has no discharge to confound it.
+**Retracted in v0.94.412: `measured_usable_capacity_kwh`.** v0.94.407 published a
+companion "measured" capacity — energy at the battery power sensor over the day's
+largest monotonic SoC rise, divided by that rise — and v0.94.408 rendered it on the
+Regret card as *"configured usable capacity is N kWh, X% above the M kWh this day's
+own charge measures."* Both are gone.
 
-Why the pair rather than the measurement alone: `soc_discrepancy_reason` says `disagreement` and cannot say **which** disagreement. A reconstruction drifting because the configured capacity is wrong, and one drifting because a fleet blend compares different things ([#949](https://github.com/code-imstillalive/nimbus/issues/949)), produce the identical word.
+That quotient is `capacity × sensor_error`, not capacity: it is only the pack's
+capacity if the power sensor integrates to exactly the energy the pack moved, and
+nothing in the calculation can separate the two factors. Checked on the reference
+household against the BMS's own energy counter — an independent instrument rather
+than another view of the same sensor:
 
-On the reference household the configured figure reads 119.8 kWh (122.2 nameplate × 98% SoH) against ~110 kWh measured across four consecutive near-full sweeps — 112.6 / 109.9 / 109.7 / 107.7. An overstated capacity makes the same energy move the modelled SoC **less**, so the reconstruction under-rises through the charge phase and carries that deficit into the evening as a near-constant offset. Neither figure changes the configured value: that re-prices every future dispatch decision and stays a household decision.
+```
+combined_battery_charge   109.11 → 21.86 kWh  = −87.25 kWh
+logger_battery_level_soc   91.10 → 18.20 %    = −72.90 points
+battery power, integrated                     = −82.59 kWh
+
+usable capacity from the BMS counter   87.25 / 0.729 = 119.7 kWh
+configured (122.16 nameplate × 0.98 SoH)            = 119.72 kWh
+```
+
+The configured value was right to within **0.04 kWh**; the power sensor under-reads
+by **5.3%**. So the retracted field read 113.3 kWh on that window and 109.4 kWh on a
+charge window, and the card told a household with a correctly configured pack that
+it was ~9% too large. The four consecutive days that appeared to corroborate it were
+four runs of the same method over the same sensor — which is not corroboration.
+
+Measuring capacity needs an input reporting pack **energy** directly (a BMS charge
+counter). Nimbus takes no such sensor in config, so it publishes no measurement
+rather than a wrong one. `tests/test_1172_no_capacity_measurement_from_a_power_sensor.py`
+pins that absence.
 
 ## Attribute history: the parent sensors store none
 
