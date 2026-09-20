@@ -8,6 +8,32 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.408] - 2026-09-20
+
+### Fixed
+- **The Regret card rendered an EPR the report had already declared unreliable, and said nothing** ([#1162](https://github.com/code-imstillalive/nimbus/issues/1162)).
+
+  The household's report was that EPR "is seriously not working well" — readings of 46–54% that looked like nonsense. Underneath, the quality report had been publishing `epr_reliable: false` for those same days. The card never read it: the only attribute it touched was `attributes.history`, and the reliability verdict is not in there.
+
+  So the data said *do not trust this number* and the surface a household actually looks at showed the number alone. Every fix shipped today made the data more honest; this is the first one a household can see without opening the attribute list.
+
+  Driven with the reference household's own 19 Sep attributes, the card now reads:
+
+  > **This day's EPR is not a reliable measurement:** the reconstructed battery SoC disagrees with the real sensor (disagreement).
+  > **90% of this regret** is the two pricing paths disagreeing about the oracle's own plan, not the household having dispatched differently.
+
+  The second line is [#1162](https://github.com/code-imstillalive/nimbus/issues/1162) ask 3 reaching the surface: `j_star_path_delta` is exactly the portion of the regret that comes from which oracle price is used, and on that day it was most of it. It speaks only when the share is at least half, so it stays quiet on days where the delta is irrelevant.
+
+  **Gated on the displayed day.** The reliability attributes are top-level and describe `latest_date` only, while this card can be pointed at any scored day. Showing the latest day's caveat above an older day's figures would be the same cross-day confusion [#1167](https://github.com/code-imstillalive/nimbus/issues/1167) was about, one layer up — a caveat and the figures it qualifies describing different days. The gate is the load-bearing test in the new file.
+
+  Every reason shape the report publishes has a sentence — `achieved_soc_unreliable:<verdict>`, `achieved_soc_unverifiable`, both `oracle_beaten` forms, and `epr_denominator_reason` — and a reason the card does not recognise still surfaces rather than vanishing.
+
+### Notes
+- Amber rather than red, and the figures are unchanged: the number is caveated, not an error, and it still bounds the answer. Same posture [#1073](https://github.com/code-imstillalive/nimbus/issues/1073) took on the energy balance.
+- Devhub validation: **not claimed, and the reason is specific.** This is frontend rendering; a card's appearance is not something the MCP surface can inspect, so deploying would confirm nothing a screenshot could not, and I cannot take one. What *was* done instead: the real `_caveatFor()` was executed under Node with DOM stubs — the actual module, not a transcribed copy — across seven scenarios including the real production attributes and both cases that must stay silent. Both mutations (dropping the date gate, emitting the box unconditionally) are caught by the right tests.
+- Consumer check: **this release is the consumer-facing one.** A household reading the Regret card for a flagged day now sees why the EPR cannot be trusted and how much of the regret is a comparison artefact, in a sentence, above the figures rather than under them. What it still does not do is show per-day reliability in the history table — those rows carry only the five scoring fields, and widening them runs into the recorder attribute cap the size guard exists for. That stays a follow-up rather than something this release claims.
+
+
 ## [0.94.407] - 2026-09-20
 
 ### Added
