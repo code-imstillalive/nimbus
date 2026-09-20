@@ -212,6 +212,17 @@ class NimbusRegretCard extends HTMLElement {
         .chart-wrap { overflow-x: auto; margin-bottom: 6px; }
         canvas { display: block; width: 100%; }
         .msg { padding: 20px 4px; opacity: 0.7; font-size: 0.9rem; }
+        /* nimbus issue #1162: the report can declare its own EPR
+           untrustworthy, and this card used to render it anyway. Amber
+           rather than red -- the figure is caveated, not an error, and
+           the numbers still bound the answer. */
+        .caveat {
+          margin: 0 0 10px; padding: 8px 10px; border-radius: 6px;
+          border-left: 3px solid #E8A33D;
+          background: rgba(232, 163, 61, 0.12);
+          font-size: 0.78rem; line-height: 1.35;
+        }
+        .caveat b { font-weight: 600; }
         .refresh {
           background: none; border: 1px solid var(--divider-color, #2A323D);
           color: inherit; border-radius: 5px; padding: 4px 10px; font-size: 0.75rem;
@@ -290,7 +301,13 @@ class NimbusRegretCard extends HTMLElement {
     subEl.textContent = this._cache.dateKey + " (Brisbane)"
       + (tableDay ? "" : " — not yet in table, showing live estimate");
 
+    const caveat = this._caveatFor(
+      this._cache.dateKey,
+      tableEntity ? tableEntity.attributes : null
+    );
+
     bodyEl.innerHTML = `
+      ${caveat ? `<div class="caveat">${caveat}</div>` : ""}
       <div class="stats">
         <div class="stat"><div class="l">EPR</div><div class="v">${stats.epr_pct.toFixed(1)}%</div></div>
         <div class="stat"><div class="l">J_ref</div><div class="v">$${stats.j_ref.toFixed(2)}</div></div>
@@ -309,6 +326,49 @@ class NimbusRegretCard extends HTMLElement {
     `;
 
     this._drawCharts(d);
+  }
+
+  // nimbus issue #1162: turn the report's own reliability verdict into a
+  // sentence a household can act on.
+  //
+  // Gated on the displayed date being the one the verdict DESCRIBES. The
+  // reliability attributes are top-level and describe `latest_date`
+  // only, while this card can be pointed at any scored day -- showing
+  // the latest day's caveat above an older day's figures would be the
+  // same cross-day confusion #1167 was about, one layer up.
+  _caveatFor(dateKey, attrs) {
+    if (!attrs || attrs.latest_date !== dateKey) return null;
+    const parts = [];
+    if (attrs.epr_reliable === false) {
+      const reason = String(attrs.epr_reason || "");
+      let why;
+      if (reason.startsWith("achieved_soc_unreliable")) {
+        const verdict = reason.split(":")[1];
+        why = "the reconstructed battery SoC disagrees with the real sensor"
+          + (verdict ? ` (${verdict})` : "");
+      } else if (reason === "achieved_soc_unverifiable") {
+        why = "the SoC comparison could not be made for this day";
+      } else if (reason.startsWith("oracle_beaten")) {
+        why = "the achieved dispatch priced out better than perfect foresight, "
+          + "which means the comparison itself is invalid";
+      } else if (attrs.epr_denominator_reason) {
+        why = `EPR's denominator is not a positive quantity (${attrs.epr_denominator_reason})`;
+      } else {
+        why = reason || "the report did not say why";
+      }
+      parts.push(`<b>This day's EPR is not a reliable measurement:</b> ${this._escape(why)}.`);
+    }
+    // nimbus issue #1162 ask 3: a regret dominated by the pricing-path
+    // delta is not a dispatch finding, and reads as one.
+    const share = Number(attrs.regret_path_delta_share);
+    if (Number.isFinite(share) && share >= 0.5) {
+      parts.push(
+        `<b>${Math.round(share * 100)}% of this regret</b> is the two pricing paths `
+        + `disagreeing about the oracle's own plan, not the household having `
+        + `dispatched differently.`
+      );
+    }
+    return parts.length ? parts.join("<br>") : null;
   }
 
   _escape(s) {
