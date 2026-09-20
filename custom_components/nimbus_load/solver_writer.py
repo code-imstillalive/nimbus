@@ -8502,6 +8502,20 @@ _QUALITY_HISTORY_FIELDS = (
     "regret_dollars",
 )
 
+# nimbus issue #1149: headline attributes that describe the CURRENTLY
+# PUBLISHED day but are deliberately NOT carried in each history row,
+# because a row is meant to stay small enough that a year of them fits
+# in one attribute payload.
+#
+# They still have to move when a rescore changes which figures the
+# headline is describing, or the sensor ends up with a rescored state
+# sitting next to a decomposition of the previous computation -- the
+# same "headline and table disagreeing" defect #1120 exists to fix.
+# Kept as its own tuple rather than appended to the one above so the
+# distinction stays visible: that set goes into every row, this set
+# goes only on top.
+_QUALITY_HEADLINE_ONLY_FIELDS = ("energy_decomposition",)
+
 # nimbus issue #1120: which release scored this day.
 #
 # A day is scored ONCE, the morning after, and frozen into the table
@@ -8748,6 +8762,23 @@ def rescore_quality_history(cfg: dict, now: datetime, days: int) -> dict:
                     attrs[field] = latest_entry[field]
             if "epr_pct" in latest_entry:
                 state = latest_entry["epr_pct"]
+            # nimbus issue #1149: the headline-only fields have to move
+            # too, and they are NOT in _QUALITY_HISTORY_FIELDS -- that
+            # tuple is deliberately the narrow set each history ROW
+            # carries, and energy_decomposition is far too bulky to put
+            # in every row.
+            #
+            # Found by actually running a rescore on a dev install
+            # rather than by review: the state and the five history
+            # fields moved to the rescored day's figures while
+            # energy_decomposition still described the PREVIOUS
+            # computation. That is exactly the defect #1120 is about --
+            # "correcting one and not the other would leave them
+            # disagreeing" -- reappearing on a field that postdates the
+            # rescore path and so was never part of its sync.
+            for field in _QUALITY_HEADLINE_ONLY_FIELDS:
+                if field in latest_entry:
+                    attrs[field] = latest_entry[field]
         ha_post_state(QUALITY_ENTITY_ID, state, attrs)
         _LOGGER.info(
             "Nimbus quality (#1120): rescored %d day(s) %s, skipped %d",
