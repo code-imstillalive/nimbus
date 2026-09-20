@@ -162,6 +162,48 @@ class TestTheEntryPoint(unittest.TestCase):
         # Exit 2, not 0 -- a guard invoked wrongly must not look clean.
         self.assertEqual(guard.main(["check"]), 2)
 
+    def test_an_empty_body_passes_but_says_it_proved_nothing(self):
+        """`github.event.pull_request.body` is null on a PR opened with
+        no description, and an unqualified "clean" line would then be
+        indistinguishable from a real pass -- the vacuity failure this
+        repo keeps recording. An empty body is legal, so it passes; what
+        must not happen is passing silently."""
+        import io
+        import tempfile
+        from contextlib import redirect_stdout
+
+        with tempfile.NamedTemporaryFile(
+            "w", suffix=".md", delete=False, encoding="utf-8"
+        ) as fh:
+            fh.write("")
+            path = fh.name
+
+        out = io.StringIO()
+        with redirect_stdout(out):
+            rc = guard.main(["check", path])
+
+        self.assertEqual(rc, 0, "an empty body is legal and must not fail")
+        self.assertIn("proved nothing", out.getvalue())
+
+    def test_a_real_body_reports_how_much_it_checked(self):
+        import io
+        import tempfile
+        from contextlib import redirect_stdout
+
+        with tempfile.NamedTemporaryFile(
+            "w", suffix=".md", delete=False, encoding="utf-8"
+        ) as fh:
+            fh.write("Scope: docs only.\n\nCloses #1\n")
+            path = fh.name
+
+        out = io.StringIO()
+        with redirect_stdout(out):
+            guard.main(["check", path])
+
+        text = out.getvalue()
+        self.assertIn("chars checked", text)
+        self.assertNotIn("proved nothing", text)
+
 
 if __name__ == "__main__":
     unittest.main()

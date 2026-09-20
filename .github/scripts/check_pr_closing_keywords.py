@@ -116,7 +116,20 @@ def main(argv: list[str]) -> int:
 
     offences = find_offences(body)
     if not offences:
-        print("No narrowed closing keyword found.")
+        # Report what was actually read. A body that arrives empty --
+        # `github.event.pull_request.body` is null on a PR opened with no
+        # description -- passes this check for a reason that has nothing
+        # to do with the check, and an unqualified "clean" line would be
+        # indistinguishable from a real pass. An empty body is not an
+        # error (a PR is allowed one), so this reports rather than
+        # rejects; the point is that the log says which case it was.
+        print(f"No narrowed closing keyword found ({len(body)} chars checked).")
+        if not body.strip():
+            print(
+                "NOTE: the body was empty, so this check proved nothing about "
+                "it. If that is unexpected, the workflow is not receiving "
+                "github.event.pull_request.body."
+            )
         return 0
 
     print("PR body would auto-close an issue it is only partly addressing:\n")
