@@ -35,6 +35,18 @@ They were added when the scorer was effectively single-battery, so "home" and "f
 
 The parent `sensor.nimbus_solver_quality_report` additionally carries `achieved_energy_by_battery`, a per-battery `{in_kwh, out_kwh}` breakdown keyed by battery name — useful on a fleet install for attributing throughput (or a bad reading) to a specific participant without a manual recorder pull. It is a dict, so it has no flattened child sensor.
 
+**`energy_decomposition` — what the controller did differently** (nimbus issue [#1149](https://github.com/code-imstillalive/nimbus/issues/1149)):
+
+The same parent sensor also carries `energy_decomposition`, four rows — `reference`, `achieved`, `oracle`, `achieved_minus_oracle` — each with `charge_kwh`, `discharge_kwh`, `grid_import_kwh`, `grid_export_kwh`. Also a dict, so also no flattened child.
+
+`hourly_regret` answers *which hour cost money*. It cannot answer *what did the controller do differently*, and when the difference is one decision spread over several hours it actively obscures it — `hourly_regret_breakdown()`'s own docstring already warns the buckets can be large in both directions and cancel out.
+
+A real day (19 Sep 2026, reference household): hourly regret ran −$6.17 at 11:00 against +$11.46 across 12:00–15:00 — a gross positive 3.1× the $3.65 net, with the single largest-magnitude hour being a *negative* one. Ranking the hours points at 14:00. The decomposition says it in one line instead: achieved charged 108.1 kWh against the oracle's 83.1 and imported 60.0 against 39.8, while evening discharge differed by only ~3.5 kWh. One over-charge during the flat-price midday window — not five separate hourly findings.
+
+Before this, only the achieved side was derivable and only partly: the two `fleet_achieved_energy_*` figures above publish achieved charge and discharge, but there was no oracle counterpart and no grid figure for either trajectory, so the delta that explains a day could not be computed from this sensor at all. The achieved row reconciles with those two fields by construction (same arrays, same hours) rather than being a second, independently-derived answer.
+
+Sign conventions match the hourly rows: `grid_import_kwh`/`grid_export_kwh` split one signed grid flow, and `charge_kwh`/`discharge_kwh` are summed per battery as magnitudes rather than taken from the fleet net — on a fleet where one battery charges while another discharges, netting is right for a grid identity and wrong for "how much energy moved". The `reference` row is the idle-battery baseline, so its battery figures are 0.0 by construction while its grid figures show what the house alone would have drawn.
+
 **Identity math** (satisfied to rounding):
 
 ```

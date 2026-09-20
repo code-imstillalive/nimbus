@@ -8009,6 +8009,21 @@ def _compute_report_for_window(
         # already diagnoses with is worse than the ambiguity) and the
         # scope is now stated here, in docs/entities.md, and by the
         # fleet_* companions immediately below.
+        # nimbus issue #1149: the "what did the controller do
+        # differently" companion to `hourly_regret`'s "which hour cost
+        # money". Four rows (reference / achieved / oracle /
+        # achieved_minus_oracle), each carrying charge_kwh,
+        # discharge_kwh, grid_import_kwh, grid_export_kwh.
+        #
+        # The achieved row's charge/discharge reconcile with the
+        # fleet_achieved_energy_in_kwh/_out_kwh pair below BY
+        # CONSTRUCTION -- same arrays, same hours -- so these are one
+        # answer stated twice rather than two answers that could drift.
+        # What is genuinely new is the ORACLE side and the grid figures,
+        # neither of which existed anywhere on this sensor before, which
+        # is why a day whose whole regret was one over-charge could not
+        # be read off it without summing the hourly rows by hand.
+        "energy_decomposition": report.energy_decomposition,
         "achieved_energy_in_kwh": round(
             float(np.sum(actual_charge_kw * period_hours_arr)), 3
         ),
