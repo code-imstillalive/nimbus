@@ -34,8 +34,35 @@ Instructions for any Claude instance working on this repo. Read this before touc
 
 Dated work-in-progress notes live in `docs/worklog/`, one file per date — this is where
 the "CURRENT STATE" journal that used to live directly in this file now lives. Each
-file is not re-summarized here; read it directly for the full detail. Most recent 5:
+file is not re-summarized here; read it directly for the full detail. Newest
+first (this said "most recent 5" while carrying fourteen, so it now says what it is):
 
+- [2026-09-20](docs/worklog/2026-09-20.md) — **One release (v0.94.396), two of
+  Mark's IV&V findings fixed and closed (#1140, #1141), and #1120 part 3 built.**
+  #1140: the shared-charger widening summed only charge while the LP constraint it
+  widens against sums charge+discharge into one ceiling, so a V2H member
+  discharging was invisible to it and #956's negative-regret failure could reopen.
+  #1141: `_flex_diagnostics()` never read `sensor.nimbus_flex_signals` at all, on
+  the strength of a docstring saying it carried no payload — it carries three
+  unflattened fields, absent from every dump. Fixed by spreading the parent minus
+  keys **derived** from `FLATTENED_ATTRS_FLEX`, never hand-listed, since a curated
+  allowlist there is what drifted in #116. **The day's four most useful results were
+  corrections to this session's own work**, all the same species — a claim that
+  looked measured and was an artifact of how it was looked at. A version bump
+  bundled into a feature branch (green CI is not evidence of convention; that
+  bundling is what blocked the release queue on 2026-09-16); a template check
+  asking whether a string literal `is defined`, which returns True for anything and
+  tested a service that wasn't in the release at all; a count read off a `grep -c`
+  piped through `head -8`, where eight was the truncation rather than the
+  measurement; and a silent `except` handler that returned its skip reason without
+  logging it, **caught by a guard on CI rather than by me**, because the full local
+  suite had been killed after a rebase and not restarted. Third recurrence this
+  month of #757's rule: **a check that cannot fail is indistinguishable from a check
+  that works** — and the honest ranking is that the repo's own instrumentation
+  outperformed self-checking. Also: the wrong #1141 docstring was
+  *true as measured* on the dev install — the error was generalising one install's
+  state into a claim about the code, which is also why neither fix could earn a
+  live verification, stated in the CHANGELOG rather than papered over.
 - [2026-09-18](docs/worklog/2026-09-18.md) — **Ten releases (v0.94.382 →
   v0.94.391), and by the afternoon the day's largest result was a negative one
   about this project's own instrumentation.** The household upgraded NUC1
