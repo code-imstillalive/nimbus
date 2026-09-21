@@ -231,6 +231,13 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # one. Another private helper of the same native-only quality
         # report, called only from _compute_report_for_window.
         "_regret_path_delta_share",
+        # nimbus issue #1162 ask 2: the one-character reliability verdict
+        # stamped into each history row. Derives from the same three
+        # signals as _epr_reliability() and is called only from
+        # _carry_forward_quality_history -- same native-only reasoning as
+        # its neighbours, since the standalone/cron writer maintains no
+        # quality-report history table to stamp.
+        "_epr_reliability_code",
         # nimbus issue #984: same again -- a private helper of the same
         # native-only quality report, measuring how much of a day the
         # recorder actually returned before that day may be scored. The

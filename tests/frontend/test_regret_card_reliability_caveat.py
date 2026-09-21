@@ -85,6 +85,17 @@ class TestItIsGatedOnTheDisplayedDay:
     scored day. Losing the gate would put the latest day's caveat above
     an older day's figures -- a caveat and the figures it qualifies
     describing different days, which is #1167 one layer up.
+
+    **Updated for #1162 ask 2 (v0.94.415).** The gate used to `return
+    null` for any other day, which is why 59 of 60 rows rendered their
+    EPR unqualified. It now hands off to `_rowCaveatFor()`, which reads
+    the verdict stamped into that day's OWN history row.
+
+    The invariant is unchanged and is what these tests still enforce: the
+    headline attributes are read for `latest_date` and nothing else. What
+    changed is that the other branch is no longer silent. The companion
+    guard that the row path never reaches for a headline attribute lives
+    in `test_1162_history_row_carries_the_verdict.py`.
     """
 
     def test_the_gate_exists(self):
@@ -93,10 +104,21 @@ class TestItIsGatedOnTheDisplayedDay:
             "attribute the latest day's verdict to a different day"
         )
 
-    def test_the_gate_returns_nothing_rather_than_falling_through(self):
+    def test_the_gate_diverts_rather_than_falling_through(self):
+        """It must not fall through into the headline path. Either
+        answer -- nothing, or the row's own verdict -- is correct;
+        continuing into `attrs.epr_reliable` is not."""
         fn = _caveat_fn()
-        gate = fn[fn.index("attrs.latest_date !== dateKey") :][:60]
-        assert "return null" in gate
+        gate = fn[fn.index("attrs.latest_date !== dateKey") :][:70]
+        assert "return null" in gate or "return this._rowCaveatFor(" in gate
+
+    def test_the_headline_path_is_only_reached_for_the_latest_day(self):
+        """The property the literal above is standing in for: every read
+        of a headline reliability attribute sits after the gate."""
+        fn = _caveat_fn()
+        i_gate = fn.index("attrs.latest_date !== dateKey")
+        for attr in ("attrs.epr_reliable", "attrs.epr_reason"):
+            assert fn.index(attr) > i_gate, f"{attr} is read before the day gate"
 
     def test_missing_attributes_are_survivable(self):
         assert "!attrs" in _caveat_fn()
