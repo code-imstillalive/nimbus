@@ -31,8 +31,6 @@ from __future__ import annotations
 import pathlib
 import unittest
 
-import pytest
-
 _REPO_ROOT = pathlib.Path(__file__).resolve().parent.parent
 _CI_WORKFLOW = _REPO_ROOT / ".github" / "workflows" / "ci.yml"
 
@@ -74,20 +72,10 @@ class TestTheGuardCoversCommitMessages(unittest.TestCase):
         job_text = _pr_body_hygiene_job_text()
         self.assertIn("pull_request.body", job_text)
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "nimbus issue #1185: the pr-body-hygiene job only ever feeds "
-            "github.event.pull_request.body to check_pr_closing_keywords.py "
-            "-- GitHub's own scanner also reads the commit message that "
-            "lands on the default branch (this repo's own squash-merge "
-            "commits demonstrably concatenate every original commit "
-            "message verbatim), so a closing-keyword possessive phrase in "
-            "an early, superseded commit message survives past a clean "
-            "final PR body. Fix by also scanning the PR's commit messages "
-            "(e.g. via the PR's commit list) in the same job."
-        ),
-    )
+    # Was xfail(strict=True) when Mark filed this. Closed in the same
+    # pass: the job gained a second step running the SAME script over
+    # `git log --format=%B BASE..HEAD`, with fetch-depth: 0 so there
+    # is history to range over.
     def test_the_job_also_reads_commit_message_content(self):
         job_text = _pr_body_hygiene_job_text()
         found = [needle for needle in _COMMIT_MESSAGE_SOURCES if needle in job_text]
