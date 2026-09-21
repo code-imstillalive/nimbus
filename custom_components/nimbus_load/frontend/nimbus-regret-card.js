@@ -336,8 +336,49 @@ class NimbusRegretCard extends HTMLElement {
   // only, while this card can be pointed at any scored day -- showing
   // the latest day's caveat above an older day's figures would be the
   // same cross-day confusion #1167 was about, one layer up.
+  // nimbus issue #1162 ask 2: the verdict a scored row carries about
+  // its own EPR.
+  //
+  // The headline reliability attributes describe `latest_date` ONLY, so
+  // for every other day this card used to render the EPR bare -- 59 of
+  // 60 rows unqualified. `_carry_forward_quality_history()` now stamps a
+  // one-character verdict into each row, which is the only reliability
+  // signal that travels WITH the numbers it qualifies.
+  //
+  // Deliberately reads the row and nothing else. Reaching for a headline
+  // attribute here is exactly the cross-day confusion the `latest_date`
+  // gate was added to prevent -- the caveat and the figures it qualifies
+  // have to describe the same day.
+  _rowCaveatFor(dateKey, attrs) {
+    const row = (attrs.history || {})[dateKey];
+    if (!row) return null;
+    const code = row.r;
+    // Absent means the row was written before this existed -- genuinely
+    // nothing known, not "fine". Say nothing rather than imply either.
+    if (!code || code === "y") return null;
+    if (code === "u") {
+      return "<b>This day's EPR could not be verified:</b> the SoC comparison "
+        + "that qualifies it was not available when this day was scored.";
+    }
+    let why;
+    if (code === "s") {
+      why = "the reconstructed battery SoC disagrees with the real sensor";
+    } else if (code === "o") {
+      why = "the achieved dispatch priced out better than perfect foresight, "
+        + "which means the comparison itself is invalid";
+    } else if (code === "d") {
+      why = "EPR's denominator is not a positive quantity";
+    } else {
+      // An unrecognised code still has to surface. A newer writer with a
+      // cause this card has no sentence for must not read as a clean day.
+      why = "the report did not say why";
+    }
+    return `<b>This day's EPR is not a reliable measurement:</b> ${this._escape(why)}.`;
+  }
+
   _caveatFor(dateKey, attrs) {
-    if (!attrs || attrs.latest_date !== dateKey) return null;
+    if (!attrs) return null;
+    if (attrs.latest_date !== dateKey) return this._rowCaveatFor(dateKey, attrs);
     const parts = [];
     if (attrs.epr_reliable === false) {
       const reason = String(attrs.epr_reason || "");

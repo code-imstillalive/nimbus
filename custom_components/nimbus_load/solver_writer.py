@@ -8832,6 +8832,90 @@ _QUALITY_HISTORY_FIELDS = (
 _QUALITY_HISTORY_VERSION_FIELD = "v"
 
 
+# nimbus issue #1162 ask 2: whether the row's own EPR was a measurement.
+#
+# **The ask, and why the answer is not `unknown`.** #1162 asked what the
+# sensor `state` should be when `epr_reliable` is false, offering
+# `unknown` or "a companion flag the cards consult". Publishing `unknown`
+# is the wrong half of that: the state feeds long-term statistics and the
+# EPR trend chart, so blanking it puts a hole in the series on exactly
+# the days most worth looking at, and makes the state flap between a
+# number and nothing -- the appear/vanish shape #589 exists about.
+#
+# **What was actually broken is retention, not publication.** The
+# reliability verdict lived ONLY in the headline attributes, which
+# describe `latest_date` alone. That is why `nimbus-regret-card.js`'s own
+# caveat is gated on `attrs.latest_date === dateKey`: for every other
+# scored day the card had nothing to consult, so it rendered the EPR
+# bare. A 60-day table where 59 rows cannot be qualified is the defect;
+# the 60th being qualified is not a fix.
+#
+# So the verdict goes INTO the row, beside the five numbers it qualifies,
+# and travels with them for as long as they are displayed.
+#
+# **One character, same budget reasoning as `"v"` above**: at 60 days
+# `"r":"s"` costs ~480 bytes against a payload already measured 27% over
+# the recorder's 16 KB cap.
+#
+# **Always written, never omitted as shorthand for "fine".** Absence has
+# to keep meaning exactly one thing -- "written before this existed" --
+# or a pre-#1162 row becomes indistinguishable from a reliable one, which
+# is the same absence-as-the-only-signal failure this scorer keeps
+# recording.
+_QUALITY_HISTORY_RELIABILITY_FIELD = "r"
+
+# The codes. Single characters for the byte budget above; a reader that
+# does not recognise one must still say SOMETHING (the card's own
+# `reason || "the report did not say why"` fallback), so an unknown code
+# degrades to "flagged, cause not recorded" rather than to silence.
+_RELIABILITY_OK = "y"  # epr_reliable True
+_RELIABILITY_UNKNOWN = "u"  # epr_reliable None -- the SoC half could not be computed
+_RELIABILITY_SOC = "s"  # the reconstructed SoC disagrees with the sensor
+_RELIABILITY_ORACLE = "o"  # regret < 0: the oracle was "beaten", so the comparison is void
+_RELIABILITY_DENOMINATOR = "d"  # EPR's denominator is not a positive quantity
+_RELIABILITY_UNSTATED = "?"  # flagged false, and no field said which
+
+
+def _epr_reliability_code(day_entry: dict) -> str | None:
+    """One character naming this day's EPR verdict, for the history row.
+
+    Derived from the SAME three signals as `_epr_reliability()` and in
+    the SAME precedence order, so the code and the boolean can never
+    disagree about whether the day was reliable -- only about how much
+    detail they carry. `TestTheCodeNeverContradictsTheBoolean` drives
+    every combination of the three and pins that.
+
+    Precedence matters for which cause gets named on a day that trips
+    more than one: `_epr_reliability()` tests regret first, then the
+    denominator, then SoC, and a household reading "oracle beaten" on a
+    day that ALSO has a denominator problem is being pointed at the one
+    that decided the verdict.
+
+    Returns None when the entry carries no verdict at all, so the caller
+    writes no key rather than inventing one -- see the field's own note
+    above on why absence must keep meaning "written before this existed".
+    """
+    reliable = day_entry.get("epr_reliable")
+    if reliable is None and "epr_reliable" not in day_entry:
+        return None
+    if reliable is True:
+        return _RELIABILITY_OK
+    if reliable is None:
+        return _RELIABILITY_UNKNOWN
+    # False. Name the signal that decided it, in _epr_reliability()'s
+    # own order.
+    if day_entry.get("regret_reliable") is False:
+        return _RELIABILITY_ORACLE
+    if day_entry.get("epr_denominator_reason") is not None:
+        return _RELIABILITY_DENOMINATOR
+    reason = day_entry.get("epr_reason")
+    if isinstance(reason, str) and reason.startswith("achieved_soc"):
+        return _RELIABILITY_SOC
+    if day_entry.get("soc_discrepancy_reliable") is False:
+        return _RELIABILITY_SOC
+    return _RELIABILITY_UNSTATED
+
+
 @functools.cache
 def _nimbus_version() -> str | None:
     """This package's own `manifest.json` version, or None.
@@ -8922,6 +9006,11 @@ def _carry_forward_quality_history(
     version = _nimbus_version()
     if version is not None:
         history[day_key][_QUALITY_HISTORY_VERSION_FIELD] = version
+    # nimbus issue #1162 ask 2: and the verdict that qualifies those five
+    # numbers, so a card can caveat any row rather than only the latest.
+    code = _epr_reliability_code(day_entry)
+    if code is not None:
+        history[day_key][_QUALITY_HISTORY_RELIABILITY_FIELD] = code
     if len(history) > _QUALITY_HISTORY_MAX_DAYS:
         # ISO dates sort lexicographically, so this is a real
         # most-recent-N without parsing anything.
