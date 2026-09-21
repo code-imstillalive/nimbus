@@ -86,7 +86,7 @@ class TestItIsGatedOnTheDisplayedDay:
     an older day's figures -- a caveat and the figures it qualifies
     describing different days, which is #1167 one layer up.
 
-    **Updated for #1162 ask 2 (v0.94.412).** The gate used to `return
+    **Updated for #1162 ask 2 (v0.94.415).** The gate used to `return
     null` for any other day, which is why 59 of 60 rows rendered their
     EPR unqualified. It now hands off to `_rowCaveatFor()`, which reads
     the verdict stamped into that day's OWN history row.

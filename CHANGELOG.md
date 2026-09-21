@@ -8,6 +8,27 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.415] - 2026-09-21
+
+### Added
+- **Every scored row in the history table now carries its own reliability verdict, so the Regret card can qualify any day rather than only the latest** ([#1162](https://github.com/code-imstillalive/nimbus/issues/1162) ask 2).
+
+  #1162 asked what the sensor's `state` should be when `epr_reliable` is false. **Publishing `unknown` is the wrong answer** — the state feeds long-term statistics and the EPR trend chart, so blanking it holes the series on precisely the days worth inspecting, and makes the state flap between a number and nothing, which is the [#589](https://github.com/code-imstillalive/nimbus/issues/589) appear/vanish shape. The number was never the problem.
+
+  **The real defect was retention.** The verdict lived only in the headline attributes, and those describe `latest_date`. That is why v0.94.408's caveat is gated on `attrs.latest_date === dateKey`: for every other scored day the card had nothing to consult, so it rendered the EPR bare. On the reference household's own five-row table — every row currently flagged `epr_reliable: false` — that meant **four of five rows showed a number the report does not stand behind, with nothing said.**
+
+  So the verdict is stamped into each row beside the five figures it qualifies, as a one-character code, and `_rowCaveatFor()` reads it for any displayed day.
+
+  **One character, and always written.** The row dict rides in the attribute payload [#944](https://github.com/code-imstillalive/nimbus/issues/944) measures against the recorder's 16 KB cap, so the key costs ~480 bytes across 60 days — less than the `"v"` version stamp beside it. It is never omitted as shorthand for "fine": absence has to keep meaning exactly one thing, *"written before this existed"*, or every pre-#1162 row silently reads as verified.
+
+  The load-bearing guarantee is that the code and the boolean can never disagree. `_epr_reliability_code()` derives from the same three signals as `_epr_reliability()` in the same precedence order, and the test drives **all twelve combinations** rather than sampling — if they could diverge, the card and the sensor would disagree, which is [#1120](https://github.com/code-imstillalive/nimbus/issues/1120) in a new place.
+
+- Devhub validation: **not claimed at release time, and the reason is the same structural one as v0.94.414** — devhub installs from the tag, so validation cannot precede it. The deploy runs immediately after tagging and the result is recorded on #1162. What it can show is real this time, unlike the previous two releases: a scored row carrying the new field, and the card qualifying a non-latest day.
+- Consumer check: **this one a household sees.** On a table where older days are flagged, those rows stop rendering a bare EPR and start saying why it is flagged — the reconstructed SoC disagreeing with the sensor, a beaten oracle, a non-positive denominator, or that the check could not run at all. Rows scored before this release are deliberately left unqualified rather than back-stamped with a verdict this code never produced. The headline day is unchanged; it already had its caveat from v0.94.408.
+- The sensor `state` is deliberately **unchanged** — still the EPR. Anything reading it, including the trend chart and long-term statistics, is unaffected.
+
+
+
 ## [0.94.414] - 2026-09-21
 
 ### Fixed
