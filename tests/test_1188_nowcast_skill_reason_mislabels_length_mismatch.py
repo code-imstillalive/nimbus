@@ -37,7 +37,6 @@ from unittest.mock import patch
 
 import _solver_path  # noqa: F401
 import numpy as np
-import pytest
 import solver_writer
 
 BRISBANE = solver_writer.LOCAL_TZ
@@ -98,17 +97,10 @@ def _call_with_real_length_mismatch():
 
 
 class TestLengthMismatchIsNotASolveFailure(unittest.TestCase):
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "nimbus issue #1188: the call site's reason split treats any "
-            "non-coverage None as a scenario-solve failure, which "
-            "mislabels a real array-length mismatch -- fix by giving "
-            "compute_load_nowcast_skill() a third distinguishable outcome "
-            "for this cause, or by making the call site's own binary "
-            "assumption explicit and verified rather than implicit."
-        ),
-    )
+    # Was xfail(strict=True) when Mark filed this. Closed in the same
+    # pass: the call site now decides length, then coverage, then the
+    # solve -- the function's own order -- and labels a mismatch
+    # `input_length_mismatch` instead of blaming a solve never run.
     def test_a_genuine_length_mismatch_is_not_labelled_a_solve_failure(self):
         got = _call_with_real_length_mismatch()
         self.assertNotEqual(
