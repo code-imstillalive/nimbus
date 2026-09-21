@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import json
 import unittest
+from typing import ClassVar
 
 import _solver_path  # noqa: F401
 import solver_writer as sw
@@ -215,7 +216,7 @@ class TestTheByteBudget(unittest.TestCase):
     # `json.dumps()`'s pretty default instead reads 600 -- the first
     # version of this test did, and was comparing a number against a
     # claim made about a different encoding.
-    _WIRE = {"separators": (",", ":")}
+    _WIRE: ClassVar[dict] = {"separators": (",", ":")}
 
     def test_a_full_table_costs_under_500_bytes(self):
         history = {}

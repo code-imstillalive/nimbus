@@ -8914,7 +8914,7 @@ _QUALITY_HISTORY_RELIABILITY_FIELD = "r"
 _RELIABILITY_OK = "y"  # epr_reliable True
 _RELIABILITY_UNKNOWN = "u"  # epr_reliable None -- the SoC half could not be computed
 _RELIABILITY_SOC = "s"  # the reconstructed SoC disagrees with the sensor
-_RELIABILITY_ORACLE = "o"  # regret < 0: the oracle was "beaten", so the comparison is void
+_RELIABILITY_ORACLE = "o"  # regret < 0: oracle "beaten", comparison void
 _RELIABILITY_DENOMINATOR = "d"  # EPR's denominator is not a positive quantity
 _RELIABILITY_UNSTATED = "?"  # flagged false, and no field said which
 
