@@ -112,7 +112,39 @@ _VALIDATION_RE = re.compile(
 # Those words appear in entries that never ask the consumer question and
 # are absent from entries that do -- matching them would give a guard
 # wrong in both directions, which is worse than none.
-_CONSUMER_RE = re.compile(r"^\s*(?:-\s*)?consumer check:", re.IGNORECASE | re.MULTILINE)
+# nimbus issue #1186 (Mark Purcell): the label alone is not an answer.
+#
+# This regex used to be the bare locator `^\s*(?:-\s*)?consumer check:`,
+# which matched on the literal label and required nothing after the
+# colon. `Consumer check:`, `Consumer check: N/A` and
+# `Consumer check: tbd` all satisfied it with zero content -- the
+# "guard that cannot fail is indistinguishable from one that works"
+# failure this file's own docstring names, and the same defeat shape
+# #1057 had already fixed on `_VALIDATION_RE` in this very commit. That
+# hardening went to the sibling and not to this one.
+#
+# Three parts, each doing one job:
+#   1. a negative lookahead rejecting a bare placeholder answer
+#      (`n/a`, `tbd`, `todo`, a lone dash) -- the empty-answer defeat;
+#   2. a lookahead requiring at least one real word, so punctuation or
+#      markdown emphasis alone cannot stand in for content;
+#   3. a length floor, because a two-word non-placeholder is still not
+#      an answer to "what would a household see?".
+#
+# **"Nothing user-visible changed" must keep passing**, and does -- the
+# floor is 15 characters and this repo's own honest-no answers run to a
+# sentence or more. That answer is legitimate by this project's
+# convention and the guard's own failure message says so; the fix is
+# about requiring SOME real content, never about requiring a visible
+# change.
+_CONSUMER_PLACEHOLDER = r"n/?a|tbd|tba|todo|none|unknown|nil|\?+|-+|\.+"
+_CONSUMER_RE = re.compile(
+    r"^[ \t]*(?:-[ \t]*)?consumer check:[ \t]*"
+    r"(?!(?:" + _CONSUMER_PLACEHOLDER + r")[ \t]*$)"
+    r"(?=[^\n]*[A-Za-z]{3})"
+    r"[^\n]{15,}",
+    re.IGNORECASE | re.MULTILINE,
+)
 
 # ...but a CHANGELOG entry may also TALK ABOUT validation lines rather
 # than carry one, and this guard could not tell the difference. Found
