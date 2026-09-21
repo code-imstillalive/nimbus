@@ -27,23 +27,14 @@ from __future__ import annotations
 
 import unittest
 
-import pytest
 from test_changelog_release_validation import _CONSUMER_RE, _prose_only
 
 
 class TestTheGuardRejectsAVacuousAnswer(unittest.TestCase):
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "nimbus issue #1186: _CONSUMER_RE matches the literal "
-            "'consumer check:' label alone, so a bare label or a "
-            "placeholder like 'N/A'/'tbd' satisfies the #594 criterion-2 "
-            "guard with zero substantive content -- fix by requiring real "
-            "content after the colon, while still accepting the honest "
-            "'nothing user-visible changed' answer this repo's own "
-            "convention treats as legitimate."
-        ),
-    )
+    # All three were xfail(strict=True) when Mark filed this. Closed in
+    # the same pass: _CONSUMER_RE now requires real content after the
+    # colon -- a placeholder lookahead, a real-word lookahead and a
+    # length floor. "Nothing user-visible changed" still passes.
     def test_a_bare_label_does_not_satisfy_the_guard(self):
         self.assertIsNone(
             _CONSUMER_RE.search(_prose_only("Consumer check:")),
@@ -52,14 +43,6 @@ class TestTheGuardRejectsAVacuousAnswer(unittest.TestCase):
             "confirm the consumer question was actually answered",
         )
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "nimbus issue #1186: same gap as the bare-label case -- a "
-            "placeholder answer with no real content still matches the "
-            "label-only regex."
-        ),
-    )
     def test_a_placeholder_answer_of_na_does_not_satisfy_the_guard(self):
         self.assertIsNone(
             _CONSUMER_RE.search(_prose_only("Consumer check: N/A")),
@@ -67,14 +50,6 @@ class TestTheGuardRejectsAVacuousAnswer(unittest.TestCase):
             "answer that names no real content",
         )
 
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "nimbus issue #1186: same gap as the bare-label case -- a "
-            "placeholder answer with no real content still matches the "
-            "label-only regex."
-        ),
-    )
     def test_a_placeholder_answer_of_tbd_does_not_satisfy_the_guard(self):
         self.assertIsNone(
             _CONSUMER_RE.search(_prose_only("Consumer check: tbd")),

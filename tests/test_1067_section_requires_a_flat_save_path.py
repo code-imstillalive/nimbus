@@ -103,9 +103,33 @@ def _imports_section(path: pathlib.Path) -> bool:
         ):
             return True
         if isinstance(node, ast.Attribute) and node.attr == "section":
+            # nimbus issue #1187 (Mark Purcell): walk an arbitrary-depth
+            # attribute chain back to its root `ast.Name`, rather than
+            # requiring exactly one level.
+            #
+            # The original `isinstance(value, ast.Name)` test only saw a
+            # 2-level chain -- `data_entry_flow.section(...)` after
+            # `from homeassistant import data_entry_flow`. A plain
+            # `import homeassistant.data_entry_flow` followed by
+            # `homeassistant.data_entry_flow.section(...)` puts another
+            # `ast.Attribute` in `node.value`, so the guard returned
+            # False and the section was invisible to it.
+            #
+            # That is ordinary Python, not a contrived shape. This
+            # codebase happens to use `from X import Y` exclusively
+            # today (zero `^import homeassistant.` hits), but nothing
+            # enforces that, and a future flow file written the other
+            # way would slip past the guard while genuinely triggering
+            # the flat-save bug it exists to catch.
+            parts = []
             value = node.value
-            if isinstance(value, ast.Name) and "data_entry_flow" in value.id:
-                return True
+            while isinstance(value, ast.Attribute):
+                parts.append(value.attr)
+                value = value.value
+            if isinstance(value, ast.Name):
+                parts.append(value.id)
+                if any("data_entry_flow" in part for part in parts):
+                    return True
     return False
 
 
