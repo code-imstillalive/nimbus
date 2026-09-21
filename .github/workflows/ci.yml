@@ -91,6 +91,11 @@ jobs:
     steps:
       - name: Check out code
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.0.0
+        with:
+          # nimbus issue #1185: the commit-message step below needs real
+          # history to compute a range over. The default shallow clone
+          # has none.
+          fetch-depth: 0
       - name: Reject a closing keyword that narrows the issue it closes
         env:
           # Via the environment, never interpolated into the shell: a PR
@@ -99,6 +104,32 @@ jobs:
           PR_BODY: ${{ github.event.pull_request.body }}
         run: |
           printf '%s' "$PR_BODY" | python .github/scripts/check_pr_closing_keywords.py -
+      # nimbus issue #1185 (Mark Purcell): the body is not the only text
+      # GitHub's closing-keyword scanner reads. It also reads the commit
+      # message that lands on the default branch -- and this repo
+      # squash-merges, where GitHub's default pre-filled message is every
+      # individual commit message concatenated verbatim (commit 3a9ddca,
+      # v0.94.396, is the repo's own worked example).
+      #
+      # So a narrowing clause written into an early commit message
+      # survives untouched past a PR body that was later cleaned up, and
+      # auto-closes the issue with the step above green throughout. Same
+      # script, same rule, applied to the other half of the text.
+      - name: Same check over this PR's own commit messages
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          # Both ends are normally present after a fetch-depth: 0
+          # checkout, but a force-push between queue and run can leave
+          # one unreachable -- fetch rather than fail on a technicality.
+          git cat-file -e "${BASE_SHA}^{commit}" 2>/dev/null \
+            || git fetch --no-tags --depth=1 origin "$BASE_SHA"
+          git cat-file -e "${HEAD_SHA}^{commit}" 2>/dev/null \
+            || git fetch --no-tags --depth=1 origin "$HEAD_SHA"
+          COMMIT_MESSAGES="$(git log --format=%B "${BASE_SHA}..${HEAD_SHA}")"
+          printf '%s' "$COMMIT_MESSAGES" \
+            | python .github/scripts/check_pr_closing_keywords.py -
   hassfest:
     name: HA Manifest / Strings / Translations
     runs-on: ubuntu-latest

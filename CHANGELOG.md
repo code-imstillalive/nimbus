@@ -8,6 +8,25 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.414] - 2026-09-21
+
+### Fixed
+- **Closed all four findings from Mark Purcell's IV&V pass over `c881b523..6d3a6d0`** ([#1184](https://github.com/code-imstillalive/nimbus/issues/1184)). Every one was a gap in a guard shipped the previous day — the review caught them within hours of the code landing, which is the whole point of the pass.
+
+  **[#1185](https://github.com/code-imstillalive/nimbus/issues/1185) — the closing-keyword guard read only the PR body.** The sharpest of the four. GitHub's own scanner also reads the commit message that lands on the default branch, and this repo squash-merges, where GitHub's default pre-filled message is every commit message concatenated verbatim (commit `3a9ddca`, v0.94.396, is the repo's own unedited example). So a narrowing clause in an early commit message survives a later-cleaned PR body and auto-closes the issue with the guard green. The job now runs the same script over `git log --format=%B BASE..HEAD`, with `fetch-depth: 0` and a fetch fallback for a force-push between queue and run.
+
+  **[#1186](https://github.com/code-imstillalive/nimbus/issues/1186) — the consumer-check guard accepted a bare label.** `Consumer check:`, `Consumer check: N/A` and `Consumer check: tbd` all satisfied #594 criterion 2 with zero content. Sharper than it looks: the *same commit* had hardened the sibling `_VALIDATION_RE` against the code-span defeat (#1057) and simply missed the empty-answer defeat here. Now requires real content — a placeholder lookahead, a real-word lookahead, and a length floor. **"Nothing user-visible changed" still passes, and must** — it is a legitimate answer by this project's convention.
+
+  **[#1187](https://github.com/code-imstillalive/nimbus/issues/1187) — the config-flow section guard missed a fully-qualified import.** Its `ast.Attribute` branch required the chain to be rooted directly at an `ast.Name`, so `import homeassistant.data_entry_flow` followed by `homeassistant.data_entry_flow.section(...)` was invisible while genuinely triggering the flat-save bug the guard exists to catch. Now walks an arbitrary-depth chain back to its root.
+
+  **[#1188](https://github.com/code-imstillalive/nimbus/issues/1188) — a length mismatch was blamed on a solve never run.** The #1176 reason split was binary, but `compute_load_nowcast_skill()` has three `None` returns: it refuses arrays that disagree in length with the period grid *before* the coverage gate and *before* any solve. That was labelled `scenario_solve_failed`. The call site now decides in the function's own order — length, then coverage, then solve — and publishes `input_length_mismatch`.
+
+- Devhub validation: **not claimed at release time, and the reason is specific** — devhub installs from the tag, so a validation cannot precede the tag it validates. Three of the four changes are CI/test-layer guards with nothing an install can demonstrate, and the fourth (#1188) alters a branch that is unreachable from the single production call site by construction, which is the finding itself. The deploy was performed immediately after tagging to confirm the one changed runtime module still imports, solves and publishes a report unchanged; the result is recorded on [#1184](https://github.com/code-imstillalive/nimbus/issues/1184).
+- Consumer check: **nothing a household sees changes today.** No entity, attribute, card, service or config form is altered. `input_length_mismatch` is a new value for an existing `load_nowcast_skill_reason` field, and it cannot currently be produced on a real install. The people this release protects are whoever next opens a PR against this repo: three of the four gaps let a defect through CI silently, and the fourth could have auto-closed an issue nobody meant to close.
+- Mark's four pinned regression tests (PR [#1189](https://github.com/code-imstillalive/nimbus/issues/1189), six `xfail(strict)` markers) now pass as ordinary tests, markers removed, each with a note recording that it was `xfail` when filed.
+
+
+
 ## [0.94.413] - 2026-09-20
 
 ### Fixed

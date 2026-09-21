@@ -7116,21 +7116,64 @@ def _load_nowcast_skill_attributes(
         n_periods = len(grid_times)
         coverage = (measured / n_periods) if n_periods else 0.0
         below = coverage < nowcast_skill.DEFAULT_MIN_COVERAGE
+
+        # nimbus issue #1188 (Mark Purcell): the split above was binary --
+        # coverage, or else the solve -- and compute_load_nowcast_skill()
+        # has THREE None returns, not two. It refuses an input whose
+        # arrays disagree in length with the period grid, BEFORE the
+        # coverage gate and before any solve is attempted. Folding that
+        # into "scenario_solve_failed" points a household at a solver
+        # problem that was never reached.
+        #
+        # Decided here the same way coverage is, and in the function's own
+        # order -- length, then coverage, then the solve -- so the label
+        # names the gate that actually closed.
+        #
+        # Compared against `len(grid_times)` rather than
+        # `len(periods.hours)`: the two are constructed together at the
+        # real call site, and grid_times is already in hand here, so this
+        # needs nothing from `periods` that the blank-path callers may not
+        # supply.
+        #
+        # Dormant today, and worth saying so: the one production call site
+        # builds all four arrays to the same length, so this branch is not
+        # currently reachable. It stops being dormant the moment this
+        # function gains a second caller with independently sized arrays,
+        # which its own docstring does not forbid.
+        mismatched = [
+            name
+            for name, arr in (
+                ("solar_real_kw", solar_real_kw),
+                ("load_real_kw", load_real_kw),
+                ("load_nowcast_kw", load_nowcast_kw),
+                ("load_persistence_kw", load_persistence_kw),
+            )
+            if arr is not None and len(arr) != n_periods
+        ]
+        if mismatched:
+            reason = "input_length_mismatch"
+        elif below:
+            reason = "coverage_below_threshold"
+        else:
+            reason = "scenario_solve_failed"
         _LOGGER.debug(
             "Nimbus quality: no load-nowcast skill (%s). %d of %d periods "
             "carried a real recorded sample (coverage %.3f against a %.2f "
-            "minimum)",
-            "coverage below threshold" if below else "a scenario solve failed",
+            "minimum)%s",
+            {
+                "input_length_mismatch": "input arrays disagree with the grid",
+                "coverage_below_threshold": "coverage below threshold",
+                "scenario_solve_failed": "a scenario solve failed",
+            }[reason],
             measured,
             n_periods,
             coverage,
             nowcast_skill.DEFAULT_MIN_COVERAGE,
+            f" -- mismatched: {', '.join(mismatched)}" if mismatched else "",
         )
         return {
             **blank,
-            "load_nowcast_skill_reason": (
-                "coverage_below_threshold" if below else "scenario_solve_failed"
-            ),
+            "load_nowcast_skill_reason": reason,
             # Known in this branch and previously discarded. Telling a
             # household the check did not run, without telling them it
             # missed the bar by 0.31, is the absence-as-the-only-signal
