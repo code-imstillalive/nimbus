@@ -33,8 +33,6 @@ import pathlib
 import tempfile
 import unittest
 
-import pytest
-
 _GUARD_MODULE_PATH = (
     pathlib.Path(__file__).resolve().parent
     / "test_1067_section_requires_a_flat_save_path.py"
@@ -57,18 +55,10 @@ def foo():
 
 
 class TestTheGuardSeesAFullyQualifiedImport(unittest.TestCase):
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "nimbus issue #1187: _imports_section()'s ast.Attribute branch "
-            "only unwraps one level (isinstance(value, ast.Name)), so a "
-            "3-level chain reached via `import homeassistant.data_entry_flow` "
-            "+ `homeassistant.data_entry_flow.section(...)` is invisible to "
-            "the guard -- fix by walking an arbitrary-depth attribute chain "
-            "back to its root Name, or adding a dedicated check for the "
-            "bare `import homeassistant.data_entry_flow` form."
-        ),
-    )
+    # Was xfail(strict=True) when Mark filed this. Fixed in the same pass
+    # that closed #1187 -- `_imports_section()` now walks an
+    # arbitrary-depth attribute chain back to its root Name, so the
+    # 3-level `homeassistant.data_entry_flow.section(...)` form is seen.
     def test_a_fully_qualified_section_use_is_detected(self):
         with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as fh:
             fh.write(_FULLY_QUALIFIED_SECTION_USE)
