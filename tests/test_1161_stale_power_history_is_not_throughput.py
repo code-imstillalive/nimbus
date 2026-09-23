@@ -178,7 +178,7 @@ class TestStalePeriodsContributeNoThroughput(unittest.TestCase):
             resolved = _call()
 
         self.assertEqual(len(resolved), 1, "the participant should still be scored")
-        _cfg, charge_kw, discharge_kw, _fin = resolved[0]
+        _cfg, charge_kw, discharge_kw, _fin, _sh = resolved[0]
 
         # period_hours == 1.0, so kW summed IS kWh.
         credited = float(np.sum(charge_kw) + np.sum(discharge_kw))
@@ -195,7 +195,7 @@ class TestStalePeriodsContributeNoThroughput(unittest.TestCase):
     def test_the_unrecorded_periods_are_exactly_zero(self):
         power = [(DAY_START + timedelta(minutes=m), 5.0) for m in (0, 30, 60, 90, 120)]
         with _patch_history(power, _soc_series()):
-            _cfg, charge_kw, discharge_kw, _fin = _call()[0]
+            _cfg, charge_kw, discharge_kw, _fin, _sh = _call()[0]
         tail = [
             float(charge_kw[i] + discharge_kw[i]) for i in range(4, 24)
         ]  # well past the last sample
@@ -211,7 +211,7 @@ class TestStalePeriodsContributeNoThroughput(unittest.TestCase):
         reports normally -- otherwise it is a regression dressed as a fix."""
         power = [(DAY_START + timedelta(minutes=15 * i), 4.0) for i in range(96)]
         with _patch_history(power, _soc_series()):
-            _cfg, charge_kw, discharge_kw, _fin = _call()[0]
+            _cfg, charge_kw, discharge_kw, _fin, _sh = _call()[0]
         credited = float(np.sum(charge_kw) + np.sum(discharge_kw))
         self.assertAlmostEqual(
             credited,
@@ -226,7 +226,7 @@ class TestStalePeriodsContributeNoThroughput(unittest.TestCase):
         fire on ordinary installs."""
         power = [(DAY_START + timedelta(minutes=45 * i), 4.0) for i in range(32)]
         with _patch_history(power, _soc_series()):
-            _cfg, charge_kw, discharge_kw, _fin = _call()[0]
+            _cfg, charge_kw, discharge_kw, _fin, _sh = _call()[0]
         credited = float(np.sum(charge_kw) + np.sum(discharge_kw))
         self.assertAlmostEqual(credited, 96.0, places=3)
 
@@ -245,7 +245,7 @@ class TestTheCaveatIsPublishedRatherThanSilent(unittest.TestCase):
     def test_the_config_carries_the_unobserved_periods(self):
         power = [(DAY_START + timedelta(minutes=m), 5.0) for m in (0, 30, 60, 90, 120)]
         with _patch_history(power, _soc_series()):
-            cfg, _c, _d, _f = _call()[0]
+            cfg, _c, _d, _f, _sh = _call()[0]
         self.assertIsNotNone(
             cfg.stale_history_period_indices,
             "silently zeroing a fifth of the day's throughput without saying "
@@ -256,7 +256,7 @@ class TestTheCaveatIsPublishedRatherThanSilent(unittest.TestCase):
     def test_a_clean_day_carries_none_rather_than_an_empty_set(self):
         power = [(DAY_START + timedelta(minutes=15 * i), 4.0) for i in range(96)]
         with _patch_history(power, _soc_series()):
-            cfg, _c, _d, _f = _call()[0]
+            cfg, _c, _d, _f, _sh = _call()[0]
         self.assertIsNone(cfg.stale_history_period_indices)
 
     def test_staleness_is_not_folded_into_the_availability_gate(self):
@@ -266,7 +266,7 @@ class TestTheCaveatIsPublishedRatherThanSilent(unittest.TestCase):
         other way."""
         power = [(DAY_START + timedelta(minutes=m), 5.0) for m in (0, 30, 60, 90, 120)]
         with _patch_history(power, _soc_series()):
-            cfg, _c, _d, _f = _call()[0]
+            cfg, _c, _d, _f, _sh = _call()[0]
         self.assertIsNone(
             cfg.unavailable_period_indices,
             "an unrecorded period was reported to the oracle as the car being "

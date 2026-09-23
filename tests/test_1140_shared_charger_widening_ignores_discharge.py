@@ -79,11 +79,11 @@ class TestDischargeIsInvisibleToTheWidening(unittest.TestCase):
 
         out = _widen(
             [
-                (_cfg("ev1", "garage", 25.0), charge_a, discharge_a, 0.0),
-                (_cfg("ev2", "garage", 25.0), charge_b, discharge_b, 0.0),
+                (_cfg("ev1", "garage", 25.0), charge_a, discharge_a, 0.0, []),
+                (_cfg("ev2", "garage", 25.0), charge_b, discharge_b, 0.0, []),
             ]
         )
-        caps = [c.shared_charger_max_kw for c, _, _, _ in out]
+        caps = [c.shared_charger_max_kw for c, _, _, _, _ in out]
 
         self.assertEqual(
             caps,

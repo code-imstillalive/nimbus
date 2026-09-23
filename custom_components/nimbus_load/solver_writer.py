@@ -7690,6 +7690,17 @@ def _compute_report_for_window(
         final_soc_kwh_actual,
         *(p[3] for p in participant_batteries),
     ]
+    # nimbus issue #949 (Mark Purcell's own chosen fix): the real,
+    # measured side of the SoC-discrepancy comparison, fleet-blended the
+    # SAME way `j_ach_soc_pct`'s own reconstruction is -- one
+    # `(soc_hist, capacity_kwh)` pair per battery actually scored today,
+    # home first. Passed to `_soc_discrepancy_stats()` below instead of
+    # the home sensor's `soc_hist` alone, so both sides of the comparison
+    # measure the same quantity on a multi-battery install.
+    battery_socs_for_discrepancy = [
+        (soc_hist, capacity_kwh),
+        *((p[4], p[0].capacity_kwh) for p in participant_batteries),
+    ]
     # No generic commanded-dispatch signal exists for a participant
     # either -- same honest "commanded = actual" convention as "home"
     # above (this function's own docstring already covers why).
@@ -7924,7 +7935,7 @@ def _compute_report_for_window(
         cfg, "solver_soc_discrepancy_mean_threshold_pct", 8.0
     )
     soc_discrepancy = _soc_discrepancy_stats(
-        soc_hist,
+        battery_socs_for_discrepancy,
         report.j_ach_hourly,
         max_threshold_pct=soc_discrepancy_max_threshold_pct,
         mean_threshold_pct=soc_discrepancy_mean_threshold_pct,
@@ -8629,7 +8640,7 @@ _SOC_BOUNDARY_EDGE_TOLERANCE_PCT = 1.0
 
 
 def _soc_discrepancy_stats(
-    soc_hist: list[tuple[datetime, float]],
+    battery_socs: list[tuple[list[tuple[datetime, float]], float]],
     j_ach_hourly: dict[str, dict[str, float]],
     max_threshold_pct: float = 15.0,
     mean_threshold_pct: float = 8.0,
@@ -8644,19 +8655,41 @@ def _soc_discrepancy_stats(
     it as a real diagnostic rather than something only visible via a
     manual report run.
 
-    soc_hist (the real recorder history, already fetched by this
-    function's own caller for initial_pct/final_pct above -- reused
-    here, not re-fetched) is resampled at the SAME hourly timestamps
+    nimbus issue #949 (Mark Purcell, his own chosen fix among the three
+    the issue named): `battery_socs` is one `(soc_hist, capacity_kwh)`
+    pair PER BATTERY actually scored this window -- home first, then any
+    `battery_participant` -- not the home sensor alone. The real, measured
+    side is now blended the SAME capacity-weighted way `j_ach_soc_pct`
+    already is (`quality_report.py`'s own `_soc_pct()`: total stored kWh
+    across every battery / total capacity across every battery), so both
+    sides of this comparison measure the identical quantity on a
+    multi-battery install.
+
+    Before this fix, `soc_hist` was the home battery's sensor ALONE,
+    compared against a fleet-blended `ach_pct` -- structurally different
+    quantities once any `battery_participant` entered scoring, which
+    #949 measured as a real 21-29 point gap from PERFECT data (no sensor
+    gap, no efficiency mismatch, nothing physically wrong) on a
+    two/three-battery fleet, rising with the EVs' own share of total
+    capacity. That mechanism is why `epr_reliable` read False on
+    essentially every scored day once `ev_m3p`/`ev_my` joined the fleet.
+
+    Each `soc_hist` here is resampled at the SAME hourly timestamps
     j_ach_hourly is already keyed by (report.j_ach_hourly's own keys,
     'day_start + h hours' ISO strings -- see quality_report.py's
     _hourly_means_by_key() docstring), so every comparison point is
-    genuinely the same real hour on both sides, not a separate
+    genuinely the same real hour on every side, not a separate
     resampling with its own chance to disagree on alignment.
 
-    Returns None for both stats when soc_hist is empty (no SoC sensor
-    configured, or no history at all for the window) -- an honest
-    absence, not a fabricated 0.0 that would misleadingly read as
-    "perfect agreement".
+    Returns None for both stats when `battery_socs` is empty or every
+    battery's own capacity is non-positive (no SoC sensor configured
+    anywhere, or no capacity to blend against) -- an honest absence, not
+    a fabricated 0.0 that would misleadingly read as "perfect agreement".
+    A battery reaching this function is guaranteed to carry real,
+    non-empty history -- `_resolve_battery_participant_history()`'s own
+    docstring covers why a participant missing it is excluded from the
+    fleet entirely before it ever gets here, so there is no separate
+    per-participant honest-absence case to handle at this layer.
 
     nimbus issue #445 (Mark Purcell), same day as #427 shipped: j_ach's
     own soc_pct is a pure, unclamped cumulative integration of real
@@ -8701,7 +8734,17 @@ def _soc_discrepancy_stats(
     once-per-day WARNING below) doesn't have to re-derive the cause from
     the raw numbers.
     """
-    if not soc_hist or not j_ach_hourly:
+    # A battery with no real SoC history at all (the home battery's own
+    # entry when no `solver_battery_soc_sensor` is configured -- unlike a
+    # participant, which never reaches here without one, see this
+    # function's own docstring above) contributes nothing honest to the
+    # blend. Dropped up front rather than left in to silently resample
+    # against `resample_history_nearest()`'s own empty-history default
+    # (0.0), which would read as a real, if extreme, measurement instead
+    # of the absence it actually is.
+    battery_socs = [(hist, capacity) for hist, capacity in battery_socs if hist]
+    total_capacity_kwh = sum(capacity for _hist, capacity in battery_socs)
+    if not battery_socs or not j_ach_hourly or total_capacity_kwh <= 0.0:
         return {
             "soc_discrepancy_max_pct": None,
             "soc_discrepancy_mean_pct": None,
@@ -8728,7 +8771,18 @@ def _soc_discrepancy_stats(
         if ach_pct is None:
             continue
         hour_dt = datetime.fromisoformat(key_str)
-        real_pct = resample_history_nearest(soc_hist, [hour_dt], backfill_first=True)[0]
+        # nimbus issue #949: capacity-weighted fleet blend, one battery
+        # at a time, mirroring quality_report.py's own `_soc_pct()`
+        # exactly (`total stored kWh / total capacity kWh * 100`) so this
+        # is the SAME quantity `ach_pct` already is, not a second,
+        # differently-shaped approximation of it.
+        stored_kwh = sum(
+            resample_history_nearest(hist, [hour_dt], backfill_first=True)[0]
+            / 100.0
+            * capacity
+            for hist, capacity in battery_socs
+        )
+        real_pct = stored_kwh / total_capacity_kwh * 100.0
         ach_out_of_range = not (0.0 <= ach_pct <= 100.0)
         real_out_of_range = not (0.0 <= real_pct <= 100.0)
         exempted = False
@@ -14068,7 +14122,15 @@ def _resolve_battery_participant_history(
     grid_times: list[datetime],
     period_hours: float,
     n_periods: int,
-) -> list[tuple[elements.BatteryConfig, np.ndarray, np.ndarray, float]]:
+) -> list[
+    tuple[
+        elements.BatteryConfig,
+        np.ndarray,
+        np.ndarray,
+        float,
+        list[tuple[datetime, float]],
+    ]
+]:
     """nimbus issue #768/#585 (Mark Purcell): the retrospective, HISTORY-
     based sibling of `build_extra_batteries()` just above -- same
     `battery_participant` subentries, but reconstructing each one's own
@@ -14091,9 +14153,9 @@ def _resolve_battery_participant_history(
     simply the first real consumer of a field that already existed.
 
     Returns one `(BatteryConfig, actual_charge_kw, actual_discharge_kw,
-    final_soc_kwh_actual)` tuple per participant that has EVERYTHING
-    this function needs to score it for real (capacity, SoC sensor,
-    power sensor, and real non-empty history for both across the
+    final_soc_kwh_actual, soc_hist)` tuple per participant that has
+    EVERYTHING this function needs to score it for real (capacity, SoC
+    sensor, power sensor, and real non-empty history for both across the
     window) -- a participant missing any of these, or with a genuinely
     empty history for this specific day (e.g. an EV added to the wizard
     after this day already elapsed), is honestly SKIPPED for this one
@@ -14101,6 +14163,18 @@ def _resolve_battery_participant_history(
     (mirrors this module's own "skip this cycle, retry later" discipline
     for the report as a whole, scoped down to one participant). Logged
     once (INFO) per (name, day) skip reason, not every solve cycle --
+
+    `soc_hist` (nimbus issue #949, Mark Purcell's own chosen fix): the
+    participant's raw, already-fetched real SoC recorder history
+    (`[(datetime, pct), ...]`, same shape and 6h-lookback convention as
+    the "home" battery's own `soc_hist` in `_compute_report_for_window()`
+    just above), carried out rather than discarded once this function is
+    done with it internally for `initial_pct`/`final_pct`. Every
+    participant reaching `results.append()` below is guaranteed non-empty
+    here -- the missing/empty-history skip above already excluded anyone
+    who wouldn't be -- so a caller building a fleet-wide SoC comparison
+    never has to re-derive an honest-absence case that was already
+    resolved.
     this function only ever runs once per real calendar day being
     scored, so there is no log-spam risk to guard against the way the
     live per-solve gating above does.
@@ -14545,7 +14619,13 @@ def _resolve_battery_participant_history(
             continue
 
         results.append(
-            (battery_cfg, actual_charge_kw, actual_discharge_kw, final_soc_kwh_actual)
+            (
+                battery_cfg,
+                actual_charge_kw,
+                actual_discharge_kw,
+                final_soc_kwh_actual,
+                soc_hist,
+            )
         )
     return _widen_shared_charger_cap_to_achieved(results)
 
@@ -14621,8 +14701,24 @@ def _participant_departure_deadline(
 
 
 def _widen_shared_charger_cap_to_achieved(
-    results: list[tuple[elements.BatteryConfig, np.ndarray, np.ndarray, float]],
-) -> list[tuple[elements.BatteryConfig, np.ndarray, np.ndarray, float]]:
+    results: list[
+        tuple[
+            elements.BatteryConfig,
+            np.ndarray,
+            np.ndarray,
+            float,
+            list[tuple[datetime, float]],
+        ]
+    ],
+) -> list[
+    tuple[
+        elements.BatteryConfig,
+        np.ndarray,
+        np.ndarray,
+        float,
+        list[tuple[datetime, float]],
+    ]
+]:
     """Each shared-charger group's cap, relaxed to contain what that group
     demonstrably drew (nimbus issue #1109).
 
@@ -14659,7 +14755,7 @@ def _widen_shared_charger_cap_to_achieved(
     quietly relax a real per-battery limit.
     """
     groups: dict[str, float] = {}
-    for cfg, charge_kw, discharge_kw, _final in results:
+    for cfg, charge_kw, discharge_kw, _final, _soc_hist in results:
         group = cfg.shared_charger_group
         if not group or cfg.shared_charger_max_kw is None:
             continue
@@ -14682,21 +14778,29 @@ def _widen_shared_charger_cap_to_achieved(
             groups[group] = arr  # type: ignore[assignment]
 
     members: dict[str, int] = {}
-    for cfg, _c, _d, _f in results:
+    for cfg, _c, _d, _f, _sh in results:
         if cfg.shared_charger_group:
             members[cfg.shared_charger_group] = (
                 members.get(cfg.shared_charger_group, 0) + 1
             )
 
-    widened: list[tuple[elements.BatteryConfig, np.ndarray, np.ndarray, float]] = []
-    for cfg, charge_kw, discharge_kw, final in results:
+    widened: list[
+        tuple[
+            elements.BatteryConfig,
+            np.ndarray,
+            np.ndarray,
+            float,
+            list[tuple[datetime, float]],
+        ]
+    ] = []
+    for cfg, charge_kw, discharge_kw, final, soc_hist in results:
         group = cfg.shared_charger_group
         if (
             not group
             or cfg.shared_charger_max_kw is None
             or members.get(group, 0) < 2  # a group of one is a per-battery limit
         ):
-            widened.append((cfg, charge_kw, discharge_kw, final))
+            widened.append((cfg, charge_kw, discharge_kw, final, soc_hist))
             continue
         achieved_peak = float(np.max(np.asarray(groups[group], dtype=np.float64)))
         relaxed = max(float(cfg.shared_charger_max_kw), achieved_peak)
@@ -14716,6 +14820,7 @@ def _widen_shared_charger_cap_to_achieved(
                 charge_kw,
                 discharge_kw,
                 final,
+                soc_hist,
             )
         )
     return widened

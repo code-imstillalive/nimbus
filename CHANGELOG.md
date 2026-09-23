@@ -8,6 +8,17 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Fixed
+- **`soc_discrepancy_*`/`epr_reliable` no longer structurally false-flag every multi-battery install** ([#949](https://github.com/code-imstillalive/nimbus/issues/949)).
+
+  The achieved trajectory's own `soc_pct` (`j_ach_soc_pct`, what the quality report actually scores against) is a capacity-weighted **fleet** blend across every battery scored that day — `quality_report.py`'s own `_soc_pct()`, `total stored kWh / total capacity kWh`. But the "real, measured" side of the SoC-discrepancy comparison used only the **home** battery's own SoC sensor. On any install scoring more than one battery, that compares a fleet quantity against one participant's own reading — a structural disagreement that shows up even when every sensor is reading perfectly, and was already documented as the household's one remaining unexplained `epr_reliable: false` flag.
+
+  Fixed the way the household chose from #949's own three named options: build a genuine fleet-blended SoC history and compare like with like. `_resolve_battery_participant_history()` now carries each participant's own already-fetched SoC recorder history through instead of discarding it; `_soc_discrepancy_stats()` takes one `(soc_hist, capacity_kwh)` pair per battery actually scored (home first, then every participant) and blends them the identical capacity-weighted way `_soc_pct()` does, before comparing against the achieved trajectory. A battery with no real SoC history (no sensor configured) is dropped from the blend rather than silently resampled as a fabricated 0.0%.
+
+  Prior art checked per this repo's own standing directive: neither EMHASS nor HAEO scores a fleet of batteries against a single reconciliation report the way this project's own multi-participant quality report does, so there is no existing parameter or element to adopt here — the fix mirrors this codebase's own already-proven pattern (`j_ach_soc_pct`'s blend formula) rather than an external one.
+
+  Devhub validation: not yet run — this is a scoring-report change, verified here by four new hand-computed pinning tests (perfect fleet agreement at zero discrepancy; the pre-fix single-sensor comparison reproduced as a 30pt false gap on the same data; capacity-weighting proven against a naive-average regression; a sensorless participant correctly dropped rather than fabricated) plus the full existing `_soc_discrepancy_stats`/`_resolve_battery_participant_history` suite. Live confirmation needs the next scored day on the household's own three-battery fleet.
+
 ## [0.94.415] - 2026-09-21
 
 ### Added

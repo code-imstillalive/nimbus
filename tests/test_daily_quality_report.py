@@ -482,14 +482,14 @@ class TestSocDiscrepancyOutOfRangeClampAndReliableFlag(unittest.TestCase):
         # (327 clamped to 100, minus 60).
         soc_hist = [(YESTERDAY_START, 60.0)]
         j_ach_hourly = {YESTERDAY_START.isoformat(): {"soc_pct": 327.67}}
-        result = solver_writer._soc_discrepancy_stats(soc_hist, j_ach_hourly)
+        result = solver_writer._soc_discrepancy_stats([(soc_hist, 100.0)], j_ach_hourly)
         self.assertEqual(result["soc_discrepancy_max_pct"], 40.0)
         self.assertFalse(result["soc_discrepancy_reliable"])
 
     def test_ach_pct_below_zero_is_clamped_and_flagged_unreliable(self):
         soc_hist = [(YESTERDAY_START, 20.0)]
         j_ach_hourly = {YESTERDAY_START.isoformat(): {"soc_pct": -85.0}}
-        result = solver_writer._soc_discrepancy_stats(soc_hist, j_ach_hourly)
+        result = solver_writer._soc_discrepancy_stats([(soc_hist, 100.0)], j_ach_hourly)
         # -85 clamped to 0, minus the real 20 -> 20pp, never 105pp.
         self.assertEqual(result["soc_discrepancy_max_pct"], 20.0)
         self.assertFalse(result["soc_discrepancy_reliable"])
@@ -497,14 +497,14 @@ class TestSocDiscrepancyOutOfRangeClampAndReliableFlag(unittest.TestCase):
     def test_result_never_exceeds_100_even_with_both_sides_out_of_range(self):
         soc_hist = [(YESTERDAY_START, -40.0)]
         j_ach_hourly = {YESTERDAY_START.isoformat(): {"soc_pct": 500.0}}
-        result = solver_writer._soc_discrepancy_stats(soc_hist, j_ach_hourly)
+        result = solver_writer._soc_discrepancy_stats([(soc_hist, 100.0)], j_ach_hourly)
         self.assertLessEqual(result["soc_discrepancy_max_pct"], 100.0)
         self.assertFalse(result["soc_discrepancy_reliable"])
 
     def test_all_in_range_values_stay_reliable_true(self):
         soc_hist = [(YESTERDAY_START, 55.0)]
         j_ach_hourly = {YESTERDAY_START.isoformat(): {"soc_pct": 50.0}}
-        result = solver_writer._soc_discrepancy_stats(soc_hist, j_ach_hourly)
+        result = solver_writer._soc_discrepancy_stats([(soc_hist, 100.0)], j_ach_hourly)
         self.assertEqual(result["soc_discrepancy_max_pct"], 5.0)
         self.assertTrue(result["soc_discrepancy_reliable"])
 
@@ -527,7 +527,7 @@ class TestSocDiscrepancyRealBoundaryEdgeTolerance(unittest.TestCase):
     def test_ach_pct_slightly_negative_with_real_at_zero_is_not_out_of_range(self):
         soc_hist = [(YESTERDAY_START, 0.0)]
         j_ach_hourly = {YESTERDAY_START.isoformat(): {"soc_pct": -9.0}}
-        result = solver_writer._soc_discrepancy_stats(soc_hist, j_ach_hourly)
+        result = solver_writer._soc_discrepancy_stats([(soc_hist, 100.0)], j_ach_hourly)
         self.assertTrue(result["soc_discrepancy_reliable"])
         self.assertIsNone(result["soc_discrepancy_reason"])
         # -9.0 clamps to 0.0, same as the real 0.0 -- zero gap, exactly
@@ -537,7 +537,7 @@ class TestSocDiscrepancyRealBoundaryEdgeTolerance(unittest.TestCase):
     def test_ach_pct_slightly_over_100_with_real_at_100_is_not_out_of_range(self):
         soc_hist = [(YESTERDAY_START, 100.0)]
         j_ach_hourly = {YESTERDAY_START.isoformat(): {"soc_pct": 104.5}}
-        result = solver_writer._soc_discrepancy_stats(soc_hist, j_ach_hourly)
+        result = solver_writer._soc_discrepancy_stats([(soc_hist, 100.0)], j_ach_hourly)
         self.assertTrue(result["soc_discrepancy_reliable"])
         self.assertIsNone(result["soc_discrepancy_reason"])
 
@@ -548,7 +548,7 @@ class TestSocDiscrepancyRealBoundaryEdgeTolerance(unittest.TestCase):
         # needs explaining and stays flagged.
         soc_hist = [(YESTERDAY_START, 2.0)]
         j_ach_hourly = {YESTERDAY_START.isoformat(): {"soc_pct": -9.0}}
-        result = solver_writer._soc_discrepancy_stats(soc_hist, j_ach_hourly)
+        result = solver_writer._soc_discrepancy_stats([(soc_hist, 100.0)], j_ach_hourly)
         self.assertFalse(result["soc_discrepancy_reliable"])
         self.assertEqual(result["soc_discrepancy_reason"], "out_of_range")
 
@@ -559,7 +559,7 @@ class TestSocDiscrepancyRealBoundaryEdgeTolerance(unittest.TestCase):
         # trajectory also crossed.
         soc_hist = [(YESTERDAY_START, -5.0)]
         j_ach_hourly = {YESTERDAY_START.isoformat(): {"soc_pct": -9.0}}
-        result = solver_writer._soc_discrepancy_stats(soc_hist, j_ach_hourly)
+        result = solver_writer._soc_discrepancy_stats([(soc_hist, 100.0)], j_ach_hourly)
         self.assertFalse(result["soc_discrepancy_reliable"])
         self.assertEqual(result["soc_discrepancy_reason"], "out_of_range")
 
@@ -579,7 +579,7 @@ class TestSocDiscrepancyHourlyExposure(unittest.TestCase):
     def test_hourly_rows_carry_the_real_per_hour_values_used(self):
         soc_hist = [(YESTERDAY_START, 55.0)]
         j_ach_hourly = {YESTERDAY_START.isoformat(): {"soc_pct": 50.0}}
-        result = solver_writer._soc_discrepancy_stats(soc_hist, j_ach_hourly)
+        result = solver_writer._soc_discrepancy_stats([(soc_hist, 100.0)], j_ach_hourly)
         hourly = result["soc_discrepancy_hourly"]
         self.assertEqual(len(hourly), 1)
         row = hourly[0]
@@ -601,7 +601,7 @@ class TestSocDiscrepancyHourlyExposure(unittest.TestCase):
             hour0.isoformat(): {"soc_pct": 50.0},
             hour1.isoformat(): {"soc_pct": 20.0},
         }
-        result = solver_writer._soc_discrepancy_stats(soc_hist, j_ach_hourly)
+        result = solver_writer._soc_discrepancy_stats([(soc_hist, 100.0)], j_ach_hourly)
         hourly = result["soc_discrepancy_hourly"]
         self.assertEqual(len(hourly), 2)
         by_hour = {row["hour"]: row for row in hourly}
@@ -611,7 +611,7 @@ class TestSocDiscrepancyHourlyExposure(unittest.TestCase):
     def test_marks_the_out_of_range_hour_explicitly(self):
         soc_hist = [(YESTERDAY_START, 60.0)]
         j_ach_hourly = {YESTERDAY_START.isoformat(): {"soc_pct": 327.67}}
-        result = solver_writer._soc_discrepancy_stats(soc_hist, j_ach_hourly)
+        result = solver_writer._soc_discrepancy_stats([(soc_hist, 100.0)], j_ach_hourly)
         row = result["soc_discrepancy_hourly"][0]
         self.assertTrue(row["out_of_range"])
         # The gap itself is still reported CLAMPED, same as the aggregate
@@ -626,7 +626,7 @@ class TestSocDiscrepancyHourlyExposure(unittest.TestCase):
         # says so explicitly rather than leaving a reader to re-derive it.
         soc_hist = [(YESTERDAY_START, 0.0)]
         j_ach_hourly = {YESTERDAY_START.isoformat(): {"soc_pct": -9.0}}
-        result = solver_writer._soc_discrepancy_stats(soc_hist, j_ach_hourly)
+        result = solver_writer._soc_discrepancy_stats([(soc_hist, 100.0)], j_ach_hourly)
         row = result["soc_discrepancy_hourly"][0]
         self.assertTrue(row["out_of_range"])
         self.assertTrue(row["boundary_exempted"])
@@ -638,8 +638,91 @@ class TestSocDiscrepancyHourlyExposure(unittest.TestCase):
     def test_none_when_every_hourly_row_is_missing_soc_pct(self):
         soc_hist = [(YESTERDAY_START, 55.0)]
         j_ach_hourly = {YESTERDAY_START.isoformat(): {}}
-        result = solver_writer._soc_discrepancy_stats(soc_hist, j_ach_hourly)
+        result = solver_writer._soc_discrepancy_stats([(soc_hist, 100.0)], j_ach_hourly)
         self.assertIsNone(result["soc_discrepancy_hourly"])
+
+
+class TestSocDiscrepancyFleetBlend(unittest.TestCase):
+    """nimbus issue #949 (Mark Purcell's own chosen fix, "fleet-blend
+    history"): `j_ach_soc_pct` (quality_report.py's own `_soc_pct()`) is
+    a capacity-weighted blend of every battery scored that day, but the
+    "real" side of `soc_discrepancy_*` used to be the HOME battery's own
+    SoC sensor alone -- comparing a fleet quantity against a single-
+    participant measurement, which structurally disagrees on any install
+    scoring more than one battery even when every sensor is reading
+    perfectly. `_soc_discrepancy_stats()` now takes a list of
+    `(soc_hist, capacity_kwh)` pairs -- one per battery actually scored
+    -- and blends them the identical way before comparing, so both sides
+    of the comparison measure the same quantity.
+    """
+
+    def test_perfect_fleet_agreement_is_zero_discrepancy(self):
+        # Home (100kWh @ 20%), two participants (50kWh @ 80% each) --
+        # the same shape as the issue's own worked example (home + 2
+        # EVs). Fleet blend: (20 + 40 + 40) / (100 + 50 + 50) * 100 =
+        # 50.0%, matching the achieved trajectory's own 50.0% exactly --
+        # zero discrepancy from otherwise-perfect data.
+        home_hist = [(YESTERDAY_START, 20.0)]
+        ev1_hist = [(YESTERDAY_START, 80.0)]
+        ev2_hist = [(YESTERDAY_START, 80.0)]
+        j_ach_hourly = {YESTERDAY_START.isoformat(): {"soc_pct": 50.0}}
+        result = solver_writer._soc_discrepancy_stats(
+            [(home_hist, 100.0), (ev1_hist, 50.0), (ev2_hist, 50.0)],
+            j_ach_hourly,
+        )
+        self.assertEqual(result["soc_discrepancy_max_pct"], 0.0)
+        self.assertEqual(result["soc_discrepancy_mean_pct"], 0.0)
+        self.assertTrue(result["soc_discrepancy_reliable"])
+
+    def test_home_sensor_alone_would_have_false_flagged_this_as_a_30pt_gap(self):
+        # Same fleet as above -- comparing the achieved 50.0% against
+        # home's OWN sensor alone (20.0%, the pre-#949 behaviour) would
+        # read a 30pt gap on data that is, fleet-wide, in perfect
+        # agreement. This is the exact structural false-positive #949
+        # describes; the fix (comparing the full blend, tested above)
+        # reports 0.0pt for the identical inputs.
+        home_hist = [(YESTERDAY_START, 20.0)]
+        j_ach_hourly = {YESTERDAY_START.isoformat(): {"soc_pct": 50.0}}
+        result = solver_writer._soc_discrepancy_stats(
+            [(home_hist, 100.0)], j_ach_hourly
+        )
+        self.assertEqual(result["soc_discrepancy_max_pct"], 30.0)
+        self.assertFalse(result["soc_discrepancy_reliable"])
+
+    def test_blend_is_capacity_weighted_not_a_naive_average(self):
+        # Home (100kWh @ 60%), one small participant (10kWh @ 0%). A
+        # naive unweighted average of the two percentages would be
+        # 30.0%; the correct capacity-weighted blend is
+        # (60 + 0) / (100 + 10) * 100 = 54.5454...%. Achieved pinned to
+        # the correct weighted figure -- a regression to naive averaging
+        # would reintroduce a ~24.5pt false gap here.
+        home_hist = [(YESTERDAY_START, 60.0)]
+        small_hist = [(YESTERDAY_START, 0.0)]
+        j_ach_hourly = {YESTERDAY_START.isoformat(): {"soc_pct": 60.0 / 110.0 * 100.0}}
+        result = solver_writer._soc_discrepancy_stats(
+            [(home_hist, 100.0), (small_hist, 10.0)],
+            j_ach_hourly,
+        )
+        self.assertAlmostEqual(result["soc_discrepancy_max_pct"], 0.0, places=6)
+        self.assertTrue(result["soc_discrepancy_reliable"])
+
+    def test_participant_with_no_sensor_is_dropped_not_treated_as_zero(self):
+        # A participant with an empty soc_hist (no
+        # solver_battery_soc_sensor configured for it) contributes
+        # nothing honest to the blend -- it must be excluded entirely,
+        # not silently resampled as a fabricated 0.0% that would drag
+        # the blend down. Home (100kWh @ 50%) alone against an achieved
+        # 50.0% is a perfect match; adding a sensorless participant must
+        # not move the result.
+        home_hist = [(YESTERDAY_START, 50.0)]
+        no_sensor_hist: list[tuple] = []
+        j_ach_hourly = {YESTERDAY_START.isoformat(): {"soc_pct": 50.0}}
+        result = solver_writer._soc_discrepancy_stats(
+            [(home_hist, 100.0), (no_sensor_hist, 60.0)],
+            j_ach_hourly,
+        )
+        self.assertEqual(result["soc_discrepancy_max_pct"], 0.0)
+        self.assertTrue(result["soc_discrepancy_reliable"])
 
 
 class TestSettlementHook(unittest.TestCase):
