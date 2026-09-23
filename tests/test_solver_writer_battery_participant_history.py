@@ -159,7 +159,7 @@ class TestResolveBatteryParticipantHistory(unittest.TestCase):
         with _patch_history(fetch):
             results = self._call()
         self.assertEqual(len(results), 1)
-        battery, charge_kw, discharge_kw, final_soc_kwh = results[0]
+        battery, charge_kw, discharge_kw, final_soc_kwh, _soc_hist = results[0]
         self.assertEqual(battery.name, "ev_m3p")
         self.assertEqual(battery.capacity_kwh, 60.0)
         self.assertAlmostEqual(battery.initial_soc_kwh, 33.0)  # 55% of 60
@@ -245,7 +245,7 @@ class TestAvailabilityGating(unittest.TestCase):
         with _patch_history(fetch):
             results = self._call()
         self.assertEqual(len(results), 1)
-        _, charge_kw, discharge_kw, _ = results[0]
+        _, charge_kw, discharge_kw, _, _ = results[0]
         self.assertTrue((charge_kw == 5.0).all())
         self.assertTrue((discharge_kw == 0.0).all())
 
@@ -304,7 +304,7 @@ class TestAvailabilityGating(unittest.TestCase):
         ):
             results = self._call()
         self.assertEqual(len(results), 1)
-        _, charge_kw, discharge_kw, _ = results[0]
+        _, charge_kw, discharge_kw, _, _ = results[0]
         # Away hours (8, 9, 10): real driving discharge zeroed on BOTH
         # arrays -- never counted as a home-grid discharge.
         for h in (8, 9, 10):
@@ -345,7 +345,7 @@ class TestAvailabilityGating(unittest.TestCase):
         ):
             results = self._call()
         self.assertEqual(len(results), 1)
-        _, charge_kw, discharge_kw, _ = results[0]
+        _, charge_kw, discharge_kw, _, _ = results[0]
         self.assertTrue((charge_kw == 0.0).all())
         self.assertTrue((discharge_kw == 0.0).all())
 

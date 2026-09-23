@@ -81,7 +81,7 @@ def _widen(rows):
 
 
 def _caps(rows):
-    return [c.shared_charger_max_kw for c, _, _, _ in rows]
+    return [c.shared_charger_max_kw for c, _, _, _, _ in rows]
 
 
 class TestAWellBehavedDayIsUntouched(unittest.TestCase):
@@ -94,8 +94,8 @@ class TestAWellBehavedDayIsUntouched(unittest.TestCase):
         a = np.array([5.0, 5.0, 5.0, 0.0, 0.0, 0.0])
         b = np.array([5.0, 5.0, 0.0, 0.0, 0.0, 0.0])
         out = _widen(
-            [(_cfg("ev1", "garage", 25.0), a, ZERO, 0.0),
-             (_cfg("ev2", "garage", 25.0), b, ZERO, 0.0)]
+            [(_cfg("ev1", "garage", 25.0), a, ZERO, 0.0, []),
+             (_cfg("ev2", "garage", 25.0), b, ZERO, 0.0, [])]
         )  # fmt: skip
         self.assertEqual(_caps(out), [25.0, 25.0])
 
@@ -105,8 +105,8 @@ class TestAWellBehavedDayIsUntouched(unittest.TestCase):
         a = np.array([12.5, 0.0, 0.0, 0.0, 0.0, 0.0])
         b = np.array([12.5, 0.0, 0.0, 0.0, 0.0, 0.0])
         out = _widen(
-            [(_cfg("ev1", "garage", 25.0), a, ZERO, 0.0),
-             (_cfg("ev2", "garage", 25.0), b, ZERO, 0.0)]
+            [(_cfg("ev1", "garage", 25.0), a, ZERO, 0.0, []),
+             (_cfg("ev2", "garage", 25.0), b, ZERO, 0.0, [])]
         )  # fmt: skip
         self.assertEqual(_caps(out), [25.0, 25.0])
 
@@ -116,8 +116,8 @@ class TestAWellBehavedDayIsUntouched(unittest.TestCase):
         touched by a constraint fix."""
         a = np.array([5.0, 5.0, 0.0, 0.0, 0.0, 0.0])
         d = np.array([0.0, 0.0, 3.0, 0.0, 0.0, 0.0])
-        out = _widen([(_cfg("ev1", "garage", 25.0), a, d, 41.5)])
-        _cfg_out, charge, discharge, final = out[0]
+        out = _widen([(_cfg("ev1", "garage", 25.0), a, d, 41.5, [])])
+        _cfg_out, charge, discharge, final, _soc_hist = out[0]
         np.testing.assert_array_equal(charge, a)
         np.testing.assert_array_equal(discharge, d)
         self.assertEqual(final, 41.5)
@@ -132,8 +132,8 @@ class TestADayThatExceededTheCap(unittest.TestCase):
         a = np.array([15.0, 15.0, 0.0, 0.0, 0.0, 0.0])
         b = np.array([14.0, 12.0, 0.0, 0.0, 0.0, 0.0])
         out = _widen(
-            [(_cfg("ev1", "garage", 25.0), a, ZERO, 0.0),
-             (_cfg("ev2", "garage", 25.0), b, ZERO, 0.0)]
+            [(_cfg("ev1", "garage", 25.0), a, ZERO, 0.0, []),
+             (_cfg("ev2", "garage", 25.0), b, ZERO, 0.0, [])]
         )  # fmt: skip
         # period 0 draws 15 + 14 = 29, the largest simultaneous draw.
         self.assertEqual(_caps(out), [29.0, 29.0])
@@ -145,8 +145,8 @@ class TestADayThatExceededTheCap(unittest.TestCase):
         a = np.array([15.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         b = np.array([14.0, 0.0, 0.0, 0.0, 0.0, 0.0])
         out = _widen(
-            [(_cfg("ev1", "garage", 25.0), a, ZERO, 0.0),
-             (_cfg("ev2", "garage", 25.0), b, ZERO, 0.0)]
+            [(_cfg("ev1", "garage", 25.0), a, ZERO, 0.0, []),
+             (_cfg("ev2", "garage", 25.0), b, ZERO, 0.0, [])]
         )  # fmt: skip
         self.assertEqual(len(set(_caps(out))), 1)
 
@@ -157,8 +157,8 @@ class TestADayThatExceededTheCap(unittest.TestCase):
         a = np.array([10.0, 10.0, 10.0, 10.0, 0.0, 0.0])
         b = np.array([10.0, 10.0, 10.0, 10.0, 0.0, 0.0])
         out = _widen(
-            [(_cfg("ev1", "garage", 5.0), a, ZERO, 0.0),
-             (_cfg("ev2", "garage", 5.0), b, ZERO, 0.0)]
+            [(_cfg("ev1", "garage", 5.0), a, ZERO, 0.0, []),
+             (_cfg("ev2", "garage", 5.0), b, ZERO, 0.0, [])]
         )  # fmt: skip
         self.assertEqual(_caps(out), [20.0, 20.0])
 
@@ -169,12 +169,20 @@ class TestWhatIsDeliberatelyLeftAlone(unittest.TestCase):
         `max_charge_kw`. Widening it would quietly relax a real
         per-battery limit that nothing else re-imposes."""
         out = _widen(
-            [(_cfg("ev1", "garage", 10.0), np.array([15.0, 0, 0, 0, 0, 0]), ZERO, 0.0)]
+            [
+                (
+                    _cfg("ev1", "garage", 10.0),
+                    np.array([15.0, 0, 0, 0, 0, 0]),
+                    ZERO,
+                    0.0,
+                    [],
+                )
+            ]
         )
         self.assertEqual(_caps(out), [10.0])
 
     def test_a_participant_with_no_group_is_untouched(self):
-        out = _widen([(_cfg("home", None, None), np.full(6, 99.0), ZERO, 0.0)])
+        out = _widen([(_cfg("home", None, None), np.full(6, 99.0), ZERO, 0.0, [])])
         self.assertEqual(_caps(out), [None])
 
     def test_a_group_with_no_configured_cap_is_untouched(self):
@@ -182,8 +190,8 @@ class TestWhatIsDeliberatelyLeftAlone(unittest.TestCase):
         inventing one from the achieved peak would impose a limit the
         household never set."""
         out = _widen(
-            [(_cfg("ev1", "garage", None), np.full(6, 9.0), ZERO, 0.0),
-             (_cfg("ev2", "garage", None), np.full(6, 9.0), ZERO, 0.0)]
+            [(_cfg("ev1", "garage", None), np.full(6, 9.0), ZERO, 0.0, []),
+             (_cfg("ev2", "garage", None), np.full(6, 9.0), ZERO, 0.0, [])]
         )  # fmt: skip
         self.assertEqual(_caps(out), [None, None])
 
@@ -191,10 +199,10 @@ class TestWhatIsDeliberatelyLeftAlone(unittest.TestCase):
         """Two chargers are two constraints. Summing across groups would
         widen each by the other's draw."""
         out = _widen(
-            [(_cfg("ev1", "garage", 10.0), np.full(6, 12.0), ZERO, 0.0),
-             (_cfg("ev2", "garage", 10.0), np.full(6, 1.0), ZERO, 0.0),
-             (_cfg("ev3", "street", 10.0), np.full(6, 30.0), ZERO, 0.0),
-             (_cfg("ev4", "street", 10.0), np.full(6, 1.0), ZERO, 0.0)]
+            [(_cfg("ev1", "garage", 10.0), np.full(6, 12.0), ZERO, 0.0, []),
+             (_cfg("ev2", "garage", 10.0), np.full(6, 1.0), ZERO, 0.0, []),
+             (_cfg("ev3", "street", 10.0), np.full(6, 30.0), ZERO, 0.0, []),
+             (_cfg("ev4", "street", 10.0), np.full(6, 1.0), ZERO, 0.0, [])]
         )  # fmt: skip
         self.assertEqual(_caps(out), [13.0, 13.0, 31.0, 31.0])
 

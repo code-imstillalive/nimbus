@@ -392,9 +392,13 @@ _N_PERIODS_HINT = 96
 
 def _participant(name, charge_kw, discharge_kw, n_periods):
     """One (BatteryConfig, actual_charge_kw, actual_discharge_kw,
-    final_soc_kwh) tuple shaped exactly like _resolve_battery_participant_
-    history() returns, with flat power arrays so the expected energy is
-    trivially hand-checkable."""
+    final_soc_kwh, soc_hist) tuple shaped exactly like
+    _resolve_battery_participant_history() returns, with flat power
+    arrays so the expected energy is trivially hand-checkable. soc_hist
+    is deliberately empty -- this class's own tests are about the
+    achieved_energy_*/fleet_achieved_energy_* fields, never soc_
+    discrepancy_*, so there is no real SoC series to fake here; an empty
+    history is correctly dropped from the SoC blend rather than faked."""
     import numpy as np
     from solver import elements
 
@@ -417,6 +421,7 @@ def _participant(name, charge_kw, discharge_kw, n_periods):
         np.full(n_periods, float(charge_kw)),
         np.full(n_periods, float(discharge_kw)),
         30.0,
+        [],
     )
 
 
