@@ -95,12 +95,23 @@ def main() -> int:
     rows = []
     keys = sorted(ref)
     for k in keys:
-        h = k[11:13]
-        r = by_hour.get(h, {})
-        real = real_soc_at_boundary(h)
-        rows.append([f"{h}:00", round(ref[k]["import_price_aud_per_kwh"] * 100, 1), round(ref[k]["export_price_aud_per_kwh"] * 100, 1),
+        # nimbus-dispatch-report skill bug (found 2026-09-24): `k` is a UTC
+        # ISO timestamp (j_ref_hourly/hourly_regret's own key shape), so
+        # `k[11:13]` is the UTC hour. `by_hour`/`by_hour_last` above are
+        # keyed by LOCAL hour (tz applied at their own construction). Using
+        # the UTC hour to index them silently pulled the recorder cross-
+        # check (`real`/`mtrGrd`) for the wrong hour of the day -- up to a
+        # 10h (Brisbane UTC+10) misalignment against every other column in
+        # the same row, which are all genuinely UTC-consistent with each
+        # other. `reg` (hourly_regret) is itself UTC-keyed, so that lookup
+        # was already correct and must keep using the UTC hour.
+        h_utc = k[11:13]
+        h_local = dt.datetime.fromisoformat(k).astimezone(tz).strftime("%H")
+        r = by_hour.get(h_local, {})
+        real = real_soc_at_boundary(h_local)
+        rows.append([f"{h_local}:00", round(ref[k]["import_price_aud_per_kwh"] * 100, 1), round(ref[k]["export_price_aud_per_kwh"] * 100, 1),
                      round(real, 1) if isinstance(real, (int, float)) else None, round(ach[k]["soc_pct"], 1), round(star[k]["soc_pct"], 1),
-                     round(reg[str(int(h))], 3), round(ach[k]["battery_kw"], 2), round(star[k]["battery_kw"], 2),
+                     round(reg[str(int(h_utc))], 3), round(ach[k]["battery_kw"], 2), round(star[k]["battery_kw"], 2),
                      round(ref[k]["load_kw"], 1), round(ref[k]["solar_kw"], 1), round(ach[k]["grid_kw"], 2), round(star[k]["grid_kw"], 2),
                      r.get(sensors.get("grid")), r.get(sensors.get("battery"))])
 
