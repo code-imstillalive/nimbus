@@ -37,6 +37,43 @@ the "CURRENT STATE" journal that used to live directly in this file now lives. E
 file is not re-summarized here; read it directly for the full detail. Newest
 first (this said "most recent 5" while carrying fourteen, so it now says what it is):
 
+- [2026-09-25](docs/worklog/2026-09-25.md) — **EPR root-caused after nine previous
+  passes, and the reason it kept coming back was structural rather than a missed
+  bug.** One release (v0.94.416), #1200 filed, #1201/#1202 merged. The nightly score
+  is computed just after local midnight, hours before that day's P2P settlement
+  exists (~09:00 local), so `real_p2p_dollars` is 0 — which also makes the bonus
+  gate false, so **`j_ref`, `j_ach` and `j_star` go P2P-blind together** and the day
+  is priced as though the household had no P2P arrangement. #1082 already repaired
+  exactly this and was genuinely deployed, but its retry is reachable only while
+  `latest_date == yesterday_key`, **so it expires at local midnight** — the log shows
+  it firing hourly and stopping at 06:00 against a 09:00 settlement, three days
+  running. **The move that cracked it was an instrument from a different pipeline**:
+  real settled LocalVolts revenue, which showed the published EPR was
+  **anti-correlated with the money** — 51.9 / 38.5 / 36.4% on days that settled
+  $14.91 / $12.71 / $13.46, against 88.6% on the one day that genuinely
+  under-exported ($4.01). That settled "score or dispatch?" before the scorer was
+  opened, and it means EPR could not have detected #1179's real P2P-window solve
+  failures on the very night it scored best. Proven by experiment on the real
+  install: a manual rescore moved three days to **89.8 / 87.7 / 87.2%** while
+  16-20 Sep did not move *at all* and the one unsettled day did not move either —
+  two controls that separate a fix from inflation. The fix records provisionality
+  **in the row** (`"p"`, written only when provisional, self-clearing) and sweeps
+  past flagged rows once the real settlement entry is present — gated on presence so
+  a day that never settles costs **zero** solves, one day per cycle, oldest first.
+  Plus a conditional "Re-score with settlement" button inside the Regret card
+  (household ask) needing **no lovelace edit**, and `only_dates` on
+  `rescore_quality_history()`. Shipped with **Mark Purcell's #949** fleet-blended-SoC
+  fix. **Three hypotheses died on the way, two killed by the household** — an
+  "empty house" load regime (the break landed on their departure date, which is
+  exactly why it was tempting), "merged but not deployed" (#1082 shipped in
+  v0.94.380, found only after being told to check *all* the releases), and a
+  rescore-vs-native partial-window difference (refuted by reading the code — both
+  paths pass `allow_partial=False`). **Why #1082's retry stopped at 06:00 is
+  deliberately left unexplained** rather than given a tidy cause. Also: the #357
+  drift guard refused the three new functions and was answered with stated
+  reasoning rather than a silent allowlist entry; a version bump was kept out of the
+  feature branch per convention; and a 25-minute local suite spanning a `git rebase`
+  produced 8 **fake** failures that vanished on a clean tree.
 - [2026-09-20](docs/worklog/2026-09-20.md) — **One release (v0.94.396), two of
   Mark's IV&V findings fixed and closed (#1140, #1141), and #1120 part 3 built.**
   #1140: the shared-charger widening summed only charge while the LP constraint it
