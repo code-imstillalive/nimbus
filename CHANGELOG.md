@@ -19,6 +19,46 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
   Devhub validation: not yet run — this is a scoring-report change, verified here by four new hand-computed pinning tests (perfect fleet agreement at zero discrepancy; the pre-fix single-sensor comparison reproduced as a 30pt false gap on the same data; capacity-weighting proven against a naive-average regression; a sensorless participant correctly dropped rather than fabricated) plus the full existing `_soc_discrepancy_stats`/`_resolve_battery_participant_history` suite. Live confirmation needs the next scored day on the household's own three-battery fleet.
 
+- **A day scored before its P2P settlement existed is no longer frozen that way once the settlement lands** ([#1200](https://github.com/code-imstillalive/nimbus/issues/1200)).
+
+  A day is scored just after local midnight, hours before its settlement exists. `real_p2p_dollars` is then 0, which also makes the `real_p2p_volume_kwh > 0.01` bonus gate false — so `j_ref`, `j_ach` and `j_star` go **P2P-blind together** and the day is priced as though the household had no P2P arrangement at all.
+
+  [#1082](https://github.com/code-imstillalive/nimbus/issues/1082) added an hourly re-score for exactly this, and it is reachable only while `latest_date == yesterday_key` — so **it expires at local midnight.** That is the defect: the repair has to win a race, and any perturbation of timing loses it permanently.
+
+  **Measured on the reference household**, published EPR against the real settled export revenue for the same day:
+
+  | date | published | settled export | after rescore |
+  |---|---:|---:|---:|
+  | 2026-09-20 | 88.6% | **$4.01** | 88.6% (unchanged) |
+  | 2026-09-21 | 51.9% | $14.91 | **89.8%** |
+  | 2026-09-22 | 38.5% | $12.71 | **87.7%** |
+  | 2026-09-23 | 36.4% | $13.46 | **87.2%** |
+  | 2026-09-24 | 41.6% | not settled yet | 41.6% (unchanged) |
+
+  **The scorer read worst on the household's best-earning days, and read 88.6% on the one day that genuinely under-exported.** Anti-correlated with the money — which is what makes this more than cosmetic: EPR in this state cannot detect a real dispatch failure, and [#1179](https://github.com/code-imstillalive/nimbus/issues/1179) records one on 2026-09-20, the day that scored best. `regret_dollars` fell $12.75 → $2.69, $13.22 → $2.91, $11.44 → $2.27 on the three repaired days.
+
+  **Two controls, because a rescore that lifts everything is not a fix:** the five already-correct days did not move at all, and 2026-09-24 — the only day with no settlement — is the only recent day that did not move.
+
+  The fix records provisionality **in the row**, so the repair has no deadline. A one-character `"p"` marks a row whose figures were computed without settlement; a sweep re-scores any past flagged row once the real settlement entry is present. Written only when provisional and self-clearing on re-score, following the `"v"`/`"r"` precedent under [#944](https://github.com/code-imstillalive/nimbus/issues/944)'s 16 KB attribute cap — so the rows that are already correct cost nothing.
+
+  **Bounded, and gated on evidence rather than hope.** A candidate is re-scored only once the settlement entry is confirmed present, at most one day per cycle, oldest first. A day whose settlement never arrives therefore costs **zero** solves rather than one per cycle, which is the [#773](https://github.com/code-imstillalive/nimbus/issues/773)/[#757](https://github.com/code-imstillalive/nimbus/issues/757) executor-starvation shape this repo has already paid for twice. Presence is checked rather than a non-zero figure, because a settled day of genuinely zero export is a real result and reading it as "not arrived" would freeze that row for good.
+
+  **What is deliberately not claimed:** why the #1082 retry stopped at 06:00 on three consecutive days is **not established**. The 06:00 ML retrain does starve the solve cycle, but that burst ends at 06:07 and does not explain a silence lasting until midnight. It is recorded as unexplained on #1200 rather than given a tidy cause — and the fix does not depend on the answer, because it removes the dependency on that retry.
+
+  Rows written before the flag existed are **not back-dated**, matching the `"v"` field's own rule. `nimbus_load.rescore_history` remains the way to repair those once, and doing so is what puts every subsequent day under the sweep.
+
+### Added
+- **A "Re-score with settlement" button on the Regret card, shown only when the day on screen is actually waiting on one** ([#1200](https://github.com/code-imstillalive/nimbus/issues/1200)).
+
+  Household ask, during the incident above: *"can we actually just add this rescore fix script in a form of a clickable button next to the epr table?"* Put inside the card rather than as a dashboard button, so it needs **no lovelace edit at all** — it travels with the integration to every install, and sits beside the figures it corrects by construction.
+
+  Conditional on purpose: a button that is always present invites a household to buy oracle solves on a day that is already correct. It reads the row's own `"p"` flag first — the headline `real_p2p_settlement_status` describes `latest_date` only, and this card can be pointed at any scored day — and consults the headline just for the published day, which also keeps it working on an install whose rows predate the flag.
+
+- `only_dates` on `rescore_quality_history()`, filtered **before** the oracle solve, so repairing one row costs one MILP instead of thirty. The alternative was a second copy of the writeback and headline-sync logic, and duplicating that is the enumeration defect [#1167](https://github.com/code-imstillalive/nimbus/issues/1167) recorded four times in two days.
+
+- Devhub validation: **the mechanism is confirmed live on the reference household, which is stronger than a devhub restart would have been, and the automation is not yet confirmed anywhere.** Stated as two separate claims because they are. The manual rescore above ran on the real production install and moved the three bad days to 89.8 / 87.7 / 87.2% while leaving the five correct days and the one unsettled day untouched — that is the P2P-blind cause proven by experiment, not inferred. The new *sweep* has unit coverage only: it has not yet observed a real settlement landing, because the next opportunity is the following morning. Devhub additionally cannot exercise it at all — its quality report is a mirror of production (per the #972 lesson), and it has no P2P settlement sensor configured, so `_settlement_entry_exists()` returns False there by design.
+- Consumer check: **a household sees three things.** Days that were reading 36-52% now read 87-90% once their settlement lands, without anyone running a service call. A day still waiting says so in plain words on the Regret card instead of silently under-reporting. And the button offers the repair immediately for anyone who does not want to wait for the next cycle.
+
 ## [0.94.415] - 2026-09-21
 
 ### Added

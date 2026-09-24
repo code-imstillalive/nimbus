@@ -229,6 +229,7 @@ class NimbusRegretCard extends HTMLElement {
           cursor: pointer; opacity: 0.8;
         }
         .refresh:hover { opacity: 1; }
+        .repair { margin-top: 6px; }
       </style>
       <ha-card>
         <div class="head">
@@ -247,6 +248,43 @@ class NimbusRegretCard extends HTMLElement {
       this._attemptedDateKey = dateKey;
       this._fetch(dateKey);
     });
+  }
+
+  // nimbus issue #1200: whether the day on screen was scored before its
+  // own P2P settlement existed, and is therefore under-reporting itself.
+  //
+  // Reads the ROW's own flag first, for the same reason #1162 ask 2 moved
+  // the reliability verdict into the row: the headline
+  // `real_p2p_settlement_status` describes `latest_date` alone, and this
+  // card can be pointed at any scored day. The headline is consulted only
+  // when the displayed day IS the published one -- which also keeps this
+  // working on an install whose rows predate the flag.
+  _provisionalFor(dateKey, attrs) {
+    if (!attrs) return false;
+    const row = (attrs.history || {})[dateKey];
+    if (row && row.p) return true;
+    if (attrs.latest_date === dateKey) {
+      return (
+        attrs.real_p2p_settlement_status === "no_settlement_entry_for_this_date" ||
+        attrs.real_p2p_settlement_status === "settlement_sensor_unreadable"
+      );
+    }
+    return false;
+  }
+
+  // How many days back the displayed date is, since `rescore_history`
+  // takes a look-back count rather than a date. Clamped to the service's
+  // own 1..30 bounds so a stale or malformed dateKey cannot turn one
+  // click into a rejected call, or into more solves than the service
+  // would accept anyway.
+  _daysBack(dateKey) {
+    const parts = String(dateKey).split("-").map(Number);
+    if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return 1;
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const target = new Date(parts[0], parts[1] - 1, parts[2]);
+    const days = Math.round((today - target) / 86400000);
+    return Math.min(30, Math.max(1, days));
   }
 
   _render() {
@@ -305,9 +343,27 @@ class NimbusRegretCard extends HTMLElement {
       this._cache.dateKey,
       tableEntity ? tableEntity.attributes : null
     );
+    // nimbus issue #1200: offer the repair right where the figures are,
+    // and ONLY when there is something to repair -- a button that is
+    // always there invites a household to buy oracle solves on a day
+    // that is already correct.
+    const provisional = this._provisionalFor(
+      this._cache.dateKey,
+      tableEntity ? tableEntity.attributes : null
+    );
 
     bodyEl.innerHTML = `
       ${caveat ? `<div class="caveat">${caveat}</div>` : ""}
+      ${provisional ? `<div class="caveat">
+        <b>Waiting on settlement.</b> This day was scored before its P2P
+        settlement existed, so export is priced at plain spot and
+        J_ach/J_ref/J_star are all P2P-blind together — the EPR above reads
+        far lower than the day actually was.
+        <div class="repair">
+          <button class="refresh" id="repairBtn">Re-score with settlement</button>
+          <span class="sub" id="repairMsg"></span>
+        </div>
+      </div>` : ""}
       <div class="stats">
         <div class="stat"><div class="l">EPR</div><div class="v">${stats.epr_pct.toFixed(1)}%</div></div>
         <div class="stat"><div class="l">J_ref</div><div class="v">$${stats.j_ref.toFixed(2)}</div></div>
@@ -324,6 +380,37 @@ class NimbusRegretCard extends HTMLElement {
       <div class="chart-wrap"><canvas id="dispatchCanvas" width="1600" height="380"></canvas></div>
       <div class="chart-wrap"><canvas id="regretCanvas" width="1600" height="220"></canvas></div>
     `;
+
+    // Re-attached on every render because the body is rebuilt via
+    // innerHTML, which discards listeners -- the same reason the header's
+    // own Refresh button is bound in the static shell instead.
+    const repairBtn = this.shadowRoot.getElementById("repairBtn");
+    if (repairBtn) {
+      repairBtn.addEventListener("click", async () => {
+        const msgEl = this.shadowRoot.getElementById("repairMsg");
+        const dateKey = this._cache ? this._cache.dateKey : null;
+        if (!dateKey || !this._hass) return;
+        repairBtn.disabled = true;
+        if (msgEl) msgEl.textContent = " re-scoring…";
+        try {
+          await this._hass.callService("nimbus_load", "rescore_history", {
+            days: this._daysBack(dateKey),
+          });
+          if (msgEl) msgEl.textContent = " done — reloading";
+          // Drop the cache so the next render reads the REWRITTEN row
+          // rather than the figures the click was complaining about.
+          this._cache = null;
+          const target = this._targetDateKey();
+          this._attemptedDateKey = target;
+          this._fetch(target);
+        } catch (e) {
+          repairBtn.disabled = false;
+          if (msgEl) {
+            msgEl.textContent = " failed: " + (e && e.message ? e.message : String(e));
+          }
+        }
+      });
+    }
 
     this._drawCharts(d);
   }
