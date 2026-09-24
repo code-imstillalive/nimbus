@@ -207,6 +207,26 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # has no quality-report publisher, so it has no published score to
         # reconsider.
         "_keep_published_quality_score",
+        # nimbus issue #1200: the three halves of the provisional-row
+        # repair. Native-only for the SAME reason as
+        # _keep_published_quality_score directly above -- this check
+        # compares against the standalone/cron FORECAST writer, which has
+        # no quality-report publisher at all, so it has no history table
+        # to flag and nothing to repair.
+        #
+        # The cron QUALITY writer is a different file and a real question,
+        # so it is answered rather than left implied: it carries
+        # _QUALITY_HISTORY_VERSION_FIELD ("v") and nothing else, and
+        # #1162's own per-row reliability field ("r") was never ported to
+        # it either -- see _epr_reliability_code below, already listed
+        # here on that basis. #1200's "p" field follows that established
+        # precedent deliberately, not by oversight: the repair sweep is
+        # driven from the native solve cycle, which the cron writer does
+        # not have, so a flag written there would be a row nothing ever
+        # comes back for.
+        "_settlement_is_provisional",
+        "_settlement_entry_exists",
+        "repair_provisional_quality_history",
         # nimbus issue #427: a private helper called only by
         # compute_daily_quality_report itself (already listed above) --
         # same native-only reasoning applies, not a separate gap.

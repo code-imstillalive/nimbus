@@ -8973,6 +8973,45 @@ _RELIABILITY_DENOMINATOR = "d"  # EPR's denominator is not a positive quantity
 _RELIABILITY_UNSTATED = "?"  # flagged false, and no field said which
 
 
+# nimbus issue #1200: whether this row's five figures were computed
+# WITHOUT the day's real P2P settlement, and are therefore provisional.
+#
+# **Why a row needs this at all.** The settlement lands hours AFTER the
+# day is first scored. Measured on the reference household: the
+# settlement sensor gained 2026-09-23 at 09:00 local, where that day was
+# scored at 00:00. Until it arrives `real_p2p_dollars` is 0, which also
+# makes the `real_p2p_volume_kwh > 0.01` bonus gate false -- so `j_ref`,
+# `j_ach` and `j_star` go P2P-blind TOGETHER and the day is priced as
+# though the household had no P2P arrangement at all. Measured over four
+# consecutive real days: EPR 51.9 / 38.5 / 36.4 / 41.6% against settled
+# export revenue of $14.91 / $12.71 / $13.46 -- the scorer read WORST on
+# the household's best-earning days, and read 88.6% on the one day that
+# genuinely under-exported ($4.01). Anti-correlated with the money.
+#
+# `_keep_published_quality_score()` (#1082) already re-scores the
+# CURRENTLY PUBLISHED day hourly while it is provisional. That is not
+# enough, and the gap is structural rather than a tuning problem: its
+# retry is reachable only while `latest_date == yesterday_key`, so it
+# expires at local midnight. On three consecutive measured days the
+# retry's last firing was 06:00 against a 09:00 settlement -- three
+# hours early -- and the row was then frozen P2P-blind for good.
+#
+# Recording provisionality IN THE ROW removes the deadline: the row
+# still says "these numbers are missing their settlement" tomorrow, next
+# week, and after a restart, so the repair no longer has to win a race.
+#
+# **Written ONLY when provisional, the opposite convention to `"r"`
+# above, and the reason is the byte budget**: this rides in the payload
+# #944 measured at 20,738 bytes against the recorder's 16 KB cap. A key
+# present only on days awaiting settlement costs nothing on the rows
+# that are already correct, and self-clears when the day is re-scored
+# with its real figures. Absence therefore means "not provisional, or
+# written before this existed" -- safe here in a way it was not for
+# `"r"`, because the repair sweep reads an absent key as "nothing to
+# do": a wrongly-absent key costs a missed repair, never a wrong one.
+_QUALITY_HISTORY_PROVISIONAL_FIELD = "p"
+
+
 def _epr_reliability_code(day_entry: dict) -> str | None:
     """One character naming this day's EPR verdict, for the history row.
 
@@ -9011,6 +9050,30 @@ def _epr_reliability_code(day_entry: dict) -> str | None:
     if day_entry.get("soc_discrepancy_reliable") is False:
         return _RELIABILITY_SOC
     return _RELIABILITY_UNSTATED
+
+
+def _settlement_is_provisional(day_entry: dict) -> bool | None:
+    """Whether this day's figures are still missing their real P2P
+    settlement (nimbus issue #1200).
+
+    Reads the same `real_p2p_settlement_status` field
+    `_keep_published_quality_score()` reads, against the same
+    `_PROVISIONAL_SETTLEMENT_STATUSES` set, so the row flag and the
+    same-day retry can never disagree about what "provisional" means.
+    Restating either the field name or the membership test here is
+    exactly the drift this scorer keeps recording.
+
+    Returns None when the entry carries no status at all -- a report
+    computed before #1016 added the field, or a dict that is not a report
+    -- so the caller writes no key rather than guessing. That matters
+    more than usual here: defaulting to True would mark every such row
+    for a repair that can never succeed, turning one missing field into a
+    permanent MILP every cycle.
+    """
+    status = day_entry.get("real_p2p_settlement_status")
+    if not isinstance(status, str):
+        return None
+    return status in _PROVISIONAL_SETTLEMENT_STATUSES
 
 
 @functools.cache
@@ -9108,6 +9171,13 @@ def _carry_forward_quality_history(
     code = _epr_reliability_code(day_entry)
     if code is not None:
         history[day_key][_QUALITY_HISTORY_RELIABILITY_FIELD] = code
+    # nimbus issue #1200: and whether those five numbers are still
+    # waiting on this day's real P2P settlement, so the repair sweep can
+    # still find this row tomorrow rather than only within the hour.
+    # Written only when provisional -- see the field's own note on why
+    # that convention is the opposite of `"r"` above.
+    if _settlement_is_provisional(day_entry) is True:
+        history[day_key][_QUALITY_HISTORY_PROVISIONAL_FIELD] = 1
     if len(history) > _QUALITY_HISTORY_MAX_DAYS:
         # ISO dates sort lexicographically, so this is a real
         # most-recent-N without parsing anything.
@@ -9127,7 +9197,9 @@ def _carry_forward_quality_history(
 _RESCORE_MAX_DAYS = 30
 
 
-def rescore_quality_history(cfg: dict, now: datetime, days: int) -> dict:
+def rescore_quality_history(
+    cfg: dict, now: datetime, days: int, only_dates: set[str] | None = None
+) -> dict:
     """Re-score the last `days` complete local days and write the results
     back into the quality report's `history` table (nimbus issue #1120).
 
@@ -9170,6 +9242,16 @@ def rescore_quality_history(cfg: dict, now: datetime, days: int) -> dict:
     not the other would leave them disagreeing, which is the very defect
     this issue is about rather than a fix for it.
 
+    **`only_dates` narrows the run without narrowing the window.** The
+    look-back still defines how far back to reach, but a caller that
+    already knows exactly which rows are wrong can name them and pay for
+    those solves alone. `repair_provisional_quality_history()` (nimbus
+    issue #1200) is the caller that needs it: it repairs one specific
+    settled day per cycle, and without this it would either buy 30 MILPs
+    to fix one row, or need its own duplicate copy of the writeback and
+    headline-sync logic below -- and duplicating that is the enumeration
+    defect #1167 recorded four times in two days.
+
     Returns a summary dict (`rescored`, `skipped`, counts) rather than
     None, so the caller can see each day's before/after and judge whether
     the rescore actually changed anything.
@@ -9194,6 +9276,14 @@ def rescore_quality_history(cfg: dict, now: datetime, days: int) -> dict:
     for back in range(1, days + 1):
         target = (now - timedelta(days=back)).date()
         key = target.isoformat()
+        if only_dates is not None and key not in only_dates:
+            # Placed BEFORE _compute_report_for_window() so an unwanted
+            # day never costs its oracle MILP, which is the whole point of
+            # the parameter. Deliberately NOT appended to `skipped`
+            # either: a caller that named the days it wants is not asking
+            # about the ones it did not name, and reporting 29 "skips"
+            # for a one-day repair would bury the one line that matters.
+            continue
         day_start = datetime(target.year, target.month, target.day, tzinfo=LOCAL_TZ)
         day_end = day_start + timedelta(days=1)
         try:
@@ -9383,6 +9473,147 @@ def _keep_published_quality_score(attrs: dict, now: datetime) -> bool:
         # An unreachable guard is indistinguishable from one that works.
         return True
     return age < _PROVISIONAL_RESCORE_INTERVAL
+
+
+def _settlement_entry_exists(cfg: dict, day_key: str) -> bool:
+    """Whether the configured settlement sensor now carries an entry for
+    `day_key` (an ISO local date).
+
+    This is the gate that makes the repair sweep below self-limiting. A
+    rescore costs a full oracle MILP, so the sweep must never pay one
+    speculatively: a day whose settlement genuinely never arrives -- the
+    sensor was misconfigured, the provider never published that date --
+    would otherwise buy one solve per cycle forever, which is #773's
+    executor-starvation failure re-created deliberately.
+
+    **Checks for PRESENCE, not for a non-zero figure.** A genuinely
+    settled day of zero export is a legitimate result, and reading it as
+    "not arrived yet" would leave that row provisional for good -- the
+    same absence-as-the-only-signal trap this scorer keeps recording.
+
+    Every failure reads as False rather than raising. "Cannot repair
+    anything this cycle" is the conservative direction, and is already
+    exactly what the sweep does when there is nothing to repair.
+    """
+    settlement_sensor = cfg.get("solver_p2p_settlement_history_sensor")
+    if not settlement_sensor:
+        return False
+    try:
+        history = ha_get(settlement_sensor)["attributes"]["history"]
+    except (
+        urllib.error.HTTPError,
+        urllib.error.URLError,
+        KeyError,
+        TypeError,
+        json.JSONDecodeError,
+    ):
+        return False
+    return isinstance(history, dict) and day_key in history
+
+
+# At most one day repaired per cycle. Each is a full oracle MILP -- the
+# same solve the nightly scorer runs once -- and the cycle this runs
+# inside ticks about once a minute. One per cycle drains a week's backlog
+# in seven minutes while never putting two MILPs in one tick, which is
+# the #773/#757 executor-starvation shape this repo has already paid for
+# twice.
+_PROVISIONAL_REPAIR_PER_CYCLE = 1
+
+
+def repair_provisional_quality_history(cfg: dict, now: datetime) -> dict | None:
+    """Re-score any PAST row whose figures were taken before its own P2P
+    settlement existed, once that settlement has since arrived (nimbus
+    issue #1200).
+
+    **What this fixes that #1082 did not.** #1082 re-scores the currently
+    published day hourly while it is provisional, and that retry is
+    reachable only while `latest_date == yesterday_key` -- so it expires
+    at local midnight. Settlement on the reference household lands at
+    ~09:00 local for the previous day, comfortably inside that window,
+    and it still failed on three consecutive measured days: the retry's
+    last firing was 06:00 each time. Whatever stopped it, a repair that
+    has to win a race against midnight will keep losing it -- to a
+    restart, a failover, a slow provider, or the 06:00 retrain. This one
+    has no deadline, because the row itself records that it is waiting.
+
+    That distinction is why this is not another attempt at the same fix.
+    #1082 made the repair possible; it left it time-boxed. This removes
+    the box.
+
+    **Bounded, and gated on evidence rather than hope.** A candidate is
+    re-scored only once `_settlement_entry_exists()` confirms the real
+    entry is there, and at most `_PROVISIONAL_REPAIR_PER_CYCLE` day is
+    touched per call. A day whose settlement never arrives therefore
+    costs zero solves, not one per cycle.
+
+    **Oldest first**, so a backlog drains in the order the days happened
+    -- the trend chart fills left to right rather than in scattered
+    pieces, and a repeatedly-interrupted install still makes monotonic
+    progress instead of re-picking the same row.
+
+    **The currently-published day is deliberately left alone.** That is
+    #1082's job, it already retries within the hour, and rescoring it
+    here as well would mean two MILPs for one day in one cycle. It stops
+    being the published day at midnight, at which point this sweep owns
+    it like any other row.
+
+    **Rows written before this change carry no flag and are not
+    back-dated**, matching the `"v"` field's own rule. They are not
+    invisible, they are simply not self-healing: `nimbus_load.
+    rescore_history` remains the way to repair a row from before the flag
+    existed, and running it once is what puts every subsequent day under
+    this sweep.
+
+    Returns a summary of what it repaired, or None when there was nothing
+    to do -- so the caller logs a real event and stays silent otherwise.
+    """
+    try:
+        attrs = (
+            ha_get(resolve_real_entity_id(QUALITY_ENTITY_ID)).get("attributes") or {}
+        )
+    except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError):
+        return None
+    history = attrs.get("history")
+    if not isinstance(history, dict):
+        return None
+    latest_date = attrs.get("latest_date")
+    candidates = sorted(
+        key
+        for key, row in history.items()
+        if isinstance(key, str)
+        and isinstance(row, dict)
+        and row.get(_QUALITY_HISTORY_PROVISIONAL_FIELD)
+        and key != latest_date
+    )
+    repaired: list[dict] = []
+    for key in candidates:
+        if len(repaired) >= _PROVISIONAL_REPAIR_PER_CYCLE:
+            break
+        target = _safe_fromisoformat(key)
+        if target is None:
+            continue
+        back = (now.date() - target.date()).days
+        if back < 1 or back > _RESCORE_MAX_DAYS:
+            # Not actually in the past, or older than what a single
+            # rescore call may reach. Left alone rather than clamped:
+            # silently widening that ceiling here would hide the cost of
+            # the solves it buys.
+            continue
+        if not _settlement_entry_exists(cfg, key):
+            continue
+        _LOGGER.info(
+            "Nimbus quality (#1200): %s was scored before its settlement "
+            "existed and the real entry has since landed -- re-scoring it now "
+            "so the row stops under-reporting the day",
+            key,
+        )
+        repaired.append(
+            {
+                "date": key,
+                "summary": rescore_quality_history(cfg, now, back, only_dates={key}),
+            }
+        )
+    return {"repaired": repaired} if repaired else None
 
 
 def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
@@ -16324,6 +16555,21 @@ def _publish_side_reports(
         # way -- but now a future failure of this specific publish is
         # actually diagnosable instead of only visible as a stale sensor.
         _LOGGER.warning("Nimbus: daily quality report publish failed: %s", e)
+
+    # nimbus issue #1200: and go back for any PAST row that was scored
+    # before its own P2P settlement existed, now that the real figures
+    # have landed. Separate from the publish above on purpose -- that
+    # call owns "score yesterday", this one owns "and repair the days
+    # whose settlement arrived after we scored them" -- and wrapped the
+    # same way, since neither may ever break the real solve.
+    try:
+        _repaired_rows = repair_provisional_quality_history(cfg_unmoded, now)
+        if _repaired_rows:
+            _LOGGER.info(
+                "Nimbus: repaired provisional quality rows: %s", _repaired_rows
+            )
+    except Exception as e:  # noqa: BLE001 -- see comment above; must never break the real solve
+        _LOGGER.warning("Nimbus: provisional quality history repair failed: %s", e)
 
     # Same "never break the real solve" wrapping -- nimbus issue #496
     # (Signals 7/7 of #489, the compute_daily_flex_report() half Mark
