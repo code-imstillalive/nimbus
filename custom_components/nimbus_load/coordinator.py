@@ -1284,7 +1284,56 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         external-data fetch in this file -- they degrade to "no
         temperature forecast this cycle" (caught by the empty-result
         warning in the caller) rather than taking the whole retrain/
-        predict cycle down with them."""
+        predict cycle down with them.
+
+        **nimbus issue #1195 (Mark Purcell): the entity is checked before
+        the service is called, not after it raises.** On every restart this
+        fired three times within a second on his install, each time as a
+        full traceback, because `weather.home` genuinely had no state yet
+        when the first post-restart cycle reached here -- so HA core's own
+        entity resolution raised `HomeAssistantError("Service call
+        requested response data but did not match any entities")`. The call
+        was already handled and already degraded correctly; what it left
+        behind was three tracebacks per restart for a condition that is
+        expected, transient and self-correcting.
+
+        A pre-flight state read costs nothing and removes the traceback at
+        source rather than formatting it more quietly. It is also this
+        file's own established shape for the same question --
+        `_async_fetch_curtailment_forecast()` directly below does
+        `states.get(...)` then `if state is None: return []`, and
+        `sensor.py`'s own source-state guard uses this exact
+        `("unavailable", "unknown")` tuple -- so the idiom is reused rather
+        than invented here.
+
+        **Deliberately does NOT silence the caller's own warning.** The
+        caller still reports `temperature_forecast_sensor '%s' is configured
+        but yielded 0 forecast entries` on a first-tick failure, and that is
+        load-bearing: it is the only signal a household gets when the
+        configured entity_id is simply wrong, and #269's own comment records
+        why a literal reading that skipped the first tick was a regression.
+        This change removes a duplicate traceback, not the diagnostic --
+        same discipline as #945, where a WARNING burying its own signal was
+        quieted while the evidence it was the only source of was preserved.
+
+        **The guard is strictly a narrowing, never a new failure path.** A
+        state existing is necessary but not sufficient for HA's service
+        resolution to find the entity (registry and platform readiness are
+        separate), so anything that still fails after this check falls
+        through to the same `except` as before and is reported exactly as it
+        was."""
+        state = self.hass.states.get(entity_id)
+        if state is None or state.state in ("unavailable", "unknown"):
+            _LOGGER.debug(
+                "weather.get_forecasts skipped for '%s': the entity has %s, so "
+                "there is nothing for HA's service-entity resolution to target "
+                "yet (nimbus issue #1195 -- expected for the first cycle or two "
+                "after a restart, and self-correcting). Treating as no forecast "
+                "data this cycle.",
+                entity_id,
+                "no state at all" if state is None else f"state '{state.state}'",
+            )
+            return []
         try:
             response = await self.hass.services.async_call(
                 "weather",
