@@ -8,6 +8,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.416] - 2026-09-25
+
 ### Fixed
 - **`soc_discrepancy_*`/`epr_reliable` no longer structurally false-flag every multi-battery install** ([#949](https://github.com/code-imstillalive/nimbus/issues/949)).
 
@@ -56,8 +58,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 - `only_dates` on `rescore_quality_history()`, filtered **before** the oracle solve, so repairing one row costs one MILP instead of thirty. The alternative was a second copy of the writeback and headline-sync logic, and duplicating that is the enumeration defect [#1167](https://github.com/code-imstillalive/nimbus/issues/1167) recorded four times in two days.
 
-- Devhub validation: **the mechanism is confirmed live on the reference household, which is stronger than a devhub restart would have been, and the automation is not yet confirmed anywhere.** Stated as two separate claims because they are. The manual rescore above ran on the real production install and moved the three bad days to 89.8 / 87.7 / 87.2% while leaving the five correct days and the one unsettled day untouched — that is the P2P-blind cause proven by experiment, not inferred. The new *sweep* has unit coverage only: it has not yet observed a real settlement landing, because the next opportunity is the following morning. Devhub additionally cannot exercise it at all — its quality report is a mirror of production (per the #972 lesson), and it has no P2P settlement sensor configured, so `_settlement_entry_exists()` returns False there by design.
-- Consumer check: **a household sees three things.** Days that were reading 36-52% now read 87-90% once their settlement lands, without anyone running a service call. A day still waiting says so in plain words on the Regret card instead of silently under-reporting. And the button offers the repair immediately for anyone who does not want to wait for the next cycle.
+- Devhub validation: **runs immediately after this tag exists, and is recorded on [#1200](https://github.com/code-imstillalive/nimbus/issues/1200)** — HACS installs from a tag rather than a commit, so it structurally cannot precede the release, the same position v0.94.414 and v0.94.415 took. What the tag already carries is stronger than a restart would have been for the settlement half: the cause was proven by experiment on the reference household's real install, where a manual rescore moved three days to 89.8 / 87.7 / 87.2% while leaving the five already-correct days and the one unsettled day untouched. The new *sweep* has unit coverage only — it has not yet observed a real settlement landing, and devhub cannot exercise it at all, because devhub has no P2P settlement sensor configured and its quality report is a mirror of production (the #972 lesson), so `_settlement_entry_exists()` returns False there by design.
+- Consumer check: **two things a household sees.** A day that was reading 36-52% reads 87-90% once its settlement lands, with nobody running a service call — and while it is still waiting, the Regret card says so in plain words instead of silently under-reporting, with a button to repair it immediately. Separately, an install scoring more than one battery stops being told its EPR is unreliable for a reason that was an artifact of the comparison rather than its own data.
 
 ## [0.94.415] - 2026-09-21
 
