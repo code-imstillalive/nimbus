@@ -8,6 +8,24 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Fixed
+- **`weather.get_forecasts` no longer raises a traceback three times on every restart for a condition that is expected and self-correcting** ([#1195](https://github.com/code-imstillalive/nimbus/issues/1195), found by Mark Purcell).
+
+  Measured on his install: every single restart produced three copies of `HomeAssistantError: Service call requested response data but did not match any entities`. `weather.home` exists and is healthy — it is a startup-ordering race. The weather integration has not registered the entity yet when the first post-restart coordinator cycle calls the service, so HA core's own entity-service resolution correctly finds nothing to target and raises. Three times rather than once because three subentries each configure the same entity and each hits the race independently.
+
+  **This was already handled**, and Mark filed it for the record rather than as a defect, saying explicitly he would be happy to be told it needs no action. So the change is scoped to the noise, not the behaviour: the entity is now checked *before* the service is called instead of after it raises. A `states.get()` returning `None`, `unavailable` or `unknown` skips the call and logs at DEBUG.
+
+  The idiom is reused rather than invented — `_async_fetch_curtailment_forecast()` immediately below already does `states.get()` then `if state is None: return []`, and `sensor.py`'s own source-state guard uses this exact `("unavailable", "unknown")` tuple.
+
+  **The guard is a narrowing, never a new failure path.** A state existing is necessary but not sufficient for HA's service resolution (registry and platform readiness are separate), so anything that still fails falls through to the same `except` and is reported exactly as before.
+
+  **It deliberately does NOT silence the caller's own warning.** `temperature_forecast_sensor '%s' is configured but yielded 0 forecast entries` remains the only signal a household gets when the configured entity_id is simply *wrong*, and [#269](https://github.com/code-imstillalive/nimbus/issues/269)'s own comment records why skipping it on the first tick was a regression. This removes a duplicate traceback, not the diagnostic — the same discipline as [#945](https://github.com/code-imstillalive/nimbus/issues/945).
+
+  Eight tests, split deliberately: four pin the new behaviour and **fail without the fix** (verified by reverting the change and re-running), and four are controls asserting *unchanged* behaviour — the healthy path still calls the service with byte-identical arguments, a genuine failure still warns, and the caller's misconfiguration warning still fires — so they pass in both states.
+
+- Devhub validation: **not claimed, and the reason is specific.** devhub has no `temperature_forecast_sensor` configured, so this code path never executes there — confirmed by searching its log for `get_forecasts`, `did not match any entities` and `temperature_forecast_sensor` across the window following a fresh v0.94.416 restart: **zero matches for all three.** Wiring a weather entity into the hub options purely to exercise a log-noise fix was judged not worth leaving devhub in a reconfigured state. The install that reproduces this every restart is the one that can confirm it, and the check there is trivial: upgrade, restart, and count the tracebacks.
+- Consumer check: **nothing a household sees in the UI, and that is the point** — three tracebacks and their accompanying noise disappear from the log on every restart, which makes the log a more useful instrument for the next real problem. The warnings that carry actual signal are untouched.
+
 ## [0.94.416] - 2026-09-25
 
 ### Fixed
