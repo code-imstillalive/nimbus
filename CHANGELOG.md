@@ -8,6 +8,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.417] - 2026-09-25
+
 ### Fixed
 - **`weather.get_forecasts` no longer raises a traceback three times on every restart for a condition that is expected and self-correcting** ([#1195](https://github.com/code-imstillalive/nimbus/issues/1195), found by Mark Purcell).
 
