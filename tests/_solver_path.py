@@ -21,4 +21,13 @@ _SOLVER_PARENT = os.path.join(
     "nimbus_load",
 )
 if _SOLVER_PARENT not in sys.path:
-    sys.path.insert(0, _SOLVER_PARENT)
+    # APPENDED, not inserted at position 0. This directory contains the
+    # integration's own HA platform modules, one of which is `select.py`
+    # -- and `select` is a STDLIB module. Putting this directory first
+    # makes `import select` resolve to the HA platform, so the next
+    # `import socket` (which imports `selectors`, which imports `select`)
+    # fails with a partially-initialised-module ImportError, taking every
+    # later `asyncio`/`homeassistant` import down with it. Appending lets
+    # stdlib win while still making `from solver import ...` resolve,
+    # because nothing else on the path provides `solver`.
+    sys.path.append(_SOLVER_PARENT)
