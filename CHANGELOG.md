@@ -8,6 +8,24 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Fixed
+- **An install that commits real P2P export but has no settlement sensor is now warned, instead of silently scoring every day P2P-blind forever** ([#1236](https://github.com/code-imstillalive/nimbus/issues/1236), raised by @purcell-lab in [#1211](https://github.com/code-imstillalive/nimbus/issues/1211)).
+
+  `real_p2p_settlement_status = "no_sensor_configured"` is deliberately excluded from `_PROVISIONAL_SETTLEMENT_STATUSES`, so [#1201](https://github.com/code-imstillalive/nimbus/issues/1201)'s repair sweep never revisits such a day — correctly, because there is nothing to wait for. But the day is then priced with **zero P2P export credit** and `real_p2p_dollars: 0.0`, which is **indistinguishable from a household that genuinely earns no P2P**. No error, no flag, an ordinary-looking number, on every day, permanently.
+
+  The size of that silence, measured on the reference household: 24 Sep read **41.6%** scored P2P-blind against **68.85%** with real settlement applied, and 21–23 Sep read 51.9 / 38.5 / 36.4% against 89.8 / 87.7 / 87.2% once $14.91 / $12.71 / $13.46 of settled export was credited. An install in this state understates EPR by that order **on every single day**, and nobody would think to look.
+
+  **Gated on the inconsistent combination, not on the status alone.** The warning fires only when a real P2P block is configured (`fixed_export_kw is not None`, which is exactly "at least one block has `rate_kw > 0`" per `fetch_p2p_fixed_export_kw()`'s own contract) *and* no settlement sensor is set. A household with no P2P scheme stays completely silent — an unconditional warning would fire on every scored day of every install that doesn't use the feature, and a warning that is always present is one nobody reads.
+
+  The sibling status already carried this reasoning: the comment on `window_is_not_one_local_calendar_day` ends *"The gate itself is right ... but being silent about it is not."* This applies that argument to the case it skipped.
+
+  **The status taxonomy is unchanged**, and a control test pins that. Making `no_sensor_configured` provisional would retry forever on an install that will never have a sensor, at a full oracle MIP each time — the #773 executor-starvation shape.
+
+  Ten tests; eight fail with the warning reverted. The two that pass either way are the taxonomy controls, which is correct — this change deliberately alters no behaviour beyond the log line.
+
+- Devhub validation: **not claimed, and it cannot be on this install.** The warning fires only when a P2P block is configured *without* a settlement sensor, and devhub reads production's mirrored config where both are set — so the condition does not arise there. Verified instead: the gate is a two-condition conjunction (asserted by parsing the AST, not by grepping), `day_start` and `fixed_export_kw` are both genuinely in scope at the call site (checked by AST, since `fixed_export_kw` is assigned ~30 lines earlier), `ruff format --check`/`ruff check` clean, and the tests fail on revert.
+- Consumer check: **nothing appears or disappears in the UI, and no number changes.** A household with P2P correctly configured sees no difference. A household that has committed export it can never score gets one actionable WARNING per scored day naming the setting to fix — which is strictly better than the silence it replaces, and is the only way this state is discoverable at all.
+
 ## [0.94.420] - 2026-09-25
 
 ### Fixed
