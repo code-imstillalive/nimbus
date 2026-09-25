@@ -29,6 +29,36 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 - Devhub validation: **not claimed, and the reason is structural.** Both defects need a *republish without a recomputation* (#1219) or a *rescore of an already-published day* (#1220) to be observable, and the evidence for each is a before/after pair across a restart on a real install — which is how they were found. A devhub restart can show the absence of a regression on the healthy path, which the five controls already pin, but it cannot demonstrate a stamp *failing* to advance without staging the exact sequence by hand.
 - Consumer check: **nothing changes on screen, and that is the point.** What changes is that the two fields a household or a reviewer consults to ask *"did this actually recompute, and with what?"* now answer truthfully. On the reference install the 2026-09-24 row had been re-labelled with a release that never scored it, and the rescore that finally corrected that day published its new figures under the old timestamp.
+### Changed
+- **Every line `train_model()` logs now names the signal it is talking about** ([#1206](https://github.com/code-imstillalive/nimbus/issues/1206)).
+
+  All eight of the function's log lines described a model without saying which one. On the reference household that produced **43 unattributable warnings across four days**:
+
+  ```
+  43x  WARNING  Only N usable training points (need >= 500) -- skipping this cycle.
+  ```
+
+  with point counts of 57, 59, 63, 65, 165, 170, 294. From that, there was no way to tell whether **one** chronically starved subentry was retrying or **seven** different ones each failed once; nor whether it was a newly added subentry warming up (expected, self-correcting) or one that had **never** trained and was silently serving no forecast. `SyncWorker_N` is not an answer — the executor reassigns threads between calls, so the same signal appears under different workers and different signals share one.
+
+  The model-selection lines had the same problem, and it mattered more than it looks. Observed on devhub, consecutive lines from a single retrain sweep:
+
+  ```
+  Model validation (one-step): knn_mae=1.0673 gbrt_mae=0.0401 naive_mae=2.5741
+  Trained gbrt model on 3864 points.
+  Model validation (MASE, scale=2.6727): knn=1.305 gbrt=1.228 naive=1.470
+  Trained naive model on 3541 points.
+  ```
+
+  The last one selected **naive over both ML models** — exactly the result [#937](https://github.com/code-imstillalive/nimbus/issues/937) is about — and there was no way to know which circuit it was.
+
+  An optional `label` is threaded from `coordinator.py`'s existing `self.subentry.title`, the same field the residual-drift WARNING already uses and the reason that line is readable. **Deliberately a parameter rather than a lookup**: `ml/` is HA-import-free by design (pure numpy + stdlib) and should not acquire entity knowledge — the caller has the name, so the caller supplies it.
+
+  **Omitting the label leaves every message byte-identical**, which is what keeps the standalone/cron copy and every pre-existing test working untouched. That is pinned by its own control tests rather than asserted.
+
+  The "every line" property is checked **against the function's own source** rather than a hand-listed set, so a log line added later is covered without anyone remembering — the [#1167](https://github.com/code-imstillalive/nimbus/issues/1167) discover-don't-enumerate lesson applied to a different surface.
+
+- Devhub validation: **not claimed at release time, and the reason is narrow.** This is a log-content change with no entity, no service and no schema surface — a restart shows the new lines only if a retrain happens to run in the observation window, and devhub's synthetic subentries skip training on too few points anyway (its own logs show `Only 38 usable training points`). Six tests pin it instead, including two controls proving the unlabelled path is unchanged. The reference household, which produced the 43 warnings, is where this becomes visible on its next 06:00 retrain.
+- Consumer check: **a household reading the log can finally tell which sensor a training warning belongs to.** Before, `Only 57 usable training points` named nothing actionable; now it names the signal, so it can be checked, reconfigured, or recognised as a new subentry still filling its window.
 
 ## [0.94.418] - 2026-09-25
 
