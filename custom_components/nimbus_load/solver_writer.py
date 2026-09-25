@@ -5857,6 +5857,32 @@ _MIN_DAILY_COVERAGE_FRACTION = 0.9
 _COVERAGE_SKIP_WARN_AFTER = 3
 _COVERAGE_SKIP_COUNTS: dict[str, int] = {}
 
+# nimbus issue #1214: the same escalating-log idiom, for a configured SoC
+# sensor whose recorder read came back empty.
+#
+# Separate counter from the coverage one directly above on purpose: a day
+# can hit either, both, or neither, and one silencing the other is the
+# #538 mistake. Same threshold, because the reasoning is identical --
+# the first retries are the recorder catching up or an executor that is
+# briefly busy, and only a persistent one is a real fault.
+_SOC_HISTORY_SKIP_COUNTS: dict[str, int] = {}
+
+# nimbus issue #1214: the opening SoC assumed when this install has no
+# battery SoC sensor configured at all.
+#
+# It was previously reachable two ways -- no sensor configured, and a
+# configured sensor whose read failed -- and the second is what made it
+# dangerous, because an install that HAS a real SoC can silently be
+# scored as though it were at half charge. The guard above now returns
+# None for that case, so this value only ever applies where there is
+# genuinely nothing better to know.
+#
+# 50% is not a defensible estimate of any particular battery; it is the
+# midpoint, chosen so the error is bounded in both directions rather than
+# biased. Named rather than repeated inline so the two remaining uses
+# cannot drift apart, and so a search for it finds this comment.
+_ASSUMED_INITIAL_SOC_PCT = 50.0
+
 
 def _history_coverage_hours(
     histories: tuple[list[tuple[datetime, float]], ...],
@@ -7425,6 +7451,74 @@ def _compute_report_for_window(
         else []
     )
 
+    # nimbus issue #1214: a CONFIGURED SoC sensor that returns no history
+    # is a transient failure, and scoring the day anyway invents the
+    # battery's opening state.
+    #
+    # **What it costs when it is allowed through.** `initial_pct` below
+    # falls to its hardcoded 50.0 default. Measured on the reference
+    # household for 2026-09-24, whose real midnight SoC was 16.6%: the
+    # day published **EPR 21.11%** with `j_ach -3.05` and `regret
+    # $21.03`, while a second install scoring the same day from the same
+    # mirrored sensors -- but with the real SoC -- published **68.86%**
+    # with `j_ach -14.62` and `regret $8.50`. The hourly `battery_kw`
+    # series were identical to four decimals on both, so the entire
+    # 47.75-point difference is this one number.
+    #
+    # Starting 33 points high also drives the achieved trajectory through
+    # the top of the pack: that day reported `achieved_soc_max_pct
+    # 125.48` and `achieved_above_ceiling_kwh 30.52`. A reconstruction
+    # above 100% SoC is not a score with a caveat, it is arithmetic about
+    # a battery that does not exist.
+    #
+    # **Why it is transient, and therefore worth retrying rather than
+    # publishing.** `fetch_entity_history_range()` waits
+    # `future.result(timeout=30)` on a recorder read and degrades to []
+    # on any failure, logging only at DEBUG. On the reference install the
+    # daily retrain runs at 06:00 and saturates the executor: the 06:00
+    # rescore started at 06:00:03.517 and the first "previous cycle still
+    # in progress" warning landed at 06:00:33.638 -- 30.1 s later, the
+    # timeout expiring to the second. All 21 of that day's skip warnings
+    # fell in hour 06 and none in the other 23, which is exactly why this
+    # only ever corrupts the 06:00 rescore. The next cycle reads the same
+    # history without trouble.
+    #
+    # So: refuse, and let the existing retry win it back. This is the
+    # same posture the solar/load/battery emptiness check above already
+    # takes, and the same one #984's coverage gate takes -- returning
+    # None means "leave the sensor alone, retry next cycle", never a lost
+    # day.
+    #
+    # **Deliberately scoped to a CONFIGURED sensor.** An install with no
+    # `solver_battery_soc_sensor` at all has nothing to wait for and is
+    # not experiencing a failure; it keeps the existing default and the
+    # existing behaviour, byte-identical. Refusing there would silently
+    # stop scoring every install that has never configured one.
+    if soc_sensor and not soc_hist:
+        day_key = day_start.date().isoformat()
+        seen = _SOC_HISTORY_SKIP_COUNTS.get(day_key, 0) + 1
+        _SOC_HISTORY_SKIP_COUNTS[day_key] = seen
+        log = _LOGGER.info if seen < _COVERAGE_SKIP_WARN_AFTER else _LOGGER.warning
+        log(
+            "Nimbus quality: skip #%d for %s. The configured battery SoC "
+            "sensor %r returned no history for [%s, %s], so this day's "
+            "opening state of charge is unknown. Scoring anyway would "
+            "silently assume %.1f%% and, if that is wrong, mis-price the "
+            "whole day -- a real install published EPR 21.11%% instead of "
+            "68.86%% from exactly this (nimbus issue #1214). Retrying next "
+            "cycle rather than publishing a score built on an assumed "
+            "battery. A recorder read that times out under load (the "
+            "daily retrain is the known one) usually succeeds on the very "
+            "next attempt.",
+            seen,
+            day_key,
+            soc_sensor,
+            (day_start - timedelta(hours=6)).isoformat(),
+            day_end.isoformat(),
+            _ASSUMED_INITIAL_SOC_PCT,
+        )
+        return None
+
     # Real, confirmed-live bug (2026-08-28) -- see _kw_scale_factor()'s
     # own docstring: these three configured sensors are never guaranteed
     # to already report kW (solar in particular is commonly a native
@@ -7502,10 +7596,13 @@ def _compute_report_for_window(
     max_pct = _cfg_num(cfg, "solver_battery_max_soc_percent", 100.0)
     initial_pct = (
         resample_history_nearest(
-            soc_hist, [day_start], default=50.0, backfill_first=True
+            soc_hist,
+            [day_start],
+            default=_ASSUMED_INITIAL_SOC_PCT,
+            backfill_first=True,
         )[0]
         if soc_hist
-        else 50.0
+        else _ASSUMED_INITIAL_SOC_PCT
     )
     final_pct = (
         resample_history_nearest(

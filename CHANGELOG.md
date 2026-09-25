@@ -8,6 +8,31 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Fixed
+- **A day whose battery SoC history could not be read is no longer scored as though the pack were at half charge** ([#1214](https://github.com/code-imstillalive/nimbus/issues/1214)).
+
+  `_compute_report_for_window()` resolved the day's opening state of charge with a hardcoded `50.0` — used both as `resample_history_nearest()`'s default and as the fallback when `soc_hist` came back empty. Nothing logged, no reliability flag, no published field: a real install with a real SoC sensor could be priced as if its battery had started the day at half charge.
+
+  **Measured on the reference household, 2026-09-24.** Real midnight SoC was **16.6%**. Two installs scored that day from the same mirrored sensors:
+
+  | | opening SoC | `j_ach` | `regret` | EPR |
+  |---|---:|---:|---:|---:|
+  | production | **49.2%** (the default) | −3.05 | **$21.03** | **21.11%** |
+  | second install | **15.92%** (real) | **−14.62** | **$8.50** | **68.86%** |
+
+  The hourly `battery_kw` series were identical to four decimal places on both, and both had settlement applied with the same `j_ref` of 4.1716 — so the entire **47.75-point** gap is that one number. Starting 33 points high also drove the achieved trajectory through the top of the pack: `achieved_soc_max_pct 125.48`, `achieved_above_ceiling_kwh 30.52`. A reconstruction above 100% SoC is not a score with a caveat.
+
+  **Why it is transient, and therefore refused rather than published.** `fetch_entity_history_range()` waits `future.result(timeout=30)` on a recorder read and degrades to `[]` on any failure, logging only at DEBUG. The daily retrain saturates the executor at 06:00: the rescore began at **06:00:03.517** and the first `previous cycle still in progress` warning landed at **06:00:33.638** — 30.1 s later, the timeout expiring to the second. **All 21 of that day's skip warnings fell in hour 06 and none in the other 23**, which is exactly why only the 06:00 rescore was ever corrupted, and why the same history reads cleanly on the next cycle.
+
+  A configured SoC sensor returning no history now returns `None` — "leave the sensor alone, retry next cycle" — the same posture the solar/load/battery emptiness check and [#984](https://github.com/code-imstillalive/nimbus/issues/984)'s coverage gate already take. The skip escalates INFO → WARNING on the third consecutive miss, using a counter kept separate from #984's so neither can silence the other.
+
+  **Scoped deliberately to a *configured* sensor.** An install with no `solver_battery_soc_sensor` has nothing to wait for and is not failing; it keeps the existing assumption and behaves byte-identically. Refusing there would silently stop scoring every such install. The assumed value is now named `_ASSUMED_INITIAL_SOC_PCT` rather than repeated as a bare literal in two places.
+
+  Ten tests, split so the controls are real: **seven pin the new behaviour and fail with the change reverted**, and **three are controls that pass in both states** — an unconfigured sensor still scores, an empty-string sensor counts as unconfigured, and a healthy read still scores. The controls were initially written so they could not run without the fix, which made them worthless as controls; that was corrected before this shipped.
+
+- Devhub validation: **not claimed, and the reason is that the second install in the table above already is the evidence.** This defect was found by two installs disagreeing about the same day, which is a stronger signal than a restart check — and the failure mode requires a recorder read to time out under executor contention, which cannot be triggered on demand. What a deploy can show is absence of regression on the healthy path, which the three controls already pin. The condition this guards against is, by construction, intermittent.
+- Consumer check: **a household stops seeing a wrong score, and starts seeing nothing for that cycle instead.** On a day where the SoC read fails, the report is left untouched and retried rather than republished against an invented battery — so the EPR on screen no longer silently drops tens of points because a recorder read lost a race with the morning retrain. If it fails three cycles running, the log now says so, names the sensor and the day, and explains what it would have assumed.
+
 ## [0.94.417] - 2026-09-25
 
 ### Fixed
