@@ -328,7 +328,20 @@ class TestTheConfigSurfaceExists(unittest.TestCase):
                 blob = json.loads((base / name).read_text(encoding="utf-8"))
                 dumped = json.dumps(blob)
                 self.assertIn("solver_price_event_sensor", dumped)
-                self.assertIn("value: 0", dumped)
+                # The close-your-window requirement must be stated, since
+                # it is the one mistake that turns a test into a permanent
+                # distortion. Asserted on the two load-bearing phrases
+                # rather than an exact sentence -- and NOT on a literal
+                # brace pair, because HA's own hassfest reads {...} in a
+                # translation as a placeholder and rejects the file.
+                self.assertIn("value of 0", dumped)
+                self.assertIn("holds forward", dumped)
+                self.assertNotIn(
+                    "{",
+                    blob["options"]["step"]["solver_grid"]["data_description"][
+                        "solver_price_event_sensor"
+                    ],
+                )
 
 
 if __name__ == "__main__":

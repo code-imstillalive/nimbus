@@ -71,7 +71,19 @@ _HUB_OPTIONS = (
 EXPECTED_KEY_COUNTS = {
     "_SWITCHBOARD_SCHEMA_KEYS": 8,
     "_FORECASTER_SCHEMA_KEYS": 12,
-    "_SOLVER_WIZARD_SCHEMA_KEYS": 26,
+    # nimbus issue #1213 (Mark Purcell): 26 -> 27, one OPTIONAL field,
+    # `solver_price_event_sensor`. #449's standing question was asked
+    # before adding it, and the answer is in the commit: the field names
+    # an ENTITY, so it cannot be auto-discovered (its magnitude and
+    # windows are the household's deliberate choice, not something to
+    # find), and the two parts that COULD live on the device already do
+    # -- the arm is switch.nimbus_solver_price_event_enabled, and the
+    # magnitude/windows live in the household's own sensor rather than
+    # in Nimbus config at all. The alternative shape (numbers plus
+    # datetimes for one window) would cost MORE config surface and
+    # support fewer window shapes than the step-point sensor #1213 asks
+    # for.
+    "_SOLVER_WIZARD_SCHEMA_KEYS": 27,
 }
 
 # (required, optional) per schema builder. `_switchboard_schema` reads as
@@ -81,7 +93,9 @@ EXPECTED_KEY_COUNTS = {
 EXPECTED_SPLIT = {
     "_forecaster_schema": (0, 12),
     "_solver_battery_schema": (1, 1),
-    "_solver_grid_schema": (2, 6),
+    # nimbus issue #1213: 6 -> 7 optional. The two Required price fields
+    # are unchanged, which is the property this row exists to watch.
+    "_solver_grid_schema": (2, 7),
     "_solver_sources_schema": (2, 14),
     "_switchboard_schema": (0, 1),
 }

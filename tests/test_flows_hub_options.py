@@ -44,6 +44,7 @@ from custom_components.nimbus_load.const import (
     CONF_SOLVER_LOAD_FORECAST_ENTITIES,
     CONF_SOLVER_LOAD_FORECAST_SENSOR,
     CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY,
+    CONF_SOLVER_PRICE_EVENT_SENSOR,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR,
     CONF_SOLVER_SOLAR_FORECAST_SENSOR_2,
     CONF_SWITCHBOARD_BATTERY_CHARGE_DAILY_SENSOR,
@@ -219,8 +220,13 @@ def test_solver_grid_schema_has_two_required_price_fields():
     # this step was back to the 4 optional second/third-source fields.
     # nimbus issue #493 (Signals 4/7 of #489, item 1): gained 2 more
     # OPTIONAL fields, the live DNSP envelope entities -- 8 total.
+    # nimbus issue #1213 (Mark Purcell): gained 1 more OPTIONAL field, the
+    # additive price-event test sensor -- 9 total. The feature's other two
+    # parts deliberately cost this form nothing: the arm is a device entity
+    # (switch.nimbus_solver_price_event_enabled) and the event's magnitude
+    # and windows live in the household's own sensor, not in Nimbus config.
     schema = _solver_grid_schema({})
-    assert len(schema.schema) == 8
+    assert len(schema.schema) == 9
     for key in (CONF_SOLVER_IMPORT_PRICE_SENSOR, CONF_SOLVER_EXPORT_PRICE_SENSOR):
         assert type(_find_marker(schema, key)).__name__ == "Required"
 
@@ -430,6 +436,9 @@ def test_solver_grid_step_submission_chains_straight_to_sources_form():
         CONF_SOLVER_EXPORT_PRICE_SENSOR_3: None,
         CONF_SOLVER_ENVELOPE_IMPORT_LIMIT_ENTITY: None,
         CONF_SOLVER_ENVELOPE_EXPORT_LIMIT_ENTITY: None,
+        # nimbus issue #1213: explicitly nulled like every other Optional
+        # field on this step, not silently absent (#341 follow-up).
+        CONF_SOLVER_PRICE_EVENT_SENSOR: None,
     }
 
 
