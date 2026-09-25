@@ -736,6 +736,7 @@ def train_model(
     grid_events: list[tuple[datetime, float]] | None = None,
     solar_events: list[tuple[datetime, float]] | None = None,
     max_staleness_minutes: float | None = None,
+    label: str | None = None,
 ) -> TrainedModel | None:
     """Build a fresh model from real (local-time) history events.
 
@@ -754,6 +755,21 @@ def train_model(
     cycle never takes the integration down -- the coordinator just keeps
     using whatever model it already has (or none yet) and tries again
     next cycle.
+
+    label (nimbus issue #1206): the signal this call is training, used
+    only to prefix this function's own log lines. Optional and defaulting
+    to None so `ml/` stays HA-import-free -- this module has no access to
+    entity names and should not acquire any; the caller supplies it.
+
+    Why it exists: every line logged below described a model without
+    naming which signal it belonged to. On the reference household that
+    produced 43 unattributable "Only N usable training points" warnings
+    across four days -- point counts of 57, 59, 63, 65, 165, 170, 294 --
+    with no way to tell whether that was one chronically starved signal
+    retrying or seven different ones, nor whether it was a new subentry
+    warming up (expected) or one that had never trained (real). The
+    executor reassigns `SyncWorker_N` between calls, so the thread name
+    is not an answer either.
 
     max_staleness_minutes (nimbus issue #375, Mark Purcell, codebase
     review): overrides the default lag-staleness cap (resample_minutes *
@@ -776,8 +792,16 @@ def train_model(
     right cap in; None (the default) preserves the original, unchanged
     behaviour for the plain recorder-only path.
     """
+    # nimbus issue #1206: one prefix, applied to every line this
+    # function logs, so a multi-subentry install can attribute any of
+    # them. Empty string when no label is given, which keeps every
+    # existing message byte-identical for callers that do not pass one
+    # -- including the standalone/cron copy and every existing test.
+    _pre = f"{label}: " if label else ""
     if not load_events:
-        _LOGGER.warning("No load history available -- skipping this training cycle.")
+        _LOGGER.warning(
+            "%sNo load history available -- skipping this training cycle.", _pre
+        )
         return None
 
     grid = _build_grid(start, end, resample_minutes)
@@ -975,7 +999,8 @@ def train_model(
 
     if len(x_rows) < min_training_points:
         _LOGGER.warning(
-            "Only %d usable training points (need >= %d) -- skipping this cycle.",
+            "%sOnly %d usable training points (need >= %d) -- skipping this cycle.",
+            _pre,
             len(x_rows),
             min_training_points,
         )
@@ -1113,7 +1138,8 @@ def train_model(
             "naive": validation_mae["naive"],
         }
         _LOGGER.info(
-            "Model validation (one-step): knn_mae=%.4f gbrt_mae=%.4f naive_mae=%.4f",
+            "%sModel validation (one-step): knn_mae=%.4f gbrt_mae=%.4f naive_mae=%.4f",
+            _pre,
             validation_mae["knn"],
             validation_mae["gbrt"],
             validation_mae["naive"],
@@ -1314,9 +1340,10 @@ def train_model(
             # which one hand-run query across one moment cannot be.
             one_step_choice = min(candidate_mae, key=candidate_mae.__getitem__)
             _LOGGER.info(
-                "Model validation (recursive, %d origins x %d steps): "
+                "%sModel validation (recursive, %d origins x %d steps): "
                 "knn_mae=%.4f gbrt_mae=%.4f naive_mae=%.4f -> using %s "
                 "(one-step would have chosen %s -- %s)",
+                _pre,
                 len(origins),
                 RECURSIVE_VALIDATION_HORIZON_STEPS,
                 recursive_mae["knn"],
@@ -1370,8 +1397,9 @@ def train_model(
                     "will not change"
                 )
             _LOGGER.info(
-                "Recursive validation unavailable (%s) -- falling back to "
+                "%sRecursive validation unavailable (%s) -- falling back to "
                 "one-step selection -> using %s",
+                _pre,
                 reason,
                 model_type,
             )
@@ -1406,7 +1434,9 @@ def train_model(
             if mase_scale > 1e-9:
                 validation_mase = {k: v / mase_scale for k, v in validation_mae.items()}
                 _LOGGER.info(
-                    "Model validation (MASE, scale=%.4f): knn=%.3f gbrt=%.3f naive=%.3f",
+                    "%sModel validation (MASE, scale=%.4f): knn=%.3f gbrt=%.3f "
+                    "naive=%.3f",
+                    _pre,
                     mase_scale,
                     validation_mase["knn"],
                     validation_mase["gbrt"],
@@ -1456,7 +1486,9 @@ def train_model(
             )
     else:
         _LOGGER.info(
-            "Only %d validation points -- too few to compare models, defaulting to k-NN.",
+            "%sOnly %d validation points -- too few to compare models, "
+            "defaulting to k-NN.",
+            _pre,
             len(x_val),
         )
 
@@ -1492,7 +1524,7 @@ def train_model(
         else 0.0
     )
 
-    _LOGGER.info("Trained %s model on %d points.", model_type, len(x_rows))
+    _LOGGER.info("%sTrained %s model on %d points.", _pre, model_type, len(x_rows))
     return TrainedModel(
         model_type=model_type,
         x_mean=x_mean_final,

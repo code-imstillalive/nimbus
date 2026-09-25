@@ -729,6 +729,12 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 grid_events,
                 solar_events,
                 max_staleness_minutes,
+                # nimbus issue #1206: name the signal in the training
+                # logs. `subentry.title` is already this file's own
+                # established identifier for exactly this -- the
+                # residual-drift WARNING below uses it, and that line is
+                # readable precisely because it is attributed.
+                self.subentry.title,
             )
             if trained is not None:
                 self._trained = trained
@@ -1802,9 +1808,15 @@ def _train_model_job(
     grid_events: list[tuple[datetime, float]],
     solar_events: list[tuple[datetime, float]],
     max_staleness_minutes: float | None = None,
+    label: str | None = None,
 ) -> TrainedModel | None:
     """Plain function (not a bound method) so it's cleanly picklable/callable
     from hass.async_add_executor_job without capturing `self`.
+
+    `label` (nimbus issue #1206) is the subentry title, passed straight
+    through so `train_model()`'s own log lines can name the signal they
+    describe. It is threaded rather than looked up here for the same
+    reason this is a plain function: it must not capture `self`.
     """
     return train_model(
         load_events=load_events,
@@ -1821,6 +1833,7 @@ def _train_model_job(
         grid_events=grid_events,
         solar_events=solar_events,
         max_staleness_minutes=max_staleness_minutes,
+        label=label,
     )
 
 

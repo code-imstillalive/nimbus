@@ -154,7 +154,12 @@ def test_retrain_fetches_all_six_optional_features_without_crashing():
         grid_events,
         solar_events,
         max_staleness_minutes=None,
+        # nimbus issue #1206: the signal name, threaded through so
+        # train_model()'s own log lines can attribute themselves. Captured
+        # below so this test also pins that it is actually supplied.
+        label=None,
     ):
+        captured["label"] = label
         captured["load_events"] = load_events
         captured["temp_events"] = temp_events
         captured["humidity_events"] = humidity_events
