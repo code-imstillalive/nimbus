@@ -428,6 +428,16 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # standalone mode, so this is never reached there and there is
         # nothing behavioural to port.
         "_stale_power_period_indices",
+        # nimbus issue #1181: how well a power sensor's recorder history
+        # covers the scored window (points, median/max gap, two coverage
+        # fractions). Its only caller is _compute_report_for_window(),
+        # already listed in this set for the same reason -- the
+        # standalone/cron script computes no quality report at all, so
+        # there is nothing for this to be missing FROM. It also calls
+        # _stale_power_period_indices() directly above, for the one
+        # fraction that reuses the participant path's own one-hour guard.
+        # Not a gap.
+        "_power_history_coverage",
         # nimbus issue #1109 (2026-09-18): a pure helper (list of
         # (BatteryConfig, ndarray, ndarray, float) in, same out -- no HA
         # imports at all) whose ONLY caller is
