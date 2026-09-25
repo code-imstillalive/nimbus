@@ -2049,6 +2049,28 @@ _NATIVE_MANAGED_ENTITY_IDS: frozenset[str] = frozenset(
         "sensor.nimbus_solver_quality_report",
         "sensor.nimbus_efficiency_backtest",
         "sensor.nimbus_counterfactual_soc",
+        # nimbus issue #1192: these three were MISSING, and the set being
+        # incomplete is unambiguously a bug rather than a choice -- this
+        # set's own contract, stated above, is "every entity_id this
+        # integration calls register_entity_handler() for in native mode",
+        # and sensor.py calls it for eleven.
+        #
+        # The consequence is exactly the ghost this guard exists to
+        # prevent: during a reload window the real SensorEntity has not
+        # re-registered, so ha_post_state() fell through to a raw
+        # states.async_set() for these three, writing a NON-RESTORED state
+        # that then reads as a live conflict when the real entity is added
+        # a moment later. #1192's own reproduction is the flex family and
+        # nothing else, which is the shape this predicts.
+        #
+        # `test_1192_native_managed_set_covers_every_handler.py` now
+        # derives the required set from sensor.py's own
+        # register_entity_handler() call sites and fails if this one falls
+        # behind again, so the next entity to get a handler cannot be
+        # forgotten here the way these three were.
+        "sensor.nimbus_flex_signals",
+        "sensor.nimbus_flex_report",
+        "sensor.nimbus_offer_curve",
     }
 )
 
