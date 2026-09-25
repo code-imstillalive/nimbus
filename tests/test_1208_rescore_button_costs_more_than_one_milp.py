@@ -49,7 +49,6 @@ from datetime import datetime
 from unittest import mock
 
 import _solver_path  # noqa: F401
-import pytest
 import solver_writer
 
 
@@ -69,15 +68,23 @@ def _now(day=25):
 
 
 class TestTheButtonsOwnCallShape(unittest.TestCase):
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "nimbus #1208: nimbus_load.rescore_history has no way to target "
-            "a single day, so nimbus-regret-card.js's own days-back call "
-            "shape (which is all the service accepts) pays for every "
-            "intervening day, not just the flagged one."
-        ),
-    )
+    """The `xfail(strict=True)` this test shipped with has been removed:
+    the gap it pinned is closed, and a strict xfail that starts passing
+    fails the suite, which is exactly the signal it was there to give.
+
+    The fix is the shape #1208 itself proposed -- an optional `date` on
+    `SERVICE_RESCORE_HISTORY_SCHEMA`, mapped by
+    `_async_handle_rescore_history()` to
+    `rescore_quality_history(cfg, now, back, only_dates={date})` with
+    `back` derived server-side. The card now sends `date: dateKey` and
+    its own `_daysBack()` is gone.
+
+    So the premise in the original reason string -- "which is all the
+    service accepts" -- is no longer true, and the test now reproduces
+    what the service actually does with a date rather than the look-back
+    it used to be forced into.
+    """
+
     def test_repairing_one_flagged_day_five_days_back_costs_one_milp(self):
         computed: list[str] = []
 
@@ -96,11 +103,14 @@ class TestTheButtonsOwnCallShape(unittest.TestCase):
             ),
             mock.patch.object(solver_writer, "ha_post_state"),
         ):
-            # Reproduces nimbus-regret-card.js's _daysBack() + callService
-            # shape exactly: the ONLY way the button can reach a day 5
-            # days back is `days=5`, since the service has no per-date
-            # parameter to narrow with.
-            solver_writer.rescore_quality_history({}, _now(day=25), 5)
+            # Reproduces what the service now does with the card's
+            # `date: dateKey` call: derive the look-back server-side and
+            # pin the run to that one day. The look-back is still 5,
+            # because the row IS five days old -- what changed is that
+            # the four days in between are no longer solved.
+            solver_writer.rescore_quality_history(
+                {}, _now(day=25), 5, only_dates={"2026-09-20"}
+            )
 
         self.assertEqual(
             len(computed),
@@ -109,6 +119,37 @@ class TestTheButtonsOwnCallShape(unittest.TestCase):
             f"solve(s) ({computed}), not the 1 the button's own design and "
             "#1201's CHANGELOG both claim",
         )
+        self.assertEqual(
+            computed,
+            ["2026-09-20"],
+            "the one solve must be the flagged day itself, not whichever "
+            "day the look-back happened to reach first",
+        )
+
+    def test_days_still_means_a_window_when_no_date_is_given(self):
+        """The control. `days` keeps its documented contract -- a bulk
+        rescore of the last N days is a real, separate use, and narrowing
+        it would have been a silent breaking change."""
+        computed: list[str] = []
+
+        def compute(cfg, day_start, day_end, allow_partial):
+            computed.append(day_start.date().isoformat())
+            return _entry("applied")
+
+        with (
+            mock.patch.object(
+                solver_writer, "_compute_report_for_window", side_effect=compute
+            ),
+            mock.patch.object(
+                solver_writer,
+                "ha_get",
+                return_value={"attributes": {}, "state": "90"},
+            ),
+            mock.patch.object(solver_writer, "ha_post_state"),
+        ):
+            solver_writer.rescore_quality_history({}, _now(day=25), 5)
+
+        self.assertEqual(len(computed), 5)
 
 
 if __name__ == "__main__":

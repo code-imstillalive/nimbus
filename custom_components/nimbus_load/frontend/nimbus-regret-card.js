@@ -272,21 +272,6 @@ class NimbusRegretCard extends HTMLElement {
     return false;
   }
 
-  // How many days back the displayed date is, since `rescore_history`
-  // takes a look-back count rather than a date. Clamped to the service's
-  // own 1..30 bounds so a stale or malformed dateKey cannot turn one
-  // click into a rejected call, or into more solves than the service
-  // would accept anyway.
-  _daysBack(dateKey) {
-    const parts = String(dateKey).split("-").map(Number);
-    if (parts.length !== 3 || parts.some((n) => !Number.isFinite(n))) return 1;
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const target = new Date(parts[0], parts[1] - 1, parts[2]);
-    const days = Math.round((today - target) / 86400000);
-    return Math.min(30, Math.max(1, days));
-  }
-
   _render() {
     if (!this.shadowRoot) return;
     const subEl = this.shadowRoot.getElementById("sub");
@@ -393,8 +378,14 @@ class NimbusRegretCard extends HTMLElement {
         repairBtn.disabled = true;
         if (msgEl) msgEl.textContent = " re-scoring…";
         try {
+          // nimbus issue #1208 (Mark Purcell): ask for the DAY, not a
+          // look-back. `days: N` re-scores every day from today back to
+          // N, so repairing a row ten days old cost ten oracle MILPs in
+          // one synchronous call -- the executor-starvation shape the
+          // automatic sweep is gated against, re-entering through this
+          // button. One date is one solve, however old the row is.
           await this._hass.callService("nimbus_load", "rescore_history", {
-            days: this._daysBack(dateKey),
+            date: dateKey,
           });
           if (msgEl) msgEl.textContent = " done — reloading";
           // Drop the cache so the next render reads the REWRITTEN row
