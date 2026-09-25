@@ -8,6 +8,26 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Changed
+- **The daily retrain is spread across its hour instead of firing every subentry on the same second** ([#1217](https://github.com/code-imstillalive/nimbus/issues/1217)).
+
+  Every coordinator scheduled `async_track_time_change(hour=..., minute=0, second=0)`, so an install's whole fleet trained back to back on one executor pool.
+
+  Measured on the reference household, 2026-09-25: five models retrained between **06:00:45 and 06:01:23** on 3,360–4,205 points each, and **21 of that day's 21 `previous cycle still in progress` skips fell in hour 06 — zero across the other 23 hours.** The day before had the same shape: 24 skips, all in hour 06.
+
+  **Why this mattered beyond its own noise.** `fetch_entity_history_range()` waits `future.result(timeout=30)` on a recorder read and degrades to `[]` on any failure, logging only at DEBUG. Inside that window the quality rescore's SoC read timed out at **exactly 30.121 s** — it started at 06:00:03.517 and the first contention warning landed at 06:00:33.638 — so the day was scored against a hardcoded 50% opening state of charge. That is [#1214](https://github.com/code-imstillalive/nimbus/issues/1214), which published **EPR 21.11%** for a day that scores **68.86%**.
+
+  [#1215](https://github.com/code-imstillalive/nimbus/issues/1215) stopped the wrong number being published. It did not stop the read failing. This spreads the contention that made it fail.
+
+  **Deterministic, not random.** The minute is derived from the subentry id via a SHA-256 digest, so a subentry lands on the same minute across restarts and across processes. `hash()` would not do — Python salts string hashing per process, so the schedule would move on every restart and a household could never predict when its own signal retrains.
+
+  **The configured retrain hour is unchanged**; this only decides where inside it a given subentry lands. An install with one subentry is unaffected in spirit; one with twenty-five stops stacking them on a single second.
+
+  Six tests: five pin the new behaviour and fail with the change reverted, one is a control that the hour stays configurable rather than becoming a literal. One of them is worth noting — it was first written as a text search for `hash(` in the property's source, which matched the **docstring** discussing `hash()` by name and so failed for the wrong reason. It now parses the AST and inspects the calls actually made, because a check that can fail for the wrong reason can pass for one too.
+
+- Devhub validation: **not claimed, and it is measurable rather than observable.** The effect is a change in *when* retrains fire, visible as the absence of a skip burst in one hour of a log — which needs a day of running, not a restart. devhub additionally skips training on most of its synthetic subentries (`Only 38 usable training points` in its own logs), so it does not produce the burst being spread. The reference household, which produced 21 and 24 skips in hour 06 on consecutive days, is where this is checkable: the same count in that hour tomorrow, against the other 23.
+- Consumer check: **nothing appears or disappears in the UI.** What a household gets is a solver that keeps taking its one-minute tick through the retrain window instead of skipping ~21 of them, and a recorder read in that window that is far less likely to lose a 30-second race — which is the failure that silently corrupted a published EPR by 47 points.
+
 ### Fixed
 - **The two fields that say *when* and *by what* a scored day was produced no longer go stale on a republish** ([#1219](https://github.com/code-imstillalive/nimbus/issues/1219), [#1220](https://github.com/code-imstillalive/nimbus/issues/1220)).
 
