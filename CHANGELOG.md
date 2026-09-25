@@ -8,6 +8,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.420] - 2026-09-25
+
 ### Fixed
 - **The efficiency backtest was circular, so `best_candidate` was always the highest candidate on every install — and it published dollars as a percentage** ([#1232](https://github.com/code-imstillalive/nimbus/issues/1232)).
 
