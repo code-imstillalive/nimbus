@@ -1,5 +1,6 @@
-"""IV&V finding (620f39b..4fd40c3 pass, 2026-09-26, head issue TBD): #1216
-(c6f5b86, "Let the rescore service target one date") added a real, new
+"""IV&V finding (620f39b..4fd40c3 pass, 2026-09-26, head issue #1249, this
+finding #1250): #1216 (c6f5b86, "Let the rescore service target one date")
+added a real, new
 code path to `_async_handle_rescore_history()` -- ISO-date parsing via
 `date.fromisoformat()`, a server-side `back = (today - target).days`
 derivation, and a `1 <= back <= 30` bounds check with two distinct
