@@ -1594,7 +1594,9 @@ def _calibrate_blend_weight(
     optimum by more than tolerance" acceptance criterion, same
     `_CAL_MARGIN` step-back for robustness against coefficient drift.
 
-    nimbus issue #776: returns `(weight, true_primary_cost)`, not just
+    nimbus issue #776: returns `(weight, true_primary_cost,
+    min_weight_fallback)` (the third element is nimbus issue #1179's --
+    see `LPResult.calibration_min_weight_fallback`), not just
     `weight` -- `h.getObjectiveValue()` after the final blended solve
     below is `primary + weight * secondary`, a MIXED-UNIT number (real
     dollar primary cost plus whatever arbitrary scale the secondary/
@@ -1615,7 +1617,10 @@ def _calibrate_blend_weight(
         with _lp_tolerance_matching_mip(h), _timed_lp_call(h, "calibrate_blend_probe"):
             h.run()
         bl_vals = np.asarray(h.getSolution().col_value)
-        return weight, float(primary_vec @ bl_vals)
+        # nimbus issue #1179: False -- this branch picks a safe DEFAULT
+        # weight (1e-3) because there is no primary cost to distort, which
+        # is not the minimum-weight fallback the issue is about.
+        return weight, float(primary_vec @ bl_vals), False
 
     abs_tol = max(1e-8, abs(lex_primary_cost) * tolerance)
     min_weight_fallback = False

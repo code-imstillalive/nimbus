@@ -91,20 +91,50 @@ class TestEveryReturnPropagatesIt(unittest.TestCase):
         ann = str(inspect.signature(lp_mod._calibrate_blend_weight).return_annotation)
         self.assertIn("bool", ann)
 
-    def test_every_solve_with_options_return_is_a_triple(self):
-        fn = ast.parse(
-            textwrap.dedent(inspect.getsource(lp_mod._solve_with_options))
-        ).body[0]
-        arities = [
+    def _return_arities(self, fn_obj) -> list[int]:
+        """Arity of every `return <tuple>` in a function's OWN body.
+
+        Nested helpers are excluded -- `_calibrate_blend_weight` contains
+        a probe closure with its own 2-tuple return, and counting that
+        would make this assert something false.
+        """
+        tree = ast.parse(textwrap.dedent(inspect.getsource(fn_obj))).body[0]
+        nested = {
+            n
+            for child in ast.iter_child_nodes(tree)
+            for n in ast.walk(child)
+            if isinstance(child, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        return [
             len(n.value.elts) if isinstance(n.value, ast.Tuple) else 1
-            for n in ast.walk(fn)
-            if isinstance(n, ast.Return) and n.value is not None
+            for n in ast.walk(tree)
+            if isinstance(n, ast.Return) and n.value is not None and n not in nested
         ]
+
+    def test_every_solve_with_options_return_is_a_triple(self):
+        arities = self._return_arities(lp_mod._solve_with_options)
         self.assertTrue(arities, "no returns found -- test is not testing anything")
         self.assertEqual(
             set(arities),
             {3},
             f"every return must carry the flag; got arities {arities}",
+        )
+
+    def test_every_calibrate_return_is_a_triple(self):
+        """The one CI caught and these tests originally did not.
+
+        `_calibrate_blend_weight` has TWO outer returns: the main path,
+        and an early exit for "no primary cost to distort" which picks a
+        safe default weight instead of calibrating. Only the first was
+        updated, and mypy found the second -- so the arity check now
+        covers this function too, not just its caller.
+        """
+        arities = self._return_arities(lp_mod._calibrate_blend_weight)
+        self.assertTrue(arities, "no returns found -- test is not testing anything")
+        self.assertEqual(
+            set(arities),
+            {3},
+            f"every outer return must carry the flag; got arities {arities}",
         )
 
 
