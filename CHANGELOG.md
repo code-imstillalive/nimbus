@@ -8,6 +8,38 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Fixed
+- **The efficiency backtest was circular, so `best_candidate` was always the highest candidate on every install — and it published dollars as a percentage** ([#1232](https://github.com/code-imstillalive/nimbus/issues/1232)).
+
+  **Defect 1 — the sweep compared universes, not settings.** `score_candidate_day()` planned the day with the candidate battery and then scored it *with that same candidate battery*; its own docstring said so ("scored under the SAME candidate config the dispatch was optimized for"). A candidate assuming 99% round-trip efficiency planned more aggressive cycling, was then charged only 1% loss per leg, **and** reached a higher final SoC credited at `salvage_value` — every term moving the same way.
+
+  Measured live, 2026-09-24: `85% → -33.3203`, `90% → -34.9882`, `95% → -36.5315`, `99% → -37.7415`. **Strictly monotonic, and necessarily so** — a more efficient assumed battery cannot score worse under its own assumption. `best_candidate` was therefore always the largest entry in `EFFICIENCY_CANDIDATES_PERCENT` and carried no information at all.
+
+  Actively harmful rather than merely useless: the sensor published `best_candidate: 99%` beside `configured_efficiency_percent: 85.8`, which reads as advice — while `BatteryConfig.__post_init__` rejects exactly 100% as a degeneracy guard and the Solver-settings wizard explicitly warns against setting this near 100% (the wash-trade degeneracy this project diagnosed once for HAEO already).
+
+  Now every candidate is **planned** with the candidate battery and **scored** under the configured one, with the SoC trajectory recomputed under the scoring battery's own efficiencies rather than inherited from the candidate's optimistic plan. A candidate that over-cycles is penalised by the losses it assumed away.
+
+  **The corrected sweep recovers the battery's real efficiency.** On the test scenario (real round-trip 90.25%) the swept candidates score `85% → -2.4119`, `90% → -2.4564`, `90.25% → -2.4585`, `95% → -2.4364`, `99% → -2.4193` — best is **90.25%**, the truth, and the ordering is no longer monotonic. A sweep that identifies the physics it is running on is measuring something; one that always answers 99% is not.
+
+  **This install's own configured value is now swept too.** The fixed set was `(85, 90, 95, 99)`, so a household configured at 85.8 was never among the candidates and even a correctly-scored sweep could not answer "is my setting the best of these?". New attributes `configured_is_best` and `best_vs_configured_dollars` answer it directly, and `scored_under: "configured"` makes the figure self-describing. Labels now use `%g`, so 85.8 renders as `85.8%` rather than colliding with a genuine `86%`.
+
+  Each candidate also reports `undeliverable_kwh` — discharge its plan committed to that the configured pack could not physically have delivered. Surfaced rather than absorbed, because a candidate that looks good only by promising energy below the real floor should be read with that attached.
+
+  **Defect 2 — the state is a currency amount, published as `%`.** The integration path declared `_attr_native_unit_of_measurement = "%"` with the comment *"Configured efficiency is a percentage"*, which is where the mistake is visible: the author believed the state was the configured efficiency. It is `spread_dollars`. Live, it read `4.4211 %` meaning **$4.42** — and with `state_class: MEASUREMENT`, HA has been recording long-term statistics in percent for a currency value, on every install, continuously.
+
+  The standalone writer path always posted `"$"`, so **the two deployment paths disagreed about the unit of the same sensor** and everyone on HACS got the wrong one. `"$"` is not the fix either — Nimbus must not assume a currency, and HA already knows: the unit is now `hass.config.currency`. The class docstring, which claimed the native state was `configured_efficiency_percent`, is corrected too; it never was.
+
+  **Upgrade note:** existing installs will see HA raise a one-time statistics unit-change repair for this entity. Unavoidable and correct — the recorded history is a currency amount labelled `%` and cannot be reinterpreted in place.
+
+  Nine tests. Two of the new ones fail with the scoring change reverted, and the revert was done surgically (one line) so they fail for the right reason rather than on an import error.
+
+  **Two tests in this file had encoded the bug as an invariant.** `test_results_are_labeled_and_monotonic_with_efficiency` asserted the sweep *is* monotonic, calling that "the real, interpretable 'does efficiency actually matter here' signal this whole feature exists to produce." It is replaced by its opposite, with the history recorded in the new test's docstring. The other, `test_worse_efficiency_never_produces_a_better_score_than_near_perfect_efficiency`, is kept and still passes — it is a true statement about two genuinely different batteries, and it exercises the preserved legacy path (`scoring_battery=None`), which remains correct for "how would a day look if this were true all along".
+
+- **Documentation correction, same issue.** `docs/handover/2026-09-17-epr-and-scoring.md` carried a section headed **RESOLVED: the counters are sound** concluding "charge does not under-count". That inference does not hold — a closed SoC loop cancels a direction-dependent *SoC-scale* error, not an *energy-measurement* error on the charge leg — and [#1086](https://github.com/code-imstillalive/nimbus/issues/1086) inherited the same conflation from it. The heading is withdrawn in place (not deleted, because future sessions read handover docs as settled fact) with the contradicting evidence from its own capacity cross-check spelled out: at the configured `e`, discharge implies 123.8 kWh against 122.2 settled, while charge implies 101.3 kWh. See [#1231](https://github.com/code-imstillalive/nimbus/issues/1231).
+
+- Devhub validation: **reproduced there, fix NOT yet validated there, and deliberately not released.** The defect was confirmed on devhub independently of the reference household — identical monotonic candidates, `best_candidate: 99%`, `unit_of_measurement: "%"`. The **fix** cannot be validated there yet: devhub's own `sensor.nimbus_efficiency_backtest_2` reads `unavailable` (the canonical id is held by a mirror of production), and each devhub restart currently spawns a fresh set of orphaned entities from the documented `remote_homeassistant` duplication, so a validation restart is not free. Per the household's standing rule that nothing ships as a fix before a thorough test, this is merged but **not tagged**. What *was* verified: the sweep recovers the true efficiency on the real LP, both behavioural tests fail on revert, `ruff format --check`/`ruff check` clean, and mypy (strict, solver+ml) reports nothing on the changed files.
+- Consumer check: **two visible changes and one invisible correction.** The sensor now reads in the household's own currency instead of `%`, so `$4.42` stops being displayed as `4.4 %`. `best_candidate` becomes a real answer rather than always the largest number tested, and `configured_is_best`/`best_vs_configured_dollars` say plainly whether the configured setting was the best of those tried. Nothing about dispatch changes — this sensor is diagnostic and never feeds the LP.
+
 ### Changed
 - **A failed solve cycle now says whether its own blend calibration fell back to the minimum weight** ([#1179](https://github.com/code-imstillalive/nimbus/issues/1179)).
 

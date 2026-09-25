@@ -19,6 +19,7 @@ import numpy as np
 from solver.backtest import (
     EFFICIENCY_CANDIDATES_PERCENT,
     CandidateResult,
+    efficiency_label,
     run_efficiency_sensitivity_sweep,
     score_candidate_day,
 )
@@ -128,11 +129,7 @@ class TestRunEfficiencySensitivitySweep(unittest.TestCase):
             self.assertIsInstance(r, CandidateResult)
             self.assertTrue(np.isfinite(r.total_cost))
 
-    def test_results_are_labeled_and_monotonic_with_efficiency(self):
-        # On a real day with a genuine arbitrage opportunity, higher
-        # efficiency must never score worse than lower efficiency --
-        # the real, interpretable "does efficiency actually matter here"
-        # signal this whole feature exists to produce.
+    def test_results_are_labeled(self):
         periods, grid, solar, load = _real_day_scenario()
         results = run_efficiency_sensitivity_sweep(
             periods=periods,
@@ -143,11 +140,90 @@ class TestRunEfficiencySensitivitySweep(unittest.TestCase):
         )
         by_label = {r.label: r.total_cost for r in results}
         self.assertEqual(set(by_label), {"85%", "90%", "95%", "99%"})
-        ordered_costs = [
-            by_label[f"{p:.0f}%"] for p in sorted(EFFICIENCY_CANDIDATES_PERCENT)
+
+    def test_the_sweep_is_not_monotonic_in_the_candidate(self):
+        """nimbus issue #1232 -- this replaces a test that asserted the
+        OPPOSITE, and the replaced test is worth remembering.
+
+        It was called `test_results_are_labeled_and_monotonic_with_
+        efficiency`, and its comment called monotonicity "the real,
+        interpretable 'does efficiency actually matter here' signal this
+        whole feature exists to produce." The belief was that a higher
+        assumed efficiency must never score worse.
+
+        It cannot score worse *while every candidate is scored under its
+        own assumption*, which is what the sweep used to do: a battery
+        assumed 99% efficient plans more cycling, is then charged only 1%
+        loss per leg, and reaches a higher final SoC credited at
+        `salvage_value`. Monotonic by construction -- so `best_candidate`
+        was always simply the largest candidate and carried no
+        information. Measured live on the reference household 2026-09-24:
+        85% -> -33.32, 90% -> -34.99, 95% -> -36.53, 99% -> -37.74, with
+        the sensor publishing `best_candidate: 99%` against a configured
+        85.8%. That reads as advice toward a setting `BatteryConfig`
+        rejects at 100% and the Solver-settings wizard explicitly warns
+        against.
+
+        Scoring every candidate under the CONFIGURED battery removes the
+        guarantee, which is the entire point: over-assuming efficiency now
+        costs real money in the score.
+        """
+        periods, grid, solar, load = _real_day_scenario()
+        results = run_efficiency_sensitivity_sweep(
+            periods=periods,
+            grid=grid,
+            base_battery=_base_battery(),
+            solar=solar,
+            load=load,
+        )
+        by_label = {r.label: r.total_cost for r in results}
+        ordered = [
+            by_label[efficiency_label(p)] for p in sorted(EFFICIENCY_CANDIDATES_PERCENT)
         ]
-        for worse, better in itertools.pairwise(ordered_costs):
-            self.assertLessEqual(better, worse + 1e-6)
+        self.assertFalse(
+            all(b <= w + 1e-6 for w, b in itertools.pairwise(ordered)),
+            "the sweep is still monotonic in the candidate, so "
+            "best_candidate still carries no information: " + repr(ordered),
+        )
+
+    def test_the_sweep_recovers_the_batterys_own_real_efficiency(self):
+        """The strongest available check that the sweep measures
+        something at all (nimbus issue #1232).
+
+        The scenario battery's real round-trip is `charge_efficiency *
+        discharge_efficiency`. Sweeping that value alongside the fixed
+        candidates, the best-scoring candidate must be the one matching
+        the physics the day is scored under -- not the largest. A sweep
+        that identifies the efficiency it is actually running on is
+        measuring; one that always answers 99% is not.
+        """
+        periods, grid, solar, load = _real_day_scenario()
+        base = _base_battery()
+        true_rt = round(base.charge_efficiency * base.discharge_efficiency * 100, 2)
+        swept = tuple(sorted({*EFFICIENCY_CANDIDATES_PERCENT, true_rt}))
+        results = run_efficiency_sensitivity_sweep(
+            periods=periods,
+            grid=grid,
+            base_battery=base,
+            solar=solar,
+            load=load,
+            candidates_percent=swept,
+        )
+        best = min(results, key=lambda r: r.total_cost)
+        self.assertEqual(
+            best.label,
+            efficiency_label(true_rt),
+            "the best candidate should be the battery's own real "
+            f"efficiency, got {best.label}; costs="
+            + repr({r.label: round(r.total_cost, 4) for r in results}),
+        )
+
+    def test_the_label_keeps_a_fractional_configured_value_distinct(self):
+        """A real install's configured value is swept too (#1232), so 85.8
+        must not render as '86%' -- indistinguishable from a genuine 86%
+        candidate."""
+        self.assertEqual(efficiency_label(85.8), "85.8%")
+        self.assertEqual(efficiency_label(90.0), "90%")
 
     def test_a_genuinely_infeasible_candidate_is_skipped_not_fatal(self):
         # Real defensive guarantee: one candidate's own infeasibility

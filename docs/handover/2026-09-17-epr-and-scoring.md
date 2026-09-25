@@ -491,7 +491,40 @@ At the configured e = 0.9263: **discharge implies 123.8 kWh** (within 1.3% of th
 configured 122.2, 3.4% of #1013's 119.72); **charge implies 101.3 kWh** (17% below
 both). Discharge is consistent with everything else known; charge is the outlier.
 
-### RESOLVED: the counters are sound, the SoC scale is DIRECTION-DEPENDENT
+### ~~RESOLVED: the counters are sound, the SoC scale is DIRECTION-DEPENDENT~~ — WITHDRAWN 2026-09-25, see nimbus #1231
+
+> **This section's conclusion is wrong, and the heading should never have said
+> RESOLVED.** Corrected in place rather than deleted: [#1086](https://github.com/code-imstillalive/nimbus/issues/1086)
+> inherited the error from here and reached the same wrong answer, and future
+> sessions read handover docs as settled fact.
+>
+> **The flaw.** A closed SoC loop cancels a direction-dependent **SoC-scale**
+> error. It does **not** cancel an **energy-measurement** error on the charge leg.
+> The argument below substitutes one for the other, then concludes "charge does
+> not under-count" using a method that structurally cannot tell those apart —
+> solving `in*e - out/e = stored_delta` inherits `in` almost 1:1, so a low `in`
+> forces a high `e`.
+>
+> **This same section's own capacity cross-check already contradicted the
+> conclusion**, and that was the reliable half: at the configured `e = 0.9263`,
+> discharge implies **123.8 kWh** (within 1.3% of the settled 122.2) while charge
+> implies **101.3 kWh** (17% low). It also records a band-matched round-trip of
+> **1.049** — above 100%, therefore impossible. Two independent signals that the
+> charge leg is the broken one, both read as evidence against the configured
+> value instead.
+>
+> **What is actually true**, as of 2026-09-25: the charge-energy measurement reads
+> roughly **12-21% low, and the error grows with power** (#1231 — measured
+> independently on 24 Sep as +3.55/+4.66/+5.25 points unaccounted at 30.2/32.3/18.7
+> kW charge). An under-read of 10.9-11.7% reconciles this section's own numbers
+> with the configured value exactly. `solver_efficiency_percent` was reviewed on
+> that basis and **deliberately left at 85.8%** — changing it to ~98% would have
+> told the solver its round trip was 96% when it is nearer 86%, over-cycling the
+> battery for negative real return.
+>
+> The figures below are left unedited as the historical record of what was
+> computed. Read them as a measurement of the charge sensor's error, not of the
+> battery's efficiency.
 
 Charge does not under-count. Over a **closed SoC loop** any direction-dependent SoC
 error cancels, and solving `in*e - out/e = stored_delta` on the two scored days:
