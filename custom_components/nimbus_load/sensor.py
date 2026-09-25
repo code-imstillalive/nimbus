@@ -4158,6 +4158,13 @@ class NimbusEfficiencyBacktestSensor(_NimbusSolverPushSensor):
     # HA already knows: `hass.config.currency`. See the property below.
     _attr_device_class = None
     _attr_state_class = SensorStateClass.MEASUREMENT
+    # Explicitly None, NOT merely absent. Deleting the old `"%"` and
+    # relying on the property below made this attribute INHERIT
+    # `_NimbusSolverPushSensor`'s own `UnitOfPower.KILO_WATT`, so any
+    # reader of the CLASS attribute saw "kW" for a currency sensor.
+    # Caught by CI, and exactly the silent fallthrough a property alone
+    # does not protect against.
+    _attr_native_unit_of_measurement = None
     _attr_suggested_display_precision = 2
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     # Same "no forecast array on this parent" reasoning as
