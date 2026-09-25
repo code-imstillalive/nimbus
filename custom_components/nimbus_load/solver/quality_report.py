@@ -354,9 +354,7 @@ def _soc_pct_at_hour_boundaries(
             .isoformat()
         )
         first = int(np.argmax(mask))
-        out[key] = (
-            float(initial_soc_pct) if first == 0 else float(soc_pct[first - 1])
-        )
+        out[key] = float(initial_soc_pct) if first == 0 else float(soc_pct[first - 1])
     return out
 
 

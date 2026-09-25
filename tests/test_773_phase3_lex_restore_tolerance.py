@@ -70,12 +70,12 @@ import ast
 import contextlib
 import logging
 import unittest
-
 import unittest.mock
 
 import _solver_path  # noqa: F401
 from solver import lp
 from solver.lp import CalibratedOptions, LexOptions
+
 _PINNED_RESOLVE_CALL_SITES = 3
 """How many `with _lp_tolerance_matching_mip(h):` blocks `lp.py` should
 have. Three as of #773's tier-2 fix:

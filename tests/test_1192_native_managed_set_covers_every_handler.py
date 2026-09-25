@@ -65,7 +65,7 @@ from _ha_stubs import install_ha_stubs
 install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from custom_components.nimbus_load import solver_writer  # noqa: E402
+from custom_components.nimbus_load import solver_writer
 
 _SENSOR_SRC = (
     Path(__file__).resolve().parent.parent

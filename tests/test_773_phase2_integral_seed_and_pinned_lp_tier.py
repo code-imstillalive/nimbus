@@ -175,10 +175,17 @@ def _mip_scenario(*, n_loads: int, n_periods: int, seed: int):
     return periods, grid, battery, solar, adequacy
 
 
-def _solve(scenario, *, options=LexOptions()):
+def _solve(scenario, *, options=None):
     """Reset lp.py's module-level #773 cooldown first, so an earlier
     test's own fallback can never make a later test silently skip the
-    phased path it is trying to exercise."""
+    phased path it is trying to exercise.
+
+    `options=None` -> `LexOptions()`, constructed per call rather than
+    once as a default-argument value (ruff B008): a shared default
+    instance would be reused across every test in this file.
+    """
+    if options is None:
+        options = LexOptions()
     periods, grid, battery, solar, adequacy = scenario
     lp._lex_calibration_failed_until = 0.0
     return build_plan(
@@ -405,8 +412,9 @@ class TestTier2WhenPhase2StillCannotFinish(unittest.TestCase):
 
         self.assertEqual(plan.status, "optimal")
         self.assertTrue(
-            pinned, "tier 2 never pinned anything -- the ladder fell straight "
-            "through to the single-objective fallback"
+            pinned,
+            "tier 2 never pinned anything -- the ladder fell straight "
+            "through to the single-objective fallback",
         )
         joined = "\n".join(catcher.messages)
         self.assertIn(_TIER2_FRAGMENT, joined)

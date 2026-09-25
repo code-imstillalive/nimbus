@@ -72,8 +72,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 # of the large block of import-time failures this repo's test suite shows
 # on a plain local run, and it bites any file that needs both
 # `_solver_path` and Home Assistant.
-from custom_components.nimbus_load import solver_writer  # noqa: E402
-from custom_components.nimbus_load.solver.quality_report import (  # noqa: E402
+from custom_components.nimbus_load import solver_writer
+from custom_components.nimbus_load.solver.quality_report import (
     _hourly_means_by_key,
     _soc_pct_at_hour_boundaries,
 )
@@ -204,9 +204,7 @@ class TestTheArtifactIsRealAndQuantified(unittest.TestCase):
         boundaries = _soc_pct_at_hour_boundaries(
             hours=hours, soc_pct=soc, initial_soc_pct=10.0, day_start=DAY
         )
-        offsets = [
-            rows[k]["soc_pct"] - boundaries[k] for k in rows if k in boundaries
-        ]
+        offsets = [rows[k]["soc_pct"] - boundaries[k] for k in rows if k in boundaries]
         # Mean of the four end-of-period samples in an hour is the
         # boundary plus (0.25+0.5+0.75+1.0)/4 = 0.625 of a ramp.
         expected = ramp_pct_per_hour * 0.625
