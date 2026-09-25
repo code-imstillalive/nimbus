@@ -50,7 +50,14 @@ _SRC = (
 
 
 def _source() -> str:
-    return open(_SRC, encoding="utf-8").read()
+    """`read_text`, not `open(...).read()`.
+
+    The latter leaks the handle, and CI's pytest promotes the resulting
+    ResourceWarning to an error -- so all five tests failed there while
+    passing under a local `unittest` run, which does not. The regex and
+    the assertions were never the problem.
+    """
+    return _SRC.read_text(encoding="utf-8")
 
 
 def _factories(src: str) -> list[tuple[str, str, str]]:
