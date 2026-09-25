@@ -256,8 +256,36 @@ def _phase_failed(messages: list[str], phase: str) -> bool:
     )
 
 
+@contextlib.contextmanager
+def _tier1_seed_disabled():
+    """Turn off #773's tier-1 MIP start (`lp._offer_mip_start()`), which
+    landed AFTER this file was written.
+
+    Needed because tier 1 genuinely changes WHICH primary-tied integer
+    solution phase 2 returns -- same objective and same dispatch (both
+    pinned by `test_773_phase2_integral_seed_and_pinned_lp_tier.py`), but
+    a different binary assignment. On this file's own (16, 24, seed 0)
+    scenario that difference is enough to move phase 2's incumbent OFF
+    the 1e-7..1e-6 tolerance gap the pin-resolve fix exists for, so the
+    pre-fix reproduction below stops reproducing -- confirmed directly,
+    both ways, and recorded as its own test in
+    `TestTier1MasksThisScenariosFailureBand` below.
+
+    That is a happy side effect, not a replacement. The tolerance-gap
+    hazard is a property of the tolerance band, not of this one scenario;
+    tier 1 moved this scenario off the band, it did not remove the band.
+    So the A/B for the tolerance fix is run with tier 1 held off, keeping
+    it a targeted test of the thing it was written to test."""
+    with unittest.mock.patch.object(lp, "_offer_mip_start", lambda *_a, **_k: False):
+        yield
+
+
 class TestPinResolveToleranceRealReproduction(unittest.TestCase):
-    """Fix #1, genuinely reproduced both ways through `build_plan()`."""
+    """Fix #1, genuinely reproduced both ways through `build_plan()`.
+
+    Both halves run with #773's tier-1 MIP start held off -- see
+    `_tier1_seed_disabled()` for why that is the honest way to keep this
+    an A/B on the tolerance fix alone."""
 
     def setUp(self):
         self.scenario = _many_binaries_tied_price_scenario(
@@ -276,6 +304,7 @@ class TestPinResolveToleranceRealReproduction(unittest.TestCase):
             yield
 
         with (
+            _tier1_seed_disabled(),
             unittest.mock.patch.object(lp, "_lp_tolerance_matching_mip", _pre_fix_noop),
             _capture_solver_logs() as catcher,
         ):
@@ -303,13 +332,51 @@ class TestPinResolveToleranceRealReproduction(unittest.TestCase):
         this test deliberately does not assert on. What this fix
         promises, and what is checked here, is specifically that
         `phase2_pin_resolve` itself reaches Optimal.)"""
-        with _capture_solver_logs() as catcher:
+        with _tier1_seed_disabled(), _capture_solver_logs() as catcher:
             _solve(*self.scenario, options=CalibratedOptions())
 
         self.assertFalse(
             _phase_failed(catcher.messages, "phase2_pin_resolve"),
             "the real fix must stop phase2_pin_resolve from failing on "
             "the exact scenario that fails without it",
+        )
+
+
+class TestTier1MasksThisScenariosFailureBand(unittest.TestCase):
+    """The interaction between #773's tier-1 MIP start and this file's own
+    pre-fix reproduction, pinned so it cannot quietly change.
+
+    Recorded because it is a real, measured finding and because it is the
+    reason `_tier1_seed_disabled()` exists. It is deliberately NOT written
+    as "tier 1 fixes the pin-resolve infeasibility": it does not. It moves
+    ONE scenario's incumbent off the tolerance band. The band, and the
+    fix that widens it, both still matter."""
+
+    def setUp(self):
+        self.scenario = _many_binaries_tied_price_scenario(
+            n_loads=16, n_periods=24, seed=0
+        )
+
+    def test_with_tier_1_active_the_band_is_no_longer_reached(self):
+        """Same scenario, same reverted tolerance fix, tier 1 left ON:
+        `phase2_pin_resolve` no longer fails. If this ever starts failing
+        again, tier 1 has stopped masking the band and
+        `_tier1_seed_disabled()` may no longer be needed."""
+
+        @contextlib.contextmanager
+        def _pre_fix_noop(_h: Any):
+            yield
+
+        with (
+            unittest.mock.patch.object(lp, "_lp_tolerance_matching_mip", _pre_fix_noop),
+            _capture_solver_logs() as catcher,
+        ):
+            _solve(*self.scenario, options=CalibratedOptions())
+
+        self.assertFalse(
+            _phase_failed(catcher.messages, "phase2_pin_resolve"),
+            "tier 1 was expected to move this scenario off the tolerance "
+            "band, but the pin resolve failed anyway",
         )
 
 

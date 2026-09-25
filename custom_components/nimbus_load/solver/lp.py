@@ -1552,6 +1552,134 @@ def _pin_binaries_to_current_solution(
         h.changeColBounds(i, fixed, fixed)
 
 
+def _capture_integral_point(h: highspy.Highs) -> list[float] | None:
+    """Read the FULL column vector of the solve that just ran against `h`,
+    for later use as a MIP start (`_offer_mip_start()`) or an explicit pin
+    (`_pin_binaries_to_values()`).
+
+    Deliberately reads `h.getSolution().col_value` rather than `h.val()`
+    per column, which is what `_pin_binaries_to_current_solution()` uses.
+    That is not stylistic: that function's own comment records a real,
+    unresolved suspicion that `h.val()` after a MIP solve may return the
+    final NODE's relaxation rather than the incumbent -- which would be
+    one candidate explanation for the `phase2_pin_resolve` Infeasible
+    reports on #773. `getSolution()` is the documented accessor for the
+    solved point, so a capture taken expressly to be replayed into the
+    solver takes it from there. (Whether the two actually disagree is a
+    separate open question -- see #773.)
+
+    Returns None rather than raising if the accessor gives nothing usable,
+    so every caller can treat a capture as best-effort."""
+    try:
+        vals = list(h.getSolution().col_value)
+    except Exception:  # noqa: BLE001
+        return None
+    return vals or None
+
+
+def _offer_mip_start(h: highspy.Highs, col_values: list[float], *, phase: str) -> bool:
+    """Offer `col_values` to HiGHS as a starting incumbent for the next
+    `run()`. Returns whether HiGHS accepted it.
+
+    nimbus issue #773. This is the measured fix for the phase-2 timeout,
+    and the measurement belongs next to the code because it also overturns
+    an earlier negative result on the same issue.
+
+    On the real captured failing instance (`nimbus_773_fail_phase2_
+    secondary.mps`, 1,412 integer columns of 12,138), at production's own
+    60 s per-call limit:
+
+        unseeded, 60 s      Time limit reached, 0 MIP nodes, NO solution
+                            -- identical across EIGHT HiGHS option
+                            configurations (default, solver=ipm,
+                            presolve=off, simplex_strategy=4,
+                            mip_heuristic_effort=0.5,
+                            mip_detect_symmetry=off, run_crossover=off,
+                            simplex_scale_strategy=5). Zero nodes means
+                            branch-and-bound never begins: the budget is
+                            gone before the search starts, so no option
+                            tuning the SEARCH could ever have helped.
+        unseeded, 900 s     Optimal, 253.4 s, 1,314,628 iterations,
+                            1,017 nodes.
+        SEEDED, 60 s        Optimal, 31.0 s, 62,816 iterations, 52 nodes.
+        integers pinned     Optimal, 0.2 s (a pure LP -- see
+                            `_pin_binaries_to_values()`).
+
+    Same objective to 16 significant figures in every case that reached
+    optimal, so this buys time, not a different answer.
+
+    Why a seed is available for free: phase 2's feasible set is phase 1's
+    intersected with the primary-bound row, and phase 1's own optimum
+    satisfies that row BY CONSTRUCTION -- that is what the row is built
+    from. So by the time phase 2 runs, an integer-feasible point for it is
+    already in hand, and unseeded phase 2 was spending its entire budget
+    failing to rediscover a point the caller was holding.
+
+    This also resolves the one honestly-open half of nimbus issue #999,
+    whose warm-start experiment measured no improvement and concluded a
+    MIP start does not help here. That experiment seeded the LP
+    RELAXATION's optimum, which is FRACTIONAL -- HiGHS must repair it into
+    an integer point via a sub-MIP, and on this instance evidently cannot.
+    Seeding a genuinely INTEGRAL point is a materially different ask, and
+    the two measurements above are 900 s-class failure versus 31 s proven-
+    optimal on the same file. #999's result was correct for what it
+    tested; the conclusion drawn from it was too broad.
+
+    Best-effort by design: `setSolution()`'s availability and return
+    convention vary across highspy builds, and a refused seed must leave a
+    solve that would otherwise have worked completely unharmed. A seed
+    cannot change WHICH optimum is proven -- it only supplies an upper
+    bound -- so declining one is always safe."""
+    try:
+        seed = highspy.HighsSolution()
+        seed.col_value = col_values
+        status = h.setSolution(seed)
+    except Exception as exc:  # noqa: BLE001
+        _LOGGER.debug(
+            "Nimbus #773: this highspy build would not take a MIP start "
+            "for %s (%s: %s) -- solving without one, which is the "
+            "pre-#773 behaviour",
+            phase,
+            type(exc).__name__,
+            exc,
+        )
+        return False
+    ok = status is None or status == highspy.HighsStatus.kOk
+    _LOGGER.debug(
+        "Nimbus #773: offered %s a starting incumbent from phase 1 "
+        "(%d columns) -- accepted=%s",
+        phase,
+        len(col_values),
+        ok,
+    )
+    return ok
+
+
+def _pin_binaries_to_values(
+    h: highspy.Highs, binary_cols: list[int], col_values: list[float]
+) -> None:
+    """Pin every binary column to its value in `col_values` (an EXPLICITLY
+    captured point) and relax it to continuous.
+
+    The sibling of `_pin_binaries_to_current_solution()`, which pins to
+    whatever solve last ran against `h`. This one exists for the case
+    where that is precisely what must NOT happen: nimbus issue #773's
+    phase-2 timeout leaves `h` holding either nothing at all (0 MIP nodes,
+    objective inf -- the measured case) or an unproven node relaxation.
+    Pinning from there would fix binaries to garbage. Pinning from phase
+    1's captured, integer-feasible, primary-optimal point instead is
+    well-defined and keeps the architecture's guarantee intact -- see
+    `_solve_with_options()`'s own tier-2 comment.
+
+    No-op when `binary_cols` is empty, matching its sibling."""
+    if not binary_cols:
+        return
+    for i in binary_cols:
+        fixed = float(round(col_values[i]))
+        h.changeColIntegrality(i, highspy.HighsVarType.kContinuous)
+        h.changeColBounds(i, fixed, fixed)
+
+
 def _bisect_boundary(
     lo: float,
     hi: float,
@@ -1827,6 +1955,18 @@ def _solve_with_options(
         h, phase="phase1_primary", problem=problem, binary_cols=binary_cols
     )
 
+    # nimbus issue #773: capture phase 1's own solved point while it is
+    # still the live one. On a MIP this is an INTEGER-FEASIBLE, PRIMARY-
+    # OPTIMAL point, and it is feasible for phase 2 by construction (see
+    # `_offer_mip_start()`'s own docstring for the measurement, and for
+    # why unseeded phase 2 was spending its whole budget rediscovering
+    # it). Used twice below: as phase 2's starting incumbent, and -- if
+    # phase 2 still cannot finish -- as the explicit pin for a tier-2
+    # pure-LP phase 2.
+    #
+    # Costs one accessor call, and only on the MIP path.
+    phase1_point = _capture_integral_point(h) if binary_cols else None
+
     # Same "always >= 1 term" dense-iteration style as this module's own
     # pre-#696 cost_expr construction (every variable, missing/zero
     # entries included) -- guarantees a non-empty qsum regardless of how
@@ -1872,9 +2012,85 @@ def _solve_with_options(
     h.addConstr(primary_expr <= primary_value + tie_slack)
     extra_row_names = ["_lex_primary_le_optimum"]
     _set_cost_vector(h, col_indices, secondary_vec)
-    secondary_value = _ensure_optimal_value(
-        h, phase="phase2_secondary", problem=problem, binary_cols=binary_cols
-    )
+
+    # nimbus issue #773, tier 1: hand phase 2 phase 1's integral point as
+    # a starting incumbent. Measured 900 s-class failure -> 31 s proven-
+    # optimal on the real captured instance, same objective to 16
+    # significant figures. See `_offer_mip_start()`.
+    #
+    # This does NOT weaken #702's tie-break guarantee. A MIP start only
+    # supplies an upper bound; the solve still proves optimality, so phase
+    # 2 still finds the genuine secondary optimum among every primary-tied
+    # integer solution. What changes is only how long it takes to get
+    # there.
+    if binary_cols and phase1_point is not None:
+        _offer_mip_start(h, phase1_point, phase="phase2_secondary")
+
+    try:
+        secondary_value = _ensure_optimal_value(
+            h, phase="phase2_secondary", problem=problem, binary_cols=binary_cols
+        )
+    except ValueError:
+        # nimbus issue #773, tier 2. Before this, a phase-2 failure fell
+        # straight off a cliff: the caller caught the ValueError and
+        # re-solved the whole problem single-objective, discarding the
+        # secondary channel ENTIRELY for that cycle -- all four tie-break
+        # mechanisms routed through it (proximal/smoothness weights,
+        # adequacy/battery earliness budgets) -- plus a 5-minute cooldown
+        # during which every subsequent cycle also went without them.
+        #
+        # There is a middle tier, and it is this project's OWN pre-#702
+        # behaviour: pin the binaries to phase 1's assignment and solve
+        # phase 2 as a pure LP. Measured at 0.2 s on the very instance
+        # where the MIP could not finish in 900 s.
+        #
+        # What it keeps: the primary guarantee, exactly. Phase 1's point
+        # is integer-feasible and satisfies the primary-bound row by
+        # construction, so this LP is non-empty and every solution in it
+        # is primary-optimal to within `tie_slack`. Secondary is then
+        # genuinely minimized over the continuous variables.
+        #
+        # What it costs, stated honestly: the binary assignment can no
+        # longer move among primary-tied integer solutions, so a tie-break
+        # whose ONLY expression is via WHICH binaries get chosen lands on
+        # phase 1's arbitrary choice rather than the secondary-best one.
+        # That is the exact regression #702 was filed to fix, which is why
+        # this is tier 2 and not the default -- but the honest comparison
+        # is not against tier 1, which just failed. It is against the
+        # fallback, which loses the secondary channel altogether. A
+        # continuous tie-break preserved beats every tie-break discarded.
+        #
+        # Pinned from the EXPLICIT capture, never from `h`'s live state: a
+        # timed-out phase 2 holds either no solution at all (the measured
+        # case -- 0 nodes, objective inf) or an unproven node relaxation.
+        # See `_pin_binaries_to_values()`.
+        if not binary_cols or phase1_point is None:
+            raise
+        _LOGGER.warning(
+            "Nimbus #773: phase2_secondary could not reach optimal even "
+            "with phase 1's own point as a starting incumbent (%d "
+            "binaries, %d variables) -- pinning phase 1's binary "
+            "assignment and solving phase 2 as a pure LP instead. Primary "
+            "cost is unaffected and the secondary tie-break is kept for "
+            "every continuous variable; only a tie-break expressed purely "
+            "through WHICH binaries are chosen is lost this cycle (nimbus "
+            "issue #702). A real quality cost, and strictly smaller than "
+            "the single-objective fallback it replaces.",
+            len(binary_cols),
+            problem.n_variables,
+        )
+        _pin_binaries_to_values(h, binary_cols, phase1_point)
+        # Same tolerance band as every other pinned re-solve in this
+        # function -- the pinned values were accepted by branch-and-bound
+        # under mip_feasibility_tolerance, and a pure LP would otherwise
+        # re-check them ten times tighter. See _lp_tolerance_matching_mip().
+        with _lp_tolerance_matching_mip(h):
+            secondary_value = _ensure_optimal_value(
+                h,
+                phase="phase2_secondary_pinned_lp",
+                problem=problem,
+                binary_cols=binary_cols,
+            )
 
     # nimbus issue #702: the real binary assignment is now decided --
     # phase 2's own (possibly MIP) solve just chose, among every
