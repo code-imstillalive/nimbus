@@ -9,6 +9,67 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 ## [Unreleased]
 
 ### Fixed
+- **The lex/calibration phase-2 solve no longer burns its whole time budget rediscovering a point it was already holding** ([#773](https://github.com/code-imstillalive/nimbus/issues/773)).
+
+  Measured on the two real captured instances, at production's own 60 s per-call limit: **zero MIP nodes**. Branch-and-bound never begins. Confirmed identical across eight HiGHS configurations (default, `solver=ipm`, `presolve=off`, `simplex_strategy=4`, `mip_heuristic_effort=0.5`, `mip_detect_symmetry=off`, `run_crossover=off`, `simplex_scale_strategy=5`) against an LP relaxation that solves the whole continuous problem in 0.6 s. So no option tuning the *search* could have helped, which retires the warm-start, per-node-LP-cost, cut-generation, heuristic-effort and presolve theories in one measurement.
+
+  The cause is in the phase sequence, not the solver. Phase 2's feasible set is phase 1's intersected with the primary-bound row, and phase 1's own optimum satisfies that row **by construction** — the row is built from it. An integer-feasible point was therefore already in hand when phase 2 started.
+
+  | | `fail_phase2_secondary` | `slow_lex_phase_phase2_secondary` |
+  |---|---|---|
+  | integer columns | 1,412 / 12,138 | 1,392 / 12,012 |
+  | unseeded @ 60 s | Time limit, 0 nodes | Time limit, 0 nodes |
+  | reference optimum | 253.4 s | 185.9 s |
+  | **seeded @ 60 s** | **31.0 s** | **34.5 s** |
+  | speed-up | **8.2×** | **5.4×** |
+  | objective preserved | yes, 16 s.f. | yes, 11 s.f. |
+
+  Two tiers. `_offer_mip_start()` hands phase 2 phase 1's integral point — this does not weaken [#702](https://github.com/code-imstillalive/nimbus/issues/702)'s tie-break, because a MIP start supplies only an upper bound and the solve still proves optimality. `_pin_binaries_to_values()` is the backstop: if phase 2 still cannot finish, phase 1's assignment is pinned and phase 2 runs as a pure LP (0.2 s on the instance the MIP could not finish in 900 s).
+
+  **Tier 2 replaces a cliff with a step.** Previously a phase-2 failure discarded the secondary channel *entirely* for that cycle — all four tie-break mechanisms — plus a 5-minute cooldown over which every later cycle also went without them. Tier 2 keeps the primary guarantee exactly and keeps the secondary tie-break for every continuous variable. What it honestly loses is a tie-break expressed purely through *which* binaries are chosen, which is why it is the fallback and not the default.
+
+  Also resolves the honestly-open half of [#999](https://github.com/code-imstillalive/nimbus/issues/999): that experiment seeded the LP relaxation's optimum, which is **fractional**, so HiGHS must repair it via a sub-MIP and on these instances cannot. An integral seed is a materially different ask.
+
+  **Reference benchmark: unmoved, and for a stated reason.** `nimbus_value_add_dollars` reads **$1.0462314872717562** before and after, byte-identical across every figure — but instrumenting the run shows the benchmark's synthetic scenario offers **zero** MIP starts and pins **zero** binaries, so it never reaches the changed path. This is therefore a verified **no-op on the non-MIP path** (every install without semi-continuous adequacy loads), *not* evidence about the MIP path the fix targets. The evidence for that is the captured-instance table above.
+
+- **The SoC-discrepancy check compares like-for-like, instead of differencing an hourly mean against a point sample** ([#1228](https://github.com/code-imstillalive/nimbus/issues/1228)).
+
+  `_soc_discrepancy_stats()` differenced the real SoC read as a **point sample** at `HH:00:00` (`resample_history_nearest()`) against `j_ach_hourly["soc_pct"]`, which is that hour's **mean**. Both carry the same timestamp key — which is what that function's docstring meant by "genuinely the same real hour on every side" — but sharing a timestamp is not the same as being the same quantity. The difference injects roughly half the hour's ramp rate as pure artifact, largest exactly where SoC moves fastest.
+
+  On the reference household, 24 Sep: a published **max 21.17 / mean 9.88**, whose max lands on **hour 12, the steepest charge ramp of the day**, against a like-for-like **max 11.82 / mean 6.46** that passes both configured thresholds. That artifact alone accounts for `epr_reliable: False` on an install whose sensors are fine.
+
+  Fixed on the **achieved** side, via a new `QualityReport.j_ach_soc_pct_at_hour`. Both sides could have been made to match; point-sampling the achieved side is the one that agrees with `resample_history_mean()`'s own documented principle — SoC is a **state**, sampled and held, not a flow to be averaged — and it leaves the real side untouched. `j_ach_hourly["soc_pct"]` stays a mean deliberately, because it feeds chart rows where a mean is the right thing to plot.
+
+  Falls back to the mean when the mapping is absent (an older persisted report) and publishes **which basis it used** in the new `soc_discrepancy_basis` field, rather than quietly reverting.
+
+- **Three of the eleven native entity handlers were missing from the guard that stops a reload writing a ghost state** ([#1192](https://github.com/code-imstillalive/nimbus/issues/1192)).
+
+  `_NATIVE_MANAGED_ENTITY_IDS` states its own scope — the entity_ids this integration registers a handler for in native mode — so being incomplete is a defect rather than a choice. `sensor.py` registers eleven; the set listed eight. Missing: `sensor.nimbus_flex_signals`, `sensor.nimbus_flex_report`, `sensor.nimbus_offer_curve`.
+
+  For a covered id, a missing handler means "the real entity has not re-registered yet", so `ha_post_state()` skips its raw `states.async_set()` fallback rather than writing the non-restored ghost state that then collides with the real entity's own registration ([#312](https://github.com/code-imstillalive/nimbus/issues/312)). For these three it did not skip — which matches the reproduction: a freshly-restarted instance, one reload, collision warnings for **five entities and no others**, precisely the `nimbus_flex` family. A generic reload race would have hit every family.
+
+  Not claimed to account for every warning #1192 records — the count is already known to scale with instance uptime (183 after several reloads, 5 on a fresh one). The new test **derives** the required set by parsing `sensor.py`'s own call sites, because the hand-maintained list is what fell behind.
+
+### Added
+- **The home battery's power-history coverage is measured and published** ([#1181](https://github.com/code-imstillalive/nimbus/issues/1181)).
+
+  `_stale_power_period_indices()` had exactly one call site — the battery-participant path. Every install has a home battery and most have no participants, so the guard protected nothing on a typical install and the one power series that always exists was unmeasured.
+
+  Measured on the reference household's 20 Sep charge window: 640 points in 11.0 h, median gap 30.2 s, largest gaps **1777 s (30 min)** and 1456 s, and **5.93 of 11.0 hours — 54% — inside gaps longer than two minutes**. `resample_history_mean()` is time-weighted and holds the last observed value across each gap, so more than half that phase was integrated from a reading last seen up to half an hour earlier.
+
+  **The measurement ships; the adjustment deliberately does not.** Zeroing stale periods is conservative for *throughput* but the wrong direction for a *trajectory* — the home reconstruction already under-rises through charge, so zeroing would deepen that and make `soc_discrepancy` **worse**, i.e. make a household's EPR read less reliable because of a fix.
+
+  New `soc_discrepancy_power_coverage` carries sample count, median gap, max gap and two fractions. `time_in_long_gaps_pct` is threshold-free by construction (a gap longer than one grid period guarantees a period with no sample of its own); `stale_periods_pct` is the same permissive one-hour measure the participant path acts on. **The gap between the two is the problem** — a 30-minute hole is invisible to the one-hour guard and obvious to the threshold-free measure.
+
+### Changed
+- **`tests/_solver_path` no longer shadows the stdlib `select` module** ([#1240](https://github.com/code-imstillalive/nimbus/issues/1240)).
+
+  It put `custom_components/nimbus_load/` at the *front* of `sys.path`, where the integration's own `select.py` shadows stdlib `select`. `socket` imports `selectors` imports `select`; `asyncio` imports `socket`. The result was a partially-initialised-module `ImportError` taking down every later `asyncio`/`homeassistant` import.
+
+  Measured on clean `main`: of the solver test files that do not stub Home Assistant, **131 passed and 77 failed at import time** — none a real failure, the test bodies never ran. It presented as "pytest doesn't work on this machine". CI never showed it because pytest runs from the repo root.
+
+  One line, append instead of insert-at-0. Nothing else on `sys.path` provides `solver`, so `from solver import ...` still resolves while stdlib keeps precedence for its own names. CI's own stub-based invocation now runs locally: **3629 passed, 15 skipped, 1 xfailed**.
+
 - **An install that commits real P2P export but has no settlement sensor is now warned, instead of silently scoring every day P2P-blind forever** ([#1236](https://github.com/code-imstillalive/nimbus/issues/1236), raised by @purcell-lab in [#1211](https://github.com/code-imstillalive/nimbus/issues/1211)).
 
   `real_p2p_settlement_status = "no_sensor_configured"` is deliberately excluded from `_PROVISIONAL_SETTLEMENT_STATUSES`, so [#1201](https://github.com/code-imstillalive/nimbus/issues/1201)'s repair sweep never revisits such a day — correctly, because there is nothing to wait for. But the day is then priced with **zero P2P export credit** and `real_p2p_dollars: 0.0`, which is **indistinguishable from a household that genuinely earns no P2P**. No error, no flag, an ordinary-looking number, on every day, permanently.
