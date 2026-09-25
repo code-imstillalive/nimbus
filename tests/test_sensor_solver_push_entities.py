@@ -557,8 +557,24 @@ def test_efficiency_backtest_has_required_sensor_entity_class_attributes():
     cls = sensor.NimbusEfficiencyBacktestSensor
     assert cls._attr_has_entity_name is True
     assert cls._attr_name == "Efficiency Backtest"
-    assert cls._attr_native_unit_of_measurement == "%"
-    assert cls._attr_suggested_display_precision == 1
+    # nimbus issue #1232: this asserted `== "%"`. The native state is
+    # `spread_dollars`, a CURRENCY amount -- the old `"%"` came from a
+    # docstring that wrongly described the state as the configured
+    # efficiency, and with state_class MEASUREMENT it had HA recording
+    # long-term statistics in percent for a currency value.
+    #
+    # Explicitly None rather than absent: dropping the attribute made it
+    # inherit `_NimbusSolverPushSensor`'s own UnitOfPower.KILO_WATT, so a
+    # reader of the class attribute got "kW" for a currency sensor. Pinned
+    # here because a property override does not prevent that fallthrough.
+    assert cls._attr_native_unit_of_measurement is None
+    assert cls._attr_native_unit_of_measurement != "%"
+    from homeassistant.const import UnitOfPower
+
+    assert cls._attr_native_unit_of_measurement != UnitOfPower.KILO_WATT
+    # The real unit comes from the install's own currency, never hardcoded.
+    assert isinstance(cls.native_unit_of_measurement, property)
+    assert cls._attr_suggested_display_precision == 2
     assert cls._attr_device_class is None
     from homeassistant.components.sensor import SensorStateClass
     from homeassistant.const import EntityCategory
@@ -567,6 +583,38 @@ def test_efficiency_backtest_has_required_sensor_entity_class_attributes():
     # Retrospective validation, not a primary user-facing signal.
     assert cls._attr_entity_category is EntityCategory.DIAGNOSTIC
     assert cls._unrecorded_attributes == frozenset()
+
+
+def test_efficiency_backtest_unit_is_the_installs_own_currency():
+    """nimbus issue #1232: the spread is a currency amount, so the unit
+    must come from `hass.config.currency` -- never a hardcoded "$", which
+    would be wrong for every euro/pound/yen household, and never "%",
+    which is what it used to publish.
+
+    None when the currency is unset or hass is unavailable: an unknown
+    currency is better represented as no unit than as a confidently wrong
+    one, which is the bug this replaces.
+    """
+    cls = sensor.NimbusEfficiencyBacktestSensor
+    inst = cls.__new__(cls)
+
+    inst.hass = None
+    assert cls.native_unit_of_measurement.fget(inst) is None
+
+    class _Cfg:
+        currency = "AUD"
+
+    class _Hass:
+        config = _Cfg()
+
+    inst.hass = _Hass()
+    assert cls.native_unit_of_measurement.fget(inst) == "AUD"
+
+    _Cfg.currency = "EUR"
+    assert cls.native_unit_of_measurement.fget(inst) == "EUR"
+
+    _Cfg.currency = ""
+    assert cls.native_unit_of_measurement.fget(inst) is None
 
 
 def test_counterfactual_soc_has_required_sensor_entity_class_attributes():

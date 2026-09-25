@@ -4111,11 +4111,19 @@ class NimbusEfficiencyBacktestSensor(_NimbusSolverPushSensor):
     quality report above (see that class's docstring for the full "why
     migrate" story; #55, #59, #61, #62 all apply).
 
-    Native state is `configured_efficiency_percent` (%, one decimal):
-    the currently configured round-trip efficiency this backtest is
-    scoring against. Sub-device "Nimbus Backtest" (via_device -> hub) so
-    this parent AND its two flattened children (best_candidate_cost /
-    worst_candidate_cost, both AUD) group under a dedicated device page.
+    Native state is `spread_dollars` -- a CURRENCY amount, not a
+    percentage (nimbus issue #1232). It is the gap between the best and
+    worst candidate's own total_cost for the scored day, i.e. how much
+    the round-trip-efficiency setting was worth on that day.
+
+    This docstring previously claimed the native state was
+    `configured_efficiency_percent`. It never was: solver_writer.
+    publish_efficiency_backtest_report() has always pushed
+    `report["spread_dollars"]`. The claim, and the `%` unit that followed
+    from it, were simply wrong -- see the unit declaration below.
+
+    Sub-device "Nimbus Backtest" (via_device -> hub) so this parent AND
+    its flattened children group under a dedicated device page.
 
     _attr_entity_category = DIAGNOSTIC because this is a retrospective
     validation of a config value, not a primary user-facing signal --
@@ -4130,11 +4138,34 @@ class NimbusEfficiencyBacktestSensor(_NimbusSolverPushSensor):
     _RESTORE_ACROSS_RESTART = True
     _UNIQUE_ID_SUFFIX = "nimbus_efficiency_backtest"
     _attr_name = "Efficiency Backtest"
-    # Configured efficiency is a percentage -- no matching HA device_class.
+    # nimbus issue #1232: the native state is `spread_dollars`, a CURRENCY
+    # amount -- NOT a percentage.
+    #
+    # This read `_attr_native_unit_of_measurement = "%"`, with the comment
+    # "Configured efficiency is a percentage", which is where the mistake
+    # is visible: the author believed the state was the configured
+    # efficiency. Live on the reference household it therefore published
+    # `4.4211 %` for a value meaning $4.42, and -- because state_class is
+    # MEASUREMENT -- HA recorded LONG-TERM STATISTICS in percent for a
+    # currency value, on every install, accruing continuously.
+    #
+    # The standalone writer path has always posted `"$"` for this same
+    # sensor, so the two deployment paths disagreed about the unit of one
+    # entity and everyone on HACS (the pure-integration path) got the
+    # wrong one.
+    #
+    # `"$"` is not the fix either -- Nimbus must not assume a currency.
+    # HA already knows: `hass.config.currency`. See the property below.
     _attr_device_class = None
     _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_native_unit_of_measurement = "%"
-    _attr_suggested_display_precision = 1
+    # Explicitly None, NOT merely absent. Deleting the old `"%"` and
+    # relying on the property below made this attribute INHERIT
+    # `_NimbusSolverPushSensor`'s own `UnitOfPower.KILO_WATT`, so any
+    # reader of the CLASS attribute saw "kW" for a currency sensor.
+    # Caught by CI, and exactly the silent fallthrough a property alone
+    # does not protect against.
+    _attr_native_unit_of_measurement = None
+    _attr_suggested_display_precision = 2
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     # Same "no forecast array on this parent" reasoning as
     # NimbusSolverQualityReportSensor above.
@@ -4156,6 +4187,26 @@ class NimbusEfficiencyBacktestSensor(_NimbusSolverPushSensor):
             **_resolve_via_device_field(hub_device_id, entry.entry_id),  # type: ignore[typeddict-item]
         )
         self._flattened_entities: list = []
+
+    @property
+    def native_unit_of_measurement(self) -> str | None:
+        """This install's own currency (nimbus issue #1232).
+
+        Read from `hass.config.currency` rather than hardcoded, so a
+        euro/pound/yen household is not told its dispatch spread is in
+        dollars. Returns None when hass or the currency is unavailable
+        (an unset currency is genuinely unknown -- better a unitless
+        number than a confidently wrong unit, which is the bug this
+        replaces).
+
+        Existing installs will see HA raise a one-time statistics
+        unit-change repair on upgrade. That is unavoidable and correct:
+        the recorded history is a currency amount labelled `%`, and it
+        cannot be reinterpreted in place.
+        """
+        hass = getattr(self, "hass", None)
+        cfg = getattr(hass, "config", None) if hass is not None else None
+        return getattr(cfg, "currency", None) or None
 
     @callback
     def update_from_solver(self, state, attributes: dict) -> None:

@@ -369,7 +369,11 @@ from numpy.typing import NDArray
 try:
     from .ml.blend import blend_forecast_array, cross_source_spread
     from .solver import elements, lp, network, nowcast_skill
-    from .solver.backtest import run_efficiency_sensitivity_sweep
+    from .solver.backtest import (
+        EFFICIENCY_CANDIDATES_PERCENT,
+        efficiency_label,
+        run_efficiency_sensitivity_sweep,
+    )
     from .solver.quality_report import compute_quality_report
     from .solver.regret import evaluate_realized_cost
 except ImportError:
@@ -403,7 +407,11 @@ except ImportError:
     # break both.
     from ml.blend import blend_forecast_array, cross_source_spread  # noqa: F401
     from solver import elements, lp, network, nowcast_skill
-    from solver.backtest import run_efficiency_sensitivity_sweep
+    from solver.backtest import (
+        EFFICIENCY_CANDIDATES_PERCENT,
+        efficiency_label,
+        run_efficiency_sensitivity_sweep,
+    )
     from solver.quality_report import compute_quality_report
     from solver.regret import evaluate_realized_cost
 
@@ -10271,12 +10279,22 @@ def compute_efficiency_backtest_report(cfg: dict, now: datetime) -> dict | None:
     load_cfg = elements.LoadConfig(name="whole_house", forecast_kw=load_kw)
     periods = elements.PeriodGrid(hours=period_hours_arr, start=grid_times[0])
 
+    # nimbus issue #1232: include THIS install's own configured value in the
+    # swept set. Before this, the candidates were a fixed (85, 90, 95, 99)
+    # and the reference household's configured 85.8 was not among them --
+    # so even a correctly-scored sweep could not answer the only question a
+    # household actually has ("is my setting the best of these?"). Sorted
+    # and de-duplicated so an install configured at exactly 90.0 does not
+    # get a doubled candidate.
+    configured_pct = _cfg_num(cfg, "solver_efficiency_percent", 90.0)
+    swept = tuple(sorted({*EFFICIENCY_CANDIDATES_PERCENT, round(configured_pct, 2)}))
     results = run_efficiency_sensitivity_sweep(
         periods=periods,
         grid=grid_cfg,
         base_battery=base_battery,
         solar=solar_cfg,
         load=load_cfg,
+        candidates_percent=swept,
     )
     if not results:
         # Every candidate was genuinely infeasible for this real day --
@@ -10285,12 +10303,23 @@ def compute_efficiency_backtest_report(cfg: dict, now: datetime) -> dict | None:
         # rather than a misleadingly empty-but-successful entry.
         return None
 
-    configured_pct = _cfg_num(cfg, "solver_efficiency_percent", 90.0)
     best = min(results, key=lambda r: r.total_cost)
     worst = max(results, key=lambda r: r.total_cost)
+    configured_label = efficiency_label(configured_pct)
+    configured_result = next((r for r in results if r.label == configured_label), None)
     return {
         "candidates": [
-            {"efficiency_percent": r.label, "total_cost": round(r.total_cost, 4)}
+            {
+                "efficiency_percent": r.label,
+                "total_cost": round(r.total_cost, 4),
+                # nimbus issue #1232: how much of this candidate's own plan
+                # the configured pack could not physically have delivered.
+                # Non-zero means the candidate only looks as good as it does
+                # by promising energy below the real floor -- read its cost
+                # with that attached.
+                "undeliverable_kwh": round(r.undeliverable_kwh, 3),
+                "is_configured": r.label == configured_label,
+            }
             for r in results
         ],
         "configured_efficiency_percent": round(configured_pct, 1),
@@ -10298,6 +10327,25 @@ def compute_efficiency_backtest_report(cfg: dict, now: datetime) -> dict | None:
         "best_candidate_cost": round(best.total_cost, 4),
         "worst_candidate": worst.label,
         "worst_candidate_cost": round(worst.total_cost, 4),
+        # nimbus issue #1232: the actionable number. Positive means some
+        # tested setting would genuinely have served THIS pack better than
+        # the configured one on this day; 0.0 means the configured value was
+        # the best of those tested. None only if the configured value
+        # somehow failed to solve while others did.
+        "configured_is_best": (
+            None if configured_result is None else best.label == configured_label
+        ),
+        "best_vs_configured_dollars": (
+            None
+            if configured_result is None
+            else round(configured_result.total_cost - best.total_cost, 4)
+        ),
+        # nimbus issue #1232: names the physics every candidate was judged
+        # by, so this figure is self-describing. Every candidate is scored
+        # under the CONFIGURED battery -- varying only what the LP planned
+        # with. Scoring each candidate under itself is what made this sweep
+        # strictly monotonic and informationless.
+        "scored_under": "configured",
         # How much cheaper the BEST tested efficiency would have scored
         # vs the WORST, on this one real day -- a direct, human-readable
         # "does efficiency actually matter here" answer. Always >= 0 by
