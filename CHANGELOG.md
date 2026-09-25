@@ -8,6 +8,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.419] - 2026-09-25
+
 ### Changed
 - **The daily retrain is spread across its hour instead of firing every subentry on the same second** ([#1217](https://github.com/code-imstillalive/nimbus/issues/1217)).
 
@@ -79,6 +81,9 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 - Devhub validation: **not claimed at release time, and the reason is narrow.** This is a log-content change with no entity, no service and no schema surface — a restart shows the new lines only if a retrain happens to run in the observation window, and devhub's synthetic subentries skip training on too few points anyway (its own logs show `Only 38 usable training points`). Six tests pin it instead, including two controls proving the unlabelled path is unchanged. The reference household, which produced the 43 warnings, is where this becomes visible on its next 06:00 retrain.
 - Consumer check: **a household reading the log can finally tell which sensor a training warning belongs to.** Before, `Only 57 usable training points` named nothing actionable; now it names the signal, so it can be checked, reconfigured, or recognised as a new subentry still filling its window.
+
+- Devhub validation: **deploy and restart-clean check run immediately after this tag; the two behavioural changes in it are measurable rather than observable, and neither is claimed on a restart.** The retrain stagger shows up as the *absence* of a skip burst in one hour of a log, which needs a day of running — and devhub skips training on most of its synthetic subentries anyway (`Only 38 usable training points`), so it does not produce the burst being spread. The publisher-owned-field fixes need a republish without a recomputation, or a rescore of an already-published day, to be visible at all. What a devhub deploy can show — and what is checked — is that the version marker arrives and the restart adds no new WARNING or ERROR. The reference household is where the rest becomes checkable: it logged 21 and 24 skips in hour 06 on consecutive days, against zero in the other 23.
+- Consumer check: **three things a household gets, none of which change the UI.** A training warning now names the signal it belongs to, so `Only 57 usable training points` becomes actionable instead of anonymous. The solver keeps taking its one-minute tick through the morning retrain instead of skipping ~21 of them, and a recorder read in that window is far less likely to lose a 30-second race — the failure that silently cost a published EPR 47 points. And the two fields that say *when* and *by what* a day was scored now answer truthfully when someone checks whether a figure actually recomputed.
 
 ## [0.94.418] - 2026-09-25
 
