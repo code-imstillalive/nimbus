@@ -8,6 +8,24 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Changed
+- **A failed solve cycle now says whether its own blend calibration fell back to the minimum weight** ([#1179](https://github.com/code-imstillalive/nimbus/issues/1179)).
+
+  On 2026-09-20 the reference household produced **153 failed solve cycles in 2.7 hours** inside the P2P window, alongside **44** `no blend weight preserves primary cost ... using minimum weight 1.00e-12` warnings — and **37 of those 44 shared a timestamp-second with a failure**.
+
+  That is a correlation by clock, not by cycle. Nothing tied the two log lines to the same solve, so the blend-collapse hypothesis could be neither confirmed nor dismissed: blend warnings accompanied only 44 of the 153 failures, which is equally consistent with *"one of several routes to the same failure"* and with *"the warning is logged on a subset of the cycles that take it"*. The issue named this itself as the thing that would settle it.
+
+  `LPResult.calibration_min_weight_fallback` is now threaded from `_calibrate_blend_weight()` through `_solve_with_options()` onto both `LPResult` and `Plan`, and the `#757` failure warning reports it in its own line — so a failing cycle states the fact instead of leaving it to be inferred from a separate warning that happens to share a second.
+
+  **Carried on successful solves too**, which is the half that makes it falsifiable: without a base rate among healthy cycles, "the failures took the fallback" explains nothing if every cycle takes it.
+
+  **Observability only — no solve changes shape.** Nothing branches on the flag, and a control test asserts that by walking the AST of every `if`/`while` test in `lp.py` and `network.py`. Deliberately **not** touching the calibration tolerance or the minimum weight: #1179 lists both under "Not proposed" because they re-price live dispatch.
+
+  Eleven tests. Ten fail with the change reverted; the eleventh is the no-branching control, which correctly passes either way since a flag that does not exist cannot be branched on.
+
+- Devhub validation: **not claimed, and it cannot be.** The new line only appears when a solve genuinely fails, and the episode this instruments **reverted on its own and has stayed clean for four nights** (#1179's own follow-up: zero failures, zero blend warnings across the 21–24 Sep P2P windows). A restart cannot produce it, and neither can devhub on demand. What was verified locally: the flag defaults `False` on both dataclasses, every `_solve_with_options` return carries it, `_infeasible_plan()` propagates it, and both the optimal and non-optimal `Plan` read it off the result. `ruff format --check` and `ruff check` both clean.
+- Consumer check: **nothing appears or disappears in the UI, and no number moves.** This changes one WARNING line that only a household reading its own error log would ever see — and only on a cycle that was already failing and already logging. The point is that the *next* episode is diagnosable rather than merely observable: because this defect is intermittent on a multi-night scale, a fix for it cannot be validated by absence, and the instrumentation has to already be in place when it recurs.
+
 ## [0.94.419] - 2026-09-25
 
 ### Changed

@@ -11545,13 +11545,33 @@ def publish_plan(
         # symptom it protects against is a bad trade. Logged, not
         # published -- no plan is written, so nothing about the guard
         # itself changes.
+        # nimbus issue #1179: name the calibration fallback IN THIS LINE.
+        #
+        # The 2026-09-20 episode produced 153 failed cycles in 2.7h and 44
+        # "no blend weight preserves primary cost ... using minimum weight
+        # 1.00e-12" warnings, 37 of which shared a timestamp-SECOND with a
+        # failure. That is a correlation by clock, not by cycle, and it is
+        # precisely why the blend-collapse hypothesis could be neither
+        # confirmed nor dropped: blend warnings accompanied only 44 of the
+        # 153, which is equally consistent with "one of several routes to
+        # the same failure" and with "the warning is logged on a subset of
+        # the cycles that take it".
+        #
+        # `Plan.calibration_min_weight_fallback` is threaded from
+        # LPResult (see both dataclasses' own fields) and is set on
+        # SUCCESSFUL solves too, so the next episode answers the question
+        # with a base rate rather than with failures alone.
         _LOGGER.warning(
             "Nimbus: solve did not complete after %.1fs -- HiGHS solver "
             "failure (%s), not a genuinely infeasible model; keeping the "
             "previous published plan rather than overwriting it with an "
-            "empty one (nimbus issue #757)",
+            "empty one (nimbus issue #757). This cycle's blend calibration "
+            "%s (nimbus issue #1179)",
             solve_seconds,
             plan.raw_status or "unknown reason",
+            "FELL BACK to the minimum weight 1e-12"
+            if plan.calibration_min_weight_fallback
+            else "found a usable weight (no minimum-weight fallback)",
         )
         return
 
