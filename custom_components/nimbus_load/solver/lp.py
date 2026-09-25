@@ -674,6 +674,25 @@ class LPResult:
     reduced_costs: dict[str, float] = field(default_factory=dict)
     raw_status: str | None = None
 
+    # nimbus issue #1179: did THIS solve's calibration fall back to the
+    # minimum blend weight (1e-12)?
+    #
+    # The 2026-09-20 episode on the reference household produced 153
+    # failed solve cycles in 2.7h, 44 "no blend weight preserves primary
+    # cost" warnings, and 37 of those 44 shared a timestamp-SECOND with a
+    # failure -- correlated only by the clock, because nothing tied the
+    # two log lines to the same cycle. That is exactly what the issue
+    # named as the thing that would settle it: whether the FAILING solves
+    # are the ones that took the fallback.
+    #
+    # False (not None) when calibration ran and found a usable weight;
+    # False when no calibration ran at all (options=None/BlendedOptions
+    # never call `_calibrate_blend_weight()`), because "did not take the
+    # fallback" is the honest answer in both cases and a caller only ever
+    # asks this to explain a failure. Purely diagnostic -- nothing branches
+    # on it, and the solve is byte-identical either way.
+    calibration_min_weight_fallback: bool = False
+
     # nimbus issue #490 (Signals 1/7 of #489): HiGHS ranging, opt-in via
     # LPProblem.solve(ranging=True) -- see this module's own docstring on
     # `solve()` for the full mechanism. `ranging_valid` is None when
@@ -1563,7 +1582,7 @@ def _calibrate_blend_weight(
     secondary_vec: NDArray[np.float64],
     lex_primary_cost: float,
     tolerance: float,
-) -> tuple[float, float]:
+) -> tuple[float, float, bool]:
     """Find the largest blend weight whose single-solve primary cost
     stays within `tolerance` (relative) of the true lex-optimal primary
     cost, then run one final blended solve at that weight -- so `h`'s
@@ -1599,6 +1618,7 @@ def _calibrate_blend_weight(
         return weight, float(primary_vec @ bl_vals)
 
     abs_tol = max(1e-8, abs(lex_primary_cost) * tolerance)
+    min_weight_fallback = False
 
     def _primary_acceptable(log_w: float) -> bool:
         w = 10.0**log_w
@@ -1634,6 +1654,10 @@ def _calibrate_blend_weight(
             10.0**lo,
         )
         upper = lo
+        # nimbus issue #1179: reported back on LPResult so a failing cycle
+        # can name this, instead of leaving the warning above and the
+        # failure warning correlated only by timestamp-second.
+        min_weight_fallback = True
 
     weight_log = max(lo, upper - _CAL_MARGIN)
     weight = 10.0**weight_log
@@ -1643,7 +1667,7 @@ def _calibrate_blend_weight(
     with _lp_tolerance_matching_mip(h), _timed_lp_call(h, "calibrate_blend_final"):
         h.run()
     bl_vals = np.asarray(h.getSolution().col_value)
-    return weight, float(primary_vec @ bl_vals)
+    return weight, float(primary_vec @ bl_vals), min_weight_fallback
 
 
 def _solve_with_options(
@@ -1653,7 +1677,7 @@ def _solve_with_options(
     problem: LPProblem,
     options: SolveOptions,
     binary_cols: list[int],
-) -> tuple[list[str], float | None]:
+) -> tuple[list[str], float | None, bool]:
     """Runs the real phased/blended/calibrated solve against an ALREADY
     fully-constructed HiGHS model (every variable/constraint already
     added by `_solve_highs()`) -- mutates `h`'s own live state so the
@@ -1664,7 +1688,8 @@ def _solve_with_options(
     -- see this module's own top-of-file comment for the full
     architecture and the deliberate scope cuts versus that source.
 
-    Returns `(extra_row_names, objective_override)`. `extra_row_names`
+    Returns `(extra_row_names, objective_override,
+    calibration_min_weight_fallback)`. `extra_row_names`
     is the names of any EXTRA constraint rows this function added to
     `h` beyond the caller's own -- unlike HAEO (which has no equivalent
     concern), `_solve_highs()` builds a `row_names` list that must stay
@@ -1779,7 +1804,7 @@ def _solve_with_options(
                 n_binary=len(binary_cols),
             ):
                 h.run()
-        return [], None
+        return [], None, False
 
     # LexOptions and CalibratedOptions both start with the same phase 1
     # + phase 2: minimize primary alone, then minimize secondary with
@@ -1891,14 +1916,14 @@ def _solve_with_options(
             _ensure_optimal_value(
                 h, phase="phase3_lex_restore", problem=problem, binary_cols=binary_cols
             )
-        return extra_row_names, None
+        return extra_row_names, None, False
 
     # CalibratedOptions: h's own live basis already sits at the phase-2
     # (true lex) optimum -- read it off directly rather than re-solving,
     # then search for a safe blend weight and do one final blended solve.
     lex_values = np.asarray(h.getSolution().col_value)
     lex_primary_cost = float(primary_vec @ lex_values)
-    _, true_primary_cost = _calibrate_blend_weight(
+    _, true_primary_cost, min_weight_fallback = _calibrate_blend_weight(
         h,
         col_indices,
         primary_vec,
@@ -1912,7 +1937,7 @@ def _solve_with_options(
     # docstring). `true_primary_cost` is the actual solution's real
     # primary-only cost; `_solve_highs()` substitutes it for
     # `h.getObjectiveValue()` rather than reporting the blended figure.
-    return extra_row_names, true_primary_cost
+    return extra_row_names, true_primary_cost, min_weight_fallback
 
 
 def _solve_highs(
@@ -2005,6 +2030,13 @@ def _solve_highs(
 
     extra_row_names: list[str] = []
     objective_override: float | None = None
+    # nimbus issue #1179: False unless the CalibratedOptions path below
+    # actually takes the minimum-weight fallback. Initialised here, with
+    # the other pre-branch defaults, so every LPResult return below can
+    # carry it regardless of which solve path ran (options=None and the
+    # #773 ValueError fallback both leave it False, which is correct --
+    # neither calibrates).
+    calibration_min_weight_fallback = False
     if options is None:
         # Dense-style cost expression (every variable, defaulting missing
         # entries to 0.0) -- matches the old from-scratch solver's own
@@ -2093,7 +2125,11 @@ def _solve_highs(
             # covers a phase that raises -- which is the case most worth
             # seeing the rest of the sequence for.
             with _phase_breakdown():
-                extra_row_names, objective_override = _solve_with_options(
+                (
+                    extra_row_names,
+                    objective_override,
+                    calibration_min_weight_fallback,
+                ) = _solve_with_options(
                     h, var_array, col_indices, problem, options, binary_cols
                 )
         except ValueError:
@@ -2137,12 +2173,14 @@ def _solve_highs(
     if status == highspy.HighsModelStatus.kInfeasible:
         return LPResult(
             status="infeasible",
+            calibration_min_weight_fallback=calibration_min_weight_fallback,
             iterations=iterations,
             ranging_valid=_ranging_valid_on_non_optimal,
         )
     if status == highspy.HighsModelStatus.kUnbounded:
         return LPResult(
             status="unbounded",
+            calibration_min_weight_fallback=calibration_min_weight_fallback,
             iterations=iterations,
             ranging_valid=_ranging_valid_on_non_optimal,
         )
@@ -2159,6 +2197,7 @@ def _solve_highs(
         # raw_status so a caller/log line can name the real cause.
         return LPResult(
             status="error",
+            calibration_min_weight_fallback=calibration_min_weight_fallback,
             iterations=iterations,
             raw_status=h.modelStatusToString(status),
             ranging_valid=_ranging_valid_on_non_optimal,
@@ -2307,6 +2346,11 @@ def _solve_highs(
         x=x,
         objective=objective,
         iterations=iterations,
+        # nimbus issue #1179: carried on a SUCCESSFUL solve too, so the
+        # question "do the failures take the fallback more often than the
+        # successes?" is answerable from a base rate rather than from
+        # failures alone.
+        calibration_min_weight_fallback=calibration_min_weight_fallback,
         ranging_valid=ranging_valid,
         col_bound_up=col_bound_up,
         col_bound_dn=col_bound_dn,

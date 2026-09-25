@@ -810,6 +810,14 @@ class Plan:
     # genuine "infeasible"/"unbounded" outcomes, which already have their
     # own unambiguous meaning and don't need a raw string to explain them.
     raw_status: str | None = None
+    # nimbus issue #1179: whether THIS solve's calibration fell back to the
+    # minimum blend weight (1e-12) -- mirrored straight off LPResult's own
+    # field of the same name, same posture as raw_status above. Diagnostic
+    # only; nothing branches on it. See LPResult for why it exists: the
+    # 2026-09-20 episode left 44 blend warnings and 153 solve failures
+    # joinable only by timestamp-second, which is what stopped the
+    # blend-collapse hypothesis being either confirmed or dismissed.
+    calibration_min_weight_fallback: bool = False
     # nimbus issue #390: how much of grid_import_kw above came from the
     # penalized excess-import slack, i.e. real draw the configured
     # `import_limit_kw` couldn't cover on its own. Zero at every period on
@@ -1249,6 +1257,7 @@ def _infeasible_plan(
     status: str,
     iterations: int,
     raw_status: str | None = None,
+    calibration_min_weight_fallback: bool = False,
 ) -> Plan:
     """A well-formed but empty Plan for a non-optimal solve -- every array
     present (zero-filled), never omitted, so a caller can always safely
@@ -1266,6 +1275,7 @@ def _infeasible_plan(
     # fields too. A fresh zeros(n) per field removes the aliasing.
     return Plan(
         status=status,
+        calibration_min_weight_fallback=calibration_min_weight_fallback,
         periods=periods,
         battery_charge_kw=np.zeros(n),
         battery_discharge_kw=np.zeros(n),
@@ -3734,7 +3744,16 @@ def _build_plan_once(
     )
     if result.status != "optimal":
         return _infeasible_plan(
-            periods, result.status, result.iterations, raw_status=result.raw_status
+            periods,
+            result.status,
+            result.iterations,
+            raw_status=result.raw_status,
+            # nimbus issue #1179: the whole point -- a FAILING cycle now
+            # carries whether it took the minimum-weight fallback, so the
+            # failure warning can say so itself instead of leaving it to be
+            # inferred from a separate warning that happens to share a
+            # second.
+            calibration_min_weight_fallback=result.calibration_min_weight_fallback,
         )
 
     def _get(names: list[str]) -> NDArray[np.float64]:
@@ -4267,6 +4286,11 @@ def _build_plan_once(
         export_bonus_arr = np.zeros(n)
     return Plan(
         status="optimal",
+        # nimbus issue #1179: carried on success as well as failure, so the
+        # fallback's base rate among HEALTHY cycles is measurable. Without
+        # that, "the failures took the fallback" is unfalsifiable -- if
+        # every cycle takes it, it explains nothing.
+        calibration_min_weight_fallback=result.calibration_min_weight_fallback,
         periods=periods,
         battery_charge_kw=battery_charge_kw_total,
         battery_discharge_kw=battery_discharge_kw_total,
