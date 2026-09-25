@@ -15,6 +15,7 @@ never directly on the event loop.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import math
@@ -473,6 +474,45 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     @property
+    def _retrain_minute(self) -> int:
+        """Which minute of `_retrain_hour` THIS subentry retrains at
+        (nimbus issue #1217).
+
+        **The defect this spreads.** Every subentry scheduled at
+        `minute=0, second=0`, so all of them fired at the same instant
+        and trained back to back on one executor pool. Measured on the
+        reference household, 2026-09-25: five models retrained between
+        06:00:45 and 06:01:23 on 3,360-4,205 points each, and **21 of
+        that day's 21 "previous cycle still in progress" skips fell in
+        hour 06 -- zero in the other 23.**
+
+        That burst is not only its own noise. A recorder read waits
+        `future.result(timeout=30)` and degrades to `[]` on failure,
+        logging at DEBUG; inside this window the quality rescore's SoC
+        read timed out at **exactly 30.121 s** (started 06:00:03.517,
+        first contention warning 06:00:33.638) and the day was scored
+        against a hardcoded 50% opening state of charge -- #1214, which
+        published EPR 21.11% for a day that scores 68.86%.
+
+        **Deterministic, not random.** Derived from the subentry id via
+        a stable digest, so a given subentry lands on the same minute
+        across restarts and across processes. `hash()` would not do:
+        Python randomises string hashing per process, so the schedule
+        would move on every restart and a household could never predict
+        when its own signal retrains.
+
+        **Spread over the hour, not beyond it.** The configured retrain
+        hour stays the retrain hour -- this only decides where inside it
+        a given subentry lands, so an install with one subentry is
+        unchanged in spirit and an install with twenty-five stops
+        stacking them on one second.
+        """
+        digest = hashlib.sha256(
+            str(self.subentry.subentry_id).encode("utf-8")
+        ).hexdigest()
+        return int(digest[:8], 16) % 60
+
+    @property
     def _train_days(self) -> int:
         return self.entry.options.get(CONF_TRAIN_DAYS, DEFAULT_TRAIN_DAYS)
 
@@ -506,7 +546,10 @@ class NimbusCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self.hass,
             self._handle_retrain_trigger,
             hour=self._retrain_hour,
-            minute=0,
+            # nimbus issue #1217: spread the fleet across the hour rather
+            # than stacking every subentry on the same second. See
+            # `_retrain_minute` for the measurement behind this.
+            minute=self._retrain_minute,
             second=0,
         )
         # nimbus issue #344 (Mark Purcell): a safety net for the ONE real
