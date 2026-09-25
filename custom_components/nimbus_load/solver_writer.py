@@ -9199,7 +9199,11 @@ def _nimbus_version() -> str | None:
 
 
 def _carry_forward_quality_history(
-    prior_attrs: dict, day_key: str, day_entry: dict
+    prior_attrs: dict,
+    day_key: str,
+    day_entry: dict,
+    *,
+    freshly_computed: bool = True,
 ) -> dict[str, dict[str, float | str]]:
     """The scored-day table, with today's entry added and the oldest
     trimmed (nimbus issue #994).
@@ -9249,6 +9253,10 @@ def _carry_forward_quality_history(
         for key, value in prior.items():
             if isinstance(key, str) and isinstance(value, dict):
                 history[key] = value
+    # nimbus issue #1219: keep the row as it was BEFORE rebuilding it, so
+    # a re-push can carry its original stamp forward rather than claiming
+    # the running release produced it.
+    prior_row = dict(history.get(day_key) or {})
     history[day_key] = {
         field: day_entry[field]
         for field in _QUALITY_HISTORY_FIELDS
@@ -9260,9 +9268,41 @@ def _carry_forward_quality_history(
     # written by the standalone writer, and ones written before this
     # change, which correctly stay unstamped rather than being back-dated
     # to a version that did not score them).
-    version = _nimbus_version()
-    if version is not None:
-        history[day_key][_QUALITY_HISTORY_VERSION_FIELD] = version
+    # nimbus issue #1219: stamp the release that COMPUTED these figures,
+    # which is not always the release doing the pushing.
+    #
+    # **The defect.** `publish_daily_quality_report()`'s idempotency fast
+    # path re-pushes the already-published attributes to keep the
+    # freshness stamp alive (#289/#292) and seeds the table while it is
+    # there (#994) -- passing the published attributes back in as
+    # `day_entry`. Nothing is recomputed on that path, but this stamp
+    # fired anyway, so an upgrade-then-restart silently re-labelled the
+    # published day with the new release.
+    #
+    # Measured on the reference household, 2026-09-25: the 2026-09-24 row
+    # moved `v: 0.94.413` -> `v: 0.94.417` across a restart while
+    # `generated_at` stayed `06:00:00` and every figure was byte-identical
+    # (`epr 21.11`, `j_ach -3.0503`, `j_star -20.9741`). The row asserted
+    # that v0.94.417 produced numbers v0.94.413 produced.
+    #
+    # That inverts the field's whole purpose. #1120 added it so a table
+    # mixing scoring formulas says so -- a row carrying the buggy
+    # release's output must not be able to present as the fixed
+    # release's. A stamp that advances on restart rather than on scoring
+    # is worse than no stamp, because it is trusted: the obvious reading
+    # of a version change on a row is "it rescored", and here it had not.
+    #
+    # So the seed path preserves whatever the row already carried,
+    # including carrying nothing -- an unstamped pre-#1120 row stays
+    # unstamped, which is exactly what that issue wanted.
+    if freshly_computed:
+        version = _nimbus_version()
+        if version is not None:
+            history[day_key][_QUALITY_HISTORY_VERSION_FIELD] = version
+    elif _QUALITY_HISTORY_VERSION_FIELD in prior_row:
+        history[day_key][_QUALITY_HISTORY_VERSION_FIELD] = prior_row[
+            _QUALITY_HISTORY_VERSION_FIELD
+        ]
     # nimbus issue #1162 ask 2: and the verdict that qualifies those five
     # numbers, so a card can caveat any row rather than only the latest.
     code = _epr_reliability_code(day_entry)
@@ -9464,6 +9504,35 @@ def rescore_quality_history(
             # because that is the truthful claim -- this rescore was
             # produced by THIS release.
             attrs["nimbus_version"] = _nimbus_version()
+            # nimbus issue #1220: and the timestamp, for exactly the same
+            # reason stated directly above -- `generated_at` is another
+            # field the recomputed report never carries, so `update()`
+            # cannot supply it either, and it was left describing the
+            # publish these figures just replaced.
+            #
+            # Measured on the reference household, 2026-09-25: a rescore
+            # moved `epr` 21.11 -> 68.85, `j_ach` -3.0503 -> -14.6231 and
+            # `achieved_soc_max_pct` 125.4833 -> 92.1833 while
+            # `generated_at` stayed at `2026-09-25T06:00:00+10:00`.
+            #
+            # This is not only cosmetic: `_keep_published_quality_score()`
+            # (#1082) decides whether a provisional day is re-scored by
+            # computing `age = now - parse_iso(generated_at)`, so a stale
+            # value drives the retry cadence from a superseded
+            # computation. It also misleads at the worst moment -- a
+            # rescore is run precisely when someone is questioning a
+            # figure, and `generated_at` is the field they check to see
+            # whether it actually recomputed.
+            #
+            # Fifth instance of one class (#1149 energy_decomposition,
+            # #1164 reliability fields, v0.94.402's version stamp, #1167's
+            # hourly payload, this). #1167 shipped a guard that discovers
+            # the REPORT's fields rather than listing them -- which
+            # structurally cannot catch this one, because `generated_at`
+            # is not a field of the report. It is added by the publisher.
+            # The enumeration problem was solved for the report's fields
+            # and left unsolved for the publisher's own.
+            attrs["generated_at"] = now.isoformat()
         ha_post_state(QUALITY_ENTITY_ID, state, attrs)
         _LOGGER.info(
             "Nimbus quality (#1120): rescored %d day(s) %s, skipped %d",
@@ -9823,7 +9892,14 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
                 # same dict object as `existing["attributes"]`, so seeding it
                 # here is what the verbatim re-push below then publishes.
                 existing["attributes"]["history"] = _carry_forward_quality_history(
-                    existing_attrs, yesterday_key, existing_attrs
+                    existing_attrs,
+                    yesterday_key,
+                    existing_attrs,
+                    # nimbus issue #1219: this path recomputes nothing --
+                    # `day_entry` here IS the previously published
+                    # attributes -- so it must not restamp the row with
+                    # the running release.
+                    freshly_computed=False,
                 )
                 _LOGGER.debug(
                     "Nimbus quality: fast-path hit, already scored %s -- re-"
