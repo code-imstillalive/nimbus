@@ -7874,6 +7874,45 @@ def _compute_report_for_window(
         else grid_residual
     )
     settlement_sensor = cfg.get("solver_p2p_settlement_history_sensor")
+    # nimbus issue #1236: a real P2P commitment with nothing to reconcile
+    # it against is a misconfiguration, and it used to be completely
+    # silent.
+    #
+    # `no_sensor_configured` is PERMANENT -- it is deliberately excluded
+    # from `_PROVISIONAL_SETTLEMENT_STATUSES`, so #1201's repair sweep
+    # will never revisit such a day, and correctly so: there is nothing to
+    # wait for. But the day is then priced with zero P2P export credit and
+    # `real_p2p_dollars: 0.0`, which is indistinguishable from a household
+    # that genuinely earns no P2P -- no error, no flag, an ordinary-looking
+    # number, on every day, forever. Measured on the reference household,
+    # the gap is not small: 24 Sep read 41.6% scored P2P-blind against
+    # 68.85% with real settlement applied, and 21-23 Sep read 51.9/38.5/
+    # 36.4% against 89.8/87.7/87.2%.
+    #
+    # Gated on `fixed_export_kw is not None`, which is exactly "at least
+    # one P2P block has rate_kw > 0" (see fetch_p2p_fixed_export_kw()'s
+    # own docstring -- it returns None when every block is unconfigured).
+    # So an install with no P2P scheme at all stays completely silent,
+    # which matters: an unconditional warning here would fire on every
+    # scored day of every install that does not use the feature, and a
+    # warning that is always present is a warning nobody reads.
+    #
+    # The sibling status already got this reasoning -- see the comment on
+    # `window_is_not_one_local_calendar_day` a few lines above, which ends
+    # "The gate itself is right ... but being silent about it is not."
+    # This is that same argument applied to the case it skipped.
+    if not settlement_sensor and fixed_export_kw is not None:
+        _LOGGER.warning(
+            "Nimbus: this install commits real P2P export (a P2P block is "
+            "configured with rate_kw > 0) but no P2P settlement history "
+            "sensor is set, so %s is being scored with ZERO P2P export "
+            "credit and will never be re-scored -- "
+            "real_p2p_settlement_status 'no_sensor_configured' is "
+            "permanent, not provisional. Set Configure -> Solver settings "
+            "-> P2P settlement history sensor to score the real settled "
+            "revenue (nimbus issue #1236)",
+            day_start.date().isoformat(),
+        )
     # Real settlement history is keyed by ISO date, so it is only
     # meaningful when the window exactly matches one real calendar day
     # in the local timezone. Cross-midnight windows and partial-day
