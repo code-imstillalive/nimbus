@@ -8,6 +8,8 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.418] - 2026-09-25
+
 ### Fixed
 - **A day whose battery SoC history could not be read is no longer scored as though the pack were at half charge** ([#1214](https://github.com/code-imstillalive/nimbus/issues/1214)).
 
@@ -46,6 +48,9 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 - Devhub validation: **not claimed.** This is a service-schema and call-shape change whose entire effect is how many MILPs one click buys — visible in a solve count, not in any published entity or log line a restart would surface. It is pinned by tests instead, including a control that `days` still means a window.
 - Consumer check: **a household clicking the button on an older row waits seconds instead of minutes**, and stops risking the solver starvation the automatic path was explicitly designed to avoid. Nothing about the button changes visually.
+
+- Devhub validation: **the two installs that disagreed ARE the validation for the SoC half**, and the button half is not devhub-observable. This defect was found by production and a second install publishing 21.11% and 68.86% for the same day from the same mirrored sensors -- stronger evidence than a restart check, and not something a deploy can reproduce, since it requires a recorder read to lose a race with executor contention. The rescore-button change is a service-schema and call-shape change whose whole effect is how many MILPs one click buys, which shows up in a solve count rather than in any entity or log line. Both are pinned by tests, including controls that the healthy paths are unchanged.
+- Consumer check: **two things a household stops losing.** A day whose SoC history cannot be read is now left alone and retried, instead of republishing an EPR tens of points low because a recorder read lost a race with the morning retrain -- on the reference install that was 21.11% published for a day that scores 68.86%. And clicking Re-score on an older row now waits seconds rather than minutes, without risking the solver starvation the automatic path was designed to avoid.
 
 ## [0.94.417] - 2026-09-25
 
