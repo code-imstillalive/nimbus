@@ -8083,6 +8083,10 @@ def _compute_report_for_window(
         report.j_ach_hourly,
         max_threshold_pct=soc_discrepancy_max_threshold_pct,
         mean_threshold_pct=soc_discrepancy_mean_threshold_pct,
+        # nimbus issue #1228: the like-for-like achieved side. Absent on a
+        # report built before that field existed, which falls back to the
+        # hourly mean and says so via soc_discrepancy_basis.
+        ach_soc_pct_at_hour=getattr(report, "j_ach_soc_pct_at_hour", None) or None,
     )
     # nimbus issue #956: the oracle is a bound by construction, so
     # regret < 0 is not a result -- it is proof the comparison was
@@ -8788,6 +8792,7 @@ def _soc_discrepancy_stats(
     j_ach_hourly: dict[str, dict[str, float]],
     max_threshold_pct: float = 15.0,
     mean_threshold_pct: float = 8.0,
+    ach_soc_pct_at_hour: dict[str, float] | None = None,
 ) -> dict[str, float | bool | str | list[dict[str, float | bool | str]] | None]:
     """nimbus issue #427 (Mark Purcell): the achieved trajectory's own
     SoC is *integrated* from real battery-power history through the
@@ -8824,6 +8829,34 @@ def _soc_discrepancy_stats(
     _hourly_means_by_key() docstring), so every comparison point is
     genuinely the same real hour on every side, not a separate
     resampling with its own chance to disagree on alignment.
+
+    nimbus issue #1228: sharing a timestamp was NOT enough, and the
+    paragraph above -- correct about alignment -- was read for a long time
+    as though it settled comparability too. It does not. The real side is
+    a POINT SAMPLE at `HH:00:00` (`resample_history_nearest()`), while
+    `j_ach_hourly['soc_pct']` is that hour's MEAN
+    (`_hourly_means_by_key()`). Differencing a mean against an instant
+    injects roughly half the hour's ramp rate as pure artifact, largest
+    exactly where SoC moves fastest -- measured on the reference
+    household's 24 Sep: a published `max 21.17 / mean 9.88` whose max
+    landed on hour 12, the steepest charge ramp of the day, against a
+    like-for-like `max 11.82 / mean 6.46` that passes both thresholds.
+    That single artifact was the sole cause of `epr_reliable: False` on an
+    install whose sensors were in fact fine.
+
+    `ach_soc_pct_at_hour` (`report.j_ach_soc_pct_at_hour`) supplies the
+    achieved SoC AT each boundary instant, making the comparison
+    like-for-like. Fixed on the achieved side rather than by averaging the
+    real side because point-sampling is what `resample_history_mean()`'s
+    own docstring already commits to for SoC -- a STATE, sampled and
+    held, not a flow to be averaged -- and because it leaves the real side
+    untouched.
+
+    Falls back to the hourly mean when that mapping is absent or has no
+    entry for an hour (an older persisted report, or a window shape that
+    produced no period for that hour), and reports WHICH basis it used in
+    `soc_discrepancy_basis` rather than silently reverting to the
+    behaviour this issue is about.
 
     Returns None for both stats when `battery_socs` is empty or every
     battery's own capacity is non-positive (no SoC sensor configured
@@ -8895,6 +8928,7 @@ def _soc_discrepancy_stats(
             "soc_discrepancy_reliable": None,
             "soc_discrepancy_reason": None,
             "soc_discrepancy_hourly": None,
+            "soc_discrepancy_basis": None,
         }
     gaps: list[float] = []
     any_out_of_range = False
@@ -8910,8 +8944,24 @@ def _soc_discrepancy_stats(
     # real numbers hour by hour instead of independently re-deriving them
     # and hoping the two resampling methods happen to agree.
     hourly_rows: list[dict[str, float | bool | str]] = []
+    used_boundary = 0
+    used_mean = 0
     for key_str, row in j_ach_hourly.items():
-        ach_pct = row.get("soc_pct")
+        # nimbus issue #1228: the boundary sample is the like-for-like
+        # counterpart to `real_pct` below; the hourly mean is a fallback
+        # that keeps an older persisted report working, counted so the
+        # published basis can say which one actually got used.
+        ach_pct = (
+            ach_soc_pct_at_hour.get(key_str)
+            if ach_soc_pct_at_hour is not None
+            else None
+        )
+        if ach_pct is None:
+            ach_pct = row.get("soc_pct")
+            if ach_pct is not None:
+                used_mean += 1
+        else:
+            used_boundary += 1
         if ach_pct is None:
             continue
         hour_dt = datetime.fromisoformat(key_str)
@@ -8973,9 +9023,19 @@ def _soc_discrepancy_stats(
             "soc_discrepancy_reliable": None,
             "soc_discrepancy_reason": None,
             "soc_discrepancy_hourly": None,
+            "soc_discrepancy_basis": None,
         }
     max_gap = max(gaps)
     mean_gap = sum(gaps) / len(gaps)
+    # nimbus issue #1228: name the basis rather than leave a consumer to
+    # infer it from the magnitude. "hourly_mean" anywhere means some hour
+    # was still compared the pre-fix way.
+    if used_boundary and not used_mean:
+        basis = "hour_boundary"
+    elif used_mean and not used_boundary:
+        basis = "hourly_mean"
+    else:
+        basis = "mixed"
     if any_out_of_range:
         reliable = False
         reason: str | None = "out_of_range"
@@ -8991,6 +9051,7 @@ def _soc_discrepancy_stats(
         "soc_discrepancy_reliable": reliable,
         "soc_discrepancy_reason": reason,
         "soc_discrepancy_hourly": hourly_rows,
+        "soc_discrepancy_basis": basis,
     }
 
 
