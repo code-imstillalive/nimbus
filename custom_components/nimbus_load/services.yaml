@@ -30,3 +30,8 @@ rescore_history:
           min: 1
           max: 30
           mode: box
+    date:
+      required: false
+      example: "2026-09-24"
+      selector:
+        text:

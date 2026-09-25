@@ -32,6 +32,20 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 - Devhub validation: **not claimed, and the reason is that the second install in the table above already is the evidence.** This defect was found by two installs disagreeing about the same day, which is a stronger signal than a restart check — and the failure mode requires a recorder read to time out under executor contention, which cannot be triggered on demand. What a deploy can show is absence of regression on the healthy path, which the three controls already pin. The condition this guards against is, by construction, intermittent.
 - Consumer check: **a household stops seeing a wrong score, and starts seeing nothing for that cycle instead.** On a day where the SoC read fails, the report is left untouched and retried rather than republished against an invented battery — so the EPR on screen no longer silently drops tens of points because a recorder read lost a race with the morning retrain. If it fails three cycles running, the log now says so, names the sensor and the day, and explains what it would have assumed.
+- **The Regret card's "Re-score with settlement" button now costs one oracle MILP, not up to thirty** ([#1208](https://github.com/code-imstillalive/nimbus/issues/1208), found by Mark Purcell in IV&V).
+
+  v0.94.416's CHANGELOG claimed `only_dates` meant *"repairing one row costs one MILP instead of thirty."* **That was true of the function and false of the button.** `nimbus_load.rescore_history` had no per-date parameter, so the card's only way to reach a flagged row N days old was `days: N` — which re-scores every day in between. A row ten days old cost **ten** synchronous oracle solves; at the button's own clamp, **thirty**.
+
+  Not a correctness bug — the intervening days re-score to the same values — but it is precisely the [#773](https://github.com/code-imstillalive/nimbus/issues/773)/[#757](https://github.com/code-imstillalive/nimbus/issues/757) executor-starvation shape the *automatic* sweep was deliberately gated against at one repair per cycle, re-entering through the manual button as a burst. And it hit hardest in the exact case the button exists for: a household who has not looked at the card for several days.
+
+  Implemented as the shape #1208 itself proposed: an optional `date` on `SERVICE_RESCORE_HISTORY_SCHEMA`, mapped by `_async_handle_rescore_history()` to `rescore_quality_history(cfg, now, back, only_dates={date})` with `back` derived **server-side**, so a client cannot ask for a window and a date that disagree. The card now sends `date: dateKey`, and its own `_daysBack()` is deleted rather than left as dead code.
+
+  `days` keeps its documented contract when no date is given — a bulk re-score of the last N days is a real, separate use, and narrowing it would have been a silent breaking change. That is pinned by its own control test.
+
+  The `xfail(strict=True)` Mark's pin shipped with is removed, because a strict xfail that starts passing fails the suite — which is exactly the signal it was placed there to give. His test now reproduces what the service actually does with a date, and additionally asserts the single solve is the **flagged day itself** rather than whichever day a look-back happened to reach first.
+
+- Devhub validation: **not claimed.** This is a service-schema and call-shape change whose entire effect is how many MILPs one click buys — visible in a solve count, not in any published entity or log line a restart would surface. It is pinned by tests instead, including a control that `days` still means a window.
+- Consumer check: **a household clicking the button on an older row waits seconds instead of minutes**, and stops risking the solver starvation the automatic path was explicitly designed to avoid. Nothing about the button changes visually.
 
 ## [0.94.417] - 2026-09-25
 

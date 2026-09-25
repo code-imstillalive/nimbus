@@ -24,7 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 import voluptuous as vol
@@ -176,6 +176,27 @@ SERVICE_RESCORE_HISTORY_SCHEMA = vol.Schema(
         vol.Optional("days", default=1): vol.All(
             vol.Coerce(int), vol.Range(min=1, max=30)
         ),
+        # nimbus issue #1208 (Mark Purcell, IV&V), implemented as the
+        # shape he proposed: one ISO date, mapped to
+        # rescore_quality_history(..., only_dates={date}) with the
+        # look-back computed server-side.
+        #
+        # **Why this had to exist.** The Regret card's "Re-score with
+        # settlement" button repairs ONE flagged day, and without a
+        # per-date parameter its only way to reach a day N back was
+        # `days=N` -- which scores every day in between. A row 10 days
+        # old cost 10 oracle MILPs in one synchronous call, 30 at the
+        # button's own clamp. That is the #773/#757 executor-starvation
+        # shape the automatic sweep is explicitly gated against (one
+        # repair per cycle), re-entering through the manual button as a
+        # burst. Not a correctness bug -- the extra days rescore to the
+        # same values -- but exactly the wasted compute the feature was
+        # designed to avoid.
+        #
+        # Deliberately a single date rather than a list: the one caller
+        # that needs it repairs one row, and a list invites precisely
+        # the multi-MILP click this exists to stop.
+        vol.Optional("date"): vol.All(str, vol.Length(min=10, max=10)),
     }
 )
 
@@ -498,10 +519,37 @@ async def _async_handle_rescore_history(hass: HomeAssistant, call: ServiceCall) 
     from . import solver_writer
 
     days: int = call.data.get("days", 1)
+    # nimbus issue #1208: one named date costs one oracle MILP, however
+    # many days back it is. `back` is derived here rather than taken from
+    # the caller so the client cannot ask for a window and a date that
+    # disagree -- the date IS the request, and `days` is ignored when one
+    # is given.
+    date_str: str | None = call.data.get("date")
+    only_dates: set[str] | None = None
+    if date_str is not None:
+        try:
+            target = date.fromisoformat(date_str)
+        except ValueError as e:
+            raise ServiceValidationError(
+                f"nimbus_load.rescore_history: date {date_str!r} is not an ISO "
+                f"date (YYYY-MM-DD)"
+            ) from e
+        back = (dt_util.now().date() - target).days
+        if not 1 <= back <= 30:
+            raise ServiceValidationError(
+                f"nimbus_load.rescore_history: date {date_str!r} is {back} day(s) "
+                f"back; only a complete past day within the last 30 can be "
+                f"re-scored (a day still in progress has no full-day score yet, "
+                f"and 30 is the service's own MILP ceiling)"
+            )
+        days = back
+        only_dates = {date_str}
 
     def _blocking() -> dict:
         cfg = solver_writer.fetch_solver_config()
-        return solver_writer.rescore_quality_history(cfg, dt_util.now(), days)
+        return solver_writer.rescore_quality_history(
+            cfg, dt_util.now(), days, only_dates=only_dates
+        )
 
     try:
         return await hass.async_add_executor_job(_blocking)
@@ -512,7 +560,9 @@ async def _async_handle_rescore_history(hass: HomeAssistant, call: ServiceCall) 
         raise ServiceValidationError(f"nimbus_load.rescore_history: {e}") from e
     except Exception as e:
         raise HomeAssistantError(
-            f"nimbus_load.rescore_history: rescoring the last {days} day(s) failed: {e}"
+            "nimbus_load.rescore_history: rescoring "
+            + (f"{date_str}" if date_str else f"the last {days} day(s)")
+            + f" failed: {e}"
         ) from e
 
 
