@@ -142,8 +142,18 @@ def main() -> int:
         "soc_discrepancy_max": round(max(disc), 1) if disc else None, "soc_discrepancy_mean": round(sum(disc) / len(disc), 1) if disc else None,
         "real_close": rows[-1][3], "scored_close": rows[-1][4], "oracle_close": rows[-1][5],
     }
-    top = sorted(((v, h) for h, v in reg.items()), reverse=True)
-    kpis["regret_top_hours"] = [(int(h), round(v, 2)) for v, h in top[:5]]
+    # Found 2026-09-25, same area as the #1081-adjacent UTC/local fix above (2026-09-24):
+    # `reg` (hourly_regret) is UTC-keyed (see this file's own docstring, "Key labels"), so
+    # sorting `reg.items()` directly and reporting `int(h)` displays the *UTC* hour of day
+    # while every other hour-labeled figure in this script (`rows[*][0]`) is local. Brisbane
+    # is UTC+10 with no DST, so the mislabeling is a full 10-hour shift, not a rounding
+    # error -- a genuinely different hour of the day. Confirmed against a real day's data:
+    # the raw dict reported "19, 17, 20" as the top regret hours (which read as a plausible
+    # evening-price-peak story) while the true local hours, read off `rows`, are 05:00,
+    # 03:00, 06:00 -- overnight, not the evening peak. Fixed by deriving top hours from
+    # `rows` (already correctly local-labeled) instead of `reg` directly.
+    top = sorted(((r[6], r[0]) for r in rows), reverse=True)
+    kpis["regret_top_hours"] = [(h, round(v, 2)) for v, h in top[:5]]
     kpis["regret_top4_sum"] = round(sum(v for v, _ in top[:4]), 2)
     cross = None
     if args.cqr and os.path.exists(args.cqr):
