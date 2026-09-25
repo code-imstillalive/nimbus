@@ -89,6 +89,7 @@ from ..const import (
     CONF_SOLVER_MAX_DISCHARGE_LIVE_ENTITY,
     CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR,
     CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR,
+    CONF_SOLVER_PRICE_EVENT_SENSOR,
     CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR,
     CONF_SOLVER_PRICE_SPIKE_ALERT_ENTITY,
     CONF_SOLVER_REGIONAL_SPOT_CURRENT_PRICE_SENSOR,
@@ -388,6 +389,21 @@ def _solver_grid_schema(defaults: dict[str, Any]) -> vol.Schema:
                 CONF_SOLVER_EXPORT_PRICE_SENSOR_3,
                 description={
                     "suggested_value": defaults.get(CONF_SOLVER_EXPORT_PRICE_SENSOR_3)
+                },
+            ): _entity(),
+            # nimbus issue #1213 (Mark Purcell): an optional additive
+            # price-event test sensor -- a household-built step-point
+            # forecast used to simulate a NEM Market Price Cap or a
+            # negative-price floor against the real live forecast. Blank
+            # (the default) is a clean no-op, and even a configured sensor
+            # does nothing until switch.nimbus_solver_price_event_enabled is
+            # armed. description={"suggested_value": ...} rather than
+            # default= so it can genuinely be cleared, same convention as
+            # every optional source above.
+            vol.Optional(
+                CONF_SOLVER_PRICE_EVENT_SENSOR,
+                description={
+                    "suggested_value": defaults.get(CONF_SOLVER_PRICE_EVENT_SENSOR)
                 },
             ): _entity(),
             # nimbus issue #493 (Signals 4/7 of #489, item 1): an optional
@@ -1050,6 +1066,10 @@ _SOLVER_WIZARD_SCHEMA_KEYS = (
     CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR,
     CONF_SOLVER_WEATHER_FORECAST_SENSOR,
     CONF_SOLVER_PRICE_SPIKE_ALERT_ENTITY,
+    # nimbus issue #1213: carried through the wizard's own merge like
+    # every other optional source, so configuring it in one step is not
+    # undone by a later step's save.
+    CONF_SOLVER_PRICE_EVENT_SENSOR,
 )
 
 
