@@ -8,6 +8,28 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Fixed
+- **The two fields that say *when* and *by what* a scored day was produced no longer go stale on a republish** ([#1219](https://github.com/code-imstillalive/nimbus/issues/1219), [#1220](https://github.com/code-imstillalive/nimbus/issues/1220)).
+
+  **#1219 — a row's version stamp advanced without a rescore.** `publish_daily_quality_report()`'s idempotency fast path re-pushes the already-published attributes to keep the freshness stamp alive (#289/#292) and seeds the history table while it is there (#994), passing those attributes back in as `day_entry`. Nothing is recomputed on that path, but the stamp fired anyway.
+
+  Measured on the reference household, 2026-09-25: the 2026-09-24 row moved `v: 0.94.413` → `v: 0.94.417` across a restart while `generated_at` stayed `06:00:00` and every figure was byte-identical (`epr 21.11`, `j_ach -3.0503`, `j_star -20.9741`). **The row asserted that v0.94.417 produced numbers v0.94.413 produced.**
+
+  That inverts the field's purpose. [#1120](https://github.com/code-imstillalive/nimbus/issues/1120) added it so a table mixing scoring formulas says so — a row carrying a buggy release's output must not present as the fixed release's. A stamp that advances on *restart* rather than on *scoring* is worse than no stamp, because it is trusted: the obvious reading of a version change on a row is "it rescored", and here it had not. The seed path now preserves whatever the row already carried, **including carrying nothing** — an unstamped pre-#1120 row stays unstamped, which is what that issue wanted.
+
+  **#1220 — a rescore republished under a stale timestamp.** `rescore_quality_history()` merges the fresh report with `attrs.update(latest_entry)`, but `generated_at` is not a field of the report, so `update()` could not supply it. The same rescore that moved `epr` 21.11 → 68.85, `j_ach` −3.0503 → −14.6231 and `achieved_soc_max_pct` 125.4833 → 92.1833 left `generated_at` at `2026-09-25T06:00:00+10:00`.
+
+  Not merely cosmetic: `_keep_published_quality_score()` ([#1082](https://github.com/code-imstillalive/nimbus/issues/1082)) decides whether a provisional day is re-scored from `age = now - parse_iso(generated_at)`, so a stale value drove the retry cadence off a superseded computation. And it misleads at the worst moment — a rescore is run precisely when someone is questioning a figure, and `generated_at` is the field they check to see whether it actually recomputed.
+
+  **Why one guard missed both, which is the reusable part.** [#1167](https://github.com/code-imstillalive/nimbus/issues/1167) shipped a sweep that drives a rescore and asserts every field of the recomputed report reaches the published attributes — *discovering* the report's fields rather than listing them, precisely so a field added later is covered without anyone remembering. It **cannot** catch these two, by construction: neither `generated_at` nor the version stamp is a field of the report. The publisher adds them.
+
+  So the enumeration problem was solved for the report's own fields and left unsolved for the publisher's — and the publisher's are exactly the metadata that has to be right when a figure is being doubted. These are the fifth and sixth instances of one class (#1149 `energy_decomposition`, #1164 the reliability fields, v0.94.402's version stamp, #1167's hourly payload, then these two).
+
+  Eight tests, split so the controls are real: **three pin the new behaviour and fail with the change reverted**, and **five are controls that pass in both states** — a fresh computation still stamps the running release, prior rows are still never touched, the rescored figures really did change, the version stamp still moves on a genuine rescore (v0.94.402's fix surviving this one), and a guard asserting neither field is part of the report, which fails loudly if that ever stops being true.
+
+- Devhub validation: **not claimed, and the reason is structural.** Both defects need a *republish without a recomputation* (#1219) or a *rescore of an already-published day* (#1220) to be observable, and the evidence for each is a before/after pair across a restart on a real install — which is how they were found. A devhub restart can show the absence of a regression on the healthy path, which the five controls already pin, but it cannot demonstrate a stamp *failing* to advance without staging the exact sequence by hand.
+- Consumer check: **nothing changes on screen, and that is the point.** What changes is that the two fields a household or a reviewer consults to ask *"did this actually recompute, and with what?"* now answer truthfully. On the reference install the 2026-09-24 row had been re-labelled with a release that never scored it, and the rescore that finally corrected that day published its new figures under the old timestamp.
+
 ## [0.94.418] - 2026-09-25
 
 ### Fixed
