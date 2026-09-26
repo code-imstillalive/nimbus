@@ -14805,6 +14805,7 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
             CONF_BATTERY_PARTICIPANT_DEGRADATION_COST_PER_KWH,
             CONF_BATTERY_PARTICIPANT_DEPARTURE_HOUR,
             CONF_BATTERY_PARTICIPANT_EFFICIENCY_PERCENT,
+            CONF_BATTERY_PARTICIPANT_KWH_PER_100KM,
             CONF_BATTERY_PARTICIPANT_MAX_CHARGE_KW,
             CONF_BATTERY_PARTICIPANT_MAX_DISCHARGE_KW,
             CONF_BATTERY_PARTICIPANT_MAX_SOC_PERCENT,
@@ -14815,6 +14816,8 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
             CONF_BATTERY_PARTICIPANT_SHARED_CHARGER_GROUP,
             CONF_BATTERY_PARTICIPANT_SHARED_CHARGER_MAX_KW,
             CONF_BATTERY_PARTICIPANT_SOC_SENSOR,
+            CONF_BATTERY_PARTICIPANT_TRIP_CALENDAR_ENTITY,
+            DEFAULT_PARTICIPANT_KWH_PER_100KM,
             DOMAIN,
             SUBENTRY_TYPE_BATTERY_PARTICIPANT,
         )
@@ -14826,6 +14829,7 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
             CONF_BATTERY_PARTICIPANT_DEGRADATION_COST_PER_KWH,
             CONF_BATTERY_PARTICIPANT_DEPARTURE_HOUR,
             CONF_BATTERY_PARTICIPANT_EFFICIENCY_PERCENT,
+            CONF_BATTERY_PARTICIPANT_KWH_PER_100KM,
             CONF_BATTERY_PARTICIPANT_MAX_CHARGE_KW,
             CONF_BATTERY_PARTICIPANT_MAX_DISCHARGE_KW,
             CONF_BATTERY_PARTICIPANT_MAX_SOC_PERCENT,
@@ -14836,6 +14840,8 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
             CONF_BATTERY_PARTICIPANT_SHARED_CHARGER_GROUP,
             CONF_BATTERY_PARTICIPANT_SHARED_CHARGER_MAX_KW,
             CONF_BATTERY_PARTICIPANT_SOC_SENSOR,
+            CONF_BATTERY_PARTICIPANT_TRIP_CALENDAR_ENTITY,
+            DEFAULT_PARTICIPANT_KWH_PER_100KM,
             DOMAIN,
             SUBENTRY_TYPE_BATTERY_PARTICIPANT,
         )
@@ -15122,6 +15128,62 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
                 # No matching period in THIS horizon -- a real, expected
                 # no-op (short manual solve, or the hour already passed
                 # today with no later occurrence in range), not an error.
+        # nimbus issue #467 item 4: a CALENDAR-driven departure OVERRIDES the
+        # fixed hour/percent pair resolved above, when it actually resolves a
+        # trip in this horizon.
+        #
+        # Precedence rather than replacement, and the order matters. The fixed
+        # pair answers "this car leaves at 07:00 and should hold 60%"; a calendar
+        # answers when it ACTUALLY leaves and how far it is going, and sizes the
+        # requirement from real distance. When the calendar has something to say
+        # it is strictly the better information, so it wins. When it does not --
+        # an empty calendar, a trip beyond this horizon, an event with no
+        # distance in its text, an unavailable calendar entity -- the fixed pair
+        # stands, unchanged, which is what keeps a household that configured
+        # only the fixed pair completely unaffected.
+        #
+        # Deliberately AFTER the pair above rather than instead of it: the
+        # partial-config warning that block emits is still the right thing to say
+        # about a half-configured fixed pair, independent of any calendar.
+        trip_calendar = data.get(CONF_BATTERY_PARTICIPANT_TRIP_CALENDAR_ENTITY)
+        if trip_calendar and periods is not None and periods.period_starts:
+            from .solver_inputs.calendar_trips import resolve_trip_deadline
+
+            period_starts = list(periods.period_starts)
+            # The horizon's real end: the last period's start plus its own real
+            # duration, not a flat assumption -- this solver's grid is tiered and
+            # the final period is an hour wide while the first is minutes.
+            horizon_end = period_starts[-1] + timedelta(
+                hours=float(periods.hours[-1]) if len(periods.hours) else 0.0
+            )
+            trips = fetch_calendar_trips(
+                str(trip_calendar), period_starts[0], horizon_end
+            )
+            # The odometer is NOT read here, and the field is configurable but
+            # deliberately unused for now. An odometer reports TOTAL lifetime
+            # distance, not distance travelled into the current trip, and
+            # converting one to the other needs a reading taken at the moment of
+            # departure -- which nothing stores yet. Reading it and subtracting
+            # anything would be arithmetic on two different quantities.
+            #
+            # Not reading it means the FULL trip distance is always required,
+            # which errs towards a fuller pack rather than a stranded car. The
+            # resolution layer already accepts `already_driven_km_by_start` and
+            # is tested for it, so the honest gap is a stored departure reading,
+            # not the mechanism.
+            resolved = resolve_trip_deadline(
+                trips,
+                period_starts,
+                kwh_per_100km=float(
+                    data.get(CONF_BATTERY_PARTICIPANT_KWH_PER_100KM)
+                    or DEFAULT_PARTICIPANT_KWH_PER_100KM
+                ),
+                horizon_end=horizon_end,
+                min_soc_kwh=min_soc_kwh,
+                max_soc_kwh=max_soc_kwh,
+            )
+            if resolved is not None:
+                must_have_soc_by_period_index, must_have_soc_kwh = resolved
         # nimbus issue #563 item 3: passed straight through to
         # BatteryConfig -- the actual LP constraint lives in network.py.
         shared_charger_group = (
