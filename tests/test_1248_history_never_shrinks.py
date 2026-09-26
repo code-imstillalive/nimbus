@@ -123,15 +123,29 @@ def _carry(prior_history, day_key: str, epr: float, *, read="ok"):
 
 
 class _IsolatedCache(unittest.TestCase):
-    """The fix is module-level state, so every test starts from a cold process.
+    """Every test starts from a cold, NATIVE process.
 
-    Without this, test order decides outcomes -- which would make the
-    first-publish tests below pass or fail depending on what ran before them.
+    Two things are being set up, and the second is the more interesting:
+
+    1. The cache is reset, so test order cannot decide outcomes.
+    2. A native `hass` is injected, because the recovery cache is deliberately
+       native-only (`_quality_history_cache_active()`). A test that does not
+       opt in gets no cache at all -- which is the point: CI caught this state
+       leaking into an unrelated test that merely mocked an unreachable read,
+       and gating on the native seam removes the channel by construction
+       rather than by remembering to reset a global somewhere.
+
+    A sentinel object is enough. Nothing in the carry-forward path calls
+    through to `hass`; the seam is only being asked "is this the long-lived
+    in-process deployment".
     """
 
     def setUp(self):
         solver_writer._LAST_KNOWN_QUALITY_HISTORY = {}
+        self._prior_hass = solver_writer._NATIVE_HASS
+        solver_writer._NATIVE_HASS = object()
         self.addCleanup(setattr, solver_writer, "_LAST_KNOWN_QUALITY_HISTORY", {})
+        self.addCleanup(setattr, solver_writer, "_NATIVE_HASS", self._prior_hass)
 
 
 class TestTheProductionShapeIsRecovered(_IsolatedCache):
@@ -209,6 +223,68 @@ class TestTheProductionShapeIsRecovered(_IsolatedCache):
         _carry(self.prior, "2026-09-25", 68.9)
         with self.assertNoLogs(solver_writer._LOGGER, level="WARNING"):
             _carry(self.prior, "2026-09-26", 55.0)
+
+
+class TestTheCacheIsNativeOnly(_IsolatedCache):
+    """Not a convenience -- the cron deployment cannot use this cache at all.
+
+    Those writers run once per cron invocation and exit, so a process-lifetime
+    cache is empty on every run and could never rescue anything. Gating on the
+    native seam therefore costs nothing real, and removes a cross-contamination
+    channel by construction: CI found an unrelated test inheriting days this
+    cache held, because that test mocked an unreachable read and unreachable is
+    correctly classified as degraded.
+    """
+
+    def test_without_a_native_hass_there_is_no_recovery(self):
+        solver_writer._LAST_KNOWN_QUALITY_HISTORY = {
+            f"2026-09-{d:02d}": _row(90.0 + d) for d in range(16, 26)
+        }
+        solver_writer._NATIVE_HASS = None
+        out = _carry(None, "2026-09-26", 55.0, read="unavailable")
+        self.assertEqual(
+            len(out), 1, "the cron path must not recover from a cache it can never fill"
+        )
+
+    def test_without_a_native_hass_nothing_is_written_to_the_cache_either(self):
+        """Symmetric on purpose. A cron run that populated a cache nothing will
+        ever read is pure overhead, and a half-gated cache is how the leak
+        would come back."""
+        solver_writer._NATIVE_HASS = None
+        _carry({"2026-09-24": _row(87.3)}, "2026-09-25", 68.9)
+        self.assertEqual(solver_writer._LAST_KNOWN_QUALITY_HISTORY, {})
+
+    def test_re_pointing_the_native_seam_clears_the_cache(self):
+        """A new `hass` is a different instance, so cached rows describe a
+        report that is no longer the one being published -- carrying them across
+        a reconfigure or reload would inject another instance's rows, the exact
+        opposite of what this cache exists for.
+
+        It is also the last cross-contamination channel inside one long-lived
+        process. CI failed on a suite-wide ordering effect that could not be
+        reproduced by running the affected files directly, and rather than keep
+        hunting the polluter, a cache that resets whenever the seam is
+        re-pointed cannot carry state between unrelated publishes however the
+        tests are ordered.
+        """
+        _carry({"2026-09-24": _row(87.3)}, "2026-09-25", 68.9)
+        self.assertEqual(len(solver_writer._LAST_KNOWN_QUALITY_HISTORY), 2)
+        solver_writer.set_native_hass(object())
+        self.assertEqual(
+            solver_writer._LAST_KNOWN_QUALITY_HISTORY,
+            {},
+            "re-pointing the seam must not leave another instance's rows behind",
+        )
+
+    def test_with_a_native_hass_the_recovery_works(self):
+        """Control: the gate must not have disabled the fix outright."""
+        _carry(
+            {f"2026-09-{d:02d}": _row(90.0 + d) for d in range(16, 26)},
+            "2026-09-25",
+            68.9,
+        )
+        out = _carry(None, "2026-09-26", 55.0, read="unavailable")
+        self.assertEqual(len(out), 11)
 
 
 class TestAFirstPublishIsStillPossible(_IsolatedCache):

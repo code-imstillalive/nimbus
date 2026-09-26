@@ -2125,8 +2125,20 @@ def set_native_hass(hass) -> None:
     whatever it already resolved to at module import time rather than
     blocking native setup over a timezone lookup.
     """
-    global _NATIVE_HASS, LOCAL_TZ
+    global _NATIVE_HASS, LOCAL_TZ, _LAST_KNOWN_QUALITY_HISTORY
     _NATIVE_HASS = hass
+    # nimbus issue #1248: a new `hass` is a different instance, so whatever
+    # #1248's recovery cache holds describes a report that is no longer the one
+    # being published. Carrying it across would let a reconfigure or a reload
+    # inject another instance's rows -- the opposite of what the cache is for,
+    # which is recovering THIS report's own rows.
+    #
+    # It also closes the cache's last cross-contamination channel inside a
+    # single long-lived process: CI failed on a suite-wide ordering effect that
+    # could not be reproduced by running the affected files directly, and a
+    # cache that resets whenever the seam is re-pointed cannot carry state
+    # between unrelated publishes however the tests are ordered.
+    _LAST_KNOWN_QUALITY_HISTORY = {}
     if "NIMBUS_SOLVER_TIMEZONE" not in os.environ:
         # Real CI failure caught the first time this shipped: several
         # existing tests call set_native_hass() with a deliberately
@@ -9304,7 +9316,34 @@ _QUALITY_HISTORY_MAX_DAYS = 60
 # repopulates the attribute, so starting empty on a fresh process is correct
 # rather than lossy. A durable Store would add a second system of record for
 # no gain against the failure actually observed.
+#
+# NATIVE-ONLY, and not as a convenience -- see `_quality_history_cache_active()`
+# directly below for why the standalone/cron deployment cannot use this at all.
 _LAST_KNOWN_QUALITY_HISTORY: dict[str, dict[str, float | str]] = {}
+
+
+def _quality_history_cache_active() -> bool:
+    """Whether #1248's recovery cache is in play at all.
+
+    **The cron deployment cannot use it, and that is not a limitation to work
+    around.** Those writers run once per cron invocation and exit, so a
+    process-lifetime cache is empty on every single run and could never rescue
+    anything. The native integration is the only long-lived process -- and the
+    only place the measured incident could happen, which it did: 10 rows to 1
+    with no restart, same process throughout.
+
+    Gating on the native seam therefore costs production nothing and the cron
+    path nothing it ever had. It also removes a real cross-contamination
+    channel by construction: a caller that has not injected a `hass` gets no
+    cache, so state cannot leak between unrelated publishes. CI found that the
+    hard way -- `test_quality_report_achieved_energy_and_reliability.py` mocks
+    an unreachable read, which is correctly classified as degraded, and in a
+    single pytest process it was inheriting days another test had published.
+    A conftest fixture resetting the global would have hidden that; this
+    removes the channel.
+    """
+    return _NATIVE_HASS is not None
+
 
 # nimbus issue #1248: how the currently-published quality report read back.
 # An explicit status rather than a boolean "degraded", because the call site
@@ -9600,8 +9639,10 @@ def _carry_forward_quality_history(
     # statuses recover, so a genuine first publish (404) never consults this
     # cache -- which is what keeps the behaviour independent of whatever this
     # process happened to publish earlier.
-    if prior_read in _PRIOR_READ_DEGRADED and (
-        not isinstance(prior, dict) or not prior
+    if (
+        prior_read in _PRIOR_READ_DEGRADED
+        and _quality_history_cache_active()
+        and (not isinstance(prior, dict) or not prior)
     ):
         if _LAST_KNOWN_QUALITY_HISTORY:
             prior = dict(_LAST_KNOWN_QUALITY_HISTORY)
@@ -9726,9 +9767,11 @@ def _carry_forward_quality_history(
         for stale in sorted(history)[: len(history) - _QUALITY_HISTORY_MAX_DAYS]:
             del history[stale]
     # nimbus issue #1248: remember what is about to be published, so a
-    # later degraded read can be recognised as degraded rather than
-    # mistaken for a first-ever publish.
-    _LAST_KNOWN_QUALITY_HISTORY = dict(history)
+    # later degraded read can be recovered from rather than truncated.
+    # Native-only for the reason `_quality_history_cache_active()` documents --
+    # a cron invocation exits before anything could read this back.
+    if _quality_history_cache_active():
+        _LAST_KNOWN_QUALITY_HISTORY = dict(history)
     return history
 
 
