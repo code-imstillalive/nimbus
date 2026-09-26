@@ -9290,6 +9290,22 @@ _QUALITY_HISTORY_MAX_DAYS = 60
 # `history[dateKey]` entry -- deliberately NOT the whole day_entry, which
 # carries three 24-row hourly reconstructions and would blow the cap
 # within a week.
+# nimbus issue #1248: the last quality history this process successfully read
+# or published, used ONLY to survive a degraded read.
+#
+# The attribute is the system of record. This is a safety net for the one
+# failure that cannot be recovered from the attribute itself: a read that comes
+# back with no `history` at all while the sensor is `unavailable`. Measured on
+# production 2026-09-26 -- 10 rows to 1, no restart, inside a #1217 window
+# where every flattened quality child read `unavailable` for ~2 minutes.
+#
+# Process-lifetime on purpose. The measured incident had no restart, so this
+# closes it exactly; and across a real restart HA's own state restoration
+# repopulates the attribute, so starting empty on a fresh process is correct
+# rather than lossy. A durable Store would add a second system of record for
+# no gain against the failure actually observed.
+_LAST_KNOWN_QUALITY_HISTORY: dict[str, dict[str, float | str]] = {}
+
 _QUALITY_HISTORY_FIELDS = (
     "epr",
     "j_ref",
@@ -9553,7 +9569,34 @@ def _carry_forward_quality_history(
     by the standalone writer -- this only ever adds one key and drops the
     oldest beyond the cap.
     """
+    # nimbus issue #1248: declared up here because Python requires the
+    # declaration to precede the first READ of the name, and the degraded-read
+    # check below reads it.
+    global _LAST_KNOWN_QUALITY_HISTORY
+
     prior = prior_attrs.get("history")
+    # nimbus issue #1248: a read that came back with no `history` is
+    # AMBIGUOUS -- it is either a genuine first-ever publish or a degraded
+    # read, and at this layer those are indistinguishable. The caller's own
+    # comment treats them as the same thing ("a first-ever publish, or an
+    # unreachable read"), which is what made the loss permanent.
+    #
+    # If this process has previously seen a real table, the ambiguity is
+    # resolved: it cannot be a first-ever publish. Fall back to what was last
+    # known rather than publishing a one-row table that the next cycle would
+    # then inherit.
+    if not isinstance(prior, dict) or not prior:
+        if _LAST_KNOWN_QUALITY_HISTORY:
+            _LOGGER.warning(
+                "Nimbus #1248: the quality report read back with no history at "
+                "all, but this process has already published %d row(s) -- so "
+                "this is a degraded read, not a first-ever publish. Recovering "
+                "the last known table instead of writing a one-row history that "
+                "the next cycle would inherit. This is the signature of a "
+                "recorder/executor stall (see #1217's 06:00 window).",
+                len(_LAST_KNOWN_QUALITY_HISTORY),
+            )
+            prior = dict(_LAST_KNOWN_QUALITY_HISTORY)
     history: dict[str, dict[str, float | str]] = {}
     if isinstance(prior, dict):
         # Defensive about shape rather than trusting it: this dict may
@@ -9629,6 +9672,10 @@ def _carry_forward_quality_history(
         # most-recent-N without parsing anything.
         for stale in sorted(history)[: len(history) - _QUALITY_HISTORY_MAX_DAYS]:
             del history[stale]
+    # nimbus issue #1248: remember what is about to be published, so a
+    # later degraded read can be recognised as degraded rather than
+    # mistaken for a first-ever publish.
+    _LAST_KNOWN_QUALITY_HISTORY = dict(history)
     return history
 
 
@@ -10137,6 +10184,29 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
     # idempotency check below, and the `history` carry-forward at publish
     # time. Defaults to empty so a first-ever publish, or an unreachable
     # read, still produces a valid one-entry table rather than crashing.
+    #
+    # nimbus issue #1248: that default is also, on its own, a data-loss bug,
+    # and the sentence above says why without noticing -- "a first-ever
+    # publish, OR an unreachable read" are treated as the same thing, and
+    # they are not. An unreachable read is not an empty history; it is an
+    # UNKNOWN history. Publishing a one-row table for it is not graceful
+    # degradation, because `ha_post_state` replaces attributes wholesale and
+    # the next cycle then carries forward from the truncated result -- a
+    # one-way ratchet with nothing to restore from.
+    #
+    # Measured on production 2026-09-26: 10 rows to 1, no restart, the nine
+    # lost days (16-24 Sep) unrecoverable. It happened at 06:06 inside a live
+    # #1217 window where the recorder was returning 0 rows and every
+    # flattened quality child read `unavailable` for ~2 minutes.
+    #
+    # Deliberately NOT fixed by skipping the publish on a failed read: a
+    # genuine first-ever publish on a fresh install ALSO fails this read
+    # (404 on an entity that does not exist yet), so skipping would mean a
+    # new install could never write its first row. The two cases are
+    # indistinguishable HERE, which is why the fix lives one layer down in
+    # _carry_forward_quality_history(), where `_LAST_KNOWN_QUALITY_HISTORY`
+    # can tell them apart: a process that has already published rows cannot
+    # be making a first-ever publish.
     existing_attrs: dict = {}
     try:
         # resolve_real_entity_id() (2026-08-31): read back THIS entity's
@@ -10220,6 +10290,11 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
                 )
                 return
     except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError):
+        # nimbus issue #1248: falling through to a real recompute is still
+        # right -- strictly better than giving up -- but note that
+        # `existing_attrs` is now KNOWN-STALE rather than known-empty.
+        # _carry_forward_quality_history() is what tells those apart; see the
+        # note on `existing_attrs` above.
         pass  # never seen before, or transiently unreachable -- fall through and try to compute
     day_entry = compute_daily_quality_report(cfg, now)
     if day_entry is None:
