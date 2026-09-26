@@ -27,8 +27,6 @@ from datetime import datetime
 from pathlib import Path
 from unittest import mock
 
-import pytest
-
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ha_stubs import install_ha_stubs
 
@@ -54,12 +52,6 @@ def _now(day=25):
 
 
 class TestRescoreNeverPublishesAnExplicitNoneVersion(unittest.TestCase):
-    @pytest.mark.xfail(
-        reason="nimbus #1292: rescore_quality_history() was not migrated to "
-        "_version_stamp() and can publish an explicit nimbus_version: None, "
-        "which the #972 sensor-layer fallback never corrects",
-        strict=True,
-    )
     def test_a_none_running_version_is_not_published_as_a_literal_none(self):
         posted: list[tuple[str, object, dict]] = []
 

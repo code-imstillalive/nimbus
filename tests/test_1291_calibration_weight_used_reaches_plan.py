@@ -1,5 +1,5 @@
 """IV&V finding (4fd40c3..22205ad pass, 2026-09-26, head issue #1289, this
-finding #1291): `8704f2b` ("Part of issue 1179: carry the blend weight
+finding #1291, FIXED 2026-09-26): `8704f2b` ("Part of issue 1179: carry the blend weight
 actually used onto LPResult") added `calibration_weight_used` to `LPResult`
 and threaded it correctly through `solver/lp.py` -- but never carried it the
 rest of the way.
@@ -30,8 +30,6 @@ import sys
 import unittest
 from pathlib import Path
 
-import pytest
-
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ha_stubs import install_ha_stubs
 
@@ -42,11 +40,6 @@ from custom_components.nimbus_load.solver import network as network_mod
 
 
 class TestPlanCarriesTheField(unittest.TestCase):
-    @pytest.mark.xfail(
-        reason="nimbus #1291: calibration_weight_used was never added to Plan, "
-        "only to LPResult -- it dead-ends and never reaches the failure warning",
-        strict=True,
-    )
     def test_plan_dataclass_has_the_field(self):
         self.assertIn(
             "calibration_weight_used",
@@ -58,12 +51,6 @@ class TestPlanCarriesTheField(unittest.TestCase):
 
 
 class TestEveryPlanConstructionSiteCarriesIt(unittest.TestCase):
-    @pytest.mark.xfail(
-        reason="nimbus #1291: no Plan(...) construction copies "
-        "calibration_weight_used from LPResult, even where it copies the "
-        "sibling calibration_fallback_reason field",
-        strict=True,
-    )
     def test_no_Plan_construction_carries_the_reason_without_the_weight(self):
         """Mirrors test_1179_the_blend_weight_reaches_the_result.py's own
         TestEveryConstructionSiteCarriesIt, one hop further down the pipe:

@@ -30,8 +30,6 @@ from datetime import timedelta
 from pathlib import Path
 from unittest import mock
 
-import pytest
-
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ha_stubs import install_ha_stubs
 
@@ -62,11 +60,6 @@ def _all_day_event(start_date: str, end_date: str, summary: str = "") -> dict:
 
 
 class TestAllDayEventResolvesToLocalMidnight(unittest.TestCase):
-    @pytest.mark.xfail(
-        reason="nimbus #1290: all-day calendar events are read as UTC midnight, "
-        "not local midnight -- shifts by the household's own UTC offset",
-        strict=True,
-    )
     def test_an_all_day_event_starts_at_local_midnight_not_utc_midnight(self):
         trips, _ = _fetch(
             {
