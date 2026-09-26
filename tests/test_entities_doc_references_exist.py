@@ -185,9 +185,25 @@ def _documented_units() -> dict[str, str | None]:
     }
 
 
+# nimbus issue #1253: the currency rows hold SENTINELS, not units --
+# `_FlattenedAttributeSensor.native_unit_of_measurement` resolves them
+# against `hass.config.currency` at read time, so there is no single true
+# string to document. `docs/entities.md` says "currency"/"currency/kWh" for
+# exactly those rows, and this mapping is what keeps the assertion below a
+# real check rather than a softened one: every non-currency unit is still
+# compared literally, and a currency row that stopped being currency-driven
+# (or a doc row that went back to claiming AUD) still fails.
+_DOC_TOKEN_FOR_SENTINEL = {
+    sf._CURRENCY: "currency",
+    sf._CURRENCY_PER_KWH: "currency/kWh",
+}
+
+
 def _real_units() -> dict[str, str | None]:
     return {
-        f"sensor.{prefix}_{spec.entity_id_suffix}": spec.unit_of_measurement
+        f"sensor.{prefix}_{spec.entity_id_suffix}": _DOC_TOKEN_FOR_SENTINEL.get(
+            spec.unit_of_measurement, spec.unit_of_measurement
+        )
         for tuple_name, prefix in _family_prefixes().items()
         for spec in getattr(sf, tuple_name)
     }

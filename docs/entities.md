@@ -12,14 +12,14 @@ Publishes the Efficiency Performance Ratio (EPR) and the cost decomposition behi
 | --- | --- | --- |
 | `sensor.nimbus_solver_quality_report` | % | Legacy parent. Full attribute dict; state equals `nimbus_quality_epr`. |
 | `sensor.nimbus_quality_epr` | % | Efficiency Performance Ratio, the headline. Positive = capturing value vs baseline. |
-| `sensor.nimbus_quality_j_ref` | AUD | Reference 24h cost: what "do nothing" would have cost. |
-| `sensor.nimbus_quality_j_ach` | AUD | Achieved 24h cost: what Nimbus's plan actually cost. |
-| `sensor.nimbus_quality_j_star` | AUD | Oracle 24h cost: what a perfect-foresight plan would have cost. |
-| `sensor.nimbus_quality_value_captured` | AUD | `J_ref - J_ach`. Positive = Nimbus beats do-nothing. |
-| `sensor.nimbus_quality_theoretical_maximum_yield` | AUD | `J_ref - J_star`. Total spread between do-nothing and oracle. |
-| `sensor.nimbus_quality_regret_dollars` | AUD | `J_ach - J_star`. Canonical name for regret. |
+| `sensor.nimbus_quality_j_ref` | currency | Reference 24h cost: what "do nothing" would have cost. |
+| `sensor.nimbus_quality_j_ach` | currency | Achieved 24h cost: what Nimbus's plan actually cost. |
+| `sensor.nimbus_quality_j_star` | currency | Oracle 24h cost: what a perfect-foresight plan would have cost. |
+| `sensor.nimbus_quality_value_captured` | currency | `J_ref - J_ach`. Positive = Nimbus beats do-nothing. |
+| `sensor.nimbus_quality_theoretical_maximum_yield` | currency | `J_ref - J_star`. Total spread between do-nothing and oracle. |
+| `sensor.nimbus_quality_regret_dollars` | currency | `J_ach - J_star`. Canonical name for regret. |
 | `sensor.nimbus_quality_tracking_fidelity` | (dimensionless 0..1) | Plan-vs-actual tracking ratio. 1.0 = perfect. |
-| `sensor.nimbus_quality_tracking_cost` | AUD | Cost added by deviation between planned and actual dispatch. |
+| `sensor.nimbus_quality_tracking_cost` | currency | Cost added by deviation between planned and actual dispatch. |
 | `sensor.nimbus_quality_achieved_energy_in_kwh` | kWh | Energy charged over the scored window. **Home battery only** — see the scope note below. |
 | `sensor.nimbus_quality_achieved_energy_out_kwh` | kWh | Energy discharged over the scored window. **Home battery only** — see the scope note below. |
 | `sensor.nimbus_quality_fleet_achieved_energy_in_kwh` | kWh | Energy charged across the **whole fleet** (home battery + every `battery_participant`). |
@@ -158,8 +158,8 @@ Publishes the results of the offline reference-benchmark harness (`tests/run_ref
 | --- | --- | --- |
 | `sensor.nimbus_efficiency_backtest` | (ratio) | Legacy parent. Headline efficiency vs reference. |
 | `sensor.nimbus_backtest_configured_efficiency_percent` | % | Configured round-trip efficiency used in the backtest. |
-| `sensor.nimbus_backtest_best_candidate_cost` | AUD | Lowest 24h cost across candidate parameter sweeps. |
-| `sensor.nimbus_backtest_worst_candidate_cost` | AUD | Highest 24h cost across candidate parameter sweeps. |
+| `sensor.nimbus_backtest_best_candidate_cost` | currency | Lowest 24h cost across candidate parameter sweeps. |
+| `sensor.nimbus_backtest_worst_candidate_cost` | currency | Highest 24h cost across candidate parameter sweeps. |
 
 Negative cost = net export revenue.
 
@@ -191,8 +191,8 @@ Live signals are gated behind `switch.nimbus_solver_flex_signals_enabled` (off b
 | `sensor.nimbus_flex_grid_import_headroom_kwh` | kWh | Same, as energy over the period. |
 | `sensor.nimbus_flex_grid_export_headroom_kw` | kW | How much more export the current period could absorb at the same marginal price. |
 | `sensor.nimbus_flex_grid_export_headroom_kwh` | kWh | Same, as energy over the period. |
-| `sensor.nimbus_flex_forced_import_cost` | AUD/kWh | Reduced cost of forcing one more kWh of import right now. |
-| `sensor.nimbus_flex_forced_export_cost` | AUD/kWh | Reduced cost of forcing one more kWh of export right now. |
+| `sensor.nimbus_flex_forced_import_cost` | currency/kWh | Reduced cost of forcing one more kWh of import right now. |
+| `sensor.nimbus_flex_forced_export_cost` | currency/kWh | Reduced cost of forcing one more kWh of export right now. |
 | `sensor.nimbus_flex_load_headroom_up_kwh` | kWh | Switchboard-level headroom to absorb more load at the same λ(t), from `power_balance_t` row ranging. |
 | `sensor.nimbus_flex_load_headroom_down_kwh` | kWh | Switchboard-level headroom to shed load at the same λ(t). |
 
