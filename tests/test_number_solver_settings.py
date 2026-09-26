@@ -31,6 +31,8 @@ from homeassistant.helpers.storage import Store
 
 from custom_components.nimbus_load.const import DOMAIN
 from custom_components.nimbus_load.number import (
+    _CURRENCY_PER_DAY,
+    _CURRENCY_PER_KWH,
     _DESCRIPTIONS,
     NimbusSolverNumber,
     _SharedNumberStore,
@@ -44,7 +46,18 @@ def _fresh_shared_store(key: str = "test") -> _SharedNumberStore:
 # Units with no real matching NumberDeviceClass (verified 2026-08-22 against
 # HA core's own current DEVICE_CLASS_UNITS table) -- device_class must be
 # None on every field carrying one of these.
-_NO_DEVICE_CLASS_UNITS = {"$/kWh", "%", "hour", None}
+# nimbus issue #1293: the two money units are SENTINELS now, resolved against
+# hass.config.currency at read time. Spelled as the sentinels rather than the
+# old literals deliberately -- with the literals left here this set would match
+# nothing, and the guard below would pass by checking zero fields instead of
+# failing. A guard that cannot fail reads as coverage while providing none.
+_NO_DEVICE_CLASS_UNITS = {
+    _CURRENCY_PER_KWH,
+    _CURRENCY_PER_DAY,
+    "%",
+    "hour",
+    None,
+}
 
 
 def test_no_duplicate_keys():
@@ -128,7 +141,18 @@ def test_entity_attribute_wiring():
     assert entity._attr_native_min_value == desc.min_value
     assert entity._attr_native_max_value == desc.max_value
     assert entity._attr_native_step == desc.step
-    assert entity._attr_native_unit_of_measurement == desc.unit
+    # nimbus issue #1293: the unit is a PROPERTY now, not a stored attribute.
+    # `_CurrencyUnitMixin` resolves a currency sentinel against
+    # `hass.config.currency` at read time, and __init__ deliberately no longer
+    # assigns `_attr_native_unit_of_measurement` so there is exactly one answer
+    # -- otherwise a raw sentinel could be published by an __init__ that ran
+    # before `hass` was attached. Asserted through the property because that is
+    # the value Home Assistant actually reads.
+    #
+    # With no `hass` on the entity the property returns the declared value
+    # unchanged (sentinel included), which is what makes this comparison
+    # against `desc.unit` still the right one for a wiring test.
+    assert entity.native_unit_of_measurement == desc.unit
     assert entity._attr_device_class == desc.device_class
     assert entity._attr_native_value == desc.default
     assert (DOMAIN, entry.entry_id) in entity._attr_device_info["identifiers"]
@@ -222,7 +246,10 @@ def test_entity_wiring_carries_through_for_a_field_with_no_device_class():
     )
 
     assert entity._attr_device_class is None
-    assert entity._attr_native_unit_of_measurement == "%"
+    # Property, not the stored attribute -- see the note in
+    # test_entity_attribute_wiring above (nimbus issue #1293). "%" is not a
+    # currency sentinel, so the property returns it verbatim.
+    assert entity.native_unit_of_measurement == "%"
 
 
 def test_every_solver_number_is_entity_category_config():
