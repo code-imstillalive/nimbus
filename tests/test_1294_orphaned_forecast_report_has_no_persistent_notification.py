@@ -1,5 +1,5 @@
 """IV&V finding (4fd40c3..22205ad pass, 2026-09-26, head issue #1289, this
-finding #1294): `_async_report_orphaned_forecast_entities()` (`__init__.py`,
+finding #1294, FIXED 2026-09-26): `_async_report_orphaned_forecast_entities()` (`__init__.py`,
 nimbus #1270) reports a candidate orphan with a bare `_LOGGER.warning(...)`
 and nothing else.
 
@@ -36,8 +36,6 @@ import sys
 import unittest
 from dataclasses import dataclass, field
 from pathlib import Path
-
-import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ha_stubs import install_ha_stubs
@@ -114,14 +112,6 @@ ORPHAN = FakeRegistryEntry(
 
 
 class TestAConfirmedOrphanRaisesAPersistentNotification(unittest.TestCase):
-    @pytest.mark.xfail(
-        reason="nimbus #1294: _async_report_orphaned_forecast_entities() only "
-        "ever logs a WARNING -- unlike solver_writer.py's own "
-        "_notify_load_forecast_error_once() and solver_runtime.py's missing-"
-        "dependency notifier, no persistent_notification is fired, so a real "
-        "orphan is invisible in the default HA UI",
-        strict=True,
-    )
     def test_an_orphan_fires_a_persistent_notification(self):
         calls = _run([LIVE, ORPHAN], subentry_ids=["sub_live"])
         notification_calls = [

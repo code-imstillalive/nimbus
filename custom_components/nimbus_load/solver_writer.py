@@ -2845,7 +2845,21 @@ def publish_offer_curve(plan) -> None:
             "price_limits": {
                 "market_floor_price": network._OFFER_CURVE_DOMAIN_MIN,
                 "market_price_cap": network._OFFER_CURVE_DOMAIN_MAX,
-                "unit": "$/kWh",
+                # nimbus issue #1293: found by the codebase-wide grep that
+                # #1253's "zero hardcoded currency strings" claim should have
+                # run, and fixed the OPPOSITE way to every other site.
+                #
+                # These two numbers are AEMO's own Market Floor Price and
+                # Market Price Cap -- Australian market constants, not this
+                # household's money. Resolving them against
+                # `hass.config.currency` would relabel a genuinely-AUD figure
+                # as EUR on a European install, which is a false statement
+                # about the value rather than a localisation. So it is pinned
+                # to an explicit ISO code instead: honest, unambiguous, and
+                # deliberately NOT household-dependent. The bare symbol it
+                # replaced was ambiguous across a dozen currencies, which is
+                # the same objection #1253 raised everywhere else.
+                "unit": "AUD/kWh",
                 "source": "AEMO Market Floor Price / Market Price Cap "
                 "(nimbus issue #705, confirmed by Mark Purcell)",
             },
@@ -10250,7 +10264,18 @@ def rescore_quality_history(
             # when the publish did not. Set from the running code,
             # because that is the truthful claim -- this rescore was
             # produced by THIS release.
-            attrs["nimbus_version"] = _nimbus_version()
+            #
+            # nimbus issue #1292 (Mark Purcell, IV&V #1289): via
+            # `_version_stamp()`, not `_nimbus_version()` directly. #1256
+            # built that helper precisely because `_nimbus_version()` can
+            # return None (a missing or malformed manifest.json), and an
+            # explicit `"nimbus_version": None` is strictly worse than an
+            # absent key -- the entity layer's own #972 fallback declines to
+            # overwrite a key that is already PRESENT, so a published None
+            # permanently suppresses the fallback that would have supplied
+            # the real running version. This call site was simply missed by
+            # that migration.
+            attrs.update(_version_stamp())
             # nimbus issue #1220: and the timestamp, for exactly the same
             # reason stated directly above -- `generated_at` is another
             # field the recomputed report never carries, so `update()`
@@ -12461,9 +12486,22 @@ def publish_plan(
         # "the warning is logged on a subset of the cycles that take it".
         # `probe_not_optimal` would explain the other 109 directly -- they
         # failed at a phase that never reaches calibration at all.
+        # nimbus issue #1291 (Mark Purcell, IV&V #1289): report the weight
+        # the calibrator actually settled on, not just whether it fell back.
+        # #1179 put that number on LPResult for exactly this line and it
+        # never arrived, so this warning has been describing the outcome
+        # while withholding the one value that distinguishes "collapsed to
+        # the floor" from "settled somewhere sane" -- which is the difference
+        # between a candidate cause and a healthy cycle.
+        weight_note = (
+            f"weight={plan.calibration_weight_used:.3g}"
+            if plan.calibration_weight_used is not None
+            else "weight=unrecorded"
+        )
         if plan.calibration_min_weight_fallback:
-            calibration_note = "FELL BACK to the minimum weight 1e-12, reason=%s" % (
-                plan.calibration_fallback_reason or "unrecorded"
+            reason = plan.calibration_fallback_reason or "unrecorded"
+            calibration_note = (
+                f"FELL BACK to the minimum weight 1e-12, reason={reason}, {weight_note}"
             )
             if plan.calibration_fallback_reason == "probe_not_optimal":
                 calibration_note += (
@@ -12477,7 +12515,13 @@ def publish_plan(
                     "calibration verdict and is a candidate CAUSE here)"
                 )
         else:
-            calibration_note = "found a usable weight (no minimum-weight fallback)"
+            # The success branch says the number too. "found a usable weight"
+            # without saying WHICH weight reopens the same inference gap one
+            # sentence later, and the healthy-cycle distribution is what
+            # makes the failing-cycle value interpretable at all.
+            calibration_note = (
+                f"found a usable weight (no minimum-weight fallback), {weight_note}"
+            )
         _LOGGER.warning(
             "Nimbus: solve did not complete after %.1fs -- HiGHS solver "
             "failure (%s), not a genuinely infeasible model; keeping the "
@@ -14745,6 +14789,27 @@ def build_controllable_loads(
     return sheddable_loads, adequacy_loads, thermal_loads
 
 
+def _is_date_only(value: str) -> bool:
+    """Is this calendar timestamp an all-day (iCalendar VALUE=DATE) string?
+
+    nimbus issue #1290. `calendar.get_events` returns a bare `"2026-09-27"`
+    for an all-day entry and a full `"2026-09-27T08:00:00"` (or an
+    offset-bearing string) for a timed one. Both naive shapes parse to a
+    naive datetime, so **the parsed value cannot tell them apart** -- the
+    distinction survives only in the raw string, which is why this takes a
+    str and not a datetime.
+
+    Deliberately strict: exactly `YYYY-MM-DD`, nothing else. A looser test
+    (e.g. "no 'T' in it") would catch a space-separated `"2026-09-27 08:00"`
+    and anchor a real 08:00 departure to midnight, which is a worse error
+    than the one being fixed.
+    """
+    text = value.strip()
+    if len(text) != 10 or text[4] != "-" or text[7] != "-":
+        return False
+    return text[:4].isdigit() and text[5:7].isdigit() and text[8:].isdigit()
+
+
 def fetch_calendar_trips(
     entity_id: str,
     start: datetime,
@@ -14802,16 +14867,40 @@ def fetch_calendar_trips(
             continue
         # nimbus issue #363: `_safe_fromisoformat()` can return a NAIVE
         # datetime, and a calendar provider genuinely can emit an
-        # offset-less string (an all-day event especially). Every consumer
-        # downstream compares these against tz-aware `grid_times`, and that
-        # comparison raises TypeError deep inside the resolution rather than
-        # anywhere near here -- the exact shape #363 documents for solar
-        # sources. Normalised to UTC on the same "assume UTC for a genuinely
-        # naive value" rule that function's sibling already applies.
+        # offset-less string. Every consumer downstream compares these
+        # against tz-aware `grid_times`, and that comparison raises
+        # TypeError deep inside the resolution rather than anywhere near
+        # here -- the exact shape #363 documents for solar sources. So a
+        # naive value must be given a zone here, unconditionally.
+        #
+        # nimbus issue #1290 (Mark Purcell, IV&V #1289): WHICH zone depends
+        # on the raw string, and the original code used UTC for both shapes.
+        #
+        #   "2026-09-27"           all-day  -> LOCAL midnight
+        #   "2026-09-27T08:00:00"  naive    -> UTC (#363's own rule)
+        #
+        # An all-day event is an iCalendar `VALUE=DATE`, which is a
+        # local-calendar fact by definition -- "the 27th" for the household
+        # reading it. Reading it as UTC midnight shifted it by the whole UTC
+        # offset, so on this household (Brisbane, UTC+10) a trip meant to
+        # start at local midnight resolved to 10:00 local the same day. For
+        # an EV departure that is a ten-hour error in the direction that
+        # matters: the car is assumed still plugged in for the entire
+        # morning it is actually away.
+        #
+        # #363's rule is kept exactly as-is for the timed shape -- an
+        # external API handing back a naive-but-genuinely-UTC instant is a
+        # real thing, and
+        # test_467_calendar_fetch.py::TestNaiveTimestampsCannotReachTheSolver
+        # pins it.
         if started.tzinfo is None:
-            started = started.replace(tzinfo=UTC)
+            started = started.replace(
+                tzinfo=LOCAL_TZ if _is_date_only(str(raw.get("start") or "")) else UTC
+            )
         if ended.tzinfo is None:
-            ended = ended.replace(tzinfo=UTC)
+            ended = ended.replace(
+                tzinfo=LOCAL_TZ if _is_date_only(str(raw.get("end") or "")) else UTC
+            )
         trips.append(
             TripEvent(
                 start=started,

@@ -826,6 +826,18 @@ class Plan:
     # where #1179's original "1e-12 breaks HiGHS" hypothesis is available at
     # all. Diagnostic only; nothing branches on it.
     calibration_fallback_reason: str | None = None
+    # nimbus issue #1291 (Mark Purcell, IV&V #1289): the weight the
+    # calibrator actually settled on, mirroring `LPResult`'s field of the
+    # same name. #1179 added it to LPResult and threaded it through
+    # solver/lp.py, but no Plan carried it -- so the value existed and
+    # nothing downstream could read it. Its own stated purpose ("a field you
+    # read rather than an alignment you infer") needed this hop to be true.
+    #
+    # Carried on SUCCESS as well as failure, for the same reason
+    # `calibration_min_weight_fallback` is: without the healthy-cycle base
+    # rate, "the failures took the fallback" is unfalsifiable. Diagnostic
+    # only; nothing branches on it.
+    calibration_weight_used: float | None = None
     # nimbus issue #390: how much of grid_import_kw above came from the
     # penalized excess-import slack, i.e. real draw the configured
     # `import_limit_kw` couldn't cover on its own. Zero at every period on
@@ -1267,6 +1279,7 @@ def _infeasible_plan(
     raw_status: str | None = None,
     calibration_min_weight_fallback: bool = False,
     calibration_fallback_reason: str | None = None,
+    calibration_weight_used: float | None = None,
 ) -> Plan:
     """A well-formed but empty Plan for a non-optimal solve -- every array
     present (zero-filled), never omitted, so a caller can always safely
@@ -1286,6 +1299,7 @@ def _infeasible_plan(
         status=status,
         calibration_min_weight_fallback=calibration_min_weight_fallback,
         calibration_fallback_reason=calibration_fallback_reason,
+        calibration_weight_used=calibration_weight_used,
         periods=periods,
         battery_charge_kw=np.zeros(n),
         battery_discharge_kw=np.zeros(n),
@@ -3816,6 +3830,7 @@ def _build_plan_once(
             # second.
             calibration_min_weight_fallback=result.calibration_min_weight_fallback,
             calibration_fallback_reason=result.calibration_fallback_reason,
+            calibration_weight_used=result.calibration_weight_used,
         )
 
     def _get(names: list[str]) -> NDArray[np.float64]:
@@ -4354,6 +4369,7 @@ def _build_plan_once(
         # every cycle takes it, it explains nothing.
         calibration_min_weight_fallback=result.calibration_min_weight_fallback,
         calibration_fallback_reason=result.calibration_fallback_reason,
+        calibration_weight_used=result.calibration_weight_used,
         periods=periods,
         battery_charge_kw=battery_charge_kw_total,
         battery_discharge_kw=battery_discharge_kw_total,

@@ -1,5 +1,5 @@
 """IV&V finding (4fd40c3..22205ad pass, 2026-09-26, head issue #1289, this
-finding #1292): `7261fb0` ("#1256: carry the version stamp with the
+finding #1292, FIXED 2026-09-26): `7261fb0` ("#1256: carry the version stamp with the
 computation, not with the process") built `_version_stamp()` specifically
 because `_nimbus_version()` can return `None`, and an explicit
 `"nimbus_version": None` is worse than an absent key -- the sensor layer's
@@ -27,8 +27,6 @@ from datetime import datetime
 from pathlib import Path
 from unittest import mock
 
-import pytest
-
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ha_stubs import install_ha_stubs
 
@@ -54,12 +52,6 @@ def _now(day=25):
 
 
 class TestRescoreNeverPublishesAnExplicitNoneVersion(unittest.TestCase):
-    @pytest.mark.xfail(
-        reason="nimbus #1292: rescore_quality_history() was not migrated to "
-        "_version_stamp() and can publish an explicit nimbus_version: None, "
-        "which the #972 sensor-layer fallback never corrects",
-        strict=True,
-    )
     def test_a_none_running_version_is_not_published_as_a_literal_none(self):
         posted: list[tuple[str, object, dict]] = []
 
