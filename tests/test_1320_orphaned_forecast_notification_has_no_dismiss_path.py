@@ -32,8 +32,6 @@ import unittest
 from dataclasses import dataclass, field
 from pathlib import Path
 
-import pytest
-
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ha_stubs import install_ha_stubs
 
@@ -108,15 +106,6 @@ ORPHAN = FakeRegistryEntry(
 
 
 class TestAResolvedOrphanDismissesItsNotification(unittest.TestCase):
-    @pytest.mark.xfail(
-        strict=True,
-        reason=(
-            "nimbus #1320: _async_report_orphaned_forecast_entities() has no "
-            "persistent_notification.dismiss() call anywhere -- the "
-            "if-not-orphans early-exit only stops recreation, it never "
-            "clears a notification already showing from an earlier setup"
-        ),
-    )
     def test_a_second_setup_with_the_orphan_gone_dismisses_the_notification(self):
         hass = FakeHass()
 

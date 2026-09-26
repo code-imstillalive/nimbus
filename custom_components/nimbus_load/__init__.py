@@ -431,6 +431,53 @@ async def _async_report_orphaned_forecast_entities(
         orphans.append((registry_entry.entity_id, owning_subentry_id))
 
     if not orphans:
+        # nimbus issue #1320 (Mark Purcell, IV&V #1319): actively DISMISS, not
+        # merely decline to re-create.
+        #
+        # The original #1294 fix returned here and nothing else, and its own
+        # comment claimed that a stable notification_id made "dismissing it
+        # meaningful: it returns only if the condition is still present at the
+        # next setup". That describes non-recreation. A household that saw the
+        # notification, did not act on it, and then had the condition resolve
+        # kept a stale notification indefinitely.
+        #
+        # This is the same failure #416 fixed for the sibling notifier, whose
+        # own docstring names it: "a stale, wrong, scary-looking notification
+        # left behind with no way for the household to know it was already
+        # stale." That sibling is a matched pair --
+        # `_notify_load_forecast_error_once()` creates,
+        # `_clear_load_forecast_error_notification_if_needed()` dismisses -- and
+        # #1294 followed only half of it while asserting it had followed both.
+        #
+        # Folded in here rather than split into its own `_clear_..._if_needed()`:
+        # the sibling is split because its two halves fire from different points
+        # in the solve cycle, whereas this function already runs once per setup
+        # and already branches on the condition. Keeping create and dismiss
+        # adjacent makes it hard to add one without seeing the other.
+        #
+        # Unconditional, and the cost is why that is fine here but not there.
+        # `persistent_notification.dismiss` on an id that is not showing is a
+        # no-op, so there is no sentinel to track and nothing to get out of
+        # step. The sibling guards with a sentinel file because its own
+        # docstring says it is "called once per cycle on the healthy path" --
+        # once a minute, so ~1440 no-op service calls a day. This function runs
+        # once per SETUP, so the same call is a handful per restart and the
+        # sentinel would be more state than it saves.
+        try:
+            await hass.services.async_call(
+                "persistent_notification",
+                "dismiss",
+                {"notification_id": "nimbus_orphaned_forecast_entities"},
+                blocking=False,
+            )
+        except Exception:
+            # Courtesy only, exactly as the create path is: a diagnostic must
+            # never be the reason setup fails.
+            _LOGGER.debug(
+                "Nimbus: could not dismiss the orphaned-forecast-entity "
+                "notification; harmless, it will be dismissed on a later setup",
+                exc_info=True,
+            )
         return
 
     # nimbus issue #1294: a real persistent_notification, not only the
@@ -448,9 +495,15 @@ async def _async_report_orphaned_forecast_entities(
     # Matches the two established sibling notifiers (#66's
     # `_notify_load_forecast_error_once()`, solver_runtime's missing-dependency
     # notifier), with a stable notification_id so a reload REPLACES the message
-    # rather than stacking another copy -- which also makes dismissing it
-    # meaningful: it returns only if the condition is still present at the next
-    # setup.
+    # rather than stacking another copy.
+    #
+    # nimbus issue #1320: this comment used to add "-- which also makes
+    # dismissing it meaningful: it returns only if the condition is still
+    # present at the next setup", and that sentence was the bug's own
+    # description. Non-recreation is not dismissal, and the sibling pair this
+    # claims to follow does both. The dismiss now lives in the `if not orphans`
+    # branch above; this comment no longer claims something the code did not
+    # do.
     #
     # Deliberately still not a removal. The entities that motivated #1270
     # turned out not to be orphans at all, so there is no confirmed instance of
