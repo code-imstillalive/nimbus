@@ -230,6 +230,17 @@ class NimbusRegretCard extends HTMLElement {
         }
         .refresh:hover { opacity: 1; }
         .repair { margin-top: 6px; }
+        /* The on-demand control is deliberately QUIETER than the amber
+           caveat's own button: it is available, not recommended. #1200's
+           reasoning -- "a button that is always there invites a household to
+           buy oracle solves on a day that is already correct" -- is honoured
+           by weight rather than by hiding it. */
+        .ondemand {
+          display: flex; align-items: center; gap: 8px;
+          margin-top: 10px; padding-top: 8px;
+          border-top: 1px solid var(--divider-color, #2A323D);
+        }
+        .ondemand .cost { font-size: 0.72rem; opacity: 0.55; }
       </style>
       <ha-card>
         <div class="head">
@@ -270,6 +281,77 @@ class NimbusRegretCard extends HTMLElement {
       );
     }
     return false;
+  }
+
+  // Whether the published table has no row for the day on screen.
+  //
+  // Distinct from `_provisionalFor()` and a strictly worse state: a
+  // provisional row is present but priced P2P-blind, whereas a missing row
+  // means the card is showing a LIVE estimate that can disagree with the table
+  // outright -- measured at EPR 117.8% live against 103.66% in the table on the
+  // same day, which is the disagreement this card was built to expose.
+  //
+  // Returns false when the entity or its history is unreadable rather than
+  // guessing: "I cannot see the table" is not "the row is missing", and
+  // offering a repair on the strength of a failed read would spend an oracle
+  // solve to fix nothing.
+  _missingFromTable(dateKey, attrs) {
+    if (!attrs || !attrs.history) return false;
+    return !attrs.history[dateKey];
+  }
+
+  // Whether this date is one the service will actually accept.
+  //
+  // `_async_handle_rescore_history()` raises ServiceValidationError unless the
+  // date is 1..30 days back -- a day still in progress has no full-day score,
+  // and 30 is the service's own MILP ceiling. Offering a button that can only
+  // fail is worse than offering none, so every re-score affordance below is
+  // gated on this.
+  _isRescorable(dateKey) {
+    const target = new Date(`${dateKey}T00:00:00`);
+    if (Number.isNaN(target.getTime())) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const back = Math.round((today - target) / 86400000);
+    return back >= 1 && back <= 30;
+  }
+
+  // One place binds the re-score click, for both the caveat's button and the
+  // footer's. The body is rebuilt via innerHTML on every render, which
+  // discards listeners, so this is called per render rather than once.
+  _bindRescore(buttonId, msgId) {
+    const btn = this.shadowRoot.getElementById(buttonId);
+    if (!btn) return;
+    btn.addEventListener("click", async () => {
+      const msgEl = this.shadowRoot.getElementById(msgId);
+      const dateKey = this._cache ? this._cache.dateKey : null;
+      if (!dateKey || !this._hass) return;
+      btn.disabled = true;
+      if (msgEl) msgEl.textContent = " re-scoring…";
+      try {
+        // nimbus issue #1208 (Mark Purcell): ask for the DAY, not a
+        // look-back. `days: N` re-scores every day from today back to N, so
+        // repairing a row ten days old cost ten oracle MILPs in one
+        // synchronous call -- the executor-starvation shape the automatic
+        // sweep is gated against, re-entering through this button. One date
+        // is one solve, however old the row is.
+        await this._hass.callService("nimbus_load", "rescore_history", {
+          date: dateKey,
+        });
+        if (msgEl) msgEl.textContent = " done — reloading";
+        // Drop the cache so the next render reads the REWRITTEN row rather
+        // than the figures the click was complaining about.
+        this._cache = null;
+        const target = this._targetDateKey();
+        this._attemptedDateKey = target;
+        this._fetch(target);
+      } catch (e) {
+        btn.disabled = false;
+        if (msgEl) {
+          msgEl.textContent = " failed: " + (e && e.message ? e.message : String(e));
+        }
+      }
+    });
   }
 
   _render() {
@@ -336,16 +418,39 @@ class NimbusRegretCard extends HTMLElement {
       this._cache.dateKey,
       tableEntity ? tableEntity.attributes : null
     );
+    // nimbus issue #1248: a row missing from the table is a strictly worse
+    // state than a provisional one, and #1200's gate did not cover it because
+    // the case did not exist yet. Measured on the reference household
+    // 2026-09-26: a degraded recorder window truncated the table from 10 rows
+    // to 1, and the card showed a live estimate for all nine lost days with no
+    // way to rebuild any of them.
+    const missing = this._missingFromTable(
+      this._cache.dateKey,
+      tableEntity ? tableEntity.attributes : null
+    );
+    // Both affordances below are gated on the service actually accepting this
+    // date -- see _isRescorable().
+    const rescorable = this._isRescorable(this._cache.dateKey);
 
     bodyEl.innerHTML = `
       ${caveat ? `<div class="caveat">${caveat}</div>` : ""}
-      ${provisional ? `<div class="caveat">
+      ${provisional && rescorable ? `<div class="caveat">
         <b>Waiting on settlement.</b> This day was scored before its P2P
         settlement existed, so export is priced at plain spot and
         J_ach/J_ref/J_star are all P2P-blind together — the EPR above reads
         far lower than the day actually was.
         <div class="repair">
           <button class="refresh" id="repairBtn">Re-score with settlement</button>
+          <span class="sub" id="repairMsg"></span>
+        </div>
+      </div>` : ""}
+      ${missing && !provisional && rescorable ? `<div class="caveat">
+        <b>Not in the published table.</b> The quality report's own history
+        table has no row for this day, so every figure here is a live estimate
+        rather than the stored score — and the two can genuinely disagree.
+        Scoring it in writes the row the Regret card and the sensor both read.
+        <div class="repair">
+          <button class="refresh" id="repairBtn">Score this day into the table</button>
           <span class="sub" id="repairMsg"></span>
         </div>
       </div>` : ""}
@@ -364,44 +469,22 @@ class NimbusRegretCard extends HTMLElement {
       </div>
       <div class="chart-wrap"><canvas id="dispatchCanvas" width="1600" height="380"></canvas></div>
       <div class="chart-wrap"><canvas id="regretCanvas" width="1600" height="220"></canvas></div>
+      ${rescorable && !provisional && !missing ? `<div class="ondemand">
+        <button class="refresh" id="onDemandBtn">Re-score this day</button>
+        <span class="cost">costs 1 oracle solve</span>
+        <span class="sub" id="onDemandMsg"></span>
+      </div>` : ""}
     `;
 
-    // Re-attached on every render because the body is rebuilt via
-    // innerHTML, which discards listeners -- the same reason the header's
-    // own Refresh button is bound in the static shell instead.
-    const repairBtn = this.shadowRoot.getElementById("repairBtn");
-    if (repairBtn) {
-      repairBtn.addEventListener("click", async () => {
-        const msgEl = this.shadowRoot.getElementById("repairMsg");
-        const dateKey = this._cache ? this._cache.dateKey : null;
-        if (!dateKey || !this._hass) return;
-        repairBtn.disabled = true;
-        if (msgEl) msgEl.textContent = " re-scoring…";
-        try {
-          // nimbus issue #1208 (Mark Purcell): ask for the DAY, not a
-          // look-back. `days: N` re-scores every day from today back to
-          // N, so repairing a row ten days old cost ten oracle MILPs in
-          // one synchronous call -- the executor-starvation shape the
-          // automatic sweep is gated against, re-entering through this
-          // button. One date is one solve, however old the row is.
-          await this._hass.callService("nimbus_load", "rescore_history", {
-            date: dateKey,
-          });
-          if (msgEl) msgEl.textContent = " done — reloading";
-          // Drop the cache so the next render reads the REWRITTEN row
-          // rather than the figures the click was complaining about.
-          this._cache = null;
-          const target = this._targetDateKey();
-          this._attemptedDateKey = target;
-          this._fetch(target);
-        } catch (e) {
-          repairBtn.disabled = false;
-          if (msgEl) {
-            msgEl.textContent = " failed: " + (e && e.message ? e.message : String(e));
-          }
-        }
-      });
-    }
+    // Re-attached on every render because the body is rebuilt via innerHTML,
+    // which discards listeners -- the same reason the header's own Refresh
+    // button is bound in the static shell instead.
+    //
+    // Exactly one of these exists at a time: the caveat's button when
+    // something is wrong, the footer's when nothing is. Binding both is safe
+    // regardless -- _bindRescore() returns early on a missing id.
+    this._bindRescore("repairBtn", "repairMsg");
+    this._bindRescore("onDemandBtn", "onDemandMsg");
 
     this._drawCharts(d);
   }
