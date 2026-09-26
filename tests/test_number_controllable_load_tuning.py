@@ -129,7 +129,12 @@ def test_entity_attribute_wiring():
     assert entity._attr_native_min_value == desc.min_value
     assert entity._attr_native_max_value == desc.max_value
     assert entity._attr_native_step == desc.step
-    assert entity._attr_native_unit_of_measurement == desc.unit
+    # Property, not the stored attribute (nimbus issue #1293):
+    # `_CurrencyUnitMixin` resolves a currency sentinel against
+    # `hass.config.currency` at read time and __init__ no longer assigns the
+    # attribute, so the property is the single answer. With no `hass` attached
+    # it returns the declared value unchanged, so this stays a wiring check.
+    assert entity.native_unit_of_measurement == desc.unit
     assert entity._attr_native_value == desc.default
     assert (DOMAIN, "sub_1") in entity._attr_device_info["identifiers"]
     assert entity._attr_device_info["name"] == "Hot Water Heat Pump"

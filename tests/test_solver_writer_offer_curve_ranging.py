@@ -267,7 +267,14 @@ class TestPublishOfferCurveAttributes(unittest.TestCase):
             {
                 "market_floor_price": _OFFER_CURVE_DOMAIN_MIN,
                 "market_price_cap": _OFFER_CURVE_DOMAIN_MAX,
-                "unit": "$/kWh",
+                # nimbus issue #1293: an explicit ISO code, not the ambiguous
+                # symbol this used to carry. Deliberately NOT resolved against
+                # hass.config.currency like every other money label: these two
+                # numbers are AEMO's own Market Floor Price and Market Price
+                # Cap, Australian market constants rather than the household's
+                # money, so relabelling them EUR on a European install would be
+                # a false statement about the value rather than a localisation.
+                "unit": "AUD/kWh",
                 "source": "AEMO Market Floor Price / Market Price Cap "
                 "(nimbus issue #705, confirmed by Mark Purcell)",
             },

@@ -1,5 +1,5 @@
 """IV&V finding (4fd40c3..22205ad pass, 2026-09-26, head issue #1289, this
-finding #1296): `_run_one_cycle()`'s `except RuntimeError` handler
+finding #1296, FIXED 2026-09-26): `_run_one_cycle()`'s `except RuntimeError` handler
 (`solver_runtime.py:662-667`) logs `sensor.nimbus_solver_config`'s "Nimbus
 Solver is not configured yet" message at WARNING **unconditionally, every
 time it is raised** -- with no tiering at all.
@@ -41,8 +41,6 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pytest
-
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ha_stubs import install_ha_stubs
 
@@ -71,19 +69,14 @@ def _make_sw(*, main_side_effect=None) -> MagicMock:
 
 def _reset_module_state() -> None:
     solver_runtime._consecutive_lock_skips = 0
+    # The counter the fix introduced. Without this, a second test in one run
+    # inherits the first's count and crosses the warn threshold on its own
+    # first occurrence -- the tiering is per-consecutive-run, so the harness
+    # has to start from zero the same way a fresh install does.
+    solver_runtime._consecutive_not_configured = 0
 
 
 class TestASelfHealingNotConfiguredRaceDoesNotWarn(unittest.TestCase):
-    @pytest.mark.xfail(
-        reason="nimbus #1296: the RuntimeError('not configured yet') handler "
-        "in _run_one_cycle() warns unconditionally on every occurrence, with "
-        "no tiering for a single self-healing tick -- unlike this same "
-        "file's own #365 HTTPError race handling and #945 lock-skip tiering, "
-        "both written for exactly this class of expected, transient startup "
-        "condition (see sensor.py's #85 comment for the exact race that "
-        "produces a one-tick 'unconfigured' false positive)",
-        strict=True,
-    )
     def test_a_single_immediately_self_healing_occurrence_is_not_a_warning(self):
         _reset_module_state()
         hass = MagicMock()

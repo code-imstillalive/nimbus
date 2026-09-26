@@ -393,6 +393,12 @@ async def _async_report_orphaned_forecast_entities(
     known_subentry_ids = set(entry.subentries)
     suffixes = ("_signal_forecast", "_load_forecast")
 
+    # nimbus issue #1294 (Mark Purcell, IV&V #1289): collected rather than
+    # only logged per-entity, so the notification below can be ONE message
+    # naming every orphan. An install that somehow grew twenty would
+    # otherwise raise twenty notifications for a single underlying cause.
+    orphans: list[tuple[str, str]] = []
+
     # list() so this stays correct if the WARNING is ever promoted to a
     # real removal, which would mutate the registry underneath the loop.
     for registry_entry in list(
@@ -421,6 +427,71 @@ async def _async_report_orphaned_forecast_entities(
             "please report this log line on that issue",
             registry_entry.entity_id,
             owning_subentry_id,
+        )
+        orphans.append((registry_entry.entity_id, owning_subentry_id))
+
+    if not orphans:
+        return
+
+    # nimbus issue #1294: a real persistent_notification, not only the
+    # WARNINGs above.
+    #
+    # This function's own docstring is the argument for it: an orphan holds
+    # its entity_id reserved, which forces a live entity onto a `_2` suffix --
+    # an id change on something dashboards and automations reference -- and
+    # "a household cannot fix it by hand, because HA greys out delete for an
+    # entity belonging to a loaded config entry". A consequence that real with
+    # no user-side remedy, reported only in the log, requires the household to
+    # already be watching the log; #594 names that as a known failure class in
+    # this project.
+    #
+    # Matches the two established sibling notifiers (#66's
+    # `_notify_load_forecast_error_once()`, solver_runtime's missing-dependency
+    # notifier), with a stable notification_id so a reload REPLACES the message
+    # rather than stacking another copy -- which also makes dismissing it
+    # meaningful: it returns only if the condition is still present at the next
+    # setup.
+    #
+    # Deliberately still not a removal. The entities that motivated #1270
+    # turned out not to be orphans at all, so there is no confirmed instance of
+    # this condition, and deleting user-visible registry rows on speculation
+    # remains the wrong trade. What changes here is only whether a real
+    # instance is FINDABLE.
+    listed = "\n".join(
+        f"- {entity_id} (subentry {subentry_id})" for entity_id, subentry_id in orphans
+    )
+    try:
+        await hass.services.async_call(
+            "persistent_notification",
+            "create",
+            {
+                "title": "Nimbus: orphaned forecast entities",
+                "message": (
+                    f"{len(orphans)} Nimbus forecast "
+                    f"{'entity' if len(orphans) == 1 else 'entities'} "
+                    "no longer have a subentry providing them:\n\n"
+                    f"{listed}\n\n"
+                    "Each one keeps its entity_id reserved, which can push a "
+                    "live entity onto a `_2` suffix -- and Home Assistant "
+                    "greys out delete for an entity belonging to a loaded "
+                    "config entry, so this cannot be cleared by hand.\n\n"
+                    "Nimbus does NOT remove these automatically. Please "
+                    "report this on nimbus issue #1270 -- there is no "
+                    "confirmed instance of this condition yet, and a real one "
+                    "is what decides whether automatic removal is safe."
+                ),
+                "notification_id": "nimbus_orphaned_forecast_entities",
+            },
+            blocking=False,
+        )
+    except Exception:
+        # A diagnostic must never be the reason setup fails. The caller already
+        # wraps this whole function, but a notification is the least important
+        # thing here and should not consume that allowance.
+        _LOGGER.debug(
+            "Nimbus: could not raise the orphaned-forecast-entity "
+            "notification; the WARNING above still records it",
+            exc_info=True,
         )
 
 

@@ -348,6 +348,13 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # this stage closes. The copy compared against here is the
         # FORECAST writer, which carries no quality machinery whatsoever.
         "_day_ahead_forecast_regret_attributes",
+        # nimbus issue #1290 (Mark Purcell, IV&V #1289):
+        # fetch_calendar_trips()'s own all-day-vs-naive-timed test,
+        # called from nowhere else. Inherits that function's
+        # native-only reasoning exactly -- the standalone/cron
+        # FORECAST copy has no calendar trip support at all, so a
+        # helper serving it cannot be a drift gap there.
+        "_is_date_only",
         "compute_efficiency_backtest_report",
         "compute_nimbus_only_soc_counterfactual",
         "publish_daily_quality_report",

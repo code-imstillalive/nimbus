@@ -148,6 +148,28 @@ _in_flight_future: asyncio.Future[bool] | None = None
 # itself (a much larger, riskier change deferred for a follow-up once
 # these logs identify which specific publish is actually slow, if any).
 _consecutive_lock_skips = 0
+
+#: nimbus issue #1296 (Mark Purcell, IV&V #1289): consecutive cycles that
+#: raised fetch_solver_config()'s "not configured yet" RuntimeError.
+#:
+#: Tiered rather than warned-on-sight for the same reason
+#: `_consecutive_lock_skips` above is: `sensor.py`'s own #85 comment
+#: documents a ONE-TICK false positive -- a `number.nimbus_solver_*` entity
+#: briefly `unknown` during `RestoreEntity` on startup makes
+#: `sensor.nimbus_solver_config` read as unconfigured for a single cycle,
+#: then self-heals. A flat WARNING made that indistinguishable from a
+#: genuinely unconfigured install.
+#:
+#: Reset to 0 on any cycle that does NOT raise it, so the count always means
+#: "consecutive", never "ever".
+_consecutive_not_configured = 0
+
+#: How many consecutive occurrences before it is a real WARNING. Two, not
+#: ten: the documented false positive is exactly one tick, and a genuine
+#: misconfiguration never recovers on its own, so the very next cycle
+#: already separates them. Waiting longer would delay a real, actionable
+#: message for no extra information.
+_NOT_CONFIGURED_WARN_AFTER = 2
 # nimbus issue #945: cumulative count of SINGLE-tick overlaps (the kind
 # that self-heal on the next tick and are therefore logged at DEBUG).
 # Deliberately not reset on a successful acquire, unlike
@@ -300,11 +322,15 @@ def reset_module_state() -> None:
     """
     global _solver_writer, _last_solve_completed_monotonic, _import_error_notified
     global _price_latency_sensor, _consecutive_lock_skips, _single_skip_total
+    global _consecutive_not_configured
     _solver_writer = None
     _last_solve_completed_monotonic = None
     _import_error_notified = False
     _price_latency_sensor = None
     _consecutive_lock_skips = 0
+    # nimbus issue #1296: cleared with its siblings, so a re-added entry does
+    # not inherit a previous entry's consecutive count and warn immediately.
+    _consecutive_not_configured = 0
     # nimbus issue #945: "since startup" in the summary WARNING means
     # since this reset, so a reload gives a clean count rather than
     # carrying a previous config entry's overlaps into a new one.
@@ -608,7 +634,7 @@ def _run_one_cycle(hass: HomeAssistant) -> bool:
                 },
             )
         return False
-    global _consecutive_lock_skips, _single_skip_total
+    global _consecutive_lock_skips, _single_skip_total, _consecutive_not_configured
     if not sw.acquire_lock():
         _consecutive_lock_skips += 1
         # nimbus issue #315 made this a WARNING, because the silent-skip
@@ -672,12 +698,48 @@ def _run_one_cycle(hass: HomeAssistant) -> bool:
     try:
         sw.main()
         _log_dispatch_dry_run(hass, sw)
+        # nimbus issue #1296: a cycle that got this far is configured, so the
+        # consecutive count must go back to zero -- otherwise one transient
+        # tick early in an uptime would make an unrelated transient hours
+        # later look like a persistent misconfiguration.
+        _consecutive_not_configured = 0
         return True
     except RuntimeError as e:
         # fetch_solver_config()'s own "Solver settings not configured
         # yet" message -- expected on a fresh install before the
         # wizard's been run, not a real error.
-        _LOGGER.warning("Nimbus Solver: %s", e)
+        #
+        # nimbus issue #1296 (Mark Purcell, IV&V #1289): TIERED, the same way
+        # the lock-skip path above (#945) and the HTTPError race below (#365
+        # item 6) already are. This branch warned unconditionally, and
+        # `sensor.py`'s own #85 comment documents the one-tick false positive
+        # it could not distinguish: a `number.nimbus_solver_*` entity briefly
+        # `unknown` during `RestoreEntity` makes
+        # `sensor.nimbus_solver_config` read as unconfigured for a single
+        # cycle and then self-heal. Warning on that is the "#757/#773 signal
+        # buried in noise" pattern #945 was written to avoid.
+        #
+        # The escalation is what keeps this honest: a genuinely unconfigured
+        # install never self-heals, so it crosses the threshold on its very
+        # next cycle and gets a louder message than before, naming the
+        # persistence. Only the transient case is quieted.
+        _consecutive_not_configured += 1
+        if _consecutive_not_configured < _NOT_CONFIGURED_WARN_AFTER:
+            _LOGGER.debug(
+                "Nimbus Solver: %s (occurrence %d -- not warning yet, a "
+                "single tick of this self-heals on startup, see nimbus "
+                "issue #1296)",
+                e,
+                _consecutive_not_configured,
+            )
+        else:
+            _LOGGER.warning(
+                "Nimbus Solver: %s (persisted for %d consecutive cycles, so "
+                "this is a real configuration gap rather than the one-tick "
+                "startup race -- nimbus issue #1296)",
+                e,
+                _consecutive_not_configured,
+            )
         return False
     except urllib.error.HTTPError as e:
         # nimbus issue #365 (Mark Purcell, codebase review), item 6: a
