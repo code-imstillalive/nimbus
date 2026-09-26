@@ -35,7 +35,7 @@ from _ha_stubs import install_ha_stubs
 install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import solver_writer  # noqa: E402  (native module name, matches sibling #1208/#1250 tests)
+import solver_writer
 
 
 def _entry(status="applied"):
