@@ -1,5 +1,9 @@
-"""Resolve an HA calendar entity's upcoming events into adequacy windows
+"""Resolve an HA calendar entity's upcoming events into trip charge requirements
 (nimbus issue #467, staged item 3).
+
+Each usable event becomes `(earliest_period, deadline_period, target_kwh)`. What
+element that maps onto is the caller's decision, and getting it wrong is a real
+risk -- see "Which primitive consumes this" below.
 
 **Why this module exists at all.** #467's own staged scope named four items and
 called this one "the one genuinely *new* capability, not a composition of
@@ -32,8 +36,8 @@ difference is not cosmetic:
   consumption is deliberately *not* priced against this household's grid, because
   a car's propulsion draw never touches it.
 * So there is nothing here for a during-trip sink to schedule. What matters is
-  that the energy is present before the car leaves, which is exactly an adequacy
-  window ending at departure.
+  that the energy is present before the car leaves, which is a requirement
+  falling due at departure.
 
 Modelling it HAEO's way would price driving energy as household import. Stating
 the divergence rather than silently copying the shape.
@@ -51,6 +55,30 @@ in the opposite direction: the schema implied trip capacity was computed from th
 calendar while the wiring was never connected, leaving the trip battery
 "functionally inert with zero capacity". Both failure modes are silent; this one
 at least logs.
+
+## Which primitive consumes this, and the one that would be WRONG
+
+Checked rather than assumed, and it changed the answer. An EV departure belongs
+on the participant battery's own SoC floor --
+`BatteryConfig.must_have_soc_by_period_index` / `must_have_soc_kwh` -- which
+already exists, validates as a pair (#563 item 2), reaches the LP, and reaches
+the scorer's oracle too (#1111 fixed exactly that drift).
+
+Routing it through an `AdequacyLoadConfig` instead would be **double counting**:
+an adequacy load is a separate sink that must absorb `target_kwh`, and the EV
+pack already absorbs that charge as a storage participant. The LP would be told
+to buy the energy twice.
+
+So this module resolves a trip into *timing and a quantity*, and the caller maps
+it onto the right element:
+
+* an **EV/participant battery** -> `must_have_soc_*` (see
+  `trip_must_have_soc_kwh()` below for the increment-to-level conversion);
+* a genuinely separate deadline load with no storage of its own (a hot-water
+  element, say) -> an adequacy window, where `earliest_period` matters.
+
+`earliest_period` is returned either way because it is meaningful for the second
+case and free for the first.
 
 ## Odometer correction
 
@@ -141,6 +169,39 @@ def trip_energy_kwh(
     """
     remaining_km = max(0.0, float(distance_km) - float(already_driven_km))
     return remaining_km * float(kwh_per_100km) / 100.0
+
+
+def trip_must_have_soc_kwh(
+    min_soc_kwh: float,
+    trip_kwh: float,
+    *,
+    max_soc_kwh: float | None = None,
+) -> float:
+    """A trip's kWh requirement as an ABSOLUTE SoC level for
+    `BatteryConfig.must_have_soc_kwh`.
+
+    The conversion is the whole point of this function existing rather than the
+    caller doing it inline: `trip_kwh` is an INCREMENT (energy the trip will
+    consume) while `must_have_soc_kwh` is a LEVEL (where the pack must be at the
+    deadline). Passing the increment straight through would under-require by
+    exactly `min_soc_kwh` -- the trip would be planned to start from an empty
+    pack and drive into the reserve floor.
+
+    So the requirement is `min_soc_kwh + trip_kwh`: the trip's energy must sit
+    ABOVE the reserve the household has said it will not go below.
+
+    Clamped to `max_soc_kwh` when given, because a trip larger than the usable
+    pack is a real configuration (a 400 km drive in a 50 kWh car) and the honest
+    LP request is "arrive full". Demanding more than the ceiling would make the
+    constraint infeasible and, with no slack on this primitive, take the whole
+    plan down -- the failure mode #390 fixed for grid import and #467 asked to
+    avoid here. The shortfall is then real and physical, and belongs in a
+    warning at the call site rather than in an impossible constraint.
+    """
+    required = float(min_soc_kwh) + max(0.0, float(trip_kwh))
+    if max_soc_kwh is not None:
+        return min(float(max_soc_kwh), required)
+    return required
 
 
 def _period_index_at(grid_times: list[datetime], when: datetime) -> int | None:

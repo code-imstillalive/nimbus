@@ -184,6 +184,39 @@ class TestTheEnergyIsNeverNegative(unittest.TestCase):
         self.assertEqual(ct.trip_energy_kwh(100.0, 18.0, already_driven_km=150.0), 0.0)
 
 
+class TestTheIncrementToLevelConversion(unittest.TestCase):
+    """`trip_kwh` is an INCREMENT; `must_have_soc_kwh` is a LEVEL.
+
+    Checked rather than assumed, and it changed which primitive this feeds. An EV
+    departure belongs on the participant battery's own
+    `must_have_soc_by_period_index` / `must_have_soc_kwh` -- routing it through an
+    `AdequacyLoadConfig` would be double counting, because an adequacy load is a
+    separate sink that must absorb the energy the EV pack already absorbs as a
+    storage participant. The LP would be told to buy it twice.
+    """
+
+    def test_the_trip_sits_ABOVE_the_reserve_floor(self):
+        """Passing the increment straight through under-requires by exactly
+        `min_soc_kwh` -- the trip would be planned to start from an empty pack
+        and drive into the reserve the household said it would not touch."""
+        self.assertAlmostEqual(ct.trip_must_have_soc_kwh(5.0, 12.0), 17.0)
+
+    def test_a_trip_bigger_than_the_pack_asks_to_arrive_FULL(self):
+        """A 400 km drive in a 50 kWh car is a real configuration. Demanding more
+        than the ceiling would make the constraint infeasible -- and this
+        primitive has no slack, so it would take the whole plan down, the exact
+        failure #390 fixed for grid import and #467 asked to avoid."""
+        self.assertAlmostEqual(
+            ct.trip_must_have_soc_kwh(5.0, 100.0, max_soc_kwh=40.0), 40.0
+        )
+
+    def test_a_negative_trip_cannot_lower_the_floor(self):
+        self.assertAlmostEqual(ct.trip_must_have_soc_kwh(5.0, -3.0), 5.0)
+
+    def test_without_a_ceiling_it_does_not_invent_one(self):
+        self.assertAlmostEqual(ct.trip_must_have_soc_kwh(2.0, 60.0), 62.0)
+
+
 class TestTheWindowEndsAtDEPARTURE(unittest.TestCase):
     """The deliberate divergence from HAEO's model -- see the file docstring."""
 

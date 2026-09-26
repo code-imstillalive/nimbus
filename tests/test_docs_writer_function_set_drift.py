@@ -603,6 +603,7 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "parse_trip_distance_km",
         "trip_energy_kwh",
         "resolve_trip_windows",
+        "trip_must_have_soc_kwh",
         "_period_index_at",
         # nimbus issue #452, the forecast-vs-actuals half. The log-once
         # helper for it is integration-only because the check it reports
