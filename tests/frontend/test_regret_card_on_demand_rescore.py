@@ -116,7 +116,7 @@ class TestTheMissingRowCaseIsOffered:
         assert "_missingFromTable(dateKey, attrs)" in _source()
 
     def test_it_reports_missing_only_when_the_table_is_readable(self):
-        """"I cannot see the table" is not "the row is missing".
+        """ "I cannot see the table" is not "the row is missing".
 
         Offering a repair on the strength of a failed read would spend an
         oracle solve to fix nothing, so an absent entity or absent history
