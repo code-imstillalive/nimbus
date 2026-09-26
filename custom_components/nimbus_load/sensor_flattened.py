@@ -94,18 +94,28 @@ from .const import DOMAIN
 _LOGGER = logging.getLogger(__name__)
 
 
-# The AUD unit isn't exposed as a homeassistant.const constant the way
-# UnitOfPower.KILO_WATT is -- monetary units are user-configurable and
-# come from hass.config.currency at runtime. For a plain SensorEntity
-# with a fixed unit_of_measurement (which is what we want here for
-# solve-time constants like total_cost that never change unit within
-# a running install), passing "AUD" as a string is the honest fit --
-# the same pattern statistics.energy.* uses when it hardcodes "kWh".
-# Australian residential Nimbus installs are the only real-world
-# deployment target today; the parent NimbusSolverConfigSensor already
-# hardcodes AUD elsewhere.
-_AUD = "AUD"
-_AUD_PER_KWH = "AUD/kWh"
+# nimbus issue #1253. These were literal "AUD"/"AUD/kWh" with a documented
+# justification: a plain SensorEntity wants a fixed unit, and "Australian
+# residential Nimbus installs are the only real-world deployment target
+# today". Two of those clauses have since moved -- the repo is public and
+# HACS-installable, and portability is a stated goal -- so the constant now
+# encodes an assumption rather than a fact.
+#
+# They are SENTINELS, not units: `_FlattenedAttributeSensor.
+# native_unit_of_measurement` resolves them against `hass.config.currency` at
+# read time. The values are deliberately not valid currency strings, so a
+# sentinel that ever escaped resolution would be conspicuous in the UI rather
+# than silently plausible.
+#
+# MEASURED before changing anything (the issue asks for exactly this):
+# production carries 38 nimbus entities on these units, ALL 38 with
+# state_class -- so every one has long-term statistics and none was free to
+# change. But `hass.config.currency` there reads 'AUD', so the resolved value
+# equals the old constant and HA sees no unit change at all: no statistics
+# repair, no broken series. A non-AUD install does see its 38 units change,
+# which is the correct one-time cost of fixing a label that was wrong.
+_CURRENCY = "__nimbus_currency__"
+_CURRENCY_PER_KWH = "__nimbus_currency_per_kwh__"
 
 
 @dataclass(frozen=True)
@@ -221,7 +231,7 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         # device_class is dropped instead (issue #283).
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD,
+        unit_of_measurement=_CURRENCY,
         suggested_display_precision=3,
     ),
     FlattenedAttrSpec(
@@ -237,7 +247,7 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         # device_class is dropped instead (issue #283).
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD,
+        unit_of_measurement=_CURRENCY,
         suggested_display_precision=3,
     ),
     # cost_band and cost_breakdown are dict-valued on the parent -- decomposed
@@ -256,7 +266,7 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         # device_class is dropped instead (issue #283).
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD,
+        unit_of_measurement=_CURRENCY,
         suggested_display_precision=3,
     ),
     FlattenedAttrSpec(
@@ -272,7 +282,7 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         # device_class is dropped instead (issue #283).
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD,
+        unit_of_measurement=_CURRENCY,
         suggested_display_precision=3,
     ),
     FlattenedAttrSpec(
@@ -288,7 +298,7 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         # device_class is dropped instead (issue #283).
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD,
+        unit_of_measurement=_CURRENCY,
         suggested_display_precision=3,
     ),
     FlattenedAttrSpec(
@@ -304,7 +314,7 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         # device_class is dropped instead (issue #283).
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD,
+        unit_of_measurement=_CURRENCY,
         suggested_display_precision=3,
     ),
     FlattenedAttrSpec(
@@ -320,7 +330,7 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         # device_class is dropped instead (issue #283).
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD,
+        unit_of_measurement=_CURRENCY,
         suggested_display_precision=3,
     ),
     FlattenedAttrSpec(
@@ -336,7 +346,7 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         # device_class is dropped instead (issue #283).
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD,
+        unit_of_measurement=_CURRENCY,
         suggested_display_precision=3,
     ),
     FlattenedAttrSpec(
@@ -352,7 +362,7 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         # device_class is dropped instead (issue #283).
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD,
+        unit_of_measurement=_CURRENCY,
         suggested_display_precision=3,
     ),
     FlattenedAttrSpec(
@@ -368,7 +378,7 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         # device_class is dropped instead (issue #283).
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD,
+        unit_of_measurement=_CURRENCY,
         suggested_display_precision=3,
     ),
     # --- Energy totals (primary) --------------------------------------------
@@ -569,7 +579,7 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         # device_class is dropped instead (issue #283).
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD_PER_KWH,
+        unit_of_measurement=_CURRENCY_PER_KWH,
         suggested_display_precision=4,
     ),
     FlattenedAttrSpec(
@@ -585,7 +595,7 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         # device_class is dropped instead (issue #283).
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD_PER_KWH,
+        unit_of_measurement=_CURRENCY_PER_KWH,
         suggested_display_precision=4,
     ),
     # --- Efficiency & config echoes (diagnostic) ----------------------------
@@ -622,7 +632,7 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         # device_class is dropped instead (issue #283).
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD_PER_KWH,
+        unit_of_measurement=_CURRENCY_PER_KWH,
         suggested_display_precision=4,
     ),
     FlattenedAttrSpec(
@@ -648,7 +658,7 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         # device_class is dropped instead (issue #283).
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD_PER_KWH,
+        unit_of_measurement=_CURRENCY_PER_KWH,
         suggested_display_precision=4,
     ),
     FlattenedAttrSpec(
@@ -736,7 +746,7 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         # refuses MONETARY+MEASUREMENT, so device_class is dropped.
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD_PER_KWH,
+        unit_of_measurement=_CURRENCY_PER_KWH,
         suggested_display_precision=4,
     ),
     FlattenedAttrSpec(
@@ -746,7 +756,7 @@ FLATTENED_ATTRS: tuple[FlattenedAttrSpec, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD_PER_KWH,
+        unit_of_measurement=_CURRENCY_PER_KWH,
         suggested_display_precision=4,
     ),
     FlattenedAttrSpec(
@@ -836,7 +846,7 @@ FLATTENED_ATTRS_P2P: tuple[FlattenedAttrSpec, ...] = (
         # device_class is dropped instead (issue #283).
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD_PER_KWH,
+        unit_of_measurement=_CURRENCY_PER_KWH,
         suggested_display_precision=4,
     ),
 )
@@ -914,7 +924,12 @@ class _FlattenedAttributeSensor(SensorEntity):
         self._attr_entity_category = spec.entity_category
         self._attr_device_class = spec.device_class
         self._attr_state_class = spec.state_class
-        self._attr_native_unit_of_measurement = spec.unit_of_measurement
+        # nimbus #1253: NOT set for the currency sentinels -- the property
+        # below resolves those against hass.config.currency. Setting the
+        # _attr_ here as well would win over the property for every row and
+        # silently republish the sentinel as the unit.
+        if spec.unit_of_measurement not in (_CURRENCY, _CURRENCY_PER_KWH):
+            self._attr_native_unit_of_measurement = spec.unit_of_measurement
         if spec.suggested_display_precision is not None:
             self._attr_suggested_display_precision = spec.suggested_display_precision
         self._attr_device_info = DeviceInfo(
@@ -954,6 +969,39 @@ class _FlattenedAttributeSensor(SensorEntity):
         if self._last_updated is None:
             return True
         return (time.monotonic() - self._last_updated) < self._STALE_AFTER_SECONDS
+
+    @property
+    def native_unit_of_measurement(self) -> str | None:
+        """Resolve the currency sentinels against HA's own configured
+        currency (nimbus issue #1253).
+
+        These rows used to hardcode "AUD"/"AUD/kWh". That was documented as
+        honest at the time -- "Australian residential Nimbus installs are the
+        only real-world deployment target today" -- and stopped being true when
+        the repo went public and HACS-installable. `hass.config.currency` is
+        the answer HA already has, and reading it is this project's own
+        standing convention (sensor.py resolves currency the same way at three
+        call sites, with no fallback).
+
+        **Returned as-is when falsy**, so `None` stays `None`. Substituting a
+        default would re-introduce exactly the hardcode this removes, only with
+        a different string.
+
+        `getattr(self, "hass", None)` covers the window before HA registers the
+        entity, where there is no `hass` to ask. The sentinel is returned
+        rather than a guess -- it is deliberately not a plausible currency, so
+        if it ever surfaced it would be obvious rather than quietly wrong.
+        """
+        unit = self._spec.unit_of_measurement
+        if unit not in (_CURRENCY, _CURRENCY_PER_KWH):
+            return unit
+        hass = getattr(self, "hass", None)
+        if hass is None:
+            return unit
+        currency = hass.config.currency
+        if unit is _CURRENCY or unit == _CURRENCY:
+            return currency
+        return f"{currency}/kWh" if currency else None
 
     @property
     def native_value(self) -> Any:
@@ -1382,7 +1430,7 @@ FLATTENED_ATTRS_QUALITY: tuple[FlattenedAttrSpec, ...] = (
         # device_class is dropped instead (issue #283).
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD,
+        unit_of_measurement=_CURRENCY,
         suggested_display_precision=3,
     ),
     FlattenedAttrSpec(
@@ -1398,7 +1446,7 @@ FLATTENED_ATTRS_QUALITY: tuple[FlattenedAttrSpec, ...] = (
         # device_class is dropped instead (issue #283).
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD,
+        unit_of_measurement=_CURRENCY,
         suggested_display_precision=3,
     ),
     # uplift_available (epr.py) was removed here (issue #283, defect 2): it was
@@ -1418,7 +1466,7 @@ FLATTENED_ATTRS_QUALITY: tuple[FlattenedAttrSpec, ...] = (
         # device_class is dropped instead (issue #283).
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD,
+        unit_of_measurement=_CURRENCY,
         suggested_display_precision=3,
         # 2026-08-31 direct ask: expand attributes with 24-hour
         # reconstruction (import/export prices, load/solar/battery/grid
@@ -1440,7 +1488,7 @@ FLATTENED_ATTRS_QUALITY: tuple[FlattenedAttrSpec, ...] = (
         # device_class is dropped instead (issue #283).
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD,
+        unit_of_measurement=_CURRENCY,
         suggested_display_precision=3,
         # 2026-08-31 direct ask: expand attributes with 24-hour
         # reconstruction (import/export prices, load/solar/battery/grid
@@ -1464,7 +1512,7 @@ FLATTENED_ATTRS_QUALITY: tuple[FlattenedAttrSpec, ...] = (
         # device_class is dropped instead (issue #283).
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD,
+        unit_of_measurement=_CURRENCY,
         suggested_display_precision=3,
         # 2026-08-31 direct ask: expand attributes with 24-hour
         # reconstruction (import/export prices, load/solar/battery/grid
@@ -1491,7 +1539,7 @@ FLATTENED_ATTRS_QUALITY: tuple[FlattenedAttrSpec, ...] = (
         # device_class is dropped instead (issue #283).
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD,
+        unit_of_measurement=_CURRENCY,
         suggested_display_precision=3,
         # 2026-08-31 direct ask ("similar for the other quality_j
         # entities"): the pre-existing hourly_regret dict (per-hour
@@ -1527,7 +1575,7 @@ FLATTENED_ATTRS_QUALITY: tuple[FlattenedAttrSpec, ...] = (
         # device_class is dropped instead (issue #283).
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD,
+        unit_of_measurement=_CURRENCY,
         suggested_display_precision=3,
     ),
     # --- SoC discrepancy (diagnostic) -- nimbus issue #533 -----------------------
@@ -1680,7 +1728,7 @@ FLATTENED_ATTRS_BACKTEST: tuple[FlattenedAttrSpec, ...] = (
         # device_class is dropped instead (issue #283).
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD,
+        unit_of_measurement=_CURRENCY,
         suggested_display_precision=3,
     ),
     FlattenedAttrSpec(
@@ -1696,7 +1744,7 @@ FLATTENED_ATTRS_BACKTEST: tuple[FlattenedAttrSpec, ...] = (
         # device_class is dropped instead (issue #283).
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD,
+        unit_of_measurement=_CURRENCY,
         suggested_display_precision=3,
     ),
 )
@@ -2010,7 +2058,7 @@ FLATTENED_ATTRS_FLEX: tuple[FlattenedAttrSpec, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD_PER_KWH,
+        unit_of_measurement=_CURRENCY_PER_KWH,
         suggested_display_precision=4,
     ),
     FlattenedAttrSpec(
@@ -2020,7 +2068,7 @@ FLATTENED_ATTRS_FLEX: tuple[FlattenedAttrSpec, ...] = (
         entity_category=EntityCategory.DIAGNOSTIC,
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD_PER_KWH,
+        unit_of_measurement=_CURRENCY_PER_KWH,
         suggested_display_precision=4,
     ),
     FlattenedAttrSpec(
@@ -2379,7 +2427,7 @@ FLATTENED_ATTRS_CURRENT: tuple[FlattenedAttrSpec, ...] = (
         # device_class is dropped instead (issue #283).
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD_PER_KWH,
+        unit_of_measurement=_CURRENCY_PER_KWH,
         suggested_display_precision=4,
     ),
     FlattenedAttrSpec(
@@ -2394,7 +2442,7 @@ FLATTENED_ATTRS_CURRENT: tuple[FlattenedAttrSpec, ...] = (
         # device_class is dropped instead (issue #283).
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD_PER_KWH,
+        unit_of_measurement=_CURRENCY_PER_KWH,
         suggested_display_precision=4,
     ),
     FlattenedAttrSpec(
@@ -2409,7 +2457,7 @@ FLATTENED_ATTRS_CURRENT: tuple[FlattenedAttrSpec, ...] = (
         # device_class is dropped instead (issue #283).
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD_PER_KWH,
+        unit_of_measurement=_CURRENCY_PER_KWH,
         suggested_display_precision=4,
     ),
     # --- House context (primary) --------------------------------------------
@@ -2446,7 +2494,7 @@ FLATTENED_ATTRS_CURRENT: tuple[FlattenedAttrSpec, ...] = (
         # device_class is dropped instead (issue #283).
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD,
+        unit_of_measurement=_CURRENCY,
         suggested_display_precision=4,
     ),
     # --- Flow decomposition (diagnostic) -- from v0.94.15/17 (issue #264) ---
@@ -2532,7 +2580,7 @@ FLATTENED_ATTRS_CURRENT: tuple[FlattenedAttrSpec, ...] = (
         # device_class is dropped instead (issue #283).
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD_PER_KWH,
+        unit_of_measurement=_CURRENCY_PER_KWH,
         suggested_display_precision=4,
     ),
     # --- Savings decomposition (diagnostic) -- from v0.94.17 (issue #264) ---
@@ -2548,7 +2596,7 @@ FLATTENED_ATTRS_CURRENT: tuple[FlattenedAttrSpec, ...] = (
         # device_class is dropped instead (issue #283).
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD,
+        unit_of_measurement=_CURRENCY,
         suggested_display_precision=4,
     ),
     FlattenedAttrSpec(
@@ -2563,7 +2611,7 @@ FLATTENED_ATTRS_CURRENT: tuple[FlattenedAttrSpec, ...] = (
         # device_class is dropped instead (issue #283).
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD,
+        unit_of_measurement=_CURRENCY,
         suggested_display_precision=4,
     ),
     FlattenedAttrSpec(
@@ -2578,7 +2626,7 @@ FLATTENED_ATTRS_CURRENT: tuple[FlattenedAttrSpec, ...] = (
         # device_class is dropped instead (issue #283).
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD,
+        unit_of_measurement=_CURRENCY,
         suggested_display_precision=4,
     ),
     FlattenedAttrSpec(
@@ -2593,7 +2641,7 @@ FLATTENED_ATTRS_CURRENT: tuple[FlattenedAttrSpec, ...] = (
         # device_class is dropped instead (issue #283).
         device_class=None,
         state_class=SensorStateClass.MEASUREMENT,
-        unit_of_measurement=_AUD,
+        unit_of_measurement=_CURRENCY,
         suggested_display_precision=4,
     ),
 )

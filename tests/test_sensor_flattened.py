@@ -191,7 +191,18 @@ def test_class_attributes_match_spec_for_every_row():
         assert e._attr_entity_category is spec.entity_category
         assert e._attr_device_class is spec.device_class
         assert e._attr_state_class is spec.state_class
-        assert e._attr_native_unit_of_measurement == spec.unit_of_measurement
+        # nimbus #1253: currency rows deliberately do NOT set the _attr_ --
+        # HA's Entity base prefers it over a property when both exist, so
+        # setting it would republish the sentinel and the resolution would
+        # never run. Those rows are asserted through the property instead,
+        # which is what HA itself reads.
+        if spec.unit_of_measurement in (
+            sensor_flattened._CURRENCY,
+            sensor_flattened._CURRENCY_PER_KWH,
+        ):
+            assert "_attr_native_unit_of_measurement" not in e.__dict__
+        else:
+            assert e._attr_native_unit_of_measurement == spec.unit_of_measurement
 
 
 # --- fan-out extraction ----------------------------------------------------
@@ -748,7 +759,18 @@ def test_current_class_attributes_match_spec_for_every_row():
         assert e._attr_entity_category is spec.entity_category
         assert e._attr_device_class is spec.device_class
         assert e._attr_state_class is spec.state_class
-        assert e._attr_native_unit_of_measurement == spec.unit_of_measurement
+        # nimbus #1253: currency rows deliberately do NOT set the _attr_ --
+        # HA's Entity base prefers it over a property when both exist, so
+        # setting it would republish the sentinel and the resolution would
+        # never run. Those rows are asserted through the property instead,
+        # which is what HA itself reads.
+        if spec.unit_of_measurement in (
+            sensor_flattened._CURRENCY,
+            sensor_flattened._CURRENCY_PER_KWH,
+        ):
+            assert "_attr_native_unit_of_measurement" not in e.__dict__
+        else:
+            assert e._attr_native_unit_of_measurement == spec.unit_of_measurement
 
 
 # --- fan-out extraction (via dispatch_to_flattened_current) ----------------
