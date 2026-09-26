@@ -204,6 +204,68 @@ def trip_must_have_soc_kwh(
     return required
 
 
+def resolve_trip_deadline(
+    events: list[TripEvent],
+    grid_times: list[datetime],
+    *,
+    kwh_per_100km: float,
+    horizon_end: datetime,
+    min_soc_kwh: float,
+    max_soc_kwh: float,
+    already_driven_km_by_start: dict[datetime, float] | None = None,
+) -> tuple[int, float] | None:
+    """The soonest trip as a `(must_have_soc_by_period_index, must_have_soc_kwh)`
+    pair, or None when no trip in this horizon needs charge (nimbus issue #467,
+    staged item 4).
+
+    This is the whole calendar-to-LP chain in one call, and it exists so the
+    chain is exercised end to end rather than assembled differently at each call
+    site. #467 asks for exactly that: HAEO's own first EV attempt (#361) was
+    closed as "functionally inert with zero capacity" because the
+    calendar-to-capacity wiring was never actually run, despite the schema
+    looking complete.
+
+    **Only the SOONEST trip is returned, and that is a real limitation rather
+    than a simplification.** `BatteryConfig` carries ONE
+    `must_have_soc_by_period_index`/`must_have_soc_kwh` pair, so one deadline is
+    all the element can express. Returning the first is the right choice of the
+    available ones: it is the binding constraint in time, and a later trip in the
+    same horizon gets its own chance on a later solve, by which point it will be
+    the soonest. Silently dropping the others would be wrong to leave
+    undocumented, so `resolve_trip_windows()` still returns them all and the
+    caller can see what was set aside.
+
+    Returns None -- explicitly, rather than a zero requirement -- when there is
+    no usable trip. A zero `must_have_soc_kwh` is NOT the same thing: paired with
+    an index it would pin the pack to its own floor at that period, which is a
+    real constraint nobody asked for.
+    """
+    windows = resolve_trip_windows(
+        events,
+        grid_times,
+        kwh_per_100km=kwh_per_100km,
+        horizon_end=horizon_end,
+        already_driven_km_by_start=already_driven_km_by_start,
+    )
+    if not windows:
+        return None
+    _earliest, deadline, trip_kwh = windows[0]
+    if len(windows) > 1:
+        _LOGGER.info(
+            "Nimbus calendar (#467): %d trips fall in this horizon; planning for "
+            "the soonest (period %d, %.2f kWh). A BatteryConfig carries one "
+            "departure deadline, so the later %d will be planned for on the "
+            "solves where they are the soonest.",
+            len(windows),
+            deadline,
+            trip_kwh,
+            len(windows) - 1,
+        )
+    return deadline, trip_must_have_soc_kwh(
+        min_soc_kwh, trip_kwh, max_soc_kwh=max_soc_kwh
+    )
+
+
 def _period_index_at(grid_times: list[datetime], when: datetime) -> int | None:
     """The index of the period containing `when`, or None if outside the grid.
 

@@ -454,6 +454,37 @@ CONF_BATTERY_PARTICIPANT_MUST_HAVE_SOC_BY_DEPARTURE_PERCENT: Final = (
     "battery_participant_must_have_soc_by_departure_percent"
 )
 
+# nimbus issue #467 item 4: a CALENDAR-driven departure, as an
+# alternative to the fixed hour/percent pair directly above.
+#
+# The fixed pair answers "this car leaves at 07:00 every day and should have
+# 60% in it". The calendar answers a different question -- when does it
+# actually leave, and how far is it going -- and sizes the requirement from
+# real DISTANCE instead of a percentage the household has to convert by hand.
+#
+# Additive and precedence-ordered rather than a replacement: when the calendar
+# resolves a trip inside this horizon it wins, and the fixed pair stays as the
+# fallback for every solve where it does not (an empty calendar, a trip beyond
+# the horizon, an event with no distance in it). An install that configures
+# only the fixed pair is completely unaffected.
+#
+# `_TRIP_CALENDAR_ENTITY` is an HA `calendar.*` entity. Distance comes from the
+# event's own summary or description ("Trip to Brisbane 120 km", "30 mi") --
+# see solver_inputs/calendar_trips.py for the parsing rules and, importantly,
+# for why an event with no parseable distance is IGNORED with a warning rather
+# than given an invented default trip size.
+CONF_BATTERY_PARTICIPANT_TRIP_CALENDAR_ENTITY: Final = (
+    "battery_participant_trip_calendar_entity"
+)
+# Consumption, used to turn a distance into kWh. Named in kWh/100km because
+# that is how both vehicle specs and the household's own dashboard quote it.
+CONF_BATTERY_PARTICIPANT_KWH_PER_100KM: Final = "battery_participant_kwh_per_100km"
+# Optional: an odometer entity, so a trip already under way only requires the
+# charge for the distance REMAINING. Absent, the full trip is required, which
+# is conservative in the right direction -- the pack ends up fuller than
+# strictly needed, never emptier.
+CONF_BATTERY_PARTICIPANT_ODOMETER_ENTITY: Final = "battery_participant_odometer_entity"
+
 # #563 item 3 (2026-09-08): the shared-charger power constraint, the
 # other half deferred out of #566. An optional free-text group name --
 # two or more Battery Participant subentries sharing the SAME non-empty
