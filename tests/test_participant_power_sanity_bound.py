@@ -31,13 +31,14 @@ from datetime import datetime, timedelta
 
 import _solver_path  # noqa: F401
 import solver_writer
+from solver_inputs import battery_participants as battery_participants_inputs
 
 BRISBANE = solver_writer.LOCAL_TZ
 DAY = datetime(2026, 9, 13, 0, 0, tzinfo=BRISBANE)
 
 # Mark's real configured envelope for both EVs.
 EV_MAX_KW = 25.0
-BOUND = EV_MAX_KW * solver_writer._PARTICIPANT_POWER_IMPLAUSIBLE_MULTIPLE
+BOUND = EV_MAX_KW * battery_participants_inputs._PARTICIPANT_POWER_IMPLAUSIBLE_MULTIPLE
 
 
 def _at(hour: float) -> datetime:
@@ -45,7 +46,7 @@ def _at(hour: float) -> datetime:
 
 
 def _drop(hist, *, scale=1.0, bound=BOUND):
-    return solver_writer._drop_implausible_power_samples(
+    return battery_participants_inputs._drop_implausible_power_samples(
         hist,
         power_scale=scale,
         max_plausible_kw=bound,
@@ -89,14 +90,18 @@ class TestTheBoundItself(unittest.TestCase):
         # Someone types 5.0 for a genuinely 25 kW charger. Every real
         # reading is then 5x the configured figure -- still inside a 10x
         # bound, so their real data is not silently thrown away.
-        bound = 5.0 * solver_writer._PARTICIPANT_POWER_IMPLAUSIBLE_MULTIPLE
+        bound = (
+            5.0 * battery_participants_inputs._PARTICIPANT_POWER_IMPLAUSIBLE_MULTIPLE
+        )
         hist = [(_at(9), 24.9), (_at(10), -25.0)]
         self.assertEqual(_drop(hist, bound=bound), hist)
 
     def test_a_unit_error_is_still_caught_with_room_to_spare(self):
         # Even against that same over-conservative 5 kW config, a real
         # 1000x W-vs-kW error is two orders of magnitude past the bound.
-        bound = 5.0 * solver_writer._PARTICIPANT_POWER_IMPLAUSIBLE_MULTIPLE
+        bound = (
+            5.0 * battery_participants_inputs._PARTICIPANT_POWER_IMPLAUSIBLE_MULTIPLE
+        )
         self.assertEqual(_drop([(_at(9), 1514.417)], bound=bound), [])
 
     def test_the_bound_is_applied_after_power_scale(self):

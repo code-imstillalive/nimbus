@@ -30,6 +30,7 @@ from unittest.mock import patch
 
 import _solver_path  # noqa: F401
 import solver_writer
+from solver_inputs import battery_participants as battery_participants_inputs
 
 BRISBANE = solver_writer.LOCAL_TZ
 
@@ -442,7 +443,7 @@ class TestFleetAchievedEnergy(unittest.TestCase):
                 side_effect=_make_fetch(battery_kw),
             ),
             patch.object(
-                solver_writer,
+                battery_participants_inputs,
                 "_resolve_battery_participant_history",
                 side_effect=_resolve,
             ),

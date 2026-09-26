@@ -17,6 +17,7 @@ from unittest.mock import patch
 
 import _solver_path  # noqa: F401
 import solver_writer
+from solver_inputs import battery_participants as battery_participants_inputs
 
 BRISBANE = solver_writer.LOCAL_TZ
 NOW = datetime(2026, 8, 25, 10, 0, tzinfo=BRISBANE)
@@ -100,7 +101,7 @@ class TestResolveBatteryParticipantHistory(unittest.TestCase):
         solver_writer._NATIVE_HASS = self._orig_native_hass
 
     def _call(self):
-        return solver_writer._resolve_battery_participant_history(
+        return battery_participants_inputs._resolve_battery_participant_history(
             day_start=YESTERDAY_START,
             day_end=YESTERDAY_END,
             grid_times=self._grid_times,
@@ -219,7 +220,7 @@ class TestAvailabilityGating(unittest.TestCase):
         solver_writer._NATIVE_HASS = self._orig_native_hass
 
     def _call(self):
-        return solver_writer._resolve_battery_participant_history(
+        return battery_participants_inputs._resolve_battery_participant_history(
             day_start=YESTERDAY_START,
             day_end=YESTERDAY_END,
             grid_times=self._grid_times,

@@ -16,6 +16,7 @@ from types import SimpleNamespace
 import _solver_path  # noqa: F401
 import solver_writer
 from solver.elements import MIN_CHARGE_DISCHARGE_COST_SPREAD
+from solver_inputs import extra_batteries as extra_batteries_inputs
 
 
 def _fake_subentry(subentry_id: str, subentry_type: str, data: dict):
@@ -66,24 +67,24 @@ class TestBuildExtraBatteries(unittest.TestCase):
 
     def test_returns_empty_list_when_not_in_native_mode(self):
         solver_writer._NATIVE_HASS = None
-        self.assertEqual(solver_writer.build_extra_batteries(), [])
+        self.assertEqual(extra_batteries_inputs.build_extra_batteries(), [])
 
     def test_zero_subentries_is_a_real_no_op(self):
         solver_writer._NATIVE_HASS = _fake_native_hass([])
-        self.assertEqual(solver_writer.build_extra_batteries(), [])
+        self.assertEqual(extra_batteries_inputs.build_extra_batteries(), [])
 
     def test_non_battery_participant_subentries_are_ignored(self):
         solver_writer._NATIVE_HASS = _fake_native_hass(
             [_fake_subentry("s1", "load", {"load_sensor": "sensor.pool"})]
         )
-        self.assertEqual(solver_writer.build_extra_batteries(), [])
+        self.assertEqual(extra_batteries_inputs.build_extra_batteries(), [])
 
     def test_builds_a_real_battery_participant_from_its_subentry(self):
         solver_writer._NATIVE_HASS = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", _TESLA_DATA)],
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
         )
-        batteries = solver_writer.build_extra_batteries()
+        batteries = extra_batteries_inputs.build_extra_batteries()
         self.assertEqual(len(batteries), 1)
         b = batteries[0]
         self.assertEqual(b.name, "ev_m3p")
@@ -109,7 +110,7 @@ class TestBuildExtraBatteries(unittest.TestCase):
             [_fake_subentry("s1", "battery_participant", _TESLA_DATA)],
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
         )
-        b = solver_writer.build_extra_batteries()[0]
+        b = extra_batteries_inputs.build_extra_batteries()[0]
         self.assertGreaterEqual(
             b.charge_cost + b.discharge_cost, MIN_CHARGE_DISCHARGE_COST_SPREAD
         )
@@ -124,7 +125,7 @@ class TestBuildExtraBatteries(unittest.TestCase):
                 "number.m3p_t_charge_limit": _fake_state("80.0"),
             },
         )
-        b = solver_writer.build_extra_batteries()[0]
+        b = extra_batteries_inputs.build_extra_batteries()[0]
         # 80% (live entity) overrides the configured 95%.
         self.assertAlmostEqual(b.max_soc_kwh, 48.0)  # 80% of 60
 
@@ -135,7 +136,7 @@ class TestBuildExtraBatteries(unittest.TestCase):
             [_fake_subentry("s1", "battery_participant", data)],
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
         )
-        self.assertEqual(solver_writer.build_extra_batteries(), [])
+        self.assertEqual(extra_batteries_inputs.build_extra_batteries(), [])
 
     def test_missing_soc_sensor_is_skipped_not_crashed(self):
         data = dict(_TESLA_DATA)
@@ -143,7 +144,7 @@ class TestBuildExtraBatteries(unittest.TestCase):
         solver_writer._NATIVE_HASS = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", data)]
         )
-        self.assertEqual(solver_writer.build_extra_batteries(), [])
+        self.assertEqual(extra_batteries_inputs.build_extra_batteries(), [])
 
     def test_name_reserved_as_home_is_skipped_not_crashed(self):
         data = dict(_TESLA_DATA)
@@ -152,7 +153,7 @@ class TestBuildExtraBatteries(unittest.TestCase):
             [_fake_subentry("s1", "battery_participant", data)],
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
         )
-        self.assertEqual(solver_writer.build_extra_batteries(), [])
+        self.assertEqual(extra_batteries_inputs.build_extra_batteries(), [])
 
     def test_duplicate_names_the_second_one_is_skipped(self):
         data2 = dict(_TESLA_DATA)
@@ -167,7 +168,7 @@ class TestBuildExtraBatteries(unittest.TestCase):
                 "sensor.my_t_battery_level": _fake_state("60.0"),
             },
         )
-        batteries = solver_writer.build_extra_batteries()
+        batteries = extra_batteries_inputs.build_extra_batteries()
         self.assertEqual(len(batteries), 1)
         self.assertEqual(batteries[0].name, "ev_m3p")
 
@@ -186,7 +187,7 @@ class TestBuildExtraBatteries(unittest.TestCase):
                 "sensor.my_t_battery_level": _fake_state("70.0"),
             },
         )
-        batteries = solver_writer.build_extra_batteries()
+        batteries = extra_batteries_inputs.build_extra_batteries()
         self.assertEqual({b.name for b in batteries}, {"ev_m3p", "ev_my"})
 
     def test_a_glitch_soc_reading_is_clamped_not_crashed(self):
@@ -198,7 +199,7 @@ class TestBuildExtraBatteries(unittest.TestCase):
             [_fake_subentry("s1", "battery_participant", data)],
             states={"sensor.m3p_t_battery_level": _fake_state("140.0")},
         )
-        b = solver_writer.build_extra_batteries()[0]
+        b = extra_batteries_inputs.build_extra_batteries()[0]
         self.assertEqual(b.initial_soc_kwh, b.capacity_kwh)
 
 
@@ -220,7 +221,7 @@ class TestAvailabilityGateWiring(unittest.TestCase):
             [_fake_subentry("s1", "battery_participant", dict(_TESLA_DATA))],
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
         )
-        b = solver_writer.build_extra_batteries()[0]
+        b = extra_batteries_inputs.build_extra_batteries()[0]
         self.assertTrue(b.available)
 
     def test_available_entity_on_means_available(self):
@@ -235,7 +236,7 @@ class TestAvailabilityGateWiring(unittest.TestCase):
                 "binary_sensor.m3p_t_located_at_home": _fake_state("on"),
             },
         )
-        b = solver_writer.build_extra_batteries()[0]
+        b = extra_batteries_inputs.build_extra_batteries()[0]
         self.assertTrue(b.available)
 
     def test_available_entity_off_means_unavailable(self):
@@ -250,7 +251,7 @@ class TestAvailabilityGateWiring(unittest.TestCase):
                 "binary_sensor.m3p_t_located_at_home": _fake_state("off"),
             },
         )
-        b = solver_writer.build_extra_batteries()[0]
+        b = extra_batteries_inputs.build_extra_batteries()[0]
         self.assertFalse(b.available)
 
     def test_missing_available_entity_state_is_conservatively_unavailable(self):
@@ -264,7 +265,7 @@ class TestAvailabilityGateWiring(unittest.TestCase):
             [_fake_subentry("s1", "battery_participant", data)],
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
         )
-        b = solver_writer.build_extra_batteries()[0]
+        b = extra_batteries_inputs.build_extra_batteries()[0]
         self.assertFalse(b.available)
 
 
@@ -309,7 +310,7 @@ class TestAwayExclusionWindowWiring(unittest.TestCase):
             },
         )
         periods = self._periods(start_hour=6, n=6)
-        b = solver_writer.build_extra_batteries(periods)[0]
+        b = extra_batteries_inputs.build_extra_batteries(periods)[0]
         self.assertTrue(b.available)
         self.assertIsNone(b.unavailable_until_period_index)
 
@@ -322,7 +323,7 @@ class TestAwayExclusionWindowWiring(unittest.TestCase):
             },
         )
         periods = self._periods(start_hour=6, n=6, period_hours=1.0)
-        b = solver_writer.build_extra_batteries(periods)[0]
+        b = extra_batteries_inputs.build_extra_batteries(periods)[0]
         self.assertFalse(b.available)
         # Period 0 starts at 06:00 (< 07:00 cutoff), period 1 starts at
         # 07:00 (not < cutoff) -- exactly one period gated.
@@ -337,7 +338,7 @@ class TestAwayExclusionWindowWiring(unittest.TestCase):
             },
         )
         periods = self._periods(start_hour=6, n=10, period_hours=0.25)
-        b = solver_writer.build_extra_batteries(periods)[0]
+        b = extra_batteries_inputs.build_extra_batteries(periods)[0]
         self.assertFalse(b.available)
         # 06:00, 06:15, 06:30, 06:45 all < 07:00 cutoff -- 4 periods gated.
         self.assertEqual(b.unavailable_until_period_index, 4)
@@ -354,7 +355,7 @@ class TestAwayExclusionWindowWiring(unittest.TestCase):
                 "binary_sensor.m3p_t_located_at_home": _fake_state("off"),
             },
         )
-        b = solver_writer.build_extra_batteries()[0]
+        b = extra_batteries_inputs.build_extra_batteries()[0]
         self.assertFalse(b.available)
         self.assertIsNone(b.unavailable_until_period_index)
 
@@ -394,7 +395,7 @@ class TestDepartureDeadlineWiring(unittest.TestCase):
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
         )
         periods = self._periods(start_hour=6, n=6)  # 06:00..11:00, hour 8 is index 2
-        b = solver_writer.build_extra_batteries(periods)[0]
+        b = extra_batteries_inputs.build_extra_batteries(periods)[0]
         self.assertEqual(b.must_have_soc_by_period_index, 2)
         self.assertAlmostEqual(b.must_have_soc_kwh, 60.0 * 0.90)
 
@@ -440,7 +441,7 @@ class TestDepartureDeadlineWiring(unittest.TestCase):
         self.assertEqual(
             len(matches), 4, "fixture must contain several departures to be a test"
         )
-        b = solver_writer.build_extra_batteries(periods)[0]
+        b = extra_batteries_inputs.build_extra_batteries(periods)[0]
         self.assertEqual(
             b.must_have_soc_by_period_index,
             matches[0],
@@ -459,7 +460,7 @@ class TestDepartureDeadlineWiring(unittest.TestCase):
         periods = self._periods(
             start_hour=6, n=4
         )  # 06:00..09:00, hour 20 never appears
-        b = solver_writer.build_extra_batteries(periods)[0]
+        b = extra_batteries_inputs.build_extra_batteries(periods)[0]
         self.assertIsNone(b.must_have_soc_by_period_index)
         self.assertIsNone(b.must_have_soc_kwh)
 
@@ -471,7 +472,7 @@ class TestDepartureDeadlineWiring(unittest.TestCase):
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
         )
         periods = self._periods(start_hour=6, n=6)
-        b = solver_writer.build_extra_batteries(periods)[0]
+        b = extra_batteries_inputs.build_extra_batteries(periods)[0]
         self.assertIsNone(b.must_have_soc_by_period_index)
         self.assertIsNone(b.must_have_soc_kwh)
 
@@ -486,7 +487,7 @@ class TestDepartureDeadlineWiring(unittest.TestCase):
             [_fake_subentry("s1", "battery_participant", data)],
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
         )
-        b = solver_writer.build_extra_batteries()[0]
+        b = extra_batteries_inputs.build_extra_batteries()[0]
         self.assertIsNone(b.must_have_soc_by_period_index)
         self.assertIsNone(b.must_have_soc_kwh)
 
@@ -506,7 +507,7 @@ class TestSharedChargerWiring(unittest.TestCase):
             [_fake_subentry("s1", "battery_participant", data)],
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
         )
-        b = solver_writer.build_extra_batteries()[0]
+        b = extra_batteries_inputs.build_extra_batteries()[0]
         self.assertEqual(b.shared_charger_group, "dc_charger")
         self.assertEqual(b.shared_charger_max_kw, 25.0)
 
@@ -515,7 +516,7 @@ class TestSharedChargerWiring(unittest.TestCase):
             [_fake_subentry("s1", "battery_participant", dict(_TESLA_DATA))],
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},
         )
-        b = solver_writer.build_extra_batteries()[0]
+        b = extra_batteries_inputs.build_extra_batteries()[0]
         self.assertIsNone(b.shared_charger_group)
         self.assertIsNone(b.shared_charger_max_kw)
 
@@ -534,11 +535,11 @@ class TestOutOfRangeSocWarningParity(unittest.TestCase):
         # tracking now persists across calls (previously every call
         # warned unconditionally, so a leaked key from another test
         # class never mattered) -- isolate it here too.
-        solver_writer._BATTERY_PARTICIPANT_WARNED.clear()
+        extra_batteries_inputs._BATTERY_PARTICIPANT_WARNED.clear()
 
     def tearDown(self):
         solver_writer._NATIVE_HASS = self._orig_native_hass
-        solver_writer._BATTERY_PARTICIPANT_WARNED.clear()
+        extra_batteries_inputs._BATTERY_PARTICIPANT_WARNED.clear()
 
     def test_soc_above_configured_ceiling_logs_a_warning(self):
         data = dict(_TESLA_DATA)  # max_soc_percent=95.0
@@ -547,7 +548,7 @@ class TestOutOfRangeSocWarningParity(unittest.TestCase):
             states={"sensor.m3p_t_battery_level": _fake_state("100.0")},
         )
         with self.assertLogs(solver_writer._LOGGER, level="WARNING") as cm:
-            b = solver_writer.build_extra_batteries()[0]
+            b = extra_batteries_inputs.build_extra_batteries()[0]
         self.assertTrue(
             any("outside its own configured floor/ceiling" in msg for msg in cm.output)
         )
@@ -567,7 +568,7 @@ class TestOutOfRangeSocWarningParity(unittest.TestCase):
         # least one record, so the diag noise was load-bearing for a test
         # whose actual meaning is 'nothing is logged at all'.
         with self.assertNoLogs(solver_writer._LOGGER, level="WARNING"):
-            solver_writer.build_extra_batteries()
+            extra_batteries_inputs.build_extra_batteries()
 
 
 class TestSocExcursionWarnOnce(unittest.TestCase):
@@ -579,11 +580,11 @@ class TestSocExcursionWarnOnce(unittest.TestCase):
 
     def setUp(self):
         self._orig_native_hass = solver_writer._NATIVE_HASS
-        solver_writer._BATTERY_PARTICIPANT_WARNED.clear()
+        extra_batteries_inputs._BATTERY_PARTICIPANT_WARNED.clear()
 
     def tearDown(self):
         solver_writer._NATIVE_HASS = self._orig_native_hass
-        solver_writer._BATTERY_PARTICIPANT_WARNED.clear()
+        extra_batteries_inputs._BATTERY_PARTICIPANT_WARNED.clear()
 
     def _below_floor_hass(self):
         data = dict(_TESLA_DATA)
@@ -595,43 +596,43 @@ class TestSocExcursionWarnOnce(unittest.TestCase):
     def test_first_excursion_cycle_logs_a_real_warning(self):
         self._below_floor_hass()
         with self.assertLogs(solver_writer._LOGGER, level="WARNING") as cm:
-            solver_writer.build_extra_batteries()
+            extra_batteries_inputs.build_extra_batteries()
         self.assertTrue(
             any("ev_m3p" in line and "outside" in line for line in cm.output)
         )
 
     def test_second_consecutive_excursion_cycle_is_debug_not_warning(self):
         self._below_floor_hass()
-        solver_writer.build_extra_batteries()  # first cycle: WARNING, consumes the key
+        extra_batteries_inputs.build_extra_batteries()  # first cycle: WARNING, consumes the key
         with (
             self.assertNoLogs(solver_writer._LOGGER, level="WARNING"),
             self.assertLogs(solver_writer._LOGGER, level="DEBUG") as cm,
         ):
-            solver_writer.build_extra_batteries()
+            extra_batteries_inputs.build_extra_batteries()
         self.assertTrue(
             any("ev_m3p" in line and "still outside" in line for line in cm.output)
         )
 
     def test_recovery_cycle_logs_one_info_and_resets_the_key(self):
         self._below_floor_hass()
-        solver_writer.build_extra_batteries()  # establishes the excursion
+        extra_batteries_inputs.build_extra_batteries()  # establishes the excursion
         data = dict(_TESLA_DATA)
         solver_writer._NATIVE_HASS = _fake_native_hass(
             [_fake_subentry("s1", "battery_participant", data)],
             states={"sensor.m3p_t_battery_level": _fake_state("55.0")},  # back inside
         )
         with self.assertLogs(solver_writer._LOGGER, level="INFO") as cm:
-            solver_writer.build_extra_batteries()
+            extra_batteries_inputs.build_extra_batteries()
         self.assertTrue(any("recovered" in line for line in cm.output))
         self.assertNotIn(
-            "ev_m3p:soc_excursion", solver_writer._BATTERY_PARTICIPANT_WARNED
+            "ev_m3p:soc_excursion", extra_batteries_inputs._BATTERY_PARTICIPANT_WARNED
         )
 
         # A subsequent excursion after recovering must warn again (not
         # stay silently suppressed by a stale key).
         self._below_floor_hass()
         with self.assertLogs(solver_writer._LOGGER, level="WARNING") as cm2:
-            solver_writer.build_extra_batteries()
+            extra_batteries_inputs.build_extra_batteries()
         self.assertTrue(any("outside" in line for line in cm2.output))
 
     def test_unavailable_participant_never_warns_even_while_outside_floor(self):
@@ -654,9 +655,9 @@ class TestSocExcursionWarnOnce(unittest.TestCase):
         # gated-unavailable participant'; the DEBUG-level capture plus
         # filter was a workaround for the temporary trace, not the intent.
         with self.assertNoLogs(solver_writer._LOGGER, level="WARNING"):
-            solver_writer.build_extra_batteries()
+            extra_batteries_inputs.build_extra_batteries()
         self.assertNotIn(
-            "ev_m3p:soc_excursion", solver_writer._BATTERY_PARTICIPANT_WARNED
+            "ev_m3p:soc_excursion", extra_batteries_inputs._BATTERY_PARTICIPANT_WARNED
         )
 
 

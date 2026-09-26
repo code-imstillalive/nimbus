@@ -8,6 +8,10 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Changed
+- **`build_extra_batteries()` and `_resolve_battery_participant_history()` extracted from `solver_writer.py` into `solver_inputs/extra_batteries.py` and `solver_inputs/battery_participants.py`** ([#1300](https://github.com/code-imstillalive/nimbus/issues/1300), Phase 1 of [#1298](https://github.com/code-imstillalive/nimbus/issues/1298)'s decomposition of `solver_writer.py`'s 18,708-line god-module, resuming [#735](https://github.com/code-imstillalive/nimbus/issues/735)). Internal structure only — every function moved verbatim, no value recomputed, `solver_writer.py` keeps calling them through the new modules exactly as `main()`/`_compute_report_for_window()` already do for `solar.py`/`load.py`/`prices.py`/`battery_soc.py`. `solver_writer.py` is 1,587 lines shorter (18,708 → 17,121). Full local suite (3,986 passed, same known Python-3.13-vs-3.14 float-divergence artifact as before), `ruff check`/`format`, and an mypy delta check (154 advisory findings before and after — the same findings, relocated to the new files) all confirm zero behavior change.
+  - Devhub validation: not claimed — a pure internal refactor with no new or changed entity, service, or config surface has nothing for a live install to exercise differently than before.
+
 ## [0.94.425] - 2026-09-26
 
 ### Added

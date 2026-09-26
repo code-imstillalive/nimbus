@@ -51,8 +51,8 @@ import unittest
 
 import _solver_path  # noqa: F401
 import numpy as np
-import solver_writer
 from solver import elements
+from solver_inputs import battery_participants as battery_participants_inputs
 
 ZERO = np.zeros(6)
 
@@ -77,7 +77,7 @@ def _cfg(name, group, cap, *, max_charge_kw=15.0):
 
 
 def _widen(rows):
-    return solver_writer._widen_shared_charger_cap_to_achieved(rows)
+    return battery_participants_inputs._widen_shared_charger_cap_to_achieved(rows)
 
 
 def _caps(rows):
@@ -218,7 +218,9 @@ class TestTheScorerActuallySetsTheFields(unittest.TestCase):
     """
 
     def test_the_history_path_sets_both_shared_charger_fields(self):
-        source = solver_writer.__file__.replace(".pyc", ".py")
+        # nimbus issue #1300: both functions moved to
+        # solver_inputs/battery_participants.py.
+        source = battery_participants_inputs.__file__.replace(".pyc", ".py")
         with open(source, encoding="utf-8") as f:
             text = f.read()
         start = text.index("def _resolve_battery_participant_history(")
@@ -237,7 +239,7 @@ class TestTheScorerActuallySetsTheFields(unittest.TestCase):
                 )
 
     def test_the_widening_runs_on_the_way_out(self):
-        source = solver_writer.__file__.replace(".pyc", ".py")
+        source = battery_participants_inputs.__file__.replace(".pyc", ".py")
         with open(source, encoding="utf-8") as f:
             text = " ".join(f.read().split())
         self.assertIn(

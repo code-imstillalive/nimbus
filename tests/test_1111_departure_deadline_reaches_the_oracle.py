@@ -58,7 +58,8 @@ from datetime import UTC, datetime, timedelta
 
 import _solver_path  # noqa: F401
 import numpy as np
-import solver_writer
+from solver_inputs import battery_participants as battery_participants_inputs
+from solver_inputs import extra_batteries as extra_batteries_inputs
 
 # Deliberately UTC-stamped, because `_local()` is what the live path uses
 # and this must match it. Brisbane is UTC+10, so local hour 7 is index 21
@@ -89,7 +90,7 @@ def _deadline(charge, **over):
         "efficiency": EFFICIENCY,
     }
     kwargs.update(over)
-    return solver_writer._participant_departure_deadline(**kwargs)
+    return battery_participants_inputs._participant_departure_deadline(**kwargs)
 
 
 class TestTheDeadlineIndexIsLocal(unittest.TestCase):
@@ -145,7 +146,7 @@ class TestADayThatMissedItsTarget(unittest.TestCase):
         self.assertAlmostEqual(kwh, INITIAL_SOC_KWH, places=6)
 
     def test_discharge_before_the_deadline_is_debited(self):
-        idx, kwh = solver_writer._participant_departure_deadline(
+        idx, kwh = battery_participants_inputs._participant_departure_deadline(
             grid_times=GRID_TIMES,
             period_hours=PERIOD_HOURS,
             departure_hour=DEPARTURE_HOUR,
@@ -163,7 +164,7 @@ class TestADayThatMissedItsTarget(unittest.TestCase):
         """A reconstruction that discharges more than the pack held would
         otherwise produce a negative requirement, which `BatteryConfig`
         would reject and which means nothing anyway."""
-        _idx, kwh = solver_writer._participant_departure_deadline(
+        _idx, kwh = battery_participants_inputs._participant_departure_deadline(
             grid_times=GRID_TIMES,
             period_hours=PERIOD_HOURS,
             departure_hour=DEPARTURE_HOUR,
@@ -215,7 +216,9 @@ class TestTheScorerActuallyWiresItUp(unittest.TestCase):
     """
 
     def test_the_history_path_sets_both_fields(self):
-        source = solver_writer.__file__.replace(".pyc", ".py")
+        # nimbus issue #1300: both functions moved to
+        # solver_inputs/battery_participants.py.
+        source = battery_participants_inputs.__file__.replace(".pyc", ".py")
         with open(source, encoding="utf-8") as f:
             text = f.read()
         start = text.index("def _resolve_battery_participant_history(")
@@ -242,11 +245,13 @@ class TestTheScorerActuallyWiresItUp(unittest.TestCase):
         """
         import ast
 
-        source = solver_writer.__file__.replace(".pyc", ".py")
-        with open(source, encoding="utf-8") as f:
-            tree = ast.parse(f.read())
-
-        def fields(name):
+        # nimbus issue #1300: the two siblings now live in separate files
+        # (extra_batteries.py / battery_participants.py), so each is
+        # parsed from its own module's source.
+        def fields_in(module, name):
+            source = module.__file__.replace(".pyc", ".py")
+            with open(source, encoding="utf-8") as f:
+                tree = ast.parse(f.read())
             fn = next(
                 n
                 for n in ast.walk(tree)
@@ -263,8 +268,10 @@ class TestTheScorerActuallyWiresItUp(unittest.TestCase):
                         found |= {k.arg for k in node.keywords if k.arg}
             return found
 
-        live = fields("build_extra_batteries")
-        history = fields("_resolve_battery_participant_history")
+        live = fields_in(extra_batteries_inputs, "build_extra_batteries")
+        history = fields_in(
+            battery_participants_inputs, "_resolve_battery_participant_history"
+        )
         self.assertEqual(
             live - history,
             {"available", "unavailable_until_period_index"},

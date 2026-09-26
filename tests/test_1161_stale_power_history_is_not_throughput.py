@@ -55,6 +55,7 @@ import _solver_path  # noqa: F401
 import load_run_state
 import numpy as np
 import solver_writer
+from solver_inputs import battery_participants as battery_participants_inputs
 
 BRISBANE = solver_writer.LOCAL_TZ
 DAY_START = datetime(2026, 8, 24, 0, 0, tzinfo=BRISBANE)
@@ -113,7 +114,7 @@ def _soc_series():
 
 
 def _call():
-    return solver_writer._resolve_battery_participant_history(
+    return battery_participants_inputs._resolve_battery_participant_history(
         day_start=DAY_START,
         day_end=DAY_END,
         grid_times=GRID,
