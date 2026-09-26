@@ -81,6 +81,8 @@ from datetime import datetime
 from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
+from .const import DOMAIN
+
 _LOGGER = logging.getLogger(__name__)
 
 # Issues #294/#295 (Mark Purcell, 2026-08-31) -- a tiny, module-level
@@ -731,10 +733,46 @@ async def async_run_solve(hass: HomeAssistant) -> bool:
     future = hass.async_add_executor_job(_run_one_cycle, hass)
     _in_flight_future = future
     try:
-        return await future
+        ok = await future
     finally:
         if _in_flight_future is future:
             _in_flight_future = None
+
+    # nimbus issue #937: capture today's day-ahead forecast, once per local
+    # day, on the first solve that succeeds. Here rather than inside
+    # _run_one_cycle() because that body runs on a worker thread and a Store
+    # write must be awaited on the event loop.
+    #
+    # Only after a genuine success: a failed cycle has published nothing, so
+    # there is no forecast to capture and filing an empty one would record a
+    # forecast the solver never made.
+    #
+    # Swallowed by the helper itself -- a diagnostic must never turn a
+    # successful solve into a reported failure.
+    if ok:
+        entry_id = _entry_id_for_snapshot(hass)
+        if entry_id:
+            from .forecast_snapshot_store import async_capture_todays_snapshot
+
+            await async_capture_todays_snapshot(hass, entry_id)
+    return ok
+
+
+def _entry_id_for_snapshot(hass: HomeAssistant) -> str | None:
+    """The hub's own config entry id, for the snapshot Store's key.
+
+    Returns None rather than guessing when there is no single loaded entry --
+    the Store name is per-entry, and writing one install's forecast under
+    another's key would be worse than not capturing it.
+    """
+    try:
+        entries = hass.config_entries.async_entries(DOMAIN)
+    except Exception:  # noqa: BLE001 -- see async_run_solve's own comment
+        return None
+    loaded = [e for e in entries if getattr(e, "entry_id", None)]
+    if len(loaded) != 1:
+        return None
+    return str(loaded[0].entry_id)
 
 
 async def wait_for_in_flight_solve(timeout: float = _SLOW_CYCLE_THRESHOLD_S) -> None:
