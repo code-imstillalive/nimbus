@@ -605,6 +605,16 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "resolve_trip_windows",
         "trip_must_have_soc_kwh",
         "resolve_trip_deadline",
+        # nimbus #467 item 4: reads an HA calendar entity via
+        # calendar.get_events. Same open-drift reasoning as the four above, and
+        # for the same reason it is NOT native-only: it goes through
+        # ha_call_service_with_response(), which the cron copy already uses for
+        # weather.get_forecasts, so the mechanism is genuinely portable. What
+        # keeps it integration-only for now is the CONFIG surface -- the
+        # participant subentry naming the calendar entity is a ConfigSubentry,
+        # which is not exposed over this module's plain-REST seam, exactly as
+        # build_extra_batteries() itself already documents.
+        "fetch_calendar_trips",
         "_period_index_at",
         # nimbus issue #452, the forecast-vs-actuals half. The log-once
         # helper for it is integration-only because the check it reports

@@ -14642,6 +14642,84 @@ _BATTERY_PARTICIPANT_WARNED: set[str] = set()
 # participant name, for build_extra_batteries()'s own equivalent warning.
 
 
+def fetch_calendar_trips(
+    entity_id: str,
+    start: datetime,
+    end: datetime,
+) -> list:
+    """Upcoming events on one HA `calendar.*` entity, as `TripEvent`s
+    (nimbus issue #467 item 4).
+
+    Uses `calendar.get_events`, a response-returning service, through this
+    module's own `ha_call_service_with_response()` -- so it works in BOTH
+    deployment shapes with no new mechanism: that helper already bridges the
+    native in-process path and the standalone/cron REST path, exactly as
+    `publish_weather_forecast_mirrors()` does for `weather.get_forecasts`.
+
+    Returns [] on ANY failure or unexpected shape, deliberately and without
+    raising. A calendar that is missing, unavailable, renamed, or returning
+    something this function does not recognise must degrade to "no trip
+    planned this solve" -- which then falls back to the fixed departure pair
+    if one is configured. The alternative, letting a calendar read break the
+    solve, would make an optional convenience a single point of failure for
+    real battery dispatch.
+
+    Times come back as ISO strings; an event whose start or end will not parse
+    is skipped individually rather than discarding the whole response.
+    """
+    from .solver_inputs.calendar_trips import TripEvent
+
+    response = ha_call_service_with_response(
+        "calendar",
+        "get_events",
+        {
+            "entity_id": entity_id,
+            "start_date_time": start.isoformat(),
+            "end_date_time": end.isoformat(),
+        },
+    )
+    if not isinstance(response, dict):
+        return []
+    # Keyed by entity_id, the same shape weather.get_forecasts returns.
+    payload = response.get(entity_id)
+    if not isinstance(payload, dict):
+        return []
+    raw_events = payload.get("events")
+    if not isinstance(raw_events, list):
+        return []
+    trips: list = []
+    for raw in raw_events:
+        if not isinstance(raw, dict):
+            continue
+        started = _safe_fromisoformat(str(raw.get("start") or ""))
+        ended = _safe_fromisoformat(str(raw.get("end") or ""))
+        if started is None or ended is None:
+            # One malformed event must not discard the rest -- an all-day
+            # entry, a provider quirk, a half-written event.
+            continue
+        # nimbus issue #363: `_safe_fromisoformat()` can return a NAIVE
+        # datetime, and a calendar provider genuinely can emit an
+        # offset-less string (an all-day event especially). Every consumer
+        # downstream compares these against tz-aware `grid_times`, and that
+        # comparison raises TypeError deep inside the resolution rather than
+        # anywhere near here -- the exact shape #363 documents for solar
+        # sources. Normalised to UTC on the same "assume UTC for a genuinely
+        # naive value" rule that function's sibling already applies.
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=UTC)
+        if ended.tzinfo is None:
+            ended = ended.replace(tzinfo=UTC)
+        trips.append(
+            TripEvent(
+                start=started,
+                end=ended,
+                summary=str(raw.get("summary") or ""),
+                description=str(raw.get("description") or ""),
+            )
+        )
+    return trips
+
+
 def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
     """nimbus issue #563: the config surface for #467 stage 1's own
     `batteries: list[BatteryConfig]` solver support. Builds ADDITIONAL
