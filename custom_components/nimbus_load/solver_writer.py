@@ -7058,6 +7058,10 @@ def publish_daily_flex_report(cfg: dict, now: datetime) -> None:
             "friendly_name": "Nimbus Flex Report",
             **report,
             "generated_at": datetime.now(UTC).astimezone(LOCAL_TZ).isoformat(),
+            # nimbus issue #1256: stamped with the computation, not left to
+            # the entity's running-install fallback -- this sensor restores
+            # across a restart, so the two diverge on every deploy.
+            **_version_stamp(),
         },
     )
 
@@ -9507,6 +9511,52 @@ def _nimbus_version() -> str | None:
     return version if isinstance(version, str) and version else None
 
 
+def _version_stamp() -> dict[str, str]:
+    """`{"nimbus_version": <this release>}`, or `{}` when unknown.
+
+    **Why a dict to splat rather than a plain value** (nimbus issue #1256).
+    `_nimbus_version()` can return None, and an explicit
+    `"nimbus_version": None` is worse than an absent key: the entity layer's
+    own #972 fallback declines to overwrite a key that is already present, so
+    a None would publish through as None and suppress the fallback that would
+    otherwise have said something true. An absent key reads exactly as every
+    row written before #1120 did -- "produced by something that did not say" --
+    which is this module's own established convention for an unknown version.
+
+    **Why the publishers stamp at all, when #972 already adds one.** They are
+    answering different questions with the same attribute name, and #1256 is
+    what happens when the difference is not noticed:
+
+    * #972's entity-level stamp describes the RUNNING install. That is right
+      for its own purpose, which is mirror detection -- a `nimbus_version`
+      disagreeing with the version just deployed proves the entity_id
+      resolved to another install's sensor.
+    * #1120/#1219's row-level stamp describes the release that COMPUTED the
+      figures. That is what a reader of a once-a-day report needs.
+
+    The four daily publishers restore their previous attributes across a
+    restart (`_RESTORE_ACROSS_RESTART = True`), so for them the two answers
+    diverge the moment a release is deployed: the figures are yesterday's, the
+    running install is today's. Measured on production 2026-09-26 -- a deploy
+    at 10:38 AEST left all four sensors reading `nimbus_version: 0.94.420`
+    against `generated_at` values of 00:00, 00:00, 00:00:13 and 06:06, every
+    one of them computed by v0.94.417. The same quality report had read
+    `0.94.417` correctly a few hours earlier, so the stamp moved without the
+    figures being recomputed.
+
+    That is not cosmetic. It read as "the #1233 fix shipped in .420 and did
+    not work" when the truth was "these are .417's numbers wearing .420's
+    label" -- and this project's own standing lesson is that *a version
+    difference is not an explanation for a wrong number until the diff is
+    actually read*. A stamp that lies makes that check harder, not easier.
+
+    Stamping here makes the claim travel with the computation, so a restore
+    reproduces it unchanged alongside `generated_at`.
+    """
+    version = _nimbus_version()
+    return {"nimbus_version": version} if version is not None else {}
+
+
 def _carry_forward_quality_history(
     prior_attrs: dict,
     day_key: str,
@@ -10396,6 +10446,12 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
             "friendly_name": "Nimbus Solver Quality Report (EPR)",
             "latest_date": yesterday_key,
             "generated_at": now.isoformat(),
+            # nimbus issue #1256: stamped with the computation, not left to
+            # the entity's running-install fallback -- this sensor restores
+            # across a restart, so the two diverge on every deploy. The
+            # rescore path already does its own equivalent a few hundred
+            # lines up, for the same reason.
+            **_version_stamp(),
             # nimbus issue #994: placed BEFORE **day_entry, so a future
             # day_entry key named "history" would win rather than being
             # silently shadowed -- the same ordering rule the keys above
@@ -10684,10 +10740,20 @@ def publish_efficiency_backtest_report(cfg: dict, now: datetime) -> None:
         BACKTEST_ENTITY_ID,
         report["spread_dollars"],
         {
-            "unit_of_measurement": "$",
+            # nimbus issue #1253: `"$"` assumed a currency. This is the
+            # cheapest of that issue's three sites -- a plain REST-posted
+            # attribute with no entity-registry or long-term-statistics
+            # relationship -- so it carries none of the ~20-repair migration
+            # risk the flattened children do. The native path resolves this
+            # from `hass.config.currency` on the entity; this standalone/cron
+            # path has no `hass`, so it says nothing rather than guessing.
+            # An absent unit is honest; a wrong one is not.
             "friendly_name": "Nimbus Efficiency Backtest",
             "latest_date": yesterday_key,
             "generated_at": now.isoformat(),
+            # nimbus issue #1256: stamped with the computation -- see the
+            # flex report above.
+            **_version_stamp(),
             **report,
         },
     )
@@ -11081,6 +11147,9 @@ def publish_nimbus_only_soc_counterfactual(cfg: dict, now: datetime) -> None:
             "friendly_name": "Nimbus-only Counterfactual SoC",
             "latest_date": yesterday_key,
             "generated_at": now.isoformat(),
+            # nimbus issue #1256: stamped with the computation -- see the
+            # flex report above.
+            **_version_stamp(),
             **day_entry,
         },
     )
