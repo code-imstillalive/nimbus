@@ -9306,6 +9306,18 @@ _QUALITY_HISTORY_MAX_DAYS = 60
 # no gain against the failure actually observed.
 _LAST_KNOWN_QUALITY_HISTORY: dict[str, dict[str, float | str]] = {}
 
+# nimbus issue #1248: how the currently-published quality report read back.
+# An explicit status rather than a boolean "degraded", because the call site
+# knows which of four things happened and flattening that to true/false is what
+# conflated "the entity exists but I could not read its rows" (a real risk to
+# real data) with "I could not reach HA" (routine, and knows nothing about
+# whether rows existed).
+PRIOR_READ_OK = "ok"
+PRIOR_READ_ABSENT = "absent"  # 404 -- a genuine first publish
+PRIOR_READ_UNAVAILABLE = "unavailable"  # read succeeded, attributes dropped
+PRIOR_READ_UNREACHABLE = "unreachable"  # HA could not be reached at all
+_PRIOR_READ_DEGRADED = (PRIOR_READ_UNAVAILABLE, PRIOR_READ_UNREACHABLE)
+
 _QUALITY_HISTORY_FIELDS = (
     "epr",
     "j_ref",
@@ -9529,6 +9541,7 @@ def _carry_forward_quality_history(
     day_entry: dict,
     *,
     freshly_computed: bool = True,
+    prior_read: str = PRIOR_READ_OK,
 ) -> dict[str, dict[str, float | str]]:
     """The scored-day table, with today's entry added and the oldest
     trimmed (nimbus issue #994).
@@ -9576,27 +9589,67 @@ def _carry_forward_quality_history(
 
     prior = prior_attrs.get("history")
     # nimbus issue #1248: a read that came back with no `history` is
-    # AMBIGUOUS -- it is either a genuine first-ever publish or a degraded
-    # read, and at this layer those are indistinguishable. The caller's own
-    # comment treats them as the same thing ("a first-ever publish, or an
-    # unreachable read"), which is what made the loss permanent.
+    # ambiguous on its own -- it is either a genuine first-ever publish or a
+    # degraded read. The caller's own comment treated them as the same thing
+    # ("a first-ever publish, or an unreachable read"), which is what made the
+    # loss permanent.
     #
-    # If this process has previously seen a real table, the ambiguity is
-    # resolved: it cannot be a first-ever publish. Fall back to what was last
-    # known rather than publishing a one-row table that the next cycle would
-    # then inherit.
-    if not isinstance(prior, dict) or not prior:
+    # `prior_read` is the caller's POSITIVE classification, not a guess from an
+    # empty prior: `ha_get()` distinguishes the cases exactly, and this
+    # function used to have no way to tell them apart. Only the two degraded
+    # statuses recover, so a genuine first publish (404) never consults this
+    # cache -- which is what keeps the behaviour independent of whatever this
+    # process happened to publish earlier.
+    if prior_read in _PRIOR_READ_DEGRADED and (
+        not isinstance(prior, dict) or not prior
+    ):
         if _LAST_KNOWN_QUALITY_HISTORY:
-            _LOGGER.warning(
-                "Nimbus #1248: the quality report read back with no history at "
-                "all, but this process has already published %d row(s) -- so "
-                "this is a degraded read, not a first-ever publish. Recovering "
-                "the last known table instead of writing a one-row history that "
-                "the next cycle would inherit. This is the signature of a "
-                "recorder/executor stall (see #1217's 06:00 window).",
-                len(_LAST_KNOWN_QUALITY_HISTORY),
-            )
             prior = dict(_LAST_KNOWN_QUALITY_HISTORY)
+            # Only claim a rescue if something was actually rescued. A cache
+            # holding nothing but the day being written right now recovers
+            # nothing -- this function would produce that single row anyway --
+            # and warning about it would fire on every cycle of a normal
+            # single-day install. Measured against
+            # test_quality_report_achieved_energy_and_reliability.py's
+            # TestPublishLogsOncePerScoredDay, which publishes the same day
+            # twice through an unreachable read and asserts the second is
+            # silent: an unconditional warning here broke it, correctly.
+            rescued = sorted(k for k in prior if k != day_key)
+            if rescued:
+                _LOGGER.warning(
+                    "Nimbus #1248: the quality report read back %s and with no "
+                    "history, so recovering the %d earlier row(s) this process "
+                    "last published (%s) rather than writing a one-row table "
+                    "the next cycle would inherit. HA itself no longer has "
+                    "those rows, so this cache is the only place they still "
+                    "exist. Signature of a recorder/executor stall -- see "
+                    "#1217's 06:00 window.",
+                    prior_read,
+                    len(rescued),
+                    ", ".join(rescued),
+                )
+        elif prior_read == PRIOR_READ_UNAVAILABLE:
+            # The read SUCCEEDED, so the entity exists -- which means it has
+            # published before and very likely had rows. Nothing to recover
+            # from, so this publish genuinely truncates, and that is worth
+            # saying out loud.
+            _LOGGER.warning(
+                "Nimbus #1248: the quality report exists but read back "
+                "`unavailable`, so its history could not be read, and this "
+                "process has published none yet to recover from. Publishing "
+                "today's row alone -- any older rows are not retrievable from "
+                "here. Rebuild them with the rescore_history service."
+            )
+        else:
+            # Unreachable HA says nothing about whether rows existed, and on
+            # the standalone/cron path it is a routine transient. INFO, not
+            # WARNING: warning every cycle while HA is down would be noise,
+            # and two existing tests assert this path stays quiet.
+            _LOGGER.info(
+                "Nimbus #1248: could not reach HA to read the quality "
+                "report's history, and this process has published none yet. "
+                "Publishing today's row alone."
+            )
     history: dict[str, dict[str, float | str]] = {}
     if isinstance(prior, dict):
         # Defensive about shape rather than trusting it: this dict may
@@ -10202,12 +10255,34 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
     # Deliberately NOT fixed by skipping the publish on a failed read: a
     # genuine first-ever publish on a fresh install ALSO fails this read
     # (404 on an entity that does not exist yet), so skipping would mean a
-    # new install could never write its first row. The two cases are
-    # indistinguishable HERE, which is why the fix lives one layer down in
-    # _carry_forward_quality_history(), where `_LAST_KNOWN_QUALITY_HISTORY`
-    # can tell them apart: a process that has already published rows cannot
-    # be making a first-ever publish.
+    # new install could never write its first row.
+    #
+    # They are distinguishable, though -- `ha_get()` gives three outcomes and
+    # this function was discarding the difference between them:
+    #
+    #   * HTTPError 404              -> the entity does not exist -> a GENUINE
+    #                                   first publish. Write the one row.
+    #   * a SUCCESSFUL read whose
+    #     state is unavailable/unknown -> the entity exists but HA has replaced
+    #                                   its attributes with the unavailable
+    #                                   minimum -> DEGRADED. This is the
+    #                                   measured case: the quality report is
+    #                                   kept non-stale by the per-cycle
+    #                                   fast-path re-push below (#289/#292),
+    #                                   ten consecutive skipped cycles stopped
+    #                                   that, `available` went False, and the
+    #                                   pushed attributes went with it.
+    #   * URLError / non-404 HTTPError -> HA or the network is unreachable ->
+    #                                   DEGRADED.
+    #
+    # `prior_read` carries that verdict to
+    # _carry_forward_quality_history(), which is the only place the dropped
+    # rows still exist to be recovered from. An explicit status rather than a
+    # boolean, because `unavailable` (the entity exists, so rows probably did
+    # too) and `unreachable` (knows nothing, routine on the cron path) warrant
+    # different things being said when there is nothing to recover.
     existing_attrs: dict = {}
+    prior_read = PRIOR_READ_OK
     try:
         # resolve_real_entity_id() (2026-08-31): read back THIS entity's
         # own real state, not whatever the literal QUALITY_ENTITY_ID
@@ -10216,6 +10291,12 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
         # See that function's own docstring for the full incident.
         existing = ha_get(resolve_real_entity_id(QUALITY_ENTITY_ID))
         existing_attrs = existing.get("attributes", {}) or {}
+        # nimbus issue #1248: the read SUCCEEDED, so the entity exists -- but
+        # an `unavailable`/`unknown` state means HA has dropped the pushed
+        # attributes, so `existing_attrs` describes nothing. Not a first
+        # publish, and not a reason to truncate.
+        if str(existing.get("state")) in ("unavailable", "unknown"):
+            prior_read = PRIOR_READ_UNAVAILABLE
         # Deliberately spelled out rather than reusing `existing_attrs`
         # above: test_solver_writer_family_a_freshness_repush.py matches
         # this exact expression as source text across every Family A
@@ -10289,13 +10370,23 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
                     QUALITY_ENTITY_ID, existing["state"], existing["attributes"]
                 )
                 return
-    except (urllib.error.HTTPError, urllib.error.URLError, json.JSONDecodeError):
-        # nimbus issue #1248: falling through to a real recompute is still
-        # right -- strictly better than giving up -- but note that
-        # `existing_attrs` is now KNOWN-STALE rather than known-empty.
-        # _carry_forward_quality_history() is what tells those apart; see the
-        # note on `existing_attrs` above.
-        pass  # never seen before, or transiently unreachable -- fall through and try to compute
+    except (
+        urllib.error.HTTPError,
+        urllib.error.URLError,
+        json.JSONDecodeError,
+    ) as e:
+        # nimbus issue #1248: a 404 is the ONE outcome here that genuinely
+        # means "no history exists yet" -- the entity does not exist, so a
+        # fresh install must be allowed to write its first row. Every other
+        # failure means the history could not be READ, which is a different
+        # thing entirely and must not be published as emptiness. HTTPError is
+        # a subclass of URLError, so it is caught first on purpose.
+        prior_read = (
+            PRIOR_READ_ABSENT
+            if isinstance(e, urllib.error.HTTPError) and e.code == 404
+            else PRIOR_READ_UNREACHABLE
+        )
+        # never seen before, or transiently unreachable -- fall through and try to compute
     day_entry = compute_daily_quality_report(cfg, now)
     if day_entry is None:
         # issue #313: compute_daily_quality_report()/_compute_report_for_
@@ -10476,7 +10567,13 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
             # silently shadowed -- the same ordering rule the keys above
             # already rely on.
             "history": _carry_forward_quality_history(
-                existing_attrs, yesterday_key, day_entry
+                existing_attrs,
+                yesterday_key,
+                day_entry,
+                # nimbus issue #1248: see the `existing_attrs` note above --
+                # this is the difference between "no history yet" and "the
+                # history could not be read".
+                prior_read=prior_read,
             ),
             **day_entry,
         },
