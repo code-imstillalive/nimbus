@@ -8,6 +8,15 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.421] - 2026-09-26
+
+### Fixed
+- **The headline `nimbus_version` re-stamped itself on restart while `generated_at` and the figures stayed put, so it could not answer the one question it exists for** ([#1256](https://github.com/code-imstillalive/nimbus/issues/1256)). Two designs had collided on one attribute name: #972 put it on the entity to mean "which install is this", deliberately the running version; #1120/#1219 put it on a history row to mean "which release computed these figures". `_async_restore_last_value()` then dropped it on restore, so restored figures arrived unstamped and the property re-injected the running release onto them. The four daily publishers now stamp it with the computation, and the restore keeps it. Measured on the reference household: a deploy left all four restoring sensors labelled `0.94.420` against `generated_at` values of 00:00, 00:00, 00:00:13 and 06:06 — every figure computed by v0.94.417.
+- The efficiency backtest publisher no longer posts a hardcoded `"$"` unit on the standalone/cron path ([#1253](https://github.com/code-imstillalive/nimbus/issues/1253), the one site of three with no long-term-statistics migration risk). The native path resolves the currency from `hass.config.currency`; that path has no `hass`, so it now says nothing rather than guessing.
+
+### Changed
+- **A failed solve cycle now names WHY its blend calibration fell back to the minimum weight, not just that it did** ([#1179](https://github.com/code-imstillalive/nimbus/issues/1179)). `probe_not_optimal` means the calibrator's own bracket probes did not solve, so the model was already failing before a weight was chosen and the collapse is a symptom rather than a cause; `cost_not_preserved` means both probes solved and no weight held the primary cost, which is the only case where the collapsed weight is a candidate cause. That distinction is what the 2026-09-20 episode could not answer, and it explains its own loose end: blend warnings accompanied only 44 of 153 failures, and `probe_not_optimal` accounts for the other 109 failing at a phase that never reaches calibration. Observability only — nothing in the solver branches on it and no solve changes shape.
+
 ### Added
 - **An additive price-event test sensor, for simulating a NEM price-cap or negative-price event against the real live forecast** ([#1213](https://github.com/code-imstillalive/nimbus/issues/1213), requested by @purcell-lab).
 
