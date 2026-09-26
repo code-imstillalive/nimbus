@@ -1,0 +1,479 @@
+"""nimbus issue #1248: a degraded read must not permanently truncate the
+published quality history.
+
+## What happened, measured
+
+On production 2026-09-26 the published `history` went from **10 rows to 1**
+with **no restart** -- the error log spans 25 Sep 11:20 -> 26 Sep 06:15 and
+contains exactly one `Starting Home Assistant`, hours before the first read.
+The nine lost days (16-24 Sep) were unrecoverable from the attribute.
+
+It happened inside a live #1217 reproduction:
+
+    06:00:59  quality skip: (solar=14398, load=4183, battery=0 rows)
+    06:05:06  every flattened quality child -> unavailable (>300s no plan)
+    06:05:43  quality skip: (solar=0, load=0, battery=0 rows)
+    06:06:39  solver: cycle took 147.7s (> 120s threshold)
+
+The report that ended up holding one row was written at **06:06**, inside that
+~2-minute window where the whole quality surface read `unavailable`.
+
+## The ratchet
+
+`publish_daily_quality_report()` reads the currently-published attributes and
+defaults them to `{}` when the read fails. Its own comment states the flawed
+assumption outright -- *"a first-ever publish, **or** an unreachable read"* --
+treating those as the same thing. They are not: an unreachable read is not an
+empty history, it is an **unknown** history.
+
+`_carry_forward_quality_history()` then begins from that `{}`, writes only the
+day it just computed, and `ha_post_state` replaces attributes wholesale. **The
+next cycle carries forward from the already-truncated attribute**, so one
+degraded read discards every older row permanently.
+
+## The fix, and why it is not "skip the publish"
+
+Refusing to publish on a failed read is the obvious move and it is wrong: a
+genuine first-ever publish on a fresh install *also* fails that read (404 on an
+entity that does not exist yet), so skipping would mean a new install could
+never write its first row. The two cases are indistinguishable at the caller.
+
+They are distinguishable one layer down. `_LAST_KNOWN_QUALITY_HISTORY` records
+what this process last published, so an empty prior can be classified:
+
+* cache empty -> genuinely nothing known -> a first publish, allowed;
+* cache populated -> this process has already published rows, so it **cannot**
+  be a first publish -> degraded read, recover the cache.
+
+Process-lifetime is deliberate and sufficient. The measured incident had no
+restart, so this closes it exactly; and across a real restart HA's own state
+restoration repopulates the attribute, so starting empty on a fresh process is
+correct rather than lossy. A durable Store would add a second system of record
+for no gain against the failure actually observed.
+
+## What was tried and REMOVED, so it is not re-proposed
+
+A "refuse to publish a shorter table than the prior one" shrink guard, comparing
+`len(history)` against the prior row count. It cannot fire for this defect:
+`history` starts as a copy of *every* sane prior row and only ever adds one key,
+so it is structurally never shorter than its own prior. The only way to trip it
+was a malformed prior entry -- a case it then "recovered" to the identical
+value while logging a warning blaming a recorder stall. A guard documented to
+catch a case it cannot catch is worse than no guard, because the comment is
+read as evidence the case is handled.
+
+## What these tests pin
+
+* The production shape: a full table, then an empty read, recovers all ten rows.
+* **The freshly computed row still wins for its own day**, on the recovery path
+  too -- otherwise a rescore could never correct a row.
+* A genuine first publish is still allowed, and the cache does not leak across
+  tests to make one impossible.
+* The recovery is **loud**. A silent recovery would hide the degraded read that
+  triggered it, and that read is the thing worth knowing about.
+* The `_QUALITY_HISTORY_MAX_DAYS` trim still applies after recovery.
+* The cache tracks the trimmed, published table -- not the pre-trim one -- or it
+  would reinstate rows the cap had deliberately dropped.
+"""
+
+from __future__ import annotations
+
+import sys
+import unittest
+from datetime import date, timedelta
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _ha_stubs import install_ha_stubs
+
+install_ha_stubs()
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from custom_components.nimbus_load import solver_writer
+
+
+def _row(epr: float) -> dict:
+    return {
+        "epr": epr,
+        "j_ref": 1.0,
+        "j_ach": -1.0,
+        "j_star": -2.0,
+        "regret_dollars": 1.0,
+    }
+
+
+def _carry(prior_history, day_key: str, epr: float, *, read="ok"):
+    """Call the real carry-forward with a prior attribute payload.
+
+    `read="unavailable"` with no prior is the measured failure: the read
+    SUCCEEDED (so the entity exists) but its state was `unavailable`, so HA had
+    dropped the pushed attributes and there is no `history` key.
+
+    `read="absent"` with no prior is the case that looks identical from inside
+    this function and must behave completely differently: a 404, i.e. a genuine
+    first publish on an install where the entity does not exist yet.
+    """
+    prior_attrs = {} if prior_history is None else {"history": prior_history}
+    return solver_writer._carry_forward_quality_history(
+        prior_attrs=prior_attrs,
+        day_key=day_key,
+        day_entry=dict(_row(epr)),
+        prior_read=read,
+    )
+
+
+class _IsolatedCache(unittest.TestCase):
+    """Every test starts from a cold, NATIVE process.
+
+    Two things are being set up, and the second is the more interesting:
+
+    1. The cache is reset, so test order cannot decide outcomes.
+    2. A native `hass` is injected, because the recovery cache is deliberately
+       native-only (`_quality_history_cache_active()`). A test that does not
+       opt in gets no cache at all -- which is the point: CI caught this state
+       leaking into an unrelated test that merely mocked an unreachable read,
+       and gating on the native seam removes the channel by construction
+       rather than by remembering to reset a global somewhere.
+
+    A sentinel object is enough. Nothing in the carry-forward path calls
+    through to `hass`; the seam is only being asked "is this the long-lived
+    in-process deployment".
+    """
+
+    def setUp(self):
+        solver_writer._LAST_KNOWN_QUALITY_HISTORY = {}
+        self._prior_hass = solver_writer._NATIVE_HASS
+        solver_writer._NATIVE_HASS = object()
+        self.addCleanup(setattr, solver_writer, "_LAST_KNOWN_QUALITY_HISTORY", {})
+        self.addCleanup(setattr, solver_writer, "_NATIVE_HASS", self._prior_hass)
+
+
+class TestTheProductionShapeIsRecovered(_IsolatedCache):
+    """10 rows, then a degraded read -- the exact loss measured 2026-09-26."""
+
+    def setUp(self):
+        super().setUp()
+        self.prior = {f"2026-09-{d:02d}": _row(90.0 + d) for d in range(16, 26)}
+        self.assertEqual(len(self.prior), 10)
+
+    def test_a_degraded_read_does_not_discard_the_other_nine_days(self):
+        # Cycle 1: a healthy read, ten rows. This is what the process had been
+        # re-publishing every minute all day.
+        first = _carry(self.prior, "2026-09-25", 68.9)
+        self.assertEqual(len(first), 10)
+
+        # Cycle 2 at 06:06: the sensor reads `unavailable`, so the attributes
+        # come back with no history at all. Before the fix this published one
+        # row and the next cycle inherited it.
+        out = _carry(None, "2026-09-26", 55.0, read="unavailable")
+        self.assertEqual(
+            len(out),
+            11,
+            "the ten known rows must survive a degraded read; losing them is "
+            "unrecoverable from the attribute",
+        )
+        for d in range(16, 26):
+            self.assertIn(f"2026-09-{d:02d}", out)
+        self.assertIn("2026-09-26", out, "and today's real score still lands")
+
+    def test_the_ratchet_cannot_turn_even_over_many_degraded_cycles(self):
+        """The defect was not one bad write -- it was that the next cycle
+        carried forward from the bad write. Ten consecutive degraded reads must
+        leave the table intact, not erode it one row at a time."""
+        _carry(self.prior, "2026-09-25", 68.9)
+        out = None
+        for _ in range(10):
+            out = _carry(None, "2026-09-25", 68.9, read="unavailable")
+        self.assertEqual(len(out), 10)
+        for d in range(16, 26):
+            self.assertIn(f"2026-09-{d:02d}", out)
+
+    def test_the_freshly_computed_row_still_wins_for_its_own_day(self):
+        """Recovery must not resurrect a stale version of today, or a rescore
+        could never correct a row -- which is the whole point of
+        rescore_history, and of #1082's re-score-on-settlement path that
+        produced 68.85% from a provisional 21.11%."""
+        _carry(self.prior, "2026-09-25", 21.11)
+        out = _carry(None, "2026-09-25", 68.9, read="unavailable")
+        self.assertEqual(
+            out["2026-09-25"]["epr"],
+            68.9,
+            "today's row must be the freshly computed one, not the cached one",
+        )
+        self.assertEqual(
+            out["2026-09-16"]["epr"], 106.0, "an untouched older row is unchanged"
+        )
+
+    def test_the_recovery_is_logged(self):
+        """A silent recovery would hide the degraded read that triggered it,
+        and that read is the thing worth knowing about -- it is a #1217
+        symptom."""
+        _carry(self.prior, "2026-09-25", 68.9)
+        with self.assertLogs(solver_writer._LOGGER, level="WARNING") as cm:
+            _carry(None, "2026-09-25", 68.9, read="unavailable")
+        joined = "\n".join(cm.output)
+        self.assertIn("#1248", joined)
+        self.assertIn("unavailable", joined, "name HOW the read came back")
+        self.assertIn("#1217", joined, "name the stall this is a symptom of")
+
+    def test_a_healthy_read_logs_no_warning(self):
+        """The warning must mean something. If it fired on the normal path it
+        would be noise, and #1217's own logs are already noisy enough that a
+        real signal has to stand out."""
+        _carry(self.prior, "2026-09-25", 68.9)
+        with self.assertNoLogs(solver_writer._LOGGER, level="WARNING"):
+            _carry(self.prior, "2026-09-26", 55.0)
+
+
+class TestTheCacheIsNativeOnly(_IsolatedCache):
+    """Not a convenience -- the cron deployment cannot use this cache at all.
+
+    Those writers run once per cron invocation and exit, so a process-lifetime
+    cache is empty on every run and could never rescue anything. Gating on the
+    native seam therefore costs nothing real, and removes a cross-contamination
+    channel by construction: CI found an unrelated test inheriting days this
+    cache held, because that test mocked an unreachable read and unreachable is
+    correctly classified as degraded.
+    """
+
+    def test_without_a_native_hass_there_is_no_recovery(self):
+        solver_writer._LAST_KNOWN_QUALITY_HISTORY = {
+            f"2026-09-{d:02d}": _row(90.0 + d) for d in range(16, 26)
+        }
+        solver_writer._NATIVE_HASS = None
+        out = _carry(None, "2026-09-26", 55.0, read="unavailable")
+        self.assertEqual(
+            len(out), 1, "the cron path must not recover from a cache it can never fill"
+        )
+
+    def test_without_a_native_hass_nothing_is_written_to_the_cache_either(self):
+        """Symmetric on purpose. A cron run that populated a cache nothing will
+        ever read is pure overhead, and a half-gated cache is how the leak
+        would come back."""
+        solver_writer._NATIVE_HASS = None
+        _carry({"2026-09-24": _row(87.3)}, "2026-09-25", 68.9)
+        self.assertEqual(solver_writer._LAST_KNOWN_QUALITY_HISTORY, {})
+
+    def test_re_pointing_the_native_seam_clears_the_cache(self):
+        """A new `hass` is a different instance, so cached rows describe a
+        report that is no longer the one being published -- carrying them across
+        a reconfigure or reload would inject another instance's rows, the exact
+        opposite of what this cache exists for.
+
+        It is also the last cross-contamination channel inside one long-lived
+        process. CI failed on a suite-wide ordering effect that could not be
+        reproduced by running the affected files directly, and rather than keep
+        hunting the polluter, a cache that resets whenever the seam is
+        re-pointed cannot carry state between unrelated publishes however the
+        tests are ordered.
+        """
+        _carry({"2026-09-24": _row(87.3)}, "2026-09-25", 68.9)
+        self.assertEqual(len(solver_writer._LAST_KNOWN_QUALITY_HISTORY), 2)
+        solver_writer.set_native_hass(object())
+        self.assertEqual(
+            solver_writer._LAST_KNOWN_QUALITY_HISTORY,
+            {},
+            "re-pointing the seam must not leave another instance's rows behind",
+        )
+
+    def test_with_a_native_hass_the_recovery_works(self):
+        """Control: the gate must not have disabled the fix outright."""
+        _carry(
+            {f"2026-09-{d:02d}": _row(90.0 + d) for d in range(16, 26)},
+            "2026-09-25",
+            68.9,
+        )
+        out = _carry(None, "2026-09-26", 55.0, read="unavailable")
+        self.assertEqual(len(out), 11)
+
+
+class TestAFirstPublishIsStillPossible(_IsolatedCache):
+    """The reason the fix is not "skip the publish when the read fails"."""
+
+    def test_a_populated_cache_does_NOT_leak_into_a_genuine_first_publish(self):
+        """The failure an earlier draft of this fix actually shipped, caught by
+        CI rather than by reasoning.
+
+        That draft consulted the cache whenever the prior held no history and
+        the cache held something -- a heuristic over hidden process state. It
+        fixed the measured case and broke every first-publish test in the suite
+        that happened to run after one which populated the cache.
+
+        Order-dependent tests were the symptom; the disease was that the same
+        ambiguity exists in production and is merely harder to see there. The
+        caller classifies the read now, so a 404 (entity absent, a real first
+        publish) cannot inherit rows from an unrelated earlier publish no
+        matter what this process has done before.
+        """
+        _carry(
+            {f"2026-09-{d:02d}": _row(90.0 + d) for d in range(16, 26)},
+            "2026-09-25",
+            68.9,
+        )
+        self.assertEqual(len(solver_writer._LAST_KNOWN_QUALITY_HISTORY), 10)
+        out = _carry(None, "2026-09-26", 55.0, read="absent")
+        self.assertEqual(
+            len(out),
+            1,
+            "a 404 means the entity does not exist -- the cache must not be "
+            "consulted, however full it is",
+        )
+
+    def test_an_unavailable_read_with_nothing_cached_WARNS(self):
+        """The read SUCCEEDED, so the entity exists -- so it has published
+        before and very likely had rows. Nothing to recover from means this
+        publish genuinely truncates, and that must be said out loud."""
+        with self.assertLogs(solver_writer._LOGGER, level="WARNING") as cm:
+            out = _carry(None, "2026-09-26", 55.0, read="unavailable")
+        self.assertEqual(len(out), 1)
+        joined = chr(10).join(cm.output)
+        self.assertIn("not retrievable", joined)
+        self.assertIn(
+            "rescore_history", joined, "point at the one thing that rebuilds them"
+        )
+
+    def test_an_UNREACHABLE_read_with_nothing_cached_stays_quiet(self):
+        """Not a WARNING, deliberately, and this is the distinction the earlier
+        single `degraded` boolean destroyed.
+
+        An unreachable HA says nothing about whether rows existed, and on the
+        standalone/cron path it is a routine transient -- warning every cycle
+        while HA is down is noise. Two pre-existing tests
+        (test_quality_report_achieved_energy_and_reliability.py's
+        TestPublishLogsOncePerScoredDay) mock exactly this with
+        `URLError("no cache")` and assert the publisher stays silent; the
+        boolean version broke both.
+        """
+        with self.assertNoLogs(solver_writer._LOGGER, level="WARNING"):
+            out = _carry(None, "2026-09-26", 55.0, read="unreachable")
+        self.assertEqual(len(out), 1)
+
+    def test_a_rescue_that_rescues_NOTHING_is_not_announced(self):
+        """A cache holding only the day being written recovers nothing -- this
+        function would produce that single row anyway -- so claiming a rescue
+        would be false, and would fire on every cycle of a normal
+        one-day-old install.
+
+        Caught by an existing test rather than by reasoning:
+        test_quality_report_achieved_energy_and_reliability.py's
+        TestPublishLogsOncePerScoredDay publishes the same day twice through an
+        unreachable read and asserts the second publish is silent. An
+        unconditional warning here broke it, correctly.
+        """
+        _carry({"2026-09-26": _row(55.0)}, "2026-09-26", 55.0)
+        with self.assertNoLogs(solver_writer._LOGGER, level="WARNING"):
+            out = _carry(None, "2026-09-26", 55.0, read="unavailable")
+        self.assertEqual(len(out), 1)
+
+    def test_the_rescue_message_NAMES_the_days_it_saved(self):
+        """ "Recovered 9 rows" is not actionable; the dates are. They are what a
+        household checks the Regret card against, and what tells a reader
+        whether the rescue covered the window they cared about."""
+        _carry(
+            {f"2026-09-{d:02d}": _row(90.0 + d) for d in range(16, 26)},
+            "2026-09-25",
+            68.9,
+        )
+        with self.assertLogs(solver_writer._LOGGER, level="WARNING") as cm:
+            _carry(None, "2026-09-26", 55.0, read="unavailable")
+        joined = chr(10).join(cm.output)
+        self.assertIn("2026-09-16", joined)
+        self.assertIn("2026-09-25", joined)
+        self.assertIn("10 earlier row(s)", joined)
+
+    def test_an_unreachable_read_still_recovers_when_there_IS_a_cache(self):
+        """Quieter, not weaker. The log level differs between the two degraded
+        statuses; the recovery does not."""
+        _carry({"2026-09-24": _row(87.3), "2026-09-25": _row(68.9)}, "2026-09-25", 68.9)
+        out = _carry(None, "2026-09-26", 55.0, read="unreachable")
+        self.assertEqual(len(out), 3)
+
+    def test_a_fresh_install_writes_its_first_row(self):
+        out = _carry(None, "2026-09-26", 55.0)
+        self.assertEqual(len(out), 1, "a new install must be able to write row one")
+        self.assertIn("2026-09-26", out)
+
+    def test_an_empty_dict_prior_is_also_a_first_publish(self):
+        out = _carry({}, "2026-09-26", 55.0)
+        self.assertEqual(len(out), 1)
+
+    def test_a_first_publish_logs_no_warning(self):
+        """A brand-new install must not greet its owner with a data-loss
+        warning on day one."""
+        with self.assertNoLogs(solver_writer._LOGGER, level="WARNING"):
+            _carry(None, "2026-09-26", 55.0)
+
+
+class TestTheNormalPathsAreUntouched(_IsolatedCache):
+    def test_growing_by_one_day_is_allowed(self):
+        prior = {"2026-09-24": _row(87.3), "2026-09-25": _row(68.9)}
+        out = _carry(prior, "2026-09-26", 55.0)
+        self.assertEqual(len(out), 3)
+        self.assertEqual(out["2026-09-26"]["epr"], 55.0)
+
+    def test_rewriting_an_existing_day_keeps_the_same_size(self):
+        prior = {"2026-09-24": _row(87.3), "2026-09-25": _row(21.11)}
+        out = _carry(prior, "2026-09-25", 68.9)
+        self.assertEqual(len(out), 2)
+        self.assertEqual(
+            out["2026-09-25"]["epr"], 68.9, "a rescore must be able to correct a row"
+        )
+
+    def test_a_malformed_prior_entry_does_not_block_the_write(self):
+        """The function is already defensive about shape, and the fix must not
+        turn a bad entry into a refusal to publish -- nor into a spurious
+        degraded-read warning, which is what the removed shrink guard did."""
+        prior = {"2026-09-24": _row(87.3), "bad": "not a dict", 42: {"epr": 1}}
+        with self.assertNoLogs(solver_writer._LOGGER, level="WARNING"):
+            out = _carry(prior, "2026-09-25", 68.9)
+        self.assertIn("2026-09-25", out)
+        self.assertIn("2026-09-24", out)
+        self.assertNotIn("bad", out)
+
+
+class TestTheCapStillApplies(_IsolatedCache):
+    """Recovery must not let the table grow without limit."""
+
+    def _at_cap(self) -> dict:
+        cap = solver_writer._QUALITY_HISTORY_MAX_DAYS
+        # Real ISO dates, so the lexicographic oldest-first trim is exercised
+        # as it runs in production rather than on synthetic keys.
+        start = date(2026, 1, 1)
+        return {
+            (start + timedelta(days=i)).isoformat(): _row(float(i)) for i in range(cap)
+        }
+
+    def test_the_max_days_trim_is_not_defeated(self):
+        cap = solver_writer._QUALITY_HISTORY_MAX_DAYS
+        prior = self._at_cap()
+        self.assertEqual(len(prior), cap)
+        out = _carry(prior, "2026-12-31", 99.0)
+        self.assertEqual(len(out), cap, f"history must not exceed the {cap}-day cap")
+        self.assertIn("2026-12-31", out, "the new row must be the one kept")
+        self.assertNotIn("2026-01-01", out, "the oldest row must be the one dropped")
+
+    def test_the_cache_holds_the_trimmed_table_not_the_pre_trim_one(self):
+        """If the cache were captured before the trim, a later degraded read
+        would reinstate rows the cap had deliberately dropped -- the table
+        would creep back over the cap every time the recorder stalled."""
+        cap = solver_writer._QUALITY_HISTORY_MAX_DAYS
+        _carry(self._at_cap(), "2026-12-31", 99.0)
+        self.assertEqual(len(solver_writer._LAST_KNOWN_QUALITY_HISTORY), cap)
+        self.assertNotIn("2026-01-01", solver_writer._LAST_KNOWN_QUALITY_HISTORY)
+        out = _carry(None, "2027-01-01", 88.0, read="unavailable")
+        self.assertEqual(len(out), cap, "still capped after a degraded read")
+
+    def test_the_cache_is_a_copy_not_a_live_alias(self):
+        """A caller mutating the returned dict must not silently rewrite this
+        process's idea of what was published."""
+        out = _carry({"2026-09-24": _row(87.3)}, "2026-09-25", 68.9)
+        out.clear()
+        self.assertEqual(
+            len(solver_writer._LAST_KNOWN_QUALITY_HISTORY),
+            2,
+            "the cache must be insulated from mutation of the returned table",
+        )
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)
