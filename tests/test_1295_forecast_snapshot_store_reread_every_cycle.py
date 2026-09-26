@@ -16,6 +16,29 @@ file from disk every cycle, all day, forever -- not the "one dict lookup"
 the docstring promises, and not a cost that scales down once today's entry
 exists.
 
+FIXED 2026-09-26 (PR for #937 stage 3). Un-xfailed here, and kept as a
+permanent regression test rather than deleted -- this is the assertion that
+would catch the cost silently coming back.
+
+What the fix actually needed, because the finding's own proposed remedy
+(reuse the `Store` instance) is necessary but NOT sufficient, measured
+against HA's own `helpers/storage.py`:
+
+  * `Store.async_load()` sets `self._load_future` and clears it in a
+    `finally`, so it de-duplicates CONCURRENT callers and caches nothing
+    across sequential ones;
+  * `_async_load_data()` short-circuits on `self._data` only while a write is
+    PENDING (the `async_delay_save` debounce) -- a write-side cache;
+  * the store manager's cache is consulted next, but
+    `_StoreManager.async_invalidate(key)` runs whenever a Store saves, "to
+    ensure that the cache is not used after that" -- so the very first
+    capture write permanently invalidates it for this key.
+
+So instance reuse fixes the object churn and restores the write debounce,
+and a module-level per-entry data cache (`_CACHE`, cleared by
+`reset_module_state()` on unload) is what actually removes the read. Both
+landed, because both were real.
+
 This test tracks how many times the underlying store is actually asked to
 load across two solve cycles on the same day, using the same
 `_FakeStore`/`_run()` pattern as
@@ -32,8 +55,6 @@ import sys
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-
-import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ha_stubs import install_ha_stubs
@@ -106,14 +127,6 @@ def _run(hass, store, *, now=None, entry="hub1"):
 
 
 class TestTheNoOpPathDoesNotReReadTheStore(unittest.TestCase):
-    @pytest.mark.xfail(
-        reason="nimbus #1295: async_capture_todays_snapshot() re-reads and "
-        "re-parses the Store from disk on every solve cycle, not once per "
-        "day as its own docstring claims ('the cost is one dict lookup per "
-        "cycle') -- _store_for() builds a fresh Store with no in-memory "
-        "cache every call, so async_load() never gets to short-circuit",
-        strict=True,
-    )
     def test_a_second_solve_the_same_day_does_not_reload_the_store(self):
         store = _FakeStore()
         hass = _Hass(_rows())
