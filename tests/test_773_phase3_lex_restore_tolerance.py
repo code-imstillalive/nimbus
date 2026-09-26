@@ -70,10 +70,46 @@ import ast
 import contextlib
 import logging
 import unittest
+import unittest.mock
 
 import _solver_path  # noqa: F401
 from solver import lp
 from solver.lp import CalibratedOptions, LexOptions
+
+_PINNED_RESOLVE_CALL_SITES = 3
+"""How many `with _lp_tolerance_matching_mip(h):` blocks `lp.py` should
+have. Three as of #773's tier-2 fix:
+
+    phase2_pin_resolve          the pinned re-solve after phase 2 (#979)
+    phase3_lex_restore          the pinned re-solve in LexOptions phase 3
+    phase2_secondary_pinned_lp  tier 2 -- phase 2 re-run as a pure LP on
+                                phase 1's pinned assignment, when the MIP
+                                could not finish
+
+Tier 2's site was wrapped when it was written, which is what
+`test_the_helper_wraps_every_pinned_resolve` below exists to require. Any
+FOURTH pinned re-solve needs the same treatment and this number bumped
+deliberately, not silently."""
+
+
+@contextlib.contextmanager
+def _tier1_seed_disabled():
+    """Hold #773's tier-1 MIP start (`lp._offer_mip_start()`) off.
+
+    Tier 1 seeds phase 2 with phase 1's own integral point, which changes
+    WHICH primary-tied integer solution phase 2 returns -- same objective,
+    same dispatch, different binary assignment. That is enough to move a
+    scenario off the 1e-7..1e-6 pinned-LP band this file is about, so the
+    reverse test below stops reproducing with tier 1 live.
+
+    The band is a property of the tolerance gap, not of these scenarios;
+    tier 1 moved the scenarios, it did not remove the band. So the A/B for
+    the tolerance fix runs with tier 1 held off, and tier 1's own effect is
+    pinned separately in `TestWhatTier1IncidentallyFixed`."""
+    with unittest.mock.patch.object(lp, "_offer_mip_start", lambda *_a, **_k: False):
+        yield
+
+
 from test_773_tolerance_and_tie_slack_end_to_end import (
     _many_binaries_tied_price_scenario,
     _solve,
@@ -182,10 +218,15 @@ class TestTheFixIsWhatIsDoingIt(unittest.TestCase):
         reproduced = []
         lp._lp_tolerance_matching_mip = _noop_after_the_first
         try:
-            for n_loads, n_periods, seed in FAILING:
-                calls["n"] = 0
-                _plan, messages = _run(n_loads, n_periods, seed)
-                reproduced.append(_phase3_failed(messages))
+            # nimbus issue #773: tier 1 held off. With it live these
+            # scenarios no longer reach the band at all, so this A/B
+            # would pass vacuously and stop guarding the tolerance fix.
+            # See `_tier1_seed_disabled()`.
+            with _tier1_seed_disabled():
+                for n_loads, n_periods, seed in FAILING:
+                    calls["n"] = 0
+                    _plan, messages = _run(n_loads, n_periods, seed)
+                    reproduced.append(_phase3_failed(messages))
         finally:
             lp._lp_tolerance_matching_mip = original
 
@@ -208,7 +249,10 @@ class TestTheFixIsWhatIsDoingIt(unittest.TestCase):
         source = lp.__file__.replace(".pyc", ".py")
         with open(source, encoding="utf-8") as f:
             text = f.read()
-        self.assertEqual(text.count("with _lp_tolerance_matching_mip(h):"), 2)
+        self.assertEqual(
+            text.count("with _lp_tolerance_matching_mip(h):"),
+            _PINNED_RESOLVE_CALL_SITES,
+        )
         self.assertNotIn("_tolerance_cm = _lp_tolerance_matching_mip", text)
 
     def test_the_helper_is_restored_afterwards(self):
@@ -238,22 +282,25 @@ class TestBothPinnedResolvesAreCovered(unittest.TestCase):
     code once was not enough to notice it.
     """
 
-    def test_the_helper_wraps_two_call_sites_not_one(self):
+    def test_the_helper_wraps_every_pinned_resolve(self):
+        """Renamed from `..._two_call_sites_not_one`: there are three now.
+
+        The original asked for exactly this -- "a third pinned re-solve
+        added later needs the same treatment" -- and #773's tier 2 added
+        one (`phase2_secondary_pinned_lp`) already wrapped. See
+        `_PINNED_RESOLVE_CALL_SITES`."""
         source = lp.__file__.replace(".pyc", ".py")
         with open(source, encoding="utf-8") as f:
             text = f.read()
         self.assertEqual(
             text.count("with _lp_tolerance_matching_mip(h):"),
-            2,
-            "expected both pinned LP re-solves (phase2_pin_resolve and "
-            "phase3_lex_restore) to run under the MIP-matched tolerance -- "
-            "a third pinned re-solve added later needs the same treatment, "
-            "and dropping one silently reintroduces #773's band failure",
+            _PINNED_RESOLVE_CALL_SITES,
+            "every pinned LP re-solve must run under the MIP-matched "
+            "tolerance (phase2_pin_resolve, phase3_lex_restore, and "
+            "#773 tier 2's phase2_secondary_pinned_lp) -- a further one "
+            "added later needs the same treatment, and dropping any of "
+            "them silently reintroduces #773's band failure",
         )
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class TestTheCalibratedPathIsWorse(unittest.TestCase):
@@ -394,22 +441,91 @@ class TestWhatThisDoesNotFix(unittest.TestCase):
         phase3_lex_restore  max_primal_infeasibility  1.919759e-06
 
     which is ABOVE `mip_feasibility_tolerance` itself, so widening the
-    primal tolerance to match cannot help by construction. That scenario
-    still reports `infeasible` on the calibrated path and still falls
-    back on the lex path. It is a real, separate, still-open case and it
-    is recorded here rather than left for someone to rediscover as a
-    regression in this fix.
+    primal tolerance to match cannot help by construction.
+
+    **Updated for #773's tier-1 fix.** That scenario now reports
+    `optimal` on the calibrated path -- but NOT because this tolerance fix
+    grew stronger. The scope above is unchanged and still exactly right;
+    the scenario moved. See `TestWhatTier1IncidentallyFixed` below for the
+    isolating experiment. This class keeps asserting the original fact,
+    with tier 1 held off, because the above-band class of failure is real
+    and still unaddressed by anything in this file.
     """
 
     def test_the_above_band_scenario_is_still_unresolved(self):
         lp._lex_calibration_failed_until = 0.0
         scenario = _many_binaries_tied_price_scenario(n_loads=20, n_periods=32, seed=3)
-        plan = _solve(*scenario, options=CalibratedOptions())
+        with _tier1_seed_disabled():
+            plan = _solve(*scenario, options=CalibratedOptions())
         self.assertEqual(
             plan.status,
             "infeasible",
             "the above-band scenario (1.92e-06, outside the tolerance gap) "
-            "now solves. That is good news and this test is the wrong "
-            "shape for it -- find out WHAT fixed it, then update this "
-            "file's scope section rather than only flipping the assertion",
+            "now solves even with #773's tier-1 seed held off. That is good "
+            "news and this test is the wrong shape for it -- find out WHAT "
+            "fixed it, then update this file's scope section rather than "
+            "only flipping the assertion",
         )
+
+
+class TestWhatTier1IncidentallyFixed(unittest.TestCase):
+    """nimbus issue #773: the tier-1 integral seed also resolves the
+    above-band scenario this file documents as out of scope -- and the
+    cause was isolated by experiment rather than assumed.
+
+    Same scenario (20 loads, 32 periods, seed 3), three configurations:
+
+        both tiers off (no capture)   infeasible
+        tier 2 only (seed disabled)   infeasible
+        both (shipped)                **optimal**
+
+    So it is tier 1, not tier 2. The mechanism is the same one that makes
+    tier 1 work at all: seeding phase 2 with phase 1's integral point
+    changes which primary-tied integer assignment phase 2 returns, and
+    this scenario's new assignment simply does not violate feasibility by
+    1.92e-06 when its pinned re-solve re-certifies it.
+
+    **Deliberately framed as incidental, not as a fix for the above-band
+    class.** Tier 1 moved one scenario off one failure. It does not bound
+    how far a pinned point can sit outside the MIP tolerance in general,
+    and nothing here should be read as closing that case. If a new
+    above-band scenario is found, it belongs in
+    `TestWhatThisDoesNotFix` above, not here.
+    """
+
+    def _status(self, ctx):
+        lp._lex_calibration_failed_until = 0.0
+        scenario = _many_binaries_tied_price_scenario(n_loads=20, n_periods=32, seed=3)
+        with ctx:
+            return _solve(*scenario, options=CalibratedOptions()).status
+
+    def test_with_both_tiers_the_scenario_solves(self):
+        self.assertEqual(self._status(contextlib.nullcontext()), "optimal")
+
+    def test_tier_2_alone_does_not_rescue_it(self):
+        """The discriminator. If this ever starts returning optimal, tier
+        2 has begun doing something tier 1 was credited for, and the
+        docstring above is wrong."""
+        self.assertEqual(self._status(_tier1_seed_disabled()), "infeasible")
+
+    def test_with_neither_tier_it_is_the_original_failure(self):
+        """Pre-#773 behaviour. Both tiers depend on phase 1's captured
+        point, so removing the capture removes both."""
+        no_capture = unittest.mock.patch.object(
+            lp, "_capture_integral_point", lambda _h: None
+        )
+        self.assertEqual(self._status(no_capture), "infeasible")
+
+
+# Kept at the very END of the file, deliberately.
+#
+# This block used to sit in the middle, immediately before
+# `TestTheCalibratedPathIsWorse`. Module-level code runs top to bottom, so
+# `python tests/test_773_phase3_lex_restore_tolerance.py` -- the direct
+# entry point `tests/_solver_path.py`'s own docstring advertises -- called
+# `unittest.main()` before that class and `TestWhatThisDoesNotFix` were
+# ever defined. Neither had ever run on that path; both only ran under
+# `python -m unittest`, which imports the module fully first. Found while
+# updating this file for #773's tier-1/tier-2 fix.
+if __name__ == "__main__":
+    unittest.main()

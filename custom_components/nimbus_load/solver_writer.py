@@ -151,6 +151,7 @@ from __future__ import annotations
 
 import functools
 import io
+import itertools
 import json
 import logging
 import math
@@ -2049,6 +2050,28 @@ _NATIVE_MANAGED_ENTITY_IDS: frozenset[str] = frozenset(
         "sensor.nimbus_solver_quality_report",
         "sensor.nimbus_efficiency_backtest",
         "sensor.nimbus_counterfactual_soc",
+        # nimbus issue #1192: these three were MISSING, and the set being
+        # incomplete is unambiguously a bug rather than a choice -- this
+        # set's own contract, stated above, is "every entity_id this
+        # integration calls register_entity_handler() for in native mode",
+        # and sensor.py calls it for eleven.
+        #
+        # The consequence is exactly the ghost this guard exists to
+        # prevent: during a reload window the real SensorEntity has not
+        # re-registered, so ha_post_state() fell through to a raw
+        # states.async_set() for these three, writing a NON-RESTORED state
+        # that then reads as a live conflict when the real entity is added
+        # a moment later. #1192's own reproduction is the flex family and
+        # nothing else, which is the shape this predicts.
+        #
+        # `test_1192_native_managed_set_covers_every_handler.py` now
+        # derives the required set from sensor.py's own
+        # register_entity_handler() call sites and fails if this one falls
+        # behind again, so the next entity to get a handler cannot be
+        # forgotten here the way these three were.
+        "sensor.nimbus_flex_signals",
+        "sensor.nimbus_flex_report",
+        "sensor.nimbus_offer_curve",
     }
 )
 
@@ -7572,6 +7595,20 @@ def _compute_report_for_window(
             for v in resample_history_mean(battery_hist, grid_times, period_hours)
         ]
     )
+    # nimbus issue #1181: measure how much of this window the home
+    # battery's power sensor actually observed, and publish it -- do NOT
+    # adjust `actual_net_kw` above.
+    #
+    # The participant path zeroes its stale periods
+    # (`_stale_power_period_indices()`'s one call site until now), and
+    # doing the same here would be wrong rather than merely different:
+    # zeroing is conservative for THROUGHPUT but the home reconstruction
+    # already under-rises through charge, so zeroing would deepen that,
+    # increase `soc_discrepancy`, and make a household's EPR read less
+    # reliable because of a fix. See `_power_history_coverage()`.
+    home_power_coverage = _power_history_coverage(
+        battery_hist, grid_times, period_hours
+    )
     actual_charge_kw = np.array([max(0.0, -v) for v in actual_net_kw])
     actual_discharge_kw = np.array([max(0.0, v) for v in actual_net_kw])
     # No generic commanded-dispatch signal exists -- see this function's
@@ -8083,6 +8120,15 @@ def _compute_report_for_window(
         report.j_ach_hourly,
         max_threshold_pct=soc_discrepancy_max_threshold_pct,
         mean_threshold_pct=soc_discrepancy_mean_threshold_pct,
+        # nimbus issue #1228: the like-for-like achieved side. Absent on a
+        # report built before that field existed, which falls back to the
+        # hourly mean and says so via soc_discrepancy_basis.
+        ach_soc_pct_at_hour=getattr(report, "j_ach_soc_pct_at_hour", None) or None,
+        # nimbus issue #1181: measured, not acted on. Lets a reader tell
+        # "the reconstruction disagrees" from "the reconstruction had
+        # nothing to work with" -- both of which read as
+        # `soc_discrepancy_reason: disagreement` today.
+        power_coverage=home_power_coverage,
     )
     # nimbus issue #956: the oracle is a bound by construction, so
     # regret < 0 is not a result -- it is proof the comparison was
@@ -8788,6 +8834,8 @@ def _soc_discrepancy_stats(
     j_ach_hourly: dict[str, dict[str, float]],
     max_threshold_pct: float = 15.0,
     mean_threshold_pct: float = 8.0,
+    ach_soc_pct_at_hour: dict[str, float] | None = None,
+    power_coverage: dict[str, float | int] | None = None,
 ) -> dict[str, float | bool | str | list[dict[str, float | bool | str]] | None]:
     """nimbus issue #427 (Mark Purcell): the achieved trajectory's own
     SoC is *integrated* from real battery-power history through the
@@ -8824,6 +8872,34 @@ def _soc_discrepancy_stats(
     _hourly_means_by_key() docstring), so every comparison point is
     genuinely the same real hour on every side, not a separate
     resampling with its own chance to disagree on alignment.
+
+    nimbus issue #1228: sharing a timestamp was NOT enough, and the
+    paragraph above -- correct about alignment -- was read for a long time
+    as though it settled comparability too. It does not. The real side is
+    a POINT SAMPLE at `HH:00:00` (`resample_history_nearest()`), while
+    `j_ach_hourly['soc_pct']` is that hour's MEAN
+    (`_hourly_means_by_key()`). Differencing a mean against an instant
+    injects roughly half the hour's ramp rate as pure artifact, largest
+    exactly where SoC moves fastest -- measured on the reference
+    household's 24 Sep: a published `max 21.17 / mean 9.88` whose max
+    landed on hour 12, the steepest charge ramp of the day, against a
+    like-for-like `max 11.82 / mean 6.46` that passes both thresholds.
+    That single artifact was the sole cause of `epr_reliable: False` on an
+    install whose sensors were in fact fine.
+
+    `ach_soc_pct_at_hour` (`report.j_ach_soc_pct_at_hour`) supplies the
+    achieved SoC AT each boundary instant, making the comparison
+    like-for-like. Fixed on the achieved side rather than by averaging the
+    real side because point-sampling is what `resample_history_mean()`'s
+    own docstring already commits to for SoC -- a STATE, sampled and
+    held, not a flow to be averaged -- and because it leaves the real side
+    untouched.
+
+    Falls back to the hourly mean when that mapping is absent or has no
+    entry for an hour (an older persisted report, or a window shape that
+    produced no period for that hour), and reports WHICH basis it used in
+    `soc_discrepancy_basis` rather than silently reverting to the
+    behaviour this issue is about.
 
     Returns None for both stats when `battery_socs` is empty or every
     battery's own capacity is non-positive (no SoC sensor configured
@@ -8895,6 +8971,8 @@ def _soc_discrepancy_stats(
             "soc_discrepancy_reliable": None,
             "soc_discrepancy_reason": None,
             "soc_discrepancy_hourly": None,
+            "soc_discrepancy_basis": None,
+            "soc_discrepancy_power_coverage": power_coverage,
         }
     gaps: list[float] = []
     any_out_of_range = False
@@ -8910,8 +8988,24 @@ def _soc_discrepancy_stats(
     # real numbers hour by hour instead of independently re-deriving them
     # and hoping the two resampling methods happen to agree.
     hourly_rows: list[dict[str, float | bool | str]] = []
+    used_boundary = 0
+    used_mean = 0
     for key_str, row in j_ach_hourly.items():
-        ach_pct = row.get("soc_pct")
+        # nimbus issue #1228: the boundary sample is the like-for-like
+        # counterpart to `real_pct` below; the hourly mean is a fallback
+        # that keeps an older persisted report working, counted so the
+        # published basis can say which one actually got used.
+        ach_pct = (
+            ach_soc_pct_at_hour.get(key_str)
+            if ach_soc_pct_at_hour is not None
+            else None
+        )
+        if ach_pct is None:
+            ach_pct = row.get("soc_pct")
+            if ach_pct is not None:
+                used_mean += 1
+        else:
+            used_boundary += 1
         if ach_pct is None:
             continue
         hour_dt = datetime.fromisoformat(key_str)
@@ -8973,9 +9067,20 @@ def _soc_discrepancy_stats(
             "soc_discrepancy_reliable": None,
             "soc_discrepancy_reason": None,
             "soc_discrepancy_hourly": None,
+            "soc_discrepancy_basis": None,
+            "soc_discrepancy_power_coverage": power_coverage,
         }
     max_gap = max(gaps)
     mean_gap = sum(gaps) / len(gaps)
+    # nimbus issue #1228: name the basis rather than leave a consumer to
+    # infer it from the magnitude. "hourly_mean" anywhere means some hour
+    # was still compared the pre-fix way.
+    if used_boundary and not used_mean:
+        basis = "hour_boundary"
+    elif used_mean and not used_boundary:
+        basis = "hourly_mean"
+    else:
+        basis = "mixed"
     if any_out_of_range:
         reliable = False
         reason: str | None = "out_of_range"
@@ -8991,6 +9096,12 @@ def _soc_discrepancy_stats(
         "soc_discrepancy_reliable": reliable,
         "soc_discrepancy_reason": reason,
         "soc_discrepancy_hourly": hourly_rows,
+        "soc_discrepancy_basis": basis,
+        # nimbus issue #1181: the home battery's own power-history
+        # coverage for this window, measured and published, never acted
+        # on -- see _power_history_coverage() for why adjusting would
+        # make this statistic worse rather than better.
+        "soc_discrepancy_power_coverage": power_coverage,
     }
 
 
@@ -14544,6 +14655,109 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
         [b.name for b in batteries],
     )
     return batteries
+
+
+def _power_history_coverage(
+    pts: list[tuple[datetime, float]],
+    grid_times: list[datetime],
+    period_hours: float,
+) -> dict[str, float | int] | None:
+    """How well a power sensor's recorder history actually covers the
+    scored window (nimbus issue #1181).
+
+    `resample_history_mean()` is time-weighted and deliberately "never
+    fabricates a gap", so a period with no sample of its own inherits the
+    most recent earlier reading. For a STATE that is right. For POWER it
+    means a stale instantaneous value is integrated across time nobody
+    observed -- and on the reference household's own charge window,
+    **5.93 of 11.0 hours (54%)** sat inside gaps longer than two minutes,
+    with a largest gap of 30 minutes.
+
+    Published rather than corrected, deliberately. The issue's own
+    analysis rules out the obvious fix: zeroing stale periods is the
+    conservative direction for THROUGHPUT (the participant path's choice,
+    see `_stale_power_period_indices()`) but the wrong direction for a
+    TRAJECTORY, because the home reconstruction already under-rises
+    through charge and zeroing would deepen that -- making
+    `soc_discrepancy` worse, and a household's EPR look less reliable,
+    because of a fix.
+
+    What this buys instead is the ability to tell two very different
+    situations apart, which `soc_discrepancy` alone cannot:
+
+        "the reconstruction disagrees with the real sensor"
+        "the reconstruction had almost nothing to work with"
+
+    Both currently surface as `soc_discrepancy_reason: disagreement`.
+
+    Reported as raw, threshold-free quantities wherever possible --
+    sample count, median gap, largest gap -- because the interesting
+    threshold is not settled and baking one in would prejudge it. Two
+    derived fractions are included because they are the ones a gate would
+    plausibly use:
+
+    `time_in_long_gaps_pct`  share of the window's SPAN sitting inside a
+        gap longer than one grid period. Self-describing rather than
+        arbitrary: a gap longer than one period guarantees at least one
+        period had no sample of its own, so this is the fraction of the
+        window whose power was held forward rather than observed.
+    `stale_periods_pct`  share of periods `_stale_power_period_indices()`
+        would call untrustworthy, i.e. under this repo's existing
+        one-hour `MAX_SAMPLE_GAP_HOURS` guard. Deliberately the SAME
+        measure the participant path acts on, so the two paths report a
+        comparable number even though only one of them adjusts. Expect it
+        to be far smaller than `time_in_long_gaps_pct` -- an hour is a
+        very permissive guard, and the difference between the two
+        fractions is precisely the coverage problem this issue is about.
+
+    Returns None when there is nothing to measure (no window, or fewer
+    than two samples, where "gap" is undefined) rather than a fabricated
+    0.0 that would read as perfect coverage.
+    """
+    if not grid_times or not pts or len(pts) < 2:
+        return None
+    window_start = grid_times[0]
+    window_end = grid_times[-1] + timedelta(hours=period_hours)
+    span_s = (window_end - window_start).total_seconds()
+    if span_s <= 0:
+        return None
+
+    # Only samples that bear on this window, in time order. A sample
+    # before the window still matters -- it is what the first periods
+    # hold forward FROM -- so the clamp is applied to the gap arithmetic
+    # below rather than by discarding it here.
+    times = sorted(t for t, _v in pts)
+    period_s = period_hours * 3600.0
+    gaps_s: list[float] = []
+    long_gap_s = 0.0
+    for earlier, later in itertools.pairwise(times):
+        gap = (later - earlier).total_seconds()
+        if gap <= 0:
+            continue
+        gaps_s.append(gap)
+        if gap <= period_s:
+            continue
+        # Count only the part of the gap that lies inside the window.
+        overlap_start = max(earlier, window_start)
+        overlap_end = min(later, window_end)
+        overlap = (overlap_end - overlap_start).total_seconds()
+        if overlap > 0:
+            long_gap_s += overlap
+    if not gaps_s:
+        return None
+    ordered = sorted(gaps_s)
+    mid = len(ordered) // 2
+    median_s = (
+        ordered[mid] if len(ordered) % 2 else (ordered[mid - 1] + ordered[mid]) / 2.0
+    )
+    stale = _stale_power_period_indices(pts, grid_times, period_hours)
+    return {
+        "points": len(times),
+        "median_gap_s": round(median_s, 1),
+        "max_gap_s": round(max(gaps_s), 1),
+        "time_in_long_gaps_pct": round(long_gap_s / span_s * 100.0, 2),
+        "stale_periods_pct": round(len(stale) / len(grid_times) * 100.0, 2),
+    }
 
 
 def _stale_power_period_indices(

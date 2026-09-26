@@ -230,6 +230,31 @@ class QualityReport:
 
     Defaulted empty so every construction site and test predating this
     field is unaffected."""
+    j_ach_soc_pct_at_hour: dict[str, float] = field(default_factory=dict)
+    """nimbus issue #1228: the achieved SoC (%) AT each hour boundary
+    instant, keyed identically to `j_ach_hourly`'s own rows.
+
+    Exists because `j_ach_hourly['soc_pct']` is an hourly MEAN, and the
+    only consumer that differences it against the real SoC sensor
+    (`solver_writer.py::_soc_discrepancy_stats()`) reads that sensor as a
+    POINT SAMPLE at `HH:00:00`. Same timestamp, different quantity: about
+    half the hour's ramp rate entered the discrepancy as artifact, worst
+    on the steepest ramp of the day, which is what drove
+    `epr_reliable: False` on an install whose sensors were fine.
+
+    Point-sampling the achieved side rather than averaging the real side
+    is the choice that agrees with `resample_history_mean()`'s own
+    documented principle -- SoC is a STATE, sampled and held, not a flow
+    to be averaged -- and it leaves the real side untouched.
+
+    `j_ach_hourly['soc_pct']` is deliberately NOT changed: it feeds
+    Lovelace/apexcharts rows where an hourly mean is the right thing to
+    plot, and this project's own #356 note commits that a <=24h window
+    produces byte-identical output to before.
+
+    Defaulted empty so every construction site and test predating this
+    field is unaffected; a consumer that finds it empty falls back to the
+    mean and says so, rather than silently keeping the old behaviour."""
 
 
 def _energy_totals(
@@ -276,6 +301,61 @@ def _energy_totals(
         "grid_import_kwh": round(float(np.sum(np.maximum(grid_kw, 0.0) * hours)), 3),
         "grid_export_kwh": round(float(np.sum(np.maximum(-grid_kw, 0.0) * hours)), 3),
     }
+
+
+def _soc_pct_at_hour_boundaries(
+    *,
+    hours: NDArray[np.float64],
+    soc_pct: NDArray[np.float64],
+    initial_soc_pct: float,
+    day_start: datetime,
+) -> dict[str, float]:
+    """The SoC (%) AT each hour boundary, keyed exactly as
+    `_hourly_means_by_key()` keys its rows (`day_start + h hours`, local
+    ISO with offset), so the two line up key-for-key.
+
+    nimbus issue #1228. The per-period SoC array is END-of-period by
+    construction -- `compute_quality_report()` builds it as
+    `initial_soc_kwh + np.cumsum(delta)`, so element `t` is the SoC after
+    period `t` has elapsed. The SoC AT the instant hour `h` begins is
+    therefore the END of the period immediately BEFORE that hour's first
+    period, and for hour 0 it is the initial SoC, before any period has
+    elapsed at all. Getting this off by one period would reintroduce a
+    fraction of the same ramp artifact the issue is about, in the other
+    direction.
+
+    Key construction is deliberately identical to
+    `_hourly_means_by_key()`'s, UTC-stepped then converted back, for the
+    same #368 DST reason: wall-clock `+ timedelta(hours=h)` on a
+    ZoneInfo-aware datetime either skips a real hour or emits two
+    identical keys across a transition. A key that did not match would
+    make this silently useless -- the consumer would find nothing and
+    fall back to the mean.
+
+    An hour with no periods mapped to it is omitted rather than filled:
+    the consumer iterates the achieved hourly rows and looks each key up,
+    so a missing key falls back cleanly, whereas a fabricated value would
+    read as a real measurement."""
+    if not len(hours):
+        return {}
+    cum = np.cumsum(hours) - hours
+    hour_index = np.floor(cum).astype(int)
+    n_hours = int(hour_index.max()) + 1
+    day_start_tzinfo = day_start.tzinfo
+    day_start_utc = day_start.astimezone(UTC)
+    out: dict[str, float] = {}
+    for h in range(n_hours):
+        mask = hour_index == h
+        if not mask.any():
+            continue
+        key = (
+            (day_start_utc + timedelta(hours=h))
+            .astimezone(day_start_tzinfo)
+            .isoformat()
+        )
+        first = int(np.argmax(mask))
+        out[key] = float(initial_soc_pct) if first == 0 else float(soc_pct[first - 1])
+    return out
 
 
 def _hourly_means_by_key(
@@ -1080,6 +1160,16 @@ def compute_quality_report(
         },
         day_start=day_start,
     )
+    # nimbus issue #1228: the achieved SoC at each hour BOUNDARY, for the
+    # one consumer that differences it against a point-sampled real SoC
+    # sensor. See `_soc_pct_at_hour_boundaries()` and the
+    # `j_ach_soc_pct_at_hour` field's own docstring.
+    j_ach_soc_pct_at_hour = _soc_pct_at_hour_boundaries(
+        hours=hours,
+        soc_pct=j_ach_soc_pct,
+        initial_soc_pct=float(_soc_pct(np.array([total_initial_soc_kwh]))[0]),
+        day_start=day_start,
+    )
     j_star_hourly = _hourly_means_by_key(
         hours=hours,
         per_period={
@@ -1175,6 +1265,7 @@ def compute_quality_report(
         hourly_regret=hourly_regret,
         j_ref_hourly=j_ref_hourly,
         j_ach_hourly=j_ach_hourly,
+        j_ach_soc_pct_at_hour=j_ach_soc_pct_at_hour,
         j_star_hourly=j_star_hourly,
         energy_decomposition=energy_decomposition,
         p2p_commitment_shortfall_kwh=round(p2p_commitment_shortfall_kwh, 4),
