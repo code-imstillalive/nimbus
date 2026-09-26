@@ -14545,6 +14545,56 @@ _PARTICIPANT_POWER_IMPLAUSIBLE_MULTIPLE: float = 10.0
 # same posture as _SOLAR_SOURCE_WARNED above.
 _SIGN_CONVENTION_WARNED: set[str] = set()
 
+# nimbus issue #1247 (Mark Purcell's 26 Sep report). Participants scored with
+# NO availability gate, warned once each -- same posture as the sign-convention
+# set above.
+_UNGATED_PARTICIPANT_WARNED: set[str] = set()
+
+
+def _warn_participant_history_is_ungated_once(name: str) -> None:
+    """Say so when a participant's history is scored with no away-gate.
+
+    #768 established the mechanism: a pack-power sensor also measures real
+    PROPULSION discharge while driving -- energy that never touches the home's
+    grid connection. `_resolve_battery_participant_history()` gates that out
+    using `battery_participant_available_entity`, read as history for the
+    scored day.
+
+    But the gate is `if available_entity:`. A participant with none configured
+    is scored UNGATED, silently: a trip's worth of discharge is priced as if
+    it flowed through the grid, j_ach and EPR absorb it, and the oracle is
+    compared against a discharge that was really a car leaving. Regret then
+    concentrates at departure hours -- which is exactly the 11:00-13:00 shape
+    #1247 reports and could not explain from its own data.
+
+    That is the #535/#843 class: a plausible number rather than a failure.
+    Nothing distinguishes "the gate ran and found the car home" from "there
+    was no gate", which is the whole problem.
+
+    REPORTS, NEVER CORRECTS -- the same line #1241 draws. There is no safe
+    inference to make here: without the entity there is genuinely no evidence
+    of when the car was away, and guessing from a power trace would invent the
+    very fact the gate exists to supply.
+
+    Only fires for a participant that actually has a power sensor to
+    misattribute. Once per participant, at WARNING so it is visible without
+    debug logging.
+    """
+    if name in _UNGATED_PARTICIPANT_WARNED:
+        return
+    _UNGATED_PARTICIPANT_WARNED.add(name)
+    _LOGGER.warning(
+        "Nimbus: battery participant '%s' has no "
+        "battery_participant_available_entity configured, so its scored "
+        "history is NOT gated for periods it was away. If this participant "
+        "is an EV, energy used driving is measured by its pack-power sensor "
+        "and will be priced as if it flowed through your grid connection -- "
+        "inflating regret at departure hours and distorting EPR. Nothing has "
+        "been changed. Set that entity on the participant to fix it "
+        "(nimbus issues #768 / #1247). Logged once per participant.",
+        name,
+    )
+
 
 def _warn_sign_convention_once(name: str, result: object) -> None:
     """Report a declared sign convention the history disagrees with (#1241).
@@ -15827,6 +15877,11 @@ def _resolve_battery_participant_history(
             # availability entity configured", which stays a real no-op.
             away_period_indices: frozenset[int] | None = None
             available_entity = data.get(CONF_BATTERY_PARTICIPANT_AVAILABLE_ENTITY)
+            if not available_entity:
+                # nimbus issue #1247: the gate below is skipped, and nothing
+                # in the published report distinguishes that from "the gate
+                # ran and the car was home all day". Say so once.
+                _warn_participant_history_is_ungated_once(str(name))
             if available_entity:
                 home_hist = fetch_entity_state_history_range(
                     available_entity, day_start, day_end
