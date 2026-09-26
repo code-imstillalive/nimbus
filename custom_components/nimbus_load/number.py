@@ -252,6 +252,62 @@ class _SharedNumberStore:
             await self.store.async_save(data)
 
 
+class _CurrencyUnitMixin:
+    """Resolve a currency sentinel against HA's own configured currency.
+
+    nimbus issue #1293 (Mark Purcell, IV&V #1289). #1253 removed the
+    hardcoded currency labels from `sensor_flattened.py`'s 37 rows and
+    its CHANGELOG entry then claimed "Zero hardcoded currency strings remain
+    in the integration" -- which was false, because this file was never
+    touched. Seventeen literal per-kWh and per-day unit strings, each with a
+    dollar sign baked in, were assigned straight to
+    `_attr_native_unit_of_measurement`, so a non-AUD household saw that sign
+    on every Solver tuning knob: exactly the problem #1253 was opened to fix.
+
+    The literals are deliberately not quoted in this docstring. #1293's own
+    test greps this file's raw text for them, and it cannot tell a live unit
+    string from prose describing one -- so spelling them out here would make
+    the explanation fail the assertion it is explaining.
+
+    A MIXIN rather than a property copied onto each class, because there are
+    two unrelated entity classes here (`NimbusSolverNumber` and
+    `NimbusControllableLoadNumber`) and a duplicated property is precisely
+    how one of them silently stays unfixed -- which is the shape of this very
+    finding one level up.
+
+    Mirrors `_FlattenedAttributeSensor.native_unit_of_measurement` exactly,
+    including the two deliberate non-obvious choices:
+
+    * **a falsy currency returns None rather than a default.** Substituting
+      one would re-introduce the hardcode this removes, just with a different
+      string.
+    * **before HA attaches `hass`, the sentinel is returned as-is.** It is
+      deliberately not a plausible currency, so if it ever reached a UI it
+      would be obviously wrong rather than quietly wrong.
+    """
+
+    @property
+    def native_unit_of_measurement(self) -> str | None:
+        unit = self._desc.unit
+        if unit not in (_CURRENCY_PER_KWH, _CURRENCY_PER_DAY):
+            return unit
+        hass = getattr(self, "hass", None)
+        if hass is None:
+            return unit
+        currency = hass.config.currency
+        if not currency:
+            return None
+        return f"{currency}/kWh" if unit == _CURRENCY_PER_KWH else f"{currency}/day"
+
+
+#: Placeholders in the declarative tables below, resolved at read time by
+#: `_CurrencyUnitMixin`. Deliberately implausible as real unit strings so a
+#: leak is obvious on sight rather than mistaken for a currency (nimbus
+#: issue #1293). Named to match sensor_flattened.py's own sentinels.
+_CURRENCY_PER_KWH = "__nimbus_currency_per_kwh__"
+_CURRENCY_PER_DAY = "__nimbus_currency_per_day__"
+
+
 @dataclass(frozen=True)
 class _SolverNumberDescription:
     key: str  # CONF_SOLVER_* -- also this entity's own suffix and the
@@ -389,7 +445,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         10,
         0.001,
-        "$/kWh",
+        _CURRENCY_PER_KWH,
     ),
     _SolverNumberDescription(
         CONF_SOLVER_DISCHARGE_COST,
@@ -398,7 +454,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         10,
         0.001,
-        "$/kWh",
+        _CURRENCY_PER_KWH,
     ),
     _SolverNumberDescription(
         CONF_SOLVER_SALVAGE_VALUE,
@@ -407,7 +463,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         10,
         0.001,
-        "$/kWh",
+        _CURRENCY_PER_KWH,
     ),
     # nimbus issue #348 (Mark Purcell): this used to be a hardcoded module
     # constant in solver_writer.py, applied to every install with no way
@@ -421,7 +477,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         50,
         0.01,
-        "$/day",
+        _CURRENCY_PER_DAY,
     ),
     # Same story as Fixed Daily Charge above -- was SELF_CONSUME_HOURS_
     # AFTER_MIDNIGHT_CLOSE, a hardcoded solver_writer.py constant. Only
@@ -451,7 +507,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         10,
         0.001,
-        "$/kWh",
+        _CURRENCY_PER_KWH,
     ),
     # Real portability bug found and fixed live (nimbus repo issue #100,
     # Mark Purcell). See const.py's own CONF_SOLVER_INVERTER_SELF_
@@ -480,7 +536,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         10,
         0.001,
-        "$/kWh",
+        _CURRENCY_PER_KWH,
         sub_device="p2p",
     ),
     _SolverNumberDescription(
@@ -637,7 +693,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         10,
         0.000001,
-        "$/kWh",
+        _CURRENCY_PER_KWH,
     ),
     _SolverNumberDescription(
         CONF_SOLVER_NETWORK_FEE_1_RATE,
@@ -646,7 +702,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         10,
         0.000001,
-        "$/kWh",
+        _CURRENCY_PER_KWH,
     ),
     _SolverNumberDescription(
         CONF_SOLVER_NETWORK_FEE_1_START_HOUR,
@@ -673,7 +729,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         10,
         0.000001,
-        "$/kWh",
+        _CURRENCY_PER_KWH,
     ),
     _SolverNumberDescription(
         CONF_SOLVER_NETWORK_FEE_2_START_HOUR,
@@ -700,7 +756,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         10,
         0.000001,
-        "$/kWh",
+        _CURRENCY_PER_KWH,
     ),
     _SolverNumberDescription(
         CONF_SOLVER_NETWORK_FEE_3_START_HOUR,
@@ -727,7 +783,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         10,
         0.000001,
-        "$/kWh",
+        _CURRENCY_PER_KWH,
     ),
     # Risk-aversion dials (2026-08-21) -- 0.0 = trust the point forecast
     # completely, 1.0 = fully hedge toward the pessimistic bound. Three
@@ -822,7 +878,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         2,
         0.01,
-        "$/kWh",
+        _CURRENCY_PER_KWH,
     ),
     # Real household finding (2026-09-08, NUC1's own first day of live
     # dispatch): a single solve's own battery_kw jumped mid-band (e.g.
@@ -846,7 +902,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         0.1,
         0.001,
-        "$/kWh",
+        _CURRENCY_PER_KWH,
     ),
     # Same real gap, same fix, for the sibling mechanism (network.py's
     # own _add_proximal_penalty) -- how strongly each NEW solve is pulled
@@ -861,7 +917,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         0.1,
         0.001,
-        "$/kWh",
+        _CURRENCY_PER_KWH,
     ),
     # nimbus issue #692 (household, real live plan mishaps: a critically-
     # low battery sitting idle through a perfectly good charging price,
@@ -888,7 +944,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         0.1,
         0.001,
-        "$/kWh",
+        _CURRENCY_PER_KWH,
     ),
     # nimbus issue #567: the PRIMARY price-spike trigger -- compared
     # directly against the household's own already-configured live
@@ -903,7 +959,7 @@ _DESCRIPTIONS: tuple[_SolverNumberDescription, ...] = (
         0,
         20,
         0.01,
-        "$/kWh",
+        _CURRENCY_PER_KWH,
         # device_class left at its None default -- same "no real
         # matching NumberDeviceClass for a $/kWh rate" reasoning as
         # every other $/kWh field in this table (see _SolverNumber
@@ -1020,7 +1076,7 @@ async def async_setup_entry(
             )
 
 
-class NimbusSolverNumber(RestoreNumber, NumberEntity):
+class NimbusSolverNumber(_CurrencyUnitMixin, RestoreNumber, NumberEntity):
     """One live, dashboard-editable Solver setting. See this module's own
     docstring for why these are plain restored local state, never written
     back into entry.options."""
@@ -1057,7 +1113,10 @@ class NimbusSolverNumber(RestoreNumber, NumberEntity):
         self._attr_native_min_value = desc.min_value
         self._attr_native_max_value = desc.max_value
         self._attr_native_step = desc.step
-        self._attr_native_unit_of_measurement = desc.unit
+        # No _attr_native_unit_of_measurement here: `_CurrencyUnitMixin`'s
+        # own property is the single answer, so a currency sentinel cannot be
+        # published raw by an __init__ that ran before `hass` was attached
+        # (nimbus issue #1293).
         self._attr_device_class = desc.device_class
         # nimbus issue #465: desc.sub_device="p2p" (the 11 P2P fields
         # only) moves this entity onto the "Nimbus P2P" sub-device
@@ -1288,7 +1347,7 @@ _CONTROLLABLE_LOAD_DESCRIPTIONS: tuple[_ControllableLoadNumberDescription, ...] 
         0,
         1000,
         0.01,
-        "$/kWh",
+        _CURRENCY_PER_KWH,
         kinds=(CONTROLLABLE_LOAD_KIND_DEFERRABLE,),
     ),
     _ControllableLoadNumberDescription(
@@ -1322,7 +1381,7 @@ _CONTROLLABLE_LOAD_DESCRIPTIONS: tuple[_ControllableLoadNumberDescription, ...] 
 )
 
 
-class NimbusControllableLoadNumber(RestoreNumber, NumberEntity):
+class NimbusControllableLoadNumber(_CurrencyUnitMixin, RestoreNumber, NumberEntity):
     """One live, dashboard-editable Controllable Load tuning field --
     nimbus issue #645. Same restore-and-seed-once, durable-Store-backstop
     mechanism as NimbusSolverNumber above (see that class's own
@@ -1369,7 +1428,10 @@ class NimbusControllableLoadNumber(RestoreNumber, NumberEntity):
         self._attr_native_min_value = desc.min_value
         self._attr_native_max_value = desc.max_value
         self._attr_native_step = desc.step
-        self._attr_native_unit_of_measurement = desc.unit
+        # No _attr_native_unit_of_measurement here: `_CurrencyUnitMixin`'s
+        # own property is the single answer, so a currency sentinel cannot be
+        # published raw by an __init__ that ran before `hass` was attached
+        # (nimbus issue #1293).
         self._attr_device_class = desc.device_class
         # Same per-load sub-device every other Controllable Load entity
         # (commanded_state, the #590 schedule-view sensors) already

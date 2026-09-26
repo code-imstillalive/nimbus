@@ -2829,7 +2829,21 @@ def publish_offer_curve(plan) -> None:
             "price_limits": {
                 "market_floor_price": network._OFFER_CURVE_DOMAIN_MIN,
                 "market_price_cap": network._OFFER_CURVE_DOMAIN_MAX,
-                "unit": "$/kWh",
+                # nimbus issue #1293: found by the codebase-wide grep that
+                # #1253's "zero hardcoded currency strings" claim should have
+                # run, and fixed the OPPOSITE way to every other site.
+                #
+                # These two numbers are AEMO's own Market Floor Price and
+                # Market Price Cap -- Australian market constants, not this
+                # household's money. Resolving them against
+                # `hass.config.currency` would relabel a genuinely-AUD figure
+                # as EUR on a European install, which is a false statement
+                # about the value rather than a localisation. So it is pinned
+                # to an explicit ISO code instead: honest, unambiguous, and
+                # deliberately NOT household-dependent. The bare "$" it
+                # replaced was ambiguous across a dozen currencies, which is
+                # the same objection #1253 raised everywhere else.
+                "unit": "AUD/kWh",
                 "source": "AEMO Market Floor Price / Market Price Cap "
                 "(nimbus issue #705, confirmed by Mark Purcell)",
             },
