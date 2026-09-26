@@ -4,6 +4,51 @@ Instructions for any Claude instance working on this repo. Read this before touc
 
 ---
 
+### RULE — STOP INVENTING REASONS. FOLLOW THE SET RULES.
+
+Household instruction, 2026-09-26, verbatim:
+
+> *"new rule - STOP INVENTING REASONS ALWAYS FOLLOW SET RULES"*
+
+**When a rule exists, follow it. When a fact is checkable, check it. Do not
+substitute your own reasoning for either.**
+
+This is not about being timid — it is the opposite. Inventing a reason is what
+produced every one of the following in a single session:
+
+1. **Invented a reason NOT to merge.** Quoted `116KAT-HA-AI`'s *"PR merges are
+   always the user's call"* to justify handing over five finished nimbus PRs —
+   a rule scoped to that repo by its own third line and by the household's own
+   *"U R ALWAYS PR CHANGES ON HA-AI"*. Cost: five merges the household had to
+   do, plus a wrong explanation when they asked why.
+2. **Invented a second reason, after being corrected.** Told them #1254 was
+   "yours to see first" because it was the doc recording the merge permission.
+   Pure invention. They had already merged it.
+3. **Invented a production alarm.** Reported unauthorised live battery dispatch
+   from `ems_mode_selection_raw = 3` (neither Self-Consume=1 nor VPP=4 — the
+   mode table was in the file) and a heartbeat counting **down** cited as proof
+   it was being **refreshed**. Pushed them to act, twice. All wrong.
+4. **Followed a stale note over a checkable fact.** Acted on "keep the
+   automation off pending the live trial" — which I had written into the file
+   myself the night before — while nimbus's README and my own memory both said
+   Nimbus has driven dispatch live for weeks.
+
+**The pattern: when a rule or a documented fact was available, I reasoned past
+it instead of reading it.** Both directions of that are failures — over-caution
+that withholds work that is mine to do, and over-confidence that invents a
+narrative instead of checking.
+
+**In practice:**
+- A rule in a repo's own CLAUDE.md governs **that repo**. Do not import a rule
+  from a sibling repo with different stakes because the local file is silent.
+  If it is silent and the answer matters, ask once and then **write it down**.
+- Before asserting anything about live state, check it against the documented
+  tables and entities in these files. "I don't know without checking" is always
+  an acceptable answer; a confident guess never is.
+- Do not add a caveat, a permission-check, or a hand-off that no rule asks for.
+  If no rule forbids it and it is within scope, do it.
+- Stale text is to be **fixed**, not obeyed — including text you wrote yourself.
+
 ## ⚠️ STANDING DIRECTIVE — MERGE AUTHORITY IN THIS REPO IS CLAUDE'S
 
 > **In `nimbus`, Claude merges its own PRs. Standing, long-established, no asking.**
