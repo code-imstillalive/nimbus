@@ -622,6 +622,11 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "detect_power_sign_convention",
         "_mean",
         "_warn_sign_convention_once",
+        # nimbus issue #1247: reports a participant whose scored history has
+        # no away-gate. Same reason as the #1241 pair above -- the standalone
+        # copy has no battery-participant path at all, so there is nothing
+        # there for this to warn about.
+        "_warn_participant_history_is_ungated_once",
         # nimbus #467 item 4: reads an HA calendar entity via
         # calendar.get_events. Same open-drift reasoning as the four above, and
         # for the same reason it is NOT native-only: it goes through
