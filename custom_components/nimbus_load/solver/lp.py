@@ -693,6 +693,27 @@ class LPResult:
     # on it, and the solve is byte-identical either way.
     calibration_min_weight_fallback: bool = False
 
+    # nimbus issue #1179, second half: WHY the fallback was taken, because the
+    # two possible reasons point in OPPOSITE causal directions and the bool
+    # above cannot tell them apart.
+    #
+    #   "probe_not_optimal"  -- the bracket probes came back non-optimal, so the
+    #                           model was already failing before any weight was
+    #                           chosen. The blend collapse is then a SYMPTOM,
+    #                           not a cause, and this warning and the solve
+    #                           failure are two views of one event.
+    #   "cost_not_preserved" -- both probes solved fine, but no weight in the
+    #                           bracket held the primary cost within tolerance.
+    #                           A genuine calibration verdict, and the only
+    #                           branch in which #1179's original hypothesis --
+    #                           that handing HiGHS 1e-12 is itself what breaks
+    #                           the solve -- is even available.
+    #
+    # None when no fallback was taken (including when no calibration ran),
+    # mirroring the bool's own "did not take it" posture. Purely diagnostic;
+    # nothing branches on it and the solve is byte-identical either way.
+    calibration_fallback_reason: str | None = None
+
     # nimbus issue #490 (Signals 1/7 of #489): HiGHS ranging, opt-in via
     # LPProblem.solve(ranging=True) -- see this module's own docstring on
     # `solve()` for the full mechanism. `ranging_valid` is None when
@@ -1710,7 +1731,7 @@ def _calibrate_blend_weight(
     secondary_vec: NDArray[np.float64],
     lex_primary_cost: float,
     tolerance: float,
-) -> tuple[float, float, bool]:
+) -> tuple[float, float, bool, str | None]:
     """Find the largest blend weight whose single-solve primary cost
     stays within `tolerance` (relative) of the true lex-optimal primary
     cost, then run one final blended solve at that weight -- so `h`'s
@@ -1723,8 +1744,12 @@ def _calibrate_blend_weight(
     `_CAL_MARGIN` step-back for robustness against coefficient drift.
 
     nimbus issue #776: returns `(weight, true_primary_cost,
-    min_weight_fallback)` (the third element is nimbus issue #1179's --
-    see `LPResult.calibration_min_weight_fallback`), not just
+    min_weight_fallback, fallback_reason)` (the last two are nimbus issue
+    #1179's -- see `LPResult.calibration_min_weight_fallback` and
+    `LPResult.calibration_fallback_reason`; the reason separates "the probes
+    themselves did not solve", where this fallback is a SYMPTOM of an
+    already-failing model, from "both probes solved and no weight held the
+    primary cost", where the collapsed weight is a candidate cause), not just
     `weight` -- `h.getObjectiveValue()` after the final blended solve
     below is `primary + weight * secondary`, a MIXED-UNIT number (real
     dollar primary cost plus whatever arbitrary scale the secondary/
@@ -1748,10 +1773,18 @@ def _calibrate_blend_weight(
         # nimbus issue #1179: False -- this branch picks a safe DEFAULT
         # weight (1e-3) because there is no primary cost to distort, which
         # is not the minimum-weight fallback the issue is about.
-        return weight, float(primary_vec @ bl_vals), False
+        return weight, float(primary_vec @ bl_vals), False, None
 
     abs_tol = max(1e-8, abs(lex_primary_cost) * tolerance)
     min_weight_fallback = False
+    fallback_reason: str | None = None
+
+    # nimbus issue #1179: `probe_reasons` records why each end of the bracket
+    # was rejected, because "non-optimal probe" and "cost drifted" are the
+    # difference between this fallback being a symptom of an already-failing
+    # model and being a genuine calibration verdict. Written by the closure,
+    # read only if the fallback is actually taken.
+    probe_reasons: dict[float, str] = {}
 
     def _primary_acceptable(log_w: float) -> bool:
         w = 10.0**log_w
@@ -1763,10 +1796,17 @@ def _calibrate_blend_weight(
         ):
             h.run()
         if h.getModelStatus() != highspy.HighsModelStatus.kOptimal:
+            # The probe did not solve. Nothing about the WEIGHT is implicated
+            # -- the model was already failing at this point.
+            probe_reasons[log_w] = "probe_not_optimal"
             return False
         bl_vals = np.asarray(h.getSolution().col_value)
         bl_primary_cost = float(primary_vec @ bl_vals)
-        return bl_primary_cost <= lex_primary_cost + abs_tol
+        if bl_primary_cost <= lex_primary_cost + abs_tol:
+            probe_reasons[log_w] = "ok"
+            return True
+        probe_reasons[log_w] = "cost_not_preserved"
+        return False
 
     lo, hi = _CAL_LOG_LO, _CAL_LOG_HI
     if _primary_acceptable(hi):
@@ -1780,11 +1820,30 @@ def _calibrate_blend_weight(
             convergence=_CAL_CONVERGENCE,
         )
     else:
+        # nimbus issue #1179, second half: name WHY both ends were rejected.
+        # If either end reports `probe_not_optimal`, the model was already
+        # failing before a weight was chosen and this fallback is a symptom
+        # rather than a cause -- which is the distinction that decides the
+        # whole issue, and was previously unrecorded.
+        reasons = {probe_reasons.get(hi, "unknown"), probe_reasons.get(lo, "unknown")}
+        fallback_reason = (
+            "probe_not_optimal"
+            if "probe_not_optimal" in reasons
+            else "cost_not_preserved"
+        )
         _LOGGER.warning(
             "LPProblem.solve(options=CalibratedOptions(...)): no blend weight "
-            "preserves primary cost within tolerance (%.2e); using minimum weight %.2e",
+            "preserves primary cost within tolerance (%.2e); using minimum "
+            "weight %.2e. Reason: %s (hi=%s, lo=%s) -- `probe_not_optimal` "
+            "means the probe solves themselves did not complete, so the model "
+            "was ALREADY failing before any weight was chosen and this is a "
+            "symptom, not a cause; `cost_not_preserved` means both probes "
+            "solved and no weight held the primary cost (nimbus issue #1179)",
             abs_tol,
             10.0**lo,
+            fallback_reason,
+            probe_reasons.get(hi, "unknown"),
+            probe_reasons.get(lo, "unknown"),
         )
         upper = lo
         # nimbus issue #1179: reported back on LPResult so a failing cycle
@@ -1800,7 +1859,12 @@ def _calibrate_blend_weight(
     with _lp_tolerance_matching_mip(h), _timed_lp_call(h, "calibrate_blend_final"):
         h.run()
     bl_vals = np.asarray(h.getSolution().col_value)
-    return weight, float(primary_vec @ bl_vals), min_weight_fallback
+    return (
+        weight,
+        float(primary_vec @ bl_vals),
+        min_weight_fallback,
+        fallback_reason if min_weight_fallback else None,
+    )
 
 
 def _solve_with_options(
@@ -1810,7 +1874,7 @@ def _solve_with_options(
     problem: LPProblem,
     options: SolveOptions,
     binary_cols: list[int],
-) -> tuple[list[str], float | None, bool]:
+) -> tuple[list[str], float | None, bool, str | None]:
     """Runs the real phased/blended/calibrated solve against an ALREADY
     fully-constructed HiGHS model (every variable/constraint already
     added by `_solve_highs()`) -- mutates `h`'s own live state so the
@@ -1822,7 +1886,9 @@ def _solve_with_options(
     architecture and the deliberate scope cuts versus that source.
 
     Returns `(extra_row_names, objective_override,
-    calibration_min_weight_fallback)`. `extra_row_names`
+    calibration_min_weight_fallback, calibration_fallback_reason)` -- the
+    last two are #1179's diagnostics, see `LPResult`'s own fields.
+    `extra_row_names`
     is the names of any EXTRA constraint rows this function added to
     `h` beyond the caller's own -- unlike HAEO (which has no equivalent
     concern), `_solve_highs()` builds a `row_names` list that must stay
@@ -1937,7 +2003,7 @@ def _solve_with_options(
                 n_binary=len(binary_cols),
             ):
                 h.run()
-        return [], None, False
+        return [], None, False, None
 
     # LexOptions and CalibratedOptions both start with the same phase 1
     # + phase 2: minimize primary alone, then minimize secondary with
@@ -2137,14 +2203,19 @@ def _solve_with_options(
             _ensure_optimal_value(
                 h, phase="phase3_lex_restore", problem=problem, binary_cols=binary_cols
             )
-        return extra_row_names, None, False
+        return extra_row_names, None, False, None
 
     # CalibratedOptions: h's own live basis already sits at the phase-2
     # (true lex) optimum -- read it off directly rather than re-solving,
     # then search for a safe blend weight and do one final blended solve.
     lex_values = np.asarray(h.getSolution().col_value)
     lex_primary_cost = float(primary_vec @ lex_values)
-    _, true_primary_cost, min_weight_fallback = _calibrate_blend_weight(
+    (
+        _,
+        true_primary_cost,
+        min_weight_fallback,
+        calibration_fallback_reason,
+    ) = _calibrate_blend_weight(
         h,
         col_indices,
         primary_vec,
@@ -2158,7 +2229,12 @@ def _solve_with_options(
     # docstring). `true_primary_cost` is the actual solution's real
     # primary-only cost; `_solve_highs()` substitutes it for
     # `h.getObjectiveValue()` rather than reporting the blended figure.
-    return extra_row_names, true_primary_cost, min_weight_fallback
+    return (
+        extra_row_names,
+        true_primary_cost,
+        min_weight_fallback,
+        calibration_fallback_reason,
+    )
 
 
 def _solve_highs(
@@ -2258,6 +2334,11 @@ def _solve_highs(
     # #773 ValueError fallback both leave it False, which is correct --
     # neither calibrates).
     calibration_min_weight_fallback = False
+    # nimbus issue #1179, second half: initialised alongside the bool for the
+    # same reason -- every LPResult return below carries it whichever solve
+    # path ran, and None is the honest value on the paths that never
+    # calibrate.
+    calibration_fallback_reason: str | None = None
     if options is None:
         # Dense-style cost expression (every variable, defaulting missing
         # entries to 0.0) -- matches the old from-scratch solver's own
@@ -2350,6 +2431,7 @@ def _solve_highs(
                     extra_row_names,
                     objective_override,
                     calibration_min_weight_fallback,
+                    calibration_fallback_reason,
                 ) = _solve_with_options(
                     h, var_array, col_indices, problem, options, binary_cols
                 )
@@ -2395,6 +2477,7 @@ def _solve_highs(
         return LPResult(
             status="infeasible",
             calibration_min_weight_fallback=calibration_min_weight_fallback,
+            calibration_fallback_reason=calibration_fallback_reason,
             iterations=iterations,
             ranging_valid=_ranging_valid_on_non_optimal,
         )
@@ -2402,6 +2485,7 @@ def _solve_highs(
         return LPResult(
             status="unbounded",
             calibration_min_weight_fallback=calibration_min_weight_fallback,
+            calibration_fallback_reason=calibration_fallback_reason,
             iterations=iterations,
             ranging_valid=_ranging_valid_on_non_optimal,
         )
@@ -2419,6 +2503,7 @@ def _solve_highs(
         return LPResult(
             status="error",
             calibration_min_weight_fallback=calibration_min_weight_fallback,
+            calibration_fallback_reason=calibration_fallback_reason,
             iterations=iterations,
             raw_status=h.modelStatusToString(status),
             ranging_valid=_ranging_valid_on_non_optimal,
@@ -2572,6 +2657,7 @@ def _solve_highs(
         # successes?" is answerable from a base rate rather than from
         # failures alone.
         calibration_min_weight_fallback=calibration_min_weight_fallback,
+        calibration_fallback_reason=calibration_fallback_reason,
         ranging_valid=ranging_valid,
         col_bound_up=col_bound_up,
         col_bound_dn=col_bound_dn,

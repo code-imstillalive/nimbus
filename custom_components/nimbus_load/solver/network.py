@@ -818,6 +818,14 @@ class Plan:
     # joinable only by timestamp-second, which is what stopped the
     # blend-collapse hypothesis being either confirmed or dismissed.
     calibration_min_weight_fallback: bool = False
+    # nimbus issue #1179, second half: WHY that fallback fired, mirroring
+    # LPResult's field of the same name. The distinction is the whole point --
+    # "probe_not_optimal" means the model was already failing before a weight
+    # was chosen, so the fallback is a SYMPTOM; "cost_not_preserved" means both
+    # probes solved and no weight held the primary cost, which is the only case
+    # where #1179's original "1e-12 breaks HiGHS" hypothesis is available at
+    # all. Diagnostic only; nothing branches on it.
+    calibration_fallback_reason: str | None = None
     # nimbus issue #390: how much of grid_import_kw above came from the
     # penalized excess-import slack, i.e. real draw the configured
     # `import_limit_kw` couldn't cover on its own. Zero at every period on
@@ -1258,6 +1266,7 @@ def _infeasible_plan(
     iterations: int,
     raw_status: str | None = None,
     calibration_min_weight_fallback: bool = False,
+    calibration_fallback_reason: str | None = None,
 ) -> Plan:
     """A well-formed but empty Plan for a non-optimal solve -- every array
     present (zero-filled), never omitted, so a caller can always safely
@@ -1276,6 +1285,7 @@ def _infeasible_plan(
     return Plan(
         status=status,
         calibration_min_weight_fallback=calibration_min_weight_fallback,
+        calibration_fallback_reason=calibration_fallback_reason,
         periods=periods,
         battery_charge_kw=np.zeros(n),
         battery_discharge_kw=np.zeros(n),
@@ -3754,6 +3764,7 @@ def _build_plan_once(
             # inferred from a separate warning that happens to share a
             # second.
             calibration_min_weight_fallback=result.calibration_min_weight_fallback,
+            calibration_fallback_reason=result.calibration_fallback_reason,
         )
 
     def _get(names: list[str]) -> NDArray[np.float64]:
@@ -4291,6 +4302,7 @@ def _build_plan_once(
         # that, "the failures took the fallback" is unfalsifiable -- if
         # every cycle takes it, it explains nothing.
         calibration_min_weight_fallback=result.calibration_min_weight_fallback,
+        calibration_fallback_reason=result.calibration_fallback_reason,
         periods=periods,
         battery_charge_kw=battery_charge_kw_total,
         battery_discharge_kw=battery_discharge_kw_total,

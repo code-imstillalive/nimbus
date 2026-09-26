@@ -111,16 +111,22 @@ class TestEveryReturnPropagatesIt(unittest.TestCase):
             if isinstance(n, ast.Return) and n.value is not None and n not in nested
         ]
 
-    def test_every_solve_with_options_return_is_a_triple(self):
+    def test_every_solve_with_options_return_carries_both_diagnostics(self):
+        """4, not 3, since #1179's second half: the flag AND the reason.
+
+        A signature change nobody propagated is not a fix -- which is exactly
+        how the early-exit return in `_calibrate_blend_weight` was missed the
+        first time (see the test below).
+        """
         arities = self._return_arities(lp_mod._solve_with_options)
         self.assertTrue(arities, "no returns found -- test is not testing anything")
         self.assertEqual(
             set(arities),
-            {3},
-            f"every return must carry the flag; got arities {arities}",
+            {4},
+            f"every return must carry the flag AND the reason; got {arities}",
         )
 
-    def test_every_calibrate_return_is_a_triple(self):
+    def test_every_calibrate_return_carries_both_diagnostics(self):
         """The one CI caught and these tests originally did not.
 
         `_calibrate_blend_weight` has TWO outer returns: the main path,
@@ -133,8 +139,8 @@ class TestEveryReturnPropagatesIt(unittest.TestCase):
         self.assertTrue(arities, "no returns found -- test is not testing anything")
         self.assertEqual(
             set(arities),
-            {3},
-            f"every outer return must carry the flag; got arities {arities}",
+            {4},
+            f"every outer return must carry the flag AND the reason; got {arities}",
         )
 
 
@@ -191,7 +197,11 @@ class TestTheFailureLogSaysWhich(unittest.TestCase):
         src = inspect.getsource(solver_writer)
         i = src.find("solve did not complete after")
         assert i > -1, "the #757 failure warning moved or was renamed"
-        return src[i : i + 1400]
+        # Deliberately looks BACKWARDS as well. Since #1179's second half the
+        # message is assembled into `calibration_note` above the _LOGGER call
+        # -- a forward-only window silently stopped seeing the very text these
+        # tests exist to pin, and reported it as the feature being absent.
+        return src[max(0, i - 3000) : i + 1400]
 
     def test_the_warning_reports_the_fallback(self):
         window = self._window()
