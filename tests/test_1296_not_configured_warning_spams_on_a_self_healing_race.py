@@ -54,7 +54,7 @@ from custom_components.nimbus_load import solver_runtime
 
 def _not_configured_error() -> RuntimeError:
     return RuntimeError(
-        'Nimbus Solver is not configured yet. Open the Nimbus hub\'s own '
+        "Nimbus Solver is not configured yet. Open the Nimbus hub's own "
         '"Configure" button in Home Assistant, choose "Solver settings", '
         "and fill in every required field before running this writer."
     )

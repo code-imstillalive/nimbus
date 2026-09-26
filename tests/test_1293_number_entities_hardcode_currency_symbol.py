@@ -46,10 +46,10 @@ _HARDCODED_CURRENCY_LITERAL = re.compile(r'"\$/(?:kWh|day)"')
 
 class TestNoHardcodedCurrencySymbolRemainsInNumberEntities(unittest.TestCase):
     @pytest.mark.xfail(
-        reason="nimbus #1293: number.py still hardcodes literal \"$/kWh\"/"
-        "\"$/day\" unit strings on 16 Solver tuning-knob entities, "
+        reason='nimbus #1293: number.py still hardcodes literal "$/kWh"/'
+        '"$/day" unit strings on 16 Solver tuning-knob entities, '
         "contradicting CHANGELOG.md's own #1253 entry (\"Zero hardcoded "
-        "currency strings remain in the integration\") -- these were never "
+        'currency strings remain in the integration") -- these were never '
         "migrated to hass.config.currency the way sensor_flattened.py's "
         "37 rows were",
         strict=True,

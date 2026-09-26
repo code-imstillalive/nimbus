@@ -69,11 +69,17 @@ class TestAllDayEventResolvesToLocalMidnight(unittest.TestCase):
     )
     def test_an_all_day_event_starts_at_local_midnight_not_utc_midnight(self):
         trips, _ = _fetch(
-            {_ENTITY: {"events": [_all_day_event("2026-09-27", "2026-09-28", "Road trip")]}}
+            {
+                _ENTITY: {
+                    "events": [_all_day_event("2026-09-27", "2026-09-28", "Road trip")]
+                }
+            }
         )
         self.assertEqual(len(trips), 1)
         start = trips[0].start
-        self.assertIsNotNone(start.tzinfo, "a naive start would raise TypeError downstream")
+        self.assertIsNotNone(
+            start.tzinfo, "a naive start would raise TypeError downstream"
+        )
 
         # The correct answer: local midnight on the 27th.
         local_midnight = start.astimezone(solver_writer.LOCAL_TZ)

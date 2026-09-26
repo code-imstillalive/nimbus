@@ -70,7 +70,9 @@ class TestRescoreNeverPublishesAnExplicitNoneVersion(unittest.TestCase):
             mock.patch.object(
                 solver_writer,
                 "_compute_report_for_window",
-                side_effect=lambda cfg, day_start, day_end, allow_partial: _entry("applied"),
+                side_effect=lambda cfg, day_start, day_end, allow_partial: _entry(
+                    "applied"
+                ),
             ),
             mock.patch.object(
                 solver_writer,
@@ -80,14 +82,21 @@ class TestRescoreNeverPublishesAnExplicitNoneVersion(unittest.TestCase):
                 # own `if key == latest_date:` headline-sync branch -- the
                 # one containing the un-migrated nimbus_version assignment
                 # this test targets -- actually executes.
-                return_value={"attributes": {"latest_date": "2026-09-24"}, "state": "90"},
+                return_value={
+                    "attributes": {"latest_date": "2026-09-24"},
+                    "state": "90",
+                },
             ),
-            mock.patch.object(solver_writer, "ha_post_state", side_effect=_capture_post_state),
+            mock.patch.object(
+                solver_writer, "ha_post_state", side_effect=_capture_post_state
+            ),
             mock.patch.object(solver_writer, "_nimbus_version", return_value=None),
         ):
             solver_writer.rescore_quality_history({}, _now(day=25), 1)
 
-        self.assertTrue(posted, "rescore_quality_history() must have published something")
+        self.assertTrue(
+            posted, "rescore_quality_history() must have published something"
+        )
         _, _, attrs = posted[-1]
         self.assertNotIn(
             "nimbus_version",
