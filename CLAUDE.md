@@ -120,6 +120,7 @@ the "CURRENT STATE" journal that used to live directly in this file now lives. E
 file is not re-summarized here; read it directly for the full detail. Newest
 first (this said "most recent 5" while carrying fourteen, so it now says what it is):
 
+- [2026-09-26](docs/worklog/2026-09-26.md): Includes the annotation and extraction-documentation cleanup following PR #1308; characterization coverage remains tracked in #1310.
 - [2026-09-25](docs/worklog/2026-09-25.md) — **EPR root-caused after nine previous
   passes, and the reason it kept coming back was structural rather than a missed
   bug.** One release (v0.94.416), #1200 filed, #1201/#1202 merged. The nightly score
