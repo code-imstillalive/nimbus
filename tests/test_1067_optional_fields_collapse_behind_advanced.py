@@ -232,5 +232,61 @@ class TestTheTranslationsExist(unittest.TestCase):
                 self.assertIn("blank", sec["description"].lower())
 
 
+class TestTheGridStepAlsoCollapses(unittest.TestCase):
+    def test_only_the_two_price_sensors_are_visible(self):
+        collapsed = ho._collapse_optionals_into_advanced(ho._solver_grid_schema({}))
+        visible = [k for k in _keys(collapsed) if k != _ADV]
+        self.assertEqual(len(visible), 2, f"expected 2 visible, got {visible}")
+
+    def test_the_form_and_the_absorb_use_the_SAME_wrapping(self):
+        import inspect
+
+        src = inspect.getsource(ho.NimbusHubOptionsFlow.async_step_solver_grid)
+        self.assertEqual(src.count("_collapse_optionals_into_advanced"), 2)
+
+    def test_no_field_is_lost(self):
+        before = _solver_keys(ho._solver_grid_schema({}))
+        after = _solver_keys(
+            ho._collapse_optionals_into_advanced(ho._solver_grid_schema({}))
+        )
+        self.assertEqual(before, after)
+
+
+class TestWhichStepsAreDeliberatelyNotCollapsed(unittest.TestCase):
+    """Measured, not assumed. Collapsing is only an improvement when
+    something stays visible; a form that is nothing but a collapsed box is
+    worse than the flat list it replaced.
+
+        step             required  optional
+        solver_sources          2        14   collapsed
+        solver_grid             2         7   collapsed
+        solver_battery          1         1   not worth it
+        forecaster              0        12   would leave an EMPTY form
+        switchboard             0         8   would leave an EMPTY form
+
+    Forecaster and Switchboard have no required fields at all. Making them
+    useful would mean promoting some optional fields via `keep_visible` --
+    i.e. deciding which of twelve are the "real" decisions for every
+    household, which is @purcell-lab's territory (#449 / #485) and wants
+    evidence rather than my guess.
+    """
+
+    def test_the_all_optional_steps_are_not_wrapped(self):
+        import inspect
+
+        for step in ("async_step_forecaster", "async_step_switchboard"):
+            src = inspect.getsource(getattr(ho.NimbusHubOptionsFlow, step))
+            with self.subTest(step=step):
+                self.assertNotIn("_collapse_optionals_into_advanced", src)
+
+    def test_those_steps_really_do_have_no_required_fields(self):
+        """Pins the measurement the decision rests on. If one ever gains a
+        required field, collapsing it becomes worth reconsidering."""
+        for builder in (ho._forecaster_schema, ho._switchboard_schema):
+            required = [m for m in builder({}).schema if isinstance(m, vol.Required)]
+            with self.subTest(builder=builder.__name__):
+                self.assertEqual(required, [])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
