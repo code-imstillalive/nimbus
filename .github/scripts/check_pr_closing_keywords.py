@@ -79,6 +79,45 @@ CLOSING_POSSESSIVE = re.compile(
     re.IGNORECASE,
 )
 
+# The NEGATED form: a closing keyword and issue number preceded by a
+# negation. GitHub's scanner has no concept of negation -- it sees
+# `fix #937` and closes the issue -- so the sentence written specifically
+# to PREVENT an auto-close is what causes one.
+#
+# Measured the same way the possessive branch was, on the same corpus:
+#
+#     120  merged PRs scanned
+#       8  bodies contain a plain closing keyword + issue number  <- deliberate
+#       2  contain the NEGATED form                               <- both bugs
+#
+# Both negated occurrences caused a wrongful close that a human then had
+# to undo by hand:
+#
+#     #1122  "does not close #496"
+#        2026-09-18T04:46:58Z  PR merged
+#        2026-09-18T04:46:59Z  #496 closed     <- one second later
+#        2026-09-18T04:56:51Z  #496 reopened   <- ten minutes of attention
+#     (#496 had an identical close/reopen pair on 2026-09-13.)
+#
+#     #1283  "does not fix #937"
+#        #937 closed on merge, reopened by hand the same day.
+#
+# So: 2 of 2 negated occurrences were real incidents, 0 of 8 legitimate
+# closes would be rejected -- a legitimate close never negates itself.
+# The same calibration the possessive branch holds itself to.
+#
+# The 24-character window spans the shapes actually observed ("does not
+# fix", "will not close", "is not a fix for") without reaching across a
+# sentence boundary: `[^.\n]` stops at a full stop or newline, so an
+# unrelated negation earlier in the paragraph cannot drag an innocent
+# close into a match.
+_NEGATORS = r"not|never|n't|won't|cannot|can't|isn't|doesn't|no"
+CLOSING_NEGATED = re.compile(
+    r"\b(?:" + _NEGATORS + r")\b[^.\n]{0,24}?"
+    r"\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)",
+    re.IGNORECASE,
+)
+
 _ADVICE = """
 GitHub will auto-close issue #{number} when this merges, because its
 scanner stops at the number and never reads the clause that narrows it.
@@ -87,15 +126,43 @@ Put the scope FIRST so no keyword ever precedes the number:
     "Part 1 of 3 for issue {number}"
     "Addresses the unblocked half of issue {number}"
 
-If you genuinely mean to close it, drop the possessive and say so
-plainly -- that form is used correctly throughout this repo and is not
-what this check rejects.
+If the sentence says this PR does NOT close it, spell the reference out
+with no "#" -- GitHub has no concept of negation and closes on the
+keyword alone:
+    "this is not a fix for issue {number}"
+
+If you genuinely mean to close it, drop the possessive/negation and say
+so plainly -- that form is used correctly throughout this repo and is
+not what this check rejects.
 """.rstrip()
 
 
 def find_offences(body: str) -> list[tuple[str, str]]:
-    """Every (matched_text, issue_number) in `body`, in order."""
-    return [(m.group(0), m.group(2)) for m in CLOSING_POSSESSIVE.finditer(body)]
+    """Every (matched_text, issue_number) in `body`, in reading order.
+
+    Two shapes, one failure: a closing keyword whose surrounding words say
+    the PR does NOT do the thing GitHub is about to do anyway.
+    """
+    found: list[tuple[int, str, str]] = [
+        (m.start(), m.group(0), m.group(2)) for m in CLOSING_POSSESSIVE.finditer(body)
+    ]
+    found += [
+        # group(2), not (3): the negator alternation is non-capturing, so
+        # this pattern has exactly two groups like its sibling.
+        (m.start(), m.group(0), m.group(2))
+        for m in CLOSING_NEGATED.finditer(body)
+    ]
+    # Sorted by position so a body carrying both reports them in reading
+    # order, and de-duplicated by offset in case a phrase ever satisfies
+    # both patterns at the same place.
+    seen: set[int] = set()
+    out: list[tuple[str, str]] = []
+    for pos, text, number in sorted(found):
+        if pos in seen:
+            continue
+        seen.add(pos)
+        out.append((text, number))
+    return out
 
 
 def main(argv: list[str]) -> int:
