@@ -810,6 +810,117 @@ def _type_safe_entity_suggestions(hass: Any) -> dict[str, str]:
     return suggestions
 
 
+async def _energy_dashboard_solver_source_suggestions(hass: Any) -> dict[str, str]:
+    """Starting-point suggestions for the Solver's own source fields, read from
+    HA's Energy Dashboard config (nimbus issues #1067 / #448).
+
+    The switchboard form has had this since #554; the Solver's Sources step --
+    the form with the most fields, and per #1067 "the highest chance of being
+    pointed somewhere wrong" -- never did. This closes that gap without adding a
+    single field, which is the whole point: the household's own steer is
+    *"wizard less complex and quicker"*, and Mark's standing principle is to
+    remove wizard values rather than add cleverness beside them.
+
+    Same two safeguards as `_energy_dashboard_switchboard_suggestions()`, and for
+    the same reason -- they are the answer to the household's own question about
+    that feature, "how would we know its correctness?":
+
+    1. **Type safety.** Every candidate is checked against what its own state
+       actually looks like before being offered. `sensor.grid_active_power` LOOKS
+       like the obvious grid sensor and is actually a HAEO forecast on this very
+       install (topology_map.yaml's own note) -- that class of mistake is what
+       this catches.
+    2. **Never silent.** The caller folds these in as `suggested_value` only, for
+       fields that are genuinely unset, and a human still has to submit the form.
+       A saved value always wins.
+
+    Returns {} on ANY failure. A household with no Energy Dashboard configured,
+    an older HA, or an unexpected shape must simply see an unfilled form -- never
+    a broken wizard step. Matching `_discover_nimbus_load_forecast_candidates()`'s
+    own posture directly above.
+
+    **What is deliberately NOT suggested**, because the restraint matters more
+    than the coverage:
+
+    * **Power sensors.** The Energy Dashboard holds ENERGY statistics (kWh,
+      `total_increasing`); Nimbus's `solver_battery_power_sensor` and
+      `solver_solar_power_sensor` want POWER (kW). Those are different quantities
+      on different entities. The tempting bridge -- find the power sensor on the
+      same device -- is a guess wearing discovery's clothes, and putting an
+      energy stat in a power field is precisely the wrong-kind error safeguard 1
+      exists to stop, arriving from the inside.
+    * **Forecast sensors.** The solar source names a forecast CONFIG ENTRY, not a
+      forecast entity, and that mapping differs per integration. A wrong forecast
+      entity fails silently and expensively.
+    """
+    suggestions: dict[str, str] = {}
+    try:
+        from homeassistant.components.energy.data import async_get_manager
+
+        manager = await async_get_manager(hass)
+        sources = (manager.data or {}).get("energy_sources") or []
+    except Exception:  # noqa: BLE001 -- see docstring: no Energy Dashboard, an older HA, or any unexpected shape must mean "an unfilled form", never a broken wizard step
+        return {}
+
+    def _numeric_entity(entity_id: object) -> str | None:
+        """An entity whose CURRENT state parses as a number.
+
+        Deliberately not a `device_class` check, which is what the switchboard
+        sibling uses. Real price entities frequently carry no device_class at
+        all -- Amber, LocalVolts and most tariff integrations publish a bare
+        numeric sensor -- so requiring one would reject the very entities this
+        is meant to find. A numeric state is the honest floor: it rules out the
+        `unknown`/`unavailable`/text cases without pretending to a semantic
+        check it cannot make. Safeguard 2 is what covers the rest, and this is
+        exactly the split that docstring describes.
+        """
+        if not isinstance(entity_id, str) or not entity_id:
+            return None
+        state = hass.states.get(entity_id)
+        if state is None:
+            return None
+        try:
+            float(state.state)
+        except (TypeError, ValueError):
+            return None
+        return entity_id
+
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        kind = source.get("type")
+        if kind == "battery":
+            # `stat_soc` is the one Energy Dashboard field that is already the
+            # exact quantity Nimbus wants, which is why #554's own sibling
+            # helper could use it directly too.
+            soc = source.get("stat_soc")
+            if isinstance(soc, str) and soc:
+                state = hass.states.get(soc)
+                if (
+                    state is not None
+                    and state.attributes.get("device_class") == "battery"
+                    and state.attributes.get("unit_of_measurement") == "%"
+                ):
+                    suggestions[CONF_SOLVER_BATTERY_SOC_SENSOR] = soc
+        elif kind == "grid":
+            # A grid source carries the household's own real tariff entities,
+            # one per flow direction. `entity_energy_price` is the entity form;
+            # `number_energy_price` is a fixed number and deliberately ignored,
+            # since Nimbus wants a live sensor it can resample per period.
+            for flow_key, conf_key in (
+                ("flow_from", CONF_SOLVER_IMPORT_PRICE_SENSOR),
+                ("flow_to", CONF_SOLVER_EXPORT_PRICE_SENSOR),
+            ):
+                for flow in source.get(flow_key) or []:
+                    if not isinstance(flow, dict):
+                        continue
+                    price = _numeric_entity(flow.get("entity_energy_price"))
+                    if price is not None:
+                        suggestions.setdefault(conf_key, price)
+                        break
+    return suggestions
+
+
 async def _energy_dashboard_switchboard_suggestions(hass: Any) -> dict[str, str]:
     """Real HA Energy Dashboard config (Settings -> Energy), read in-
     process, as a genuine starting-point SUGGESTION for 5 of the 6
@@ -1356,9 +1467,16 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
         single_candidates, summable_candidates = (
             _discover_nimbus_load_forecast_candidates(self.hass)
         )
+        # nimbus #1067/#448: pre-fill from HA's Energy Dashboard, the same
+        # mechanism async_step_switchboard() above already uses. `{**suggestions,
+        # **existing}` is deliberate and load-bearing -- saved keys on the right
+        # win the merge, so a real configured value is never overwritten by a
+        # suggestion. Fields this cannot discover are simply left empty.
+        suggestions = await _energy_dashboard_solver_source_suggestions(self.hass)
+        form_defaults = {**suggestions, **dict(self.config_entry.options)}
         return self.async_show_form(
             step_id="solver_sources",
             data_schema=_solver_sources_schema(
-                dict(self.config_entry.options), single_candidates, summable_candidates
+                form_defaults, single_candidates, summable_candidates
             ),
         )
