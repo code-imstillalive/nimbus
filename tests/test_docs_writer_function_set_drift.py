@@ -593,6 +593,20 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "_log_active_household_specific_overrides_once",
         "_safe_fromisoformat",
         "blend_price_with_secondary_sources",
+        # nimbus issue #1213 (Mark Purcell): the additive price-event
+        # simulation. Genuinely PORTABLE -- it reads a sensor's own
+        # {time, value} forecast and returns a per-period delta, with no
+        # HA-native dependency, and both helpers it needs (ha_get,
+        # parse_iso) already exist in the standalone copy. So this is
+        # open drift to be reconciled, NOT a native-only concern.
+        #
+        # Listed beside blend_price_with_secondary_sources deliberately:
+        # the standalone copy's price pipeline is already behind on that
+        # function, and porting this one alone would layer a price-event
+        # delta onto a series that never got the blend it is supposed to
+        # sit on top of. The two want porting together, as one piece of
+        # work on the standalone price path, rather than separately.
+        "resolve_price_event_delta",
         "compute_cost_band",
         "compute_cost_breakdown",
         "fetch_entity_history_range",

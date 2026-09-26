@@ -157,6 +157,7 @@ from .const import (
     CONF_SOLVER_P2P_MATCHED_RATE_FORECAST_SENSOR,
     CONF_SOLVER_P2P_SETTLEMENT_HISTORY_SENSOR,
     CONF_SOLVER_POST_WINDOW_SELF_CONSUME_HOURS,
+    CONF_SOLVER_PRICE_EVENT_SENSOR,
     CONF_SOLVER_PRICE_FORECAST_ARRAY_SENSOR,
     CONF_SOLVER_PRICE_SPIKE_ALERT_ENTITY,
     CONF_SOLVER_PRICE_SPIKE_DISCHARGE_KW,
@@ -405,6 +406,16 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     CONF_SOLVER_PRICE_SPIKE_DISCHARGE_KW,
     CONF_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED,
     CONF_SOLVER_PRICE_SPIKE_ALERT_ENTITY,
+    # nimbus issue #1213: the same bug class every comment in this
+    # tuple already warns about, and it bit again. Saveable by the
+    # wizard's own solver_grid step and NOT exposed here means
+    # fetch_solver_config() -- the writer's only channel for reading
+    # config -- can never see it, so the whole price-event feature
+    # would have been inert on a real install however many times the
+    # wizard was submitted. Caught by test_sensor_solver_config_keys.py
+    # before it shipped, exactly as the notes above say it was for the
+    # price and envelope fields.
+    CONF_SOLVER_PRICE_EVENT_SENSOR,
     # nimbus issue #493 (Signals 4/7 of #489, item 1): same exact bug
     # class every comment in this tuple already warns about -- saved into
     # entry.options by the wizard's own solver_grid step, but not exposed

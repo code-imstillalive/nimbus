@@ -74,6 +74,7 @@
           "solver_export_price_sensor": "🔴 Live export (sell) price sensor ($/kWh) -- from your own retailer/market integration",
           "solver_export_price_sensor_2": "Optional: second export price source to blend",
           "solver_export_price_sensor_3": "Optional: third export price source to blend",
+          "solver_price_event_sensor": "Optional: price-event simulation sensor -- a step-point $/kWh delta for testing a price-cap or negative-price event",
           "solver_envelope_import_limit_entity": "Optional: a live DNSP dynamic import limit (e.g. Open Dynamic Export's opModImpLimW) -- bounds the plan per period on top of your static import limit",
           "solver_envelope_export_limit_entity": "Optional: a live DNSP dynamic export limit (e.g. Open Dynamic Export's opModExpLimW) -- bounds the plan per period on top of your static export limit"
         },
@@ -84,6 +85,7 @@
           "solver_export_price_sensor": "The mirror of the above for what you're paid to export -- same forecast-attribute preference, same Topology dashboard fallback role.",
           "solver_export_price_sensor_2": "The mirror of solver_import_price_sensor_2, for export price.",
           "solver_export_price_sensor_3": "The mirror of solver_import_price_sensor_3, for export price.",
+          "solver_price_event_sensor": "Optional, and a TEST tool rather than a pricing input. Point this at your own sensor whose `forecast` attribute is a list of step points, each with a time field and a value field, where the value is a $/kWh DELTA -- e.g. +20 from 18:00 to 20:00 to simulate a NEM Market Price Cap event (the real cap is $23.20/kWh), or -1 from 11:00 to 15:00 for a Minimum System Load negative-price floor. The delta is added to BOTH your import and export prices, because a real wholesale price event moves the whole market. End every window with an explicit value of 0 -- a step value holds forward, so a window that is never closed keeps shifting prices on every future solve (Nimbus logs a warning if it sees that). Nothing happens until you also arm switch.nimbus_solver_price_event_enabled, and leaving this blank is a complete no-op.",
           "solver_envelope_import_limit_entity": "Optional. A dynamic connection agent's own live import-limit entity (e.g. Open Dynamic Export's opModImpLimW, published over MQTT once you point HA at it) -- read as a live value, or as a forecast schedule if the entity has one. Leave blank to use only your static import limit above -- a complete no-op.",
           "solver_envelope_export_limit_entity": "The mirror of the above for export (e.g. Open Dynamic Export's opModExpLimW)."
         }

@@ -956,6 +956,31 @@ DEFAULT_SOLVER_OFFER_CURVE_ENABLED: Final = False
 # after flipping it, exactly the re-measure-at-your-own-scale posture
 # compute_signals' own docstring already asks of any caller.
 CONF_SOLVER_FLEX_SIGNALS_ENABLED: Final = "solver_flex_signals_enabled"
+# nimbus issue #1213 (Mark Purcell): an additive price-event test sensor,
+# for simulating a real NEM Market Price Cap (LOR2/LOR3, $23.20/kWh --
+# already confirmed live for the reference household in #675/#705) or a
+# Minimum System Load negative-price floor, against the ACTUAL live
+# forecast, before such an event happens rather than only explaining one
+# afterwards.
+#
+# Two fields, both genuinely opt-in:
+#
+#   CONF_SOLVER_PRICE_EVENT_SENSOR   a household-managed sensor whose own
+#       `forecast` attribute is the same {"time", "value"} step-point list
+#       every other price path here already reads. Blank -> exact no-op.
+#   CONF_SOLVER_PRICE_EVENT_ENABLED  the arm. Default False, so an install
+#       that has configured a sensor but not armed it is still byte-
+#       identical to today -- the same human-stays-in-the-loop shape
+#       CONF_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED already uses.
+#
+# Deliberately NOT a live AEMO LOR/MSL feed and NOT a hardcoded $23.20
+# constant: the household builds the sensor, picks the magnitude and picks
+# the window, which is the same "real household-provided entity, Nimbus
+# only reads it" pattern the rest of this file follows. The issue's own
+# prior-art check confirmed neither EMHASS nor HAEO has an equivalent.
+CONF_SOLVER_PRICE_EVENT_SENSOR: Final = "solver_price_event_sensor"
+CONF_SOLVER_PRICE_EVENT_ENABLED: Final = "solver_price_event_enabled"
+DEFAULT_SOLVER_PRICE_EVENT_ENABLED: Final = False
 DEFAULT_SOLVER_FLEX_SIGNALS_ENABLED: Final = False
 # nimbus issue #696, Stage 2: opts the real production solve into the
 # new primary/secondary objective architecture (solver/lp.py's

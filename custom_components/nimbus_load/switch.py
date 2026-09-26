@@ -48,6 +48,7 @@ from .const import (
     CONF_SOLVER_DISPATCH_DRY_RUN,
     CONF_SOLVER_FLEX_SIGNALS_ENABLED,
     CONF_SOLVER_OFFER_CURVE_ENABLED,
+    CONF_SOLVER_PRICE_EVENT_ENABLED,
     CONF_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED,
     DEFAULT_SOLVE_ON_PRICE_CHANGE,
     DEFAULT_SOLVER_AUTO_INCLUDE_KNOWN_SOLAR,
@@ -55,6 +56,7 @@ from .const import (
     DEFAULT_SOLVER_DISPATCH_DRY_RUN,
     DEFAULT_SOLVER_FLEX_SIGNALS_ENABLED,
     DEFAULT_SOLVER_OFFER_CURVE_ENABLED,
+    DEFAULT_SOLVER_PRICE_EVENT_ENABLED,
     DEFAULT_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED,
     DOMAIN,
 )
@@ -182,6 +184,25 @@ async def async_setup_entry(
                 CONF_SOLVER_FLEX_SIGNALS_ENABLED,
                 "Flex Signals Enabled",
                 DEFAULT_SOLVER_FLEX_SIGNALS_ENABLED,
+                sw_version,
+                shared_store,
+            ),
+            # nimbus issue #1213 (Mark Purcell): arms the additive
+            # price-event simulation. Default OFF, and off is a complete
+            # no-op even with a sensor configured -- the same
+            # human-stays-in-the-loop shape
+            # CONF_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED uses below, and for a
+            # stronger reason: while this is on, every published price,
+            # plan and cost reflects a SIMULATED market event rather than
+            # the real one, so it must never be something an install
+            # drifts into. Same plain-toggle pattern as the two above --
+            # solver_writer.py reads this switch's live state fresh on
+            # every solve cycle, no _reconfigure_dependents() needed.
+            NimbusSolverSwitch(
+                entry,
+                CONF_SOLVER_PRICE_EVENT_ENABLED,
+                "Price Event Simulation Armed",
+                DEFAULT_SOLVER_PRICE_EVENT_ENABLED,
                 sw_version,
                 shared_store,
             ),

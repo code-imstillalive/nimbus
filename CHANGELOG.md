@@ -8,6 +8,21 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Added
+- **An additive price-event test sensor, for simulating a NEM price-cap or negative-price event against the real live forecast** ([#1213](https://github.com/code-imstillalive/nimbus/issues/1213), requested by @purcell-lab).
+
+  Two real, foreseeable NEM conditions this can now be rehearsed against *before* one happens, rather than only explained afterwards: a **Market Price Cap** (LOR2/LOR3 — the real cap is $23.20/kWh, already confirmed live for the reference household in [#675](https://github.com/code-imstillalive/nimbus/issues/675)/[#705](https://github.com/code-imstillalive/nimbus/issues/705)), and a **Minimum System Load** negative-price floor.
+
+  Point `solver_price_event_sensor` at your own sensor whose `forecast` attribute is the same step-point list every other price path here already reads, carrying a $/kWh **delta**. The delta is added to **both** import and export prices, because a real wholesale price event moves the whole market rather than one side of it. Applied at the very end of price resolution — after the fallback branches, after `blend_price_with_secondary_sources()`, and after the settled-current-block re-assertion — and before the empirical/risk bands, so a +$20/kWh event carries its own uncertainty band with it instead of leaving the band around the un-shifted price.
+
+  **Inert by default, and off is off.** The new `switch.nimbus_solver_price_event_enabled` defaults to off, and off is a complete no-op even with a sensor configured. While it is on, every published price, plan and cost reflects a **simulated** event, so it must never be something an install drifts into — the same human-stays-in-the-loop shape `solver_price_spike_override_armed` already uses.
+
+  **One design point the request did not settle, and it matters.** Every other price path here holds the most recent step point forward, which is correct for a *price*. For a *delta* it would mean an event that never ends. So: periods before the first point get **0.0** and are never backfilled (backfilling would apply a cap event to hours before it was declared), while after the last point the value holds forward as a step function must — which is why a window is closed with an explicit trailing `value: 0`, and why a **non-zero final point now logs a warning naming the consequence**. Obeying it silently is how a two-hour test becomes a permanent distortion of every future solve.
+
+  Armed-but-broken is loud rather than silent: an unreadable sensor, a missing `forecast`, or wholly unparseable rows each warn and apply nothing, on the grounds that the one failure a test tool must never have is looking like it worked. A single malformed row does not discard an otherwise-good window, and points are sorted, since a household-built template sensor has no obligation to emit them in order.
+
+  **Config-surface cost: one field.** Per [#449](https://github.com/code-imstillalive/nimbus/issues/449)'s standing question, the arm is a device entity rather than a wizard field, and the event's magnitude and windows live in the household's own sensor rather than in Nimbus config at all. The alternative shape — numbers plus datetimes for a single window — would cost more fields and support fewer window shapes.
+
 ### Fixed
 - **The lex/calibration phase-2 solve no longer burns its whole time budget rediscovering a point it was already holding** ([#773](https://github.com/code-imstillalive/nimbus/issues/773)).
 

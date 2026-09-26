@@ -4754,6 +4754,157 @@ def fetch_price_history(entity_id: str, days: int = 5) -> list[tuple[datetime, f
     return fetch_entity_history_range(entity_id, start, end)
 
 
+def resolve_price_event_delta(
+    cfg: dict, grid_times: list[datetime]
+) -> list[float] | None:
+    """The per-period $/kWh delta from an armed price-event test sensor
+    (nimbus issue #1213, Mark Purcell), or None when the feature is off.
+
+    Simulates a real NEM Market Price Cap (LOR2/LOR3, $23.20/kWh) or a
+    Minimum System Load negative-price floor against the ACTUAL live
+    forecast, so dispatch behaviour around such an event can be watched
+    BEFORE one happens -- does the battery pre-charge ahead of the window,
+    does it recognise the extreme period is coming and revise earlier
+    commitments -- rather than only being explained afterwards.
+
+    Returns None (not a list of zeros) when the feature contributes
+    nothing, so the caller can skip the arithmetic entirely and a reader
+    of the log can tell "off" from "armed but flat".
+
+    Off means any of: the arm switch is off, no sensor configured, the
+    sensor missing or carrying no usable `forecast`, or every resolved
+    period landing at exactly 0.0.
+
+    **Step semantics, and the one place this deliberately differs from
+    every other price path here.** The `forecast` shape and the
+    hold-the-most-recent-point lookup are exactly
+    `resample_generic_price_forecast()`'s, which is the convention this
+    repo already proved and which #1213 asks for by name. But that
+    function resolves a PRICE, where holding the last value forward is
+    correct. This resolves a DELTA, where holding forward means **an event
+    that never ends**:
+
+    * Before the first point -> **0.0**, never backfilled. A price series
+      backfills because a price always exists; a delta before its own
+      first step-point is simply absent.
+    * After the last point -> held forward, same as any step function --
+      which is why the household must emit an explicit `0` point at the
+      end of each window to close it. That is the single real footgun in
+      this feature, so a non-zero final point gets a **WARNING naming it**
+      rather than being silently obeyed forever. Obeying it is still the
+      correct reading of a step function; being quiet about it is not.
+
+    Applied SYMMETRICALLY by the caller -- the same delta added to both
+    import and export -- because a real wholesale price event moves the
+    whole market, not one side of it.
+    """
+    if not bool(cfg.get("solver_price_event_enabled")):
+        return None
+    entity_id = cfg.get("solver_price_event_sensor")
+    if not entity_id or not grid_times:
+        return None
+
+    state = ha_get(entity_id)
+    if not isinstance(state, dict):
+        _LOGGER.warning(
+            "Nimbus #1213: price-event simulation is ARMED but its sensor "
+            "%r could not be read -- no delta applied this cycle. Either "
+            "point solver_price_event_sensor at a real sensor or turn "
+            "switch.nimbus_solver_price_event_enabled off.",
+            entity_id,
+        )
+        return None
+    forecast = (state.get("attributes") or {}).get("forecast")
+    if not isinstance(forecast, list) or not forecast:
+        _LOGGER.warning(
+            "Nimbus #1213: price-event simulation is ARMED but %s carries "
+            "no usable `forecast` attribute (expected a list of "
+            '{"time": <iso>, "value": <$/kWh>} step points) -- no delta '
+            "applied this cycle.",
+            entity_id,
+        )
+        return None
+
+    points: list[tuple[datetime, float]] = []
+    for row in forecast:
+        if not isinstance(row, dict):
+            continue
+        raw_time = row.get("time")
+        raw_value = row.get("value")
+        if raw_time is None or raw_value is None:
+            continue
+        try:
+            when = parse_iso(raw_time)
+            value = float(raw_value)
+        except (TypeError, ValueError, AttributeError):
+            # One unparseable row must not discard a whole armed window.
+            continue
+        points.append((when, value))
+    if not points:
+        _LOGGER.warning(
+            "Nimbus #1213: price-event simulation is ARMED but none of "
+            "%s's %d forecast rows parsed into a (time, value) step point "
+            "-- no delta applied this cycle.",
+            entity_id,
+            len(forecast),
+        )
+        return None
+    points.sort(key=lambda p: p[0])
+
+    # The footgun, named rather than obeyed silently. A step function's
+    # last value holds forever, so a window that does not end with an
+    # explicit 0 point distorts every future solve, not just the test.
+    if abs(points[-1][1]) > 0.0:
+        _LOGGER.warning(
+            "Nimbus #1213: %s's LAST step point is %+.4f $/kWh at %s, not "
+            "0. A step value holds forward indefinitely, so this event "
+            "never closes and will keep shifting BOTH import and export "
+            'prices on every future solve. Add a trailing {"time": '
+            '<window end>, "value": 0} point to close the window.',
+            entity_id,
+            points[-1][1],
+            points[-1][0].isoformat(),
+        )
+
+    deltas: list[float] = []
+    idx = 0
+    for when in grid_times:
+        # Advance to the last point at or before this period.
+        while idx + 1 < len(points) and points[idx + 1][0] <= when:
+            idx += 1
+        if points[idx][0] > when:
+            # Before the first step point -- absent, not backfilled.
+            deltas.append(0.0)
+        else:
+            deltas.append(points[idx][1])
+
+    if not any(abs(d) > 0.0 for d in deltas):
+        _LOGGER.debug(
+            "Nimbus #1213: price-event simulation armed, but %s's own "
+            "windows do not overlap this solve's horizon -- no delta "
+            "applied (a clean no-op, not a fault).",
+            entity_id,
+        )
+        return None
+
+    affected = sum(1 for d in deltas if abs(d) > 0.0)
+    _LOGGER.warning(
+        "Nimbus #1213: price-event simulation ACTIVE from %s -- %+.4f to "
+        "%+.4f $/kWh applied to BOTH import and export across %d of %d "
+        "periods. This is a what-if test, not a real market price: the "
+        "plan, the offer curve and every published cost this cycle reflect "
+        "the simulated event. Turn "
+        "switch.nimbus_solver_price_event_enabled off to return to real "
+        "prices.",
+        entity_id,
+        min(deltas),
+        max(deltas),
+        affected,
+        len(deltas),
+    )
+    return deltas
+
+
 def resample_generic_price_forecast(
     entity_id: str, grid_times: list[datetime]
 ) -> list[float] | None:
@@ -17516,6 +17667,27 @@ def main() -> None:
     # export_price; the real P2P premium goes through export_bonus_price
     # instead (see above) -- neither is diluted or clamped.
     export_price = list(spot_export)
+    # nimbus issue #1213 (Mark Purcell): the price-event simulation, applied
+    # here -- at the very END of price resolution, after the fallback
+    # branches, after blend_price_with_secondary_sources(), and after the
+    # settled-current-block re-assertion above.
+    #
+    # Deliberately last, and deliberately additive. Last, so it never has
+    # to know about or interact with any of the blending/settlement logic
+    # that produced these two series. Additive and symmetric -- the same
+    # delta on both sides -- because a real wholesale price event moves the
+    # whole market rather than one side of it.
+    #
+    # Before the empirical/risk bands below, on purpose: a +$20/kWh cap
+    # event should shift its own uncertainty band with it, not leave the
+    # band sitting around the un-shifted price.
+    #
+    # None (the overwhelmingly common case: switch off, or no sensor) skips
+    # every line of this. See resolve_price_event_delta().
+    _price_event_delta = resolve_price_event_delta(cfg, grid_times)
+    if _price_event_delta is not None:
+        import_price = [p + d for p, d in zip(import_price, _price_event_delta)]
+        export_price = [p + d for p, d in zip(export_price, _price_event_delta)]
     n_clamped = (
         0  # kept in the pushed sensor's own attributes for continuity; always 0 now
     )
