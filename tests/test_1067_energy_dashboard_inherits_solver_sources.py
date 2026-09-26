@@ -262,18 +262,37 @@ class TestASavedValueAlwaysWins(unittest.TestCase):
     def test_the_call_site_uses_that_order(self):
         """Pinned on the source, because reversing these two words silently
         overwrites real configuration on every wizard open -- the exact class of
-        wizard-wipe bug this repo has already had three of."""
+        wizard-wipe bug this repo has already had three of.
+
+        **Corrected:** this used to inspect `async_step_solver_sources`, which
+        is where #1267 originally wired the helper -- and that wiring was the
+        bug. None of the three suggested keys is in the Sources schema, so
+        every suggestion was silently dropped and the whole feature was inert.
+        It is now called from the two steps that actually own those fields.
+        See `test_1067_suggestions_reach_the_form_they_are_wired_to.py` for the
+        guard that catches this class of mistake in general.
+        """
         import inspect
 
         from custom_components.nimbus_load.flows import hub_options
 
-        src = inspect.getsource(
-            hub_options.NimbusHubOptionsFlow.async_step_solver_sources
+        battery = inspect.getsource(
+            hub_options.NimbusHubOptionsFlow.async_step_solver_battery
         )
         self.assertIn(
-            "{**suggestions, **dict(self.config_entry.options)}",
-            src,
-            "suggestions must be on the LEFT so saved options win the merge",
+            "**energy_dashboard, **existing}",
+            battery,
+            "saved options must be LAST so they win the merge",
+        )
+
+        grid = inspect.getsource(
+            hub_options.NimbusHubOptionsFlow.async_step_solver_grid
+        )
+        i = grid.index("_energy_dashboard_solver_source_suggestions")
+        self.assertIn(
+            "**dict(self.config_entry.options)",
+            grid[i : i + 400],
+            "saved options must be LAST so they win the merge",
         )
 
 

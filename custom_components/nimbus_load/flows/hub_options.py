@@ -1413,8 +1413,16 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
         # -- fills the SoC field ONLY when unambiguous, never overwrites
         # an already-saved real value.
         existing = dict(self.config_entry.options)
+        # Two independent suggestion sources, deliberately layered (nimbus
+        # #1067). `_type_safe_entity_suggestions` scans for a device_class
+        # match; the Energy Dashboard names the entity the household has
+        # already told HA is its battery SoC, which is the stronger evidence
+        # of the two, so it wins over the scan. A real SAVED value still wins
+        # over both -- `existing` is last, and that ordering is what stops a
+        # suggestion overwriting real configuration on every wizard open.
+        energy_dashboard = await _energy_dashboard_solver_source_suggestions(self.hass)
         suggestions = _type_safe_entity_suggestions(self.hass)
-        form_defaults = {**suggestions, **existing}
+        form_defaults = {**suggestions, **energy_dashboard, **existing}
         return self.async_show_form(
             step_id="solver_battery",
             data_schema=_solver_battery_schema(form_defaults),
@@ -1428,7 +1436,17 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
             return await self.async_step_solver_sources()
         return self.async_show_form(
             step_id="solver_grid",
-            data_schema=_solver_grid_schema(dict(self.config_entry.options)),
+            data_schema=_solver_grid_schema(
+                # nimbus #1067. This step previously had no suggestion
+                # mechanism at all, and it owns the two fields #1267's helper
+                # was really built for -- the household's own import and
+                # export price entities, read from HA's Energy Dashboard.
+                # Saved values last, so they always win.
+                {
+                    **(await _energy_dashboard_solver_source_suggestions(self.hass)),
+                    **dict(self.config_entry.options),
+                }
+            ),
         )
 
     async def async_step_solver_sources(
@@ -1467,16 +1485,17 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
         single_candidates, summable_candidates = (
             _discover_nimbus_load_forecast_candidates(self.hass)
         )
-        # nimbus #1067/#448: pre-fill from HA's Energy Dashboard, the same
-        # mechanism async_step_switchboard() above already uses. `{**suggestions,
-        # **existing}` is deliberate and load-bearing -- saved keys on the right
-        # win the merge, so a real configured value is never overwritten by a
-        # suggestion. Fields this cannot discover are simply left empty.
-        suggestions = await _energy_dashboard_solver_source_suggestions(self.hass)
-        form_defaults = {**suggestions, **dict(self.config_entry.options)}
+        # nimbus #1067: the Energy-Dashboard suggestions do NOT belong here,
+        # and wiring them here in #1267 made that feature completely inert.
+        # The helper returns battery SoC + import/export price; this schema
+        # contains none of those three (measured: sources 16 fields, zero
+        # targets present). A suggested_value for a key the schema does not
+        # contain is silently dropped. They are now called from
+        # async_step_solver_battery and async_step_solver_grid below, which
+        # are the steps that actually own those fields.
         return self.async_show_form(
             step_id="solver_sources",
             data_schema=_solver_sources_schema(
-                form_defaults, single_candidates, summable_candidates
+                dict(self.config_entry.options), single_candidates, summable_candidates
             ),
         )
