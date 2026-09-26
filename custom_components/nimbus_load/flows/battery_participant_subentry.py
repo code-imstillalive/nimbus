@@ -72,11 +72,25 @@ _PERCENT_SELECTOR = selector.NumberSelector(
         unit_of_measurement="%",
     )
 )
-_DOLLAR_PER_KWH_SELECTOR = selector.NumberSelector(
-    selector.NumberSelectorConfig(
-        min=0, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="$/kWh"
-    )
-)
+# nimbus issue #1253, fourth site. Was a literal "$/kWh". Unlike the flattened
+# children this is a SELECTOR LABEL -- the unit beside a number input -- so
+# there is no entity, no registry row and no long-term statistic behind it,
+# and none of that issue's migration risk. It is also the site a NEW household
+# sees FIRST, before any sensor exists.
+#
+# Built per-call because the currency is not known at import time. The unit is
+# omitted entirely when HA has no currency configured: an absent unit is
+# honest, and a default would re-introduce the hardcode with a different
+# string (the posture sensor.py's own currency call sites already take).
+
+
+def _currency_per_kwh_selector(currency: str | None) -> selector.NumberSelector:
+    config: dict[str, Any] = {"min": 0, "mode": selector.NumberSelectorMode.BOX}
+    if currency:
+        config["unit_of_measurement"] = f"{currency}/kWh"
+    return selector.NumberSelector(selector.NumberSelectorConfig(**config))
+
+
 # Same convention as the existing Solver P2P block start/end hour
 # fields (number.py's own P2P Block N Start/End Hour) -- a plain
 # whole-hour integer, 0-23.
@@ -117,7 +131,7 @@ def _optional_field(
         schema_dict[vol.Optional(key)] = field_selector
 
 
-def _schema(defaults: dict[str, Any]) -> vol.Schema:
+def _schema(defaults: dict[str, Any], currency: str | None = None) -> vol.Schema:
     schema_dict: dict[Any, Any] = {
         vol.Required(
             CONF_BATTERY_PARTICIPANT_NAME,
@@ -197,13 +211,13 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
         schema_dict,
         CONF_BATTERY_PARTICIPANT_SALVAGE_VALUE,
         defaults.get(CONF_BATTERY_PARTICIPANT_SALVAGE_VALUE),
-        _DOLLAR_PER_KWH_SELECTOR,
+        _currency_per_kwh_selector(currency),
     )
     _optional_field(
         schema_dict,
         CONF_BATTERY_PARTICIPANT_DEGRADATION_COST_PER_KWH,
         defaults.get(CONF_BATTERY_PARTICIPANT_DEGRADATION_COST_PER_KWH),
-        _DOLLAR_PER_KWH_SELECTOR,
+        _currency_per_kwh_selector(currency),
     )
     # #563 item 4: an optional live number entity whose current value
     # overrides this participant's own max_soc_percent for that solve --
@@ -341,4 +355,7 @@ class NimbusBatteryParticipantSubentryFlowHandler(ConfigSubentryFlow):
                 )
             return self.async_create_entry(title=title, data=user_input)
 
-        return self.async_show_form(step_id="user", data_schema=_schema(current_data))
+        return self.async_show_form(
+            step_id="user",
+            data_schema=_schema(current_data, self.hass.config.currency),
+        )

@@ -85,22 +85,48 @@ _KWH_SELECTOR = selector.NumberSelector(
         min=0, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="kWh"
     )
 )
-_DOLLAR_PER_KWH_SELECTOR = selector.NumberSelector(
-    selector.NumberSelectorConfig(
-        min=0, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="$/kWh"
-    )
-)
-# nimbus issue #769: dollars, not $/kWh -- the household reasons in
-# "what is waiting worth to me", which a per-kWh weight cannot
-# express.
-_DOLLAR_SELECTOR = selector.NumberSelector(
-    selector.NumberSelectorConfig(
-        min=0,
-        step=0.05,
-        mode=selector.NumberSelectorMode.BOX,
-        unit_of_measurement="$",
-    )
-)
+# nimbus issue #1253, fourth site. These were literal "$"/"$/kWh". Unlike the
+# flattened children they are SELECTOR LABELS -- the unit shown beside a number
+# input in the wizard -- so there is no entity, no registry row and no
+# long-term statistic behind them, and none of that issue's migration risk.
+#
+# They are also the site a NEW household sees FIRST, before any sensor exists,
+# which is why they are worth fixing even though they are the cheapest of the
+# four.
+#
+# Built per-call rather than as module constants because the currency is not
+# known at import time. `unit_of_measurement` is omitted entirely when HA has
+# no currency configured -- an absent unit is honest, and substituting a
+# default would re-introduce the hardcode with a different string (the same
+# posture sensor.py's three currency call sites already take).
+
+
+def _currency_selector(currency: str | None, **extra: Any) -> selector.NumberSelector:
+    """A money-valued number input labelled in the household's own currency."""
+    config: dict[str, Any] = {"min": 0, "mode": selector.NumberSelectorMode.BOX}
+    config.update(extra)
+    if currency:
+        config["unit_of_measurement"] = currency
+    return selector.NumberSelector(selector.NumberSelectorConfig(**config))
+
+
+def _currency_per_kwh_selector(currency: str | None) -> selector.NumberSelector:
+    """A per-kWh price input, labelled the same way."""
+    config: dict[str, Any] = {"min": 0, "mode": selector.NumberSelectorMode.BOX}
+    if currency:
+        config["unit_of_measurement"] = f"{currency}/kWh"
+    return selector.NumberSelector(selector.NumberSelectorConfig(**config))
+
+
+# nimbus issue #769: a plain money value, not a per-kWh rate -- the household
+# reasons in "what is waiting worth to me", which a per-kWh weight cannot
+# express. Kept as its own factory so that distinction stays visible.
+
+
+def _waiting_cost_selector(currency: str | None) -> selector.NumberSelector:
+    return _currency_selector(currency, step=0.05)
+
+
 _CELSIUS_SELECTOR = selector.NumberSelector(
     selector.NumberSelectorConfig(
         min=0, mode=selector.NumberSelectorMode.BOX, unit_of_measurement="°C"
@@ -135,7 +161,7 @@ def _optional_field(
         schema_dict[vol.Optional(key)] = field_selector
 
 
-def _schema(defaults: dict[str, Any]) -> vol.Schema:
+def _schema(defaults: dict[str, Any], currency: str | None = None) -> vol.Schema:
     schema_dict: dict[Any, Any] = {
         vol.Required(
             CONF_CONTROLLABLE_LOAD_NAME,
@@ -258,7 +284,7 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
         schema_dict,
         CONF_SHEDDABLE_SHED_COST,
         defaults.get(CONF_SHEDDABLE_SHED_COST, _DEFAULT_SHED_COST),
-        _DOLLAR_PER_KWH_SELECTOR,
+        _currency_per_kwh_selector(currency),
     )
     # kind=deferrable fields
     _optional_field(
@@ -289,13 +315,13 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
         schema_dict,
         CONF_DEFERRABLE_SHORTFALL_PRICE,
         defaults.get(CONF_DEFERRABLE_SHORTFALL_PRICE, _DEFAULT_SHORTFALL_PRICE),
-        _DOLLAR_PER_KWH_SELECTOR,
+        _currency_per_kwh_selector(currency),
     )
     _optional_field(
         schema_dict,
         CONF_DEFERRABLE_VALUE_PER_KWH,
         defaults.get(CONF_DEFERRABLE_VALUE_PER_KWH),
-        _DOLLAR_PER_KWH_SELECTOR,
+        _currency_per_kwh_selector(currency),
     )
     _optional_field(
         schema_dict,
@@ -311,7 +337,7 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
         schema_dict,
         CONF_DEFERRABLE_MIN_DEFERRAL_SAVING_DOLLARS,
         defaults.get(CONF_DEFERRABLE_MIN_DEFERRAL_SAVING_DOLLARS),
-        _DOLLAR_SELECTOR,
+        _waiting_cost_selector(currency),
     )
     # kind=thermal fields (nimbus issue #774) -- see solver.elements.
     # ThermalLoadConfig's own docstring for the full design.
@@ -359,7 +385,7 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
         schema_dict,
         CONF_THERMAL_COMFORT_FLOOR_COST,
         defaults.get(CONF_THERMAL_COMFORT_FLOOR_COST),
-        _DOLLAR_PER_KWH_SELECTOR,
+        _currency_per_kwh_selector(currency),
     )
     # Optional overrides of thermal_forecast.py's own learn_thermal_
     # rates() -- left blank (the default) uses the learned value exactly
@@ -444,4 +470,7 @@ class NimbusControllableLoadSubentryFlowHandler(ConfigSubentryFlow):
                 )
             return self.async_create_entry(title=title, data=user_input)
 
-        return self.async_show_form(step_id="user", data_schema=_schema(current_data))
+        return self.async_show_form(
+            step_id="user",
+            data_schema=_schema(current_data, self.hass.config.currency),
+        )
