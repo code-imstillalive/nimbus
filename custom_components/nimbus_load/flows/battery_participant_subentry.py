@@ -35,18 +35,22 @@ from ..const import (
     CONF_BATTERY_PARTICIPANT_DEGRADATION_COST_PER_KWH,
     CONF_BATTERY_PARTICIPANT_DEPARTURE_HOUR,
     CONF_BATTERY_PARTICIPANT_EFFICIENCY_PERCENT,
+    CONF_BATTERY_PARTICIPANT_KWH_PER_100KM,
     CONF_BATTERY_PARTICIPANT_MAX_CHARGE_KW,
     CONF_BATTERY_PARTICIPANT_MAX_DISCHARGE_KW,
     CONF_BATTERY_PARTICIPANT_MAX_SOC_PERCENT,
     CONF_BATTERY_PARTICIPANT_MIN_SOC_PERCENT,
     CONF_BATTERY_PARTICIPANT_MUST_HAVE_SOC_BY_DEPARTURE_PERCENT,
     CONF_BATTERY_PARTICIPANT_NAME,
+    CONF_BATTERY_PARTICIPANT_ODOMETER_ENTITY,
     CONF_BATTERY_PARTICIPANT_POWER_POSITIVE_IS_CHARGE,
     CONF_BATTERY_PARTICIPANT_POWER_SENSOR,
     CONF_BATTERY_PARTICIPANT_SALVAGE_VALUE,
     CONF_BATTERY_PARTICIPANT_SHARED_CHARGER_GROUP,
     CONF_BATTERY_PARTICIPANT_SHARED_CHARGER_MAX_KW,
     CONF_BATTERY_PARTICIPANT_SOC_SENSOR,
+    CONF_BATTERY_PARTICIPANT_TRIP_CALENDAR_ENTITY,
+    DEFAULT_PARTICIPANT_KWH_PER_100KM,
 )
 
 _KW_SELECTOR = selector.NumberSelector(
@@ -76,6 +80,20 @@ _DOLLAR_PER_KWH_SELECTOR = selector.NumberSelector(
 # Same convention as the existing Solver P2P block start/end hour
 # fields (number.py's own P2P Block N Start/End Hour) -- a plain
 # whole-hour integer, 0-23.
+# nimbus issue #467 item 4. 5-40 covers every real road vehicle -- a light
+# hybrid sits near 12, a large electric SUV near 30, a van higher -- and the
+# bound is there to catch a units mistake (entering Wh/km, which would be ~180)
+# rather than to police a household's own figure.
+_KWH_PER_100KM_SELECTOR = selector.NumberSelector(
+    selector.NumberSelectorConfig(
+        min=5.0,
+        max=40.0,
+        step=0.5,
+        mode=selector.NumberSelectorMode.BOX,
+        unit_of_measurement="kWh/100km",
+    )
+)
+
 _HOUR_SELECTOR = selector.NumberSelector(
     selector.NumberSelectorConfig(
         min=0,
@@ -224,6 +242,49 @@ def _schema(defaults: dict[str, Any]) -> vol.Schema:
         CONF_BATTERY_PARTICIPANT_MUST_HAVE_SOC_BY_DEPARTURE_PERCENT,
         defaults.get(CONF_BATTERY_PARTICIPANT_MUST_HAVE_SOC_BY_DEPARTURE_PERCENT),
         _PERCENT_SELECTOR,
+    )
+    # nimbus issue #467 item 4: a CALENDAR-driven departure, as an alternative
+    # to the fixed hour/percent pair directly above -- placed here so the form
+    # reads as "a fixed time, or a calendar" in one place rather than scattering
+    # the two mechanisms.
+    #
+    # The fixed pair answers "this car leaves at 07:00 and should have 60% in
+    # it". A calendar answers a different question -- when does it ACTUALLY
+    # leave, and how far is it going -- and sizes the requirement from real
+    # distance instead of a percentage the household converts by hand.
+    #
+    # Precedence, resolved in build_extra_batteries(): the calendar wins when it
+    # resolves a trip inside this horizon, and the fixed pair remains the
+    # fallback for every solve where it does not (an empty calendar, a trip
+    # beyond the horizon, an event with no distance in its text). Configuring
+    # only the fixed pair is completely unaffected.
+    #
+    # Three entries, ONE real decision: kwh_per_100km carries a default, so the
+    # calendar entity is the only thing a household has to choose. That is the
+    # "sensible defaults" half of Mark's own #449/#485 principle rather than a
+    # fourth thing to go and research.
+    _optional_field(
+        schema_dict,
+        CONF_BATTERY_PARTICIPANT_TRIP_CALENDAR_ENTITY,
+        defaults.get(CONF_BATTERY_PARTICIPANT_TRIP_CALENDAR_ENTITY),
+        selector.EntitySelector(selector.EntitySelectorConfig(domain="calendar")),
+    )
+    _optional_field(
+        schema_dict,
+        CONF_BATTERY_PARTICIPANT_KWH_PER_100KM,
+        defaults.get(CONF_BATTERY_PARTICIPANT_KWH_PER_100KM)
+        or DEFAULT_PARTICIPANT_KWH_PER_100KM,
+        _KWH_PER_100KM_SELECTOR,
+    )
+    # Optional, and genuinely optional: without it the FULL trip distance is
+    # required, which is conservative in the right direction -- the pack ends up
+    # fuller than strictly needed, never emptier. With it, a trip already under
+    # way only requires the charge for the distance remaining.
+    _optional_field(
+        schema_dict,
+        CONF_BATTERY_PARTICIPANT_ODOMETER_ENTITY,
+        defaults.get(CONF_BATTERY_PARTICIPANT_ODOMETER_ENTITY),
+        selector.EntitySelector(selector.EntitySelectorConfig(domain="sensor")),
     )
     # #563 item 3: the shared-charger power constraint -- a free-text
     # group name (two participants with the SAME name share one real

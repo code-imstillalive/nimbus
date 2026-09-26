@@ -479,6 +479,12 @@ CONF_BATTERY_PARTICIPANT_TRIP_CALENDAR_ENTITY: Final = (
 # Consumption, used to turn a distance into kWh. Named in kWh/100km because
 # that is how both vehicle specs and the household's own dashboard quote it.
 CONF_BATTERY_PARTICIPANT_KWH_PER_100KM: Final = "battery_participant_kwh_per_100km"
+# nimbus issue #467 item 4: a real-world middle for road vehicles, so the
+# calendar entity is the only thing a household actually has to choose. Most
+# passenger EVs sit between 15 and 20 in real mixed driving; 18 is deliberately
+# mid-range rather than optimistic, because under-estimating consumption
+# under-charges for the trip, which is the failure that leaves someone short.
+DEFAULT_PARTICIPANT_KWH_PER_100KM: Final = 18.0
 # Optional: an odometer entity, so a trip already under way only requires the
 # charge for the distance REMAINING. Absent, the full trip is required, which
 # is conservative in the right direction -- the pack ends up fuller than

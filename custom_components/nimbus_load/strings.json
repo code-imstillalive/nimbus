@@ -388,7 +388,10 @@
             "battery_participant_departure_hour": "Departure hour (optional)",
             "battery_participant_must_have_soc_by_departure_percent": "Required SoC by departure (optional, %)",
             "battery_participant_shared_charger_group": "Shared charger group (optional)",
-            "battery_participant_shared_charger_max_kw": "Shared charger max power (optional, kW)"
+            "battery_participant_shared_charger_max_kw": "Shared charger max power (optional, kW)",
+            "battery_participant_trip_calendar_entity": "Trip calendar (optional)",
+            "battery_participant_kwh_per_100km": "Consumption (kWh/100km)",
+            "battery_participant_odometer_entity": "Odometer sensor (optional)"
           },
           "data_description": {
             "battery_participant_name": "A short, real name for this participant (e.g. \"Tesla Model Y\", \"Second Inverter\") -- becomes this subentry's device title and identifies it in the Solver's own per-battery output.",
@@ -408,7 +411,10 @@
             "battery_participant_departure_hour": "The wall-clock hour (0-23) this participant needs to be ready by. Leave blank for no deadline. Must be set together with Required SoC by departure below.",
             "battery_participant_must_have_soc_by_departure_percent": "The SoC this participant must reach by Departure hour above -- a real hard requirement, not a preference (e.g. a car needs to be drivable in the morning). Must be set together with Departure hour above.",
             "battery_participant_shared_charger_group": "A short name shared by every participant drawing from the SAME physical charger (e.g. two EVs on one DC charger) -- leave blank if this participant has its own dedicated charger.",
-            "battery_participant_shared_charger_max_kw": "The shared charger's own real combined power ceiling -- only meaningful when Shared charger group above is set. If more than one participant in the group sets this, the lowest value is used."
+            "battery_participant_shared_charger_max_kw": "The shared charger's own real combined power ceiling -- only meaningful when Shared charger group above is set. If more than one participant in the group sets this, the lowest value is used.",
+            "battery_participant_trip_calendar_entity": "A calendar whose events describe this vehicle's trips. Put the distance in the event title or description (e.g. \"Trip to Brisbane 120 km\" or \"30 mi\") and Nimbus will make sure the pack holds that much energy before the event starts. An event with no distance is ignored. Leave blank to use the fixed Departure hour above instead.",
+            "battery_participant_kwh_per_100km": "How much this vehicle uses per 100 km, for turning a trip's distance into kWh. The default suits most passenger EVs; only change it if you know your own figure.",
+            "battery_participant_odometer_entity": "Optional. If a trip is already under way, this lets Nimbus require only the charge for the distance still to go. Without it the full trip is required, which errs towards a fuller pack."
           }
         }
       }
