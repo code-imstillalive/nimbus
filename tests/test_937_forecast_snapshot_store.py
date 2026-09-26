@@ -59,8 +59,11 @@ class _FakeStore:
         self.data = dict(initial or {})
         self.saves: list[dict] = []
         self.fail_on_save = fail_on_save
+        # Counted for #1295: the already-captured path must not re-read.
+        self.loads = 0
 
     async def async_load(self):
+        self.loads += 1
         return dict(self.data)
 
     async def async_save(self, data):
@@ -112,7 +115,15 @@ def _rows(n=6, start=None):
 
 
 def _run(hass, store, *, now=None, entry="hub1"):
-    """Drive a capture with a fake Store and a fixed clock."""
+    """Drive a capture with a fake Store and a fixed clock.
+
+    Resets the module cache first. Since #1295 the capture path reads an
+    in-memory copy of the Store before touching disk, so without this each
+    test after the first in a class would read the PREVIOUS test's data and
+    never reach its own fake Store. That cache is real production state --
+    `reset_module_state()` clears it on unload for the same reason.
+    """
+    fss.reset_snapshot_cache()
     now = now or datetime(2026, 9, 26, 0, 1, tzinfo=BNE)
     real_store_for, real_now = fss._store_for, fss.dt_util.now
     real_parse = fss.dt_util.parse_datetime
@@ -175,6 +186,46 @@ class TestCapturingTodaysSnapshot(unittest.TestCase):
         self.assertGreater(fss.KEEP_DAYS, 30)
 
 
+class TestTheCommonPathDoesNotReReadTheStore(unittest.TestCase):
+    """nimbus issue #1295 (Mark Purcell, IV&V #1289).
+
+    Stage 2's own commit message claimed "the cost is one dict lookup per
+    cycle" for the already-captured path. It was not: a fresh `Store` was
+    built and the whole file re-read and re-parsed on every cycle, roughly
+    288 times a day. Asserted by COUNTING loads, because the original claim
+    was plausible-looking prose that no structural test would have doubted.
+    """
+
+    def tearDown(self):
+        fss.reset_snapshot_cache()
+
+    def test_the_second_cycle_of_a_day_does_not_load_again(self):
+        fss.reset_snapshot_cache()
+        store = _FakeStore()
+        hass = _Hass(_rows())
+        real_store_for, real_now = fss._store_for, fss.dt_util.now
+        real_parse = fss.dt_util.parse_datetime
+        fss._store_for = lambda _h, _e: store
+        fss.dt_util.now = lambda: datetime(2026, 9, 26, 0, 1, tzinfo=BNE)
+        fss.dt_util.parse_datetime = _lenient_parse
+        try:
+            first = asyncio.run(fss.async_capture_todays_snapshot(hass, "hub1"))
+            loads_after_first = store.loads
+            for _ in range(20):
+                again = asyncio.run(fss.async_capture_todays_snapshot(hass, "hub1"))
+                self.assertFalse(again, "captured twice in one day")
+        finally:
+            fss._store_for, fss.dt_util.now = real_store_for, real_now
+            fss.dt_util.parse_datetime = real_parse
+        self.assertTrue(first)
+        self.assertEqual(
+            store.loads,
+            loads_after_first,
+            "the already-captured path re-read the Store",
+        )
+        self.assertEqual(len(store.saves), 1)
+
+
 class TestWhatIsNotCaptured(unittest.TestCase):
     def test_no_published_forecast_captures_nothing(self):
         store = _FakeStore()
@@ -204,6 +255,9 @@ class TestItNeverBreaksASolve(unittest.TestCase):
     """A diagnostic must never turn a successful solve into a reported
     failure."""
 
+    def tearDown(self):
+        fss.reset_snapshot_cache()
+
     def test_a_store_write_failure_is_swallowed(self):
         store = _FakeStore(fail_on_save=True)
         self.assertFalse(_run(_Hass(_rows()), store))
@@ -220,6 +274,12 @@ class TestItNeverBreaksASolve(unittest.TestCase):
 
 
 class TestLoadingBackASnapshot(unittest.TestCase):
+    def setUp(self):
+        fss.reset_snapshot_cache()
+
+    def tearDown(self):
+        fss.reset_snapshot_cache()
+
     def test_a_known_day_comes_back(self):
         store = _FakeStore({"2026-09-26": {"version": 1, "points": [1]}})
         real = fss._store_for
@@ -255,11 +315,29 @@ class TestOnlyASuccessfulSolveCaptures(unittest.TestCase):
         self.assertIn("async_capture_todays_snapshot", src)
 
     def test_it_is_guarded_on_the_success_flag(self):
+        """Asserted on the parsed CONDITION, not on the literal text `if ok:`.
+
+        Stage 3 tightened this guard to `if ok and entry_id:` -- same
+        semantics, strictly stronger -- and a string match failed on a change
+        that made the code better. A guard that breaks on a correct
+        refactor teaches people to delete guards.
+        """
+        import ast
+
         from custom_components.nimbus_load import solver_runtime
 
-        src = inspect.getsource(solver_runtime.async_run_solve)
-        i = src.index("async_capture_todays_snapshot")
-        self.assertIn("if ok:", src[max(0, i - 500) : i])
+        tree = ast.parse(inspect.getsource(solver_runtime.async_run_solve).strip())
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.If):
+                continue
+            names = {n.id for n in ast.walk(node.test) if isinstance(n, ast.Name)}
+            if "ok" not in names:
+                continue
+            if "async_capture_todays_snapshot" in ast.dump(node):
+                return  # the capture sits inside a branch gated on `ok`
+        raise AssertionError(
+            "the capture is not inside a branch whose condition tests `ok`"
+        )
 
     def test_it_runs_on_the_event_loop_not_the_worker_thread(self):
         """A Store write must be awaited. _run_one_cycle() runs in an

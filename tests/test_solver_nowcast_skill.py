@@ -337,11 +337,18 @@ class TestTheBenchmarkDocsClaimStaysTrue(unittest.TestCase):
         }
         self.assertEqual(
             importers,
-            {"nowcast_skill.py", "reference_benchmark.py"},
+            # solver_writer.py joined on 2026-09-26 (#937 stage 3): it calls
+            # compute_forecast_regret() directly for the DAY-AHEAD
+            # decomposition, alongside nowcast_skill.py's one-step-ahead
+            # measurement. The doc's caller table now records the horizon of
+            # each, because that is what decides whether a field number is
+            # comparable to this benchmark's.
+            {"nowcast_skill.py", "reference_benchmark.py", "solver_writer.py"},
             "the set of modules referencing forecast_regret changed. "
-            "docs/reference-benchmark.md documents exactly who calls it "
-            "and why the field number is not comparable to the "
-            "benchmark's -- update that section, then update this test",
+            "docs/reference-benchmark.md documents exactly who calls it, at "
+            "which horizon, and why a field number may or may not be "
+            "comparable to the benchmark's -- update that section, then "
+            "update this test",
         )
 
     def test_the_doc_tells_a_reader_the_field_number_is_a_different_horizon(self):

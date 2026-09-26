@@ -7257,6 +7257,210 @@ _NOWCAST_SKILL_KEYS = (
 )
 
 
+# nimbus issue #937. The DAY-AHEAD decomposition, as distinct from #919's
+# one-step-ahead nowcast skill above -- that issue is explicit that the two
+# are not comparable ("a nowcast is a much easier problem").
+#
+# Stable key set for the same reason the nowcast one is: a consumer must never
+# see a key appear and vanish between windows (#589).
+_FORECAST_REGRET_KEYS = (
+    "forecast_regret_j_star",
+    "forecast_regret_j_forecast",
+    "forecast_regret_j_persistence",
+    "forecast_regret_dollars",
+    "forecast_regret_persistence_dollars",
+    "forecast_regret_nimbus_value_add_dollars",
+    # The three-way ATTRIBUTION. #937's own text assumes the load
+    # forecaster is the dominant error term; forecast_regret.py's own
+    # docstring answers that assumption directly -- "Published
+    # deliberately, because #937 assumes the load forecaster is the
+    # dominant term and nobody has checked. If this dominates, the issue
+    # is chasing the wrong forecaster." Publishing the headline dollars
+    # without these would ship the metric and leave the question it exists
+    # to settle unanswered.
+    #
+    # All three are None together when the level split is undefined (a
+    # forecast summing to under 1% of the real day has no usable shape to
+    # rescale -- #1072). None, not 0.0: a fabricated zero reads as "no
+    # level error", which is the confident-wrong-number failure that
+    # function's own comments say it exists to prevent.
+    "forecast_regret_load_level_error_dollars",
+    "forecast_regret_load_shape_error_dollars",
+    "forecast_regret_solar_error_dollars",
+    "forecast_regret_snapshot_captured_at",
+    "forecast_regret_reason",
+)
+
+
+def _day_ahead_forecast_regret_attributes(
+    *,
+    solar_sensor: str,
+    solar_scale: float,
+    load_sensor: str,
+    load_scale: float,
+    grid_times: list[datetime],
+    period_hours: float,
+    periods,
+    grid,
+    battery,
+    solar_real_kw,
+    load_real_kw,
+    day_start: datetime,
+    day_end: datetime,
+) -> dict:
+    """Score what the DAY-AHEAD forecast was worth (nimbus issue #937).
+
+    Three scenarios over one identical LP: perfect foresight (`j_star`), a
+    plan built from what the forecast actually SAID the night before
+    (`j_forecast`), and one built from naive persistence (`j_persistence`).
+    `nimbus_value_add_dollars = j_persistence - j_forecast`, so a positive
+    number means the forecast produced a genuinely cheaper real outcome than
+    assuming today looks like yesterday.
+
+    #937 measured **-$0.71/day** over 14 days on the reference household --
+    persistence winning on 11 of 14 -- and then the series stopped, because
+    the decomposition is assembled only in the standalone cron writer. This
+    is the native equivalent, and the first time any HACS install can
+    produce the number at all.
+
+    **A missing snapshot returns None values and a reason, never zeros.** A
+    zero-filled forecast scores as one that confidently predicted darkness
+    and no load -- the worst forecast possible -- when the truth is that
+    there is nothing to judge. Same contract `resample_snapshot_to_grid()`
+    and the standalone `load_forecast_snapshot()` both state, and the reason
+    this function has six distinct `reason` strings rather than one.
+
+    Persistence is the PREVIOUS calendar day's real solar and load, read on
+    that day's own grid and shifted forward 24 h -- identical in shape to
+    `_load_nowcast_skill_attributes()`'s own baseline, so the two numbers
+    differ only in the forecast they judge, not in what they judge it
+    against.
+
+    Takes the sensors and their scale factors already resolved by the
+    caller rather than re-reading `cfg`: which entity counts as "the real
+    load" is a decision `_compute_report_for_window()` has already made,
+    and making it twice is how the two halves of one report drift apart.
+    Uses `fetch_entity_history_range()` + `_kw_scale_factor`, not
+    `fetch_entity_power_history_kw()`, whose own docstring states it is
+    deliberately scoped to a single caller because preserving per-row
+    attributes makes a full-day recorder read materially heavier.
+    """
+    blank = dict.fromkeys(_FORECAST_REGRET_KEYS)
+
+    try:
+        from .forecast_snapshot_store import get_cached_snapshot
+        from .solver_inputs.forecast_snapshot import (
+            day_key_for,
+            resample_snapshot_to_grid,
+        )
+    except ImportError:
+        # Standalone/cron path: no Store and no cache to prime one. Not an
+        # error -- that copy assembles its own decomposition from its own
+        # on-disk snapshot, which is the very asymmetry #937 is about.
+        return {**blank, "forecast_regret_reason": "native_only"}
+
+    snapshot = get_cached_snapshot(day_key_for(day_start))
+    if not snapshot:
+        # The ordinary state of every install for its first day, and of any
+        # install that restarted before its first solve of a day. Named
+        # distinctly so it is not read as a failure.
+        return {**blank, "forecast_regret_reason": "no_forecast_snapshot_for_this_day"}
+
+    resampled = resample_snapshot_to_grid(snapshot, grid_times)
+    if resampled is None:
+        return {**blank, "forecast_regret_reason": "snapshot_unusable_for_this_grid"}
+    solar_forecast_kw, load_forecast_kw = resampled
+
+    shift = timedelta(hours=24)
+    solar_prev_hist = fetch_entity_history_range(
+        solar_sensor, day_start - shift, day_end - shift
+    )
+    load_prev_hist = fetch_entity_history_range(
+        load_sensor, day_start - shift, day_end - shift
+    )
+    if not solar_prev_hist or not load_prev_hist:
+        return {**blank, "forecast_regret_reason": "previous_day_history_unavailable"}
+
+    solar_persistence_kw = resample_history_mean(
+        [(t + shift, v * solar_scale) for t, v in solar_prev_hist],
+        grid_times,
+        period_hours,
+    )
+    load_persistence_kw = resample_history_mean(
+        [(t + shift, v * load_scale) for t, v in load_prev_hist],
+        grid_times,
+        period_hours,
+    )
+    if not any(load_persistence_kw):
+        # An all-zero persistence baseline is not a baseline. It would make
+        # the forecast look arbitrarily good by comparison, which is the
+        # exact direction of error this metric exists to detect -- so it is
+        # refused rather than published as a flattering number.
+        return {**blank, "forecast_regret_reason": "no_persistence_baseline"}
+
+    try:
+        from .solver.forecast_regret import compute_forecast_regret
+
+        fr = compute_forecast_regret(
+            periods=periods,
+            grid=grid,
+            battery=battery,
+            solar_real_kw=np.array(solar_real_kw),
+            load_real_kw=np.array(load_real_kw),
+            solar_forecast_kw=np.array(solar_forecast_kw),
+            load_forecast_kw=np.array(load_forecast_kw),
+            solar_persistence_kw=np.array(solar_persistence_kw),
+            load_persistence_kw=np.array(load_persistence_kw),
+        )
+    except Exception:
+        # Four extra LP solves. A diagnostic must never take the EPR path
+        # down with it -- #366/#373's "degrade, never wedge", the same
+        # posture the nowcast helper above takes.
+        _LOGGER.debug(
+            "Nimbus quality: day-ahead forecast-regret decomposition failed",
+            exc_info=True,
+        )
+        return {**blank, "forecast_regret_reason": "decomposition_solve_failed"}
+
+    def _maybe(value: float | None) -> float | None:
+        """Round a dollar figure, or keep None as None.
+
+        `round(None, 4)` raises, and an attribution term is legitimately
+        absent whenever the level split is undefined -- so this is the
+        difference between publishing "we could not attribute this" and
+        crashing the whole quality report on an install whose forecast
+        read as near-zero for a day.
+        """
+        return None if value is None else round(value, 4)
+
+    return {
+        "forecast_regret_j_star": round(fr.j_star, 4),
+        "forecast_regret_j_forecast": round(fr.j_forecast, 4),
+        "forecast_regret_j_persistence": round(fr.j_persistence, 4),
+        "forecast_regret_dollars": round(fr.forecast_regret_dollars, 4),
+        "forecast_regret_persistence_dollars": round(fr.persistence_regret_dollars, 4),
+        "forecast_regret_nimbus_value_add_dollars": round(
+            fr.nimbus_value_add_dollars, 4
+        ),
+        # Path-dependent by construction, and worth stating rather than
+        # hiding: corrections apply level -> shape -> solar, so where two
+        # errors interact the interaction lands in the later term. A
+        # symmetric Shapley attribution would need 2^3 solves for a
+        # diagnostic. The ordering matches the question -- level first,
+        # because a biased forecaster is biased at every horizon and is the
+        # cheaper thing to rule out.
+        "forecast_regret_load_level_error_dollars": _maybe(fr.load_level_error_dollars),
+        "forecast_regret_load_shape_error_dollars": _maybe(fr.load_shape_error_dollars),
+        "forecast_regret_solar_error_dollars": _maybe(fr.solar_error_dollars),
+        # Published so a consumer can tell a true post-midnight capture from
+        # a post-restart one that had already seen part of the day it
+        # forecasts, and so flatters itself. Without this the number looks
+        # equally trustworthy either way.
+        "forecast_regret_snapshot_captured_at": snapshot.get("captured_at"),
+        "forecast_regret_reason": None,
+    }
+
+
 def _load_nowcast_skill_attributes(
     *,
     load_sensor: str,
@@ -8382,8 +8586,31 @@ def _compute_report_for_window(
         day_start=day_start,
         day_end=day_end,
     )
+    # nimbus issue #937: the DAY-AHEAD decomposition, beside #919's
+    # one-step-ahead nowcast skill above. That issue is explicit the two are
+    # not comparable, so they are separate key sets rather than one.
+    #
+    # Same fast path protects it: two extra LP solves, paid once per day
+    # behind this function's own latest_date check, and only when a snapshot
+    # for the scored day actually exists.
+    forecast_regret_attrs = _day_ahead_forecast_regret_attributes(
+        solar_sensor=solar_sensor,
+        solar_scale=solar_scale,
+        load_sensor=load_sensor,
+        load_scale=load_scale,
+        grid_times=grid_times,
+        period_hours=period_hours,
+        periods=periods,
+        grid=grid_oracle,
+        battery=battery_cfg,
+        solar_real_kw=solar_kw,
+        load_real_kw=load_kw,
+        day_start=day_start,
+        day_end=day_end,
+    )
     return {
         **nowcast_skill_attrs,
+        **forecast_regret_attrs,
         # Fractional EPR (0..1). Canonical downstream contract: the OpEd
         # hero chart, the compute_quality_report service payload, and the
         # LinkedIn article all treat this attribute as a 0..1 ratio. Do
