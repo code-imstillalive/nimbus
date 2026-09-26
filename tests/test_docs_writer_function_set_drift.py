@@ -200,6 +200,22 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # tests/test_1120_quality_history_version_stamp.py's own
         # TestTheCronCopyStampsToo, which pins that port.
         "_nimbus_version",
+        # nimbus #1256: `{"nimbus_version": <release>}` or `{}`, splatted into
+        # the four daily publishers' attributes so the stamp travels with the
+        # computation instead of being supplied at render time by the entity's
+        # own running-install fallback.
+        #
+        # Native-only because the DEFECT is native-only, not merely because
+        # these publishers are. The failure needs an entity layer: #972's
+        # `extra_state_attributes` re-injects `self._sw_version` when the
+        # restored attributes carry no stamp, so a restart relabels old figures
+        # with the new release. The standalone/cron writers post straight to
+        # the States API with no entity object at all -- there is nothing there
+        # to re-inject a running version, so there is nothing to override. The
+        # cron quality writer freezes its own per-row stamp via
+        # _QUALITY_HISTORY_VERSION_FIELD already (see #1120's own
+        # TestTheCronCopyStampsToo).
+        "_version_stamp",
         # nimbus #1082: decides whether an already-published score for a
         # day still stands, or was taken before that day's settlement
         # landed and should be scored again. Native-only for the identical

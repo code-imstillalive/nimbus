@@ -131,11 +131,33 @@ class TestRestoringARealValue(unittest.TestCase):
             with self.subTest(key=key):
                 self.assertNotIn(key, self.obj._attrs)
 
-    def test_the_stale_version_stamp_is_not_restored(self):
-        """#972's whole point is that nimbus_version describes the
-        RUNNING install. Restoring 0.94.330 into a 0.94.341 process would
-        make the one field built to be trustworthy lie."""
-        self.assertNotIn("nimbus_version", self.obj._attrs)
+    def test_the_version_stamp_IS_restored(self):
+        """Inverted deliberately by nimbus issue #1256. This test used to
+        assert the opposite, on this reasoning:
+
+            #972's whole point is that nimbus_version describes the
+            RUNNING install. Restoring 0.94.330 into a 0.94.341 process
+            would make the one field built to be trustworthy lie.
+
+        That is true of #972's own entity-level fallback, and it is the
+        wrong rule for a sensor that restores figures. Dropping the stamp
+        left the restored figures unstamped, so
+        `extra_state_attributes` re-injected the RUNNING version onto
+        them -- the lie the old rule was written to prevent, arriving by
+        the mechanism meant to prevent it.
+
+        Measured on production 2026-09-26: a deploy at 10:38 AEST left
+        all four restoring sensors stamped `0.94.420` against
+        `generated_at` values of 00:00 / 00:00 / 00:00:13 / 06:06, every
+        figure computed by v0.94.417. The quality report had read
+        `0.94.417` correctly hours earlier, so the stamp moved while the
+        figures did not.
+
+        The publishers now stamp it with the computation
+        (`solver_writer._version_stamp()`), so what comes back here is a
+        claim about the FIGURES -- no more HA-managed than
+        `generated_at`, which this method never dropped."""
+        self.assertEqual(self.obj._attrs["nimbus_version"], "0.94.330")
 
     def test_the_freshness_stamp_is_left_unset(self):
         """A restored value is old. Stamping it fresh would let it pass a

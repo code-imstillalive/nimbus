@@ -3420,9 +3420,26 @@ class _NimbusSolverPushSensor(SensorEntity, RestoreEntity):
         device/state class and friendly name come from the entity's own
         class definition, and restoring a stale copy of them is how a
         renamed or re-united sensor ends up advertising last week's
-        metadata. `nimbus_version` is dropped for the same reason -- it
-        describes the running install, not the stored value, and #972
-        exists precisely so it can be trusted.
+        metadata.
+
+        `nimbus_version` is deliberately NOT in that list any more
+        (nimbus issue #1256). It used to be, on the reasoning that it
+        "describes the running install, not the stored value" -- true of
+        #972's entity-level fallback, and exactly what made the stamp
+        lie. Dropping it here left the restored figures with no stamp,
+        so `extra_state_attributes` re-injected the RUNNING version onto
+        them. Measured on production 2026-09-26: a deploy at 10:38 AEST
+        left all four restoring sensors stamped `0.94.420` against
+        `generated_at` values of 00:00 / 00:00 / 00:00:13 / 06:06, every
+        figure computed by v0.94.417.
+
+        The four publishers now stamp it with the computation (see
+        solver_writer._version_stamp()), so what is restored here is a
+        claim about the figures, and restoring it is the whole point --
+        it is no more "HA-managed" than `generated_at`, which was never
+        dropped. #972's fallback still fires for any push sensor whose
+        publisher does not stamp, and mirror detection is unaffected: a
+        mirrored sensor carries the ORIGIN install's stamp either way.
 
         Never raises: a failed restore leaves the sensor exactly as it
         would have been without this method, which is the pre-#983
@@ -3448,7 +3465,6 @@ class _NimbusSolverPushSensor(SensorEntity, RestoreEntity):
                 "state_class",
                 "friendly_name",
                 "icon",
-                "nimbus_version",
             )
         }
 
