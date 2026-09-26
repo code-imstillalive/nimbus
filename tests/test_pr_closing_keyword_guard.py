@@ -207,3 +207,98 @@ class TestTheEntryPoint(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestTheNegatedFormIsRejected(unittest.TestCase):
+    """The second shape, and the one that bit twice before it was guarded.
+
+    GitHub's scanner has no concept of negation: it sees `fix #937` and
+    closes the issue. So a sentence written specifically to PREVENT an
+    auto-close is what causes one.
+
+    Both quoted bodies are real and both produced a wrongful close a human
+    then undid by hand:
+
+        #1122  "does not close #496"
+           2026-09-18T04:46:58Z  PR merged
+           2026-09-18T04:46:59Z  #496 closed     <- one second later
+           2026-09-18T04:56:51Z  #496 reopened   <- ten minutes of attention
+        (#496 had an identical close/reopen pair on 2026-09-13.)
+
+        #1283  "does not fix #937"
+           #937 closed on merge, reopened by hand the same day.
+    """
+
+    def test_the_1283_incident_is_caught(self):
+        body = "**This does not fix #937.** It names the blocker precisely."
+        self.assertEqual(
+            [n for _, n in guard.find_offences(body)],
+            ["937"],
+        )
+
+    def test_the_1122_incident_is_caught(self):
+        body = "This does not close #496 -- the flex family only."
+        self.assertEqual(
+            [n for _, n in guard.find_offences(body)],
+            ["496"],
+        )
+
+    def test_other_real_negator_spellings(self):
+        for body in (
+            "This PR will not close #123 yet.",
+            "It cannot fix #123 on its own.",
+            "This never closes #123.",
+            "It doesn't resolve #123.",
+        ):
+            with self.subTest(body=body):
+                self.assertTrue(guard.find_offences(body), body)
+
+
+class TestTheNegatedBranchDoesNotOverreach(unittest.TestCase):
+    """Calibrated to the same bar the possessive branch set: 2 of 2 real
+    incidents caught, 0 of 8 legitimate closes rejected. A legitimate close
+    never negates itself, which is what makes that possible."""
+
+    def test_a_negation_in_a_PRIOR_sentence_is_not_an_offence(self):
+        """The window stops at a full stop, so an unrelated negation earlier
+        in the paragraph cannot drag an innocent close into a match."""
+        self.assertEqual(guard.find_offences("No new tests needed. Closes #77"), [])
+
+    def test_a_negation_on_a_PREVIOUS_line_is_not_an_offence(self):
+        self.assertEqual(guard.find_offences("Not a refactor\nCloses #77"), [])
+
+    def test_the_recommended_safe_phrasing_passes(self):
+        """What the advice text tells people to write instead. If this ever
+        failed, the guard would be rejecting its own remedy."""
+        self.assertEqual(
+            guard.find_offences("this is not a fix for issue 937"),
+            [],
+        )
+
+    def test_keyword_separated_from_the_number_is_not_flagged(self):
+        """ "a fix for #55" does NOT auto-close on GitHub -- the keyword must
+        be immediately followed by the reference. Flagging it would reject
+        something harmless, so the guard deliberately mirrors GitHub's own
+        parser rather than being broader than it.
+
+        Recorded because my first draft of this test asserted the opposite
+        and the implementation was right.
+        """
+        self.assertEqual(guard.find_offences("It isn't a fix for #55"), [])
+
+    def test_plain_closes_still_pass(self):
+        for body in ("Closes #123", "Fixes #123 and #124", "Resolves #9"):
+            with self.subTest(body=body):
+                self.assertEqual(guard.find_offences(body), [])
+
+
+class TestBothShapesReportTogether(unittest.TestCase):
+    def test_a_body_carrying_both_reports_both_in_reading_order(self):
+        body = "Fixes #100's own first half. Also, this does not fix #200."
+        self.assertEqual([n for _, n in guard.find_offences(body)], ["100", "200"])
+
+    def test_no_duplicate_report_for_one_position(self):
+        """De-duplicated by offset, so a phrase satisfying both patterns is
+        reported once rather than twice."""
+        offences = guard.find_offences("does not fix #937")
+        self.assertEqual(len(offences), 1)
