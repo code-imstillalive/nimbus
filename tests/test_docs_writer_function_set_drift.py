@@ -582,6 +582,28 @@ INTENTIONAL_CRON_ONLY = frozenset({"seconds_to_settlement_capture"})
 # expected to shrink, one porting PR at a time, not grow silently.
 KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
     {
+        # nimbus issue #467, staged item 3 -- solver_inputs/calendar_trips.py.
+        # Resolves an HA calendar entity's upcoming events into adequacy
+        # windows (trip distance -> kWh -> a window ending at departure).
+        #
+        # Deliberately NOT under INTENTIONAL_NATIVE_ONLY, for the same reason
+        # the #452 helper above is not: this is portable in principle. HA's
+        # `calendar.get_events` is a service with a response, and the cron copy
+        # already reaches response-returning services over REST
+        # (`ha_call_service_with_response`, used for weather.get_forecasts). So
+        # calling it a permanent execution-context difference would be untrue.
+        #
+        # It is open drift rather than a port because the feature is not yet
+        # wired on EITHER side -- this stage lands the resolution layer and its
+        # tests, and #467's own item 4 asks for the end-to-end wiring to be
+        # proven before the feature is called done (HAEO's abandoned #361 died
+        # precisely from shipping calendar schema over wiring that did
+        # nothing). Porting an unwired layer to a second copy first would
+        # double that risk rather than reduce it.
+        "parse_trip_distance_km",
+        "trip_energy_kwh",
+        "resolve_trip_windows",
+        "_period_index_at",
         # nimbus issue #452, the forecast-vs-actuals half. The log-once
         # helper for it is integration-only because the check it reports
         # depends on two things the standalone/cron copy does not have:
