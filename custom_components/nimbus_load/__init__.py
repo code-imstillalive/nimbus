@@ -455,11 +455,14 @@ async def _async_report_orphaned_forecast_entities(
         # and already branches on the condition. Keeping create and dismiss
         # adjacent makes it hard to add one without seeing the other.
         #
-        # Unconditional: `persistent_notification.dismiss` on an id that is not
-        # showing is a no-op, so there is no sentinel to track and nothing to
-        # get out of step. The sibling needs a sentinel file only because it
-        # runs in the standalone/cron process, which has no way to ask HA
-        # whether a notification is outstanding.
+        # Unconditional, and the cost is why that is fine here but not there.
+        # `persistent_notification.dismiss` on an id that is not showing is a
+        # no-op, so there is no sentinel to track and nothing to get out of
+        # step. The sibling guards with a sentinel file because its own
+        # docstring says it is "called once per cycle on the healthy path" --
+        # once a minute, so ~1440 no-op service calls a day. This function runs
+        # once per SETUP, so the same call is a handful per restart and the
+        # sentinel would be more state than it saves.
         try:
             await hass.services.async_call(
                 "persistent_notification",
