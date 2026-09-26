@@ -37,10 +37,33 @@ The trade is that it measures *static* reads. A name reached only through
 that is the right trade: the coupling that blocks an extraction is exactly the
 coupling that is visible statically.
 
+## The second mode: who calls these from outside?
+
+`--callers` answers the question #1298's own discussion converged on. Not "is a
+compatibility façade required" in general, but **"does anything outside this
+module resolve the name at call time"** -- which each phase can answer for
+itself instead of inheriting a blanket rule.
+
+It splits the answer three ways, because the three have different consequences:
+
+* **production callers** -- the façade is load-bearing; removing it breaks them.
+* **test references** -- a migration cost, not a breakage.
+* **monkeypatch targets** -- the sharp case. A re-export does NOT preserve
+  patching if the caller is migrated to the new module: the patch lands on an
+  attribute nobody reads, and the test passes having exercised the real
+  function. Green, and testing nothing.
+
+Measured by AST here too, and that matters: the first pass of this measurement
+by regex reported four production callers for Phase 2, and three of them were
+**docstrings naming the functions**. The real answer is two. Counting prose as a
+caller argues for keeping a façade nothing needs.
+
 ## Usage
 
-    python tests/analyse_module_dependencies.py                    # Phase 2 set
+    python tests/analyse_module_dependencies.py                    # Phase 2 deps
     python tests/analyse_module_dependencies.py --phase 3
+    python tests/analyse_module_dependencies.py --callers           # Phase 2 callers
+    python tests/analyse_module_dependencies.py --callers --phase 3
     python tests/analyse_module_dependencies.py --functions a,b,c
     python tests/analyse_module_dependencies.py --module custom_components/nimbus_load/sensor.py --functions x
 
@@ -54,6 +77,7 @@ from __future__ import annotations
 import argparse
 import ast
 import builtins
+import re
 import sys
 from pathlib import Path
 
@@ -165,6 +189,132 @@ def _size(fn: ast.AST) -> int:
     return end - getattr(fn, "lineno", 0) + 1
 
 
+#: `monkeypatch.setattr(solver_writer, "X", ...)` / `patch.object(sw, "X", ...)`.
+#: Matches the module alias as `solver_writer` or `sw`, which are the two spellings
+#: this test suite actually uses.
+_PATCH_CALL = re.compile(
+    r"(?:monkeypatch\.setattr|patch\.object)\(\s*(?:solver_writer|sw)\s*,\s*"
+    r"[\"\']([^\"\']+)"
+)
+
+
+def _referenced_names(path: Path) -> set[str]:
+    """Names a file really READS -- attribute access, bare name, or import.
+
+    Deliberately AST rather than text. A docstring that names a function is not
+    a caller of it, and this codebase's docstrings cross-reference functions
+    constantly, so a text search over-reports badly.
+    """
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+    except (SyntaxError, UnicodeDecodeError):
+        return set()
+    found: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Name):
+            found.add(node.id)
+        elif isinstance(node, ast.Attribute):
+            found.add(node.attr)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                found.add(alias.name.split(".")[-1])
+    return found
+
+
+def _py_files(root: Path, skip: set[str] | None = None) -> list[Path]:
+    skip = skip or set()
+    return [
+        p
+        for p in sorted(root.rglob("*.py"))
+        if "__pycache__" not in p.parts
+        and "research" not in p.parts
+        and p.name not in skip
+    ]
+
+
+def analyse_callers(module_path: Path, targets: tuple[str, ...]) -> int:
+    """Who outside `module_path` resolves these names, and how."""
+    package = module_path.parent
+    repo = package.parent.parent
+    tests = repo / "tests"
+    standalone = repo / "docs" / "real-world-integration" / "files"
+
+    production: dict[str, list[str]] = {t: [] for t in targets}
+    cron: dict[str, list[str]] = {t: [] for t in targets}
+    test_files: dict[str, set[str]] = {t: set() for t in targets}
+    patches: dict[str, set[str]] = {t: set() for t in targets}
+
+    for path in _py_files(package, skip={module_path.name}):
+        names = _referenced_names(path)
+        for target in targets:
+            if target in names:
+                production[target].append(str(path.relative_to(package)))
+
+    if standalone.exists():
+        for path in _py_files(standalone):
+            names = _referenced_names(path)
+            for target in targets:
+                if target in names:
+                    cron[target].append(path.name)
+
+    if tests.exists():
+        # This tool lists every target name in its own PHASES table, so it would
+        # otherwise count itself as a referrer of all of them.
+        for path in _py_files(tests, skip={Path(__file__).name}):
+            names = _referenced_names(path)
+            for target in targets:
+                if target in names:
+                    test_files[target].add(path.name)
+            for patched in _PATCH_CALL.findall(path.read_text(encoding="utf-8")):
+                if patched in patches:
+                    patches[patched].add(path.name)
+
+    print(f"Callers of {len(targets)} name(s) from OUTSIDE {module_path.name}\n")
+    load_bearing: list[str] = []
+    for target in targets:
+        prod = production[target]
+        print(f"### {target}")
+        print(f"    production callers : {len(prod)}  {prod or ''}")
+        if cron[target]:
+            print(f"    standalone/cron    : {cron[target]}")
+        print(f"    test files         : {len(test_files[target])}")
+        if patches[target]:
+            print(f"    MONKEYPATCHED IN   : {len(patches[target])}")
+            for name in sorted(patches[target]):
+                print(f"        {name}")
+        print()
+        if prod or patches[target]:
+            load_bearing.append(target)
+
+    total_tests = len({f for s in test_files.values() for f in s})
+    print("=" * 70)
+    print(
+        f"production callers outside the module : "
+        f"{sum(len(v) for v in production.values())}"
+    )
+    print(
+        f"monkeypatch sites                     : "
+        f"{sum(len(v) for v in patches.values())}"
+    )
+    print(f"test files touching any target        : {total_tests}")
+    print()
+    if load_bearing:
+        print(
+            "A compatibility facade IS load-bearing for: "
+            + ", ".join(load_bearing)
+            + ".\n"
+            "Each has a production caller, a monkeypatch site, or both. Migrating\n"
+            "a caller while a test still patches the old module makes that patch a\n"
+            "silent no-op -- the test passes having run the real function."
+        )
+    else:
+        print(
+            "No production caller and no monkeypatch site outside the module.\n"
+            "A compatibility facade here would preserve an interface nothing uses."
+        )
+    return 0
+
+
 def analyse(module_path: Path, targets: tuple[str, ...]) -> int:
     tree = ast.parse(module_path.read_text(encoding="utf-8"))
     functions = {
@@ -249,6 +399,13 @@ def main(argv: list[str] | None = None) -> int:
         "--functions",
         help="comma-separated function names, instead of a phase set",
     )
+    parser.add_argument(
+        "--callers",
+        action="store_true",
+        help="report who resolves these names from OUTSIDE the module "
+        "(production callers, test references, monkeypatch sites) instead of "
+        "what they depend on",
+    )
     args = parser.parse_args(argv)
 
     if args.functions:
@@ -259,6 +416,8 @@ def main(argv: list[str] | None = None) -> int:
     if not args.module.exists():
         print(f"no such module: {args.module}", file=sys.stderr)
         return 2
+    if args.callers:
+        return analyse_callers(args.module, targets)
     return analyse(args.module, targets)
 
 
