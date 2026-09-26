@@ -627,6 +627,20 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         # copy has no battery-participant path at all, so there is nothing
         # there for this to warn about.
         "_warn_participant_history_is_ungated_once",
+        # nimbus issue #937 stage 1: the day-ahead forecast snapshot layer.
+        #
+        # Integration-only for now, and this one is a genuine open gap rather
+        # than a structural difference: the standalone copy captures its
+        # snapshot through a THIRD script (research/forecast_capture.py) into
+        # a JSON file, which is why `load_forecast_snapshot` sits in the
+        # quality writer's own drift list. This is the native equivalent of
+        # that capture, and when the native path also consumes it the two
+        # implementations should be reconciled rather than left to diverge.
+        "build_snapshot",
+        "day_key_for",
+        "prune_snapshots",
+        "resample_snapshot_to_grid",
+        "_parse",
         # nimbus #467 item 4: reads an HA calendar entity via
         # calendar.get_events. Same open-drift reasoning as the four above, and
         # for the same reason it is NOT native-only: it goes through
