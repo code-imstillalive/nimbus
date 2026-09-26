@@ -133,22 +133,84 @@ def _imports_section(path: pathlib.Path) -> bool:
     return False
 
 
-class TestNoFlowUsesASectionYet(unittest.TestCase):
-    def test_no_flow_module_imports_the_section_helper(self):
-        offenders = [p.name for p in _flow_files() if _imports_section(p)]
+# nimbus #1067: hub_options.py is now section-aware and is the ONE allowed
+# user of `section`. This guard was written to fire on exactly that change,
+# and it did -- so it is narrowed here rather than deleted, because the
+# reason it existed still applies everywhere else.
+#
+# WHAT MADE hub_options SAFE, and it is only safe for the SOLVER steps:
+# `_absorb_step()` now calls `_flatten_section_input()` before merging and
+# `_effective_schema_keys()` for its null sweep, so `self._solver_data` is
+# flat. The Solver save loop reads THAT (`merged[key] = self._solver_data
+# .get(key)`), never `user_input`, so a nested submission is already
+# unwrapped by the time it is persisted.
+#
+# The Forecaster and Switchboard steps in the same file still read
+# `user_input.get(key)` DIRECTLY, and the six subentry flows still persist
+# `data=user_input` wholesale. Sectioning any of those would reproduce the
+# original bug exactly, which is what the two tests below now pin.
+_SECTION_ALLOWED = {"hub_options.py"}
+
+
+class TestOnlyTheFlattenedPathUsesASection(unittest.TestCase):
+    def test_no_unflattened_flow_module_imports_the_section_helper(self):
+        offenders = [
+            p.name
+            for p in _flow_files()
+            if _imports_section(p) and p.name not in _SECTION_ALLOWED
+        ]
         self.assertEqual(
             offenders,
             [],
-            f"{offenders} import Home Assistant's `section` helper, and the "
-            "save paths still assume flat `user_input`. A section nests its "
-            "fields one level down, so hub_options.py's "
-            f"`{_FLAT_MERGE}` writes None for every field inside it (41 of "
-            "46 across the wizard), and the subentry flows' "
-            f"`{_WHOLESALE}` stores the nested dict instead of the values. "
-            "Neither raises. Flatten the save paths FIRST, as their own "
-            "change with tests, then add the section and update this test "
-            "in the same commit -- see nimbus issue #1067.",
+            f"{offenders} import Home Assistant's `section` helper while "
+            "their save path still assumes flat `user_input`. A section "
+            "nests its fields one level down, so the subentry flows' "
+            f"`{_WHOLESALE}` stores the nested dict instead of the values, "
+            "and a flat key loop writes None for every field inside it. "
+            "Neither raises. Flatten that save path FIRST, as its own "
+            "change with tests, then add the section and widen "
+            "_SECTION_ALLOWED in the same commit -- see nimbus issue #1067.",
         )
+
+    def test_hub_options_only_qualifies_because_it_flattens(self):
+        """The allowance is conditional, not a permanent exemption. If the
+        flattening were removed while the section stayed, this fails."""
+        text = (FLOW_DIR / "hub_options.py").read_text(encoding="utf-8")
+        for required in (
+            "_flatten_section_input",
+            "_effective_schema_keys",
+            "merged[key] = self._solver_data.get(key)",
+        ):
+            with self.subTest(required=required):
+                self.assertIn(
+                    required,
+                    text,
+                    "hub_options.py uses a section, and this is what makes "
+                    "that safe. Removing it reopens #1067's silent-null bug.",
+                )
+
+    def test_the_forecaster_and_switchboard_steps_are_NOT_sectioned(self):
+        """Both still read `user_input.get(key)` directly, so neither may be
+        wrapped. This is the specific regression the narrowing above could
+        let through if nobody pinned it.
+
+        Read from the source text rather than by importing the module: this
+        file is a static guard over the flows directory and deliberately has
+        no HA stubs installed.
+        """
+        text = (FLOW_DIR / "hub_options.py").read_text(encoding="utf-8")
+        for step in ("async_step_forecaster", "async_step_switchboard"):
+            i = text.index(f"async def {step}(")
+            # the step body runs until the next method definition
+            j = text.index(chr(10) + "    async def ", i + 10)
+            with self.subTest(step=step):
+                self.assertNotIn(
+                    "_collapse_optionals_into_advanced",
+                    text[i:j],
+                    f"{step} saves via `user_input.get(key)`, so sectioning "
+                    "it would write None for every optional field. Flatten "
+                    "its save path first (#1067).",
+                )
 
 
 class TestTheGuardIsNotVacuous(unittest.TestCase):

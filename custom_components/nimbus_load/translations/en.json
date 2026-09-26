@@ -128,6 +128,12 @@
           "solver_p2p_matched_rate_forecast_sensor": "Optional -- any entity whose own 'forecast' attribute lists real per-interval P2P-matching data (matched cost/volume/proportion), the empirical rate a community-trading/peer-export program actually paid. A household with no such program leaves this blank forever.",
           "solver_price_spike_alert_entity": "Optional -- an ADDITIONAL/alternative trigger for the price-spike discharge override (Solver settings) if your retailer publishes a real named alert product. The plain $/kWh threshold (a live number entity, no wizard field needed) is the primary, fully generic mechanism and works with no retailer integration at all. Either condition triggers detection; the override itself still requires explicitly arming switch.nimbus_solver_price_spike_override_armed.",
           "solver_weather_forecast_sensor": "Optional, purely cosmetic -- feeds the dashboard's own Temp/Humidity chart only, never the actual LP solve. Accepts a weather.* entity directly (Nimbus calls weather.get_forecasts for you) or a sensor.* whose own 'forecast' attribute already carries datetime/temperature[/humidity] entries. Humidity is only published when your chosen source's own forecast actually carries a humidity field."
+        },
+        "sections": {
+          "advanced": {
+            "name": "Advanced sources",
+            "description": "Optional extra sources. Leave every one of these blank unless you know you need it — Nimbus works from the two fields above. Add a second or third solar forecast to blend providers, a battery or solar power sensor to score past days, or regional spot and P2P sensors if your retailer publishes them."
+          }
         }
       },
       "switchboard": {

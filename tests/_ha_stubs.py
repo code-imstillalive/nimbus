@@ -218,6 +218,31 @@ class _StubStore:
         self._shared_data[self._key] = data
 
 
+class _StubSection:
+    """Stand-in for `homeassistant.data_entry_flow.section` (nimbus #1067).
+
+    Real signature verified against an installed Home Assistant rather than
+    guessed: `section(schema: vol.Schema, options: SectionConfig | None = None)`.
+    A section nests its own fields one level deep in the submitted
+    `user_input`, which is the whole reason the flow code has to flatten --
+    so this stub must expose `.schema` for that flattening to walk.
+    """
+
+    def __init__(self, schema, options=None):
+        self.schema = schema
+        self.options = options or {}
+
+    def __call__(self, value):
+        """Validate the nested mapping.
+
+        Not decoration: voluptuous rejects any schema VALUE that is not
+        callable ("unsupported schema data type"), so without this a wrapped
+        schema cannot even be built. Real HA's `section` defines the same
+        one-line delegate, verified against an installed Home Assistant.
+        """
+        return self.schema(value)
+
+
 def _generic_stub_class(name: str) -> type:
     """A stub base class that tolerates HA's own generic-subscript usage,
     e.g. `class Foo(CoordinatorEntity[MyCoordinator], SensorEntity):` --
@@ -435,6 +460,11 @@ def install_ha_stubs() -> None:
     module(
         "homeassistant.components.select",
         SelectEntity=_generic_stub_class("SelectEntity"),
+    )
+    module(
+        "homeassistant.data_entry_flow",
+        section=_StubSection,
+        FlowResult=dict,
     )
     module(
         "homeassistant.config_entries",
