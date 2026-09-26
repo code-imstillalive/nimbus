@@ -11910,6 +11910,45 @@ def publish_plan(
         # LPResult (see both dataclasses' own fields) and is set on
         # SUCCESSFUL solves too, so the next episode answers the question
         # with a base rate rather than with failures alone.
+        # nimbus issue #1179, second half: name WHY the fallback fired, not
+        # just that it did. The two reasons point in opposite causal
+        # directions, and #1229's bool alone cannot separate them:
+        #
+        #   probe_not_optimal  -- the calibrator's own bracket probes did not
+        #                         solve, so the model was already failing
+        #                         BEFORE any weight was chosen. The blend
+        #                         collapse is a symptom of this failure, not
+        #                         its cause, and this line and the blend
+        #                         warning are two views of one event.
+        #   cost_not_preserved -- both probes solved and no weight in the
+        #                         bracket held the primary cost. The only case
+        #                         in which #1179's original hypothesis (that
+        #                         handing HiGHS 1e-12 is itself what breaks the
+        #                         solve) is even available.
+        #
+        # That distinction is what the 2026-09-20 episode could not answer:
+        # blend warnings accompanied only 44 of 153 failures, which is equally
+        # consistent with "one of several routes to the same failure" and with
+        # "the warning is logged on a subset of the cycles that take it".
+        # `probe_not_optimal` would explain the other 109 directly -- they
+        # failed at a phase that never reaches calibration at all.
+        if plan.calibration_min_weight_fallback:
+            calibration_note = "FELL BACK to the minimum weight 1e-12, reason=%s" % (
+                plan.calibration_fallback_reason or "unrecorded"
+            )
+            if plan.calibration_fallback_reason == "probe_not_optimal":
+                calibration_note += (
+                    " (so the model was ALREADY failing before a weight was "
+                    "chosen -- this fallback is a symptom of this failure, not "
+                    "its cause)"
+                )
+            elif plan.calibration_fallback_reason == "cost_not_preserved":
+                calibration_note += (
+                    " (both probes solved, so the collapsed weight is a real "
+                    "calibration verdict and is a candidate CAUSE here)"
+                )
+        else:
+            calibration_note = "found a usable weight (no minimum-weight fallback)"
         _LOGGER.warning(
             "Nimbus: solve did not complete after %.1fs -- HiGHS solver "
             "failure (%s), not a genuinely infeasible model; keeping the "
@@ -11918,9 +11957,7 @@ def publish_plan(
             "%s (nimbus issue #1179)",
             solve_seconds,
             plan.raw_status or "unknown reason",
-            "FELL BACK to the minimum weight 1e-12"
-            if plan.calibration_min_weight_fallback
-            else "found a usable weight (no minimum-weight fallback)",
+            calibration_note,
         )
         return
 
