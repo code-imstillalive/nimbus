@@ -1009,6 +1009,36 @@ lockstep with it.
 
 ## ⚠️ STANDING DIRECTIVE — RELEASE VALIDATION & DEFINITION OF DONE
 
+> ### ⚠️ What a devhub pass does NOT evidence: the HA version gap (nimbus issue #1245)
+>
+> **Measured 2026-09-26: devhub runs HA 2026.9.0, the reference production install runs HA
+> 2026.7.4, and `hacs.json` declares a 2026.8.0 minimum — so production is BELOW the declared
+> minimum and the validation environment is two minor versions AHEAD of it.**
+>
+> Production does not trip the minimum because its `custom_components/nimbus_load` is a
+> relative symlink into a separate git clone, deliberately not HACS-managed, so a `git pull`
+> plus container restart bypasses HACS's version gate entirely. Nothing is currently broken by
+> this — production's config entry reads `state: loaded`, and the integration contains no
+> version-gated code at all. The 2026.8.0 figure was set "to match what's actually tested"
+> (`09af243`), which is the honest reason to set it and is exactly what makes the gap matter:
+> the declaration is a statement that **2026.7 is not tested**, and 2026.7 is what the install
+> with real money on it runs.
+>
+> **So every step above is bounded by this**, in both directions:
+> - A **2026.7 incompatibility cannot be caught on devhub**, because devhub is newer. It would
+>   surface first on production.
+> - A **2026.9 behaviour change can be caught on devhub and misread as a Nimbus regression**,
+>   because production would not show it. There is already a documented case of the two
+>   versions genuinely differing: YAML auth config for the `influxdb` integration is removed
+>   entirely in 2026.9.0, which devhub is past and production is not.
+> - CI's `pytest-homeassistant-custom-component` pins a THIRD version, matching neither.
+>
+> **The rule this adds to rule 7:** write "confirmed live on devhub (HA 2026.9.0)" rather than
+> "confirmed live", and where a change could plausibly depend on HA version at all, say so
+> instead of letting a devhub pass stand in for production compatibility. That is the cheap
+> half of #1245 and is worth doing regardless of what is decided about aligning the versions.
+
+
 > **Nimbus issue #594 (Mark Purcell, 2026-09-09): "we should be finding a lot of these issues**
 > **in a devhub deployment before I find them in my production deployment."** Real evidence
 > behind the ask: 15 releases in 30 hours (v0.94.175→189), six of them found broken on the
