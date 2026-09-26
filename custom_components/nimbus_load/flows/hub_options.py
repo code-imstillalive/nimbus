@@ -1546,20 +1546,32 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
         self, user_input: dict[str, Any] | None = None
     ) -> Any:
         if user_input is not None:
-            self._absorb_step(_solver_grid_schema({}), user_input)
+            # nimbus #1067: the SAME wrapping as the form below. A
+            # mismatch here means the null sweep walks a different shape
+            # than the submission, which is how a silent wipe happens.
+            self._absorb_step(
+                _collapse_optionals_into_advanced(_solver_grid_schema({})),
+                user_input,
+            )
             return await self.async_step_solver_sources()
         return self.async_show_form(
             step_id="solver_grid",
-            data_schema=_solver_grid_schema(
-                # nimbus #1067. This step previously had no suggestion
-                # mechanism at all, and it owns the two fields #1267's helper
-                # was really built for -- the household's own import and
-                # export price entities, read from HA's Energy Dashboard.
-                # Saved values last, so they always win.
-                {
-                    **(await _energy_dashboard_solver_source_suggestions(self.hass)),
-                    **dict(self.config_entry.options),
-                }
+            # nimbus #1067/#448: 2 required grid fields stay visible, the 7
+            # optional ones collapse. 9 -> 2 on screen, nothing removed.
+            data_schema=_collapse_optionals_into_advanced(
+                _solver_grid_schema(
+                    # nimbus #1067. This step previously had no suggestion
+                    # mechanism at all, and it owns the two fields #1267's helper
+                    # was really built for -- the household's own import and
+                    # export price entities, read from HA's Energy Dashboard.
+                    # Saved values last, so they always win.
+                    {
+                        **(
+                            await _energy_dashboard_solver_source_suggestions(self.hass)
+                        ),
+                        **dict(self.config_entry.options),
+                    }
+                )
             ),
         )
 
