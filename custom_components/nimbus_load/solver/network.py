@@ -3144,8 +3144,59 @@ def _build_plan_once(
         # in for T[-1] at t=0 (a known constant, moved to the RHS), the
         # same reasoning `initial_soc_kwh` already gets -- a currently-
         # below-floor tank can never make the LP itself infeasible at t=0.
+        # nimbus issue #481: the per-period decay series.
+        #
+        # Flat `idle_decay_c_per_hour * hours[t]` unless this load carries the
+        # ambient pair, in which case Newton's law replaces it:
+        #
+        #     decay[t] = loss_coeff_per_h * hours[t] * (T_ref[t] - ambient[t])
+        #
+        # `T_ref` is a COAST trajectory -- decaying from `initial_temperature_c`
+        # toward ambient with no heating at all. Linearising the gap around a
+        # constant reference is what keeps this an LP: the natural form multiplies
+        # `T[t-1]` by `p[t]` once #897's idle-fraction scaling is applied, and two
+        # decision variables multiplied is not linear. With `T_ref` constant per
+        # period, `decay[t]` drops into exactly the slot the flat scalar occupied
+        # and every downstream coefficient below is unchanged in form.
+        #
+        # Clamped at >= 0 on purpose. A load sitting BELOW ambient would give a
+        # negative gap, i.e. a heat GAIN, and this model has no term for that --
+        # `heating_rate_c_per_kwh` is validated > 0, so the element cannot
+        # represent cooling at all yet (#481's HVAC case, deliberately a separate
+        # change). Letting the gap go negative here would quietly credit a
+        # heating load with free warmth from a hot day.
+        #
+        # The approximation's error has a known direction, stated rather than
+        # buried: a heated tank sits hotter than the coast line, so the real gap
+        # is larger and this UNDER-estimates decay, under-planning heating
+        # slightly. Conservative toward spending less, and strictly better than a
+        # flat rate that cannot see the weather at all.
+        # Bound to locals rather than tested through a separate flag, so the
+        # None-narrowing is visible to a reader and to mypy alike.
+        loss_coeff = tl.loss_coeff_per_h
+        ambient_raw = list(tl.ambient_c or ())
+        decay_series: list[float]
+        if loss_coeff is not None and ambient_raw:
+            # Hold the last known value rather than dropping to the flat model
+            # mid-horizon -- the same sample-and-hold every other per-period
+            # series in this solver uses when a source runs short. Reverting
+            # instead would make the decay discontinuous for a reason that has
+            # nothing to do with the physics.
+            ambient = ambient_raw + [ambient_raw[-1]] * max(0, n - len(ambient_raw))
+            decay_series = []
+            t_ref = float(tl.initial_temperature_c)
+            for t in range(n):
+                step = loss_coeff * hours[t] * (t_ref - float(ambient[t]))
+                decay_series.append(max(0.0, step))
+                t_ref -= step
+        else:
+            # Either no ambient model configured at all, or a weather source
+            # that resolved to zero periods (an unavailable sensor is a real
+            # runtime state) -- both degrade to the pre-#481 flat rate.
+            decay_series = [tl.idle_decay_c_per_hour * hours[t] for t in range(n)]
+
         for t in range(n):
-            decay = tl.idle_decay_c_per_hour * hours[t]
+            decay = decay_series[t]
             # nimbus issue #897, household decision 2026-09-15: the learned
             # heating rate is a NET rate, so the loss it already contains
             # must not be subtracted a second time while heating.
