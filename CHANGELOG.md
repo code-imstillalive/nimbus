@@ -8,6 +8,14 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.422] - 2026-09-26
+
+### Fixed
+- **A degraded read permanently truncated the published quality history — measured at 10 rows to 1, with no restart, and the nine lost days unrecoverable from the attribute** ([#1248](https://github.com/code-imstillalive/nimbus/issues/1248)). `publish_daily_quality_report()` defaulted the currently-published attributes to `{}` when its read failed, treating "a first-ever publish" and "an unreachable read" as the same thing. They are not: an unreachable read is not an empty history, it is an *unknown* one. The carry-forward then wrote a single row, `ha_post_state` replaced attributes wholesale, and the next cycle inherited the truncation — a one-way ratchet. The read is now classified (`404` = genuine first publish; a successful read returning `unavailable` = the attributes were dropped; `URLError` = unreachable), and a degraded read recovers from what this process last published rather than publishing emptiness. Recovery is native-only, because a cron writer exits between invocations and could never fill such a cache.
+
+### Added
+- **An on-demand re-score control on the Regret card, and a repair for a row missing from the published table** ([#1248](https://github.com/code-imstillalive/nimbus/issues/1248)). The existing "Re-score with settlement" button only appeared for a *provisional* day, so a row that had vanished from the table offered no way to rebuild it — the card simply showed a live estimate. A missing row now gets its own prominent repair, and a day with nothing wrong gets a quiet footer control stating its own cost ("costs 1 oracle solve"). All three are gated on the date being 1–30 days back, which is the re-score service's own accepted range.
+
 ## [0.94.421] - 2026-09-26
 
 ### Fixed
