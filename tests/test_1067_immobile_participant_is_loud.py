@@ -42,11 +42,13 @@ from __future__ import annotations
 import unittest
 
 import _solver_path  # noqa: F401
-import solver_writer
+from solver_inputs import extra_batteries as extra_batteries_inputs
 
 
 def _source() -> str:
-    path = solver_writer.__file__.replace(".pyc", ".py")
+    # nimbus issue #1300: this guard moved to solver_inputs/extra_batteries.py
+    # with build_extra_batteries() itself.
+    path = extra_batteries_inputs.__file__.replace(".pyc", ".py")
     with open(path, encoding="utf-8") as handle:
         return handle.read()
 
@@ -104,7 +106,7 @@ class TestItIsLoggedOncePerParticipant(unittest.TestCase):
     """
 
     def test_there_is_a_module_level_seen_set(self):
-        self.assertIsInstance(solver_writer._IMMOBILE_PARTICIPANT_WARNED, set)
+        self.assertIsInstance(extra_batteries_inputs._IMMOBILE_PARTICIPANT_WARNED, set)
 
     def test_the_set_is_keyed_by_subentry_not_by_name(self):
         """Two participants can share a display name; subentry_id is the

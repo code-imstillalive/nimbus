@@ -32,21 +32,41 @@ a hot path and are meant to be read by someone actively debugging.
 
 from __future__ import annotations
 
+import glob
 import re
 import unittest
 from pathlib import Path
 
-_SOLVER_WRITER = (
-    Path(__file__).resolve().parent.parent
-    / "custom_components"
-    / "nimbus_load"
-    / "solver_writer.py"
+_NIMBUS_DIR = (
+    Path(__file__).resolve().parent.parent / "custom_components" / "nimbus_load"
 )
+_SOLVER_WRITER = _NIMBUS_DIR / "solver_writer.py"
+
+
+# nimbus issue #1300: some of #757's own diag call sites (inside
+# build_extra_batteries()) moved to solver_inputs/extra_batteries.py.
+# Scanned as a union with solver_writer.py itself, same "every module
+# #735/#1298 pulled logic out of" reasoning test_docs_writer_function_
+# set_drift.py's own _integration_paths() already uses -- a moved
+# diagnostic is still a diagnostic, and the guard below must keep seeing
+# it wherever it currently lives.
+def _scanned_paths() -> list[Path]:
+    return [_SOLVER_WRITER] + [
+        Path(p) for p in sorted(glob.glob(str(_NIMBUS_DIR / "solver_inputs" / "*.py")))
+    ]
+
 
 # Matches the project's own temporary-instrumentation convention, e.g.
 # "Nimbus #757 diag: ...".
 _DIAG_RE = re.compile(r"#\d+ diag:")
 _LOGGER_CALL_RE = re.compile(r"_LOGGER\.(debug|info|warning|error|critical)\s*\(")
+# solver_inputs/*.py modules reach the shared logger via `sw._LOGGER`
+# rather than the bare `_LOGGER` solver_writer.py itself uses -- see
+# solver_inputs/__init__.py for why it's always accessed through the
+# deferred `sw` module object, never imported by name.
+_SW_LOGGER_CALL_RE = re.compile(
+    r"sw\._LOGGER\.(debug|info|warning|error|critical)\s*\("
+)
 
 # How far back to look for the _LOGGER call that owns a message line --
 # the message is often the first argument on a following line.
@@ -55,17 +75,21 @@ _LOOKBACK = 4
 
 def _diag_call_levels() -> list[tuple[int, str, str]]:
     """(line_number, level, message_snippet) for every `#N diag:` line
-    that can be attributed to a _LOGGER call just above it."""
-    lines = _SOLVER_WRITER.read_text(encoding="utf-8").splitlines()
+    that can be attributed to a _LOGGER call just above it, across
+    solver_writer.py and every solver_inputs/*.py module."""
     found: list[tuple[int, str, str]] = []
-    for idx, line in enumerate(lines):
-        if not _DIAG_RE.search(line):
-            continue
-        for back in range(idx, max(-1, idx - _LOOKBACK), -1):
-            m = _LOGGER_CALL_RE.search(lines[back])
-            if m:
-                found.append((idx + 1, m.group(1), line.strip()[:70]))
-                break
+    for path in _scanned_paths():
+        lines = path.read_text(encoding="utf-8").splitlines()
+        for idx, line in enumerate(lines):
+            if not _DIAG_RE.search(line):
+                continue
+            for back in range(idx, max(-1, idx - _LOOKBACK), -1):
+                m = _LOGGER_CALL_RE.search(lines[back]) or _SW_LOGGER_CALL_RE.search(
+                    lines[back]
+                )
+                if m:
+                    found.append((idx + 1, m.group(1), line.strip()[:70]))
+                    break
     return found
 
 

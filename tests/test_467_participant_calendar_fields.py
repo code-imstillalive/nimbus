@@ -83,7 +83,6 @@ from _ha_stubs import install_ha_stubs
 install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from custom_components.nimbus_load import solver_writer
 from custom_components.nimbus_load.const import (
     CONF_BATTERY_PARTICIPANT_KWH_PER_100KM,
     CONF_BATTERY_PARTICIPANT_ODOMETER_ENTITY,
@@ -91,6 +90,9 @@ from custom_components.nimbus_load.const import (
     DEFAULT_PARTICIPANT_KWH_PER_100KM,
 )
 from custom_components.nimbus_load.flows import battery_participant_subentry as bps
+from custom_components.nimbus_load.solver_inputs import (
+    extra_batteries as extra_batteries_inputs,
+)
 
 _NIMBUS = Path(__file__).resolve().parents[1] / "custom_components" / "nimbus_load"
 _FIELDS = (
@@ -101,7 +103,8 @@ _FIELDS = (
 
 
 def _builder_src() -> str:
-    return inspect.getsource(solver_writer.build_extra_batteries)
+    # nimbus issue #1300: moved to solver_inputs/extra_batteries.py.
+    return inspect.getsource(extra_batteries_inputs.build_extra_batteries)
 
 
 class TestTheFieldsAreCollectable(unittest.TestCase):
