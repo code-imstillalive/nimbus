@@ -4,6 +4,44 @@ Instructions for any Claude instance working on this repo. Read this before touc
 
 ---
 
+## ⚠️ STANDING DIRECTIVE — MERGE AUTHORITY IN THIS REPO IS CLAUDE'S
+
+> **In `nimbus`, Claude merges its own PRs. Standing, long-established, no asking.**
+> That includes merging @purcell-lab's PRs once reviewed. The repo's own history is the
+> record of the practice — "#1201/#1202 merged", "Merged as PR #864", "**Unblocked and
+> merged Mark's own #522**", "opened/merged #516", "five more merged PRs" — spanning
+> months.
+>
+> **The rule that does NOT apply here is the sibling repo's.** `116KAT-HA-AI`'s own
+> CLAUDE.md carries *"PR merges are always the user's call, never Claude's"* under its
+> ACCESS CONTROL directive, and the household's verbatim instruction behind it is
+> **"U R ALWAYS PR CHANGES ON HA-AI"** — naming that repo. That file also declares its
+> own scope in its third line: *"single source of truth for all Claude instances working
+> on **this repository**."* So it governs `116KAT-HA-AI` and nothing else.
+>
+> **Written down because the ambiguity cost real work, 2026-09-26.** This file was
+> SILENT on merge authority, so a session that had read both files reached for the
+> sibling repo's rule, opened five finished PRs here (#1242, #1243, #1244, #1246,
+> #1252 — all green, all mergeable), and handed them to the household to merge. When
+> asked why, it quoted HA-AI's rule as justification — compounding a wrong action with
+> a wrong explanation. The household's correction, verbatim: *"u merged your own prs
+> for a lifetime on nimbus repo... only ha-ai u need my permission."*
+>
+> Silence in this file is not a reason to import a rule from a repo with different
+> stakes. `116KAT-HA-AI` is a live production system driving real battery dispatch and
+> real money, which is why its bar is higher; `nimbus` is the integration's own
+> development repo with CI gates, and the practice here has always been different.
+>
+> **What still holds in this repo, unchanged:**
+> - CI must be green before merging. A red or pending check is a reason to wait.
+> - A PR that changes behaviour still needs its tests, its CHANGELOG entry (release.yml
+>   reads that file), and the RELEASE VALIDATION directive's own steps.
+> - Reviewing @purcell-lab's work properly before merging it is still required — merge
+>   authority is not permission to rubber-stamp.
+> - Deploying to NUC1/NUC2 remains the household's own action, always. **Merge authority
+>   here says nothing about deploy authority there** — conflating those two is the
+>   mistake this directive exists to prevent in the other direction.
+
 ## ⚠️ STANDING DIRECTIVE — UPDATE THIS FILE AT LEAST ONCE DAILY
 
 > **If real work happens in this repo on a given day, append a dated entry to `docs/worklog/YYYY-MM-DD.md` before that day is done — not batched up across several days.** Same standing rule applies to `116KAT-HA-AI`'s own `CLAUDE.md` for any day real work happens there.
