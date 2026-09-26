@@ -310,6 +310,20 @@ def reset_module_state() -> None:
     # carrying a previous config entry's overlaps into a new one.
     _single_skip_total = 0
 
+    # nimbus issue #937 stage 3: the day-ahead snapshot cache lives in
+    # forecast_snapshot_store, but it is module-level state of exactly the
+    # kind this function exists to clear, and the Store it is primed from
+    # is per-ENTRY. A remove-then-re-add would otherwise leave the previous
+    # entry's forecast in memory, where the scorer would read it as this
+    # entry's own -- a stale snapshot scores as a real forecast rather than
+    # as a missing one, which is the one failure worse than no cache.
+    #
+    # Imported here rather than at module scope to keep this module's
+    # import graph unchanged; the call is a dict.clear() and cannot fail.
+    from .forecast_snapshot_store import reset_snapshot_cache
+
+    reset_snapshot_cache()
+
 
 def set_default_env_vars(hass: HomeAssistant) -> None:
     """The env vars solver_writer.py's own module-level code needs
@@ -730,6 +744,22 @@ async def async_run_solve(hass: HomeAssistant) -> bool:
     tearing down platforms, regardless of which caller started it.
     """
     global _in_flight_future
+
+    # nimbus issue #937 stage 3: make sure the day-ahead snapshots are in
+    # memory BEFORE dispatching the executor job. The scorer runs on that
+    # worker thread and cannot await a Store read, so whatever it needs has
+    # to already be resident by the time it looks.
+    #
+    # Cheap after the first call -- it reads the module-level cache #1295
+    # introduced, so this is a dict lookup on all but one cycle per HA start.
+    # Failure is swallowed inside the helper: an empty cache yields a
+    # "no snapshot" reason on the report, never a broken solve.
+    entry_id = _entry_id_for_snapshot(hass)
+    if entry_id:
+        from .forecast_snapshot_store import async_ensure_snapshots_loaded
+
+        await async_ensure_snapshots_loaded(hass, entry_id)
+
     future = hass.async_add_executor_job(_run_one_cycle, hass)
     _in_flight_future = future
     try:
@@ -749,12 +779,10 @@ async def async_run_solve(hass: HomeAssistant) -> bool:
     #
     # Swallowed by the helper itself -- a diagnostic must never turn a
     # successful solve into a reported failure.
-    if ok:
-        entry_id = _entry_id_for_snapshot(hass)
-        if entry_id:
-            from .forecast_snapshot_store import async_capture_todays_snapshot
+    if ok and entry_id:
+        from .forecast_snapshot_store import async_capture_todays_snapshot
 
-            await async_capture_todays_snapshot(hass, entry_id)
+        await async_capture_todays_snapshot(hass, entry_id)
     return ok
 
 

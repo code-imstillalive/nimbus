@@ -330,6 +330,24 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # no recorder to read a forecast trail out of at all, so this is
         # a genuine execution-context difference, not a missing fix.
         "_load_nowcast_skill_attributes",
+        # nimbus issue #937 stage 3: the DAY-AHEAD forecast-regret
+        # decomposition, published on the quality report beside #919's
+        # one-step-ahead nowcast skill above. Native-only for a stronger
+        # reason than its neighbour, and worth stating rather than
+        # inheriting: it reads a snapshot out of an HA `Store` (via the
+        # sync cache `solver_runtime` primes on the event loop before
+        # dispatching the solve), and a `Store` does not exist outside a
+        # real HA install at all.
+        #
+        # It is also NOT a missing port. The standalone/cron QUALITY
+        # writer already assembles this decomposition inline -- see
+        # `nimbus_solver_quality_writer.py` around its own
+        # `compute_forecast_regret()` call -- from its own on-disk
+        # `load_forecast_snapshot()`. #937's whole point is that the
+        # native path was the side WITHOUT it, which is the asymmetry
+        # this stage closes. The copy compared against here is the
+        # FORECAST writer, which carries no quality machinery whatsoever.
+        "_day_ahead_forecast_regret_attributes",
         "compute_efficiency_backtest_report",
         "compute_nimbus_only_soc_counterfactual",
         "publish_daily_quality_report",

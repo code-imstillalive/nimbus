@@ -26,14 +26,35 @@ run Nimbus now.
 
 **Updated 2026-09-16 (#919): a native install now does call it**, via
 `solver/nowcast_skill.py`, which `_compute_report_for_window()` drives
-once per scored day. So `compute_forecast_regret()` has three non-test
-callers: this benchmark, the standalone/cron script
-`docs/real-world-integration/files/nimbus_solver_quality_writer.py`, and
-the HACS integration's own daily quality report.
+once per scored day.
 
-**But it is deliberately not the same measurement, and the difference
-matters before you compare the two numbers.** A deployed install
-publishes `load_nowcast_skill_j_forecast` / `_j_persistence` /
+**Updated 2026-09-26 (#937 stage 3): a native install now calls it a
+second time, directly**, from `solver_writer.py`'s own
+`_day_ahead_forecast_regret_attributes()`, also driven once per scored day
+by `_compute_report_for_window()`. So `compute_forecast_regret()` has four
+non-test callers:
+
+| caller | horizon | comparable to this benchmark? |
+|---|---|---|
+| this benchmark (`reference_benchmark.py`) | day-ahead, synthetic | — |
+| the standalone/cron `nimbus_solver_quality_writer.py` | day-ahead, real | yes, in horizon |
+| the integration's `solver/nowcast_skill.py` (#919) | **one-step-ahead** | **no — see below** |
+| the integration's `_day_ahead_forecast_regret_attributes()` (#937) | day-ahead, real | yes, in horizon |
+
+**Which of those the caveat below applies to matters, so read the row
+before comparing numbers.** It was written about the #919 nowcast fields
+and it is specific to them. The #937 day-ahead fields
+(`forecast_regret_j_forecast` / `_j_persistence` /
+`_nimbus_value_add_dollars`) are built on the *same* whole-day-ahead
+horizon this benchmark uses, so point 1 does not apply to them at all --
+they are the field equivalent of this benchmark's own figures, differing
+only in that they run against one real household's real day rather than
+the fixed synthetic scenario. Point 2 (scenario vs. real conditions) still
+applies to every field number, #919's and #937's alike.
+
+**The #919 nowcast fields are deliberately not the same measurement, and
+the difference matters before you compare the two numbers.** A deployed
+install publishes `load_nowcast_skill_j_forecast` / `_j_persistence` /
 `_value_add_dollars`, which differ from this benchmark's figures in two
 ways by design:
 

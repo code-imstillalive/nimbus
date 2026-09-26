@@ -66,8 +66,79 @@ _STORE_VERSION = 1
 _SOURCE_ENTITY = "sensor.nimbus_solver_battery_forecast"
 
 
+#: Per-entry `Store` instances, reused rather than reconstructed.
+#: nimbus issue #1295 (Mark Purcell, IV&V #1289).
+_STORES: dict[str, Store[dict[str, Any]]] = {}
+
+#: Per-entry authoritative IN-MEMORY copy of the whole stored dict.
+#:
+#: This, not the Store instance, is what actually removes the per-cycle disk
+#: read #1295 reports -- and the distinction is worth recording, because
+#: reusing the instance alone does NOT remove it. Measured against HA's own
+#: `helpers/storage.py` rather than assumed:
+#:
+#:   * `Store.async_load()` sets `self._load_future` and then clears it in a
+#:     `finally`, so it de-duplicates CONCURRENT callers and caches nothing
+#:     across sequential ones;
+#:   * `_async_load_data()` short-circuits on `self._data` only while a write
+#:     is PENDING (the `async_delay_save` debounce), which is a write-side
+#:     cache, not a read-side one;
+#:   * the store manager's own cache is consulted next -- but
+#:     `_StoreManager.async_invalidate(key)` is called whenever a Store saves,
+#:     "to ensure that the cache is not used after that", so the very first
+#:     capture write permanently invalidates it for this key.
+#:
+#: Net: instance reuse fixes the object churn and restores the write
+#: debounce; only holding the data ourselves fixes the read. Both are done,
+#: because both were real.
+_CACHE: dict[str, dict[str, Any]] = {}
+
+
 def _store_for(hass: HomeAssistant, entry_id: str) -> Store[dict[str, Any]]:
-    return Store(hass, _STORE_VERSION, f"{DOMAIN}_{entry_id}_forecast_snapshots")
+    """The one `Store` for this entry, constructed once.
+
+    nimbus issue #1295: this used to build a fresh `Store` on every call --
+    roughly 288 objects a day at a 5-minute cadence, forever -- and a fresh
+    instance also has no pending-write state, so it defeated the delayed-save
+    debounce that a persistent instance provides.
+    """
+    store = _STORES.get(entry_id)
+    if store is None:
+        store = Store(hass, _STORE_VERSION, f"{DOMAIN}_{entry_id}_forecast_snapshots")
+        _STORES[entry_id] = store
+    return store
+
+
+async def _async_stored(hass: HomeAssistant, entry_id: str) -> dict[str, Any]:
+    """The stored snapshots for this entry, read from disk at most once.
+
+    After the first call this is a dict lookup -- which is what the stage 2
+    commit message claimed the common path already was, and #1295 correctly
+    established it was not. Every mutation goes through
+    `_async_save_stored()`, so the in-memory copy and the file cannot
+    silently diverge.
+    """
+    cached = _CACHE.get(entry_id)
+    if cached is not None:
+        return cached
+    stored = await _store_for(hass, entry_id).async_load() or {}
+    _CACHE[entry_id] = stored
+    return stored
+
+
+async def _async_save_stored(
+    hass: HomeAssistant, entry_id: str, stored: dict[str, Any]
+) -> None:
+    """Persist, then update the in-memory copy.
+
+    That order matters. A failed write leaves the cache matching what is
+    actually on disk, rather than claiming a snapshot that was never stored
+    -- which would make every later cycle skip a capture it still owed, and
+    lose the day silently. Losing a day is the one cost this whole feature
+    exists to avoid.
+    """
+    await _store_for(hass, entry_id).async_save(stored)
+    _CACHE[entry_id] = stored
 
 
 def _rows_from_published_forecast(hass: HomeAssistant) -> list[dict[str, Any]]:
@@ -89,10 +160,11 @@ async def async_capture_todays_snapshot(hass: HomeAssistant, entry_id: str) -> b
         now_local = dt_util.now()
         key = day_key_for(now_local)
 
-        store = _store_for(hass, entry_id)
-        stored = await store.async_load() or {}
+        stored = await _async_stored(hass, entry_id)
         if key in stored:
-            return False  # already have today's -- the common path
+            # The common path, and now genuinely a dict lookup rather than a
+            # full disk read plus JSON parse on every cycle (#1295).
+            return False
 
         rows = _rows_from_published_forecast(hass)
         if not rows:
@@ -120,12 +192,17 @@ async def async_capture_todays_snapshot(hass: HomeAssistant, entry_id: str) -> b
         if not times:
             return False
 
+        # Copied before mutating, so a failed save cannot leave the
+        # in-memory copy holding a snapshot that never reached disk.
+        stored = dict(stored)
         stored[key] = build_snapshot(
             times, solar, load, captured_at=now_local, horizon_hours=None
         )
         # Pruned on write rather than on read: this Store is rewritten whole,
         # so an unbounded dict would be re-serialised on every capture.
-        await store.async_save(prune_snapshots(stored, keep_days=KEEP_DAYS))
+        await _async_save_stored(
+            hass, entry_id, prune_snapshots(stored, keep_days=KEEP_DAYS)
+        )
         _LOGGER.info(
             "Nimbus: captured today's day-ahead forecast snapshot for %s "
             "(%d points) -- this is what tomorrow's forecast-regret "
@@ -151,9 +228,69 @@ async def async_load_snapshot(
     `load_forecast_snapshot()` states.
     """
     try:
-        stored = await _store_for(hass, entry_id).async_load() or {}
+        stored = await _async_stored(hass, entry_id)
     except Exception:
         _LOGGER.debug("Nimbus: forecast snapshot load failed", exc_info=True)
         return None
     value = stored.get(day_key)
     return value if isinstance(value, dict) else None
+
+
+# nimbus issue #937 stage 3. The scorer runs on a WORKER THREAD inside
+# sw.main(), where a Store read cannot be awaited -- so the async side makes
+# sure the data is in memory before dispatching the executor job, and the
+# scorer then reads it synchronously from there.
+#
+# Deliberately reads `_CACHE` above rather than keeping a second day-keyed
+# cache of its own. Two caches of one artefact is two things that can
+# disagree, and this disagreement would be invisible: a stale snapshot scores
+# as a real forecast rather than as a missing one, which is the single most
+# misleading thing this mechanism could do.
+
+
+async def async_ensure_snapshots_loaded(hass: HomeAssistant, entry_id: str) -> None:
+    """Make sure this entry's snapshots are in memory. Never raises.
+
+    Called from the async side before the solve is dispatched to the
+    executor. After the first call it is a dict lookup, so calling it every
+    cycle is cheap -- and that is the point: the scorer must never find an
+    empty cache on the one cycle that needed it.
+    """
+    try:
+        await _async_stored(hass, entry_id)
+    except Exception:
+        _LOGGER.debug("Nimbus: forecast snapshot load failed", exc_info=True)
+
+
+def get_cached_snapshot(day_key: str) -> dict[str, Any] | None:
+    """The stored snapshot for `day_key`, read synchronously.
+
+    **None means "skip the decomposition for this day"**, never "assume zero
+    forecast error" -- the same contract every other layer of this feature
+    states, and the one that matters most here, because a zero-filled
+    forecast scores as the worst forecast possible rather than as an absent
+    one.
+
+    Resolves the entry the same way `solver_runtime._entry_id_for_snapshot()`
+    does: only when there is exactly one. With two entries cached there is no
+    honest way to tell from here whose forecast this is, and guessing would
+    score one install's day against another install's forecast -- so it
+    declines instead, and the report says the snapshot was missing.
+    """
+    if len(_CACHE) != 1:
+        return None
+    stored = next(iter(_CACHE.values()))
+    value = stored.get(day_key)
+    return value if isinstance(value, dict) else None
+
+
+def reset_snapshot_cache() -> None:
+    """Test/unload hook -- module state must not leak between config entries
+    or between tests, the same reason solver_runtime has reset_module_state().
+
+    Drops the `Store` instances too, not just the data: a `Store` holds a
+    `hass` reference, so keeping one past unload would pin a dead instance
+    for the life of the process.
+    """
+    _CACHE.clear()
+    _STORES.clear()
