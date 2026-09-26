@@ -714,6 +714,23 @@ class LPResult:
     # nothing branches on it and the solve is byte-identical either way.
     calibration_fallback_reason: str | None = None
 
+    # nimbus issue #1179. The blend weight the final blended solve actually
+    # ran at. `_calibrate_blend_weight()` has always returned this as its
+    # first element and the caller discarded it, so the one number that
+    # separates "this failing cycle was handed 1e-12" from "this failing
+    # cycle ran at a healthy weight" never reached the result.
+    #
+    # #1179's own "What would settle it": 44 blend warnings and 153 solve
+    # failures, correlated ONLY by sharing a timestamp-second (37 of 44).
+    # A weight carried on the result turns that inference into a read.
+    #
+    # None when no calibration ran -- the same posture as the two fields
+    # above. Purely diagnostic; nothing branches on it and the solve is
+    # byte-identical either way. Deliberately NOT a change to the tolerance
+    # or the minimum weight, which #1179 explicitly rules out until the
+    # mechanism is established.
+    calibration_weight_used: float | None = None
+
     # nimbus issue #490 (Signals 1/7 of #489): HiGHS ranging, opt-in via
     # LPProblem.solve(ranging=True) -- see this module's own docstring on
     # `solve()` for the full mechanism. `ranging_valid` is None when
@@ -1874,7 +1891,7 @@ def _solve_with_options(
     problem: LPProblem,
     options: SolveOptions,
     binary_cols: list[int],
-) -> tuple[list[str], float | None, bool, str | None]:
+) -> tuple[list[str], float | None, bool, str | None, float | None]:
     """Runs the real phased/blended/calibrated solve against an ALREADY
     fully-constructed HiGHS model (every variable/constraint already
     added by `_solve_highs()`) -- mutates `h`'s own live state so the
@@ -2003,7 +2020,9 @@ def _solve_with_options(
                 n_binary=len(binary_cols),
             ):
                 h.run()
-        return [], None, False, None
+        # nimbus #1179: no calibration ran on this path, so there is no
+        # weight to report -- None, matching the two sibling fields.
+        return [], None, False, None, None
 
     # LexOptions and CalibratedOptions both start with the same phase 1
     # + phase 2: minimize primary alone, then minimize secondary with
@@ -2203,7 +2222,8 @@ def _solve_with_options(
             _ensure_optimal_value(
                 h, phase="phase3_lex_restore", problem=problem, binary_cols=binary_cols
             )
-        return extra_row_names, None, False, None
+        # nimbus #1179: the lex-restore path runs no calibration either.
+        return extra_row_names, None, False, None, None
 
     # CalibratedOptions: h's own live basis already sits at the phase-2
     # (true lex) optimum -- read it off directly rather than re-solving,
@@ -2211,7 +2231,10 @@ def _solve_with_options(
     lex_values = np.asarray(h.getSolution().col_value)
     lex_primary_cost = float(primary_vec @ lex_values)
     (
-        _,
+        # nimbus #1179: was `_`. This is the weight the final blended solve
+        # actually ran at -- the field that tells a failed cycle apart from a
+        # healthy one, rather than inferring it from a shared log second.
+        calibration_weight_used,
         true_primary_cost,
         min_weight_fallback,
         calibration_fallback_reason,
@@ -2234,6 +2257,7 @@ def _solve_with_options(
         true_primary_cost,
         min_weight_fallback,
         calibration_fallback_reason,
+        calibration_weight_used,
     )
 
 
@@ -2334,6 +2358,8 @@ def _solve_highs(
     # #773 ValueError fallback both leave it False, which is correct --
     # neither calibrates).
     calibration_min_weight_fallback = False
+    # nimbus #1179 -- None means no calibration ran this solve.
+    calibration_weight_used: float | None = None
     # nimbus issue #1179, second half: initialised alongside the bool for the
     # same reason -- every LPResult return below carries it whichever solve
     # path ran, and None is the honest value on the paths that never
@@ -2432,6 +2458,7 @@ def _solve_highs(
                     objective_override,
                     calibration_min_weight_fallback,
                     calibration_fallback_reason,
+                    calibration_weight_used,
                 ) = _solve_with_options(
                     h, var_array, col_indices, problem, options, binary_cols
                 )
@@ -2477,6 +2504,7 @@ def _solve_highs(
         return LPResult(
             status="infeasible",
             calibration_min_weight_fallback=calibration_min_weight_fallback,
+            calibration_weight_used=calibration_weight_used,
             calibration_fallback_reason=calibration_fallback_reason,
             iterations=iterations,
             ranging_valid=_ranging_valid_on_non_optimal,
@@ -2485,6 +2513,7 @@ def _solve_highs(
         return LPResult(
             status="unbounded",
             calibration_min_weight_fallback=calibration_min_weight_fallback,
+            calibration_weight_used=calibration_weight_used,
             calibration_fallback_reason=calibration_fallback_reason,
             iterations=iterations,
             ranging_valid=_ranging_valid_on_non_optimal,
@@ -2503,6 +2532,7 @@ def _solve_highs(
         return LPResult(
             status="error",
             calibration_min_weight_fallback=calibration_min_weight_fallback,
+            calibration_weight_used=calibration_weight_used,
             calibration_fallback_reason=calibration_fallback_reason,
             iterations=iterations,
             raw_status=h.modelStatusToString(status),
@@ -2657,6 +2687,7 @@ def _solve_highs(
         # successes?" is answerable from a base rate rather than from
         # failures alone.
         calibration_min_weight_fallback=calibration_min_weight_fallback,
+        calibration_weight_used=calibration_weight_used,
         calibration_fallback_reason=calibration_fallback_reason,
         ranging_valid=ranging_valid,
         col_bound_up=col_bound_up,

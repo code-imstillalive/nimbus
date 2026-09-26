@@ -111,19 +111,28 @@ class TestEveryReturnPropagatesIt(unittest.TestCase):
             if isinstance(n, ast.Return) and n.value is not None and n not in nested
         ]
 
-    def test_every_solve_with_options_return_carries_both_diagnostics(self):
-        """4, not 3, since #1179's second half: the flag AND the reason.
+    def test_every_solve_with_options_return_carries_all_three_diagnostics(self):
+        """5, not 4, since #1179's third half: the flag, the reason, AND the
+        blend weight actually used.
 
-        A signature change nobody propagated is not a fix -- which is exactly
-        how the early-exit return in `_calibrate_blend_weight` was missed the
-        first time (see the test below).
+        This assertion is the reason the weight change was safe to make. It
+        failed the moment the caller was widened to unpack five while two
+        early-exit returns still yielded four -- the non-calibrated path and
+        the lex-restore path, neither of which runs a calibration. Both now
+        return None for the weight, matching the two sibling fields' own
+        "no calibration ran" posture.
+
+        A signature change nobody propagated is not a fix -- exactly how the
+        early-exit return in `_calibrate_blend_weight` was missed the first
+        time (see the test below).
         """
         arities = self._return_arities(lp_mod._solve_with_options)
         self.assertTrue(arities, "no returns found -- test is not testing anything")
         self.assertEqual(
             set(arities),
-            {4},
-            f"every return must carry the flag AND the reason; got {arities}",
+            {5},
+            f"every return must carry the flag, the reason AND the weight; "
+            f"got {arities}",
         )
 
     def test_every_calibrate_return_carries_both_diagnostics(self):
