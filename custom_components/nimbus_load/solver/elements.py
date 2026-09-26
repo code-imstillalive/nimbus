@@ -1805,6 +1805,23 @@ class ThermalLoadConfig:
     # nobody established.
     heating_rate_origin: str | None = None
     idle_decay_origin: str | None = None
+    # nimbus issue #481: Newton's-law ambient coupling for the LP, optional and
+    # a complete no-op unless BOTH are given -- byte-identical behaviour for
+    # every existing install, which matters because this model drives real
+    # hot-water and pool dispatch today.
+    #
+    # `loss_coeff_per_h` is degrees lost per hour per degree of load-to-ambient
+    # gap, the same quantity `learn_thermal_rates()` already fits from outdoor
+    # history and `project_temperature_forecast()` already applies. Supplying it
+    # here is what finally lets the LP -- the thing that actually decides -- see
+    # the weather that the learner and the dashboard projection have modelled
+    # since v0.94.293.
+    #
+    # `ambient_c` is the outdoor temperature per period, one value per solve
+    # period, from the same `solver_weather_forecast_sensor` series the rest of
+    # the solve already resamples.
+    loss_coeff_per_h: float | None = None
+    ambient_c: tuple[float, ...] | None = None
 
     def __post_init__(self) -> None:
         if self.max_power_kw <= 0.0:
@@ -1815,6 +1832,20 @@ class ThermalLoadConfig:
             raise ValueError(msg)
         if self.idle_decay_c_per_hour < 0.0:
             msg = f"Thermal load '{self.name}' idle_decay_c_per_hour must be >= 0"
+            raise ValueError(msg)
+        # nimbus issue #481: the ambient pair is all-or-nothing, the same rule
+        # `must_have_soc_by_period_index`/`must_have_soc_kwh` already follow
+        # (#563 item 2). One without the other is a half-configured model, and
+        # silently ignoring the half that arrived is how a household ends up
+        # believing the LP is weather-aware when it is not.
+        if (self.loss_coeff_per_h is None) != (self.ambient_c is None):
+            msg = (
+                f"Thermal load '{self.name}' loss_coeff_per_h and ambient_c must "
+                f"both be set or both be None"
+            )
+            raise ValueError(msg)
+        if self.loss_coeff_per_h is not None and self.loss_coeff_per_h < 0.0:
+            msg = f"Thermal load '{self.name}' loss_coeff_per_h must be >= 0"
             raise ValueError(msg)
         if self.earliest_period < 0:
             msg = f"Thermal load '{self.name}' earliest_period must be >= 0"
