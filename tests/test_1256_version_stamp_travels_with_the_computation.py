@@ -83,7 +83,7 @@ from _ha_stubs import install_ha_stubs
 install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from custom_components.nimbus_load import solver_writer  # noqa: E402
+from custom_components.nimbus_load import solver_writer
 
 
 class TestTheStampIsAValueNotAPlaceholder(unittest.TestCase):
@@ -260,7 +260,7 @@ class TestTheRestoreKeepsTheStamp(unittest.TestCase):
         # The dropped set is a literal tuple in the comprehension; the name
         # must not appear as a dropped key. It legitimately appears in the
         # docstring explaining why it is NOT dropped, so match the literal.
-        body = src.split('self._attrs = {', 1)[1]
+        body = src.split("self._attrs = {", 1)[1]
         self.assertNotIn(
             '"nimbus_version"',
             body,
@@ -277,7 +277,7 @@ class TestTheRestoreKeepsTheStamp(unittest.TestCase):
 
         body = inspect.getsource(
             sensor_module._NimbusSolverPushSensor._async_restore_last_value
-        ).split('self._attrs = {', 1)[1]
+        ).split("self._attrs = {", 1)[1]
         for key in (
             "unit_of_measurement",
             "device_class",
