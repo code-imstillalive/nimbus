@@ -14539,6 +14539,41 @@ _DEFAULT_EXTRA_BATTERY_DISCHARGE_COST: float = 0.01
 # it deliberately.
 _PARTICIPANT_POWER_IMPLAUSIBLE_MULTIPLE: float = 10.0
 
+# nimbus issue #1241: participants whose declared power-sign convention the
+# recorded history contradicts. Keyed by participant name so a household with
+# two EVs is told about each, and warned ONCE rather than every solve -- the
+# same posture as _SOLAR_SOURCE_WARNED above.
+_SIGN_CONVENTION_WARNED: set[str] = set()
+
+
+def _warn_sign_convention_once(name: str, result: object) -> None:
+    """Report a declared sign convention the history disagrees with (#1241).
+
+    REPORTS, NEVER CORRECTS. The issue is explicit about why: "silently
+    flipping a household's declared convention because a heuristic disagreed
+    with it is the kind of 'fix' that becomes the next investigation." The
+    precedent is nuc_state_reconcile.py's --mode reconcile deliberately
+    behaving identically to --mode audit.
+
+    Only a confident DISAGREES reaches here; the detector's own
+    INSUFFICIENT_EVIDENCE is not a finding and must not produce a warning.
+    """
+    if name in _SIGN_CONVENTION_WARNED:
+        return
+    _SIGN_CONVENTION_WARNED.add(name)
+    _LOGGER.warning(
+        "Nimbus: battery participant '%s' declares a power-sign convention "
+        "its own recorded history contradicts -- %s of %s windows where SoC "
+        "actually moved show the opposite sign. Nothing has been changed: "
+        "check this participant's 'power sensor positive means charge' "
+        "setting, because a wrong sign inverts the charge/discharge split in "
+        "scoring and shows up as an energy-balance discrepancy rather than as "
+        "an error (nimbus issue #1241). Logged once per participant.",
+        name,
+        getattr(result, "windows_disagreeing", "?"),
+        getattr(result, "windows_examined", "?"),
+    )
+
 
 def _drop_implausible_power_samples(
     power_hist: list[tuple[datetime, float]],
@@ -15695,6 +15730,39 @@ def _resolve_battery_participant_history(
                 participant_name=str(name),
                 power_sensor=str(power_sensor),
             )
+            # nimbus issue #1241: the declared sign convention is REDUNDANT
+            # with this history -- over a window where SoC rose, energy went
+            # in, so the sign of the mean power across it is determined rather
+            # than assumed. Checked here, AFTER the implausible-sample filter
+            # above, so a single #843-class corrupt reading cannot produce a
+            # false accusation.
+            #
+            # Reports only. A wrong sign inverts the charge/discharge split
+            # and surfaces as an energy-balance discrepancy rather than an
+            # error, which is why it has cost real investigations -- but
+            # silently flipping a household's own declaration on a heuristic
+            # would be worse. Wrapped because a diagnostic must never take a
+            # solve down.
+            try:
+                from .solver_inputs.sign_convention import (
+                    detect_power_sign_convention,
+                )
+
+                _sign_check = detect_power_sign_convention(
+                    [(t, float(v)) for t, v in soc_hist],
+                    [(t, float(v) * power_scale) for t, v in power_hist],
+                    declared_positive_is_charge=bool(
+                        data.get(CONF_BATTERY_PARTICIPANT_POWER_POSITIVE_IS_CHARGE)
+                    ),
+                )
+                if _sign_check.is_actionable:
+                    _warn_sign_convention_once(str(name), _sign_check)
+            except Exception:
+                _LOGGER.debug(
+                    "Nimbus: sign-convention check skipped for participant %s",
+                    name,
+                    exc_info=True,
+                )
             net_kw = np.array(
                 [
                     v * power_scale * sign

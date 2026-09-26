@@ -605,6 +605,23 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "resolve_trip_windows",
         "trip_must_have_soc_kwh",
         "resolve_trip_deadline",
+        # nimbus issue #1241: the power-sign convention detector and its
+        # report-once helper.
+        #
+        # Integration-only for a structural reason, not an oversight: the
+        # standalone/cron copy has NO battery-participant path at all
+        # (`grep -c CONF_BATTERY_PARTICIPANT_POWER_POSITIVE_IS_CHARGE` on it
+        # returns 0), and that is where this check runs. Porting the detector
+        # alone would put a function there with nothing to call it.
+        #
+        # `detect_power_sign_convention` itself is deliberately PURE -- zero
+        # HA imports, loaded by path in its own tests so that is proven rather
+        # than asserted -- specifically so it CAN be called from the
+        # standalone path once that path grows participants. `_mean` is its
+        # private helper and moves with it.
+        "detect_power_sign_convention",
+        "_mean",
+        "_warn_sign_convention_once",
         # nimbus #467 item 4: reads an HA calendar entity via
         # calendar.get_events. Same open-drift reasoning as the four above, and
         # for the same reason it is NOT native-only: it goes through
