@@ -189,6 +189,14 @@ INTENTIONAL_NATIVE_ONLY = frozenset(
         # quality-report publisher at all, so there is nothing there for
         # this to carry forward.
         "_carry_forward_quality_history",
+        # nimbus #1248: whether that helper's recovery cache is in play at all.
+        # Native-only in the most literal sense available -- it returns
+        # `_NATIVE_HASS is not None`, so in the standalone/cron copy it would be
+        # a function that can only ever return False. The cache it gates is
+        # process-lifetime, and a cron writer runs once per invocation and
+        # exits, so it is empty on every run and could never rescue anything
+        # there. Porting it would be porting dead code.
+        "_quality_history_cache_active",
         # nimbus #1120: reads this package's own manifest.json so a
         # frozen history row can say which release scored it. Called
         # only from _carry_forward_quality_history() directly above, so
