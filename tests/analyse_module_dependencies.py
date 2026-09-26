@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """What would it cost to extract these functions from a module?
 
 Built for #1298's decomposition of `solver_writer.py` and generalised so every
