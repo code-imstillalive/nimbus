@@ -299,18 +299,40 @@ class TestTheAmbientCovariateWidensTheDivergence(unittest.TestCase):
     real hot water system, and that is #897's open question.
     """
 
-    def test_the_lp_config_has_no_ambient_input_at_all(self):
-        """Structural, and the reason the projection can never be matched
-        by tuning: `ThermalLoadConfig` carries nowhere to put a loss
-        coefficient or an ambient series. Closing #897 toward the
-        ambient model means adding a field here, not changing a number."""
+    def test_the_lp_config_now_carries_the_ambient_pair(self):
+        """INVERTED by nimbus issue #481, and this test predicted its own
+        inversion: it used to assert the fields were absent, noting that
+        *"closing #897 toward the ambient model means adding a field here,
+        not changing a number"*. That is exactly what happened -- the LP
+        recursion now scales decay by the load-to-ambient gap when the pair
+        is supplied.
+
+        Updated rather than deleted, and deliberately so: #897's own closing
+        comment set the rule that "closing this issue means that difference
+        changes deliberately, so that file gets updated as part of the
+        change, not around it".
+
+        The pair is still OPTIONAL, which is why the three tests below keep
+        passing unchanged -- they drive the flat path, and an install that
+        supplies no weather behaves exactly as it did before. So the
+        divergence this class is named for is now CLOSABLE rather than
+        closed: it disappears for a load carrying the pair, and remains for
+        one that does not.
+        """
         import dataclasses
 
         from solver.elements import ThermalLoadConfig
 
-        fields = {f.name for f in dataclasses.fields(ThermalLoadConfig)}
-        self.assertNotIn("loss_coeff_per_h", fields)
-        self.assertNotIn("ambient_forecast", fields)
+        fields = {f.name: f for f in dataclasses.fields(ThermalLoadConfig)}
+        self.assertIn("loss_coeff_per_h", fields)
+        self.assertIn("ambient_c", fields)
+        # Optional on both, or an existing install's behaviour would change
+        # the moment it upgraded -- this model drives real hot-water and pool
+        # dispatch today.
+        self.assertIsNone(fields["loss_coeff_per_h"].default)
+        self.assertIsNone(fields["ambient_c"].default)
+        # The flat rate stays, as the fallback for every install without a
+        # weather sensor -- #864's own promised degradation path.
         self.assertIn("idle_decay_c_per_hour", fields)
 
     def test_configuring_a_weather_sensor_changes_the_projection(self):
