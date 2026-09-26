@@ -60,6 +60,7 @@ from typing import Any
 
 import voluptuous as vol
 from homeassistant.config_entries import OptionsFlowWithConfigEntry
+from homeassistant.data_entry_flow import section
 from homeassistant.helpers import selector
 
 from ..const import (
@@ -1184,6 +1185,115 @@ _SOLVER_WIZARD_SCHEMA_KEYS = (
 )
 
 
+# nimbus issue #1067 / #448: the key the collapsed group is submitted
+# under. Deliberately a single shared constant -- every step that
+# collapses uses the same name, so the flattening never has to know which
+# step it is unwrapping.
+_ADVANCED_SECTION = "advanced"
+
+
+# nimbus issue #1067 / #448. A collapsed `section` groups the optional fields
+# so the handful of real decisions are what a household sees first. HA has had
+# config-flow sections since 2024.6, and no flow in this repo used one before
+# this -- so these two helpers are the whole mechanism, and they exist because
+# a section changes the SHAPE of what comes back.
+#
+# THE HAZARD, stated plainly because it is the wizard-wipe class this repo has
+# already had three of: a section nests its fields one level deep in
+# `user_input`. `_absorb_step()` does a flat `.update(user_input)` and then
+# NULLS every key of its own schema that is absent from it. Without flattening,
+# every field inside the section is absent from the top level, so a single
+# submit would null all of them -- silently wiping real configuration. Both
+# helpers below exist to make that impossible, and both are tested against that
+# exact scenario rather than against their own happy path.
+
+
+def _collapse_optionals_into_advanced(
+    schema: vol.Schema, *, keep_visible: tuple[str, ...] = ()
+) -> vol.Schema:
+    """Move every `vol.Optional` field into a collapsed "Advanced" section
+    (nimbus issues #1067 / #448).
+
+    Applied to an ALREADY-BUILT schema rather than by restructuring the
+    declarative literal, deliberately: those literals carry a lot of
+    hard-won per-field commentary and `suggested_value` handling, and
+    rewriting them by hand to nest fourteen entries is exactly the kind of
+    edit that drops one silently. This reads the schema the existing code
+    already produced and regroups it, so a field cannot be lost, renamed or
+    have its validator changed on the way.
+
+    **Nothing is removed and nothing is renamed.** Every field keeps its key,
+    its marker class, its default/suggested_value and its validator; it just
+    renders inside a collapsed group. The wizard's own field count is
+    unchanged, which is why `test_config_surface_budget` still passes at 47 --
+    this is about what a new installer must READ before submitting, not about
+    taking capability away from an existing one.
+
+    `keep_visible` promotes specific optional keys back to the top level, for
+    the case where a field is technically optional but is one of the real
+    decisions a household makes.
+
+    Returns the schema UNCHANGED when there is nothing to collapse, so a step
+    with no optional fields does not grow an empty section.
+    """
+    required: dict[Any, Any] = {}
+    optional: dict[Any, Any] = {}
+    for marker in schema.schema:
+        validator = schema.schema[marker]
+        key = str(getattr(marker, "schema", marker))
+        if isinstance(marker, vol.Optional) and key not in keep_visible:
+            optional[marker] = validator
+        else:
+            required[marker] = validator
+    if not optional:
+        return schema
+    required[vol.Optional(_ADVANCED_SECTION)] = section(
+        vol.Schema(optional), {"collapsed": True}
+    )
+    return vol.Schema(required)
+
+
+def _flatten_section_input(
+    schema: vol.Schema, user_input: dict[str, Any]
+) -> dict[str, Any]:
+    """Lift a section's nested fields back to the top level.
+
+    HA submits `{"advanced": {"a": 1}, "b": 2}` for a schema whose "advanced"
+    key is a `section`. Every consumer downstream -- the merge, the null
+    sweep, `config_entry.options` itself -- is flat and predates sections, so
+    the nesting is undone here rather than taught to each of them.
+    """
+    flat = dict(user_input)
+    for marker in schema.schema:
+        validator = schema.schema[marker]
+        if not isinstance(validator, section):
+            continue
+        nested = flat.pop(str(marker), None)
+        if isinstance(nested, dict):
+            flat.update(nested)
+    return flat
+
+
+def _effective_schema_keys(schema: vol.Schema) -> list[str]:
+    """Every field key a step can submit, sections expanded.
+
+    `_absorb_step()` nulls "keys of this schema not present in the
+    submission", which is how a genuinely-cleared optional field stays
+    cleared (#341). Iterating `schema.schema` directly would yield the
+    SECTION's own key rather than the fields inside it -- so the real fields
+    would never be nulled (a clear would not stick) and the section key itself
+    would be written into options as a stray None.
+    """
+    keys: list[str] = []
+    for marker in schema.schema:
+        validator = schema.schema[marker]
+        if isinstance(validator, section):
+            keys.extend(str(m) for m in validator.schema.schema)
+        else:
+            keys.append(str(marker))
+    return keys
+
+
 class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
     """Edit the settings shared by every load, reached via the hub's own
     "Configure" button (not the per-load "+ Add"/edit).
@@ -1396,10 +1506,14 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
         """
         self._ensure_solver_data_seeded()
         assert self._solver_data is not None
-        self._solver_data.update(user_input)
-        for marker in schema.schema:
-            key = str(marker)
-            if key not in user_input:
+        # nimbus #1067: flatten FIRST. A section nests its fields, and both
+        # the merge below and the null sweep after it are flat. Skipping this
+        # would write a dict under the section's own key and then null every
+        # real field inside it -- a silent wipe of configuration on submit.
+        flat_input = _flatten_section_input(schema, user_input)
+        self._solver_data.update(flat_input)
+        for key in _effective_schema_keys(schema):
+            if key not in flat_input:
                 self._solver_data[key] = None
 
     async def async_step_solver_battery(
@@ -1453,7 +1567,14 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
         self, user_input: dict[str, Any] | None = None
     ) -> Any:
         if user_input is not None:
-            self._absorb_step(_solver_sources_schema({}), user_input)
+            # nimbus #1067: the SAME wrapping as the form above -- the null
+            # sweep walks this schema, so handing it the unwrapped version
+            # would make it iterate top-level keys that are now nested and
+            # clear nothing.
+            self._absorb_step(
+                _collapse_optionals_into_advanced(_solver_sources_schema({})),
+                user_input,
+            )
             # Same explicit-key-list fix as async_step_forecaster (see its
             # own comment for the full story) -- self._solver_data now
             # holds whatever was actually submitted across all 3 Solver
@@ -1495,7 +1616,16 @@ class NimbusHubOptionsFlow(OptionsFlowWithConfigEntry):
         # are the steps that actually own those fields.
         return self.async_show_form(
             step_id="solver_sources",
-            data_schema=_solver_sources_schema(
-                dict(self.config_entry.options), single_candidates, summable_candidates
+            # nimbus #1067/#448: 2 required sources stay visible, the 14
+            # optional ones collapse behind "Advanced". #1067 names this step
+            # as the one with the most fields and "the highest chance of being
+            # pointed somewhere wrong"; a new installer now reads two entries
+            # instead of sixteen to get a working Solver. Nothing is removed.
+            data_schema=_collapse_optionals_into_advanced(
+                _solver_sources_schema(
+                    dict(self.config_entry.options),
+                    single_candidates,
+                    summable_candidates,
+                )
             ),
         )
