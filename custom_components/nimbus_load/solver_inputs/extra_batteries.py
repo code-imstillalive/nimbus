@@ -87,7 +87,7 @@ def _solver_writer():
     return solver_writer
 
 
-def build_extra_batteries(periods=None) -> list:
+def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
     """nimbus issue #563: the config surface for #467 stage 1's own
     `batteries: list[BatteryConfig]` solver support. Builds ADDITIONAL
     BatteryConfig entries from this hub's own `battery_participant`
