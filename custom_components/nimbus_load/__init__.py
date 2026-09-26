@@ -316,10 +316,10 @@ async def _async_rename_stale_forecast_entities(
         registry.async_update_entity(current_entity_id, new_entity_id=correct_entity_id)
 
 
-async def _async_remove_orphaned_forecast_entities(
+async def _async_report_orphaned_forecast_entities(
     hass: HomeAssistant, entry: NimbusConfigEntry
 ) -> None:
-    """Remove forecast entities whose subentry no longer exists (nimbus #1270).
+    """Report forecast entities whose subentry no longer exists (nimbus #1270).
 
     Home Assistant already handles the normal case: `async_remove_subentry()`
     calls `ent_reg.async_clear_config_subentry(...)`, so a subentry removed
@@ -328,15 +328,18 @@ async def _async_remove_orphaned_forecast_entities(
     devices it was never told belong to a subentry."* Entities registered
     before `config_subentry_id` was threaded through (#645/#680 document the
     number.py side of that same gap) carry no subentry link at all, so when
-    their subentry went away core had nothing to clear, and until this function
-    nothing ever revisited them.
+    their subentry went away core had nothing to clear, and nothing has
+    revisited them since -- IF such an entity exists at all, which is the part
+    that is not established.
 
-    Measured on two independent installs, 2026-09-26: the reference household's
-    production instance and devhub each carry
-    `sensor.nimbus_mirror_{temperature,humidity}_forecast` at `unknown`, left
-    by signal subentries that no longer exist. A registry read on one shows no
-    subentry link, against a healthy sibling carrying
-    `unique_id: <subentry_id>_signal_forecast` with `config_entry_id` set.
+    **No confirmed instance exists.** The entities that motivated #1270 --
+    `sensor.nimbus_mirror_{temperature,humidity}_forecast` on production and
+    devhub, both reading `unknown` -- were diagnosed as orphans and are not.
+    Each carries a `nimbus_version` attribute stamped with the version running
+    at the time it was read (0.94.422 on production, 0.94.424 on devhub minutes
+    after that release), which an entity with no provider cannot do. This
+    function therefore guards a condition that is real in principle and
+    unobserved in practice, which is why it reports rather than deletes.
 
     **The discriminator is the unique_id, deliberately not
     `config_subentry_id`.** Filtering on the subentry link would miss every
@@ -345,13 +348,30 @@ async def _async_remove_orphaned_forecast_entities(
     (`f"{subentry.subentry_id}{suffix}"`, see the rename pass above), so it
     still names the owner of an entity that has lost its link.
 
-    **Removed rather than logged**, because an orphan is not merely untidy: it
-    keeps its `entity_id` reserved, so the entity that should own that name is
-    bumped to `_2` -- an id change on a live entity, which is what dashboards
-    and automations reference. The rename pass above cannot repair that either;
-    it explicitly skips when the target name is taken, and an orphan is exactly
-    something taking it. There is also no user-side remedy at all: HA greys out
-    delete for an entity belonging to a loaded config entry.
+    **Reported rather than removed -- and that is a deliberate retreat.** The
+    entities that motivated #1270 turned out NOT to be orphans: they carry a
+    `nimbus_version` attribute stamped with the currently-running version, so
+    the live code is publishing them, and their unique_id shape
+    (`<entry_id>_<prefix>_<suffix>`, sensor_flattened.py) is not this class at
+    all. They read `unknown` because their input is empty, which is an entirely
+    different condition. So there is no confirmed instance of the condition
+    below, and deleting user-visible registry rows on speculation is the wrong
+    trade however well-guarded the deletion is.
+
+    The reasoning that still holds, and why this is worth reporting at all: an
+    orphan keeps its `entity_id` reserved, so an entity that should own that
+    name is bumped to `_2` -- an id change on a live entity, which is what
+    dashboards and automations reference. The rename pass above cannot repair
+    that; it explicitly skips when the target name is taken, and an orphan is
+    exactly something taking it. And a household cannot fix it by hand, because
+    HA greys out delete for an entity belonging to a loaded config entry. If a
+    real instance appears, this WARNING makes it findable and promoting it to an
+    `async_remove()` is a one-word change made with evidence in hand.
+
+    **The diagnostic rule this cost:** `unknown` means a provider with no value.
+    `unavailable` with no attributes means no provider. Checking whether
+    anything still publishes an entity -- one attribute -- settles "is this an
+    orphan" before any of the rest matters.
 
     Three guards, each for a failure mode rather than a hypothetical:
 
@@ -373,7 +393,8 @@ async def _async_remove_orphaned_forecast_entities(
     known_subentry_ids = set(entry.subentries)
     suffixes = ("_signal_forecast", "_load_forecast")
 
-    # list() because async_remove() mutates the registry underneath us.
+    # list() so this stays correct if the WARNING is ever promoted to a
+    # real removal, which would mutate the registry underneath the loop.
     for registry_entry in list(
         er.async_entries_for_config_entry(registry, entry.entry_id)
     ):
@@ -384,14 +405,23 @@ async def _async_remove_orphaned_forecast_entities(
         owning_subentry_id = unique_id[: -len(suffix)]
         if not owning_subentry_id or owning_subentry_id in known_subentry_ids:
             continue
-        _LOGGER.info(
-            "Nimbus: removing orphaned forecast entity %s -- its subentry (%s) "
-            "no longer exists, so nothing provides it and it was holding that "
-            "entity_id reserved (nimbus issue #1270)",
+        # REPORTED, NOT REMOVED -- deliberately. See this function's own
+        # docstring: the entities that motivated #1270 turned out not to be
+        # orphans at all, so there is no confirmed instance of this condition
+        # and deleting user-visible registry rows on speculation is the wrong
+        # trade. WARNING rather than INFO so it is visible in a default HA log
+        # without the household turning on debug logging -- the whole point is
+        # that a real instance becomes findable. Promoting this to an
+        # async_remove() is a one-word change once one is confirmed.
+        _LOGGER.warning(
+            "Nimbus: forecast entity %s appears orphaned -- its subentry (%s) "
+            "is not in this config entry, so nothing provides it and it is "
+            "holding that entity_id reserved, which can force a live entity "
+            "onto a _2 suffix. Not removed automatically (nimbus issue #1270); "
+            "please report this log line on that issue",
             registry_entry.entity_id,
             owning_subentry_id,
         )
-        registry.async_remove(registry_entry.entity_id)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: NimbusConfigEntry) -> bool:
@@ -501,7 +531,7 @@ async def _async_setup_entry_impl(
         # conservative one -- a rename and a removal racing over the same id
         # within a single pass is exactly the collision the rename pass
         # already refuses to risk.
-        await _async_remove_orphaned_forecast_entities(hass, entry)
+        await _async_report_orphaned_forecast_entities(hass, entry)
     except Exception:
         # level reasoning: cosmetic entity-naming drift is real but never
         # worth taking the whole hub down over if something unexpected
