@@ -8,6 +8,14 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+## [0.94.424] - 2026-09-26
+
+### Fixed
+- **A forecast entity whose subentry was removed stayed in the registry forever, holding the `entity_id` a live entity should have had** ([#1270](https://github.com/code-imstillalive/nimbus/issues/1270)). Home Assistant already handles the normal case — `async_remove_subentry()` clears a subentry's entities — but only for entities registered *with* a `config_subentry_id`. Ones predating that threading carry no subentry link, so core had nothing to clear and nothing revisited them. Nimbus now removes them on hub setup, identifying each by the subentry id embedded in its `unique_id` rather than by the subentry link, which is the field these orphans are missing.
+  - Devhub validation: **measured on two installs, fix not yet confirmed live on either at time of release.** The defect was confirmed independently on the reference household's production instance and on devhub — both carry `sensor.nimbus_mirror_{temperature,humidity}_forecast` at `unknown`, left by signal subentries that no longer exist, and a registry read on one shows `config_entry_id: null` and no subentry link against a healthy sibling's `unique_id: <subentry_id>_signal_forecast`. What was verified pre-release: 24 tests by direct execution (12 new, 12 in the neighbouring rename/stale-device suites), and the real HA helper signature `async_entries_for_config_entry(registry, config_entry_id)` checked against an installed Home Assistant rather than the test stub, which has no such helper. Devhub confirmation follows this release, since devhub is HACS-managed and installs from a tag.
+  - Consumer check: **two dead sensors disappear, and an `entity_id` stops being squatted.** The second half is the one that matters — an orphan reserving a name forces the entity that should own it onto a `_2` suffix, which is what dashboards, automations and templates reference. There was also **no way for a household to fix this themselves**: Home Assistant greys out delete for an entity belonging to a loaded config entry, so the only prior remedy was hand-editing `.storage/core.entity_registry` with HA stopped. Nothing else changes: a clean install sees no difference, and each removal is logged at INFO with the entity and its dead subentry id.
+
+
 ## [0.94.423] - 2026-09-26
 
 Rolls up the five PRs merged since 0.94.422. Cut specifically so devhub's
