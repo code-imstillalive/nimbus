@@ -1,0 +1,10 @@
+[importlinter]
+root_packages =
+    layer_ok
+
+[importlinter:contract:demo]
+name = Layer demo (clean)
+type = layers
+layers =
+    layer_ok.high
+    layer_ok.low

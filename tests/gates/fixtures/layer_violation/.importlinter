@@ -1,0 +1,10 @@
+[importlinter]
+root_packages =
+    layer_violation
+
+[importlinter:contract:demo]
+name = Layer demo (violation)
+type = layers
+layers =
+    layer_violation.high
+    layer_violation.low
