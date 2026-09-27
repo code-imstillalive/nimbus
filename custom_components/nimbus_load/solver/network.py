@@ -870,6 +870,15 @@ class Plan:
     # rate, "the failures took the fallback" is unfalsifiable. Diagnostic
     # only; nothing branches on it.
     calibration_weight_used: float | None = None
+    # nimbus issue #1179: HiGHS's own `getInfo()` numbers off a failed
+    # terminal solve, mirroring `LPResult.highs_info` -- see that field for
+    # the full argument. Empty dict on every status but "error", so a
+    # populated dict always means "this cycle failed and here is what HiGHS
+    # said". Diagnostic only; nothing branches on it.
+    highs_info: dict[str, float] = field(default_factory=dict)
+    # nimbus issue #1179: the MPS path the failing model was written to, or
+    # None. Mirrors `LPResult.failing_model_path`. Diagnostic only.
+    failing_model_path: str | None = None
     # nimbus issue #390: how much of grid_import_kw above came from the
     # penalized excess-import slack, i.e. real draw the configured
     # `import_limit_kw` couldn't cover on its own. Zero at every period on
@@ -1312,6 +1321,8 @@ def _infeasible_plan(
     calibration_min_weight_fallback: bool = False,
     calibration_fallback_reason: str | None = None,
     calibration_weight_used: float | None = None,
+    highs_info: dict[str, float] | None = None,
+    failing_model_path: str | None = None,
 ) -> Plan:
     """A well-formed but empty Plan for a non-optimal solve -- every array
     present (zero-filled), never omitted, so a caller can always safely
@@ -1349,6 +1360,15 @@ def _infeasible_plan(
         duals={},
         reduced_costs={},
         raw_status=raw_status,
+        # nimbus issue #1179: `None` rather than `{}` in the signature (a
+        # shared mutable default), and a fresh dict per call for the same
+        # aliasing reason the zeros() comment above gives. Written as
+        # `dict(x or {})` rather than a conditional expression on purpose --
+        # a diagnostic field must not appear in ANY branch test in this
+        # module, which this issue's own control test enforces by walking
+        # every `if`/`while`/ternary in here.
+        highs_info=dict(highs_info or {}),
+        failing_model_path=failing_model_path,
         grid_import_excess_kw=np.zeros(n),
     )
 
@@ -3863,6 +3883,11 @@ def _build_plan_once(
             calibration_min_weight_fallback=result.calibration_min_weight_fallback,
             calibration_fallback_reason=result.calibration_fallback_reason,
             calibration_weight_used=result.calibration_weight_used,
+            # nimbus issue #1179: HiGHS's own numbers and the captured model
+            # reach the one warning line that reports the failure, so the
+            # next episode is read rather than inferred.
+            highs_info=result.highs_info,
+            failing_model_path=result.failing_model_path,
         )
 
     def _get(names: list[str]) -> NDArray[np.float64]:
