@@ -83,6 +83,17 @@ dev = [
     # pass (@purcell-lab).
     "pytest-freezer>=0.4.8",
     "ruff>=0.6",
+    # docs/architecture/tech-debt-plan.md section 2 / docs/specs/000-golden-
+    # master-and-gates.md Part C: enforces the plan's layer map (solver/ ->
+    # solver_inputs+solver_reports -> solver_plan+solver_publish+
+    # solver_dispatch -> solver_writer+standalone_writer) via the `layers`
+    # contract type, configured below in [tool.importlinter]. Floored, not
+    # pinned exactly, the same reasoning as ruff/pytest-freezer above --
+    # there is no known cross-release behaviour gap this project has hit
+    # yet, unlike pytest-homeassistant-custom-component's exact pin, which
+    # exists specifically because ITS version selects a whole HA core
+    # release underneath it.
+    "import-linter>=2.0",
     "highspy>=1.15.1",
     # Pure-Python CSS parser (~50KB, no C deps, no browser). Added
     # 2026-09-07 for tests/frontend/test_dispatch_card_compact_layout.py
@@ -418,3 +429,93 @@ ignore = [
 # needed, no longer exist. Removing this surfaced zero real BLE001
 # findings elsewhere in tests/ -- confirmed via a plain `ruff check
 # tests/` with this ignore removed, not assumed.
+# ---------------------------------------------------------------------------
+# import-linter -- docs/architecture/tech-debt-plan.md section 2 / docs/
+# specs/000-golden-master-and-gates.md Part C ("import-linter contracts",
+# specified there, built here). Run via `tests/test_import_linter_contract.py`
+# (wraps `lint-imports` in a pytest assertion, the same "static analysis
+# wrapped in a pytest assertion" house style tests/test_docs_writer_
+# function_set_drift.py already uses for a different static check), and
+# proven on synthetic fixtures in tests/test_gates_import_linter.py.
+#
+# root_packages = ["custom_components"]: `custom_components` itself has no
+# `__init__.py` (a namespace package, same as it is at runtime under a real
+# HA install) -- `custom_components.nimbus_load` is the real package
+# underneath it. `containers` below scopes every layer tail to that package
+# alone, so `lint-imports` never reaches into `tests/` or anywhere else.
+#
+# The layer order matches the plan's section 2 exactly, but INVERTED: the
+# plan lists `solver/` first as item 1 ("pure LP and maths") and
+# `solver_writer.py` last as item 5 ("façade and orchestration"), which
+# reads top-to-bottom as *lowest-to-highest* in dependency terms --
+# solver_writer is the orchestrator that calls into everything else, so it
+# sits at the TOP of the real dependency stack even though it is last in
+# the plan's own numbered list. import-linter's own `layers` field is
+# documented the other way (highest layer first, and "higher layers may
+# depend on lower layers, but not the other way around"), so this list
+# runs plan-item-5 down to plan-item-1.
+#
+# Parenthesised entries ((standalone_writer), (solver_plan), (solver_
+# dispatch), (solver_reports)) are modules the plan names for a LATER
+# phase (see the plan's own section 4 sequence table) that do not exist
+# yet -- import-linter's own docs: "You can make a layer optional by
+# wrapping it in parentheses," which is exactly what a not-yet-built
+# target layer needs, so the contract does not fail today merely because
+# Phase 4-7's modules don't exist, but starts enforcing the moment each
+# one is created.
+#
+# Deliberately NOT included: `solver/ha_bridge.py` (the plan's own item 4,
+# "implements the protocols"). Measured directly, not guessed: declaring
+# it as a layer nested inside `solver` (the plan's item 1, also a
+# declared layer here) makes import-linter refuse the whole contract with
+# "Modules have shared descendants" -- confirmed by creating a throwaway
+# `solver/ha_bridge.py` locally and running `lint-imports` against this
+# exact config, both with the file present (immediate refusal) and absent
+# (passes silently, which is the trap: an `(optional)` layer that doesn't
+# exist yet hides this failure until Phase 7 actually creates the file).
+# A layer cannot be a subpackage of another declared layer in this
+# contract type. Phase 7's own spec needs to pick one of: moving
+# `ha_bridge.py` out of `solver/` to a top-level sibling module (so it CAN
+# be its own layer, the same shape as `solver_writer.py`), or protecting
+# the same invariant with a second, narrower contract (e.g. `forbidden`)
+# once the file exists. Not resolved here -- Phase 7 is not this PR's
+# scope, and inventing a fix for a module that doesn't exist yet risks
+# shipping something nobody has verified against the real file.
+#
+# ignore_imports below: the plan's own section 1 table of seven
+# `_solver_writer()` late-import call sites, confirmed current by
+# re-running `lint-imports` against this contract with NO ignore_imports
+# at all -- it reported exactly these seven `importer -> imported` edges
+# and no others (`solver_inputs.battery_soc`/`prices`/`load`/`solar`/
+# `extra_batteries`/`battery_participants` and `solver_publish`, each
+# importing `solver_writer`), matching the plan's table exactly. Recorded
+# as exceptions, not fixed -- fixing them is each future phase's own job,
+# per the plan's section 3 ("no test assertion changes... Migration").
+# `unmatched_ignore_imports_alerting` is left at its default (`error`), so
+# if any one of these seven imports is ever fixed for real, this contract
+# starts failing with "no matching import" until the now-stale exception
+# is removed -- the exceptions list can only shrink honestly, never rot
+# silently the way a stale `# noqa` can.
+[tool.importlinter]
+root_packages = ["custom_components"]
+
+[[tool.importlinter.contracts]]
+id = "nimbus-layers"
+name = "Nimbus solver layer map (tech-debt plan section 2)"
+type = "layers"
+containers = ["custom_components.nimbus_load"]
+layers = [
+    "solver_writer | (standalone_writer)",
+    "(solver_plan) | solver_publish | (solver_dispatch)",
+    "solver_inputs | (solver_reports)",
+    "solver",
+]
+ignore_imports = [
+    "custom_components.nimbus_load.solver_inputs.battery_participants -> custom_components.nimbus_load.solver_writer",
+    "custom_components.nimbus_load.solver_inputs.solar -> custom_components.nimbus_load.solver_writer",
+    "custom_components.nimbus_load.solver_inputs.battery_soc -> custom_components.nimbus_load.solver_writer",
+    "custom_components.nimbus_load.solver_inputs.extra_batteries -> custom_components.nimbus_load.solver_writer",
+    "custom_components.nimbus_load.solver_inputs.load -> custom_components.nimbus_load.solver_writer",
+    "custom_components.nimbus_load.solver_inputs.prices -> custom_components.nimbus_load.solver_writer",
+    "custom_components.nimbus_load.solver_publish -> custom_components.nimbus_load.solver_writer",
+]
