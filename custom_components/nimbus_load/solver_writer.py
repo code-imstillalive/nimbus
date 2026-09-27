@@ -8463,16 +8463,57 @@ def publish_plan(
             calibration_note = (
                 f"found a usable weight (no minimum-weight fallback), {weight_note}"
             )
+        # nimbus issue #1179: HiGHS's own numbers, in THIS line.
+        #
+        # The 2026-09-20 episode published 153 of these lines carrying
+        # `raw_status="Unknown"` and an elapsed time, and nothing else.
+        # "Unknown" is HiGHS declining to say what happened, so a line that
+        # stops there records only that a failure occurred -- which is what
+        # made the episode undiagnosable four days later when it had already
+        # stopped recurring.
+        #
+        # `plan.iterations` is the number that decides #1179's own open
+        # question. solver/lp.py's own comment above `_SLOW_LP_CALL_SECONDS`
+        # states it: a stall with a huge iteration count is degeneracy or
+        # cycling, a stall with a small one "is stuck somewhere that is not
+        # the simplex loop at all -- presolve, a MIP branch-and-bound tree,
+        # or numerical trouble", and "those two answers point at completely
+        # different fixes". A 0.1s failure against a 1.16s healthy solve
+        # predicts ~0 iterations, i.e. the model rejected before the simplex
+        # loop; the prediction has never been checkable because this line
+        # never printed the count, although `_infeasible_plan()` has carried
+        # it onto the Plan since #356.
+        #
+        # `%s` for the elapsed time, not `%.1f`: at 0.1s a 1-decimal format
+        # is at the edge of its own resolution, and this issue's whole
+        # signature is how SMALL that number is.
         _LOGGER.warning(
-            "Nimbus: solve did not complete after %.1fs -- HiGHS solver "
+            "Nimbus: solve did not complete after %.3fs -- HiGHS solver "
             "failure (%s), not a genuinely infeasible model; keeping the "
             "previous published plan rather than overwriting it with an "
             "empty one (nimbus issue #757). This cycle's blend calibration "
-            "%s (nimbus issue #1179)",
+            "%s. HiGHS: simplex_iterations=%s %s. Failing model: %s "
+            "(nimbus issue #1179)",
             solve_seconds,
             plan.raw_status or "unknown reason",
             calibration_note,
+            plan.iterations,
+            lp.format_highs_info(plan.highs_info),
+            plan.failing_model_path or "not captured",
         )
+        if plan.failing_model_path is not None:
+            # Separate line, and only when there is genuinely a file: the
+            # perishability note is long, it is useless on the 152 later
+            # occurrences that share one capture, and #773 already learned
+            # (see `_dump_location_note()`'s own docstring) that announcing a
+            # dump without saying it is temporary loses the artefact.
+            _LOGGER.warning(
+                "Nimbus #1179: the failing model is at %s -- the real "
+                "instance, which no synthetic reproduction of this failure "
+                "has matched. Attach it to nimbus issue #1179. %s",
+                plan.failing_model_path,
+                lp.dump_location_note(),
+            )
         return
 
     # Real fixed daily charges (Network Access + LV Fee), reported
@@ -9241,6 +9282,54 @@ def publish_plan(
                 "battery_effective_capacity_kwh": round(
                     resolve_effective_capacity_kwh(cfg), 3
                 ),
+                # nimbus issue #1179: the blend-calibration outcome of the
+                # cycle that produced this plan -- i.e. of a HEALTHY cycle,
+                # since a failed one returns ~900 lines above this and
+                # publishes nothing (#757).
+                #
+                # **This is the half that makes #1179 falsifiable, and it
+                # was missing.** #1229 and #1291 both argue -- correctly --
+                # that "the failures took the minimum-weight fallback"
+                # explains nothing without the base rate among healthy
+                # cycles, and both say the fields are "carried on success as
+                # well as failure". They are carried onto `Plan`; nothing
+                # then READ them on the success path. `solver_writer.py`
+                # touches all three only inside the failure branch, so on a
+                # deployed install the healthy-cycle distribution was
+                # observable nowhere at all.
+                #
+                # Published here rather than logged, deliberately, and the
+                # reason is measured: production's `/api/error_log` is
+                # truncated at every container restart -- read 2026-09-27 at
+                # 18:18 AEST it began at 16:09:58 AEST, the boot 2h 8m
+                # earlier. An episode that recurs every few nights and lives
+                # only in that log is routinely unreadable by the time
+                # anyone looks. `solve_diagnostics` is the attribute payload
+                # of `sensor.nimbus_solver_solve_seconds` (see
+                # sensor_flattened.py's own `attrs_source_key`), which the
+                # recorder keeps -- and that sensor's own history is already
+                # how a #1179 investigation counts cycles, because a failed
+                # solve never publishes it.
+                #
+                # Four scalars. No entity added, nothing renamed.
+                "calibration_min_weight_fallback": plan.calibration_min_weight_fallback,
+                "calibration_fallback_reason": plan.calibration_fallback_reason,
+                "calibration_weight_used": plan.calibration_weight_used,
+                # nimbus issue #1179: the HEALTHY cycle's own simplex
+                # iteration count, under the SAME key name the failure
+                # warning prints (`simplex_iterations=...`), so the two are
+                # read side by side without a translation step.
+                #
+                # This is what makes a failing cycle's count mean anything.
+                # Measured while building this: a small synthetic LP solves
+                # optimally at simplex_iteration_count == 0, because presolve
+                # finishes it -- so "0 iterations" is not self-evidently a
+                # rejection. It is only a rejection relative to what this
+                # install's own healthy cycles cost, which for the reference
+                # household's 199-period model is tens of thousands (#773
+                # measured 12k-214k). Without the baseline recorded next to
+                # it, the discriminating number is still an inference.
+                "simplex_iterations": plan.iterations,
             },
             "generated_at": now.isoformat(),
             "binding_constraint_now": binding_now,

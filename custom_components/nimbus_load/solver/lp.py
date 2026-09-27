@@ -58,6 +58,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import math
 import threading
 import time
 from collections.abc import Callable
@@ -260,7 +261,7 @@ _LP_DUMP_DIR_ENV = "NIMBUS_LP_DUMP_DIR"
 _LP_DUMPED_PHASES: set[str] = set()
 
 
-def _dump_failing_model(h: Any, label: str) -> str | None:
+def _dump_failing_model(h: Any, label: str, *, issue: str = "773") -> str | None:
     """Write the model HiGHS is currently holding to an MPS file, once
     per label per process. Returns the path written, or None.
 
@@ -271,6 +272,14 @@ def _dump_failing_model(h: Any, label: str) -> str | None:
     bare `except: pass` hid a real bug for days -- except that here the
     swallowed failure is reported at DEBUG rather than silently, so
     "the dump did not happen" is itself discoverable.
+
+    `issue` names the issue the capture belongs to and goes in the
+    FILENAME (nimbus issue #1179). Defaults to "773", so every existing
+    call site keeps writing byte-identical paths. It exists because the
+    filename is the only label that survives to whoever finds the file:
+    a #1179 terminal-solve capture written as `nimbus_773_*.mps` would be
+    attached to the wrong issue by an operator doing exactly what the log
+    line told them.
     """
     if label in _LP_DUMPED_PHASES:
         return None
@@ -284,7 +293,8 @@ def _dump_failing_model(h: Any, label: str) -> str | None:
         # caller-supplied string; keep it to a filename-safe subset
         # rather than trusting it to be one.
         safe = re.sub(r"[^A-Za-z0-9_.-]", "_", label)[:60]
-        path = os.path.join(base, f"nimbus_773_{safe}.mps")
+        safe_issue = re.sub(r"[^A-Za-z0-9]", "", issue)[:12]
+        path = os.path.join(base, f"nimbus_{safe_issue}_{safe}.mps")
         h.writeModel(path)
     except Exception as e:  # noqa: BLE001 -- see docstring
         _LOGGER.debug("Nimbus #773: could not dump the failing model (%s)", e)
@@ -344,6 +354,108 @@ def _dump_location_note() -> str:
         f"{_LP_DUMP_DIR_ENV} to a persistent path so the next capture is not "
         "lost the same way."
     )
+
+
+def dump_location_note() -> str:
+    """Public alias for `_dump_location_note()` (nimbus issue #1179).
+
+    `solver_writer.py` reports a #1179 capture from its own warning path and
+    needs this sentence there. Reaching across modules for the private name
+    would make a future rename in here a silent cross-module break, and the
+    sentence itself is part of the diagnostic's contract with whoever reads
+    the log -- not an implementation detail.
+    """
+    return _dump_location_note()
+
+
+# nimbus issue #1179: the HiGHS `getInfo()` fields worth carrying off a
+# failed terminal solve, in the order a reader wants them.
+#
+# Deliberately the SAME set `_run_phase()` already logs for an
+# intermediate-phase failure (see its own `_LOGGER.error` call), so the two
+# failure routes are directly comparable instead of each reporting its own
+# ad-hoc selection. `simplex_iteration_count` is first because it is the
+# one that discriminates -- see `LPResult.highs_info`'s own docstring.
+_HIGHS_INFO_FIELDS: tuple[str, ...] = (
+    "simplex_iteration_count",
+    "mip_node_count",
+    "mip_gap",
+    "mip_dual_bound",
+    "primal_solution_status",
+    "dual_solution_status",
+    "basis_validity",
+    "num_primal_infeasibilities",
+    "max_primal_infeasibility",
+    "num_dual_infeasibilities",
+    "max_dual_infeasibility",
+    "objective_function_value",
+)
+
+
+def _highs_info_snapshot(h: Any) -> dict[str, float]:
+    """Every `_HIGHS_INFO_FIELDS` entry HiGHS actually exposes, as floats.
+
+    Returns `{}` rather than raising on any failure, and skips an
+    individual field that this highspy build does not have -- same
+    discipline as `_dump_failing_model()` above, for the same reason: this
+    runs on a path that is already going badly and must never be the
+    reason a solve cycle dies. A field that is missing is simply absent
+    from the dict, which is honest; a zero would read as a measurement.
+    """
+    try:
+        info = h.getInfo()
+    except Exception as e:  # noqa: BLE001 -- see docstring
+        _LOGGER.debug("Nimbus #1179: could not read HiGHS getInfo() (%s)", e)
+        return {}
+    snapshot: dict[str, float] = {}
+    for name in _HIGHS_INFO_FIELDS:
+        try:
+            value = getattr(info, name)
+        except Exception:  # noqa: BLE001, S112 -- absent on this build
+            continue
+        if value is None:
+            continue
+        try:
+            snapshot[name] = float(value)
+        except (TypeError, ValueError):
+            continue
+    return snapshot
+
+
+def format_highs_info(info: dict[str, float]) -> str:
+    """`highs_info` as one `k=v k=v` fragment for a single log line.
+
+    Integral values print without a trailing `.0` -- `simplex_iterations=0`
+    is the reading #1179 needs to be unmissable, and `0.0` invites being
+    read as a float that happened to round.
+
+    Returns a literal `"unavailable"` for an empty dict, never an empty
+    string: a log line that silently loses its tail cannot be told apart
+    from one whose tail was empty, which is the same "a check that cannot
+    fail is indistinguishable from a check that works" trap #757 records.
+    """
+    if not info:
+        return "unavailable"
+
+    def _one(name: str, value: float) -> str:
+        short = name.replace("simplex_iteration_count", "simplex_iterations")
+        # `math.isfinite` first, and it is not defensive padding: HiGHS
+        # returns `mip_gap = inf` on a pure LP, and `int(float("inf"))`
+        # raises OverflowError. Caught by running the real solver against a
+        # forced time limit rather than by reading this code -- the first
+        # draft of this function crashed on the very first real snapshot it
+        # was handed, on a formatter whose entire job is to run on a path
+        # that is already failing.
+        if math.isfinite(value) and value == int(value) and abs(value) < 1e15:
+            return f"{short}={int(value)}"
+        return f"{short}={value:.6g}"
+
+    parts = [_one(n, info[n]) for n in _HIGHS_INFO_FIELDS if n in info]
+    # Anything the caller added that this module does not know about still
+    # gets printed -- dropping it silently would make the formatter the
+    # reason a future field is invisible.
+    parts += [_one(n, info[n]) for n in sorted(set(info) - set(_HIGHS_INFO_FIELDS))]
+    return " ".join(parts)
 
 
 # nimbus issue #773: a per-solve breakdown across EVERY lex phase, not
@@ -730,6 +842,46 @@ class LPResult:
     # or the minimum weight, which #1179 explicitly rules out until the
     # mechanism is established.
     calibration_weight_used: float | None = None
+
+    # nimbus issue #1179: HiGHS's own `getInfo()` numbers, captured at the
+    # moment the terminal solve came back non-optimal-and-not-an-answer
+    # (`status == "error"`). Empty dict on every other status, including
+    # "optimal" -- there is nothing to diagnose on a solve that worked, and
+    # a dict populated only when it means something cannot be misread as
+    # "looked, found nothing".
+    #
+    # **Why this exists, stated as a gap rather than a theory.** #1179's
+    # signature is a 0.1s failure against a 1.16s healthy solve, and the
+    # question that decides it is whether HiGHS rejected the model
+    # immediately or worked and gave up. This module's own comment above
+    # `_SLOW_LP_CALL_SECONDS` already names the field that answers it:
+    # "`simplex_iterations` is the field that actually discriminates: a
+    # stalled call with a huge iteration count is degeneracy/cycling ...
+    # while a stalled call with a small one is stuck somewhere that is not
+    # the simplex loop at all -- presolve, a MIP branch-and-bound tree, or
+    # numerical trouble." `_solve_with_options()`'s own docstring records
+    # having seen exactly that first signature on an INTERMEDIATE phase:
+    # "an instant presolve rejection with zero simplex iterations".
+    #
+    # `_run_phase()` logs all of this for an intermediate phase. The
+    # terminal path -- the one #1179's failures actually take, and the only
+    # one whose failure skips the publish entirely (#757) -- logged none of
+    # it, so the 2026-09-20 episode produced 153 failures and not one
+    # iteration count. Diagnostic only; nothing branches on it.
+    highs_info: dict[str, float] = field(default_factory=dict)
+
+    # nimbus issue #1179: where the failing model was written as MPS, or
+    # None if it was not written (not an error path, an older highspy with
+    # no `writeModel`, an unwritable dump dir, or this label already
+    # captured once in this process -- `_dump_failing_model()` is
+    # once-per-label by design).
+    #
+    # #773 already dumps the real instance on an intermediate-phase
+    # failure, for the reason its own comment gives: two synthetic
+    # reproductions failed to match production's shape, so the next step is
+    # reading the actual model. #1179 has the same problem and had no such
+    # capture -- the offending inputs of all 153 failures are gone.
+    failing_model_path: str | None = None
 
     # nimbus issue #490 (Signals 1/7 of #489): HiGHS ranging, opt-in via
     # LPProblem.solve(ranging=True) -- see this module's own docstring on
@@ -2529,6 +2681,23 @@ def _solve_highs(
         # feasibility was never actually determined either way. Reported
         # as "error" instead, with HiGHS's own status name preserved in
         # raw_status so a caller/log line can name the real cause.
+        #
+        # nimbus issue #1179: a status name on its own turned out not to be
+        # enough. The 2026-09-20 episode published `raw_status="Unknown"`
+        # 153 times in 2.7h and nothing else -- no iteration count, no
+        # infeasibility magnitudes, no model. "Unknown" is HiGHS declining
+        # to say, so the whole diagnosis lives in the numbers beside it, and
+        # this is the one non-optimal exit in this module that captured
+        # none of them (`_run_phase()` captures all of them for an
+        # intermediate phase; see `LPResult.highs_info` for the argument).
+        #
+        # Taken BEFORE the dump, because `writeModel()` touches `h`.
+        highs_info = _highs_info_snapshot(h)
+        # Once per status per process (`_dump_failing_model()`'s own
+        # contract), so a multi-hour episode writes one file, not 153.
+        failing_model_path = _dump_failing_model(
+            h, f"terminal_{h.modelStatusToString(status)}", issue="1179"
+        )
         return LPResult(
             status="error",
             calibration_min_weight_fallback=calibration_min_weight_fallback,
@@ -2536,6 +2705,8 @@ def _solve_highs(
             calibration_fallback_reason=calibration_fallback_reason,
             iterations=iterations,
             raw_status=h.modelStatusToString(status),
+            highs_info=highs_info,
+            failing_model_path=failing_model_path,
             ranging_valid=_ranging_valid_on_non_optimal,
         )
 

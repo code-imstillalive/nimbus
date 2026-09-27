@@ -127,10 +127,10 @@ cannot be skipped for a phase in the way #1300's pre-move test was (#1310).
 | Spec 000 | golden master, recorded market inputs, gate tooling | nothing |
 | #1310 | Phase 1 baseline, from `0d0d553`, against the extracted code | spec 000 Part A |
 | Phase 2 (#1301) | reports; `_compute_report_for_window` last (#1315) | spec 000 |
-| Phase 3 (#1302) | `build_controllable_loads` | spec 000, native gap closed (spec 000 non-goals) |
+| Phase 3 (#1302) | `build_controllable_loads` | spec 000, native gap closed (**done, #1335**) |
 | Phase 4 (#1303) | plan assembly | Phase 3 |
 | Phase 5 (#1304) | `publish_plan` | Phase 4, devhub pass |
-| Phase 6 (#1305) | `apply_commanded_state_guard` | Phase 5, native gap closed, devhub pass |
+| Phase 6 (#1305) | `apply_commanded_state_guard` | Phase 5, native gap closed (**done, #1335**), devhub pass |
 | Phase 7 (#1306) | HA bridge, standalone entrypoint; last `_solver_writer()` removed | Phase 6 |
 
 ## 5. Done means

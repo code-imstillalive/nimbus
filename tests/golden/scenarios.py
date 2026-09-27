@@ -13,6 +13,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from typing import Any
 
 from golden.fake_ha import FakeHA
 
@@ -25,6 +26,14 @@ class Scenario:
     purpose: str
     cycle_minutes: int = 5
     cycles: int = 1
+    # nimbus issue #1335: a native-mode scenario. When set, the child
+    # builds a hass from this scenario's own FakeHA and injects it via
+    # set_native_hass() before the first cycle, so main() takes the
+    # in-process branch of every seam -- the only way to reach
+    # build_controllable_loads()/apply_commanded_state_guard(), which
+    # return early on `_NATIVE_HASS is None`. None (the default) is the
+    # standalone/REST path every Part A and Part D scenario uses.
+    native: Callable[[FakeHA], Any] | None = None
 
     def instant_for_cycle(self, i: int) -> str:
         t = datetime.fromisoformat(self.instant) + timedelta(
@@ -55,4 +64,8 @@ def names() -> list[str]:
 
 def _load_all() -> None:
     # Imported for their register() side effect.
-    from golden import scenarios_nemweb, scenarios_synthetic  # noqa: F401
+    from golden import (  # noqa: F401
+        scenarios_native,
+        scenarios_nemweb,
+        scenarios_synthetic,
+    )

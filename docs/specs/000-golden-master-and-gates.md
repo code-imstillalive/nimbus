@@ -123,13 +123,25 @@ and Phases 3 and 6 not at all. Each of those phases' specs adds the scenarios
 that reach its functions (see the native gap below) and quotes the coverage
 before it starts.
 
-### The native gap
+### The native gap — closed by #1335
 
 `build_controllable_loads`, `apply_commanded_state_guard` and `_update_all`
-return early when `_NATIVE_HASS is None` (solver_writer.py:13528, 13680,
-13871, 13964), which is the standalone path this harness drives. The golden
-master cannot see Phases 3 and 6 until a native-mode driver exists. That
-driver is a prerequisite of #1302 and #1305, not part of this spec.
+return early when `_NATIVE_HASS is None`, which is the standalone path this
+harness drives, so no scenario written for this spec could reach them.
+
+`tests/golden/fake_native.py` (nimbus issue #1335) is the driver: the
+in-process counterpart of `fake_ha.FakeHA`, fake enough for
+`set_native_hass()` to be given a real-shaped `hass` inside a scenario's own
+child process. `tests/golden/scenarios_native.py` adds the two scenarios that
+use it. Re-measured the same way as the table above:
+
+| Function | Covered, this spec | Covered, with the native scenarios |
+|---|---:|---:|
+| `build_controllable_loads` | 2.4% | 46.5% |
+| `apply_commanded_state_guard` | 1.1% | 56.2% |
+
+`kind=thermal` is still uncovered, deliberately — see #1335 and the
+`scenarios_native` docstring.
 
 ### Update rule
 
@@ -284,6 +296,33 @@ the golden master pins it so a refactor cannot change it silently.
   before `test_commanded_state_guard_reports_its_own_failure.py` gives 35
   failures. Tracked in #1329: the file is imported twice, under two module
   names, and the second copy's run-state store replaces the first's.
+- **`tests/test_gates_coverage_compare.py` needs `-p no:homeassistant` when
+  run by hand, same as `test_main_golden_output_guardrail.py` above.**
+  Without it, the file errors out during fixture setup with
+  `pytest_socket.SocketBlockedError` -- the `homeassistant` pytest11 plugin
+  (registered via entry_points, loaded for every invocation in the process,
+  same mechanism `DEFAULT_SUITE_ARGS` in `coverage_compare.py` itself works
+  around) opens an event-loop self-pipe socket, which `pytest-socket`
+  blocks. CI's stub-suite job already passes this flag, so it is only a
+  trap when the file is invoked directly. Also worth knowing before running
+  it: the full file takes roughly 15 minutes locally (two full worktree
+  checkouts, each running the golden scenarios and the whole stub suite
+  under coverage), not a quick smoke check.
+- **nimbus #1354: the gate reported PASS on a base side that measured ZERO
+  covered lines.** "Every line covered at base is covered at head" is
+  vacuously true over an empty set, so a run that measured nothing read
+  identically, in both wording and exit code, to a run that measured
+  everything and found no regression. `run()` now refuses to report PASS
+  when the base side's covered-line count is 0, returning a third, distinct
+  exit code instead of either 0 or 1. On this repo the zero-coverage case
+  was itself caused by a second, Windows-only bug found in the same issue:
+  the worktree root is built from `tempfile.gettempdir()`, which can return
+  an 8.3 short path (`C:\Users\RAF_LO~1\...`) while coverage.py
+  canonicalises the files it measures via `os.path.realpath` (the long
+  form, `C:\Users\Raf_local\...`) -- no measured line ever matched a
+  looked-up one. Fixed by canonicalising the worktree root once,
+  immediately after creating it, via `Path(os.path.realpath(tmp))`, before
+  it is handed to coverage or compared against anything.
 
 ## Migration
 
