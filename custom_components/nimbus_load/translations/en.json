@@ -510,6 +510,10 @@
           "description": "How many complete days back from today to re-score, starting with yesterday. Each one is a full oracle solve, so start small."
         }
       }
+    },
+    "flex_telemetry_record": {
+      "name": "Flex telemetry record",
+      "description": "Return the current nem-flex-telemetry schema v2.0 record for the last complete NEM 5-minute interval, built entirely from Nimbus's own entities and last solve. Reads what sensor.nimbus_flex_telemetry already published rather than rebuilding it, so a caller and a dashboard can never disagree about the same interval. Needs switch.nimbus_solver_flex_signals_enabled on: it is off by default and costs roughly 9x solve time when on, because the schema's required flexibility fields come from HiGHS ranging."
     }
   }
 }

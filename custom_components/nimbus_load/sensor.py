@@ -1138,6 +1138,11 @@ async def async_setup_entry(
     # own parent entity, same "Nimbus Flex" sub-device as flex_signals
     # above -- see NimbusFlexReportSensor's own docstring.
     flex_report = NimbusFlexReportSensor(entry, sw_version, hub_device_id)
+    # nimbus issue #495 (Signals 6/7 of #489): the nem-flex-telemetry
+    # record, same "Nimbus Flex" sub-device as the two above. No flattened
+    # children -- every field it carries is already its own flex entity or
+    # a member of the one nested `record` attribute.
+    flex_telemetry = NimbusFlexTelemetrySensor(entry, sw_version, hub_device_id)
 
     flattened_quality = sensor_flattened.create_flattened_entities_quality(
         entry, sw_version, hub_device_id
@@ -1170,6 +1175,7 @@ async def async_setup_entry(
             counterfactual_soc,
             flex_signals,
             flex_report,
+            flex_telemetry,
         ]
         + flattened_quality
         + flattened_backtest
@@ -1292,6 +1298,16 @@ async def async_setup_entry(
         "sensor.nimbus_flex_report",
         flex_report.update_from_solver,
         flex_report.entity_id,
+    )
+    # A literal entity_id, not solver_writer.FLEX_TELEMETRY_ENTITY_ID --
+    # test_1192_native_managed_set_covers_every_handler.py derives the
+    # required set by walking this file's AST and refuses a non-literal
+    # first argument rather than letting its own invariant silently shrink.
+    # It caught this exact call written the other way.
+    solver_writer.register_entity_handler(
+        "sensor.nimbus_flex_telemetry",
+        flex_telemetry.update_from_solver,
+        flex_telemetry.entity_id,
     )
 
 
@@ -3216,14 +3232,22 @@ class _NimbusSolverPushSensor(SensorEntity, RestoreEntity):
     # temporary" wording as misleading -- the fix itself was always
     # meant to stay, this is that correction.
     _attr_should_poll = False
-    _attr_device_class = SensorDeviceClass.POWER
-    _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_native_unit_of_measurement = UnitOfPower.KILO_WATT
+    # Annotated `| None` rather than left to inference, matching what
+    # `SensorEntity` itself declares. Inference from the assigned value
+    # narrows each of these to the concrete enum/unit, so every subclass
+    # that legitimately clears one -- NimbusSolverQualityReportSensor's
+    # `device_class = None` (a percentage is not a device class), and
+    # NimbusFlexTelemetrySensor, whose state is a timestamp string and
+    # which clears all four -- reads as an incompatible override. Pure
+    # typing: no assigned value changes, so no runtime behaviour does.
+    _attr_device_class: SensorDeviceClass | None = SensorDeviceClass.POWER
+    _attr_state_class: SensorStateClass | str | None = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement: str | None = UnitOfPower.KILO_WATT
     # Same finding as NimbusForecastSensor above: without this, HA's own
     # history-graph tooltips (and any UI computing a rolling average
     # across already-rounded points) show raw binary floating-point
     # noise ("0.152000000000000020" instead of "0.152").
-    _attr_suggested_display_precision = 3
+    _attr_suggested_display_precision: int | None = 3
     # Recorder's own 16 KB per-attribute limit (see issue #59) -- the
     # 96h tiered-grid forecast list, at 15-minute resolution for the
     # first 24h and hourly after that, regularly exceeds that cap. The
@@ -4157,6 +4181,72 @@ class NimbusFlexReportSensor(_NimbusSolverPushSensor):
             sensor_flattened.dispatch_to_flattened_flex_report(
                 self._flattened_entities, attributes
             )
+
+
+class NimbusFlexTelemetrySensor(_NimbusSolverPushSensor):
+    """nimbus issue #495 (Signals 6/7 of #489): one `nem-flex-telemetry`
+    schema-v2.0 record per NEM 5-minute boundary, built entirely from
+    Nimbus's own entities and the last solve -- so the cohort feed can
+    take a Nimbus source instead of needing HAEO.
+
+    Native state is `interval_start_utc`, the interval the record covers,
+    per #495's own text. That is a TIMESTAMP STRING, not a measurement,
+    which is why this class clears all four of the parent's numeric
+    contracts (`device_class`, `state_class`, unit, display precision) --
+    left inherited, HA would reject a non-float state against
+    POWER/KILO_WATT/MEASUREMENT on every push, and long-term statistics
+    would try to compile an identifier as a series.
+
+    `record` carries the whole record as ONE nested attribute rather than
+    spread across the attribute dict -- see `solver_writer.publish_flex_
+    telemetry_record()`'s own docstring for why (the schema's
+    `additionalProperties: false`).
+
+    Sub-device "Nimbus Flex", the same `device_identifier` as
+    NimbusFlexSignalsSensor/NimbusFlexReportSensor above: one feature
+    family, one device page, and this record is built from exactly the
+    ranging signals that sensor publishes.
+
+    `_RESTORE_ACROSS_RESTART` stays at the parent's default False,
+    deliberately and unlike the daily reports: a restored record would
+    claim a 5-minute interval that has long since passed, and #1256's own
+    lesson is that restoring a figure whose validity is time-bounded is
+    how a stale number gets relabelled as current.
+    """
+
+    _UNIQUE_ID_SUFFIX = "nimbus_flex_telemetry"
+    _attr_name = "Flex Telemetry"
+    _attr_device_class = None
+    _attr_state_class = None
+    _attr_native_unit_of_measurement = None
+    _attr_suggested_display_precision = None
+    # nimbus issue #496 / #59 / #625: `record` is the only large attribute
+    # here and it is a point-in-time snapshot, not a history worth keeping
+    # -- one asset per battery participant plus 23 top-level fields is
+    # ~1-2 KB on a single-battery install, but it grows with the fleet and
+    # the recorder drops the ENTIRE attribute row (unit included) once the
+    # total passes 16 KB. Excluded before it can get there rather than
+    # after a live warning, which is the order this repo has had to learn
+    # twice. The state itself -- the interval identifier -- is still
+    # recorded, so "when did Nimbus last emit a record" stays answerable
+    # from history.
+    _unrecorded_attributes = frozenset({"record"})
+
+    def __init__(
+        self,
+        entry: NimbusConfigEntry,
+        sw_version: str | None,
+        hub_device_id: str | None = None,
+    ) -> None:
+        super().__init__(entry, sw_version)
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, f"{entry.entry_id}_flex")},
+            name="Nimbus Flex",
+            manufacturer="Nimbus",
+            model="Sub-device",
+            sw_version=sw_version,
+            **_resolve_via_device_field(hub_device_id, entry.entry_id),  # type: ignore[typeddict-item]
+        )
 
 
 class NimbusEfficiencyBacktestSensor(_NimbusSolverPushSensor):

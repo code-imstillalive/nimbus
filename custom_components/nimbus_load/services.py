@@ -30,7 +30,7 @@ from typing import Any
 import voluptuous as vol
 from homeassistant.config_entries import ConfigEntry, ConfigSubentry
 from homeassistant.const import ATTR_ENTITY_ID
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant, ServiceCall, SupportsResponse
 from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers import entity_registry as er
@@ -104,6 +104,19 @@ SERVICE_COMPUTE_QUALITY_REPORT = "compute_quality_report"
 # own docstring for why rounding a window to a day key would be worse
 # than not offering it.
 SERVICE_RESCORE_HISTORY = "rescore_history"
+
+# nimbus issue #495 (Signals 6/7 of #489): hands a caller the current
+# `nem-flex-telemetry` schema-v2.0 record as a service RESPONSE, so a
+# provider in Mark Purcell's own `nem-flex-telemetry` repo can pull one
+# object rather than reassembling it from a dozen entity reads.
+#
+# Deliberately a READ of what `publish_flex_telemetry_record()` already
+# published, not a second build. A service that rebuilt the record would
+# be a second code path that can disagree with the sensor about the same
+# interval -- the exact drift shape #116 and #1141 both were -- and it
+# would also hand out a record built for whatever instant the call landed
+# on rather than the boundary-aligned one the feed is keyed on.
+SERVICE_FLEX_TELEMETRY_RECORD = "flex_telemetry_record"
 
 # unique_id is built as f"{subentry_id}{suffix}" -- see __init__.py's own
 # _async_rename_stale_forecast_entities(), which constructs it the other
@@ -385,6 +398,47 @@ async def _async_handle_solve_now(hass: HomeAssistant, call: ServiceCall) -> Non
             "solve -- check sensor.nimbus_solver_battery_forecast's own "
             "status attribute for the real reason"
         )
+
+
+_FLEX_TELEMETRY_NOT_PUBLISHED = (
+    "sensor.nimbus_flex_telemetry has not published a record yet. It is "
+    "written once per solve and only while "
+    "switch.nimbus_solver_flex_signals_enabled is on -- that switch is off "
+    "by default and costs ~9x solve time when on (measured on a real "
+    "install: median 1.16 s -> 10.3 s), because the schema's required "
+    "flex_available_up_kw/_down_kw come from HiGHS ranging. Turn it on, wait "
+    "one solve, and call again. Home Assistant's own log carries the exact "
+    "reason at DEBUG if it is on and still producing nothing."
+)
+
+
+async def _async_handle_flex_telemetry_record(
+    hass: HomeAssistant, call: ServiceCall
+) -> dict:
+    """The current `nem-flex-telemetry` schema-v2.0 record, as a service
+    response (nimbus issue #495).
+
+    A read of `sensor.nimbus_flex_telemetry`, never a rebuild -- see
+    SERVICE_FLEX_TELEMETRY_RECORD's own comment for why that matters.
+    `record: None` plus a `reason` when there is nothing published yet,
+    rather than a raise: "flex signals are off" is the DEFAULT state of
+    this integration, not a caller error, and a ServiceValidationError
+    would make an ordinary configuration read look like a fault.
+    """
+    from . import solver_writer
+
+    state = hass.states.get(solver_writer.FLEX_TELEMETRY_ENTITY_ID)
+    if state is None:
+        return {"record": None, "reason": _FLEX_TELEMETRY_NOT_PUBLISHED}
+    record = state.attributes.get("record")
+    if not isinstance(record, dict):
+        return {"record": None, "reason": _FLEX_TELEMETRY_NOT_PUBLISHED}
+    return {
+        "record": record,
+        "interval_start_utc": record.get("interval_start_utc"),
+        "clamped_fields": list(state.attributes.get("clamped_fields") or []),
+        "generated_at": state.attributes.get("generated_at"),
+    }
 
 
 async def _async_handle_compute_quality_report(
@@ -700,7 +754,7 @@ def async_register_services(hass: HomeAssistant) -> None:
             SERVICE_COMPUTE_QUALITY_REPORT,
             _handle_compute_quality_report,
             schema=SERVICE_COMPUTE_QUALITY_REPORT_SCHEMA,
-            supports_response=True,
+            supports_response=SupportsResponse.OPTIONAL,
         )
 
     if not hass.services.has_service(DOMAIN, SERVICE_RESCORE_HISTORY):
@@ -713,7 +767,19 @@ def async_register_services(hass: HomeAssistant) -> None:
             SERVICE_RESCORE_HISTORY,
             _handle_rescore_history,
             schema=SERVICE_RESCORE_HISTORY_SCHEMA,
-            supports_response=True,
+            supports_response=SupportsResponse.OPTIONAL,
+        )
+
+    if not hass.services.has_service(DOMAIN, SERVICE_FLEX_TELEMETRY_RECORD):
+
+        async def _handle_flex_telemetry_record(call: ServiceCall):
+            return await _async_handle_flex_telemetry_record(hass, call)
+
+        hass.services.async_register(
+            DOMAIN,
+            SERVICE_FLEX_TELEMETRY_RECORD,
+            _handle_flex_telemetry_record,
+            supports_response=SupportsResponse.OPTIONAL,
         )
 
     if not hass.services.has_service(DOMAIN, SERVICE_SET_CONTROLLABLE_LOAD):
@@ -726,7 +792,7 @@ def async_register_services(hass: HomeAssistant) -> None:
             SERVICE_SET_CONTROLLABLE_LOAD,
             _handle_set_controllable_load,
             schema=SERVICE_SET_CONTROLLABLE_LOAD_SCHEMA,
-            supports_response=True,
+            supports_response=SupportsResponse.OPTIONAL,
         )
 
 
@@ -754,6 +820,11 @@ def async_unregister_services(hass: HomeAssistant) -> None:
         SERVICE_SOLVE_NOW,
         SERVICE_COMPUTE_QUALITY_REPORT,
         SERVICE_SET_CONTROLLABLE_LOAD,
+        # nimbus issue #495. Not adding SERVICE_RESCORE_HISTORY in the same
+        # breath, even though it is missing here too for what looks like
+        # the same oversight -- a second, unrelated behaviour change inside
+        # this PR would be undisclosed scope. Filed separately.
+        SERVICE_FLEX_TELEMETRY_RECORD,
     ):
         if hass.services.has_service(DOMAIN, service):
             hass.services.async_remove(DOMAIN, service)

@@ -820,6 +820,35 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         # this entry is next picked up, not just a mechanical rename).
         "scheduled_discharge_cost_rate",
         "scheduled_salvage_value_rate",
+        # nimbus issue #495 (Signals 6/7 of #489): the nem-flex-telemetry
+        # schema-v2.0 emitter.
+        #
+        # Open drift rather than INTENTIONAL_NATIVE_ONLY, and the reason is
+        # checkable rather than a judgement: the record needs real period
+        # MEANS over one 5-minute interval, which needs
+        # `fetch_entity_history_range` + `resample_history_mean` +
+        # `_kw_scale_factor`, and `fetch_entity_history_range` is already
+        # three entries above this one in this same list -- i.e. the
+        # standalone/cron FORECAST writer has no recorder-history reader at
+        # all (grepped, not assumed: zero occurrences of any of the three).
+        # So this is not an execution-context difference; it sits on top of
+        # a history layer that has not been ported either, and porting the
+        # emitter alone would put a function there that cannot run.
+        #
+        # The record SHAPE itself is deliberately not in this list, and that
+        # is the part worth porting when the history layer follows: it lives
+        # in `custom_components/nimbus_load/flex_telemetry.py`, pure stdlib
+        # with no HA and no Nimbus imports, and the docs copy already puts
+        # that directory on `sys.path` (`NIMBUS_SOLVER_PATH`) to reach
+        # `solver/` and `ml/`. So a future port is four functions of
+        # plumbing, not a second copy of the contract -- the same "keep the
+        # portable half portable" posture `detect_power_sign_convention`
+        # above is listed under. Tracked as its own issue rather than left
+        # as a bare allowlist entry.
+        "_flex_telemetry_measured",
+        "_flex_telemetry_assets",
+        "build_flex_telemetry_record",
+        "publish_flex_telemetry_record",
     }
 )
 KNOWN_OPEN_DRIFT_DOCS_ONLY = frozenset(
