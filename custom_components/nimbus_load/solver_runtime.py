@@ -476,8 +476,21 @@ def _ensure_ready(hass: HomeAssistant):
 
 def _log_dispatch_dry_run(hass: HomeAssistant, sw) -> None:
     """Real-dispatch groundwork, phase 1 (2026-08-27, hardened 2026-08-28):
-    observe-only. Nimbus has never written to an inverter -- this
-    function doesn't change that. When `switch.nimbus_solver_dispatch_
+    observe-only.
+
+    **THIS FUNCTION** never writes to an inverter, and nothing here changes
+    that. What it must not be read as saying -- and what it did say until
+    nimbus issue #1333 -- is that *Nimbus* never writes to an inverter. On the
+    reference household Nimbus has driven real Modbus dispatch daily for weeks,
+    through an HA automation that reads the published plan. The write happens
+    outside this integration, which is why this code can be honestly
+    observe-only while the system it belongs to is not.
+
+    The distinction is load-bearing rather than pedantic: a reader who takes
+    the narrow claim as the broad one concludes the published plan is inert,
+    and that misreading has already produced a real production false alarm.
+
+    When `switch.nimbus_solver_dispatch_
     dry_run` is on, it records what the CURRENT period's plan says the
     battery should be doing -- both a log line (unchanged from the
     original 2026-08-27 version, still useful for live tailing when the
@@ -575,10 +588,23 @@ def _log_dispatch_dry_run(hass: HomeAssistant, sw) -> None:
                 sorted(current.keys()) if isinstance(current, dict) else type(current),
             )
             return
+        # nimbus issue #1333: say WHICH dispatch path is meant. The previous
+        # wording was "no command sent, live dispatch is not implemented yet"
+        # -- true of this function, false as a statement about the install, and
+        # nothing in the line said which. On the reference household Nimbus has
+        # driven real Modbus dispatch daily for weeks via an HA automation that
+        # reads the published plan; a reader (or an agent reading a log) had
+        # every reason to conclude from this line that the plan was inert. That
+        # exact misreading already produced a production false alarm, and it is
+        # the kind of claim that ages badly in silence: it was accurate when
+        # written, and what changed was elsewhere, so nothing ever prompted a
+        # revisit of this file.
         _LOGGER.info(
             "Nimbus Dispatch (dry-run): current-period plan is %.2f kW "
-            "(positive=discharge, negative=charge) -- no command sent, "
-            "live dispatch is not implemented yet.",
+            "(positive=discharge, negative=charge) -- this integration-internal "
+            "dispatch path sends no command. Whether anything acts on this plan "
+            "depends on the install's own dispatch automation, which this code "
+            "cannot see.",
             battery_kw,
         )
         sw.ha_post_state(
