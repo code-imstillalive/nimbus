@@ -1,0 +1,39 @@
+-------------------------------------------------------------------
+                           MARKET NOTICE
+-------------------------------------------------------------------
+
+From :              AEMO
+To   :              NEMITWEB1
+Creation Date :     30/07/2026     16:42:20
+
+-------------------------------------------------------------------
+
+Notice ID               :         144693
+Notice Type ID          :         INTER-REGIONAL TRANSFER
+Notice Type Description :         Inter-Regional Transfer limit variation
+Issue Date              :         30/07/2026
+External Reference      :         Inter-regional transfer limit variation - Belalie-Davenport 275kV line - SA region - 30/07/2026
+
+-------------------------------------------------------------------
+
+Reason :
+
+AEMO ELECTRICITY MARKET NOTICE
+
+Inter-regional transfer limit variation - Belalie-Davenport 275kV line - SA region - 30/07/2026
+
+At   1630 hrs 30/07/2026 there was a short notice outage of Belalie-Davenport 275kV line.
+
+The following constraint set(s) invoked at 1630 hrs 30/07/2026
+S-DVBL_BC-2CP
+
+This constraint set(s) contains equations with the following interconnectors on the LHS.
+V-S-MNSP1,V-SA
+  
+Refer to the AEMO Network Outage Scheduler for further information.
+
+Manager NEM Real Time Operations
+
+-------------------------------------------------------------------
+END OF REPORT
+-------------------------------------------------------------------
