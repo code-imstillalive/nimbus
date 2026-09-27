@@ -30,6 +30,7 @@ from unittest.mock import patch
 import _solver_path  # noqa: F401
 import pytest
 import solver_writer
+from _isolated_state import isolated_state_paths
 from test_main_golden_output_guardrail import (
     _HEALTHY_LOAD_STATE,
     _LOAD_SENSOR,
@@ -82,11 +83,8 @@ def _run_main_and_capture():
         patch.object(solver_writer, "ha_post_state", side_effect=_capture),
         patch.object(solver_writer, "acquire_lock", return_value=True),
         patch.object(solver_writer, "release_lock"),
-        patch.object(
-            solver_writer,
-            "PLAN_STATE_PATH",
-            "/tmp/nonexistent_plan_state_p2p_pin_test.json",
-        ),
+        # nimbus issue #1330: all four persisted paths, not just this one.
+        isolated_state_paths(solver_writer),
     ):
         solver_writer.main()
     return posted

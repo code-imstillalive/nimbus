@@ -198,12 +198,45 @@ _PATCH_CALL = re.compile(
 )
 
 
+#: How this package refers to the module under analysis. `sw` is the
+#: overwhelming convention (`sw._LOGGER`, `sw.ha_get`); the others appear in a
+#: handful of files.
+_MODULE_ALIASES = frozenset({"sw", "solver_writer", "_sw", "_solver_writer"})
+
+
 def _referenced_names(path: Path) -> set[str]:
-    """Names a file really READS -- attribute access, bare name, or import.
+    """Names a file really reads FROM THE MODULE UNDER ANALYSIS.
 
     Deliberately AST rather than text. A docstring that names a function is not
     a caller of it, and this codebase's docstrings cross-reference functions
     constantly, so a text search over-reports badly.
+
+    ## Why this is narrower than "every name the file mentions"
+
+    It used to collect every `ast.Name` id and every `ast.Attribute` attr,
+    whatever object the attribute sat on. That over-reports badly for any name
+    this package also defines locally, and `_LOGGER` is the worst case in the
+    tree: measured, it reported **19** production callers, of which **13** were
+    modules containing their own `_LOGGER = logging.getLogger(__name__)` and
+    depending on `solver_writer` for nothing. Only **6** genuinely read
+    `sw._LOGGER`.
+
+    That mattered because `--callers` output is the input to the plan's own
+    façade criterion, applied per name. A 3x over-count on a name with 6 real
+    callers is the difference between "6 production callers, all in
+    solver_inputs, which is exactly the layer violation to retire" and a vague
+    19 that suggests the name is used everywhere.
+
+    So a reference now counts only when it is unambiguously resolved from the
+    module:
+
+    * attribute access through one of `_MODULE_ALIASES` (`sw.ha_get`), or
+    * an explicit `from ... import <name>` naming it.
+
+    A bare `ast.Name` load no longer counts on its own -- if the name was
+    imported, the import arm already caught it, and if it was not, it resolves
+    to something local. A `Store`-context name (`_LOGGER = ...`) is a
+    definition, never a reference, and was the bulk of the over-count.
     """
     try:
         tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -211,11 +244,11 @@ def _referenced_names(path: Path) -> set[str]:
         return set()
     found: set[str] = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.Name):
-            found.add(node.id)
-        elif isinstance(node, ast.Attribute):
-            found.add(node.attr)
-        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+        if isinstance(node, ast.Attribute):
+            base = node.value
+            if isinstance(base, ast.Name) and base.id in _MODULE_ALIASES:
+                found.add(node.attr)
+        elif isinstance(node, ast.Import | ast.ImportFrom):
             for alias in node.names:
                 found.add(alias.name.split(".")[-1])
     return found
