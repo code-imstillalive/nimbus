@@ -309,9 +309,10 @@ def build_record(
             reason=(
                 f"region {region!r} is not one of {sorted(VALID_REGIONS)} -- "
                 "Nimbus resolves it from the Companion App's own "
-                "sensor.<device>_geocoded_location (see sensor_discovery."
-                "resolve_geocoded_region_and_prefix); exactly one usable "
-                "such sensor is needed"
+                "geocoded-location sensor (see "
+                "sensor_discovery.resolve_geocoded_region_and_prefix for "
+                "the exact naming rule); exactly one usable such sensor "
+                "is needed"
             )
         )
     if not (postcode_prefix and _POSTCODE_PREFIX_RE.match(postcode_prefix)):
