@@ -82,6 +82,12 @@ PRIOR_READ_UNREACHABLE = "unreachable"  # HA could not be reached at all
 _PRIOR_READ_DEGRADED = (PRIOR_READ_UNAVAILABLE, PRIOR_READ_UNREACHABLE)
 
 
+try:
+    from .. import solver_shared
+except ImportError:  # pragma: no cover - standalone/cron path
+    import solver_shared  # type: ignore[no-redef]
+
+
 def _solver_writer():
     """The `solver_writer` module, imported late and by MODULE (never by
     name) -- see this package's `__init__.py` for the full reasoning."""
@@ -138,7 +144,7 @@ def _compute_report_for_window(
     """
     sw = _solver_writer()
     if day_end <= day_start:
-        sw._LOGGER.debug(
+        solver_shared._LOGGER.debug(
             "Nimbus quality: skip. Window end (%s) not after start (%s)",
             day_end.isoformat(),
             day_start.isoformat(),
@@ -149,7 +155,7 @@ def _compute_report_for_window(
     battery_sensor = cfg.get("solver_battery_power_sensor")
     load_sensor = cfg.get("solver_whole_house_cross_check_sensor")
     if not solar_sensor or not battery_sensor or not load_sensor:
-        sw._LOGGER.debug(
+        solver_shared._LOGGER.debug(
             "Nimbus quality: skip. Missing sensor config (solar=%s battery=%s "
             "load=%s) -- configure all three under Solver settings to enable "
             "quality scoring",
@@ -161,7 +167,7 @@ def _compute_report_for_window(
 
     window_hours = (day_end - day_start).total_seconds() / 3600.0
     if not allow_partial and window_hours < 24.0:
-        sw._LOGGER.debug(
+        solver_shared._LOGGER.debug(
             "Nimbus quality: skip. Window is %.2f h, shorter than the 24 h a "
             "full-day score requires (allow_partial=False)",
             window_hours,
@@ -193,7 +199,7 @@ def _compute_report_for_window(
     )
     n_periods = round(window_hours / period_hours)
     if n_periods < 1:
-        sw._LOGGER.debug(
+        solver_shared._LOGGER.debug(
             "Nimbus quality: skip. Window (%.4f h) rounds to fewer than one "
             "%.2f h period",
             window_hours,
@@ -208,7 +214,7 @@ def _compute_report_for_window(
     load_hist = sw.fetch_entity_history_range(load_sensor, day_start, day_end)
     battery_hist = sw.fetch_entity_history_range(battery_sensor, day_start, day_end)
     if not solar_hist or not load_hist or not battery_hist:
-        sw._LOGGER.info(
+        solver_shared._LOGGER.info(
             "Nimbus quality: skip. Real history missing for window "
             "[%s, %s] (solar=%d, load=%d, battery=%d rows) -- either the "
             "window predates when these sensors started recording, or one "
@@ -289,9 +295,9 @@ def _compute_report_for_window(
             # clearly not the recorder catching up -- see
             # _COVERAGE_SKIP_WARN_AFTER for why this is not one level.
             log = (
-                sw._LOGGER.info
+                solver_shared._LOGGER.info
                 if seen < sw._COVERAGE_SKIP_WARN_AFTER
-                else sw._LOGGER.warning
+                else solver_shared._LOGGER.warning
             )
             log(
                 "Nimbus quality: skip #%d for %s. Real history covers only "
@@ -376,9 +382,9 @@ def _compute_report_for_window(
         seen = sw._SOC_HISTORY_SKIP_COUNTS.get(day_key, 0) + 1
         sw._SOC_HISTORY_SKIP_COUNTS[day_key] = seen
         log = (
-            sw._LOGGER.info
+            solver_shared._LOGGER.info
             if seen < sw._COVERAGE_SKIP_WARN_AFTER
-            else sw._LOGGER.warning
+            else solver_shared._LOGGER.warning
         )
         log(
             "Nimbus quality: skip #%d for %s. The configured battery SoC "
@@ -539,7 +545,7 @@ def _compute_report_for_window(
     if not (min_soc_kwh_bound <= initial_soc_kwh_raw <= max_soc_kwh_bound) or not (
         min_soc_kwh_bound <= final_soc_kwh_raw <= max_soc_kwh_bound
     ):
-        sw._LOGGER.warning(
+        solver_shared._LOGGER.warning(
             "Nimbus Solver: historical SoC outside configured [%.2f%%, %.2f%%] "
             "envelope for this scorer window (start %.2f%%, end %.2f%%) -- "
             "scoring the real trajectory honestly, both J_ref and J_ach see "
@@ -565,7 +571,7 @@ def _compute_report_for_window(
     # valid but out-of-schedule state before the LP ever sees it).
     if not (0.0 <= initial_soc_kwh_raw <= capacity_kwh):
         initial_soc_kwh = min(max(initial_soc_kwh_raw, 0.0), capacity_kwh)
-        sw._LOGGER.warning(
+        solver_shared._LOGGER.warning(
             "Nimbus Solver: historical starting SoC (%.2f%%) is outside the "
             "battery's own PHYSICAL range [0%%, 100%%] -- clamping to %.4f "
             "kWh to keep this scorer alive. This is sensor nonsense "
@@ -576,7 +582,7 @@ def _compute_report_for_window(
         )
     if not (0.0 <= final_soc_kwh_raw <= capacity_kwh):
         final_soc_kwh_actual = min(max(final_soc_kwh_raw, 0.0), capacity_kwh)
-        sw._LOGGER.warning(
+        solver_shared._LOGGER.warning(
             "Nimbus Solver: historical ending SoC (%.2f%%) is outside the "
             "battery's own PHYSICAL range [0%%, 100%%] -- clamping to %.4f "
             "kWh to keep this scorer alive. This is sensor nonsense "
@@ -708,8 +714,8 @@ def _compute_report_for_window(
                 n_periods=n_periods,
             )
         )
-    except Exception:  # a diagnostic must never take the whole day's report down; same posture as every other optional reconstruction here
-        sw._LOGGER.debug(
+    except Exception:  # noqa: BLE001 -- exc_info is logged; ruff cannot trace _LOGGER through this module's dual-mode solver_shared import (#1301)  # a diagnostic must never take the whole day's report down; same posture as every other optional reconstruction here
+        solver_shared._LOGGER.debug(
             "Nimbus quality: controllable-load delivery reconstruction failed "
             "for [%s, %s] -- the rest of the report is unaffected",
             day_start.isoformat(),
@@ -834,7 +840,7 @@ def _compute_report_for_window(
     # "The gate itself is right ... but being silent about it is not."
     # This is that same argument applied to the case it skipped.
     if not settlement_sensor and fixed_export_kw is not None:
-        sw._LOGGER.warning(
+        solver_shared._LOGGER.warning(
             "Nimbus: this install commits real P2P export (a P2P block is "
             "configured with rate_kw > 0) but no P2P settlement history "
             "sensor is set, so %s is being scored with ZERO P2P export "
@@ -972,7 +978,7 @@ def _compute_report_for_window(
         # 2026-08-30 as initial_soc_kwh < min_soc_kwh after a reload --
         # logging the same three values here makes that diagnosis a
         # one-line log read instead of a repeat investigation.
-        sw._LOGGER.warning(
+        solver_shared._LOGGER.warning(
             "Nimbus quality: skip. Oracle LP infeasible for window "
             "[%s, %s] (initial_soc=%.3f min_soc=%.3f max_soc=%.3f kWh): %s",
             day_start.isoformat(),
@@ -1830,7 +1836,7 @@ def _carry_forward_quality_history(
             # silent: an unconditional warning here broke it, correctly.
             rescued = sorted(k for k in prior if k != day_key)
             if rescued:
-                sw._LOGGER.warning(
+                solver_shared._LOGGER.warning(
                     "Nimbus #1248: the quality report read back %s and with no "
                     "history, so recovering the %d earlier row(s) this process "
                     "last published (%s) rather than writing a one-row table "
@@ -1847,7 +1853,7 @@ def _carry_forward_quality_history(
             # published before and very likely had rows. Nothing to recover
             # from, so this publish genuinely truncates, and that is worth
             # saying out loud.
-            sw._LOGGER.warning(
+            solver_shared._LOGGER.warning(
                 "Nimbus #1248: the quality report exists but read back "
                 "`unavailable`, so its history could not be read, and this "
                 "process has published none yet to recover from. Publishing "
@@ -1859,7 +1865,7 @@ def _carry_forward_quality_history(
             # the standalone/cron path it is a routine transient. INFO, not
             # WARNING: warning every cycle while HA is down would be noise,
             # and two existing tests assert this path stays quiet.
-            sw._LOGGER.info(
+            solver_shared._LOGGER.info(
                 "Nimbus #1248: could not reach HA to read the quality "
                 "report's history, and this process has published none yet. "
                 "Publishing today's row alone."
@@ -2051,7 +2057,7 @@ def rescore_quality_history(
             # tests/test_solver_writer_no_silent_failures.py exists to
             # stop (and did stop -- this handler shipped without the log
             # line and that guard caught it in CI).
-            sw._LOGGER.warning(
+            solver_shared._LOGGER.warning(
                 "Nimbus quality (#1120): rescoring %s failed (%s: %s) -- "
                 "skipping this day and continuing with the rest",
                 key,
@@ -2160,14 +2166,14 @@ def rescore_quality_history(
             # and left unsolved for the publisher's own.
             attrs["generated_at"] = now.isoformat()
         sw.ha_post_state(sw.QUALITY_ENTITY_ID, state, attrs)
-        sw._LOGGER.info(
+        solver_shared._LOGGER.info(
             "Nimbus quality (#1120): rescored %d day(s) %s, skipped %d",
             len(rescored),
             ", ".join(r["date"] for r in rescored),
             len(skipped),
         )
     else:
-        sw._LOGGER.warning(
+        solver_shared._LOGGER.warning(
             "Nimbus quality (#1120): rescore over the last %d day(s) wrote "
             "nothing -- every day was unscoreable (%s)",
             days,
@@ -2320,7 +2326,7 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
             # guard that exists to stop a once-a-day score re-solving
             # 1440 times. Correctness of the guard beats tidiness here.
             if not sw._keep_published_quality_score(existing_attrs, now):
-                sw._LOGGER.info(
+                solver_shared._LOGGER.info(
                     "Nimbus quality: %s was scored before its settlement "
                     "was available (%s) -- re-scoring it now that the "
                     "real figures may have landed",
@@ -2356,7 +2362,7 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
                     # the running release.
                     freshly_computed=False,
                 )
-                sw._LOGGER.debug(
+                solver_shared._LOGGER.debug(
                     "Nimbus quality: fast-path hit, already scored %s -- re-"
                     "pushing cached state to keep the freshness stamp alive",
                     yesterday_key,
@@ -2390,7 +2396,7 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
         # call site -- this one line is what ties that reason back to
         # "and therefore the sensor was not updated this cycle," so a log
         # search for this entity's own name always surfaces the full story.
-        sw._LOGGER.debug(
+        solver_shared._LOGGER.debug(
             "Nimbus quality: no report for %s this cycle -- sensor left "
             "unchanged, will retry next cycle (see the reason logged just "
             "above, if any)",
@@ -2432,7 +2438,7 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
                 "household (#956) does not explain this one -- please report "
                 "this day's report on nimbus issue #956, it is a second cause"
             )
-        sw._LOGGER.warning(
+        solver_shared._LOGGER.warning(
             "Nimbus quality: %s scored with regret_dollars=%s, which is "
             "NEGATIVE -- the achieved dispatch priced out cheaper than "
             "perfect foresight. EPR reads %s%% and neither figure is usable "
@@ -2454,7 +2460,7 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
         and yesterday_key not in sw._QUALITY_REPORT_EPR_DENOMINATOR_WARNED
     ):
         sw._QUALITY_REPORT_EPR_DENOMINATOR_WARNED.add(yesterday_key)
-        sw._LOGGER.warning(
+        solver_shared._LOGGER.warning(
             "Nimbus quality: %s published EPR %s%% but its DENOMINATOR "
             "(theoretical_maximum_yield = j_ref - j_star) is %s, which is "
             "not positive -- reason %r. j_star=%s priced out WORSE than the "
@@ -2511,7 +2517,7 @@ def publish_daily_quality_report(cfg: dict, now: datetime) -> None:
                 "storage than the power sensor/capacity model (see nimbus "
                 "issue #532)"
             )
-        sw._LOGGER.warning(
+        solver_shared._LOGGER.warning(
             "Nimbus quality: %s scored with soc_discrepancy_reliable=False "
             "(reason=%s, max discrepancy %.1f pt, mean %.1f pt) -- %s. EPR "
             "and every other figure on this day's report are unreliable "

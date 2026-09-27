@@ -78,6 +78,7 @@ _HELPER = "_day_ahead_forecast_regret_attributes"
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from _ha_stubs import install_ha_stubs
+from _writer_source import find_function
 
 install_ha_stubs()
 
@@ -89,10 +90,10 @@ _WRITER_TREE = ast.parse(_WRITER_SRC)
 
 
 def _fn(name: str) -> ast.FunctionDef:
-    for node in ast.walk(_WRITER_TREE):
-        if isinstance(node, ast.FunctionDef) and node.name == name:
-            return node
-    raise AssertionError(name + " not found in solver_writer.py")
+    # Searches solver_writer.py AND every module #1298 has extracted out of
+    # it -- _compute_report_for_window() now lives in
+    # solver_reports/quality.py. See tests/_writer_source.py.
+    return find_function(name)
 
 
 def _src(name: str) -> str:
@@ -112,9 +113,27 @@ def _keys() -> list[str]:
     raise AssertionError("_FORECAST_REGRET_KEYS not found")
 
 
+def _called_name(func: ast.expr) -> str | None:
+    """The called name, whether it is bare or attribute-qualified.
+
+    `_HELPER(...)` was always a bare ast.Name while the scorer lived in
+    solver_writer.py. nimbus issue #1301 moved
+    _compute_report_for_window() into solver_reports/quality.py, where every
+    solver_writer name is reached through the deferred accessor -- so the
+    call is now `sw._day_ahead_forecast_regret_attributes(...)` and
+    `func.id` does not exist. The property this test checks is that the
+    scorer CALLS the helper; the access path is not part of it.
+    """
+    if isinstance(func, ast.Name):
+        return func.id
+    if isinstance(func, ast.Attribute):
+        return func.attr
+    return None
+
+
 def _call_site_kwargs() -> dict:
     for call in ast.walk(_fn("_compute_report_for_window")):
-        if isinstance(call, ast.Call) and getattr(call.func, "id", None) == _HELPER:
+        if isinstance(call, ast.Call) and _called_name(call.func) == _HELPER:
             return {k.arg: getattr(k.value, "id", None) for k in call.keywords}
     raise AssertionError("call site not found")
 

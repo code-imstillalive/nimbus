@@ -26,6 +26,12 @@ except ImportError:  # pragma: no cover - standalone/cron path
     from solver import elements, lp, network  # type: ignore[no-redef]
 
 
+try:
+    from .. import solver_shared
+except ImportError:  # pragma: no cover - standalone/cron path
+    import solver_shared  # type: ignore[no-redef]
+
+
 def _solver_writer():
     """The `solver_writer` module, imported late and by MODULE (never by
     name) -- see this package's `__init__.py` for the full reasoning. In
@@ -318,15 +324,15 @@ def compute_nimbus_only_soc_counterfactual(cfg: dict, day: datetime) -> dict | N
                     else None
                 ),
             )
-        except Exception:  # exc_info is logged below. The `blind-except suppression it
+        except Exception:  # noqa: BLE001 -- exc_info is logged; ruff cannot trace _LOGGER through this module's dual-mode solver_shared import (#1301)  # exc_info is logged below. The `blind-except suppression it
             # carried in solver_writer.py is deliberately NOT carried across:
             # ruff's `logger-objects` setting names solver_shared._LOGGER, and
-            # reaching it as `sw._LOGGER` here stops BLE001 firing at all, so the
+            # reaching it as `solver_shared._LOGGER` here stops BLE001 firing at all, so the
             # directive becomes RUF100 'unused noqa'. Dropping it is the only
             # non-verbatim edit in this module (nimbus issue #1301, Phase 2b).
             # nimbus issue #363 (Mark Purcell, codebase review): the
             # freeze-and-continue behaviour stays, breadcrumb added.
-            sw._LOGGER.debug(
+            solver_shared._LOGGER.debug(
                 "Nimbus Solver: compute_nimbus_only_soc_counterfactual "
                 "tick solve failed",
                 exc_info=True,

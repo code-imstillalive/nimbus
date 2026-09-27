@@ -45,6 +45,7 @@ the facade's re-export aliases to wherever the function now lives.
 
 from __future__ import annotations
 
+import ast
 import pathlib
 
 import _solver_path  # noqa: F401 -- sys.path setup side effect
@@ -86,4 +87,46 @@ def writer_source() -> str:
     """
     return "\n".join(
         p.read_text(encoding="utf-8") for p in writer_source_paths() if p.exists()
+    )
+
+
+def writer_trees() -> list[tuple[pathlib.Path, ast.Module]]:
+    """Each module above parsed separately, in the same order.
+
+    Separately, and not as one parse of `writer_source()`, because the
+    concatenation is deliberately NOT valid Python: several of these modules
+    open with `from __future__ import annotations`, which the language
+    requires to be the first statement in a file. Text searches over the
+    concatenation are fine; an `ast.parse` of it raises.
+    """
+    out = []
+    for path in writer_source_paths():
+        if not path.exists():
+            continue
+        out.append(
+            (path, ast.parse(path.read_text(encoding="utf-8"), filename=str(path)))
+        )
+    return out
+
+
+def find_function(name: str) -> ast.FunctionDef | ast.AsyncFunctionDef:
+    """The one top-level or nested `def <name>` across the writer's modules.
+
+    Replaces the common `ast.walk(ast.parse(solver_writer.py))` lookup, which
+    stopped finding anything #1298 has relocated even though the function is
+    still there, still called, and still re-exported from the facade.
+    """
+    for path, tree in writer_trees():
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                and node.name == name
+            ):
+                return node
+    searched = ", ".join(p.name for p in writer_source_paths() if p.exists())
+    raise AssertionError(
+        f"{name} not found in any of the writer's modules ({searched}). "
+        "If it was renamed or deleted that is a real finding; if it MOVED, "
+        "this helper already follows it, so check the module list in "
+        "tests/_writer_source.py."
     )

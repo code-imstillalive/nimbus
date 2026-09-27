@@ -33,6 +33,12 @@ _PRICE_BAND_WIDTH = (
 )
 
 
+try:
+    from .. import solver_shared
+except ImportError:  # pragma: no cover - standalone/cron path
+    import solver_shared  # type: ignore[no-redef]
+
+
 def _solver_writer():
     """The `solver_writer` module, imported late and by MODULE (never by
     name) -- see this package's `__init__.py` for the full reasoning. In
@@ -64,7 +70,7 @@ def _compute_flex_report_for_window(
     battery_sensor = cfg.get("solver_battery_power_sensor")
     load_sensor = cfg.get("solver_whole_house_cross_check_sensor")
     if not solar_sensor or not battery_sensor or not load_sensor:
-        sw._LOGGER.debug(
+        solver_shared._LOGGER.debug(
             "Nimbus flex report: skip. Missing sensor config (solar=%s "
             "battery=%s load=%s) -- same three sensors compute_daily_"
             "quality_report() requires, under Solver settings",
@@ -75,7 +81,7 @@ def _compute_flex_report_for_window(
         return None
     window_hours = (day_end - day_start).total_seconds() / 3600.0
     if window_hours < 24.0:
-        sw._LOGGER.debug(
+        solver_shared._LOGGER.debug(
             "Nimbus flex report: skip. Window is %.2f h, shorter than the "
             "24 h a full-day report requires",
             window_hours,
@@ -93,7 +99,7 @@ def _compute_flex_report_for_window(
     load_hist = sw.fetch_entity_history_range(load_sensor, day_start, day_end)
     battery_hist = sw.fetch_entity_history_range(battery_sensor, day_start, day_end)
     if not solar_hist or not load_hist or not battery_hist:
-        sw._LOGGER.info(
+        solver_shared._LOGGER.info(
             "Nimbus flex report: skip. Real history missing for window "
             "[%s, %s] (solar=%d, load=%d, battery=%d rows)",
             day_start.isoformat(),
