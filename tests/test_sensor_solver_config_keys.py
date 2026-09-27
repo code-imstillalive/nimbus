@@ -43,6 +43,7 @@ from custom_components.nimbus_load.const import (
     CONF_SOLVER_DISPATCH_DRY_RUN,
     CONF_SOLVER_FLEX_SIGNALS_ENABLED,
     CONF_SOLVER_LOAD_FORECAST_ENTITIES,
+    CONF_SOLVER_NOWCAST_MEASUREMENT_ENABLED,
     CONF_SOLVER_OFFER_CURVE_ENABLED,
     CONF_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED,
     CONF_SOLVER_WHOLE_HOUSE_CROSS_CHECK_SENSOR,
@@ -141,6 +142,13 @@ def test_every_switch_entity_key_solver_writer_reads_via_cfg_is_resolved_live():
         CONF_SOLVER_FLEX_SIGNALS_ENABLED,
         CONF_SOLVER_PRICE_SPIKE_OVERRIDE_ARMED,
         CONF_SOLVER_CALIBRATED_OBJECTIVE_ENABLED,
+        # nimbus issue #1259: solver_writer.py's own _publish_side_reports
+        # reads this via cfg.get("solver_nowcast_measurement_enabled") to
+        # decide whether to run the index-0-vs-index-1 solar disagreement
+        # measurement at all -- so it needs the same live-switch resolve
+        # path, or the switch would be the silent no-op this test exists
+        # to catch.
+        CONF_SOLVER_NOWCAST_MEASUREMENT_ENABLED,
     )
     missing = [
         key

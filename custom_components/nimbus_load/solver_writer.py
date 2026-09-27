@@ -10714,16 +10714,50 @@ SOLAR_DELIVERY_ROLLING_WINDOW_HOURS = 6.0
 # (e.g.) 0.80 during high-PV hours, that's implicit AC-side clipping."
 SOLAR_DELIVERY_UNDERPERFORMING_THRESHOLD = 0.80
 
+# nimbus issue #1259. How far apart solar_kw[0] (the live-measured
+# anchor) and solar_kw[1] (the first genuine forecast period) have to sit
+# before this cycle counts as a real DISAGREEMENT worth grading against
+# reality. 3.0 kW is derived from the one event on record, not picked: it
+# stepped 1.78 -> 15.89 kW, so any threshold below ~14 kW captures it,
+# and the reason to sit well below that is to capture the ORDINARY cases
+# too -- the open question is how often a sharp disagreement happens at
+# all, which a threshold tuned to the single known event could never
+# answer. Above the measurement noise of a real PV sensor, below any
+# step a household would notice on a chart.
+SOLAR_NOWCAST_DISAGREEMENT_KW = 3.0
+# Rolling window the published counts cover. Wider than the delivery
+# ratio's own 6 h because these events are RARE by construction (only
+# disagreements above the threshold are recorded), so a 6 h window would
+# usually publish zero and answer nothing. A full day also spans both a
+# morning and an afternoon cloud regime.
+SOLAR_NOWCAST_ROLLING_WINDOW_HOURS = 24.0
+
 
 def _load_solar_delivery_state() -> dict:
+    # nimbus issue #1259: two independent measurements now share this one
+    # state file (the #128 delivery ratio and the index-0-vs-index-1
+    # nowcast disagreement check). The nowcast keys are defaulted rather
+    # than required, so a state file written by any earlier version loads
+    # cleanly and simply starts with an empty nowcast buffer -- and both
+    # writers preserve keys they do not own (see each function's own save
+    # call), so neither can silently wipe the other's buffer.
+    state: dict = {
+        "pending": [],
+        "ratios": [],
+        "nowcast_pending": [],
+        "nowcast_events": [],
+        "nowcast_considered": [],
+        "nowcast_disagreements": [],
+    }
     try:
         with open(SOLAR_DELIVERY_RATIO_PATH, encoding="utf-8") as f:
             data = json.load(f)
         if isinstance(data, dict) and "pending" in data and "ratios" in data:
-            return data
+            state.update(data)
+            return state
     except (OSError, ValueError):
         pass
-    return {"pending": [], "ratios": []}
+    return state
 
 
 def _save_solar_delivery_state(state: dict) -> None:
@@ -10823,7 +10857,13 @@ def update_solar_delivery_ratio(
             }
         )
 
-    _save_solar_delivery_state({"pending": still_pending, "ratios": ratios})
+    # nimbus issue #1259: write back the state dict this function LOADED,
+    # with only the two keys it owns replaced -- not a freshly-built
+    # two-key dict, which would silently drop the nowcast buffer the
+    # sibling measurement keeps in this same file.
+    state["pending"] = still_pending
+    state["ratios"] = ratios
+    _save_solar_delivery_state(state)
 
     if not ratios:
         return {
@@ -10837,6 +10877,256 @@ def update_solar_delivery_ratio(
         "solar_delivery_sample_count": len(ratios),
         "solar_delivery_underperforming": avg_ratio
         < SOLAR_DELIVERY_UNDERPERFORMING_THRESHOLD,
+    }
+
+
+def update_solar_nowcast_disagreement(
+    cfg: dict,
+    now: datetime,
+    grid_times: list[datetime],
+    solar_kw: list[float],
+) -> dict | None:
+    """Measure, never correct: how often does solar_kw[1] (the first
+    genuine forecast period) disagree sharply with solar_kw[0] (the live-
+    measured anchor build_solar_arrays() writes over index 0 only), and
+    when it does, WHICH OF THE TWO is closer to what the real PV sensor
+    then actually did at index 1's own timestamp?
+
+    ## Why this exists, and why it is not the mechanism #1259 proposed
+
+    nimbus issue #1259 proposed blending the live anchor forward into the
+    first 3-6 periods with a decaying weight, to soften the hard cliff
+    between index 0 and index 1. That proposal was checked against the
+    one real event on record -- the event that motivated it -- before
+    being built, and the arithmetic rejected it:
+
+        live anchor @12:30 (solar_kw[0])   1.78 kW
+        forecast    @12:35 (solar_kw[1])  15.89 kW
+        ACTUAL      @12:35 (live sensor)  17.88 kW
+
+    Today's pure forecast at index 1 was off by 1.98 kW. Every decay
+    shape considered would have been off by MORE: linear over 3 periods
+    9.04 kW (4.6x worse), linear over 6 periods 13.74 kW (6.9x), an
+    exponential half-life of 2 periods 11.96 kW (6.0x), even a gentle
+    w=0.25 blend 5.51 kW (2.8x). The reason is structural rather than a
+    matter of tuning: the forecast was RIGHT (a real cloud-clearing ramp
+    was already underway), so the anchor was the stale number, and
+    blending a stale level forward can only drag a correct forecast
+    toward it. The live sensor's useful content that minute was its
+    DIRECTION (2.65 -> 4.93 -> 17.71 kW over 90 seconds), which a blend
+    of levels discards.
+
+    Mark Purcell's own decision on the issue, verbatim: *"don't build
+    mechanism 1... Leaving open as a measurement task rather than an
+    implementation one, unless a second real event shows a different
+    shape."* This function is that measurement task. It exists so the
+    question is settled by many events instead of by the one screenshot
+    that opened the issue -- and it deliberately publishes the evidence
+    for BOTH answers, including the one that would justify building a
+    nowcast blend after all.
+
+    ## Mechanism -- the #128 plumbing, one horizon shorter
+
+    Identical "queue a prediction now, grade it once reality catches up"
+    shape as update_solar_delivery_ratio() above, sharing the same state
+    file, the same history reader, the same rolling-window prune and the
+    same never-raise contract. Two deliberate differences:
+
+    - **Horizon.** #128 queues ~60 minutes ahead to test a forecast
+      against a genuinely later reality. This queues grid_times[1] --
+      the very next period, typically 1-5 minutes -- because index 1 is
+      the entire subject.
+    - **What is queued.** #128 stores one forecast value. This stores
+      BOTH candidates, so resolution grades them against the same
+      actual and neither gets a different reference point.
+
+    Only cycles where the two candidates are genuinely far apart are
+    queued (SOLAR_NOWCAST_DISAGREEMENT_KW), so the history fetches this
+    adds are bounded by how often the phenomenon actually happens rather
+    than by the solve cadence. Cycles that were CONSIDERED are counted
+    regardless, at zero cost, which is what makes a rate publishable and
+    not just a raw event count.
+
+    Both candidates are read off the array this solve is already using,
+    so nothing new is fetched to queue an event: build_solar_arrays()
+    has already written the live measurement into index 0 by the time
+    _publish_side_reports() runs.
+
+    Returns None -- a complete no-op, not even a state-file read -- when
+    switch.nimbus_solver_nowcast_measurement_enabled is off (the
+    default) or
+    solver_solar_power_sensor is unconfigured. Never raises, and never
+    touches solar_kw: this cannot change a plan, by construction.
+
+    Prior art (per this repo's own CHECK PRIOR ART directive): EMHASS's
+    `src/emhass/pv_bias_calibration.py` is the closest analogue and is a
+    DAY-scale bias tracker with explicitly "no side effects" -- same
+    measure-don't-correct posture, different timescale, and it has no
+    intraday nowcast blend to copy. HAEO has no equivalent of either.
+    Nimbus's own closest prior art is the #128 ratio this reuses.
+    """
+    if not cfg.get("solver_nowcast_measurement_enabled"):
+        return None
+    solar_sensor = cfg.get("solver_solar_power_sensor")
+    if not solar_sensor:
+        return None
+
+    state = _load_solar_delivery_state()
+    pending = state.get("nowcast_pending", [])
+    events = state.get("nowcast_events", [])
+
+    still_pending = []
+    for entry in pending:
+        try:
+            target_time = datetime.fromisoformat(entry["target_time"])
+            anchor_kw = float(entry["anchor_kw"])
+            forecast_kw = float(entry["forecast_kw"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if target_time > now:
+            still_pending.append(entry)
+            continue
+        hist = fetch_entity_history_range(
+            solar_sensor,
+            target_time - timedelta(minutes=10),
+            target_time + timedelta(minutes=10),
+        )
+        if not hist:
+            # Genuinely unresolvable (no recorder rows around that
+            # instant) -- dropped, never re-queued, same as #128's own
+            # unresolvable path. Recording it as a tie would invent a
+            # measurement that was never taken.
+            continue
+        # backfill_first=True for the same reason #128 documents: this is
+        # a tight +/-10min window around one instant, so its first sample
+        # is genuinely representative, and falling through to 0.0 would
+        # fabricate "solar delivered nothing".
+        actual_kw = resample_history_nearest(hist, [target_time], backfill_first=True)[
+            0
+        ]
+        events.append(
+            {
+                "time": now.isoformat(),
+                "target_time": entry["target_time"],
+                "anchor_kw": round(anchor_kw, 3),
+                "forecast_kw": round(forecast_kw, 3),
+                "actual_kw": round(float(actual_kw), 3),
+                "anchor_abs_error_kw": round(abs(anchor_kw - actual_kw), 3),
+                "forecast_abs_error_kw": round(abs(forecast_kw - actual_kw), 3),
+            }
+        )
+
+    cutoff = now - timedelta(hours=SOLAR_NOWCAST_ROLLING_WINDOW_HOURS)
+
+    def _in_window(stamp: object) -> bool:
+        # Parses ONCE and binds the result, rather than calling
+        # _safe_fromisoformat() twice per element the way the #128 ratio
+        # filter above does -- same behaviour, but the None case is
+        # narrowed for a reader (and for mypy) instead of being
+        # re-derived in the comparison.
+        if not isinstance(stamp, str):
+            return False
+        parsed = _safe_fromisoformat(stamp)
+        return parsed is not None and parsed >= cutoff
+
+    events = [e for e in events if _in_window(e.get("time"))]
+    considered = [t for t in state.get("nowcast_considered", []) if _in_window(t)]
+    # Observation timestamps of the cycles that DID disagree, kept
+    # separately from `events` on purpose: an event's own "time" is when
+    # it was RESOLVED, and a rate whose numerator and denominator are
+    # stamped at different moments is not a rate. These two lists are
+    # both stamped at observation time, so their ratio is exact.
+    disagreements = [t for t in state.get("nowcast_disagreements", []) if _in_window(t)]
+
+    disagreement_kw = None
+    if len(grid_times) >= 2 and len(solar_kw) >= 2:
+        anchor_now = float(solar_kw[0])
+        forecast_next = float(solar_kw[1])
+        # Same dawn/dusk noise floor as #128's own SOLAR_DELIVERY_MIN_
+        # FORECAST_KW, reused rather than re-invented: a 0.3 vs 0.1 kW
+        # "disagreement" at first light is real arithmetic about nothing.
+        if max(anchor_now, forecast_next) >= SOLAR_DELIVERY_MIN_FORECAST_KW:
+            considered.append(now.isoformat())
+            disagreement_kw = abs(forecast_next - anchor_now)
+            if disagreement_kw >= SOLAR_NOWCAST_DISAGREEMENT_KW:
+                disagreements.append(now.isoformat())
+                still_pending.append(
+                    {
+                        "target_time": grid_times[1].isoformat(),
+                        "anchor_kw": anchor_now,
+                        "forecast_kw": forecast_next,
+                    }
+                )
+
+    state["nowcast_pending"] = still_pending
+    state["nowcast_events"] = events
+    state["nowcast_considered"] = considered
+    state["nowcast_disagreements"] = disagreements
+    _save_solar_delivery_state(state)
+
+    # .get() with a default rather than [] indexing, so a hand-edited or
+    # half-written state file degrades to "this event says nothing"
+    # instead of raising -- this function's docstring promises it never
+    # raises, and a KeyError here would cost the caller the whole
+    # measurement over a single malformed row.
+    def _err(event: dict, key: str) -> float:
+        try:
+            return float(event.get(key, 0.0))
+        except (TypeError, ValueError):
+            return 0.0
+
+    resolved = len(events)
+    forecast_closer = sum(
+        1
+        for e in events
+        if _err(e, "forecast_abs_error_kw") < _err(e, "anchor_abs_error_kw")
+    )
+    anchor_closer = sum(
+        1
+        for e in events
+        if _err(e, "anchor_abs_error_kw") < _err(e, "forecast_abs_error_kw")
+    )
+    return {
+        "window_hours": SOLAR_NOWCAST_ROLLING_WINDOW_HOURS,
+        "disagreement_threshold_kw": SOLAR_NOWCAST_DISAGREEMENT_KW,
+        # This cycle's own reading, so a household can see the mechanism
+        # working without waiting for a resolution. None whenever both
+        # candidates sat under the dawn/dusk floor.
+        "disagreement_now_kw": (
+            round(disagreement_kw, 3) if disagreement_kw is not None else None
+        ),
+        "considered_count": len(considered),
+        "disagreement_count": len(disagreements),
+        "queued_count": len(still_pending),
+        "resolved_count": resolved,
+        # How often index 1 disagrees sharply with index 0 at all -- the
+        # first half of the open question. Counted over cycles that
+        # cleared the dawn/dusk floor, so it is a rate over real
+        # daylight cycles rather than over the whole 24 h.
+        "disagreement_rate": (
+            round(len(disagreements) / len(considered), 4) if considered else None
+        ),
+        # The second half, and the decisive one: of the disagreements
+        # graded against reality, how often was the PURE FORECAST closer
+        # than the live anchor? A value near 1.0 says today's hard cliff
+        # is right and #1259's mechanism 1 stays unbuilt. A value near
+        # 0.0 is the "second real event shows a different shape" Mark's
+        # own decision left the door open for.
+        "forecast_closer_count": forecast_closer,
+        "anchor_closer_count": anchor_closer,
+        "forecast_closer_fraction": (
+            round(forecast_closer / resolved, 4) if resolved else None
+        ),
+        "mean_forecast_abs_error_kw": (
+            round(sum(_err(e, "forecast_abs_error_kw") for e in events) / resolved, 3)
+            if resolved
+            else None
+        ),
+        "mean_anchor_abs_error_kw": (
+            round(sum(_err(e, "anchor_abs_error_kw") for e in events) / resolved, 3)
+            if resolved
+            else None
+        ),
     }
 
 
@@ -12261,6 +12551,21 @@ def publish_plan(
             ),
             "solar_delivery_underperforming": (solar_delivery or {}).get(
                 "solar_delivery_underperforming", False
+            ),
+            # nimbus issue #1259: the index-0-vs-index-1 solar
+            # disagreement measurement, as ONE nested dict and only when
+            # it actually ran. Absent rather than None when the switch is
+            # off (the default), deliberately: an always-present null
+            # would widen the attribute surface of this entity, and every
+            # golden-master snapshot with it, for a measurement no
+            # install has asked for yet. See update_solar_nowcast_
+            # disagreement()'s own docstring for what each field means
+            # and why the mechanism #1259 originally proposed was
+            # rejected instead of built.
+            **(
+                {"solar_nowcast_check": (solar_delivery or {})["solar_nowcast_check"]}
+                if (solar_delivery or {}).get("solar_nowcast_check") is not None
+                else {}
             ),
             "load_summed_18_now_kw": round(summed_18_now_kw, 3),
             "load_whole_house_cross_check_now_kw": round(whole_house_now_kw, 3)
@@ -15778,6 +16083,23 @@ def _publish_side_reports(
         # publishes above -- now logged instead of silently swallowed.
         _LOGGER.warning("Nimbus: solar delivery ratio update failed: %s", e)
         solar_delivery = None
+
+    # nimbus issue #1259: the index-0-vs-index-1 solar disagreement
+    # measurement, off unless
+    # switch.nimbus_solver_nowcast_measurement_enabled is on. Same "never break the real solve" wrapping as every publish
+    # above, and carried back on the same dict so the caller's own
+    # published-attributes block has one thing to read rather than two.
+    # Wrapped SEPARATELY from update_solar_delivery_ratio() on purpose:
+    # an opt-in measurement failing must not cost the household the #128
+    # ratio, which is on by default and has a real diagnostic use.
+    try:
+        nowcast = update_solar_nowcast_disagreement(cfg, now, grid_times, solar_kw)
+    except Exception as e:  # noqa: BLE001 -- see comment above; must never break the real solve
+        _LOGGER.warning("Nimbus: solar nowcast disagreement update failed: %s", e)
+        nowcast = None
+    if nowcast is not None:
+        solar_delivery = dict(solar_delivery or {})
+        solar_delivery["solar_nowcast_check"] = nowcast
     return solar_delivery
 
 
