@@ -276,10 +276,11 @@ the golden master pins it so a refactor cannot change it silently.
   plan back through the proximal term, and `forecast[1].shadow_price` becomes
   0.2999 instead of 0.3. CI starts clean, so it passes there. Verified by
   deleting the file (pass) and rerunning (fail). The harness above gives every
-  run its own state directory. To be filed: the test should use `tmp_path`.
+  run its own state directory. Filed as #1331: the test should use `tmp_path`.
 - **Order dependence.** Running `test_solver_writer_controllable_loads.py`
   before `test_commanded_state_guard_reports_its_own_failure.py` gives 35
-  failures. To be filed.
+  failures. Tracked in #1329: the file is imported twice, under two module
+  names, and the second copy's run-state store replaces the first's.
 
 ## Migration
 
