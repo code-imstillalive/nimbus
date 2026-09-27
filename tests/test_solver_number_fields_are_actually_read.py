@@ -36,6 +36,8 @@ import re
 import unittest
 from pathlib import Path
 
+from _writer_source import writer_source
+
 _ROOT = Path(__file__).resolve().parent.parent / "custom_components" / "nimbus_load"
 
 # nimbus issue #1013. The single known-inert field WAS
@@ -76,9 +78,14 @@ class TestEverySolverNumberIsActuallyRead(unittest.TestCase):
         # `self.writer` is the union of both files' text now, same
         # substring-membership check as before, so a field genuinely read
         # by either half of the split integration still counts as read.
-        self.writer = (_ROOT / "solver_writer.py").read_text(encoding="utf-8") + (
-            _ROOT / "solver_shared.py"
-        ).read_text(encoding="utf-8")
+        # Generalised from that hand-rolled two-file union to the shared one,
+        # which covers solver_writer.py plus EVERY module #1298 has extracted
+        # out of it. Phase 2b/2c moved the quality scorer into
+        # solver_reports/quality.py, taking solver_p2p_bonus_price and
+        # solver_p2p_bonus_volume_kwh's only read sites with it -- so a
+        # two-file union reported them as silently inert when they are read
+        # exactly as before. See tests/_writer_source.py.
+        self.writer = writer_source()
 
     def test_the_sweep_finds_a_real_set_of_fields(self):
         """Guards the guard: a regex that silently matched nothing would
