@@ -8,6 +8,14 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Fixed
+- **A battery participant with a departure deadline was silently dropped from the day's score** ([#1336](https://github.com/code-imstillalive/nimbus/issues/1336), Mark Purcell). `_resolve_battery_participant_history()` is typed `period_hours: float` and passes that scalar into `_participant_departure_deadline()`, which was typed `period_hours: list` and indexed it — `TypeError: object of type 'float' has no len()`. Reproduced directly.
+  - **The impact is not a crash, which is worse.** The issue left open whether the call sits inside `build_extra_batteries()`'s `except (ValueError, TypeError)`; determined from the AST, **it does** (the `try` spans lines 450-787). So the participant was skipped with a warning reading *"could not be scored ... excluded from this day's multi-battery score"* — attributing it to the household's config when the cause was an argument shape inside Nimbus. EPR, regret and `scored_participants` then described a smaller fleet than the configured one, with nothing looking broken.
+  - Reached only for a participant with **both** `departure_hour` and `must_have_soc_by_departure_percent` set **and** a resolved deadline index > 0, since the indexing loop is empty at index 0 — so #1111's own feature was the trigger, and any regression test that lands on index 0 passes against the unfixed code.
+  - Normalised in the **callee**, not the call site, so the mismatch is unreproducible from any caller — matching the idiom this codebase already uses for the same scalar-or-array question (`np.broadcast_to(np.asarray(b.charge_cost), (n,))` in `network.py`). Verified the scalar, list and array forms now return exactly the same answer, and that a genuinely non-uniform sequence is still honoured rather than flattened.
+  - **Why it survived**: every direct test passes a real list (`PERIOD_HOURS = [1.0] * 24`), and **no test calls `_resolve_battery_participant_history()` at all** — `test_1109`, `test_1111` and `test_1247` all assert on `inspect.getsource()`. Source-text coverage cannot see an argument shape.
+  - Consumer check: **no effect on an install without a `battery_participant`** — the reference household scores `['home']` only and has no EV participant, so it never reached this. An install that does configure the pair gets that participant back in its scored fleet, which will move its EPR and regret figures.
+
 ## [0.94.426] - 2026-09-27
 
 **Backup-critical.** If you run the native integration with Home Assistant's

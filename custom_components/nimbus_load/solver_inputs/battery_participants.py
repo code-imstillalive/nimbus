@@ -32,6 +32,7 @@ deferred and by-module; the reasoning is identical and load-bearing.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import replace
 from datetime import datetime, timedelta
 
@@ -801,7 +802,7 @@ def _resolve_battery_participant_history(
 def _participant_departure_deadline(
     *,
     grid_times: list,
-    period_hours: list,
+    period_hours: float | Sequence[float],
     departure_hour: object,
     must_have_soc_pct: object,
     capacity_kwh: float,
@@ -843,6 +844,43 @@ def _participant_departure_deadline(
     expected cases rather than errors.
     """
     sw = _solver_writer()
+    # nimbus issue #1336 (Mark Purcell): `period_hours` arrives as a SCALAR
+    # from the one real call site and as a per-period sequence from every
+    # direct test, and the loop below indexes it. Normalised here, once.
+    #
+    # The bug this closes was live and silent. `_resolve_battery_participant_
+    # history()` is typed `period_hours: float` and passes the scalar it
+    # computed (TIER1_PERIOD_HOURS/TIER2_PERIOD_HOURS) straight through, while
+    # this function was typed `period_hours: list` and did
+    # `float(period_hours[t])`. Reproduced: `TypeError: object of type 'float'
+    # has no len()`.
+    #
+    # It reached the loop only for a participant with BOTH `departure_hour` and
+    # `must_have_soc_by_departure_percent` configured AND a resolved deadline
+    # index > 0 (the loop is empty at idx 0) -- so #1111's own feature was the
+    # trigger. And it was **caught**, not propagated: the call sits inside
+    # `_resolve_battery_participant_history()`'s `except (ValueError,
+    # TypeError)` (lines 450-787), which logs
+    #     "battery participant '%s' could not be scored ... excluded from this
+    #      day's multi-battery score"
+    # and `continue`s. So the participant was silently dropped from the scored
+    # fleet and the warning blamed the household's config, while the real cause
+    # was an argument shape inside Nimbus. A smaller fleet scored than
+    # configured, with a misleading reason -- worse than a crash, because
+    # nothing looks broken.
+    #
+    # Normalising here rather than at the call site is deliberate: it makes the
+    # mismatch unreproducible from ANY caller, and it matches the idiom this
+    # codebase already uses for the same scalar-or-array question (see
+    # network.py's `np.broadcast_to(np.asarray(b.charge_cost), (n,))`).
+    #
+    # Why the direct tests never caught it: they pass a real list
+    # (`PERIOD_HOURS = [1.0] * 24`, test_1111), and no test calls
+    # `_resolve_battery_participant_history()` at all -- every existing test of
+    # it asserts on `inspect.getsource()`. Source-text coverage cannot see an
+    # argument shape.
+    if isinstance(period_hours, (int, float)) and not isinstance(period_hours, bool):
+        period_hours = [float(period_hours)] * len(grid_times)
     if departure_hour is None or must_have_soc_pct is None:
         return None, None
     idx: int | None = None
