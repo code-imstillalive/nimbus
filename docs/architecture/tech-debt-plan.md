@@ -16,7 +16,7 @@ Measured by AST at `d5b044b`:
 |---|---|
 | `solver_writer.py` lines | 17,517 |
 | Top-level functions (all functions) | 151 (166) |
-| Functions over 60 lines | 67, together 12,638 lines |
+| Functions over 60 lines | 67, together 12,638 lines (61 after spec 001 moved six to `solver_shared.py`; **53** after Phase 2b/2c moved eight reporting functions to `solver_reports/`) |
 | Wall-clock reads package-wide | 46 |
 | Test files importing `solver_writer` | 124 |
 | Production modules importing `solver_writer` | 9 |

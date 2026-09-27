@@ -584,6 +584,19 @@ ignore_imports = [
     "custom_components.nimbus_load.solver_inputs.extra_batteries -> custom_components.nimbus_load.solver_writer",
     "custom_components.nimbus_load.solver_inputs.load -> custom_components.nimbus_load.solver_writer",
     "custom_components.nimbus_load.solver_inputs.prices -> custom_components.nimbus_load.solver_writer",
+    # nimbus issue #1301 Phase 2b/2c: the reporting modules reach back into
+    # solver_writer through the same deliberate, documented seam every
+    # solver_inputs module above uses -- a DEFERRED, by-module import, because
+    # the suite patches those helpers as attributes on the solver_writer module
+    # object and a module-scope `from` import would bind them at import time and
+    # silently defeat every one of those patches. See
+    # solver_reports/__init__.py, and solver_inputs/__init__.py for the original
+    # write-up. Dissolves when (solver_dispatch)/ha_bridge land and the shared
+    # helpers stop living in the top layer.
+    "custom_components.nimbus_load.solver_reports.backtest -> custom_components.nimbus_load.solver_writer",
+    "custom_components.nimbus_load.solver_reports.counterfactual -> custom_components.nimbus_load.solver_writer",
+    "custom_components.nimbus_load.solver_reports.flex -> custom_components.nimbus_load.solver_writer",
+    "custom_components.nimbus_load.solver_reports.quality -> custom_components.nimbus_load.solver_writer",
     "custom_components.nimbus_load.solver_publish -> custom_components.nimbus_load.solver_writer",
     "custom_components.nimbus_load.solver_shared -> custom_components.nimbus_load.solver_writer",
 ]
