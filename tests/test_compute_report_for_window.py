@@ -21,6 +21,7 @@ from datetime import datetime, timedelta
 from unittest.mock import patch
 
 import _solver_path  # noqa: F401
+import solver_shared
 import solver_writer
 
 BRISBANE = solver_writer.LOCAL_TZ
@@ -283,11 +284,26 @@ class TestP2PCalendarAlignment(unittest.TestCase):
         }
         cfg = _cfg(solver_p2p_settlement_history_sensor="sensor.p2p_history")
 
+        # nimbus issue #1301 (spec 001): with the P2P branch itself skipped
+        # (that's this test's whole point), the ONLY remaining real caller of
+        # ha_get() in this window is _kw_scale_factor()'s own per-power-
+        # sensor unit lookup -- and that now lives in solver_shared.py, so
+        # its internal ha_get(...) call resolves from solver_shared's own
+        # module globals, not solver_writer's (nimbus issue #861). Mocking
+        # solver_writer.ha_get too would establish a patch site nothing in
+        # this test's own code path ever reaches -- confirmed directly
+        # against this repo's own noop_patches gate, not assumed.
+        seen: list[str] = []
+
+        def _ha_get(entity_id):
+            seen.append(entity_id)
+            return settlement_state
+
         with (
             patch.object(
                 solver_writer, "fetch_entity_history_range", side_effect=_fetch
             ),
-            patch.object(solver_writer, "ha_get", return_value=settlement_state) as m,
+            patch.object(solver_shared, "ha_get", side_effect=_ha_get),
         ):
             result = solver_writer._compute_report_for_window(
                 cfg, noon_start, noon_end, allow_partial=True
@@ -299,8 +315,8 @@ class TestP2PCalendarAlignment(unittest.TestCase):
         # sensors, so a plain assert_not_called is too strict. What we
         # actually want to check is that the settlement sensor entity_id
         # itself is never looked up.
-        for c in m.call_args_list:
-            self.assertNotEqual(c.args[0], "sensor.p2p_history")
+        for entity_id in seen:
+            self.assertNotEqual(entity_id, "sensor.p2p_history")
 
     def test_partial_day_window_skips_the_p2p_branch(self):
         """A six-hour window that starts at midnight has calendar-date
@@ -320,19 +336,27 @@ class TestP2PCalendarAlignment(unittest.TestCase):
         }
         cfg = _cfg(solver_p2p_settlement_history_sensor="sensor.p2p_history")
 
+        # nimbus issue #1301 (spec 001): see the identical comment in
+        # test_cross_midnight_window_skips_the_p2p_branch above.
+        seen: list[str] = []
+
+        def _ha_get(entity_id):
+            seen.append(entity_id)
+            return settlement_state
+
         with (
             patch.object(
                 solver_writer, "fetch_entity_history_range", side_effect=_fetch
             ),
-            patch.object(solver_writer, "ha_get", return_value=settlement_state) as m,
+            patch.object(solver_shared, "ha_get", side_effect=_ha_get),
         ):
             result = solver_writer._compute_report_for_window(
                 cfg, DAY_START, short_end, allow_partial=True
             )
         self.assertIsNotNone(result)
         self.assertEqual(result["real_p2p_dollars"], 0.0)
-        for c in m.call_args_list:
-            self.assertNotEqual(c.args[0], "sensor.p2p_history")
+        for entity_id in seen:
+            self.assertNotEqual(entity_id, "sensor.p2p_history")
 
 
 class TestYesterdayWrapperBackwardCompat(unittest.TestCase):

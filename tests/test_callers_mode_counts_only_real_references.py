@@ -153,10 +153,17 @@ class TestTheFixIsNotVacuous(unittest.TestCase):
         self.assertIn("sw", _amd._MODULE_ALIASES)
         self.assertIn("solver_writer", _amd._MODULE_ALIASES)
 
-    def test_the_real_tree_still_finds_the_six_logger_callers(self):
-        """An end-to-end check against the real package, not a fixture. If this
-        drops to 0 the alias set is wrong; if it returns to 19 the local-
-        definition filter is gone."""
+    def test_the_real_tree_now_finds_zero_logger_callers(self):
+        """nimbus issue #1301 (spec 001, #1347), Phase 2a: this used to pin
+        exactly six real `sw._LOGGER` references (the six `solver_inputs/*`
+        modules #1338 flagged as layer violations for exactly this name).
+        Phase 2a retargets all six to `solver_shared._LOGGER` directly
+        (`_LOGGER` now lives in `solver_shared.py`, not `solver_writer.py`),
+        so the real, correct count is now 0 -- this is Phase 2a's own
+        success condition for `_LOGGER` specifically, not the tool
+        regressing. See `test_the_real_tree_still_finds_the_native_hass_
+        callers` below for the alias-set non-vacuity check this test used
+        to also cover."""
         package = (
             Path(__file__).resolve().parent.parent / "custom_components" / "nimbus_load"
         )
@@ -166,15 +173,36 @@ class TestTheFixIsNotVacuous(unittest.TestCase):
             if "_LOGGER" in _amd._referenced_names(p)
         ]
         self.assertEqual(
-            len(hits),
-            6,
-            f"expected exactly the six solver_inputs modules that read "
-            f"sw._LOGGER, got {hits}",
+            hits,
+            [],
+            f"expected zero real sw._LOGGER references now that Phase 2a "
+            f"retargets every solver_inputs/*.py module onto "
+            f"solver_shared._LOGGER directly, got {hits}",
         )
-        self.assertTrue(
-            all(h.startswith("solver_inputs/") for h in hits),
-            f"all six should be solver_inputs/*, which is what makes them the "
-            f"#1338 layer violations: {hits}",
+
+    def test_the_real_tree_still_finds_the_native_hass_callers(self):
+        """The non-vacuity check `_LOGGER` used to provide (`if this drops
+        to 0 the alias set is wrong`) needs a name that's still a real
+        `sw.<name>` reference after Phase 2a. `_NATIVE_HASS` is one of the
+        names pyproject.toml's own `nimbus-layers` contract comment names
+        as an unrelated, still-live reason the six `solver_inputs/*.py`
+        modules keep their `solver_writer` exception -- `solver_shared.py`
+        itself also reaches for it, via the same deferred `_solver_writer()`
+        seam, which Phase 2a's own Migration explicitly authorises."""
+        package = (
+            Path(__file__).resolve().parent.parent / "custom_components" / "nimbus_load"
+        )
+        hits = [
+            p.relative_to(package).as_posix()
+            for p in _amd._py_files(package, skip={"solver_writer.py"})
+            if "_NATIVE_HASS" in _amd._referenced_names(p)
+        ]
+        self.assertEqual(
+            len(hits),
+            3,
+            f"expected exactly three real sw._NATIVE_HASS references "
+            f"(battery_participants.py, extra_batteries.py, and "
+            f"solver_shared.py itself), got {hits}",
         )
 
 

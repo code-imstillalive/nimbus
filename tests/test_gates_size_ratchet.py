@@ -221,26 +221,31 @@ def test_ratchet_mode_passes_comparing_a_ref_to_itself(toy_repo: Path) -> None:
 def test_real_solver_writer_matches_the_tech_debt_plans_own_count() -> None:
     """docs/architecture/tech-debt-plan.md's own table, measured at `d5b044b`:
     "Functions over 60 lines | 67, together 12,638 lines" for
-    `solver_writer.py` alone. Reproduced here against current `main` (this
-    checkout) so a future session can see at a glance whether that number is
-    still accurate, per this tool's own docstring caveat that it will change
-    as the tech-debt plan's later phases move code out of the file. If this
-    fails, the plan's own table (and this tool's `DEFAULT_BASELINE_COUNT`)
-    need updating, not this test."""
+    `solver_writer.py` alone. That number changed for the first time under
+    nimbus issue #1301 (Phase 2, spec 001, #1347): six over-60-line functions
+    (`resolve_effective_capacity_kwh`, `ha_post_state`, `fetch_p2p_fixed_
+    export_kw`, `fetch_entity_history_range`, `fetch_entity_attribute_
+    history_range`, `resample_history_mean`) relocated verbatim to the new
+    `solver_shared.py`, dropping the count to 61 -- reproduced here against
+    current `main` (this checkout) so a future session can see at a glance
+    whether that number is still accurate, per this tool's own docstring
+    caveat that it will change again as later phases move more code out of
+    the file. If this fails, the plan's own table (and this tool's
+    `DEFAULT_BASELINE_COUNT`) need updating, not this test."""
     target = REPO / "custom_components" / "nimbus_load" / "solver_writer.py"
-    proc = _run(["--baseline-count", "67", str(target)])
+    proc = _run(["--baseline-count", "61", str(target)])
     assert proc.returncode == 0, proc.stdout + proc.stderr
-    assert "67 function(s) over 60 lines" in proc.stdout, proc.stdout
+    assert "61 function(s) over 60 lines" in proc.stdout, proc.stdout
 
 
 def test_real_whole_package_is_a_materially_different_larger_number() -> None:
     """Documents the discrepancy this tool's own docstring calls out: the
-    whole-package default scope is not 67. Asserts only that it is larger
+    whole-package default scope is not 61. Asserts only that it is larger
     (not an exact count, which 40 unrelated files make too brittle to pin
     here) so this test does not need updating every time an unrelated file
     in the package changes shape."""
     proc = _run(
-        ["--baseline-count", "67", str(REPO / "custom_components" / "nimbus_load")]
+        ["--baseline-count", "61", str(REPO / "custom_components" / "nimbus_load")]
     )
     assert proc.returncode == 1, proc.stdout + proc.stderr
-    assert "> baseline 67" in proc.stdout, proc.stdout
+    assert "> baseline 61" in proc.stdout, proc.stdout

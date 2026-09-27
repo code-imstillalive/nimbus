@@ -24,6 +24,11 @@ from datetime import datetime
 
 import numpy as np
 
+try:
+    from .. import solver_shared
+except ImportError:  # pragma: no cover - standalone/cron path
+    import solver_shared  # type: ignore[no-redef]
+
 
 def _solver_writer():
     """The `solver_writer` module, imported late and by MODULE (never by
@@ -362,7 +367,7 @@ def build_solar_arrays(
         # other genuinely-optional input in this file. A loud WARNING
         # (not a silent fallback) still fires so this is visible in the
         # log, same as the load-forecast equivalent.
-        sw._LOGGER.warning(
+        solver_shared._LOGGER.warning(
             "Nimbus Solver: no solar forecast source produced any real "
             "data this cycle (all configured sources unavailable, or none "
             "configured) -- solving with a flat 0.0 kW solar placeholder "

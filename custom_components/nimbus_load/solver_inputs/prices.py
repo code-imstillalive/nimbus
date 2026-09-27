@@ -36,6 +36,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import timedelta
 
+try:
+    from .. import solver_shared
+except ImportError:  # pragma: no cover - standalone/cron path
+    import solver_shared  # type: ignore[no-redef]
+
 
 def _solver_writer():
     """The `solver_writer` module, imported late and by MODULE (never by
@@ -191,7 +196,7 @@ def build_price_arrays(
                 ),
             )
         except Exception as e:  # noqa: BLE001 -- see comment above; must never break the real solve
-            sw._LOGGER.warning(
+            solver_shared._LOGGER.warning(
                 "Nimbus #452: AEMO P5MIN disagreement check failed: %s", e
             )
             aemo_p5min_check = None
@@ -232,7 +237,7 @@ def build_price_arrays(
                     ),
                 )
         except Exception as e:  # noqa: BLE001 -- a diagnostic must never break a real solve
-            sw._LOGGER.warning(
+            solver_shared._LOGGER.warning(
                 "Nimbus #452: AEMO forecast-vs-actuals check failed: %s", e
             )
             aemo_fc_check = None

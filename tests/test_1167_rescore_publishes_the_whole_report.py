@@ -58,6 +58,7 @@ from datetime import datetime
 from unittest.mock import patch
 
 import _solver_path  # noqa: F401
+import solver_shared
 import solver_writer
 
 BRISBANE = solver_writer.LOCAL_TZ
@@ -143,7 +144,7 @@ def _run(existing, entry, version="0.94.403", days=1):
     with (
         patch.object(solver_writer, "ha_get", return_value=existing),
         patch.object(solver_writer, "ha_post_state", side_effect=_post),
-        patch.object(solver_writer, "_nimbus_version", return_value=version),
+        patch.object(solver_shared, "_nimbus_version", return_value=version),
         patch.object(
             solver_writer,
             "_compute_report_for_window",
@@ -258,7 +259,7 @@ class TestRescoringAnOlderDayLeavesTheHeadlineAlone(unittest.TestCase):
         with (
             patch.object(solver_writer, "ha_get", return_value=existing),
             patch.object(solver_writer, "ha_post_state", side_effect=lambda *a: None),
-            patch.object(solver_writer, "_nimbus_version", return_value="0.94.403"),
+            patch.object(solver_shared, "_nimbus_version", return_value="0.94.403"),
             patch.object(
                 solver_writer, "_compute_report_for_window", side_effect=_side
             ),

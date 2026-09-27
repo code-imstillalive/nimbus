@@ -65,7 +65,7 @@ from _ha_stubs import install_ha_stubs
 install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from custom_components.nimbus_load import solver_writer
+from custom_components.nimbus_load import solver_shared, solver_writer
 
 _SENSOR_SRC = (
     Path(__file__).resolve().parent.parent
@@ -173,7 +173,13 @@ class TestTheSetIsStillTheRealGuard(unittest.TestCase):
     stays load-bearing rather than guarding a variable nothing reads."""
 
     def test_ha_post_state_consults_the_set(self):
-        source = Path(solver_writer.__file__).read_text(encoding="utf-8")
+        # nimbus issue #1301 (spec 001, #1347): ha_post_state() -- and the
+        # guard clause below -- moved into solver_shared.py in Phase 2a.
+        # solver_writer.ha_post_state is a re-export of the identical
+        # function object (see test_solver_shared_facade_identity.py), so
+        # this checks the source file where the check now actually lives,
+        # not solver_writer.py's own file.
+        source = Path(solver_shared.__file__).read_text(encoding="utf-8")
         self.assertIn("if entity_id in _NATIVE_MANAGED_ENTITY_IDS:", source)
 
     def test_every_member_is_a_sensor_entity_id(self):

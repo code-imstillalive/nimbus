@@ -21,11 +21,13 @@ These tests pin the status through every real outcome.
 
 from __future__ import annotations
 
+import contextlib
 import unittest
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
 import _solver_path  # noqa: F401
+import solver_shared
 import solver_writer
 
 BRISBANE = solver_writer.LOCAL_TZ
@@ -83,7 +85,7 @@ def _fetch(entity_id, start, end):
     return []
 
 
-def _run(cfg, start, end, *, history=SETTLED, raises=False):
+def _run(cfg, start, end, *, history=SETTLED, raises=False, branch_may_fire=True):
     def _ha_get(entity_id):
         # Only the settlement sensor misbehaves. `ha_get` is also used
         # by _kw_scale_factor() for unit lookups on every power sensor,
@@ -95,10 +97,27 @@ def _run(cfg, start, end, *, history=SETTLED, raises=False):
             return {"attributes": {"history": history}}
         return {"attributes": {"unit_of_measurement": "kW"}}
 
-    with (
+    # nimbus issue #1301 (spec 001): _kw_scale_factor()'s own internal
+    # ha_get(...) call for the three power sensors now resolves from
+    # solver_shared's module globals, not solver_writer's (nimbus issue
+    # #861) -- this is universal, so solver_shared.ha_get is always
+    # mocked. The P2P branch's own direct ha_get("sensor.p2p") call still
+    # lives in _compute_report_for_window() (solver_writer.py, unmoved),
+    # so solver_writer.ha_get is ALSO needed, but only for callers whose
+    # own (cfg, start, end) can actually reach that branch --
+    # `branch_may_fire=False` callers (a non-calendar-day window, or no
+    # sensor configured at all) skip it, confirmed against this repo's
+    # own noop_patches gate to establish nothing the real call graph
+    # cannot reach.
+    patches = [
         patch.object(solver_writer, "fetch_entity_history_range", side_effect=_fetch),
-        patch.object(solver_writer, "ha_get", side_effect=_ha_get),
-    ):
+        patch.object(solver_shared, "ha_get", side_effect=_ha_get),
+    ]
+    if branch_may_fire:
+        patches.append(patch.object(solver_writer, "ha_get", side_effect=_ha_get))
+    with contextlib.ExitStack() as stack:
+        for p in patches:
+            stack.enter_context(p)
         return solver_writer._compute_report_for_window(
             cfg, start, end, allow_partial=True
         )
@@ -108,7 +127,7 @@ class TestP2PSettlementStatusIsReported(unittest.TestCase):
     def test_no_sensor_configured_says_so(self):
         """A household with no P2P program at all. Zero is the right
         answer, and the status distinguishes it from a skip."""
-        report = _run(_cfg(), DAY_START, DAY_END)
+        report = _run(_cfg(), DAY_START, DAY_END, branch_may_fire=False)
         self.assertEqual(report["real_p2p_settlement_status"], "no_sensor_configured")
         self.assertEqual(report["real_p2p_dollars"], 0.0)
 
@@ -130,6 +149,7 @@ class TestP2PSettlementStatusIsReported(unittest.TestCase):
             _cfg(solver_p2p_settlement_history_sensor="sensor.p2p"),
             shifted,
             shifted + timedelta(days=1),
+            branch_may_fire=False,
         )
         self.assertEqual(
             report["real_p2p_settlement_status"],
@@ -147,6 +167,7 @@ class TestP2PSettlementStatusIsReported(unittest.TestCase):
             _cfg(solver_p2p_settlement_history_sensor="sensor.p2p"),
             DAY_START,
             DAY_START + timedelta(hours=6),
+            branch_may_fire=False,
         )
         self.assertEqual(
             report["real_p2p_settlement_status"],

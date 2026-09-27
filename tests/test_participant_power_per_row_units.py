@@ -31,6 +31,7 @@ from datetime import datetime, timedelta
 from unittest import mock
 
 import _solver_path  # noqa: F401
+import solver_shared
 import solver_writer
 
 BRISBANE = solver_writer.LOCAL_TZ
@@ -209,14 +210,19 @@ class TestScopedToThisPathOnly(unittest.TestCase):
     def test_kw_scale_factor_itself_is_untouched(self):
         # Still the right answer for the seven other callers that do not
         # fetch per-row units.
+        #
+        # nimbus issue #1301 (spec 001): _kw_scale_factor() and ha_get()
+        # both moved into solver_shared.py together, so _kw_scale_factor's
+        # own internal ha_get(...) call resolves from solver_shared's
+        # module globals now, not solver_writer's (nimbus issue #861).
         with mock.patch.object(
-            solver_writer,
+            solver_shared,
             "ha_get",
             lambda _e: {"attributes": {"unit_of_measurement": "W"}},
         ):
             self.assertEqual(solver_writer._kw_scale_factor("sensor.x"), 0.001)
         with mock.patch.object(
-            solver_writer,
+            solver_shared,
             "ha_get",
             lambda _e: {"attributes": {"unit_of_measurement": "kW"}},
         ):

@@ -50,8 +50,13 @@ _SOLVER_WRITER = _NIMBUS_DIR / "solver_writer.py"
 # set_drift.py's own _integration_paths() already uses -- a moved
 # diagnostic is still a diagnostic, and the guard below must keep seeing
 # it wherever it currently lives.
+#
+# nimbus issue #1301 (Phase 2, spec 001, #1347): solver_shared.py joins
+# the union for the identical reason -- it is where ha_get/ha_post_state/
+# the other HA-I/O and config-resolution helpers now live, so a future
+# "#N diag:" call site added to one of them must keep being seen here.
 def _scanned_paths() -> list[Path]:
-    return [_SOLVER_WRITER] + [
+    return [_SOLVER_WRITER, _NIMBUS_DIR / "solver_shared.py"] + [
         Path(p) for p in sorted(glob.glob(str(_NIMBUS_DIR / "solver_inputs" / "*.py")))
     ]
 
