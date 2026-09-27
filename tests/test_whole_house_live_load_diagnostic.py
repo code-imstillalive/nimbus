@@ -27,6 +27,7 @@ from unittest.mock import patch
 import _solver_path  # noqa: F401
 import pytest
 import solver_writer
+from _isolated_state import isolated_state_paths
 
 _LOAD_SENSOR = "sensor.nimbus_sigen_plant_total_load_power_forecast"
 _CROSS_CHECK_SENSOR = "sensor.whole_house_meter"
@@ -118,11 +119,8 @@ class TestWholeHouseLiveLoadDiagnostic:
             ),
             patch.object(solver_writer, "acquire_lock", return_value=True),
             patch.object(solver_writer, "release_lock"),
-            patch.object(
-                solver_writer,
-                "PLAN_STATE_PATH",
-                "/tmp/nonexistent_plan_state_429_test.json",
-            ),
+            # nimbus issue #1330: all four persisted paths, not just this one.
+            isolated_state_paths(solver_writer),
         ):
             solver_writer.main()
 

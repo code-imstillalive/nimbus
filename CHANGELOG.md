@@ -8,6 +8,13 @@ Entries call out real, user-visible changes. They are not a `git log` dump; the 
 
 ## [Unreleased]
 
+### Internal
+No user-visible effect; listed so the release is a complete account.
+- **No `main()`-driving test writes production state any more** ([#1330](https://github.com/code-imstillalive/nimbus/issues/1330)). All four of `solver_writer`'s persisted paths default to real `/opt` production files, correctly, for the standalone/cron deployment they exist for. Nine test files drive the real `main()`; one isolated both data paths, five isolated only `PLAN_STATE_PATH`, three isolated none. `/opt` is absent on CI and on a dev box so every access failed silently — run the suite on either NUC and those tests read the live last-plan and solar-delivery-ratio files into their assertions and then overwrite them, including the lock file [#1324](https://github.com/code-imstillalive/nimbus/issues/1324) was about.
+  - Found via the symptom Mark Purcell reported in [#1328](https://github.com/code-imstillalive/nimbus/pull/1328): the golden guardrail pointed `PLAN_STATE_PATH` at a fixed `/tmp/nonexistent_plan_state_golden_test.json` that `main()` **writes**, so run two on one machine read run one's plan through the proximal term and `forecast[1].shadow_price` moved 0.3 → 0.2999. The filename asserted the invariant it broke.
+  - `/tmp/nonexistent_*.json` was a **convention** across six files, so the fix is a guard test, not just the instances: every `main()`-driving file must call `isolated_state_paths()`, no such file may hardcode one of these paths, and the helper's list must cover every persisted path `solver_writer` declares. Proven by reintroducing the defect — which also exposed that the guard's own first check passed on a leftover import line, so it now requires a real call via the AST.
+  - Nothing in `custom_components/` changes and no assertion was edited.
+
 ## [0.94.426] - 2026-09-27
 
 **Backup-critical.** If you run the native integration with Home Assistant's

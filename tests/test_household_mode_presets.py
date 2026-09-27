@@ -247,6 +247,7 @@ class TestTheHistoricalScorersKeepTheUnmodedBaseline(unittest.TestCase):
         from unittest.mock import patch
 
         import solver_writer
+        from _isolated_state import isolated_state_paths
         from test_main_golden_output_guardrail import _SOLVER_CONFIG_ATTRS
 
         attrs = dict(_SOLVER_CONFIG_ATTRS)
@@ -285,9 +286,8 @@ class TestTheHistoricalScorersKeepTheUnmodedBaseline(unittest.TestCase):
             patch.object(solver_writer, "publish_daily_flex_report"),
             patch.object(solver_writer, "publish_nimbus_only_soc_counterfactual"),
             patch.object(solver_writer, "publish_efficiency_backtest_report"),
-            patch.object(
-                solver_writer, "PLAN_STATE_PATH", "/tmp/nonexistent_mode_test.json"
-            ),
+            # nimbus issue #1330: all four persisted paths, not just this one.
+            isolated_state_paths(solver_writer),
         ):
             solver_writer.main()
         return seen.get("cfg")
