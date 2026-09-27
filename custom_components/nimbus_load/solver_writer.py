@@ -8727,7 +8727,7 @@ def publish_plan(
     # nimbus issue #937 item 4: the ForecastSourceDecision this cycle acted on.
     # Last, with a default, so every existing caller (and the standalone/cron
     # copy, and this function's own tests) keeps working unchanged. A None
-    # decision still publishes all six keys as None rather than omitting them --
+    # decision still publishes all seven keys as None rather than omitting them --
     # a consumer must never see a key appear and vanish between cycles (#589).
     load_forecast_source_decision=None,
 ) -> None:
@@ -9633,11 +9633,11 @@ def publish_plan(
             # nimbus issue #937 item 4: WHICH forecast the LP consumed, as
             # distinct from which sensors it was read from just above.
             #
-            # Six keys rather than one nested dict, because these are scalars a
+            # Seven keys rather than one nested dict, because these are scalars a
             # dashboard template and an apexcharts series can read directly, and
             # because `sensor_flattened.py`'s own rule (see its comment on
             # `load_forecast_source_used`) is that a flattened child needs a
-            # scalar. Always present, always all six -- #589.
+            # scalar. Always present, always all seven -- #589.
             #
             # `load_forecast_persistence_weight` is the one that says whether
             # anything actually changed: 0.0 means the LP consumed the ML
