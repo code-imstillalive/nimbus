@@ -82,8 +82,34 @@ def _tree() -> ast.AST:
     return _TREE
 
 
+def _is_logger_ref(node: ast.expr) -> bool:
+    """True for `_LOGGER`, and for any qualified path ending in `_LOGGER`.
+
+    A bare `ast.Name` was enough while the scorer lived in
+    `solver_writer.py`. It is not enough once the function is extracted:
+    nimbus issue #1301 moved `_compute_report_for_window()` into
+    `solver_reports/quality.py`, where the logger is reached as
+    `sw._LOGGER` -- so the node is an `ast.Attribute` whose own `.value` is
+    the module, not an `ast.Name` at all. `solver_inputs/solar.py` reaches
+    it as `solver_shared._LOGGER` for the same structural reason.
+
+    This test's property is "a warning citing #1236 exists in the scorer".
+    HOW the logger is reached was never part of that, and a pure
+    relocation is allowed to change it -- so match on the trailing name.
+    """
+    if isinstance(node, ast.Name):
+        return node.id == "_LOGGER"
+    if isinstance(node, ast.Attribute):
+        return node.attr == "_LOGGER"
+    return False
+
+
 def _warning_calls() -> list[ast.Call]:
-    """Every `_LOGGER.warning(...)` call in the scorer, as AST nodes."""
+    """Every `_LOGGER.warning(...)` call in the scorer, as AST nodes.
+
+    Includes `sw._LOGGER.warning(...)` and
+    `solver_shared._LOGGER.warning(...)` -- see `_is_logger_ref()`.
+    """
     tree = _tree()
     out = []
     for node in ast.walk(tree):
@@ -93,8 +119,7 @@ def _warning_calls() -> list[ast.Call]:
         if (
             isinstance(f, ast.Attribute)
             and f.attr == "warning"
-            and isinstance(f.value, ast.Name)
-            and f.value.id == "_LOGGER"
+            and _is_logger_ref(f.value)
         ):
             out.append(node)
     return out
