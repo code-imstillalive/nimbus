@@ -621,6 +621,20 @@ INTENTIONAL_CRON_ONLY = frozenset({"seconds_to_settlement_capture"})
 # expected to shrink, one porting PR at a time, not grow silently.
 KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
     {
+        # nimbus issue #768, step 1 of 2 --
+        # solver_inputs/controllable_load_history.py. Reconstructs what a
+        # configured controllable_load actually delivered over an elapsed
+        # window, from real recorded power, so the scorer can eventually be
+        # given load timing rather than only the home battery.
+        #
+        # Deliberately NOT under INTENTIONAL_NATIVE_ONLY, for the same reason
+        # calendar_trips.py below is not: this is portable in principle. It
+        # reads recorder history, and the cron copy reaches recorder history
+        # over REST already -- it is simply not ported yet. So it belongs on
+        # the list that is expected to SHRINK, not the one that says "this
+        # difference is permanent".
+        "resolve_controllable_load_delivery_history",
+        "integrate_delivered_kwh",
         # nimbus issue #467, staged item 3 -- solver_inputs/calendar_trips.py.
         # Resolves an HA calendar entity's upcoming events into adequacy
         # windows (trip distance -> kWh -> a window ending at departure).
