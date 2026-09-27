@@ -77,13 +77,13 @@ see the command's own output):
 
 ```
 name                                  prod callers   monkeypatch sites
-_LOGGER                               19              6
+_LOGGER                                6 [1]          6
 resample_history_nearest               1              0
 resample_history_mean                  1              2
 LOCAL_TZ                               0               (referenced, never patched)
 _cfg_num                               4 (+1 standalone/cron)   0
 _cfg_int                               0 (+1 standalone/cron)   0
-fetch_entity_history_range             2              3 direct + 24 via ha_get-adjacent tests
+fetch_entity_history_range             2              24
 fetch_entity_attribute_history_range   0              1
 _kw_scale_factor                       1              1
 _local                                 3 (+1 standalone/cron)   0
@@ -99,6 +99,23 @@ _version_stamp                         not yet re-measured individually — trea
 `ha_get` and `ha_post_state` alone carry 48 and 29+ monkeypatch sites. This is
 the single fact that decides this spec's façade decision below — see that
 section before reading Migration.
+
+[1] `_LOGGER`'s production-caller count was originally measured at 19 by
+`tests/analyse_module_dependencies.py --callers`. That figure was wrong: the
+tool counted a bare name reference even when a file defines its own
+`_LOGGER = logging.getLogger(__name__)` and depends on `solver_writer` for
+nothing. Fixed in #1348 (merged), which narrowed a reference to attribute
+access through a known module alias (`sw._LOGGER`) or an explicit
+`from ... import`. The corrected figure is **6**, and — found while
+verifying it, not assumed — those six are, name for name, six of the seven
+layer violations #1338's `nimbus-layers` contract already records as
+`ignore_imports` exceptions: `solver_inputs/battery_participants.py`,
+`battery_soc.py`, `extra_batteries.py`, `load.py`, `prices.py`, `solar.py`.
+This is a *stronger* case for the façade than the original 19 suggested —
+`_LOGGER`'s real dependency is six specific, already-tracked architectural
+violations reaching up for it, not diffuse usage, and Phase 2a gives those
+six modules something *below* them to import instead. See the new
+acceptance item below: this is checkable, not just argued.
 
 ## Current behaviour this must preserve
 
@@ -243,17 +260,29 @@ its own spec — not this one's.
    line's own logger name would break otherwise); `solver_shared.py` gets
    its own `_LOGGER = logging.getLogger(__name__)`. This is a deliberate,
    named exception to "everything is re-exported" — call it out in review.
-3. Run the golden master (`GOLDEN_UPDATE` must NOT be needed — a snapshot
+3. Update the six `solver_inputs/*.py` files that currently reach up into
+   `solver_writer` for `_LOGGER` (`battery_participants.py`, `battery_soc.py`,
+   `extra_batteries.py`, `load.py`, `prices.py`, `solar.py`) to import it from
+   `solver_shared` instead. This changes each affected log line's own logger
+   name from `nimbus_load.solver_writer` to `nimbus_load.solver_shared` — a
+   real, visible change, not a no-op — so grep the suite for any test
+   asserting a logger name or `caplog` fixture scoped to `"solver_writer"` on
+   these six files' own log lines before assuming it's silent, and update any
+   found. This is what retires 6 of the 7 `ignore_imports` exceptions in step
+   4 below; skipping this step leaves the layer violations in place and the
+   new Acceptance item unmet.
+4. Run the golden master (`GOLDEN_UPDATE` must NOT be needed — a snapshot
    diff here means a real behaviour change slipped in). Run the full suite.
    Run `tests/test_docs_writer_function_set_drift.py` (confirms the
    standalone/cron docs copy of `solver_writer.py` doesn't silently diverge —
    extend its own function-set glob to `solver_shared.py` the same way
    Phase 1 extended it to `solver_inputs/*.py`).
-4. Update the `nimbus-layers` import-linter contract: insert
+5. Update the `nimbus-layers` import-linter contract: insert
    `"solver_shared"` as its own layer between `"solver_inputs | (solver_reports)"`
-   and `"solver"`. Confirm `lint-imports` still reports exactly 7 ignored
-   imports (the pre-existing ones), zero new ones.
-5. Run the new Part C gates built alongside spec 000: `size_ratchet.py`
+   and `"solver"`, and remove the 6 `ignore_imports` entries step 3 just
+   retired. Confirm `lint-imports` reports exactly 1 ignored import (the
+   remaining one named in Non-goals), zero new ones.
+6. Run the new Part C gates built alongside spec 000: `size_ratchet.py`
    (`solver_writer.py`'s own over-60-line count should drop, `solver_shared.py`
    should introduce zero new one — these are verbatim moves), `coverage_compare.py`
    (`--base <pre-this-spec> --head <this-spec>` with a `--moved-code` mapping
@@ -266,14 +295,39 @@ its own spec — not this one's.
 
 - Moving the eight Phase-2 reporting functions themselves (2b–2e, separate
   specs).
-- Fixing the seven existing `solver_inputs/* -> solver_writer` layer
-  violations #1338 already recorded as exceptions — orthogonal, Phase 1's own
-  debt, not this spec's.
+- Retiring the ONE remaining `solver_inputs/* -> solver_writer` layer
+  violation this spec doesn't touch (`solver_publish.py`'s own reach into
+  `solver_writer`, if it isn't for `_LOGGER` — re-check against the real
+  #1338 exception list before assuming which one survives). Six of the seven
+  ARE retired by this spec — see the new Acceptance item below — the
+  seventh, whatever it turns out to be once the six are gone, is orthogonal,
+  Phase 1's own debt.
 - Redesigning any moved function's signature or behaviour, including ones
   with known rough edges (e.g. `_cfg_int`'s standalone/cron caller in
   `nimbus_solver_forecast_writer.py` — ported unchanged, not audited here).
 - The `solver/ha_bridge.py` layering question #1338 already flagged (nested
   inside `solver/`, breaks the `layers` contract) — Phase 7's problem.
+
+## Deploy timing
+
+This is the first spec in the plan that creates a new production module —
+Phase 1 (#1308) and this plan's own tooling PRs were test-only or pure
+internal moves within already-existing files. `solver_shared.py` changes the
+import graph of the live dispatch path.
+
+That said, the façade decision above means the change is provably
+behaviour-preserving by construction: `solver_writer.<name>` resolves to the
+identical object before and after (a real test asserts this), the golden
+master must be snapshot-identical, and every existing monkeypatch site keeps
+resolving the same target. This is the same shape Phase 1 shipped under —
+"Devhub validation: not claimed — a pure internal refactor with no new or
+changed entity, service, or config surface has nothing for a live install to
+exercise differently than before." The same reasoning applies here: this
+ships as its own release, verified by the gates in Acceptance, not batched
+behind Phase 2 proper and not requiring a devhub pass to justify (there is
+nothing for a live install to do differently). Phase 2 proper's own later
+specs (2b–2e), which DO change what gets published and when, get their own
+devhub verification per the plan's existing rule for Phases 5/6.
 
 ## Acceptance
 
@@ -287,8 +341,13 @@ its own spec — not this one's.
       spec, given the monkeypatch counts involved.
 - [ ] No line executed before is unexecuted after (`coverage_compare.py`).
 - [ ] mypy count not higher; zero in `solver_shared.py` itself.
-- [ ] `nimbus-layers` import contract: new layer inserted, still exactly 7
-      ignored imports, zero new violations.
+- [ ] `nimbus-layers` import contract: new layer inserted, zero new
+      violations, and exactly 6 of the existing 7 `ignore_imports` exceptions
+      are removed — `solver_inputs/battery_participants.py`, `battery_soc.py`,
+      `extra_batteries.py`, `load.py`, `prices.py`, `solar.py` each updated to
+      import `_LOGGER` from `solver_shared` instead of reaching up into
+      `solver_writer`. The contract has 1 exception remaining after this spec
+      (see Non-goals), not 0 and not 7.
 - [ ] `size_ratchet.py`: `solver_writer.py`'s over-60-line count strictly
       decreases; `solver_shared.py` adds zero new one (verbatim bodies).
 - [ ] No new `_solver_writer()` late-import call site added, except the one
