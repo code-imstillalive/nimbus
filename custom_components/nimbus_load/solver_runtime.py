@@ -401,12 +401,57 @@ def set_default_env_vars(hass: HomeAssistant) -> None:
         "NIMBUS_SOLVER_PLAN_STATE_PATH",
         hass.config.path("nimbus_solver_last_plan.json"),
     )
+    # nimbus issue #1324: these two must NOT live under /config, and the
+    # reason is a real production failure rather than tidiness. HA's automatic
+    # backup aborted at 04:45 AEST 2026-09-27 after 24 seconds and ~20 MB:
+    #
+    #   FileNotFoundError: '/config/nimbus_solver_writer.lock'
+    #   securetar -> tarfile.add() -> gettarinfo() -> os.lstat()
+    #
+    # securetar enumerates /config, then lstat()s each entry it found. The
+    # solver released its lock and DELETED the file in between, and one missing
+    # entry aborts the whole archive. The lock is written and removed on every
+    # cycle -- ~1,440 collision windows a night against one backup walk -- so
+    # this is a recurring coin-flip, and it fails quietly: no repair is raised,
+    # the backup entity simply keeps its last good timestamp.
+    #
+    # The property that breaks a tar walk is DELETION, not writing: an
+    # overwritten file still exists when lstat() reaches it. That is why only
+    # these two move. PLAN_STATE_PATH and SOLAR_DELIVERY_RATIO_PATH above are
+    # plain overwrites that are never unlinked, AND they are real state a
+    # restore should bring back, so /config remains correct for them.
+    #
+    # These two are pure runtime scaffolding -- a PID-overlap guard and a
+    # notification de-dupe sentinel -- with no reason to survive a restore.
+    #
+    # `tempfile.gettempdir()` rather than a hardcoded /tmp: portable across HA
+    # Container, Supervised and HAOS.
+    #
+    # The per-install hash matters. /config is per-install; /tmp is shared. Two
+    # HA instances on one host would otherwise collide on a lock whose entire
+    # job is to keep them apart, which would be a worse bug than the one being
+    # fixed.
+    #
+    # Stale locks need no new handling: a /tmp file survives a container restart
+    # (only a host reboot clears it), but acquire_lock() has been stale-safe
+    # since 2026-08-17 -- it reads the PID from the file and ignores a lock
+    # whose process is gone.
+    import hashlib
+    import tempfile
+
+    _install_key = hashlib.sha256(
+        hass.config.config_dir.encode("utf-8", "replace")
+    ).hexdigest()[:12]
+    _runtime_dir = tempfile.gettempdir()
     os.environ.setdefault(
-        "NIMBUS_SOLVER_LOCK_PATH", hass.config.path("nimbus_solver_writer.lock")
+        "NIMBUS_SOLVER_LOCK_PATH",
+        os.path.join(_runtime_dir, f"nimbus_solver_writer_{_install_key}.lock"),
     )
     os.environ.setdefault(
         "NIMBUS_SOLVER_LOAD_ERROR_NOTIFIED_PATH",
-        hass.config.path("nimbus_solver_load_forecast_error.txt"),
+        os.path.join(
+            _runtime_dir, f"nimbus_solver_load_forecast_error_{_install_key}.txt"
+        ),
     )
     os.environ.setdefault(
         "NIMBUS_SOLVER_SOLAR_DELIVERY_RATIO_PATH",
