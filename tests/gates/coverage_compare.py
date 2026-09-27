@@ -75,6 +75,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shlex
 import subprocess
 import sys
@@ -84,9 +85,28 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 DEFAULT_SOURCE_FILE = "custom_components/nimbus_load/solver_writer.py"
+
+# A REAL incident, found live while opening this PR: this tool's own
+# `--base HEAD --head HEAD` default pipeline runs `pytest tests/` inside a
+# worktree, which collects tests/test_gates_coverage_compare.py -- including
+# `test_real_main_compared_to_itself_has_zero_regressions`, which invokes
+# THIS SAME SCRIPT again. Each level checks out its own pair of worktrees and
+# runs the full suite again, recursing without a base case: caught only
+# because it visibly spawned dozens of nested `git worktree`s and coverage-
+# instrumented pytest runs on a live host (including a second, independent
+# session hitting the same thing while reviewing this very PR) before this
+# fix landed. Two independent guards, deliberately not just one:
+_RECURSION_GUARD_ENV = "NIMBUS_COVERAGE_COMPARE_ACTIVE"
 DEFAULT_SUITE_ARGS = [
     "tests/",
     "--ignore=tests/hass_integration/",
+    # Guard 1: this tool's own meta-tests are about the tool, not about
+    # solver_writer.py, and running them as part of "the suite" is exactly
+    # what the incident above was. Excluded from the run THIS tool drives,
+    # not from the suite in general -- a normal top-level `pytest tests/`
+    # still collects and runs them.
+    "--ignore=tests/test_gates_coverage_compare.py",
+    "--ignore=tests/test_gates_size_ratchet.py",
     "-p",
     "no:homeassistant",
     "-q",
@@ -208,8 +228,21 @@ def run_pytest_suite_under_coverage(
         "pytest",
         *DEFAULT_SUITE_ARGS,
     ]
+    # Guard 2 (belt-and-suspenders alongside the --ignore flags above): mark
+    # every process this suite run spawns as "inside a coverage_compare run"
+    # so that if anything in it -- this file's own meta-tests, a future test
+    # file nobody thought to add to the ignore list, anything -- tries to
+    # invoke this script again, `main()`'s own check below refuses instead of
+    # recursing.
+    env = {**os.environ, _RECURSION_GUARD_ENV: "1"}
     proc = subprocess.run(
-        cmd, cwd=worktree, capture_output=True, text=True, timeout=3600, check=False
+        cmd,
+        cwd=worktree,
+        capture_output=True,
+        text=True,
+        timeout=3600,
+        check=False,
+        env=env,
     )
     tail = "\n".join(proc.stdout.strip().splitlines()[-3:])
     print(f"  suite:  {tail}")
@@ -420,6 +453,17 @@ def run(
 
 
 def main(argv: list[str] | None = None) -> int:
+    if os.environ.get(_RECURSION_GUARD_ENV):
+        # See the comment on DEFAULT_SUITE_ARGS: a real recursive-invocation
+        # incident, caught live. Refuse loudly rather than recurse.
+        print(
+            f"refusing to run: {_RECURSION_GUARD_ENV} is set, meaning this process "
+            "was spawned by another coverage_compare.py run's own suite step. "
+            "Running again here would recurse without a base case.",
+            file=sys.stderr,
+        )
+        return 1
+
     parser = argparse.ArgumentParser(
         description=__doc__.splitlines()[0] if __doc__ else ""
     )
