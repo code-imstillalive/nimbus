@@ -30,8 +30,13 @@ Mark Purcell found the first symptom while building the golden-master harness
 (#1328): `test_main_golden_output_guardrail.py` pointed `PLAN_STATE_PATH` at a
 fixed `/tmp/nonexistent_plan_state_golden_test.json` and `main()` **writes**
 that file, so the second run on one machine read the first run's plan back
-through the proximal term and `forecast[1]['shadow_price']` moved 0.2982 ->
+through the proximal term and `forecast[1]['shadow_price']` moved 0.3 ->
 0.2999. The filename asserted the invariant it broke.
+
+(0.3, not 0.2982. The first write-up of this said 0.2982, which is
+`forecast[-1]`'s pinned value -- a different, coarser-tier period. Mark's report
+gave only the 0.2999, and the baseline was filled in from the wrong row of the
+same fixture. Corrected against `_EXPECTED_ATTRS[1]['shadow_price']` itself.)
 
 ## Why a context manager rather than a fixture
 

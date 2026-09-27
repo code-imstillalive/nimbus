@@ -34,7 +34,7 @@ Before this, `PLAN_STATE_PATH` pointed at a fixed
 `/tmp/nonexistent_plan_state_golden_test.json` whose name asserted the
 invariant it broke: main() WRITES that file, so run two on the same
 machine read run one's plan back through the proximal term and
-`forecast[1]['shadow_price']` became 0.2999 against the pinned 0.2982
+`forecast[1]['shadow_price']` became 0.2999 against the pinned 0.3
 (found by Mark Purcell while building the golden-master harness, #1328).
 CI never saw it because a CI runner always starts clean -- so the only
 place it bit was a developer running the suite twice, which is precisely

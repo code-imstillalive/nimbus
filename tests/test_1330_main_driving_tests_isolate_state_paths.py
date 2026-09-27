@@ -21,7 +21,9 @@ Mark Purcell found the first symptom while building the golden-master harness
 (#1328): `test_main_golden_output_guardrail.py` pointed `PLAN_STATE_PATH` at a
 fixed `/tmp/nonexistent_plan_state_golden_test.json`, and `main()` **writes**
 that file, so run two on one machine read run one's plan back through the
-proximal term and `forecast[1]['shadow_price']` moved 0.2982 -> 0.2999.
+proximal term and `forecast[1]['shadow_price']` moved 0.3 -> 0.2999 (0.3 is
+`_EXPECTED_ATTRS[1]['shadow_price']`; an earlier write-up of this said 0.2982,
+which is `forecast[-1]`'s value, a different period).
 
 ## Why a guard test rather than only the fix
 
@@ -30,6 +32,21 @@ files. Fixing the instances leaves the convention, and the next `main()`-driving
 test written from a copy of an existing one inherits it. What follows checks the
 property directly, so a new test either isolates its paths or fails here with
 the reason.
+
+## Running the `main()`-driving tests locally
+
+`pytest tests/test_main_golden_output_guardrail.py -p no:homeassistant` (Mark
+Purcell, #1331). Without `-p no:homeassistant`,
+`pytest-homeassistant-custom-component` errors during collection on Windows
+against the proactor event loop (`DeprecationWarning: There is no current event
+loop`), which reads as "these tests cannot run here" and is how the first pass
+at this fix came to lean on CI instead of verifying locally. They run fine.
+
+**The defect itself still does not reproduce on Windows, for a reason worth
+knowing:** `/tmp/...` resolves onto the C: drive, that directory does not exist, so
+`save_plan_state`'s write fails, is caught, and the file is never created — so
+run two is clean. Mark reproduced it on Linux (Python 3.14.4) where `/tmp` is
+real. Same property that hides it on CI, one layer lower.
 
 ## What it deliberately does NOT check
 
