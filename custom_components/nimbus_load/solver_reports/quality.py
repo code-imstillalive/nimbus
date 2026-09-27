@@ -1724,7 +1724,26 @@ def _carry_forward_quality_history(
     # nimbus issue #1248: declared up here because Python requires the
     # declaration to precede the first READ of the name, and the degraded-read
     # check below reads it.
-    global _LAST_KNOWN_QUALITY_HISTORY
+    # nimbus issue #1301 Phase 2c -- the ONE genuinely semantic edit in this
+    # module, called out because it is not a mechanical move.
+    #
+    # This function carried `global _LAST_KNOWN_QUALITY_HISTORY` in
+    # solver_writer. A `global` statement binds in the namespace of the
+    # module the function is DEFINED in, so moving the function moved the
+    # variable it writes -- the cache would live here while every reader
+    # (solver_writer.set_native_hass(), tests/golden/harness.py,
+    # test_1248_history_never_shrinks.py) still looks at solver_writer's.
+    # Measured: 5 failures in test_1248 alone, all of the shape `0 != 2`.
+    #
+    # An alias in the facade cannot fix this. An alias captures the current
+    # OBJECT, and this name gets REBOUND (`= {}` in set_native_hass,
+    # `= dict(history)` below), so the facade's alias would keep pointing at
+    # the previous dict forever.
+    #
+    # So the variable stays in solver_writer -- it has a real rebinding
+    # caller there -- and this function reaches it as an attribute on the
+    # module object. `sw.X = ...` rebinds solver_writer's own global, which
+    # is exactly what `global X; X = ...` did before the move.
 
     prior = prior_attrs.get("history")
     # nimbus issue #1248: a read that came back with no `history` is
@@ -1744,8 +1763,8 @@ def _carry_forward_quality_history(
         and sw._quality_history_cache_active()
         and (not isinstance(prior, dict) or not prior)
     ):
-        if _LAST_KNOWN_QUALITY_HISTORY:
-            prior = dict(_LAST_KNOWN_QUALITY_HISTORY)
+        if sw._LAST_KNOWN_QUALITY_HISTORY:
+            prior = dict(sw._LAST_KNOWN_QUALITY_HISTORY)
             # Only claim a rescue if something was actually rescued. A cache
             # holding nothing but the day being written right now recovers
             # nothing -- this function would produce that single row anyway --
@@ -1871,7 +1890,7 @@ def _carry_forward_quality_history(
     # Native-only for the reason `_quality_history_cache_active()` documents --
     # a cron invocation exits before anything could read this back.
     if sw._quality_history_cache_active():
-        _LAST_KNOWN_QUALITY_HISTORY = dict(history)
+        sw._LAST_KNOWN_QUALITY_HISTORY = dict(history)
     return history
 
 

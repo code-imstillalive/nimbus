@@ -206,6 +206,53 @@ class TestMovedFunctionsBindTheAccessor(unittest.TestCase):
                 self.assertTrue(binds, f"{fname}() never binds sw = _solver_writer()")
 
 
+class TestNoGlobalStatementInAMovedModule(unittest.TestCase):
+    """A `global` statement in relocated code binds in the WRONG module.
+
+    This one cost real failures rather than being theoretical.
+    `_carry_forward_quality_history()` carried
+    `global _LAST_KNOWN_QUALITY_HISTORY` in `solver_writer`. A `global`
+    statement binds in the namespace of the module the function is *defined*
+    in, so moving the function silently moved the variable it writes: the
+    cache started living in `solver_reports.quality` while every reader --
+    `solver_writer.set_native_hass()`, `tests/golden/harness.py`,
+    `test_1248_history_never_shrinks.py` -- still looked at
+    `solver_writer`'s. Measured: 5 failures in `test_1248` alone, all of the
+    shape `0 != 2`.
+
+    A re-export alias in the facade cannot repair it either, and that is
+    the part worth remembering: an alias captures the current *object*,
+    while this name gets **rebound** (`= {}`, `= dict(history)`), so the
+    alias would keep pointing at the previous dict forever. Module-level
+    mutable state that is rebound has to stay in one place and be reached as
+    an attribute (`sw.X = ...`), which is precisely what `global X; X = ...`
+    did before the move.
+
+    In-place mutation of a shared container (`sw._COVERAGE_SKIP_COUNTS[k]
+    += 1`) is fine and needs no `global`, which is why only the rebound one
+    broke.
+    """
+
+    def test_no_moved_module_declares_a_global(self):
+        for path in sorted(_PACKAGE_DIR.glob("*.py")):
+            with self.subTest(module=path.name):
+                tree = ast.parse(path.read_text(encoding="utf-8"))
+                offenders = [
+                    f"line {n.lineno}: global {', '.join(n.names)}"
+                    for n in ast.walk(tree)
+                    if isinstance(n, ast.Global)
+                ]
+                self.assertEqual(
+                    offenders,
+                    [],
+                    f"{path.name} declares a module global: "
+                    + "; ".join(offenders)
+                    + ". It would bind HERE, not in solver_writer, so every "
+                    "existing reader of that name would stop seeing writes. "
+                    "Reach it as `sw.<name>` instead.",
+                )
+
+
 class TestNoDefaultArgumentReachesThroughTheAccessor(unittest.TestCase):
     """A default argument must never be `sw.SOMETHING`.
 
