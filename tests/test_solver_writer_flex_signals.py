@@ -26,6 +26,14 @@ def _grid_signals(
     grid_import_headroom_kwh=(0.625,),
     grid_export_headroom_kw=(0.0,),
     grid_export_headroom_kwh=(0.0,),
+    # nimbus issue #496: whether each headroom figure is an answer or a
+    # non-answer. True means bound_headroom() had no entry for that variable, so
+    # the 0.0 beside it means "unknown" rather than "no room". Both default False
+    # because this fixture's ranging DID answer -- export's 0.0 is a real
+    # pinned-at-a-bound figure, and flagging it would assert the opposite of what
+    # the fixture represents.
+    grid_import_headroom_unranged=(False,),
+    grid_export_headroom_unranged=(False,),
     forced_import_cost=(0.12,),
     forced_export_cost=(-0.05,),
     flex_available_up_kw=(2.5,),
@@ -38,6 +46,8 @@ def _grid_signals(
         grid_import_headroom_kwh=grid_import_headroom_kwh,
         grid_export_headroom_kw=grid_export_headroom_kw,
         grid_export_headroom_kwh=grid_export_headroom_kwh,
+        grid_import_headroom_unranged=grid_import_headroom_unranged,
+        grid_export_headroom_unranged=grid_export_headroom_unranged,
         forced_import_cost=forced_import_cost,
         forced_export_cost=forced_export_cost,
         flex_available_up_kw=flex_available_up_kw,
