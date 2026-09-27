@@ -18,6 +18,14 @@ import solver_writer
 from solver.elements import MIN_CHARGE_DISCHARGE_COST_SPREAD
 from solver_inputs import extra_batteries as extra_batteries_inputs
 
+# nimbus issue #1301 (spec 001): extra_batteries.py now imports `_LOGGER`
+# from solver_shared rather than reaching into solver_writer for it, but
+# `solver_writer._LOGGER is solver_shared._LOGGER` (a genuine alias, not
+# two independently-created loggers -- see solver_shared.py's own module
+# docstring), so every assertLogs/assertNoLogs(solver_writer._LOGGER, ...)
+# below keeps capturing extra_batteries_inputs.build_extra_batteries()'s
+# own SoC-excursion warnings unchanged.
+
 
 def _fake_subentry(subentry_id: str, subentry_type: str, data: dict):
     return SimpleNamespace(

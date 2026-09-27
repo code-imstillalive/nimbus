@@ -52,6 +52,7 @@ from datetime import datetime, timedelta, timezone
 from unittest import mock
 
 import _solver_path  # noqa: F401
+import solver_shared
 import solver_writer
 
 AEST = timezone(timedelta(hours=10))
@@ -168,8 +169,13 @@ class TestARescoreRefreshesTheTimestamp(unittest.TestCase):
                 ),
             ),
             mock.patch.object(solver_writer, "ha_post_state", side_effect=post),
+            # nimbus issue #1301 (spec 001): rescore_quality_history()'s
+            # own splat of _version_stamp() resolves _nimbus_version()
+            # from solver_shared's module globals now (see solver_shared.
+            # py's own module docstring); patching solver_writer's copy
+            # does not reach it (nimbus issue #861).
             mock.patch.object(
-                solver_writer, "_nimbus_version", return_value="0.94.418"
+                solver_shared, "_nimbus_version", return_value="0.94.418"
             ),
         ):
             solver_writer.rescore_quality_history({}, now, 1)

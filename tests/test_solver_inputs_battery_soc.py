@@ -23,10 +23,21 @@ recovery toward, while `[0, capacity_kwh]` is a **physical** bound that
 real 27-crashes-per-window incident. Both are pinned separately below,
 and one test states the distinction directly so a failure says which.
 
-The logger is asserted through `solver_writer._LOGGER`, not a logger of
-this module's own, because that is a real property worth keeping: an
-install with `custom_components.nimbus_load.solver_writer: debug` in
-`configuration.yaml` still controls these lines after the move.
+The logger is patched via `solver_shared._LOGGER` (nimbus issue #1301,
+spec 001: `battery_soc.py` now imports `_LOGGER` from `solver_shared`
+rather than reaching into `solver_writer` for it). `solver_writer._LOGGER
+is solver_shared._LOGGER` -- a genuine alias, the same object, not two
+independently-created loggers (see `solver_shared.py`'s own module
+docstring) -- but `unittest.mock.patch.object` replaces a NAMESPACE
+BINDING on whichever module you name it against, not the underlying
+object everywhere it's referenced. `battery_soc.py`'s own `_LOGGER.
+warning(...)` calls resolve `_LOGGER` from `solver_shared`'s module
+globals, so that is the module `patch.object` has to target (nimbus
+issue #861's exact failure mode) -- patching `solver_writer._LOGGER`
+would silently stop intercepting these lines. An install configuring
+`custom_components.nimbus_load.solver_shared: debug` in
+`configuration.yaml` still controls them either way, since that is the
+one real logger's own name.
 """
 
 from __future__ import annotations
@@ -35,6 +46,7 @@ import unittest
 from unittest.mock import patch
 
 import _solver_path  # noqa: F401
+import solver_shared
 import solver_writer
 from solver_inputs import battery_soc
 
@@ -146,14 +158,14 @@ class TestThePhysicalClampIsADifferentClamp(_WarnStateReset):
 
 class TestIssue601WarnOnceThenRecover(_WarnStateReset):
     def test_the_first_excursion_warns(self):
-        with patch.object(solver_writer, "_LOGGER") as log:
+        with patch.object(solver_shared, "_LOGGER") as log:
             _resolve(min_pct=20.0, initial_pct=5.0)
         self.assertEqual(log.warning.call_count, 1)
 
     def test_the_second_excursion_is_debug_not_a_second_warning(self):
         """The 8 Sep day at 0% is the real case: ~800 cycles, one
         warning."""
-        with patch.object(solver_writer, "_LOGGER") as log:
+        with patch.object(solver_shared, "_LOGGER") as log:
             _resolve(min_pct=20.0, initial_pct=5.0)
             _resolve(min_pct=20.0, initial_pct=5.0)
             _resolve(min_pct=20.0, initial_pct=5.0)
@@ -163,7 +175,7 @@ class TestIssue601WarnOnceThenRecover(_WarnStateReset):
     def test_recovery_logs_once_and_rearms(self):
         """Rearming is the half a naive "log once ever" would miss — a
         second, genuinely new excursion has to warn again."""
-        with patch.object(solver_writer, "_LOGGER") as log:
+        with patch.object(solver_shared, "_LOGGER") as log:
             _resolve(min_pct=20.0, initial_pct=5.0)
             _resolve(min_pct=20.0, initial_pct=50.0)
             _resolve(min_pct=20.0, initial_pct=50.0)
@@ -172,7 +184,7 @@ class TestIssue601WarnOnceThenRecover(_WarnStateReset):
         self.assertEqual(log.warning.call_count, 2)
 
     def test_a_healthy_soc_logs_nothing_at_all(self):
-        with patch.object(solver_writer, "_LOGGER") as log:
+        with patch.object(solver_shared, "_LOGGER") as log:
             _resolve()
         self.assertEqual(log.warning.call_count, 0)
         self.assertEqual(log.info.call_count, 0)
@@ -182,7 +194,7 @@ class TestIssue601WarnOnceThenRecover(_WarnStateReset):
         """Not covered by the #601 dedup, and correctly so: a sensor
         returning nonsense on every cycle is a different, louder problem
         than a battery sitting outside its configured floor."""
-        with patch.object(solver_writer, "_LOGGER") as log:
+        with patch.object(solver_shared, "_LOGGER") as log:
             _resolve(initial_pct=130.0)
             _resolve(initial_pct=130.0)
         # One excursion warning (deduped) plus one physical-clamp warning
@@ -190,12 +202,14 @@ class TestIssue601WarnOnceThenRecover(_WarnStateReset):
         self.assertEqual(log.warning.call_count, 3)
 
 
-class TestItLogsThroughSolverWritersOwnLogger(_WarnStateReset):
-    def test_patching_solver_writers_logger_captures_these_lines(self):
-        """An install configuring `custom_components.nimbus_load.
-        solver_writer: debug` still controls these lines after the move —
-        a logger of this module's own would silently break that."""
-        with patch.object(solver_writer, "_LOGGER") as log:
+class TestItLogsThroughSolverSharedsOwnLogger(_WarnStateReset):
+    def test_patching_solver_shareds_logger_captures_these_lines(self):
+        """`battery_soc.py` reaches `_LOGGER` via `solver_shared` now
+        (nimbus issue #1301, spec 001), so that is the module a patch has
+        to target to intercept these calls -- see this file's own module
+        docstring for why `solver_writer._LOGGER is solver_shared._LOGGER`
+        does not make `patch.object(solver_writer, "_LOGGER")` equivalent."""
+        with patch.object(solver_shared, "_LOGGER") as log:
             _resolve(min_pct=20.0, initial_pct=5.0)
         self.assertTrue(log.warning.called)
 

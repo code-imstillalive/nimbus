@@ -33,6 +33,7 @@ from _ha_stubs import install_ha_stubs
 install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import solver_shared
 import solver_writer
 
 
@@ -82,7 +83,11 @@ class TestRescoreNeverPublishesAnExplicitNoneVersion(unittest.TestCase):
             mock.patch.object(
                 solver_writer, "ha_post_state", side_effect=_capture_post_state
             ),
-            mock.patch.object(solver_writer, "_nimbus_version", return_value=None),
+            # nimbus issue #1301 (spec 001): _version_stamp()'s own
+            # internal _nimbus_version() call resolves from solver_shared's
+            # module globals now, not solver_writer's (see solver_shared.
+            # py's own module docstring, nimbus issue #861).
+            mock.patch.object(solver_shared, "_nimbus_version", return_value=None),
         ):
             solver_writer.rescore_quality_history({}, _now(day=25), 1)
 

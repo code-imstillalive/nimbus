@@ -435,6 +435,27 @@ ignore = [
     # SAME small list can silently un-fix each other's own bookkeeping.
 ]
 
+# nimbus issue #1301 (Phase 2a, spec 001, #1347): `_LOGGER` moved from a
+# direct `_LOGGER = logging.getLogger(__name__)` assignment in
+# solver_writer.py to a genuine identity alias re-exported from the new
+# solver_shared.py (`from .solver_shared import (..., _LOGGER, ...)`).
+# Ruff's BLE001 (blind-except) rule exempts an `except Exception:` block
+# whose body logs via a real `logging.Logger` with `exc_info` set -- but it
+# can only recognise that FOR FREE when the logger is a direct `logging.
+# getLogger(...)` call it can see in the same file. Once `_LOGGER` is an
+# imported name, ruff's static check loses that trail and 19 real,
+# unrelated, pre-existing `except Exception:` blocks in solver_writer.py
+# (each already correct -- `_LOGGER.debug(..., exc_info=True)` or `.
+# warning(...)`, same as before this move, zero behaviour change) started
+# reading as newly-blind, purely because of where `_LOGGER` is now bound,
+# confirmed by a real base-vs-head `ruff check --select BLE001` run (0
+# findings on solver_writer.py at 7a3187e, 19 at this branch's tip, for
+# byte-identical try/except bodies). `logger-objects` is ruff's own
+# documented mechanism for exactly this shape ("projects that re-export a
+# `logging.Logger` object from a common module") -- not a suppression, a
+# correction of ruff's own logger-identity tracking to match reality.
+logger-objects = ["custom_components.nimbus_load.solver_shared._LOGGER"]
+
 # nimbus issue #360 (Mark Purcell, codebase review): the BLE001
 # per-file-ignore that used to sit here existed ONLY for the identical
 # `if __name__ == "__main__":` bare-function collector every test_*.py
@@ -498,17 +519,46 @@ ignore = [
 # scope, and inventing a fix for a module that doesn't exist yet risks
 # shipping something nobody has verified against the real file.
 #
-# ignore_imports below: the plan's own section 1 table of seven
-# `_solver_writer()` late-import call sites, confirmed current by
+# ignore_imports below: the plan's own section 1 table originally recorded
+# seven `_solver_writer()` late-import call sites, confirmed current by
 # re-running `lint-imports` against this contract with NO ignore_imports
 # at all -- it reported exactly these seven `importer -> imported` edges
 # and no others (`solver_inputs.battery_soc`/`prices`/`load`/`solar`/
 # `extra_batteries`/`battery_participants` and `solver_publish`, each
-# importing `solver_writer`), matching the plan's table exactly. Recorded
-# as exceptions, not fixed -- fixing them is each future phase's own job,
-# per the plan's section 3 ("no test assertion changes... Migration").
+# importing `solver_writer`), matching the plan's table exactly.
+#
+# nimbus issue #1301 (Phase 2, spec 001, #1347): a draft of this spec
+# expected six of those seven to be retirable here -- the six `solver_
+# inputs/*.py` modules repoint their own `_LOGGER` access onto
+# `solver_shared` instead of reaching into `solver_writer` for it. That
+# repointing is real (see each module's own `from .. import solver_shared`
+# and its `solver_shared._LOGGER` call sites) and is a genuine, permanent
+# reduction in what those six modules depend on `solver_writer` for. But
+# re-running `lint-imports` with the exceptions removed, rather than
+# assuming the repoint was sufficient, showed all six edges UNCHANGED --
+# each of the six still has its own pre-existing `_solver_writer()` seam
+# for OTHER names spec 001 never touched (e.g. `sw.fetch_entity_power_
+# history_kw`, `sw._NATIVE_HASS`, `sw.build_extra_batteries`'s own
+# ConfigSubentries reads, `sw.aemo_crosscheck`) -- `_LOGGER` was never the
+# ONLY reason any of the six imports `solver_writer`, only one of several.
+# Retargeting every remaining `sw.<name>` call site in these six files
+# (splitting each into "moved to solver_shared, import directly" vs.
+# "still solver_writer-only, keep the deferred seam") is a materially
+# larger, higher-risk change than this spec's own stated scope, and is
+# left as real, disclosed follow-up work rather than attempted here under
+# a deadline. All seven original exceptions therefore stay, verified
+# against a real `lint-imports` run with zero `ignore_imports` (below),
+# not assumed from the plan's own table.
+#
+# One new exception is added: `solver_shared -> solver_writer`, for the
+# identical, spec-001-documented reason `_NATIVE_HASS`/`HA_BASE`/
+# `_load_token()` stay behind in `solver_writer.py` and are read via the
+# same deferred `_solver_writer()` seam (nimbus issue #861) -- this is the
+# one new late-import call site the spec's own Migration explicitly
+# authorises, not an oversight.
+#
 # `unmatched_ignore_imports_alerting` is left at its default (`error`), so
-# if any one of these seven imports is ever fixed for real, this contract
+# if any one of these eight imports is ever fixed for real, this contract
 # starts failing with "no matching import" until the now-stale exception
 # is removed -- the exceptions list can only shrink honestly, never rot
 # silently the way a stale `# noqa` can.
@@ -524,6 +574,7 @@ layers = [
     "solver_writer | (standalone_writer)",
     "(solver_plan) | solver_publish | (solver_dispatch)",
     "solver_inputs | (solver_reports)",
+    "solver_shared",
     "solver",
 ]
 ignore_imports = [
@@ -534,4 +585,5 @@ ignore_imports = [
     "custom_components.nimbus_load.solver_inputs.load -> custom_components.nimbus_load.solver_writer",
     "custom_components.nimbus_load.solver_inputs.prices -> custom_components.nimbus_load.solver_writer",
     "custom_components.nimbus_load.solver_publish -> custom_components.nimbus_load.solver_writer",
+    "custom_components.nimbus_load.solver_shared -> custom_components.nimbus_load.solver_writer",
 ]
