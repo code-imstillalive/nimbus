@@ -2,12 +2,21 @@
 reporting subsystems moved out of `solver_writer.py` into `solver_reports/`.
 
 What these tests are actually for. The move itself was verified
-MECHANICALLY rather than behaviourally -- every inserted `sw.` was
-stripped back off and the result compared byte-for-byte against the
-original lines of `solver_writer.py`, so the relocated code is provably
-the same code (#1298's methodology item 3, the technique #1019 used for
-its re-indent). That check happens once, at extraction time, and cannot be
-re-run afterwards.
+MECHANICALLY rather than behaviourally, in two stages (#1298's methodology
+item 3, the technique #1019 used for its re-indent):
+
+1. Before formatting: every inserted `sw.` was stripped back off and the
+   result compared BYTE-FOR-BYTE against the original lines of
+   `solver_writer.py`. All three came back identical.
+2. After formatting: the `sw.` prefix lengthens lines, so `ruff format`
+   re-wrapped 34 of them and byte-identity no longer holds by
+   construction. Equivalence was therefore re-established at the AST
+   level -- strip the prefixes, drop the one added
+   `sw = _solver_writer()` binding, and `ast.dump()` matches `main`'s
+   function exactly. Line wrapping is the only thing that changed.
+
+Both checks happen once, at extraction time, and cannot be re-run
+afterwards.
 
 What CAN regress afterwards is the seam -- the reason the moved code says
 `sw.helper(...)` rather than importing `helper`. These tests exist so a
@@ -168,16 +177,12 @@ class TestMovedFunctionsBindTheAccessor(unittest.TestCase):
                     n
                     for n in ast.walk(fn)
                     if isinstance(n, ast.Assign)
-                    and any(
-                        isinstance(t, ast.Name) and t.id == "sw" for t in n.targets
-                    )
+                    and any(isinstance(t, ast.Name) and t.id == "sw" for t in n.targets)
                     and isinstance(n.value, ast.Call)
                     and isinstance(n.value.func, ast.Name)
                     and n.value.func.id == "_solver_writer"
                 ]
-                self.assertTrue(
-                    binds, f"{fname}() never binds sw = _solver_writer()"
-                )
+                self.assertTrue(binds, f"{fname}() never binds sw = _solver_writer()")
 
 
 if __name__ == "__main__":

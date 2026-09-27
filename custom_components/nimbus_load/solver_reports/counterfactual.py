@@ -13,6 +13,7 @@ callers there (9, 5 and 5 references respectively, and `resolve_min_soc_kwh`
 is also used by `solver_inputs/battery_soc.py`). Moving them would be a
 different phase's decision, not this one's.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -36,6 +37,7 @@ def _solver_writer():
     except ImportError:  # pragma: no cover - standalone/cron path
         import solver_writer
     return solver_writer
+
 
 def compute_nimbus_only_soc_counterfactual(cfg: dict, day: datetime) -> dict | None:
     """Generic, wizard-config-driven port of the reference household's own
@@ -317,11 +319,11 @@ def compute_nimbus_only_soc_counterfactual(cfg: dict, day: datetime) -> dict | N
                 ),
             )
         except Exception:  # exc_info is logged below. The `blind-except suppression it
-        # carried in solver_writer.py is deliberately NOT carried across:
-        # ruff's `logger-objects` setting names solver_shared._LOGGER, and
-        # reaching it as `sw._LOGGER` here stops BLE001 firing at all, so the
-        # directive becomes RUF100 'unused noqa'. Dropping it is the only
-        # non-verbatim edit in this module (nimbus issue #1301, Phase 2b).
+            # carried in solver_writer.py is deliberately NOT carried across:
+            # ruff's `logger-objects` setting names solver_shared._LOGGER, and
+            # reaching it as `sw._LOGGER` here stops BLE001 firing at all, so the
+            # directive becomes RUF100 'unused noqa'. Dropping it is the only
+            # non-verbatim edit in this module (nimbus issue #1301, Phase 2b).
             # nimbus issue #363 (Mark Purcell, codebase review): the
             # freeze-and-continue behaviour stays, breadcrumb added.
             sw._LOGGER.debug(

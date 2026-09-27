@@ -17,6 +17,7 @@ reference household at **~9x solve time** (median 1.16 s -> 10.3 s). The
 report is therefore gated behind the flex-signals switch and off by
 default. Moving it here changes none of that.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -43,6 +44,7 @@ def _solver_writer():
     except ImportError:  # pragma: no cover - standalone/cron path
         import solver_writer
     return solver_writer
+
 
 def _compute_flex_report_for_window(
     cfg: dict, day_start: datetime, day_end: datetime
@@ -149,7 +151,9 @@ def _compute_flex_report_for_window(
     offered_up_kwh = None
     offered_down_kwh = None
     if offered_up_hist:
-        offered_up_kw = sw.resample_history_mean(offered_up_hist, grid_times, period_hours)
+        offered_up_kw = sw.resample_history_mean(
+            offered_up_hist, grid_times, period_hours
+        )
         offered_up_kwh = round(float(sum(offered_up_kw) * period_hours), 3)
     if offered_down_hist:
         offered_down_kw = sw.resample_history_mean(

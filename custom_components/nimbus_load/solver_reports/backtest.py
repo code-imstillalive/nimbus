@@ -15,6 +15,7 @@ functions with none. It reads recorder history, sweeps candidate
 efficiencies through the pure `solver/` math, and returns a dict -- no
 publish, no dispatch, no module state.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta
@@ -38,6 +39,7 @@ def _solver_writer():
     except ImportError:  # pragma: no cover - standalone/cron path
         import solver_writer
     return solver_writer
+
 
 def compute_efficiency_backtest_report(cfg: dict, now: datetime) -> dict | None:
     """The retrospective backtesting engine's first real check (2026-08-25,
@@ -90,7 +92,9 @@ def compute_efficiency_backtest_report(cfg: dict, now: datetime) -> dict | None:
     # ever changes later.
     window_hours = (day_end - day_start).total_seconds() / 3600.0
     period_hours = (
-        sw.TIER1_PERIOD_HOURS if window_hours <= sw.MAX_TIER1_HOURS else sw.TIER2_PERIOD_HOURS
+        sw.TIER1_PERIOD_HOURS
+        if window_hours <= sw.MAX_TIER1_HOURS
+        else sw.TIER2_PERIOD_HOURS
     )
     n_periods = round(window_hours / period_hours)
     grid_times = [
@@ -196,7 +200,9 @@ def compute_efficiency_backtest_report(cfg: dict, now: datetime) -> dict | None:
         charge_efficiency=0.90,
         discharge_efficiency=0.90,
         charge_cost=sw._cfg_num(cfg, "solver_charge_cost", 0.01),
-        discharge_cost=np.full(n_periods, sw._cfg_num(cfg, "solver_discharge_cost", 0.01)),
+        discharge_cost=np.full(
+            n_periods, sw._cfg_num(cfg, "solver_discharge_cost", 0.01)
+        ),
         salvage_value=sw._cfg_num(cfg, "solver_salvage_value", 0.15),
     )
     grid_cfg = elements.GridConfig(
