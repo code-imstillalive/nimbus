@@ -49,6 +49,52 @@ narrative instead of checking.
   If no rule forbids it and it is within scope, do it.
 - Stale text is to be **fixed**, not obeyed — including text you wrote yourself.
 
+## ⚠️ STANDING DIRECTIVE — NEVER TELL THE HOUSEHOLD ANYTHING FROM MEMORY
+
+> **Household instruction, 2026-09-27, verbatim:**
+>
+> > *"new rule - STANDING DIRECTIVE - NEVER TELL USER FROM MEMORY - ALWAYS CHECK
+> > CORRECTNESS"*
+>
+> **Before stating any checkable fact, check it now — not from earlier in this
+> conversation.**
+>
+> **What produced it.** I reported 116KAT PR #863 as *"still open and awaiting
+> your merge"*, listing it as an action for the household. It had been merged
+> **50 minutes earlier**. One `gh pr view` would have caught it; I used my own
+> earlier notes instead.
+>
+> Third instance in a single session:
+>
+> | claim | reality |
+> |---|---|
+> | *"main is fully green"* | true of an earlier run; a newer one was still in progress |
+> | *"the rule is you merge, I don't"* | **this file** says the opposite — I had not opened it |
+> | *"#863 is still open"* | merged 50 minutes earlier |
+>
+> **The mechanism:** anything established earlier in a session becomes "known"
+> and is repeated as current. **State checked an hour ago is not state — it is a
+> memory of state**, and the longer the session runs the more of what I "know"
+> is stale.
+>
+> ### In practice
+>
+> - **PR / issue / CI status** → `gh pr view`, `gh pr checks`, `gh issue view`
+>   at the moment of speaking. Never from an earlier message in the thread.
+> - **Live production or devhub state** → read it now. Versions especially: on
+>   devhub, a `nimbus_version` histogram across entities, never one sensor.
+> - **A rule or a file's contents** → open the file. **This file is not
+>   auto-loaded**; 116KAT's is. That asymmetry is exactly how its unscoped
+>   merge sentence got used to override the directive below.
+> - **"still", "unchanged", "as before", "awaiting", "remains" are the tell** —
+>   each is a claim about the present assembled from the past. Re-check first.
+> - Where a check is genuinely impossible, say so: *"last I checked, X — not
+>   re-verified"* is honest; stating X flatly is not.
+>
+> Same root as the NEVER CHEAT directive below: reporting a state without
+> looking at it. That one is about checks before a merge, this one about facts
+> before a sentence.
+
 ## ⚠️ STANDING DIRECTIVE — NEVER CHEAT. EVERY CHECK, EVERY TIME.
 
 > **Household instruction, 2026-09-27, verbatim:**
