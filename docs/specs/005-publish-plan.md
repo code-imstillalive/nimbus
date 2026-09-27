@@ -82,6 +82,39 @@ real recorded market scenarios. This spec's job is confirming that existing
 coverage still reaches every line of the code being moved *now*, not
 building new snapshot machinery from nothing.
 
+## Verification method: identity, not just behavioural equivalence
+
+PR #1380's own review of spec 004 makes a distinction worth applying here
+before it has to be raised a second time: *"Phases 1–3 relocate **existing
+named functions**, which is why Phase 2 could be *proved* rather than
+evidenced: strip the inserted `sw.` prefixes and the bytes match; after
+`ruff format`, `ast.dump()` matches. ... Phase 4 has no pre-existing function
+to compare against ... Phase 4's safety rests entirely on behavioural
+equivalence via the golden master."*
+
+Phase 5 is on the Phase 1–3 side of that line, not Phase 4's — `publish_plan`
+and its thirteen helpers are already-named, already-signatured functions
+(none of this spec's own doing; #363 did that). So the stronger, Phase-2-
+style proof is available and is the bar this spec holds itself to, not the
+weaker one: for every moved function except `save_plan_state`, the body
+moves with a single mechanical substitution (`_LOGGER.` →
+`solver_shared._LOGGER.`, matching the fix PR #1380's review already
+required for spec 004 and spec 003's own `_LOGGER` point on #1370 — done
+here from the start, not corrected after review); strip that one
+substitution back out and `ast.dump(..., include_attributes=False)` must
+match the pre-move function exactly. `save_plan_state` gets the same
+treatment with one additional substitution (`PLAN_STATE_PATH` →
+`sw.PLAN_STATE_PATH`, `sw = _solver_writer()` added), the same "four-line
+non-identity, documented at the site" shape spec 002 accepted for
+`_carry_forward_quality_history`.
+
+The golden master and `test_main_golden_output_guardrail.py` remain required
+(Acceptance, below) as corroboration on real inputs — the same relationship
+spec 002 describes ("a golden payload test evidences that behaviour did not
+change on the inputs it covers; AST identity proves the code is the same
+code, on all inputs") — not as the only proof, the way they necessarily are
+for Phase 4.
+
 ## Measured cost
 
 `python tests/analyse_module_dependencies.py --phase 5` (`solver_writer.py`
@@ -240,6 +273,13 @@ import elements, network`, `import numpy as np`, `import json`,
 `from . import solver_shared` for `_LOGGER`), not `_solver_writer()`. This
 module already imports `solver_shared` for its own `publish_flex_telemetry_
 record`; nothing new in kind, only in which names are pulled from it.
+**Every moved `_LOGGER.*` call becomes `solver_shared._LOGGER.*`, never
+`sw._LOGGER`** — `tests/test_callers_mode_counts_only_real_references.py::
+test_the_real_tree_now_finds_zero_logger_callers` asserts zero real
+`sw._LOGGER`-shaped references anywhere outside `solver_writer.py` (Phase
+2a's own success condition), and PR #1380's review already caught this
+exact gap on spec 004 (and #1370 on spec 003) — done correctly here from
+the start rather than fixed after review.
 
 **One exception, not a plain import**: `save_plan_state` reads
 `PLAN_STATE_PATH` via the existing `_solver_writer()` deferred-import seam
@@ -342,6 +382,9 @@ time) needs retargeting to `solver_publish.ENTITY_ID`.
   `solver_publish.py`, so the `#757 diag` line moving with `publish_plan`
   stays covered (same convention Phases 1–3 already followed for
   `solver_shared.py`/`solver_inputs/*.py`).
+- `tests/test_callers_mode_counts_only_real_references.py::test_the_real_
+  tree_now_finds_zero_logger_callers` stays green — every `_LOGGER` use in
+  the moved code reaches `solver_shared._LOGGER` directly, never `sw._LOGGER`.
 - No new `_solver_writer()` deferred import beyond the one already required
   for `PLAN_STATE_PATH` — every other dependency is a plain top-level
   import, confirmed by the zero-monkeypatch measurement above.
@@ -468,6 +511,14 @@ directive's own item 8 states.
       before/after attribute diff on `sensor.nimbus_solver_battery_forecast`
       (per Deploy timing above) — required before this lands in a
       production deploy, per #1304's own step 5 and the plan's gate table.
+- [ ] **Identity, not just evidence** (per Verification method above):
+      `publish_plan` and twelve of its thirteen helpers are AST-identical to
+      their pre-move bodies after stripping the one `_LOGGER` →
+      `solver_shared._LOGGER` substitution; `save_plan_state` is AST-identical
+      after stripping both that substitution and `PLAN_STATE_PATH` →
+      `sw.PLAN_STATE_PATH` (`sw = _solver_writer()` added) — the one
+      documented non-identity, same shape as spec 002's
+      `_carry_forward_quality_history`.
 
 ## Rollback
 
