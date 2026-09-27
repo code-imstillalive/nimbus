@@ -141,6 +141,7 @@ from .const import (
     CONF_SOLVER_NETWORK_FEE_3_RATE,
     CONF_SOLVER_NETWORK_FEE_3_START_HOUR,
     CONF_SOLVER_NETWORK_FEE_DEFAULT_RATE,
+    CONF_SOLVER_NOWCAST_MEASUREMENT_ENABLED,
     CONF_SOLVER_OFFER_CURVE_ENABLED,
     CONF_SOLVER_P2P_BLOCK_1_END_HOUR,
     CONF_SOLVER_P2P_BLOCK_1_RATE_KW,
@@ -397,6 +398,11 @@ _SOLVER_ALL_KEYS = _SOLVER_REQUIRED_KEYS + (
     # always False regardless of the switch's real live state. Resolved
     # via _SOLVER_SWITCH_ENTITY_KEYS, same mechanism as every switch above.
     CONF_SOLVER_FLEX_SIGNALS_ENABLED,
+    # nimbus issue #1259: the index-0-vs-index-1 solar disagreement
+    # measurement switch -- exposed here for exactly the reason the
+    # comment above records, so cfg.get("solver_nowcast_measurement_
+    # enabled") can ever see a household's real toggle state.
+    CONF_SOLVER_NOWCAST_MEASUREMENT_ENABLED,
     # nimbus issue #567: the two live number.py fields resolve via
     # _SOLVER_NUMBER_ENTITY_KEYS, the switch via _SOLVER_SWITCH_ENTITY_
     # KEYS (see each tuple's own comment) -- the alert-entity POINTER
@@ -568,6 +574,12 @@ _SOLVER_SWITCH_ENTITY_KEYS = (
     # from this tuple made the switch a real no-op live on devhub; see
     # this file's own CONF_SOLVER_FLEX_SIGNALS_ENABLED comment above.
     CONF_SOLVER_FLEX_SIGNALS_ENABLED,
+    # nimbus issue #1259: same live-switch resolve path -- solver_writer.
+    # py reads this key off fetch_solver_config()'s own return value to
+    # decide whether to run the index-0-vs-index-1 solar disagreement
+    # measurement at all. Without it the switch would be a silent no-op,
+    # the exact bug the flex-signals entry above documents.
+    CONF_SOLVER_NOWCAST_MEASUREMENT_ENABLED,
 )
 # nimbus issue #485: select.py's own live string choices -- same
 # "resolve from a live entity, not entry.options" mechanism as the two

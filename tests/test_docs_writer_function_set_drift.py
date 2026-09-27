@@ -621,6 +621,20 @@ INTENTIONAL_CRON_ONLY = frozenset({"seconds_to_settlement_capture"})
 # expected to shrink, one porting PR at a time, not grow silently.
 KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
     {
+        # nimbus issue #768, step 1 of 2 --
+        # solver_inputs/controllable_load_history.py. Reconstructs what a
+        # configured controllable_load actually delivered over an elapsed
+        # window, from real recorded power, so the scorer can eventually be
+        # given load timing rather than only the home battery.
+        #
+        # Deliberately NOT under INTENTIONAL_NATIVE_ONLY, for the same reason
+        # calendar_trips.py below is not: this is portable in principle. It
+        # reads recorder history, and the cron copy reaches recorder history
+        # over REST already -- it is simply not ported yet. So it belongs on
+        # the list that is expected to SHRINK, not the one that says "this
+        # difference is permanent".
+        "resolve_controllable_load_delivery_history",
+        "integrate_delivered_kwh",
         # nimbus issue #467, staged item 3 -- solver_inputs/calendar_trips.py.
         # Resolves an HA calendar entity's upcoming events into adequacy
         # windows (trip distance -> kWh -> a window ending at departure).
@@ -748,6 +762,15 @@ KNOWN_OPEN_DRIFT_INTEGRATION_ONLY = frozenset(
         "resample_history_nearest",
         "resolve_load_forecast_source_label",
         "update_solar_delivery_ratio",
+        # nimbus issue #1259: the index-0-vs-index-1 solar disagreement
+        # measurement. Listed beside update_solar_delivery_ratio above
+        # deliberately -- it shares that function's state file, its
+        # history reader and its rolling-window shape, none of which the
+        # docs/cron copy carries, so porting this one alone would leave
+        # a broken reference. The two want porting together, as one piece
+        # of work on the standalone copy's solar diagnostics, and both
+        # are gated on config a bare cron install may not even have.
+        "update_solar_nowcast_disagreement",
         # Renamed in the integration copy (2026-08-2x era) to
         # scheduled_discharge_cost_rate/scheduled_salvage_value_rate --
         # the docs copy still carries the pre-rename names below under

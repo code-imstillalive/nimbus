@@ -51,6 +51,10 @@ class TestHomeIsTheIdentityTransform(unittest.TestCase):
         added without one."""
         self.assertNotIn("home", hm.SOLVER_PRESETS)
         self.assertNotIn("home", hm.LOAD_PRESETS)
+        # nimbus issue #1314: the thermal BOUND table is held to the same
+        # rule -- a `home` entry of +0.0 degrees would pass a value check
+        # and rot the first moment a band lever was added without one.
+        self.assertNotIn("home", hm.THERMAL_BAND_PRESETS)
 
     def test_home_returns_the_very_same_object(self):
         """Not merely an equal dict -- the same object, so the identity
@@ -106,7 +110,7 @@ class TestPresetsAreRelativeToTheHouseholdsOwnValue(unittest.TestCase):
     def test_every_table_entry_uses_a_known_operation(self):
         """Guards a typo'd op string, which would otherwise silently fall
         through to the delta branch and add where it meant to multiply."""
-        for table in (hm.SOLVER_PRESETS, hm.LOAD_PRESETS):
+        for table in (hm.SOLVER_PRESETS, hm.LOAD_PRESETS, hm.THERMAL_BAND_PRESETS):
             for mode, levers in table.items():
                 for key, (op, _operand) in levers.items():
                     with self.subTest(mode=mode, key=key):
@@ -191,8 +195,16 @@ class TestTheTablesOnlyTouchRealLevers(unittest.TestCase):
         from custom_components.nimbus_load import solver_writer as sw
 
         live = set(sw._CONTROLLABLE_LOAD_LIVE_NUMBER_KEYS)
-        # The price gate is deliberately wizard-only; see the test above.
-        wizard_only = {"deferrable_value_per_kwh"}
+        # Deliberately wizard-only, no live `number.*` entity of their
+        # own; see the test above for why "names a real config key" is
+        # the right invariant and this one is the narrower half.
+        wizard_only = {
+            "deferrable_value_per_kwh",
+            # nimbus issue #1314: the price of a mid-day reheat. A cost
+            # lever, so it lives in LOAD_PRESETS rather than the band
+            # table -- the band table holds BOUNDS only.
+            "thermal_comfort_floor_cost",
+        }
         for mode, levers in hm.LOAD_PRESETS.items():
             for key in levers:
                 if key in wizard_only:
@@ -216,7 +228,7 @@ class TestTheTablesOnlyTouchRealLevers(unittest.TestCase):
     def test_every_mode_named_in_a_table_is_a_real_selectable_mode(self):
         from custom_components.nimbus_load import const
 
-        for table in (hm.SOLVER_PRESETS, hm.LOAD_PRESETS):
+        for table in (hm.SOLVER_PRESETS, hm.LOAD_PRESETS, hm.THERMAL_BAND_PRESETS):
             for mode in table:
                 with self.subTest(mode=mode):
                     self.assertIn(mode, const.HOUSEHOLD_MODES)

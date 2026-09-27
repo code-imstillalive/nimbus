@@ -86,6 +86,15 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 DEFAULT_SOURCE_FILE = "custom_components/nimbus_load/solver_writer.py"
 
+# nimbus #1354, finding 1: "every line covered at base is covered somewhere
+# plausible at head" is vacuously true when the base side measured ZERO
+# covered lines -- so a run that measured nothing was, before this, printing
+# the same PASS and returning the same 0 as a run that measured everything
+# and found no regression. Distinct from both PASS (0) and a real regression
+# (1): a base side with no measured coverage is refused outright, loudly,
+# rather than silently blessed.
+NO_BASE_COVERAGE_EXIT_CODE = 2
+
 # A REAL incident, found live while opening this PR: this tool's own
 # `--base HEAD --head HEAD` default pipeline runs `pytest tests/` inside a
 # worktree, which collects tests/test_gates_coverage_compare.py -- including
@@ -156,6 +165,27 @@ for name in scenarios.names():
         ran.append(name)
 print(f"  golden: ran {len(ran)} scenario(s) under coverage: {', '.join(ran)}")
 """
+
+
+def canonical_worktree_root(raw: str | Path) -> Path:
+    """Resolve `raw` to the same form coverage.py uses when it canonicalises
+    the files it measures.
+
+    nimbus #1354, finding 2: `tempfile.gettempdir()` (what a fresh
+    `TemporaryDirectory()`'s name is built from) can return an 8.3 short
+    path on Windows (`C:\\Users\\RAF_LO~1\\...`), while coverage.py
+    canonicalises the paths it records via `os.path.realpath`, which
+    resolves that same directory to its long form
+    (`C:\\Users\\Raf_local\\...`). If the worktree root handed to `coverage
+    run --source=...` and the root this tool later looks measured lines up
+    under are two different spellings of the same directory, every lookup
+    misses -- every file reads 0 lines covered, which finding 1 elsewhere
+    in this module then let through as a silent PASS. Routed through one
+    function so it can be unit-tested directly (see this module's own
+    tests) without needing an actual short-path-aliased filesystem to
+    reproduce against.
+    """
+    return Path(os.path.realpath(raw))
 
 
 def add_worktree(ref: str, into: Path, label: str) -> Path:
@@ -323,8 +353,23 @@ def combine_and_extract(
     )
     payload = json.loads(out_json.read_text(encoding="utf-8"))
     files = payload.get("files", {})
+    # nimbus #1354: coverage.py's own JSON report keys each file by the
+    # HOST OS's native separator (backslash on Windows) even under
+    # `relative_files = True`, while `target_files` (--source-file /
+    # --moved-code, and DEFAULT_SOURCE_FILE) always use forward slashes --
+    # this project's own git-path convention. On Windows, a raw string
+    # lookup of a forward-slash key into these backslash-keyed results
+    # never matches, so every file reads 0 covered lines regardless of
+    # whether the worktree root itself is canonicalised (see
+    # canonical_worktree_root) -- confirmed directly: this still measured
+    # 0 lines against a worktree root that had already been resolved to
+    # its long form. Normalize both sides to forward slashes once, here,
+    # so the lookup is OS-independent.
+    normalized_files = {Path(rel).as_posix(): info for rel, info in files.items()}
     return {
-        rel: set(files[rel]["executed_lines"]) for rel in target_files if rel in files
+        rel: set(normalized_files[rel]["executed_lines"])
+        for rel in target_files
+        if rel in normalized_files
     }
 
 
@@ -395,13 +440,26 @@ def run(
     exercise_commands: list[str] | None,
 ) -> int:
     with tempfile.TemporaryDirectory(prefix="coverage-compare-") as tmp:
-        tmp_path = Path(tmp)
+        # nimbus #1354, finding 2 -- see canonical_worktree_root's own
+        # docstring. Canonicalise once, here, before this root is handed to
+        # coverage or compared against anything, so both sides always agree.
+        tmp_path = canonical_worktree_root(tmp)
         rcfile = tmp_path / "gate.coveragerc"
         rcfile.write_text("[run]\nrelative_files = True\n", encoding="utf-8")
 
-        base_dir = add_worktree(base_ref, tmp_path, "base")
-        head_dir = add_worktree(head_ref, tmp_path, "head")
+        # Both worktrees are created and removed inside the SAME try/finally
+        # -- previously `add_worktree` ran before the `try`, so a failure
+        # creating `head_dir` (the second call) left `base_dir`'s worktree
+        # registered forever: the temp directory backing it still gets
+        # deleted when this `with` block exits, but nothing ever ran
+        # `git worktree remove` for it, leaving a stale, unprunable
+        # registration behind. nimbus #1354 found 7 of these accumulated
+        # from one afternoon's runs.
+        base_dir: Path | None = None
+        head_dir: Path | None = None
         try:
+            base_dir = add_worktree(base_ref, tmp_path, "base")
+            head_dir = add_worktree(head_ref, tmp_path, "head")
             source_dirs = sorted(
                 {str(Path(f).parent) for f in [source_file, *moved_to]}
             )
@@ -435,6 +493,28 @@ def run(
             if moved_to:
                 print(f"moved-code destinations: {', '.join(moved_to)}")
 
+            if base_n == 0:
+                # nimbus #1354, finding 1. "Every line covered at base is
+                # covered at head" holds vacuously over an empty set, so
+                # without this check a base side that measured NOTHING
+                # (wrong --source-file, a --source typo, an import that
+                # never happened, or -- on Windows -- finding 2's own 8.3
+                # short-path aliasing between the worktree root and what
+                # coverage.py canonicalises) is silently indistinguishable
+                # from a base side that measured everything and found no
+                # regression. Refuse to report PASS either way: a distinct
+                # exit code, never 0 (pass) or 1 (a real regression), so a
+                # CI caller can tell "nothing was measured" apart from both.
+                print(
+                    f"FAIL: measured no coverage at base for {source_file} -- "
+                    "refusing to report PASS. See nimbus #1354: this cannot "
+                    "be told apart from a genuine zero-regression run without "
+                    "this check. Check --source-file/--source, and whether "
+                    "the golden scenarios / suite actually imported this "
+                    "file at base."
+                )
+                return NO_BASE_COVERAGE_EXIT_CODE
+
             regressions = find_regressions(
                 base_dir, head_dir, source_file, moved_to, base_cov, head_cov
             )
@@ -448,8 +528,12 @@ def run(
                 print(f"  {reg}")
             return 1
         finally:
-            remove_worktree(base_dir)
-            remove_worktree(head_dir)
+            # Either or both may still be None if add_worktree itself
+            # raised -- only remove what was actually created.
+            if base_dir is not None:
+                remove_worktree(base_dir)
+            if head_dir is not None:
+                remove_worktree(head_dir)
 
 
 def main(argv: list[str] | None = None) -> int:

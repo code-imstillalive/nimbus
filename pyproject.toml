@@ -600,6 +600,9 @@ ignore_imports = [
     "custom_components.nimbus_load.solver_inputs.extra_batteries -> custom_components.nimbus_load.solver_writer",
     "custom_components.nimbus_load.solver_inputs.load -> custom_components.nimbus_load.solver_writer",
     "custom_components.nimbus_load.solver_inputs.prices -> custom_components.nimbus_load.solver_writer",
+    # nimbus issue #768: the controllable-load delivery reconstruction reaches
+    # back through the same deferred, by-module seam as every sibling above.
+    "custom_components.nimbus_load.solver_inputs.controllable_load_history -> custom_components.nimbus_load.solver_writer",
     "custom_components.nimbus_load.solver_publish -> custom_components.nimbus_load.solver_writer",
     "custom_components.nimbus_load.solver_shared -> custom_components.nimbus_load.solver_writer",
 ]
