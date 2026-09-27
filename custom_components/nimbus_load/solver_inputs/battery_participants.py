@@ -41,6 +41,10 @@ try:
     from ..solver import elements
 except ImportError:  # pragma: no cover - standalone/cron path
     from solver import elements  # type: ignore[no-redef]
+try:
+    from .. import solver_shared
+except ImportError:  # pragma: no cover - standalone/cron path
+    import solver_shared  # type: ignore[no-redef]
 
 from .extra_batteries import (
     _DEFAULT_EXTRA_BATTERY_CHARGE_COST,
@@ -119,11 +123,10 @@ def _warn_participant_history_is_ungated_once(name: str) -> None:
     misattribute. Once per participant, at WARNING so it is visible without
     debug logging.
     """
-    sw = _solver_writer()
     if name in _UNGATED_PARTICIPANT_WARNED:
         return
     _UNGATED_PARTICIPANT_WARNED.add(name)
-    sw._LOGGER.warning(
+    solver_shared._LOGGER.warning(
         "Nimbus: battery participant '%s' has no "
         "battery_participant_available_entity configured, so its scored "
         "history is NOT gated for periods it was away. If this participant "
@@ -148,11 +151,10 @@ def _warn_sign_convention_once(name: str, result: object) -> None:
     Only a confident DISAGREES reaches here; the detector's own
     INSUFFICIENT_EVIDENCE is not a finding and must not produce a warning.
     """
-    sw = _solver_writer()
     if name in _SIGN_CONVENTION_WARNED:
         return
     _SIGN_CONVENTION_WARNED.add(name)
-    sw._LOGGER.warning(
+    solver_shared._LOGGER.warning(
         "Nimbus: battery participant '%s' declares a power-sign convention "
         "its own recorded history contradicts -- %s of %s windows where SoC "
         "actually moved show the opposite sign. Nothing has been changed: "
@@ -211,7 +213,6 @@ def _drop_implausible_power_samples(
     WARNED_PERIOD elsewhere in solver_writer.py, scoped to this
     function's own once-per-scored-day call pattern.
     """
-    sw = _solver_writer()
     if max_plausible_kw <= 0.0 or not power_hist:
         return power_hist
     kept: list[tuple[datetime, float]] = []
@@ -223,7 +224,7 @@ def _drop_implausible_power_samples(
             kept.append((t, v))
     if dropped:
         worst_t, worst_v = max(dropped, key=lambda p: abs(p[1] * power_scale))
-        sw._LOGGER.warning(
+        solver_shared._LOGGER.warning(
             "Nimbus quality: discarded %d physically implausible reading(s) "
             "from battery participant '%s' power sensor %s -- worst was "
             "%.3f (scaled: %.3f kW) at %s, beyond this participant's own "
@@ -416,7 +417,7 @@ def _resolve_battery_participant_history(
         power_sensor = data.get(CONF_BATTERY_PARTICIPANT_POWER_SENSOR)
         soc_sensor = data.get(CONF_BATTERY_PARTICIPANT_SOC_SENSOR)
         if capacity_kwh <= 0.0 or not soc_sensor or not power_sensor:
-            sw._LOGGER.info(
+            solver_shared._LOGGER.info(
                 "Nimbus quality: battery participant '%s' has no power "
                 "sensor/SoC sensor/capacity configured -- excluded from "
                 "this day's multi-battery score (this participant simply "
@@ -435,7 +436,7 @@ def _resolve_battery_participant_history(
             soc_sensor, day_start - timedelta(hours=6), day_end
         )
         if not power_hist or not soc_hist:
-            sw._LOGGER.info(
+            solver_shared._LOGGER.info(
                 "Nimbus quality: battery participant '%s' has no real "
                 "history for window [%s, %s] (power=%d, soc=%d rows) -- "
                 "excluded from this day's multi-battery score",
@@ -513,8 +514,10 @@ def _resolve_battery_participant_history(
                 )
                 if _sign_check.is_actionable:
                     _warn_sign_convention_once(str(name), _sign_check)
-            except Exception:
-                sw._LOGGER.debug(
+            except Exception:  # noqa: BLE001 -- exc_info logged below; ruff's
+                # logger-objects tracing can't follow `solver_shared` through
+                # this file's own dual-mode try/except import (nimbus #1301)
+                solver_shared._LOGGER.debug(
                     "Nimbus: sign-convention check skipped for participant %s",
                     name,
                     exc_info=True,
@@ -553,7 +556,7 @@ def _resolve_battery_participant_history(
                 stale_mask = np.zeros(len(net_kw), dtype=bool)
                 stale_mask[list(stale_period_indices)] = True
                 net_kw = np.where(stale_mask, 0.0, net_kw)
-                sw._LOGGER.info(
+                solver_shared._LOGGER.info(
                     "Nimbus quality: battery participant '%s' has no recorded "
                     "power for %d of %d periods (gaps longer than the "
                     "one-hour sample guard) -- those periods contribute no "
@@ -775,7 +778,7 @@ def _resolve_battery_participant_history(
             # down the whole day's report -- skip just this participant,
             # same "the rest of the fleet is unaffected" posture as the
             # missing-sensor branch above.
-            sw._LOGGER.warning(
+            solver_shared._LOGGER.warning(
                 "Nimbus quality: battery participant '%s' could not be "
                 "scored for window [%s, %s] (%s) -- excluded from this "
                 "day's multi-battery score",
@@ -923,7 +926,6 @@ def _widen_shared_charger_cap_to_achieved(
     participant is just a second `max_charge_kw`, and widening it would
     quietly relax a real per-battery limit.
     """
-    sw = _solver_writer()
     groups: dict[str, float] = {}
     for cfg, charge_kw, discharge_kw, _final, _soc_hist in results:
         group = cfg.shared_charger_group
@@ -975,7 +977,7 @@ def _widen_shared_charger_cap_to_achieved(
         achieved_peak = float(np.max(np.asarray(groups[group], dtype=np.float64)))
         relaxed = max(float(cfg.shared_charger_max_kw), achieved_peak)
         if relaxed > float(cfg.shared_charger_max_kw):
-            sw._LOGGER.debug(
+            solver_shared._LOGGER.debug(
                 "Nimbus quality (#1109): shared charger group %r drew %.3f kW "
                 "at peak against a configured cap of %.3f kW -- widening the "
                 "oracle's cap to the achieved peak so the achieved trajectory "

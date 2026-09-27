@@ -28,6 +28,13 @@ already avoid importing/executing end-to-end; reading the real, deployed
 source and asserting the logger calls are present (and print() is still
 there too, for the standalone/cron/addon deployment) is a real, if
 lightweight, guard against silently reverting to the print()-only trace.
+
+nimbus issue #1301 (spec 001): `ha_post_state()` itself now lives in
+`solver_shared.py`, not `solver_writer.py` -- this file's own source-scan
+target moves with it. The function's own text, and the logger/print calls
+inside it, are unchanged (a pure relocation), so only the file path and
+the end-of-function marker (the next top-level def after it moved from
+`ha_call_service` to `fetch_p2p_fixed_export_kw`) need updating.
 """
 
 from __future__ import annotations
@@ -35,11 +42,11 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-_SOLVER_WRITER_PY = (
+_SOLVER_SHARED_PY = (
     Path(__file__).resolve().parent.parent
     / "custom_components"
     / "nimbus_load"
-    / "solver_writer.py"
+    / "solver_shared.py"
 )
 
 
@@ -49,27 +56,28 @@ def _extract_ha_post_state_native_branch(src: str) -> str:
     some unrelated logger/print call elsewhere in this large file."""
     marker = "def ha_post_state(entity_id: str, state, attributes: dict) -> None:"
     start = src.index(marker)
-    end = src.index("\ndef ha_call_service(", start)
+    end = src.index("\ndef fetch_p2p_fixed_export_kw(", start)
     return src[start:end]
 
 
 def test_module_defines_a_real_stdlib_logger():
-    src = _SOLVER_WRITER_PY.read_text(encoding="utf-8")
+    src = _SOLVER_SHARED_PY.read_text(encoding="utf-8")
     assert "import logging" in src, (
-        "solver_writer.py no longer imports stdlib logging -- the #85 "
+        "solver_shared.py no longer imports stdlib logging -- the #85 "
         "trace needs a real logging.Logger to be visible via HA's "
         "error_log in native mode"
     )
     assert re.search(r"_LOGGER\s*=\s*logging\.getLogger\(__name__\)", src), (
-        "solver_writer.py no longer defines a module-level _LOGGER -- "
-        "see this file's own comment next to _NATIVE_HASS for why this "
-        "is safe even in standalone/cron/addon mode (plain stdlib, no "
-        "HA import, silent when nothing configures a handler for it)"
+        "solver_shared.py no longer defines the module-level _LOGGER "
+        "solver_writer.py imports as a genuine alias (nimbus issue #1301, "
+        "spec 001) -- see solver_shared.py's own module docstring for why "
+        "this is safe even in standalone/cron/addon mode (plain stdlib, "
+        "no HA import, silent when nothing configures a handler for it)"
     )
 
 
 def test_ha_post_state_mirrors_the_85_trace_to_the_logger_not_just_print():
-    src = _SOLVER_WRITER_PY.read_text(encoding="utf-8")
+    src = _SOLVER_SHARED_PY.read_text(encoding="utf-8")
     block = _extract_ha_post_state_native_branch(src)
 
     assert "print(" in block, (
@@ -86,10 +94,10 @@ def test_ha_post_state_mirrors_the_85_trace_to_the_logger_not_just_print():
 
 
 def test_raw_states_async_set_fallback_has_its_own_logger_trace():
-    src = _SOLVER_WRITER_PY.read_text(encoding="utf-8")
+    src = _SOLVER_SHARED_PY.read_text(encoding="utf-8")
     block = _extract_ha_post_state_native_branch(src)
 
-    fallback_marker = "_NATIVE_HASS.states.async_set, entity_id, state, attributes"
+    fallback_marker = "sw._NATIVE_HASS.states.async_set, entity_id, state, attributes"
     assert fallback_marker in block, (
         "the raw states.async_set() fallback call site moved or was "
         "renamed -- update this test's marker to match"

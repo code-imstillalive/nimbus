@@ -44,6 +44,11 @@ import re
 import urllib.error
 from dataclasses import dataclass
 
+try:
+    from .. import solver_shared
+except ImportError:  # pragma: no cover - standalone/cron path
+    import solver_shared  # type: ignore[no-redef]
+
 
 def _solver_writer():
     """The `solver_writer` module, imported late and by MODULE (never by
@@ -139,7 +144,7 @@ def build_load_arrays(cfg, grid_times, n_periods, now) -> LoadArrays:
             sw._cfg_num(cfg, "solver_inverter_self_consumption_kw", 0.0),
         )
         if summed_error is not None:
-            sw._LOGGER.warning("Nimbus Solver: %s", summed_error)
+            solver_shared._LOGGER.warning("Nimbus Solver: %s", summed_error)
             raise RuntimeError(f"Load forecast not usable: {summed_error}")
     else:
         # Validated read (2026-08-23, real fix for nimbus repo issue
@@ -178,7 +183,7 @@ def build_load_arrays(cfg, grid_times, n_periods, now) -> LoadArrays:
                 raise RuntimeError(
                     f"Load forecast not ready yet: {load_forecast_error}"
                 )
-            sw._LOGGER.warning("Nimbus Solver: %s", load_forecast_error)
+            solver_shared._LOGGER.warning("Nimbus Solver: %s", load_forecast_error)
             load_kw = [0.0] * n_periods
             load_lower_kw = [0.0] * n_periods
             load_upper_kw = [0.0] * n_periods
@@ -242,7 +247,7 @@ def build_load_arrays(cfg, grid_times, n_periods, now) -> LoadArrays:
             KeyError,
             json.JSONDecodeError,
         ) as e:
-            sw._LOGGER.warning(
+            solver_shared._LOGGER.warning(
                 "Nimbus Solver: whole-house cross-check unavailable (%s)", e
             )
             whole_house_now_kw = None

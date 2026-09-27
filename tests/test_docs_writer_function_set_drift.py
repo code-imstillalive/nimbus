@@ -136,9 +136,23 @@ _DOCS_PATH = os.path.join(
 # durable half of this fix: it fails when the NEXT extraction lands
 # without being added here, so #952 cannot recur silently for stages
 # 2-4.
+# nimbus issue #1301 (Phase 2, spec 001, #1347): `solver_shared.py` joins
+# the union for the identical reason `solver_publish.py` was registered
+# under #952 -- it is a new module the integration extracted real,
+# shared solve-surface logic into (the HA-I/O and config-resolution core
+# eight Phase-2 reporting functions all depend on), and every one of its
+# 20 top-level names already has a home in one of the four lists below
+# (mostly already-existing entries this spec's move makes true of a new
+# FILE, not a new NAME -- e.g. `ha_get`/`ha_post_state` are genuinely
+# shared with the docs copy regardless of which integration file defines
+# them, and `resample_history_mean`/`_version_stamp`/etc. were already
+# INTENTIONAL_NATIVE_ONLY or KNOWN_OPEN_DRIFT_INTEGRATION_ONLY before this
+# move). Registering it here is what stops it being #952's exact blind
+# spot for the NEXT extraction.
 _EXTRACTED_PACKAGE_GLOBS = (
     os.path.join(_NIMBUS_DIR, "solver_inputs", "*.py"),
     os.path.join(_NIMBUS_DIR, "solver_publish.py"),
+    os.path.join(_NIMBUS_DIR, "solver_shared.py"),
 )
 
 

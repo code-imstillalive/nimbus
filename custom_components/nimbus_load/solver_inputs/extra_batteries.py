@@ -41,6 +41,10 @@ try:
     from ..solver import elements
 except ImportError:  # pragma: no cover - standalone/cron path
     from solver import elements  # type: ignore[no-redef]
+try:
+    from .. import solver_shared
+except ImportError:  # pragma: no cover - standalone/cron path
+    import solver_shared  # type: ignore[no-redef]
 
 # nimbus issue #563 item 3: no wizard field exists yet for a battery
 # participant's own charge/discharge $/kWh cost, but BatteryConfig.
@@ -245,7 +249,7 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
     # Logging every entry this call actually returns -- not just
     # entries[0] -- to settle this directly on the next real occurrence,
     # rather than re-deriving it from static reading a third time.
-    sw._LOGGER.debug(
+    solver_shared._LOGGER.debug(
         "Nimbus #757 diag: async_entries(DOMAIN) returned %d entr%s: %s",
         len(entries),
         "y" if len(entries) == 1 else "ies",
@@ -259,7 +263,7 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
             for e in entries
         ],
     )
-    sw._LOGGER.debug(
+    solver_shared._LOGGER.debug(
         "Nimbus #757 diag: build_extra_batteries scanning %d subentries: %s",
         len(entries[0].subentries),
         [
@@ -272,7 +276,7 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
             continue
         data = subentry.data
         name = data.get(CONF_BATTERY_PARTICIPANT_NAME) or subentry.subentry_id
-        sw._LOGGER.debug(
+        solver_shared._LOGGER.debug(
             "Nimbus #757 diag: found battery_participant subentry name=%r data_keys=%s",
             name,
             sorted(data.keys()),
@@ -287,7 +291,7 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
             # the whole solve cycle over one misconfigured subentry --
             # same "skip, don't crash" discipline build_controllable_
             # loads() above already uses.
-            sw._LOGGER.warning(
+            solver_shared._LOGGER.warning(
                 "Nimbus: battery participant subentry name '%s' is reserved "
                 "or duplicated -- skipping this cycle. Every battery "
                 "participant needs its own real name, and 'home' is "
@@ -303,7 +307,7 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
         )
         soc_sensor = data.get(CONF_BATTERY_PARTICIPANT_SOC_SENSOR)
         if capacity_kwh <= 0.0 or not soc_sensor:
-            sw._LOGGER.warning(
+            solver_shared._LOGGER.warning(
                 "Nimbus: battery participant '%s' is missing capacity_kwh "
                 "or its SoC sensor -- skipping this cycle",
                 name,
@@ -336,7 +340,7 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
             and subentry.subentry_id not in _IMMOBILE_PARTICIPANT_WARNED
         ):
             _IMMOBILE_PARTICIPANT_WARNED.add(subentry.subentry_id)
-            sw._LOGGER.warning(
+            solver_shared._LOGGER.warning(
                 "Nimbus #1067: battery participant %r has both "
                 "max_charge_kw and max_discharge_kw at 0 -- it is in "
                 "the fleet but the solver can never move it, and the "
@@ -427,7 +431,7 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
                 pass
             elif _soc_excursion_key not in _BATTERY_PARTICIPANT_WARNED:
                 _BATTERY_PARTICIPANT_WARNED.add(_soc_excursion_key)
-                sw._LOGGER.warning(
+                solver_shared._LOGGER.warning(
                     "Nimbus: battery participant '%s' live SoC %.2f%% is "
                     "outside its own configured floor/ceiling [%.2f%%, "
                     "%.2f%%] -- the LP is scheduling real recovery this "
@@ -441,7 +445,7 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
                     max_soc_pct,
                 )
             else:
-                sw._LOGGER.debug(
+                solver_shared._LOGGER.debug(
                     "Nimbus: battery participant '%s' live SoC %.2f%% "
                     "still outside its own configured floor/ceiling "
                     "[%.2f%%, %.2f%%] this cycle.",
@@ -452,7 +456,7 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
                 )
         elif _soc_excursion_key in _BATTERY_PARTICIPANT_WARNED:
             _BATTERY_PARTICIPANT_WARNED.discard(_soc_excursion_key)
-            sw._LOGGER.info(
+            solver_shared._LOGGER.info(
                 "Nimbus: battery participant '%s' live SoC %.2f%% has "
                 "recovered back inside its own configured floor/ceiling "
                 "[%.2f%%, %.2f%%].",
@@ -475,7 +479,7 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
             _partial_key = f"{name}:departure_deadline_partial"
             if _partial_key not in _BATTERY_PARTICIPANT_WARNED:
                 _BATTERY_PARTICIPANT_WARNED.add(_partial_key)
-                sw._LOGGER.warning(
+                solver_shared._LOGGER.warning(
                     "Nimbus: battery participant '%s' has only one of "
                     "departure_hour/must_have_soc_by_departure_percent set -- "
                     "both are required together, treating as neither set "
@@ -582,7 +586,7 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
         degradation_cost_per_kwh = float(
             data.get(CONF_BATTERY_PARTICIPANT_DEGRADATION_COST_PER_KWH) or 0.0
         )
-        sw._LOGGER.debug(
+        solver_shared._LOGGER.debug(
             "Nimbus #757 diag: about to append BatteryConfig for %r "
             "(capacity_kwh=%s, max_charge_kw=%s, max_discharge_kw=%s, "
             "min_soc_kwh=%s, max_soc_kwh=%s, initial_soc_kwh=%s)",
@@ -628,7 +632,7 @@ def build_extra_batteries(periods: elements.PeriodGrid | None = None) -> list:
                 shared_charger_max_kw=shared_charger_max_kw,
             )
         )
-    sw._LOGGER.debug(
+    solver_shared._LOGGER.debug(
         "Nimbus #757 diag: build_extra_batteries returning %d battery config(s): %s",
         len(batteries),
         [b.name for b in batteries],

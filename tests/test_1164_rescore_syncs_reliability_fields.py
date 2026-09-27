@@ -48,6 +48,7 @@ from datetime import datetime
 from unittest.mock import patch
 
 import _solver_path  # noqa: F401
+import solver_shared
 import solver_writer
 
 BRISBANE = solver_writer.LOCAL_TZ
@@ -154,7 +155,13 @@ def _run(days, existing, side_effect, version="0.94.401"):
     with (
         patch.object(solver_writer, "ha_get", return_value=existing),
         patch.object(solver_writer, "ha_post_state", side_effect=_post),
-        patch.object(solver_writer, "_nimbus_version", return_value=version),
+        # nimbus issue #1301 (spec 001): _version_stamp()'s own internal
+        # call to _nimbus_version() now resolves from solver_shared's
+        # module globals (both live there) regardless of which staying
+        # function calls _version_stamp() itself -- see solver_shared.py's
+        # own module docstring for why patch.object(solver_writer, ...)
+        # does not reach it (nimbus issue #861).
+        patch.object(solver_shared, "_nimbus_version", return_value=version),
         patch.object(
             solver_writer, "_compute_report_for_window", side_effect=side_effect
         ),

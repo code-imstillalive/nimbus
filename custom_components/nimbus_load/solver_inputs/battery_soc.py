@@ -58,6 +58,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+try:
+    from .. import solver_shared
+except ImportError:  # pragma: no cover - standalone/cron path
+    import solver_shared  # type: ignore[no-redef]
+
 # nimbus issue #601: warn-once/debug/recovered state for the excursion
 # log below — a plain module-level flag rather than a keyed set, since
 # there is only ever one "home" battery (unlike battery participants,
@@ -147,7 +152,7 @@ def resolve_soc_envelope(
         )
         if not _HOME_BATTERY_SOC_EXCURSION_WARNED:
             _HOME_BATTERY_SOC_EXCURSION_WARNED = True
-            sw._LOGGER.warning(
+            solver_shared._LOGGER.warning(
                 "Nimbus Solver: live battery SoC %.2f%% is outside the "
                 "configured Solver floor/ceiling [%.2f%%, %.2f%%] -- the LP "
                 "is scheduling real recovery this cycle rather than having "
@@ -161,7 +166,7 @@ def resolve_soc_envelope(
                 max_pct,
             )
         else:
-            sw._LOGGER.debug(
+            solver_shared._LOGGER.debug(
                 "Nimbus Solver: live battery SoC %.2f%% still outside the "
                 "configured Solver floor/ceiling [%.2f%%, %.2f%%] this "
                 "cycle.",
@@ -174,7 +179,7 @@ def resolve_soc_envelope(
         _initial_pct_raw = (
             initial_soc_kwh_raw / capacity_kwh * 100.0 if capacity_kwh > 0 else 0.0
         )
-        sw._LOGGER.info(
+        solver_shared._LOGGER.info(
             "Nimbus Solver: live battery SoC %.2f%% has recovered back "
             "inside the configured Solver floor/ceiling [%.2f%%, %.2f%%].",
             _initial_pct_raw,
@@ -190,7 +195,7 @@ def resolve_soc_envelope(
     # 27+-crashes-per-window incident did.
     if not (0.0 <= initial_soc_kwh_raw <= capacity_kwh):
         initial_soc_kwh = min(max(initial_soc_kwh_raw, 0.0), capacity_kwh)
-        sw._LOGGER.warning(
+        solver_shared._LOGGER.warning(
             "Nimbus Solver: live battery SoC reading is outside the "
             "battery's own PHYSICAL range [0, %.2f kWh] -- clamping to "
             "%.4f kWh to keep this solve alive. This is sensor nonsense "

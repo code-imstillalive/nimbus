@@ -83,15 +83,25 @@ from _ha_stubs import install_ha_stubs
 install_ha_stubs()
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from custom_components.nimbus_load import solver_writer
+from custom_components.nimbus_load import solver_shared, solver_writer
 
 
 class TestTheStampIsAValueNotAPlaceholder(unittest.TestCase):
-    """`_version_stamp()` returns a dict to splat, for one specific reason."""
+    """`_version_stamp()` returns a dict to splat, for one specific reason.
+
+    nimbus issue #1301 (spec 001): `_version_stamp()`/`_nimbus_version()`
+    both now live in `solver_shared.py` -- `_version_stamp()`'s own
+    internal call to `_nimbus_version()` resolves there too, so the patch
+    below targets `solver_shared`, not `solver_writer` (whose own
+    `solver_writer._nimbus_version`/`_version_stamp` are the identical,
+    re-exported objects, but patching them would not affect what
+    `_version_stamp()`'s own body actually calls once it is defined in a
+    different module -- nimbus issue #861's exact failure mode).
+    """
 
     def test_a_known_version_is_stamped(self):
         with mock.patch.object(
-            solver_writer, "_nimbus_version", return_value="0.94.417"
+            solver_shared, "_nimbus_version", return_value="0.94.417"
         ):
             self.assertEqual(
                 solver_writer._version_stamp(), {"nimbus_version": "0.94.417"}
@@ -105,7 +115,7 @@ class TestTheStampIsAValueNotAPlaceholder(unittest.TestCase):
         the fallback that would otherwise have said something true. An absent
         key reads exactly as every row written before #1120 did.
         """
-        with mock.patch.object(solver_writer, "_nimbus_version", return_value=None):
+        with mock.patch.object(solver_shared, "_nimbus_version", return_value=None):
             self.assertEqual(solver_writer._version_stamp(), {})
 
 
@@ -129,8 +139,14 @@ class _PublisherCase(unittest.TestCase):
         stack = [
             mock.patch.object(solver_writer, "ha_post_state", side_effect=post),
             mock.patch.object(solver_writer, "ha_get", side_effect=unreachable),
+            # nimbus issue #1301 (spec 001, #1347): _version_stamp()'s own
+            # internal call to _nimbus_version() resolves inside
+            # solver_shared.py, where both now live -- patching
+            # solver_writer._nimbus_version no longer reaches it (same
+            # class of gap noop_patches.py caught for _kw_scale_factor's
+            # internal ha_get call; this one slipped through).
             mock.patch.object(
-                solver_writer, "_nimbus_version", return_value="0.94.417"
+                solver_shared, "_nimbus_version", return_value="0.94.417"
             ),
         ]
         for target, kwargs in patches.items():

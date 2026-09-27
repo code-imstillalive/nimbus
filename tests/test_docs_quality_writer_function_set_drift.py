@@ -72,6 +72,14 @@ _INTEGRATION_FILES = (
     _ROOT / "custom_components" / "nimbus_load" / "solver_writer.py",
     _ROOT / "custom_components" / "nimbus_load" / "solver" / "forecast_regret.py",
     _ROOT / "custom_components" / "nimbus_load" / "solver" / "nowcast_skill.py",
+    # nimbus issue #1301 (Phase 2, spec 001, #1347): `ha_get`/`ha_post_state`/
+    # `_nimbus_version` moved out of solver_writer.py into solver_shared.py --
+    # all three are also top-level names in the cron quality writer (`ha_get`,
+    # `ha_post_state`, `_nimbus_version`), so leaving this tuple unchanged
+    # would make them read as "quality-writer-only" the moment they relocate,
+    # exactly the #952 blind spot this same union mechanism already exists to
+    # prevent for the sibling forecast-writer guard.
+    _ROOT / "custom_components" / "nimbus_load" / "solver_shared.py",
 )
 
 

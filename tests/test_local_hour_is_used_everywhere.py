@@ -36,12 +36,15 @@ import ast
 import pathlib
 import unittest
 
-_SRC = (
-    pathlib.Path(__file__).resolve().parent.parent
-    / "custom_components"
-    / "nimbus_load"
-    / "solver_writer.py"
+_NIMBUS_DIR = (
+    pathlib.Path(__file__).resolve().parent.parent / "custom_components" / "nimbus_load"
 )
+_SRC = _NIMBUS_DIR / "solver_writer.py"
+# nimbus issue #1301 (Phase 2, spec 001, #1347): fetch_p2p_fixed_export_kw()
+# (the P2P-window `.hour`/`.minute` reads this guard exists for) moved to
+# solver_shared.py -- scanned as a second file so this guard's own coverage
+# does not silently shrink to whatever's left in solver_writer.py.
+_SHARED_SRC = _NIMBUS_DIR / "solver_shared.py"
 
 # Attribute names that are NOT datetime fields. `hours` is a period-length
 # array and a SeriesCoverage field; `hourly_*` are report dicts.
@@ -70,21 +73,25 @@ def _is_local_call(node: ast.AST) -> bool:
 
 class TestEveryHourReadIsLocal(unittest.TestCase):
     def test_no_bare_dot_hour_or_dot_minute_read(self):
-        tree = ast.parse(_SRC.read_text(encoding="utf-8"))
         offenders: list[str] = []
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Attribute):
-                continue
-            if node.attr not in ("hour", "minute"):
-                continue
-            if node.attr in _NOT_A_CLOCK_READ:
-                continue
-            if _is_local_call(node.value):
-                continue
-            # `foo.hours` etc. never reaches here -- attr is exactly
-            # "hour"/"minute". What does reach here is a bare read off
-            # something whose timezone was never resolved.
-            offenders.append(f"line {node.lineno}: .{node.attr} read without _local()")
+        for src_path in (_SRC, _SHARED_SRC):
+            tree = ast.parse(src_path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.Attribute):
+                    continue
+                if node.attr not in ("hour", "minute"):
+                    continue
+                if node.attr in _NOT_A_CLOCK_READ:
+                    continue
+                if _is_local_call(node.value):
+                    continue
+                # `foo.hours` etc. never reaches here -- attr is exactly
+                # "hour"/"minute". What does reach here is a bare read off
+                # something whose timezone was never resolved.
+                offenders.append(
+                    f"{src_path.name} line {node.lineno}: "
+                    f".{node.attr} read without _local()"
+                )
         self.assertEqual(
             offenders,
             [],
