@@ -48,9 +48,12 @@ from homeassistant.loader import async_get_integration
 
 from .const import (
     CONF_HOUSEHOLD_MODE,
+    CONF_SOLVER_LOAD_FORECAST_SOURCE_POLICY,
     DEFAULT_HOUSEHOLD_MODE,
+    DEFAULT_SOLVER_LOAD_FORECAST_SOURCE_POLICY,
     DOMAIN,
     HOUSEHOLD_MODES,
+    SOLVER_LOAD_FORECAST_SOURCE_POLICIES,
 )
 
 # Same reasoning as number.py/switch.py: a plain restored local value,
@@ -119,6 +122,26 @@ async def async_setup_entry(
                 "Household Mode",
                 list(HOUSEHOLD_MODES),
                 DEFAULT_HOUSEHOLD_MODE,
+                sw_version,
+                shared_store,
+            ),
+            # nimbus issue #937 item 4: whether the measured day-ahead
+            # verdict is allowed to change which load forecast the LP
+            # consumes. Default `off`, which reads no evidence at all --
+            # see const.py's own comment on this key, and
+            # solver/forecast_source_selection.py's module docstring, for
+            # why that is stated as an invariant rather than a default.
+            #
+            # Same plain-restore pattern as the household mode above:
+            # solver_writer reads this select's live state fresh on every
+            # solve cycle via the solver-config bridge sensor, so a change
+            # takes effect on the next cycle with no reload.
+            NimbusSelect(
+                entry,
+                CONF_SOLVER_LOAD_FORECAST_SOURCE_POLICY,
+                "Load Forecast Source Policy",
+                list(SOLVER_LOAD_FORECAST_SOURCE_POLICIES),
+                DEFAULT_SOLVER_LOAD_FORECAST_SOURCE_POLICY,
                 sw_version,
                 shared_store,
             ),
@@ -199,9 +222,12 @@ class NimbusSelect(SelectEntity, RestoreEntity):
         # solve-time resolver could never match -- an unknown mode would
         # silently make every override unreachable, which is exactly the
         # failure shape this module's own docstring warns about.
+        # nimbus issue #937: worded off `self._key` now that this class backs
+        # more than the household mode -- a wrong-entity error message that
+        # names the wrong setting sends the reader to the wrong place.
         if option not in self._attr_options:
             raise ValueError(
-                f"{option!r} is not a valid Nimbus household mode; "
+                f"{option!r} is not a valid Nimbus {self._key} value; "
                 f"expected one of {self._attr_options}"
             )
         self._attr_current_option = option
