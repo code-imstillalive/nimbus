@@ -15,6 +15,31 @@ runnable via `python -m unittest discover tests` or directly via
 import os
 import sys
 
+# nimbus issue #1329: the REPO ROOT, so `from tests.test_x import y` resolves.
+#
+# A test module that imports a sibling test module by BARE name gets a second
+# module object for the same file -- pytest imports it as
+# `tests.test_x` and the bare import creates `test_x`, both in sys.modules. When
+# that file installs anything global at module level (the real case: a
+# `_FakeRunStateStore` written into `sys.modules["homeassistant.helpers.storage"]`)
+# the second import re-runs it, the last import wins, and the class the tests
+# clear in `setUp` is no longer the class that is installed. Measured: 35
+# failures, and only in one collection order (Mark Purcell, #1329 -- he
+# root-caused it; reproduced here, 35 failed / 90 passed against 125 passed
+# with the sibling imports package-qualified).
+#
+# Qualifying those imports is the fix, and it needs the repo root importable.
+# Under pytest `pythonpath` supplies `tests` and the integration dir but NOT the
+# root, and standalone `python tests/test_x.py` supplies only `tests` -- so
+# without this, qualifying the imports would break the standalone mode this
+# module's own docstring promises. Verified both ways.
+#
+# APPENDED for the same reason as below: nothing here should be allowed to
+# shadow a stdlib name. (Checked: the repo root holds no top-level .py files.)
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _REPO_ROOT not in sys.path:
+    sys.path.append(_REPO_ROOT)
+
 _SOLVER_PARENT = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
     "custom_components",

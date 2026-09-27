@@ -62,7 +62,8 @@ from unittest.mock import patch
 
 import _solver_path  # noqa: F401
 import solver_writer
-import test_solver_writer_controllable_loads as _controllable
+
+import tests.test_solver_writer_controllable_loads as _controllable
 
 
 def _guard_source() -> str:
