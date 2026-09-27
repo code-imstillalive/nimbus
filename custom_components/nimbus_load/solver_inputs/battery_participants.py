@@ -879,8 +879,18 @@ def _participant_departure_deadline(
     # `_resolve_battery_participant_history()` at all -- every existing test of
     # it asserts on `inspect.getsource()`. Source-text coverage cannot see an
     # argument shape.
-    if isinstance(period_hours, (int, float)) and not isinstance(period_hours, bool):
-        period_hours = [float(period_hours)] * len(grid_times)
+    #
+    # Assigned to a NEW local rather than rebinding the parameter, and without a
+    # `not isinstance(..., bool)` clause, both for mypy's benefit: `bool` is a
+    # subtype of `int`, so excluding it leaves the negative branch typed
+    # `bool | Sequence[float]`, which is neither `Sized` nor indexable and cost
+    # two fresh advisory errors. A bool here would be nonsense anyway, and
+    # broadcasting `float(True)` is harmless if one ever arrives.
+    hours_per_period: Sequence[float]
+    if isinstance(period_hours, (int, float)):
+        hours_per_period = [float(period_hours)] * len(grid_times)
+    else:
+        hours_per_period = period_hours
     if departure_hour is None or must_have_soc_pct is None:
         return None, None
     idx: int | None = None
@@ -900,7 +910,7 @@ def _participant_departure_deadline(
     # efficiency, discharge debited by it.
     soc = float(initial_soc_kwh)
     for t in range(min(idx, len(actual_charge_kw))):
-        hours = float(period_hours[t]) if t < len(period_hours) else 0.0
+        hours = float(hours_per_period[t]) if t < len(hours_per_period) else 0.0
         soc += float(actual_charge_kw[t]) * efficiency * hours
         soc -= float(actual_discharge_kw[t]) / efficiency * hours
 
